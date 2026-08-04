@@ -1,0 +1,8 @@
+# Build output
+UniversSale.exe
+*.pdb
+
+# Local test artifacts
+*.plot
+*.plot.bak
+*.plot.tmp
