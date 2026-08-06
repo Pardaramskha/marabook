@@ -25,25 +25,38 @@ namespace UniversSale.Exchange
         private static double PxFromHalfPoints(double halfPoints) { return halfPoints / 1.5; }
         private static int Twips(double px) { return (int)Math.Round(px * 15); }
         private static double PxFromTwips(double twips) { return twips / 15.0; }
+        private static int TwipsFromMm(double mm) { return (int)Math.Round(mm * 1440.0 / 25.4); }
 
         // ------------------------------------------------------- export
 
-        public static void Export(TextDocument document, StyleSheet styles, string path)
+        public static void Export(TextDocument document, StyleSheet styles, string path,
+            PageSetup setup = null)
         {
+            var hasLists = false;
+            foreach (var paragraph in document.Paragraphs)
+                if (paragraph.ListKind != null) { hasLists = true; break; }
+            var hasFooter = setup != null && setup.FooterPageNumbers;
+            var hasSettings = setup != null && setup.Hyphenation;
+
             using (var stream = new FileStream(path, FileMode.Create))
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Create))
             {
-                WriteEntry(zip, "[Content_Types].xml", ContentTypes(document.Footnotes.Count > 0));
+                WriteEntry(zip, "[Content_Types].xml",
+                    ContentTypes(document.Footnotes.Count > 0, hasLists, hasFooter, hasSettings));
                 WriteEntry(zip, "_rels/.rels",
                     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
                     "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
                     "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>" +
                     "</Relationships>");
-                WriteEntry(zip, "word/_rels/document.xml.rels", DocumentRels(document.Footnotes.Count > 0));
+                WriteEntry(zip, "word/_rels/document.xml.rels",
+                    DocumentRels(document.Footnotes.Count > 0, hasLists, hasFooter, hasSettings));
                 WriteEntry(zip, "word/styles.xml", StylesXml(styles));
                 if (document.Footnotes.Count > 0)
                     WriteEntry(zip, "word/footnotes.xml", FootnotesXml(document));
-                WriteEntry(zip, "word/document.xml", DocumentXml(document, styles));
+                if (hasLists) WriteEntry(zip, "word/numbering.xml", NumberingXml());
+                if (hasFooter) WriteEntry(zip, "word/footer1.xml", FooterXml(setup));
+                if (hasSettings) WriteEntry(zip, "word/settings.xml", SettingsXml(styles));
+                WriteEntry(zip, "word/document.xml", DocumentXml(document, styles, setup, hasFooter));
             }
         }
 
@@ -54,7 +67,23 @@ namespace UniversSale.Exchange
                 writer.Write(content);
         }
 
-        private static string ContentTypes(bool footnotes)
+        /// <summary>Document-level hyphenation, tuned by the body style's
+        /// Césure tab (Word has no per-style hyphenation zone).</summary>
+        private static string SettingsXml(StyleSheet styles)
+        {
+            var body = styles.Body;
+            var sb = new StringBuilder();
+            sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+              .Append("<w:settings ").Append(W).Append(">")
+              .Append("<w:autoHyphenation/>")
+              .Append("<w:consecutiveHyphenLimit w:val=\"")
+              .Append(Math.Max(0, body.HyphenConsecutiveLimit)).Append("\"/>")
+              .Append("<w:doNotHyphenateCaps/>")
+              .Append("</w:settings>");
+            return sb.ToString();
+        }
+
+        private static string ContentTypes(bool footnotes, bool lists, bool footer, bool settings)
         {
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
@@ -65,11 +94,17 @@ namespace UniversSale.Exchange
               .Append("<Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>");
             if (footnotes)
                 sb.Append("<Override PartName=\"/word/footnotes.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml\"/>");
+            if (lists)
+                sb.Append("<Override PartName=\"/word/numbering.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/>");
+            if (footer)
+                sb.Append("<Override PartName=\"/word/footer1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml\"/>");
+            if (settings)
+                sb.Append("<Override PartName=\"/word/settings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml\"/>");
             sb.Append("</Types>");
             return sb.ToString();
         }
 
-        private static string DocumentRels(bool footnotes)
+        private static string DocumentRels(bool footnotes, bool lists, bool footer, bool settings)
         {
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
@@ -77,11 +112,62 @@ namespace UniversSale.Exchange
               .Append("<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>");
             if (footnotes)
                 sb.Append("<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes\" Target=\"footnotes.xml\"/>");
+            if (lists)
+                sb.Append("<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering\" Target=\"numbering.xml\"/>");
+            if (footer)
+                sb.Append("<Relationship Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer\" Target=\"footer1.xml\"/>");
+            if (settings)
+                sb.Append("<Relationship Id=\"rId5\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings\" Target=\"settings.xml\"/>");
             sb.Append("</Relationships>");
             return sb.ToString();
         }
 
         private const string W = "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"";
+        private const string R = "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"";
+
+        /// <summary>Two fixed numbering definitions: numId 1 = bullets,
+        /// numId 2 = decimal. Level 0 only — the pivot has flat lists.</summary>
+        private static string NumberingXml()
+        {
+            var sb = new StringBuilder();
+            sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+              .Append("<w:numbering ").Append(W).Append(">")
+              .Append("<w:abstractNum w:abstractNumId=\"0\">")
+              .Append("<w:lvl w:ilvl=\"0\"><w:start w:val=\"1\"/><w:numFmt w:val=\"bullet\"/>")
+              .Append("<w:lvlText w:val=\"•\"/><w:lvlJc w:val=\"left\"/>")
+              .Append("<w:pPr><w:ind w:left=\"720\" w:hanging=\"360\"/></w:pPr></w:lvl>")
+              .Append("</w:abstractNum>")
+              .Append("<w:abstractNum w:abstractNumId=\"1\">")
+              .Append("<w:lvl w:ilvl=\"0\"><w:start w:val=\"1\"/><w:numFmt w:val=\"decimal\"/>")
+              .Append("<w:lvlText w:val=\"%1.\"/><w:lvlJc w:val=\"left\"/>")
+              .Append("<w:pPr><w:ind w:left=\"720\" w:hanging=\"360\"/></w:pPr></w:lvl>")
+              .Append("</w:abstractNum>")
+              .Append("<w:num w:numId=\"1\"><w:abstractNumId w:val=\"0\"/></w:num>")
+              .Append("<w:num w:numId=\"2\"><w:abstractNumId w:val=\"1\"/></w:num>")
+              .Append("</w:numbering>");
+            return sb.ToString();
+        }
+
+        /// <summary>Centered page number, footer font per the page setup
+        /// (defaults: Times New Roman 10).</summary>
+        private static string FooterXml(PageSetup setup)
+        {
+            var font = Esc(setup.FooterFont ?? "Times New Roman");
+            var halfPoints = (int)Math.Round(setup.FooterSizePt * 2);
+            var runProps = "<w:rPr><w:rFonts w:ascii=\"" + font + "\" w:hAnsi=\"" + font + "\"/>"
+                + "<w:sz w:val=\"" + halfPoints + "\"/></w:rPr>";
+            var sb = new StringBuilder();
+            sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+              .Append("<w:ftr ").Append(W).Append(">")
+              .Append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>")
+              .Append("<w:r>").Append(runProps).Append("<w:fldChar w:fldCharType=\"begin\"/></w:r>")
+              .Append("<w:r>").Append(runProps).Append("<w:instrText xml:space=\"preserve\"> PAGE </w:instrText></w:r>")
+              .Append("<w:r>").Append(runProps).Append("<w:fldChar w:fldCharType=\"separate\"/></w:r>")
+              .Append("<w:r>").Append(runProps).Append("<w:t>1</w:t></w:r>")
+              .Append("<w:r>").Append(runProps).Append("<w:fldChar w:fldCharType=\"end\"/></w:r>")
+              .Append("</w:p></w:ftr>");
+            return sb.ToString();
+        }
 
         private static string StylesXml(StyleSheet styles)
         {
@@ -99,12 +185,23 @@ namespace UniversSale.Exchange
                 sb.Append("<w:style w:type=\"paragraph\" w:styleId=\"").Append(Esc(style.Id)).Append("\">")
                   .Append("<w:name w:val=\"").Append(Esc(style.Name)).Append("\"/>")
                   .Append("<w:pPr>");
-                if (style.SpaceBefore > 0 || style.SpaceAfter > 0)
+                if (style.SpaceBefore > 0 || style.SpaceAfter > 0 || style.LineHeight > 1)
+                {
                     sb.Append("<w:spacing w:before=\"").Append(Twips(style.SpaceBefore))
-                      .Append("\" w:after=\"").Append(Twips(style.SpaceAfter)).Append("\"/>");
-                if (style.FirstLineIndent > 0 || style.LeftIndent > 0)
+                      .Append("\" w:after=\"").Append(Twips(style.SpaceAfter)).Append("\"");
+                    if (style.LineHeight > 1)
+                        sb.Append(" w:line=\"").Append(Twips(style.LineHeight))
+                          .Append("\" w:lineRule=\"atLeast\"");
+                    sb.Append("/>");
+                }
+                if (style.FirstLineIndent > 0 || style.LeftIndent > 0 || style.RightIndent > 0)
                     sb.Append("<w:ind w:left=\"").Append(Twips(style.LeftIndent))
+                      .Append("\" w:right=\"").Append(Twips(style.RightIndent))
                       .Append("\" w:firstLine=\"").Append(Twips(style.FirstLineIndent)).Append("\"/>");
+                if (!style.HyphenationEnabled)
+                    sb.Append("<w:suppressAutoHyphens/>");
+                if (style.KeepLinesTogether) sb.Append("<w:keepLines/>");
+                if (style.KeepNextLines > 0) sb.Append("<w:keepNext/>");
                 sb.Append("<w:jc w:val=\"").Append(Jc(style.Align)).Append("\"/>")
                   .Append("</w:pPr><w:rPr>")
                   .Append("<w:rFonts w:ascii=\"").Append(Esc(style.FontFamily))
@@ -138,7 +235,8 @@ namespace UniversSale.Exchange
             return sb.ToString();
         }
 
-        private static string DocumentXml(TextDocument document, StyleSheet styles)
+        private static string DocumentXml(TextDocument document, StyleSheet styles,
+            PageSetup setup, bool footer)
         {
             // Footnote id by note id (docx numbers them 2+).
             var noteIds = new Dictionary<string, int>();
@@ -147,18 +245,28 @@ namespace UniversSale.Exchange
 
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
-              .Append("<w:document ").Append(W).Append("><w:body>");
+              .Append("<w:document ").Append(W).Append(" ").Append(R).Append("><w:body>");
             foreach (var paragraph in document.Paragraphs)
             {
+                var isRule = false;
+                foreach (var probe in paragraph.Runs) if (probe.IsRule) { isRule = true; break; }
+
                 var style = styles.Find(paragraph.StyleId);
                 sb.Append("<w:p><w:pPr><w:pStyle w:val=\"").Append(Esc(style.Id)).Append("\"/>");
+                if (paragraph.ListKind != null)
+                    sb.Append("<w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"")
+                      .Append(paragraph.ListKind == "number" ? 2 : 1).Append("\"/></w:numPr>");
+                if (isRule)
+                    sb.Append("<w:pBdr><w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"1\" w:color=\"auto\"/></w:pBdr>");
                 if (paragraph.PageBreakBefore) sb.Append("<w:pageBreakBefore/>");
                 if (paragraph.AlignOverride != null)
                     sb.Append("<w:jc w:val=\"").Append(Jc(paragraph.AlignOverride)).Append("\"/>");
                 sb.Append("</w:pPr>");
+                if (isRule) { sb.Append("</w:p>"); continue; } // the border IS the rule
                 foreach (var run in paragraph.Runs)
                 {
                     if (run.IsLineBreak) { sb.Append("<w:r><w:br/></w:r>"); continue; }
+                    if (run.ImageId != null) continue; // images: out of docx scope (PLAN §3)
                     if (run.FootnoteId != null)
                     {
                         int id;
@@ -174,9 +282,25 @@ namespace UniversSale.Exchange
                 }
                 sb.Append("</w:p>");
             }
-            // Minimal section: A4, 2.5 cm margins.
-            sb.Append("<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/>")
-              .Append("<w:pgMar w:top=\"1417\" w:right=\"1417\" w:bottom=\"1417\" w:left=\"1417\"/></w:sectPr>")
+
+            // Section: page size, margins, columns and line numbers follow the
+            // project's page setup (defaults: A4, 2.5 cm).
+            var page = setup ?? new PageSetup();
+            sb.Append("<w:sectPr>");
+            if (footer) sb.Append("<w:footerReference w:type=\"default\" r:id=\"rId4\"/>");
+            sb.Append("<w:pgSz w:w=\"").Append(TwipsFromMm(page.PageWidthMm))
+              .Append("\" w:h=\"").Append(TwipsFromMm(page.PageHeightMm)).Append("\"/>")
+              .Append("<w:pgMar w:top=\"").Append(TwipsFromMm(page.MarginTopMm))
+              .Append("\" w:right=\"").Append(TwipsFromMm(page.MarginRightMm))
+              .Append("\" w:bottom=\"").Append(TwipsFromMm(page.MarginBottomMm))
+              .Append("\" w:left=\"").Append(TwipsFromMm(page.MarginLeftMm))
+              .Append("\" w:footer=\"").Append(TwipsFromMm(Math.Max(5, page.MarginBottomMm / 2)))
+              .Append("\"/>");
+            if (page.Columns > 1)
+                sb.Append("<w:cols w:num=\"").Append(page.Columns).Append("\" w:space=\"708\"/>");
+            if (page.LineNumbers)
+                sb.Append("<w:lnNumType w:countBy=\"1\" w:restart=\"continuous\"/>");
+            sb.Append("</w:sectPr>")
               .Append("</w:body></w:document>");
             return sb.ToString();
         }
@@ -239,6 +363,7 @@ namespace UniversSale.Exchange
             {
                 var styleMap = ReadStyles(zip, projectStyles);
                 var footnotes = ReadFootnotes(zip);
+                var numbering = ReadNumbering(zip);
                 var documentEntry = zip.GetEntry("word/document.xml");
                 if (documentEntry == null)
                     throw new InvalidDataException("word/document.xml introuvable : .docx invalide.");
@@ -249,7 +374,7 @@ namespace UniversSale.Exchange
                 foreach (var note in footnotes.Values) document.Footnotes.Add(note);
 
                 var body = xml.SelectSingleNode("//w:body", ns);
-                if (body != null) ReadBlock(body, ns, document, projectStyles, styleMap, footnotes);
+                if (body != null) ReadBlock(body, ns, document, projectStyles, styleMap, footnotes, numbering);
                 if (document.Paragraphs.Count == 0) document.Paragraphs.Add(new TextParagraph());
 
                 // Keep only referenced notes, in reference order.
@@ -371,24 +496,58 @@ namespace UniversSale.Exchange
             return notes;
         }
 
+        /// <summary>numId → "bullet" | "number", resolved through abstractNum
+        /// (level 0's numFmt decides).</summary>
+        private static Dictionary<string, string> ReadNumbering(ZipArchive zip)
+        {
+            var kinds = new Dictionary<string, string>();
+            var entry = zip.GetEntry("word/numbering.xml");
+            if (entry == null) return kinds;
+            try
+            {
+                var xml = LoadXml(entry);
+                var ns = Ns(xml);
+                var abstractKinds = new Dictionary<string, string>();
+                foreach (XmlNode abstractNode in xml.SelectNodes("//w:abstractNum", ns))
+                {
+                    var id = Attr(abstractNode, "w:abstractNumId");
+                    if (id == null) continue;
+                    var format = Attr(abstractNode.SelectSingleNode("w:lvl/w:numFmt", ns), "w:val");
+                    abstractKinds[id] = format == "bullet" ? "bullet" : "number";
+                }
+                foreach (XmlNode numNode in xml.SelectNodes("//w:num", ns))
+                {
+                    var numId = Attr(numNode, "w:numId");
+                    var abstractId = Attr(numNode.SelectSingleNode("w:abstractNumId", ns), "w:val");
+                    string kind;
+                    if (numId != null && abstractId != null
+                        && abstractKinds.TryGetValue(abstractId, out kind))
+                        kinds[numId] = kind;
+                }
+            }
+            catch { }
+            return kinds;
+        }
+
         private static void ReadBlock(XmlNode container, XmlNamespaceManager ns,
             TextDocument document, StyleSheet projectStyles,
-            Dictionary<string, string> styleMap, Dictionary<string, Footnote> footnotes)
+            Dictionary<string, string> styleMap, Dictionary<string, Footnote> footnotes,
+            Dictionary<string, string> numbering)
         {
             foreach (XmlNode child in container.ChildNodes)
             {
                 if (child.LocalName == "p")
-                    document.Paragraphs.Add(ReadParagraph(child, ns, projectStyles, styleMap, footnotes));
+                    document.Paragraphs.Add(ReadParagraph(child, ns, projectStyles, styleMap, footnotes, numbering));
                 else if (child.LocalName == "tbl" || child.LocalName == "tc"
                     || child.LocalName == "tr" || child.LocalName == "sdt"
                     || child.LocalName == "sdtContent")
-                    ReadBlock(child, ns, document, projectStyles, styleMap, footnotes); // flatten
+                    ReadBlock(child, ns, document, projectStyles, styleMap, footnotes, numbering); // flatten
             }
         }
 
         private static TextParagraph ReadParagraph(XmlNode p, XmlNamespaceManager ns,
             StyleSheet projectStyles, Dictionary<string, string> styleMap,
-            Dictionary<string, Footnote> footnotes)
+            Dictionary<string, Footnote> footnotes, Dictionary<string, string> numbering)
         {
             var paragraph = new TextParagraph();
             var pPr = p.SelectSingleNode("w:pPr", ns);
@@ -399,8 +558,22 @@ namespace UniversSale.Exchange
             var style = projectStyles.Find(paragraph.StyleId);
             var jc = Attr(pPr == null ? null : pPr.SelectSingleNode("w:jc", ns), "w:val");
             if (jc != null && FromJc(jc) != style.Align) paragraph.AlignOverride = FromJc(jc);
+            if (pPr != null && pPr.SelectSingleNode("w:pageBreakBefore", ns) != null)
+                paragraph.PageBreakBefore = true;
+
+            var numId = Attr(pPr == null ? null : pPr.SelectSingleNode("w:numPr/w:numId", ns), "w:val");
+            if (numId != null)
+            {
+                string kind;
+                paragraph.ListKind = numbering.TryGetValue(numId, out kind) ? kind : "bullet";
+            }
 
             ReadRuns(p, ns, paragraph, style, footnotes);
+
+            // An empty paragraph carrying only a bottom border is a horizontal rule.
+            if (paragraph.Runs.Count == 0 && pPr != null
+                && pPr.SelectSingleNode("w:pBdr/w:bottom", ns) != null)
+                paragraph.Runs.Add(new TextRun { IsRule = true });
             return paragraph;
         }
 

@@ -14,9 +14,10 @@ namespace UniversSale.Exchange
     {
         public const string Filter = "Texte enrichi (*.rtf)|*.rtf";
 
-        public static void Export(TextDocument document, StyleSheet styles, string path)
+        public static void Export(TextDocument document, StyleSheet styles, string path,
+            Project project = null)
         {
-            var flow = FlowConverter.ToFlow(document, styles);
+            var flow = FlowConverter.ToFlow(document, styles, project);
             var range = new TextRange(flow.ContentStart, flow.ContentEnd);
             using (var stream = new FileStream(path, FileMode.Create))
                 range.Save(stream, System.Windows.DataFormats.Rtf);

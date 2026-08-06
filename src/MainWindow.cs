@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Univers Sale";
-        public const string AppVersion = "0.4.0-alpha";
+        public const string AppVersion = "0.13.0-alpha";
 
         private Project _project;
         private string _path;
@@ -41,11 +41,12 @@ namespace UniversSale
 
         private Border _inspector;
         private TextBlock _inspTitle, _inspKind, _inspStats, _inspDates;
-        private TextBox _synopsisBox;
+        private TextBlock _synopsisLabel, _notesLabel;
+        private TextBox _synopsisBox, _notesBox;
         private StackPanel _linksPanel;
         private bool _loadingInspector;
 
-        private TextBlock _statusLeft, _statusRight;
+        private TextBlock _statusLeft, _statusRight, _statusPages, _zoomLabel;
         private DispatcherTimer _statsTimer, _autosaveTimer;
 
         private MenuItem _undoMenu, _redoMenu, _darkMenu, _binderMenu, _inspectorMenu, _recentMenu;
@@ -69,6 +70,9 @@ namespace UniversSale
             root.Children.Add(BuildStatusBar());
             root.Children.Add(BuildContent());
             Content = root;
+            ApplyZoom(AppSettings.Zoom);
+            _editor.SetFormattingMarks(AppSettings.ShowFormattingMarks);
+            _sheetView.SetFormattingMarks(AppSettings.ShowFormattingMarks);
 
             _history.Changed += OnHistoryChanged;
 
@@ -106,6 +110,11 @@ namespace UniversSale
             file.Items.Add(Entry("save", "Enregistrer", DoSave));
             file.Items.Add(Entry("save-as", "Enregistrer sous…", DoSaveAs));
             file.Items.Add(new Separator());
+            file.Items.Add(Entry("project-settings", "Paramètres du projet…", OpenProjectSettings));
+            file.Items.Add(new Separator());
+            file.Items.Add(Entry("print-preview", "Aperçu des pages", ShowPrintPreview));
+            file.Items.Add(Entry("print", "Imprimer…", PrintCurrent));
+            file.Items.Add(new Separator());
             var importMenu = new MenuItem { Header = "Importer" };
             importMenu.Items.Add(Entry("import-docs", "Des documents…", ImportDocuments));
             importMenu.Items.Add(Entry("import-scrivener", "Un projet Scrivener…", ImportScrivener));
@@ -113,6 +122,7 @@ namespace UniversSale
             var exportMenu = new MenuItem { Header = "Exporter" };
             exportMenu.Items.Add(Entry("export-item", "L'écrit sélectionné…", ExportCurrentItem));
             exportMenu.Items.Add(Entry("compile", "Compiler le manuscrit…", CompileManuscript));
+            exportMenu.Items.Add(Entry("export-pdf", "PDF prêt à imprimer…", ExportPdf));
             file.Items.Add(exportMenu);
             file.Items.Add(new Separator());
             file.Items.Add(Entry(null, "Quitter", Close));
@@ -120,8 +130,8 @@ namespace UniversSale
 
             // --- Édition ---
             var edit = new MenuItem { Header = "É_dition" };
-            _undoMenu = Entry("undo", "Annuler (Pile)", DoUndo);
-            _redoMenu = Entry("redo", "Rétablir (Pile)", DoRedo);
+            _undoMenu = Entry("undo", "Annuler", DoUndo);
+            _redoMenu = Entry("redo", "Rétablir", DoRedo);
             edit.Items.Add(_undoMenu);
             edit.Items.Add(_redoMenu);
             edit.Items.Add(new Separator());
@@ -146,7 +156,14 @@ namespace UniversSale
             format.Items.Add(new Separator());
             format.Items.Add(Entry("insert-footnote", "Note de bas de page", InsertFootnoteInActive));
             format.Items.Add(Entry("insert-link", "Lien vers une fiche…", InsertLinkInActive));
+            format.Items.Add(Entry("insert-image", "Insérer une image…", InsertImageInActive));
+            format.Items.Add(Entry("insert-rule", "Ligne horizontale", delegate { RouteToActiveEditor("rule"); }));
+            format.Items.Add(Entry("insert-separator", "Séparateur de scène", delegate { RouteToActiveEditor("separator"); }));
             menu.Items.Add(format);
+
+            // « Mise en page » lives as a ribbon tab in the editor now; only
+            // its shortcut survives at the window level.
+            AddGesture("page-break", InsertPageBreakInActive);
 
             // --- Affichage ---
             var view = new MenuItem { Header = "_Affichage" };
@@ -170,6 +187,16 @@ namespace UniversSale
 
             bar.Child = menu;
             return bar;
+        }
+
+        /// <summary>Registers a window-wide key binding for an action that has
+        /// no menu entry (ribbon-only commands).</summary>
+        private void AddGesture(string actionId, Action handler)
+        {
+            Key key;
+            ModifierKeys modifiers;
+            if (AppSettings.ParseGesture(AppSettings.Gesture(actionId), out key, out modifiers))
+                InputBindings.Add(new KeyBinding(new DelegateCommand(handler), key, modifiers));
         }
 
         /// <summary>Builds a menu entry wired to an action id: display shortcut
@@ -234,11 +261,42 @@ namespace UniversSale
             _editor = new EditorView { Visibility = Visibility.Collapsed };
             _editor.Edited += OnEditorEdited;
             _editor.LinkClicked += NavigateToTitle;
+            _editor.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
+            _editor.PageSetupChanged += delegate
+            {
+                _sheetView.ApplyPageSetup(_project.Page);
+                MarkDirty();
+            };
+            _editor.PageInfoChanged += delegate(int page, int pages)
+            {
+                _statusPages.Text = _editor.Visibility == Visibility.Visible
+                    ? "p. " + page + "/" + pages + "   ·   " : "";
+            };
+            _editor.MarksToggled += OnMarksToggled;
+            _editor.StylesRequested += OpenStylesDialog;
+            _editor.PreviewRequested += ShowPrintPreview;
+            _editor.PrintRequested += PrintCurrent;
+            _editor.ExportRequested += ExportCurrentItem;
+            _editor.CompileRequested += CompileManuscript;
+            _editor.PdfRequested += ExportPdf;
             center.Children.Add(_editor);
 
             _sheetView = new SheetView { Visibility = Visibility.Collapsed };
             _sheetView.Edited += OnEditorEdited;
             _sheetView.LinkClicked += NavigateToTitle;
+            _sheetView.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
+            _sheetView.PageSetupChanged += delegate
+            {
+                _editor.ApplyPageSetup(_project.Page);
+                MarkDirty();
+            };
+            _sheetView.MarksToggled += OnMarksToggled;
+            _sheetView.StylesRequested += OpenStylesDialog;
+            _sheetView.PreviewRequested += ShowPrintPreview;
+            _sheetView.PrintRequested += PrintCurrent;
+            _sheetView.ExportRequested += ExportCurrentItem;
+            _sheetView.CompileRequested += CompileManuscript;
+            _sheetView.PdfRequested += ExportPdf;
             center.Children.Add(_sheetView);
 
             _corkboard = new CorkboardView { Visibility = Visibility.Collapsed };
@@ -290,24 +348,46 @@ namespace UniversSale
             };
             panel.Children.Add(_inspKind);
 
-            panel.Children.Add(new TextBlock
+            _synopsisLabel = new TextBlock
             {
                 Text = "Synopsis",
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 Margin = new Thickness(0, 0, 0, 4)
-            });
+            };
+            panel.Children.Add(_synopsisLabel);
 
             _synopsisBox = new TextBox
             {
                 AcceptsReturn = true,
                 TextWrapping = TextWrapping.Wrap,
-                Height = 110,
+                Height = 90,
                 VerticalContentAlignment = VerticalAlignment.Top,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
             _synopsisBox.TextChanged += OnSynopsisChanged;
             panel.Children.Add(_synopsisBox);
+
+            _notesLabel = new TextBlock
+            {
+                Text = "Notes",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                Margin = new Thickness(0, 10, 0, 4)
+            };
+            panel.Children.Add(_notesLabel);
+
+            _notesBox = new TextBox
+            {
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                Height = 90,
+                VerticalContentAlignment = VerticalAlignment.Top,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                ToolTip = "Notes de travail — affichées en priorité sur les cartes du corkboard"
+            };
+            _notesBox.TextChanged += OnNotesChanged;
+            panel.Children.Add(_notesBox);
 
             _inspStats = new TextBlock
             {
@@ -357,25 +437,101 @@ namespace UniversSale
                 Background = Chrome.BarBg,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(0, 1, 0, 0),
-                Padding = new Thickness(10, 4, 10, 4)
+                Padding = new Thickness(10, 2, 10, 2)
             };
             DockPanel.SetDock(bar, Dock.Bottom);
 
             var dock = new DockPanel();
-            _statusRight = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12 };
+
+            // Zoom control, rightmost: − 100 % + (Ctrl+molette works too).
+            var zoomPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(14, 0, 0, 0)
+            };
+            var zoomOut = SmallZoomButton("−", -10);
+            _zoomLabel = new TextBlock
+            {
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                MinWidth = 44,
+                TextAlignment = TextAlignment.Center,
+                ToolTip = "Zoom de la page (Ctrl+molette) — double-clic : 100 %",
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+            _zoomLabel.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (e.ClickCount == 2) ApplyZoom(100);
+            };
+            var zoomIn = SmallZoomButton("+", 10);
+            zoomPanel.Children.Add(zoomOut);
+            zoomPanel.Children.Add(_zoomLabel);
+            zoomPanel.Children.Add(zoomIn);
+            DockPanel.SetDock(zoomPanel, Dock.Right);
+            dock.Children.Add(zoomPanel);
+
+            _statusRight = new TextBlock
+            {
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center
+            };
             DockPanel.SetDock(_statusRight, Dock.Right);
             dock.Children.Add(_statusRight);
+
+            _statusPages = new TextBlock
+            {
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            DockPanel.SetDock(_statusPages, Dock.Right);
+            dock.Children.Add(_statusPages);
 
             _statusLeft = new TextBlock
             {
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
             dock.Children.Add(_statusLeft);
 
             bar.Child = dock;
             return bar;
+        }
+
+        private Button SmallZoomButton(string label, int step)
+        {
+            var button = new Button
+            {
+                Content = label,
+                Width = 22,
+                Padding = new Thickness(0),
+                Focusable = false
+            };
+            button.Click += delegate { ApplyZoom(AppSettings.Zoom + step); };
+            return button;
+        }
+
+        private void OnMarksToggled(bool visible)
+        {
+            AppSettings.ShowFormattingMarks = visible;
+            _editor.SetFormattingMarks(visible);
+            _sheetView.SetFormattingMarks(visible);
+            AppSettings.Save();
+        }
+
+        /// <summary>Sets the page zoom (both editors), clamped to 50–300 %.</summary>
+        private void ApplyZoom(double percent)
+        {
+            percent = Math.Max(50, Math.Min(300, Math.Round(percent / 10) * 10));
+            AppSettings.Zoom = percent;
+            _editor.SetZoom(percent / 100.0);
+            _sheetView.SetZoom(percent / 100.0);
+            _zoomLabel.Text = percent.ToString("0") + " %";
+            AppSettings.Save();
         }
 
         // ============================================================= project lifecycle
@@ -390,8 +546,12 @@ namespace UniversSale
             _wordCache.Clear();
             _sessionGoal = 0;
             _editor.SetStyleSheet(project.Styles);
+            _editor.SetProject(project);
+            _editor.ApplyPageSetup(project.Page);
             _editor.Clear();
             _sheetView.SetStyleSheet(project.Styles);
+            _sheetView.SetProject(project);
+            _sheetView.ApplyPageSetup(project.Page);
             _sheetView.Clear();
             _mediaView.Clear();
             _corkboard.Clear();
@@ -510,11 +670,32 @@ namespace UniversSale
 
         private void OnBinderSelection(BinderItem item)
         {
+            // Re-clicking the already-open item must not reload it (that would
+            // commit + reset the caret); it only re-shows its view if another
+            // view took over, and refreshes the side panels.
+            if (item != null && item == _current && IsItemViewVisible(item))
+            {
+                UpdateInspector();
+                UpdateStats();
+                return;
+            }
             CommitActive();
             _current = item;
             ShowItem(item);
             UpdateInspector();
             UpdateStats();
+        }
+
+        /// <summary>True when the center already displays this item's view.</summary>
+        private bool IsItemViewVisible(BinderItem item)
+        {
+            if (item.Kind == ItemKind.Text)
+                return _editor.Visibility == Visibility.Visible && _editor.HasItem;
+            if (item.Kind == ItemKind.Sheet)
+                return _sheetView.Visibility == Visibility.Visible && _sheetView.HasItem;
+            if (item.Kind == ItemKind.Media)
+                return _mediaView.Visibility == Visibility.Visible;
+            return _corkboard.Visibility == Visibility.Visible;
         }
 
         private void ShowItem(BinderItem item)
@@ -524,6 +705,7 @@ namespace UniversSale
             _corkboard.Visibility = Visibility.Collapsed;
             _mediaView.Visibility = Visibility.Collapsed;
             _placeholder.Visibility = Visibility.Collapsed;
+            if (item == null || item.Kind != ItemKind.Text) _statusPages.Text = "";
 
             if (item != null && item.Kind == ItemKind.Text)
             {
@@ -548,11 +730,13 @@ namespace UniversSale
                 _mediaView.Visibility = Visibility.Visible;
                 return;
             }
-            if (item != null && item.CanHaveChildren)
+            // Corkboard: true containers only (folders, categories). A text
+            // that carries children still opens as a text, Scrivener-style.
+            if (item != null && item.IsContainer)
             {
                 _editor.Clear();
                 _sheetView.Clear();
-                _corkboard.Load(item, _history);
+                _corkboard.Load(item, _history, _project);
                 _corkboard.Visibility = Visibility.Visible;
                 return;
             }
@@ -630,8 +814,21 @@ namespace UniversSale
             MarkDirty();
         }
 
+        private void OnNotesChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_loadingInspector || _current == null || _current.IsCategory) return;
+            _current.Notes = _notesBox.Text;
+            MarkDirty();
+        }
+
+        /// <summary>Unified Ctrl+Z / Ctrl+Y: the text editor claims the action
+        /// while the writer types in it (its own native stack), the Binder
+        /// history takes over otherwise. Prevents the window-level gesture from
+        /// ever swallowing a text undo/redo into the (often empty) Pile stack.</summary>
         private void DoUndo()
         {
+            if (_editor.Visibility == Visibility.Visible && _editor.TryUndo()) return;
+            if (_sheetView.Visibility == Visibility.Visible && _sheetView.TryUndo()) return;
             if (!_history.CanUndo) return;
             _history.Undo();
             AfterHistoryJump();
@@ -639,6 +836,8 @@ namespace UniversSale
 
         private void DoRedo()
         {
+            if (_editor.Visibility == Visibility.Visible && _editor.TryRedo()) return;
+            if (_sheetView.Visibility == Visibility.Visible && _sheetView.TryRedo()) return;
             if (!_history.CanRedo) return;
             _history.Redo();
             AfterHistoryJump();
@@ -798,13 +997,16 @@ namespace UniversSale
             try
             {
                 var ext = Path.GetExtension(path).ToLowerInvariant();
-                if (ext == ".docx") Exchange.Docx.Export(document, _project.Styles, path);
-                else if (ext == ".odt") Exchange.Odt.Export(document, _project.Styles, path);
-                else if (ext == ".rtf") Exchange.Rtf.Export(document, _project.Styles, path);
+                if (ext == ".docx") Exchange.Docx.Export(document, _project.Styles, path, _project.Page);
+                else if (ext == ".odt")
+                    Exchange.Odt.Export(Exchange.Compiler.FlattenLists(document), _project.Styles, path);
+                else if (ext == ".rtf")
+                    Exchange.Rtf.Export(Exchange.Compiler.FlattenRules(document), _project.Styles, path, _project);
                 else if (ext == ".md")
                     File.WriteAllText(path, Exchange.MarkdownExchange.Export(document), new System.Text.UTF8Encoding(false));
                 else
-                    File.WriteAllText(path, document.ToPlainText(), new System.Text.UTF8Encoding(false));
+                    File.WriteAllText(path, Exchange.Compiler.FlattenLists(document).ToPlainText(),
+                        new System.Text.UTF8Encoding(false));
                 MessageBox.Show(this, "Export terminé :\n" + path,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Information);
             }
@@ -848,6 +1050,126 @@ namespace UniversSale
             if (_current != null && _current.Kind == ItemKind.Sheet)
                 _sheetView.LoadItem(_current, _project.FindTemplate(_current.TemplateId));
             MarkDirty();
+        }
+
+        // ============================================================= page setup
+
+        private void InsertPageBreakInActive()
+        {
+            if (_editor.Visibility == Visibility.Visible) _editor.InsertPageBreak();
+        }
+
+        private void InsertImageInActive()
+        {
+            if (_sheetView.Visibility == Visibility.Visible) _sheetView.InsertImage();
+            else if (_editor.Visibility == Visibility.Visible) _editor.InsertImage();
+        }
+
+        private void RouteToActiveEditor(string what)
+        {
+            var sheet = _sheetView.Visibility == Visibility.Visible;
+            if (!sheet && _editor.Visibility != Visibility.Visible) return;
+            if (what == "rule") { if (sheet) _sheetView.InsertRule(); else _editor.InsertRule(); }
+            else if (what == "separator") { if (sheet) _sheetView.InsertSeparator(); else _editor.InsertSeparator(); }
+        }
+
+        private void OpenProjectSettings()
+        {
+            if (View.ProjectSettingsDialog.Show(this, _project)) MarkDirty();
+        }
+
+        // ============================================================= printing (phase 4a)
+
+        /// <summary>What preview/print applies to: the open text or sheet, or
+        /// the selected folder/category assembled in reading order (continuous
+        /// pagination across its documents).</summary>
+        private TextDocument BuildPrintable(out string name)
+        {
+            name = null;
+            CommitActive();
+            if (_current != null
+                && (_current.Kind == ItemKind.Text || _current.Kind == ItemKind.Sheet))
+            {
+                name = _current.Title;
+                return _current.Document;
+            }
+            if (_current != null && _current.IsContainer)
+            {
+                name = _current.Title;
+                return Exchange.Compiler.Build(_project, _current, new Exchange.CompileOptions
+                {
+                    TitlePage = false,
+                    ChapterHeadings = false,
+                    PageBreakPerText = true
+                });
+            }
+            MessageBox.Show(this,
+                "Sélectionnez un écrit, une fiche ou un dossier à mettre en pages.",
+                AppName, MessageBoxButton.OK, MessageBoxImage.Information);
+            return null;
+        }
+
+        private void ShowPrintPreview()
+        {
+            string name;
+            var document = BuildPrintable(out name);
+            if (document == null) return;
+            try
+            {
+                Print.Printing.ShowPreview(this, document, _project.Styles, _project, name);
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show(this, "Aperçu impossible :\n" + error.Message,
+                    AppName, MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void PrintCurrent()
+        {
+            string name;
+            var document = BuildPrintable(out name);
+            if (document == null) return;
+            try
+            {
+                Print.Printing.Print(document, _project.Styles, _project, AppName + " — " + name);
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show(this, "Impression impossible :\n" + error.Message,
+                    AppName, MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>4b-2 : the home-grown print-ready PDF (embedded subset
+        /// fonts, trim/bleed boxes, crop marks) — no printer driver involved.</summary>
+        private void ExportPdf()
+        {
+            string name;
+            var document = BuildPrintable(out name);
+            if (document == null) return;
+            var options = View.PdfExportDialog.Ask(this, name);
+            if (options == null) return;
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter = "PDF (*.pdf)|*.pdf",
+                FileName = SafeFileName(name) + ".pdf",
+                Title = "PDF prêt à imprimer"
+            };
+            if (dialog.ShowDialog(this) != true) return;
+            try
+            {
+                var composition = Print.Composer.Compose(
+                    document, _project.Styles, _project.Page, _project);
+                Print.PdfWriter.Write(dialog.FileName, composition, options);
+                MessageBox.Show(this, "Export terminé :\n" + dialog.FileName,
+                    AppName, MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show(this, "Export PDF impossible :\n" + error.Message,
+                    AppName, MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         // ============================================================= session goal
@@ -970,6 +1292,9 @@ namespace UniversSale
                 _inspKind.Text = "Projet";
                 _synopsisBox.Text = "";
                 _synopsisBox.IsEnabled = false;
+                _notesBox.Text = "";
+                _notesBox.IsEnabled = false;
+                SetInspectorFieldVisibility(true, false);
             }
             else
             {
@@ -985,6 +1310,13 @@ namespace UniversSale
                                : "Écrit";
                 _synopsisBox.Text = _current.Synopsis ?? "";
                 _synopsisBox.IsEnabled = !_current.IsCategory;
+                _notesBox.Text = _current.Notes ?? "";
+                _notesBox.IsEnabled = !_current.IsCategory;
+                // Sheets have no synopsis (their cards show notes only);
+                // notes exist on texts and sheets.
+                SetInspectorFieldVisibility(
+                    _current.Kind != ItemKind.Sheet,
+                    _current.Kind == ItemKind.Text || _current.Kind == ItemKind.Sheet);
             }
             _loadingInspector = false;
 
@@ -992,6 +1324,14 @@ namespace UniversSale
 
             _inspDates.Text = string.IsNullOrEmpty(_project.CreatedAt) ? ""
                 : "Créé le " + _project.CreatedAt + "\nModifié le " + _project.ModifiedAt;
+        }
+
+        private void SetInspectorFieldVisibility(bool synopsis, bool notes)
+        {
+            _synopsisLabel.Visibility = synopsis ? Visibility.Visible : Visibility.Collapsed;
+            _synopsisBox.Visibility = _synopsisLabel.Visibility;
+            _notesLabel.Visibility = notes ? Visibility.Visible : Visibility.Collapsed;
+            _notesBox.Visibility = _notesLabel.Visibility;
         }
 
         /// <summary>Outgoing [[links]] of the current item and every item that
@@ -1103,8 +1443,8 @@ namespace UniversSale
             MessageBox.Show(this,
                 AppName + " " + AppVersion + "\n\n" +
                 "Traitement de texte et construction narrative.\n" +
-                "Phase 3 — les échanges : docx, odt, RTF, Markdown, Scrivener, compilation.\n" +
-                "Première version alpha.",
+                "Alpha : éditeur riche paginé, fiches wiki, corkboard, échanges\n" +
+                "docx/odt/RTF/Markdown/Scrivener, aperçu des pages et impression.",
                 "À propos", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }

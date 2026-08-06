@@ -84,8 +84,12 @@ namespace UniversSale.Exchange
               .Append("\" fo:margin-top=\"").Append(Pt(style.SpaceBefore))
               .Append("\" fo:margin-bottom=\"").Append(Pt(style.SpaceAfter))
               .Append("\" fo:margin-left=\"").Append(Pt(style.LeftIndent))
+              .Append("\" fo:margin-right=\"").Append(Pt(style.RightIndent))
               .Append("\" fo:text-indent=\"").Append(Pt(style.FirstLineIndent))
-              .Append("\"/>");
+              .Append("\"");
+            if (style.LineHeight > 1)
+                sb.Append(" style:line-height-at-least=\"").Append(Pt(style.LineHeight)).Append("\"");
+            sb.Append("/>");
             sb.Append("<style:text-properties style:font-name=\"").Append(Esc(style.FontFamily))
               .Append("\" fo:font-size=\"").Append(Pt(style.FontSize)).Append("\"");
             if (style.Bold) sb.Append(" fo:font-weight=\"bold\"");

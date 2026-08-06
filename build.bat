@@ -5,8 +5,10 @@ setlocal
 set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
 
 "%FW%\csc.exe" /nologo /target:winexe /out:UniversSale.exe /optimize+ /codepage:65001 ^
+  /win32icon:tools\app.ico ^
   /lib:"%FW%\WPF" ^
   /r:PresentationFramework.dll /r:PresentationCore.dll /r:WindowsBase.dll /r:System.Xaml.dll ^
+  /r:ReachFramework.dll /r:System.Printing.dll ^
   /r:System.IO.Compression.dll ^
   /recurse:src\*.cs
 

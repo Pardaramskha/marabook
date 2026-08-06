@@ -16,7 +16,8 @@ namespace UniversSale.View
     {
         // ------------------------------------------------------- pivot -> flow
 
-        public static FlowDocument ToFlow(TextDocument document, StyleSheet styles)
+        public static FlowDocument ToFlow(TextDocument document, StyleSheet styles,
+            Project project = null)
         {
             var flow = new FlowDocument
             {
@@ -25,6 +26,8 @@ namespace UniversSale.View
                 FontSize = styles.Body.FontSize
             };
             var footnoteNumber = 0;
+            List currentList = null;
+            string currentKind = null;
             foreach (var paragraph in document.Paragraphs)
             {
                 var style = styles.Find(paragraph.StyleId);
@@ -32,6 +35,7 @@ namespace UniversSale.View
                 ApplyParagraphStyle(wpfParagraph, style);
                 if (paragraph.AlignOverride != null)
                     wpfParagraph.TextAlignment = ParseAlign(paragraph.AlignOverride);
+                if (paragraph.PageBreakBefore) MarkPageBreak(wpfParagraph, true);
 
                 foreach (var run in paragraph.Runs)
                 {
@@ -44,6 +48,17 @@ namespace UniversSale.View
                     {
                         footnoteNumber++;
                         wpfParagraph.Inlines.Add(MakeFootnoteMarker(run.FootnoteId, footnoteNumber, style.FontSize));
+                        continue;
+                    }
+                    if (run.ImageId != null)
+                    {
+                        wpfParagraph.Inlines.Add(MakeImageInline(run.ImageId,
+                            project == null ? null : project.FindImage(run.ImageId)));
+                        continue;
+                    }
+                    if (run.IsRule)
+                    {
+                        wpfParagraph.Inlines.Add(MakeRuleInline(project));
                         continue;
                     }
                     // [[wiki links]] become accent-colored, Ctrl+clickable runs.
@@ -68,7 +83,29 @@ namespace UniversSale.View
                         cursor = close + 2;
                     }
                 }
-                flow.Blocks.Add(wpfParagraph);
+
+                // Consecutive same-kind list paragraphs share one List block.
+                if (paragraph.ListKind != null)
+                {
+                    if (currentList == null || currentKind != paragraph.ListKind)
+                    {
+                        currentList = new List
+                        {
+                            MarkerStyle = paragraph.ListKind == "number"
+                                ? TextMarkerStyle.Decimal : TextMarkerStyle.Disc,
+                            Margin = new Thickness(24, 4, 0, 4)
+                        };
+                        currentKind = paragraph.ListKind;
+                        flow.Blocks.Add(currentList);
+                    }
+                    currentList.ListItems.Add(new ListItem(wpfParagraph));
+                }
+                else
+                {
+                    currentList = null;
+                    currentKind = null;
+                    flow.Blocks.Add(wpfParagraph);
+                }
             }
             if (flow.Blocks.Count == 0)
             {
@@ -79,8 +116,79 @@ namespace UniversSale.View
             return flow;
         }
 
+        /// <summary>Shows/hides the editor's visual cue for a manual page break
+        /// (a thin accent rule above the paragraph) and stores the flag on the
+        /// WPF paragraph so FromFlow reads it back.</summary>
+        public static void MarkPageBreak(Paragraph paragraph, bool enabled)
+        {
+            paragraph.BreakPageBefore = enabled;
+            paragraph.BorderBrush = enabled ? (Brush)Chrome.Accent : null;
+            paragraph.BorderThickness = enabled ? new Thickness(0, 1, 0, 0) : new Thickness(0);
+            paragraph.Padding = enabled ? new Thickness(0, 6, 0, 0) : new Thickness(0);
+        }
+
+        /// <summary>The visual for a stored image (or a placeholder frame when
+        /// the bytes are missing), sized to stay inside the page.</summary>
+        public static UIElement MakeImageElement(ProjectImage stored)
+        {
+            var source = stored == null || stored.Bytes == null
+                ? null : MediaView.TryImage(stored.Bytes, 0);
+            if (source != null)
+                return new System.Windows.Controls.Image
+                {
+                    Source = source,
+                    Stretch = Stretch.Uniform,
+                    StretchDirection = System.Windows.Controls.StretchDirection.DownOnly,
+                    MaxWidth = 480,
+                    MaxHeight = 380
+                };
+            return new System.Windows.Controls.Border
+            {
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(10, 4, 10, 4),
+                Child = new System.Windows.Controls.TextBlock
+                {
+                    Text = "[image introuvable]",
+                    Foreground = Chrome.SoftText
+                }
+            };
+        }
+
+        /// <summary>A horizontal rule, sized to the page's content width.
+        /// Tag "hr" round-trips it back to a rule run.</summary>
+        public static InlineUIContainer MakeRuleInline(Project project)
+        {
+            var width = project != null ? project.Page.ContentWidthPx - 20 : 580;
+            return new InlineUIContainer(new System.Windows.Shapes.Rectangle
+            {
+                Width = Math.Max(80, width),
+                Height = 1.5,
+                Fill = Chrome.Border,
+                Margin = new Thickness(0, 6, 0, 6)
+            })
+            {
+                Tag = "hr",
+                BaselineAlignment = BaselineAlignment.Center
+            };
+        }
+
+        /// <summary>An inline image bound to the project image store. The id
+        /// travels in Tag ("img:&lt;id&gt;") so editing round-trips it.</summary>
+        public static InlineUIContainer MakeImageInline(string imageId, ProjectImage stored)
+        {
+            return new InlineUIContainer(MakeImageElement(stored))
+            {
+                Tag = "img:" + imageId,
+                BaselineAlignment = BaselineAlignment.Bottom
+            };
+        }
+
         /// <summary>Applies a named style's visuals to a WPF paragraph and stamps
-        /// its id in Tag. Run-level overrides survive: they sit on the runs.</summary>
+        /// its id in Tag. Run-level overrides survive: they sit on the runs.
+        /// WPF renders the character/paragraph attributes plus leading,
+        /// ligatures and hyphenation on/off; the fine hyphenation and
+        /// justification numbers live in the model for export and 4b.</summary>
         public static void ApplyParagraphStyle(Paragraph paragraph, ParagraphStyle style)
         {
             paragraph.Tag = style.Id;
@@ -91,8 +199,22 @@ namespace UniversSale.View
             paragraph.Foreground = style.Color != null
                 ? new SolidColorBrush(ParseColor(style.Color)) : (Brush)Chrome.Ink;
             paragraph.TextAlignment = ParseAlign(style.Align);
-            paragraph.Margin = new Thickness(style.LeftIndent, style.SpaceBefore, 0, style.SpaceAfter);
+            paragraph.Margin = new Thickness(style.LeftIndent, style.SpaceBefore,
+                style.RightIndent, style.SpaceAfter);
             paragraph.TextIndent = style.FirstLineIndent;
+
+            // Leading: "at least" strategy — bigger inline content still fits.
+            if (style.LineHeight > 1) paragraph.LineHeight = style.LineHeight;
+            else paragraph.ClearValue(Block.LineHeightProperty);
+
+            paragraph.Typography.StandardLigatures = style.Ligatures;
+
+            // Per-style hyphenation: only an explicit "off" overrides the
+            // page-level switch (the document inherits it otherwise).
+            if (style.HyphenationEnabled)
+                paragraph.ClearValue(Block.IsHyphenationEnabledProperty);
+            else
+                paragraph.IsHyphenationEnabled = false;
         }
 
         private static TextRun SliceRun(TextRun source, string text)
@@ -111,10 +233,38 @@ namespace UniversSale.View
             };
         }
 
+        /// <summary>Named weight ↔ WPF FontWeight (the fine variants beyond
+        /// the Bold flag: Fin, Moyen, Demi-gras, Noir…).</summary>
+        public static FontWeight ParseWeight(string name)
+        {
+            switch (name)
+            {
+                case "Thin": return FontWeights.Thin;
+                case "Light": return FontWeights.Light;
+                case "Medium": return FontWeights.Medium;
+                case "SemiBold": return FontWeights.SemiBold;
+                case "Bold": return FontWeights.Bold;
+                case "Black": return FontWeights.Black;
+                default: return FontWeights.Normal;
+            }
+        }
+
+        public static string WeightName(FontWeight weight)
+        {
+            if (weight == FontWeights.Thin) return "Thin";
+            if (weight == FontWeights.Light) return "Light";
+            if (weight == FontWeights.Medium) return "Medium";
+            if (weight == FontWeights.SemiBold) return "SemiBold";
+            if (weight == FontWeights.Black) return "Black";
+            return null; // Normal/Bold travel through the Bold flag
+        }
+
         private static Run MakeRun(TextRun run)
         {
             var wpfRun = new Run(run.Text);
-            if (run.Bold.HasValue)
+            if (run.Weight != null)
+                wpfRun.FontWeight = ParseWeight(run.Weight);
+            else if (run.Bold.HasValue)
                 wpfRun.FontWeight = run.Bold.Value ? FontWeights.Bold : FontWeights.Normal;
             if (run.Italic.HasValue)
                 wpfRun.FontStyle = run.Italic.Value ? FontStyles.Italic : FontStyles.Normal;
@@ -152,22 +302,25 @@ namespace UniversSale.View
         // ------------------------------------------------------- flow -> pivot
 
         public static TextDocument FromFlow(System.Windows.Documents.FlowDocument flow,
-            StyleSheet styles, List<Footnote> knownFootnotes)
+            StyleSheet styles, List<Footnote> knownFootnotes, Project project = null)
         {
             var document = new TextDocument();
             var seenFootnotes = new List<string>();
 
-            foreach (var wpfParagraph in CollectParagraphs(flow.Blocks))
+            foreach (var entry in WalkParagraphs(flow.Blocks, null))
             {
+                var wpfParagraph = entry.Paragraph;
                 var styleId = wpfParagraph.Tag as string ?? "body";
                 var style = styles.Find(styleId);
                 var paragraph = new TextParagraph { StyleId = style.Id };
+                paragraph.ListKind = entry.ListKind;
+                paragraph.PageBreakBefore = wpfParagraph.BreakPageBefore;
 
                 var styleAlign = ParseAlign(style.Align);
                 if (wpfParagraph.TextAlignment != styleAlign)
                     paragraph.AlignOverride = AlignToString(wpfParagraph.TextAlignment);
 
-                CollectRuns(wpfParagraph.Inlines, paragraph, style, seenFootnotes);
+                CollectRuns(wpfParagraph.Inlines, paragraph, style, seenFootnotes, project);
                 document.Paragraphs.Add(paragraph);
             }
             if (document.Paragraphs.Count == 0)
@@ -188,25 +341,42 @@ namespace UniversSale.View
             return CollectParagraphs(flow.Blocks);
         }
 
-        /// <summary>Flattens Sections, Lists and Tables (from pasted content)
-        /// into a plain paragraph sequence.</summary>
-        private static IEnumerable<Paragraph> CollectParagraphs(BlockCollection blocks)
+        private sealed class ParagraphEntry
+        {
+            public Paragraph Paragraph;
+            public string ListKind; // null when outside any list
+        }
+
+        /// <summary>Walks blocks in order, remembering the list context: Sections
+        /// pass it through, Lists set it ("bullet"/"number"), Tables (pasted
+        /// content) reset it. Nested lists flatten to their innermost kind.</summary>
+        private static IEnumerable<ParagraphEntry> WalkParagraphs(BlockCollection blocks, string listKind)
         {
             foreach (var block in blocks)
             {
                 var paragraph = block as Paragraph;
-                if (paragraph != null) { yield return paragraph; continue; }
+                if (paragraph != null)
+                {
+                    yield return new ParagraphEntry { Paragraph = paragraph, ListKind = listKind };
+                    continue;
+                }
                 var section = block as Section;
                 if (section != null)
                 {
-                    foreach (var inner in CollectParagraphs(section.Blocks)) yield return inner;
+                    foreach (var inner in WalkParagraphs(section.Blocks, listKind)) yield return inner;
                     continue;
                 }
                 var list = block as List;
                 if (list != null)
                 {
+                    var kind = list.MarkerStyle == TextMarkerStyle.Decimal
+                        || list.MarkerStyle == TextMarkerStyle.LowerLatin
+                        || list.MarkerStyle == TextMarkerStyle.UpperLatin
+                        || list.MarkerStyle == TextMarkerStyle.LowerRoman
+                        || list.MarkerStyle == TextMarkerStyle.UpperRoman
+                        ? "number" : "bullet";
                     foreach (ListItem entry in list.ListItems)
-                        foreach (var inner in CollectParagraphs(entry.Blocks)) yield return inner;
+                        foreach (var inner in WalkParagraphs(entry.Blocks, kind)) yield return inner;
                     continue;
                 }
                 var table = block as Table;
@@ -215,19 +385,47 @@ namespace UniversSale.View
                     foreach (TableRowGroup group in table.RowGroups)
                         foreach (TableRow row in group.Rows)
                             foreach (TableCell cell in row.Cells)
-                                foreach (var inner in CollectParagraphs(cell.Blocks)) yield return inner;
+                                foreach (var inner in WalkParagraphs(cell.Blocks, null)) yield return inner;
                 }
             }
         }
 
+        /// <summary>Flattens Sections, Lists and Tables into a plain paragraph
+        /// sequence (search, footnote renumbering).</summary>
+        private static IEnumerable<Paragraph> CollectParagraphs(BlockCollection blocks)
+        {
+            foreach (var entry in WalkParagraphs(blocks, null))
+                yield return entry.Paragraph;
+        }
+
         private static void CollectRuns(InlineCollection inlines, TextParagraph paragraph,
-            ParagraphStyle style, List<string> seenFootnotes)
+            ParagraphStyle style, List<string> seenFootnotes, Project project)
         {
             foreach (var inline in inlines)
             {
                 if (inline is LineBreak)
                 {
                     paragraph.Runs.Add(new TextRun { IsLineBreak = true });
+                    continue;
+                }
+                var container = inline as InlineUIContainer;
+                if (container != null)
+                {
+                    var containerTag = container.Tag as string;
+                    if (containerTag == "hr")
+                    {
+                        paragraph.Runs.Add(new TextRun { IsRule = true });
+                        continue;
+                    }
+                    if (containerTag != null && containerTag.StartsWith("img:"))
+                    {
+                        paragraph.Runs.Add(new TextRun { ImageId = containerTag.Substring(4) });
+                        continue;
+                    }
+                    // Foreign image (pasted from Word or a browser): adopt it
+                    // into the project store so it survives the round-trip.
+                    var adopted = project == null ? null : AdoptForeignImage(container, project);
+                    if (adopted != null) paragraph.Runs.Add(new TextRun { ImageId = adopted });
                     continue;
                 }
                 var wpfRun = inline as Run;
@@ -256,7 +454,32 @@ namespace UniversSale.View
                 }
                 var span = inline as Span; // Span, Bold, Italic, Underline, Hyperlink
                 if (span != null)
-                    CollectRuns(span.Inlines, paragraph, style, seenFootnotes);
+                    CollectRuns(span.Inlines, paragraph, style, seenFootnotes, project);
+            }
+        }
+
+        /// <summary>Encodes a pasted image to PNG and registers it in the
+        /// project store. Returns the new image id, or null if unreadable.</summary>
+        private static string AdoptForeignImage(InlineUIContainer container, Project project)
+        {
+            try
+            {
+                var image = container.Child as System.Windows.Controls.Image;
+                var source = image == null ? null : image.Source as System.Windows.Media.Imaging.BitmapSource;
+                if (source == null) return null;
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(source));
+                using (var buffer = new System.IO.MemoryStream())
+                {
+                    encoder.Save(buffer);
+                    var id = project.AddImage(buffer.ToArray(), ".png");
+                    container.Tag = "img:" + id; // stabilize for the rest of the session
+                    return id;
+                }
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -266,8 +489,14 @@ namespace UniversSale.View
         {
             var run = new TextRun { Text = wpfRun.Text };
 
-            var bold = wpfRun.FontWeight >= FontWeights.Bold;
-            if (bold != style.Bold) run.Bold = bold;
+            var weightName = WeightName(wpfRun.FontWeight);
+            if (weightName != null)
+                run.Weight = weightName; // fine variant survives the round-trip
+            else
+            {
+                var bold = wpfRun.FontWeight >= FontWeights.Bold;
+                if (bold != style.Bold) run.Bold = bold;
+            }
 
             var italic = wpfRun.FontStyle == FontStyles.Italic;
             if (italic != style.Italic) run.Italic = italic;

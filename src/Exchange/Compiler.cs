@@ -63,7 +63,9 @@ namespace UniversSale.Exchange
                     var copy = new TextParagraph
                     {
                         StyleId = paragraph.StyleId,
-                        AlignOverride = paragraph.AlignOverride
+                        AlignOverride = paragraph.AlignOverride,
+                        ListKind = paragraph.ListKind,
+                        PageBreakBefore = paragraph.PageBreakBefore
                     };
                     copy.Runs.AddRange(paragraph.Runs);
                     output.Paragraphs.Add(copy);
@@ -90,14 +92,90 @@ namespace UniversSale.Exchange
             return output;
         }
 
+        /// <summary>Degrades list paragraphs to visible "•"/"1." text prefixes
+        /// and horizontal rules to a dash string, for exporters without native
+        /// support (odt, txt). Numbering restarts on each consecutive run of
+        /// numbered paragraphs.</summary>
+        public static TextDocument FlattenLists(TextDocument document)
+        {
+            var needed = false;
+            foreach (var paragraph in document.Paragraphs)
+            {
+                if (paragraph.ListKind != null) needed = true;
+                foreach (var run in paragraph.Runs) if (run.IsRule) needed = true;
+                if (needed) break;
+            }
+            if (!needed) return document;
+
+            var output = new TextDocument { Footnotes = document.Footnotes };
+            var number = 0;
+            foreach (var paragraph in document.Paragraphs)
+            {
+                var source = FlattenRulesIn(paragraph);
+                if (source.ListKind == null)
+                {
+                    number = 0;
+                    output.Paragraphs.Add(source);
+                    continue;
+                }
+                number = source.ListKind == "number" ? number + 1 : 0;
+                var copy = new TextParagraph
+                {
+                    StyleId = source.StyleId,
+                    AlignOverride = source.AlignOverride,
+                    PageBreakBefore = source.PageBreakBefore
+                };
+                copy.Runs.Add(new TextRun
+                {
+                    Text = source.ListKind == "number" ? number + ". " : "•  "
+                });
+                copy.Runs.AddRange(source.Runs);
+                output.Paragraphs.Add(copy);
+            }
+            return output;
+        }
+
+        /// <summary>Rules only (for RTF, whose lists survive natively but whose
+        /// inline shapes do not).</summary>
+        public static TextDocument FlattenRules(TextDocument document)
+        {
+            var needed = false;
+            foreach (var paragraph in document.Paragraphs)
+            {
+                foreach (var run in paragraph.Runs) if (run.IsRule) { needed = true; break; }
+                if (needed) break;
+            }
+            if (!needed) return document;
+            var output = new TextDocument { Footnotes = document.Footnotes };
+            foreach (var paragraph in document.Paragraphs)
+                output.Paragraphs.Add(FlattenRulesIn(paragraph));
+            return output;
+        }
+
+        private static TextParagraph FlattenRulesIn(TextParagraph paragraph)
+        {
+            var hasRule = false;
+            foreach (var run in paragraph.Runs) if (run.IsRule) { hasRule = true; break; }
+            if (!hasRule) return paragraph;
+            var copy = new TextParagraph
+            {
+                StyleId = paragraph.StyleId,
+                AlignOverride = paragraph.AlignOverride ?? "center",
+                ListKind = paragraph.ListKind,
+                PageBreakBefore = paragraph.PageBreakBefore
+            };
+            foreach (var run in paragraph.Runs)
+                copy.Runs.Add(run.IsRule
+                    ? new TextRun { Text = "────────────────────" } : run);
+            return copy;
+        }
+
+        /// <summary>Depth-first reading order; texts may carry children.</summary>
         private static void CollectTexts(BinderItem root, List<BinderItem> texts)
         {
-            if (root.Kind == ItemKind.Text) { texts.Add(root); return; }
+            if (root.Kind == ItemKind.Text) texts.Add(root);
             foreach (var child in root.Children)
-            {
-                if (child.Kind == ItemKind.Text) texts.Add(child);
-                else if (child.CanHaveChildren) CollectTexts(child, texts);
-            }
+                CollectTexts(child, texts);
         }
     }
 }

@@ -3,21 +3,55 @@ using System.Collections.Generic;
 
 namespace UniversSale.Model
 {
-    /// <summary>A named paragraph style. What runs do not override, they inherit
-    /// from here. Color null = automatic (theme ink), which keeps documents
-    /// readable in both light and dark themes.</summary>
+    /// <summary>A named style — character, paragraph, hyphenation and
+    /// justification attributes together, InDesign-style. What runs do not
+    /// override, they inherit from here. Color null = automatic (theme ink).
+    /// Lengths are WPF px (1 pt = 4/3 px; UI edits mm or pt); percentages are
+    /// plain numbers (100 = 100 %). WPF renders what it can (fonts, indents,
+    /// leading, ligatures, hyphenation on/off); the fine hyphenation and
+    /// justification numbers drive the docx export where possible and the
+    /// 4b print composer.</summary>
     public class ParagraphStyle
     {
         public string Id = Guid.NewGuid().ToString("N");
         public string Name = "Style";
-        public string FontFamily = "Georgia";
-        public double FontSize = 15;
+
+        // --- Caractère ---
+        public string FontFamily = "Times New Roman";
+        public double FontSize = 16; // px: 16 px = 12 pt
         public bool Bold, Italic;
         public string Color;              // "#RRGGBB", null = automatic
+        public bool Ligatures = true;
+        public double LineHeight = 19.2;  // px: 14,4 pt — leading, InDesign-style
+
+        // --- Paragraphe ---
         public string Align = "left";     // "left"|"center"|"right"|"justify"
         public double SpaceBefore, SpaceAfter;
-        public double FirstLineIndent;
+        public double FirstLineIndent = 18.9; // 5 mm
         public double LeftIndent;
+        public double RightIndent;
+        public double LastLineIndent;     // retrait de dernière ligne (composer 4b)
+
+        // --- Césure ---
+        public bool HyphenationEnabled = true;
+        public int HyphenMinWordLength = 5;
+        public int HyphenMinBefore = 2;   // après les X premières lettres
+        public int HyphenMinAfter = 2;    // avant les X dernières lettres
+        public int HyphenConsecutiveLimit = 3;
+
+        // --- Justification (composer 4b ; percentages, 100 = 100 %) ---
+        public double JustifyWordMin = 80, JustifyWordOpt = 100, JustifyWordMax = 115;
+        public double JustifyLetterMin = 0, JustifyLetterOpt = 0, JustifyLetterMax = 0;
+        public double JustifyGlyphMin = 100, JustifyGlyphOpt = 100, JustifyGlyphMax = 100;
+        public double AutoLeadingPercent = 120;
+
+        // --- Enchaînements (keeps) ---
+        public bool KeepWithPrevious = true;   // solidaire avec le précédent
+        public int KeepNextLines = 0;          // paragraphes solidaires : X lignes du suivant
+        // Lignes solidaires : off par défaut — un paragraphe se coupe entre
+        // deux pages au fil des lignes (veuves/orphelines contrôlées par le
+        // compositeur), sans laisser de trou en bas de page.
+        public bool KeepLinesTogether = false;
 
         public ParagraphStyle Clone()
         {
@@ -56,9 +90,9 @@ namespace UniversSale.Model
             {
                 Id = "body",
                 Name = "Corps",
-                Align = "justify",
-                FirstLineIndent = 24,
-                SpaceAfter = 2
+                Align = "justify"
+                // Standards : Times New Roman 12 pt, retrait de première ligne
+                // 5 mm, interligne 14,4 pt, ligatures — les défauts de la classe.
             });
             sheet.Styles.Add(new ParagraphStyle
             {
@@ -68,7 +102,9 @@ namespace UniversSale.Model
                 Bold = true,
                 Align = "center",
                 SpaceBefore = 24,
-                SpaceAfter = 18
+                SpaceAfter = 18,
+                FirstLineIndent = 0,
+                LineHeight = 32
             });
             sheet.Styles.Add(new ParagraphStyle
             {
@@ -77,7 +113,9 @@ namespace UniversSale.Model
                 FontSize = 20,
                 Bold = true,
                 SpaceBefore = 18,
-                SpaceAfter = 10
+                SpaceAfter = 10,
+                FirstLineIndent = 0,
+                LineHeight = 25
             });
             sheet.Styles.Add(new ParagraphStyle
             {
@@ -86,7 +124,8 @@ namespace UniversSale.Model
                 Italic = true,
                 LeftIndent = 32,
                 SpaceBefore = 8,
-                SpaceAfter = 8
+                SpaceAfter = 8,
+                FirstLineIndent = 0
             });
             return sheet;
         }

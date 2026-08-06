@@ -38,11 +38,19 @@ namespace UniversSale.Model
         public static List<SheetTemplate> CreateDefaults()
         {
             var character = new SheetTemplate { Name = "Personnage" };
-            character.Fields.Add(new SheetField { Name = "Rôle" });
-            character.Fields.Add(new SheetField { Name = "Âge" });
-            character.Fields.Add(new SheetField { Name = "Apparence", Kind = "multiline" });
+            character.Fields.Add(new SheetField { Name = "Nom" });
+            character.Fields.Add(new SheetField { Name = "Prénom" });
+            character.Fields.Add(new SheetField { Name = "Alias" });
+            character.Fields.Add(new SheetField { Name = "Date de naissance" });
+            character.Fields.Add(new SheetField { Name = "Lieu de naissance" });
+            character.Fields.Add(new SheetField { Name = "Taille" });
+            character.Fields.Add(new SheetField { Name = "Affiliation" });
+            character.Fields.Add(new SheetField { Name = "Religion" });
+            character.Fields.Add(new SheetField { Name = "Magie" });
             character.Fields.Add(new SheetField { Name = "Traits", Kind = "multiline" });
-            character.Fields.Add(new SheetField { Name = "Objectif", Kind = "multiline" });
+            character.Fields.Add(new SheetField { Name = "Apparence", Kind = "multiline" });
+            character.Fields.Add(new SheetField { Name = "Relations", Kind = "multiline" });
+            character.Fields.Add(new SheetField { Name = "Famille", Kind = "multiline" });
 
             var place = new SheetTemplate { Name = "Lieu" };
             place.Fields.Add(new SheetField { Name = "Région" });

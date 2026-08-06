@@ -6,6 +6,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using UniversSale.Model;
 
 namespace UniversSale.View
@@ -19,11 +20,57 @@ namespace UniversSale.View
         private RichTextBox _box;
         private StyleSheet _styles = StyleSheet.CreateDefault();
         private BinderItem _item;
+        private Project _project; // image store; null until a project is loaded
+        private PageSetup _pageSetup = new PageSetup();
         private bool _loading, _syncing;
+
+        private Border _page;
+        private Grid _pageHost;
+        private Canvas _sheets;    // hand-drawn selection, behind the text
+        private Canvas _pageMarks; // caret, line numbers, ¶ marks — above the text
+        private ScrollViewer _scroller;
+
+        // The paged mirror: the RichTextBox lays the text out CONTINUOUSLY in a
+        // hidden (clipped) host, and the visible surface is a stack of page
+        // frames, each showing a line-accurate slice of it through a
+        // VisualBrush. Real pages, no holes, no document mutation — the same
+        // illusion as the Composition mode.
+        private StackPanel _mirror;
+        private readonly List<double> _sliceTops = new List<double>();
+        private readonly List<double> _sliceHeights = new List<double>();
+        private System.Windows.Shapes.Rectangle _classicCaret;
+        private DispatcherTimer _classicBlink;
+        private TextPointer _mirrorAnchor; // forwarded drag-selection anchor
+        private ComposedView _composed;        // « Composition » mode (composer 4b)
+        private ToggleButton _composeBtn;
+        private DispatcherTimer _marksTimer;   // full pagination, debounced typing
+        private DispatcherTimer _overlayTimer; // fast overlay redraw (scroll, zoom)
+        private double _zoom = 1.0;
+        private bool _showMarks; // ¶ formatting marks
+
+        // Real pagination: paragraphs are pushed page by page with presentation
+        // margins (never recorded in undo — see UndoGate). _pageTops[k] is the
+        // top of sheet k, _pageBottoms[k] its bottom, in _box coordinates.
+        private readonly Dictionary<Paragraph, double> _appliedExtra = new Dictionary<Paragraph, double>();
+        private readonly List<double> _pageTops = new List<double>();
+        private readonly List<double> _pageBottoms = new List<double>();
+        // Virtual page starts: text flows continuously on stretched sheets,
+        // page boundaries are drawn every A4-content-height (the Composition
+        // mode remains the physically paged reference).
+        private readonly List<double> _virtualStarts = new List<double>();
+        private const double PageGap = 18;
+        private bool _paginating;
+
+        public event Action<int> ZoomStepRequested; // +10 / -10 (percent)
+        public event Action PageSetupChanged;       // edited from the Mise en page tab
+        public event Action<int, int> PageInfoChanged; // caret page, page count
+        public event Action<bool> MarksToggled;     // ¶ button
+        public event Action StylesRequested;        // « Gestion des styles » button
 
         private ComboBox _styleCombo, _fontCombo, _sizeCombo;
         private ToggleButton _boldBtn, _italicBtn, _underBtn, _strikeBtn;
         private ToggleButton _alignLeft, _alignCenter, _alignRight, _alignJustify;
+        private ToggleButton _bulletBtn, _numberBtn, _checkBtn;
 
         private Border _searchBar;
         private TextBox _searchBox, _replaceBox;
@@ -54,35 +101,87 @@ namespace UniversSale.View
             {
                 Background = Chrome.BarBg,
                 BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(8, 4, 8, 4)
+                BorderThickness = new Thickness(0, 0, 0, 1)
             };
             SetDock(bar, Dock.Top);
-            var panel = new StackPanel { Orientation = Orientation.Horizontal };
+            var panel = new WrapPanel { Margin = new Thickness(8, 4, 8, 4) }; // wraps on narrow windows
 
-            _styleCombo = new ComboBox { Width = 120, Margin = new Thickness(0, 0, 6, 0) };
+            _styleCombo = new ComboBox { Width = 120, Margin = new Thickness(0, 0, 2, 0) };
             _styleCombo.SelectionChanged += OnStyleComboChanged;
             panel.Children.Add(_styleCombo);
+
+            var manageStyles = new Button
+            {
+                Content = new TextBlock { Text = "Aa", FontSize = 12, FontWeight = FontWeights.SemiBold },
+                ToolTip = "Gestion des styles…",
+                Width = 34,
+                Margin = new Thickness(0, 0, 6, 0),
+                Focusable = false
+            };
+            manageStyles.Click += delegate
+            {
+                var handler = StylesRequested;
+                if (handler != null) handler();
+            };
+            panel.Children.Add(manageStyles);
 
             _fontCombo = new ComboBox { Width = 140, Margin = new Thickness(0, 0, 6, 0) };
             foreach (var family in ListFonts()) _fontCombo.Items.Add(family);
             _fontCombo.SelectionChanged += OnFontComboChanged;
             panel.Children.Add(_fontCombo);
 
-            _sizeCombo = new ComboBox { Width = 52, Margin = new Thickness(0, 0, 10, 0) };
-            foreach (var size in new[] { 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 32, 36, 42, 48, 60, 72 })
+            // Sizes are displayed in points (like every word processor);
+            // internally everything stays WPF pixels (1 pt = 4/3 px).
+            _sizeCombo = new ComboBox { Width = 52, Margin = new Thickness(0, 0, 10, 0), ToolTip = "Taille (points)" };
+            foreach (var size in new[] { 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 28, 32, 36, 48, 72 })
                 _sizeCombo.Items.Add(size);
             _sizeCombo.SelectionChanged += OnSizeComboChanged;
             panel.Children.Add(_sizeCombo);
 
+            // Variantes de caractère (Fin, Normal, Moyen, Demi-gras, Gras, Noir).
+            var weightBtn = new Button
+            {
+                ToolTip = "Variantes de caractère (graisse)",
+                Width = 34,
+                Margin = new Thickness(1, 0, 1, 0),
+                Focusable = false,
+                Content = Icons.Make("text-t-bold", 14, Chrome.Ink)
+            };
+            var weightMenu = new ContextMenu { Placement = PlacementMode.Bottom, PlacementTarget = weightBtn };
+            weightBtn.ContextMenu = weightMenu;
+            weightBtn.Click += delegate
+            {
+                BuildWeightMenu(weightMenu); // graisses de LA police, coche incluse
+                weightMenu.IsOpen = true;
+            };
+            panel.Children.Add(weightBtn);
+
             _boldBtn = FormatToggle("G", "Gras (Ctrl+B)", true, false, false, false);
-            _boldBtn.Click += delegate { EditingCommands.ToggleBold.Execute(null, _box); AfterFormat(); };
+            _boldBtn.Click += delegate
+            {
+                if (ComposedActive) { _composed.ToggleBold(); _composed.Focus(); return; }
+                EditingCommands.ToggleBold.Execute(null, _box);
+                AfterFormat();
+            };
             _italicBtn = FormatToggle("I", "Italique (Ctrl+I)", false, true, false, false);
-            _italicBtn.Click += delegate { EditingCommands.ToggleItalic.Execute(null, _box); AfterFormat(); };
+            _italicBtn.Click += delegate
+            {
+                if (ComposedActive) { _composed.ToggleItalic(); _composed.Focus(); return; }
+                EditingCommands.ToggleItalic.Execute(null, _box);
+                AfterFormat();
+            };
             _underBtn = FormatToggle("S", "Souligné (Ctrl+U)", false, false, true, false);
-            _underBtn.Click += delegate { ToggleDecoration(TextDecorationLocation.Underline); };
+            _underBtn.Click += delegate
+            {
+                if (ComposedActive) { _composed.ToggleUnderline(); _composed.Focus(); return; }
+                ToggleDecoration(TextDecorationLocation.Underline);
+            };
             _strikeBtn = FormatToggle("B", "Barré", false, false, false, true);
-            _strikeBtn.Click += delegate { ToggleDecoration(TextDecorationLocation.Strikethrough); };
+            _strikeBtn.Click += delegate
+            {
+                if (ComposedActive) { _composed.ToggleStrike(); _composed.Focus(); return; }
+                ToggleDecoration(TextDecorationLocation.Strikethrough);
+            };
             panel.Children.Add(_boldBtn);
             panel.Children.Add(_italicBtn);
             panel.Children.Add(_underBtn);
@@ -101,11 +200,480 @@ namespace UniversSale.View
 
             panel.Children.Add(VerticalRule());
 
+            _bulletBtn = IconToggle("list-dashes-bold", "Liste à puces");
+            _bulletBtn.Click += delegate
+            {
+                if (ComposedActive) { _composed.ApplyList("bullet"); _composed.Focus(); return; }
+                EditingCommands.ToggleBullets.Execute(null, _box);
+                AfterFormat();
+            };
+            _numberBtn = IconToggle("list-numbers-bold", "Liste numérotée");
+            _numberBtn.Click += delegate
+            {
+                if (ComposedActive) { _composed.ApplyList("number"); _composed.Focus(); return; }
+                EditingCommands.ToggleNumbering.Execute(null, _box);
+                AfterFormat();
+            };
+            _checkBtn = IconToggle("check-square-bold", "Case à cocher (☐ → ☑ → retirer)");
+            _checkBtn.Click += delegate
+            {
+                if (ComposedActive) { _composed.TypeText("☐ "); return; }
+                ToggleChecklist();
+            };
+            panel.Children.Add(_bulletBtn);
+            panel.Children.Add(_numberBtn);
+            panel.Children.Add(_checkBtn);
+
+            panel.Children.Add(VerticalRule());
+
             panel.Children.Add(PaletteButton("Couleur du texte", true));
             panel.Children.Add(PaletteButton("Surlignage", false));
 
-            bar.Child = panel;
+            var imageBtn = new Button
+            {
+                ToolTip = "Insérer une image…",
+                Width = 34,
+                Margin = new Thickness(1, 0, 1, 0),
+                Focusable = false,
+                Content = Icons.Make("image-square-bold", 14, Chrome.Ink)
+            };
+            imageBtn.Click += delegate { InsertImage(); };
+            panel.Children.Add(imageBtn);
+
+            var ruleBtn = new Button
+            {
+                ToolTip = "Ligne horizontale",
+                Width = 34,
+                Margin = new Thickness(1, 0, 1, 0),
+                Focusable = false,
+                Content = new TextBlock { Text = "—", FontSize = 13, FontWeight = FontWeights.Bold }
+            };
+            ruleBtn.Click += delegate { InsertRule(); };
+            panel.Children.Add(ruleBtn);
+
+            var separatorBtn = new Button
+            {
+                ToolTip = "Séparateur de scène (texte et police : Fichier → Paramètres du projet)",
+                Width = 34,
+                Margin = new Thickness(1, 0, 1, 0),
+                Focusable = false,
+                Content = new TextBlock { Text = "⁂", FontSize = 13 }
+            };
+            separatorBtn.Click += delegate { InsertSeparator(); };
+            panel.Children.Add(separatorBtn);
+
+            panel.Children.Add(VerticalRule());
+
+            _marksBtn = new ToggleButton
+            {
+                Content = Icons.Make("paragraph-bold", 14, Chrome.Ink),
+                ToolTip = "Afficher les caractères d'impression (¶ espaces · insécables ° tabulations →)",
+                Width = 32,
+                Margin = new Thickness(1, 0, 1, 0),
+                Focusable = false
+            };
+            _marksBtn.Click += delegate
+            {
+                var handler = MarksToggled;
+                if (handler != null) handler(_marksBtn.IsChecked == true);
+            };
+            panel.Children.Add(_marksBtn);
+
+            // Ribbon: « Texte » (this panel) + « Mise en page » (page setup).
+            var tabs = new TabControl
+            {
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(0)
+            };
+            tabs.Items.Add(new TabItem { Header = "Texte", Content = panel });
+            tabs.Items.Add(new TabItem { Header = "Mise en page", Content = BuildPageSetupTab() });
+            tabs.Items.Add(new TabItem { Header = "Composition", Content = BuildCompositionTab() });
+            bar.Child = tabs;
             Children.Add(bar);
+        }
+
+        // ============================================================= « Composition » tab
+
+        public event Action PreviewRequested;  // Aperçu des pages
+        public event Action PrintRequested;    // Imprimer / PDF
+        public event Action ExportRequested;   // Exporter l'écrit
+        public event Action CompileRequested;  // Compiler le manuscrit
+        public event Action PdfRequested;      // PDF prêt à imprimer (4b-2)
+
+        private UIElement BuildCompositionTab()
+        {
+            var panel = new WrapPanel { Margin = new Thickness(8, 4, 8, 4) };
+
+            _composeBtn = new ToggleButton
+            {
+                ToolTip = "Écrire dans les pages composées par le moteur maison — "
+                    + "justification à plages, césure française, enchaînements",
+                Margin = new Thickness(0, 0, 10, 0),
+                Padding = new Thickness(8, 2, 8, 2),
+                Focusable = false,
+                Content = TabButtonContent("book-open-text-bold", "Composition")
+            };
+            _composeBtn.Click += delegate { SetComposition(_composeBtn.IsChecked == true); };
+            panel.Children.Add(_composeBtn);
+
+            panel.Children.Add(VerticalRule());
+
+            panel.Children.Add(CompositionAction("Aperçu des pages",
+                "Les pages exactes, prêtes à relire (Ctrl+Alt+P)",
+                delegate { var handler = PreviewRequested; if (handler != null) handler(); }));
+            panel.Children.Add(CompositionAction("Imprimer / PDF…",
+                "Impression ou PDF via « Microsoft Print to PDF » (Ctrl+P)",
+                delegate { var handler = PrintRequested; if (handler != null) handler(); }));
+            panel.Children.Add(CompositionAction("PDF prêt à imprimer…",
+                "PDF maison : polices incorporées, fond perdu, traits de coupe",
+                delegate { var handler = PdfRequested; if (handler != null) handler(); }));
+            panel.Children.Add(CompositionAction("Exporter l'écrit…",
+                "docx, odt, RTF, Markdown, texte (Ctrl+E)",
+                delegate { var handler = ExportRequested; if (handler != null) handler(); }));
+            panel.Children.Add(CompositionAction("Compiler le manuscrit…",
+                "Assembler les écrits en un manuscrit exportable (Ctrl+Maj+E)",
+                delegate { var handler = CompileRequested; if (handler != null) handler(); }));
+            return panel;
+        }
+
+        private Button CompositionAction(string label, string tooltip, Action onClick)
+        {
+            var button = new Button
+            {
+                Content = label,
+                ToolTip = tooltip,
+                Margin = new Thickness(0, 0, 6, 0),
+                Padding = new Thickness(8, 2, 8, 2),
+                Focusable = false
+            };
+            button.Click += delegate { onClick(); };
+            return button;
+        }
+
+        private static UIElement TabButtonContent(string iconName, string label)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            var icon = Icons.Make(iconName, 14, Chrome.Ink) as FrameworkElement;
+            if (icon != null) icon.Margin = new Thickness(0, 0, 5, 0);
+            row.Children.Add(icon);
+            row.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+            return row;
+        }
+
+        // ============================================================= « Mise en page » tab
+
+        private ComboBox _marginsCombo, _sizeComboPage, _columnsCombo;
+        private ToggleButton _guidesBtn, _lineNumbersBtn, _hyphenBtn, _folioBtn;
+        private ToggleButton _marksBtn;
+        private bool _syncingPage;
+
+        private UIElement BuildPageSetupTab()
+        {
+            var panel = new WrapPanel { Margin = new Thickness(8, 4, 8, 4) };
+
+            panel.Children.Add(PageLabel("Marges"));
+            _marginsCombo = new ComboBox { Width = 130, Margin = new Thickness(4, 0, 10, 0) };
+            _marginsCombo.Items.Add("Normales (2,5 cm)");
+            _marginsCombo.Items.Add("Étroites (1,27 cm)");
+            _marginsCombo.Items.Add("Larges (5 cm)");
+            _marginsCombo.Items.Add("Personnalisées…");
+            _marginsCombo.SelectionChanged += OnMarginsComboChanged;
+            panel.Children.Add(_marginsCombo);
+
+            panel.Children.Add(PageLabel("Taille"));
+            _sizeComboPage = new ComboBox { Width = 150, Margin = new Thickness(4, 0, 10, 0) };
+            _sizeComboPage.Items.Add("A4 (21 × 29,7 cm)");
+            _sizeComboPage.Items.Add("A5 (14,8 × 21 cm)");
+            _sizeComboPage.Items.Add("Letter (21,6 × 27,9 cm)");
+            _sizeComboPage.Items.Add("Livre (14 × 21,6 cm)");
+            _sizeComboPage.Items.Add("Personnalisée…");
+            _sizeComboPage.SelectionChanged += OnPageSizeComboChanged;
+            panel.Children.Add(_sizeComboPage);
+
+            var columnsIcon = Icons.Make("text-columns-bold", 14, Chrome.SoftText) as FrameworkElement;
+            if (columnsIcon != null)
+            {
+                columnsIcon.VerticalAlignment = VerticalAlignment.Center;
+                columnsIcon.ToolTip = "Colonnes";
+                panel.Children.Add(columnsIcon);
+            }
+            _columnsCombo = new ComboBox { Width = 46, Margin = new Thickness(4, 0, 10, 0), ToolTip = "Colonnes — appliquées à l'export et à l'impression" };
+            _columnsCombo.Items.Add(1);
+            _columnsCombo.Items.Add(2);
+            _columnsCombo.Items.Add(3);
+            _columnsCombo.SelectionChanged += delegate
+            {
+                if (_syncingPage || _project == null || _columnsCombo.SelectedItem == null) return;
+                _project.Page.Columns = (int)_columnsCombo.SelectedItem;
+                AfterPageSetupEdit();
+            };
+            panel.Children.Add(_columnsCombo);
+
+            var breakBtn = new Button
+            {
+                Content = TabButtonContent("file-arrow-down-bold", "Saut de page"),
+                ToolTip = "Commencer une nouvelle page au paragraphe du curseur (Ctrl+Entrée)",
+                Margin = new Thickness(0, 0, 10, 0),
+                Padding = new Thickness(8, 2, 8, 2),
+                Focusable = false
+            };
+            breakBtn.Click += delegate { InsertPageBreak(); };
+            panel.Children.Add(breakBtn);
+
+            _guidesBtn = PageToggle("Marges", "Cadres de marges sur chaque page");
+            _guidesBtn.Content = TabButtonContent("article-bold", "Marges");
+            _guidesBtn.Click += delegate
+            {
+                if (_project == null) return;
+                _project.Page.ShowMarginGuides = _guidesBtn.IsChecked == true;
+                AfterPageSetupEdit();
+            };
+            panel.Children.Add(_guidesBtn);
+
+            _lineNumbersBtn = PageToggle("N° de ligne", "Numéros de ligne à l'export Word et à l'impression");
+            _lineNumbersBtn.Content = TabButtonContent("list-numbers-bold", "N° de ligne");
+            _lineNumbersBtn.Click += delegate
+            {
+                if (_project == null) return;
+                _project.Page.LineNumbers = _lineNumbersBtn.IsChecked == true;
+                AfterPageSetupEdit();
+            };
+            panel.Children.Add(_lineNumbersBtn);
+
+            _hyphenBtn = PageToggle("Césure", "Coupure des mots en fin de ligne");
+            _hyphenBtn.Click += delegate
+            {
+                if (_project == null) return;
+                _project.Page.Hyphenation = _hyphenBtn.IsChecked == true;
+                AfterPageSetupEdit();
+            };
+            panel.Children.Add(_hyphenBtn);
+
+            _folioBtn = PageToggle("Folio", "Numéro de page centré en pied de page (aperçu, impression, export Word)");
+            _folioBtn.Click += delegate
+            {
+                if (_project == null) return;
+                _project.Page.FooterPageNumbers = _folioBtn.IsChecked == true;
+                AfterPageSetupEdit();
+            };
+            panel.Children.Add(_folioBtn);
+
+            return panel;
+        }
+
+        private TextBlock PageLabel(string text)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        private ToggleButton PageToggle(string label, string tooltip)
+        {
+            return new ToggleButton
+            {
+                Content = label,
+                ToolTip = tooltip,
+                Margin = new Thickness(0, 0, 6, 0),
+                Padding = new Thickness(8, 2, 8, 2),
+                Focusable = false
+            };
+        }
+
+        private void OnMarginsComboChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_syncingPage || _project == null || _marginsCombo.SelectedIndex < 0) return;
+            var page = _project.Page;
+            if (_marginsCombo.SelectedIndex == 0) SetMarginsMm(page, 25, 25, 25, 25);
+            else if (_marginsCombo.SelectedIndex == 1) SetMarginsMm(page, 12.7, 12.7, 12.7, 12.7);
+            else if (_marginsCombo.SelectedIndex == 2) SetMarginsMm(page, 25, 25, 50, 50);
+            else
+            {
+                var values = NumbersDialog.Ask(Window.GetWindow(this), "Marges (cm)",
+                    new[] { "Haut", "Bas", "Gauche", "Droite" },
+                    new[] { page.MarginTopMm / 10, page.MarginBottomMm / 10, page.MarginLeftMm / 10, page.MarginRightMm / 10 },
+                    0.5, 10);
+                if (values == null) { SyncPageTab(); return; }
+                SetMarginsMm(page, values[0] * 10, values[1] * 10, values[2] * 10, values[3] * 10);
+            }
+            AfterPageSetupEdit();
+        }
+
+        private static void SetMarginsMm(PageSetup page, double top, double bottom, double left, double right)
+        {
+            page.MarginTopMm = top;
+            page.MarginBottomMm = bottom;
+            page.MarginLeftMm = left;
+            page.MarginRightMm = right;
+        }
+
+        private void OnPageSizeComboChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_syncingPage || _project == null || _sizeComboPage.SelectedIndex < 0) return;
+            var page = _project.Page;
+            if (_sizeComboPage.SelectedIndex == 0) { page.PageWidthMm = 210; page.PageHeightMm = 297; }
+            else if (_sizeComboPage.SelectedIndex == 1) { page.PageWidthMm = 148; page.PageHeightMm = 210; }
+            else if (_sizeComboPage.SelectedIndex == 2) { page.PageWidthMm = 216; page.PageHeightMm = 279; }
+            else if (_sizeComboPage.SelectedIndex == 3) { page.PageWidthMm = 140; page.PageHeightMm = 216; }
+            else
+            {
+                var values = NumbersDialog.Ask(Window.GetWindow(this), "Taille de page (cm)",
+                    new[] { "Largeur", "Hauteur" },
+                    new[] { page.PageWidthMm / 10, page.PageHeightMm / 10 }, 5, 100);
+                if (values == null) { SyncPageTab(); return; }
+                page.PageWidthMm = values[0] * 10;
+                page.PageHeightMm = values[1] * 10;
+            }
+            AfterPageSetupEdit();
+        }
+
+        private void AfterPageSetupEdit()
+        {
+            ApplyPageVisuals();
+            if (ComposedActive) _composed.RefreshComposition();
+            var handler = PageSetupChanged;
+            if (handler != null) handler();
+        }
+
+        // ============================================================= Composition mode
+
+        /// <summary>True while the composed surface is the writing surface —
+        /// then the pivot is the live source of truth and the RichTextBox is
+        /// dormant/stale.</summary>
+        public bool ComposedActive
+        {
+            get { return _composed != null && _composed.HasItem
+                    && _composed.Visibility == Visibility.Visible; }
+        }
+
+        /// <summary>Toggles writing in the composed pages — the home-grown
+        /// editing engine, on by default (« écrire dans un livre déjà mis en
+        /// page »). The choice persists across sessions.</summary>
+        public void SetComposition(bool active)
+        {
+            if (_composeBtn != null) _composeBtn.IsChecked = active;
+            Settings.AppSettings.CompositionMode = active;
+            Settings.AppSettings.Save();
+            if (!active)
+            {
+                if (ComposedActive)
+                {
+                    // Back to the classic surface: reload it from the pivot,
+                    // which the composed editor was mutating live.
+                    _composed.Detach();
+                    _composed.Visibility = Visibility.Collapsed;
+                    _scroller.Visibility = Visibility.Visible;
+                    if (_item != null)
+                    {
+                        _loading = true;
+                        _box.Document = FlowConverter.ToFlow(_item.Document, _styles, _project);
+                        _loading = false;
+                        ApplyPageVisuals();
+                        RebuildNotesPanel();
+                    }
+                    _box.Focus();
+                }
+                else
+                {
+                    _composed.Detach();
+                    _composed.Visibility = Visibility.Collapsed;
+                    _scroller.Visibility = Visibility.Visible;
+                }
+                return;
+            }
+            if (_item == null) { if (_composeBtn != null) _composeBtn.IsChecked = false; return; }
+            try
+            {
+                // The classic surface may hold unsaved keystrokes: flush first.
+                if (!ComposedActive && _box.Document != null)
+                    _item.Document = FlowConverter.FromFlow(_box.Document, _styles,
+                        _item.Document.Footnotes, _project);
+                _composed.SetZoom(_zoom);
+                _composed.Attach(_item, _styles, _pageSetup, _project);
+                _composed.Visibility = Visibility.Visible;
+                _scroller.Visibility = Visibility.Collapsed;
+                _composed.Focus();
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show(Window.GetWindow(this),
+                    "Composition impossible :\n" + error.Message,
+                    "Univers Sale", MessageBoxButton.OK, MessageBoxImage.Warning);
+                SetComposition(false);
+            }
+        }
+
+        /// <summary>Reflects the page setup in the « Mise en page » tab.</summary>
+        private void SyncPageTab()
+        {
+            if (_marginsCombo == null) return;
+            _syncingPage = true;
+            try
+            {
+                var page = _pageSetup;
+                _marginsCombo.SelectedIndex =
+                    Near(page.MarginTopMm, 25) && Near(page.MarginBottomMm, 25)
+                        && Near(page.MarginLeftMm, 25) && Near(page.MarginRightMm, 25) ? 0
+                    : Near(page.MarginTopMm, 12.7) && Near(page.MarginLeftMm, 12.7) ? 1
+                    : Near(page.MarginLeftMm, 50) && Near(page.MarginRightMm, 50) ? 2 : 3;
+                _sizeComboPage.SelectedIndex =
+                    Near(page.PageWidthMm, 210) && Near(page.PageHeightMm, 297) ? 0
+                    : Near(page.PageWidthMm, 148) ? 1
+                    : Near(page.PageWidthMm, 216) && Near(page.PageHeightMm, 279) ? 2
+                    : Near(page.PageWidthMm, 140) ? 3 : 4;
+                _columnsCombo.SelectedItem = Math.Max(1, Math.Min(3, page.Columns));
+                _guidesBtn.IsChecked = page.ShowMarginGuides;
+                _lineNumbersBtn.IsChecked = page.LineNumbers;
+                _hyphenBtn.IsChecked = page.Hyphenation;
+                _folioBtn.IsChecked = page.FooterPageNumbers;
+            }
+            finally
+            {
+                _syncingPage = false;
+            }
+        }
+
+        private static bool Near(double a, double b)
+        {
+            return Math.Abs(a - b) < 0.05;
+        }
+
+        /// <summary>¶ state, pushed by the shell so both editors stay in sync.
+        /// Redraws instantly — no debounce on an explicit toggle.</summary>
+        public void SetFormattingMarks(bool visible)
+        {
+            _showMarks = visible;
+            if (_marksBtn != null) _marksBtn.IsChecked = visible;
+            RefreshOverlay();
+        }
+
+        private ToggleButton IconToggle(string iconName, string tooltip)
+        {
+            return new ToggleButton
+            {
+                Content = Icons.Make(iconName, 14, Chrome.Ink),
+                ToolTip = tooltip,
+                Width = 32,
+                Margin = new Thickness(1, 0, 1, 0),
+                Focusable = false
+            };
+        }
+
+        private ToggleButton ListToggle(string label, string tooltip)
+        {
+            return new ToggleButton
+            {
+                Content = new TextBlock { Text = label, FontSize = 13 },
+                ToolTip = tooltip,
+                Width = 32,
+                Margin = new Thickness(1, 0, 1, 0),
+                Focusable = false
+            };
         }
 
         private static List<string> ListFonts()
@@ -119,34 +687,119 @@ namespace UniversSale.View
         private ToggleButton FormatToggle(string label, string tooltip,
             bool bold, bool italic, bool underline, bool strike)
         {
-            var text = new TextBlock { Text = label, FontSize = 13 };
-            if (bold) text.FontWeight = FontWeights.Bold;
-            if (italic) text.FontStyle = FontStyles.Italic;
-            if (underline) text.TextDecorations = TextDecorations.Underline;
-            if (strike) text.TextDecorations = TextDecorations.Strikethrough;
+            // Icônes vectorielles embarquées (jeu Phosphor).
+            var icon = bold ? "text-b-bold"
+                     : italic ? "text-italic-bold"
+                     : underline ? "text-underline-bold"
+                     : "text-strikethrough-bold";
             return new ToggleButton
             {
-                Content = text,
+                Content = Icons.Make(icon, 14, Chrome.Ink),
                 ToolTip = tooltip,
-                Width = 28,
+                Width = 32,
                 Margin = new Thickness(1, 0, 1, 0),
                 Focusable = false
             };
+        }
+
+        /// <summary>Only the weights the current font really ships, with a
+        /// check mark on the (uniform) weight of the selection.</summary>
+        private void BuildWeightMenu(ContextMenu menu)
+        {
+            menu.Items.Clear();
+            var family = CurrentFontFamily();
+            var available = AvailableWeights(family);
+            var current = CurrentWeightName(); // null = Normal, "mixed" = pas de coche
+
+            string[] labels = { "Fin", "Normal", "Moyen", "Demi-gras", "Gras", "Noir" };
+            string[] weights = { "Light", null, "Medium", "SemiBold", "Bold", "Black" };
+            for (var i = 0; i < labels.Length; i++)
+            {
+                // Normal et Gras existent toujours (WPF les synthétise au besoin).
+                var weight = weights[i];
+                if (weight != null && weight != "Bold" && !available.Contains(weight)) continue;
+                var entry = new MenuItem
+                {
+                    Header = labels[i],
+                    FontWeight = weight == null ? FontWeights.Normal : FlowConverter.ParseWeight(weight),
+                    IsChecked = current != "mixed"
+                        && ((weight == null && current == null) || weight == current)
+                };
+                var weightRef = weight;
+                entry.Click += delegate { ApplyWeight(weightRef); };
+                menu.Items.Add(entry);
+            }
+        }
+
+        private static HashSet<string> AvailableWeights(string family)
+        {
+            var set = new HashSet<string>();
+            try
+            {
+                foreach (var typeface in new FontFamily(family).FamilyTypefaces)
+                {
+                    var name = FlowConverter.WeightName(typeface.Weight);
+                    if (name != null) set.Add(name);
+                }
+            }
+            catch { }
+            return set;
+        }
+
+        private string CurrentFontFamily()
+        {
+            if (ComposedActive)
+            {
+                var family = _composed.GetCaretFontFamily();
+                if (family != null) return family;
+            }
+            else
+            {
+                var value = _box.Selection.GetPropertyValue(TextElement.FontFamilyProperty) as FontFamily;
+                if (value != null) return value.Source;
+            }
+            return _styles.Body.FontFamily;
+        }
+
+        private string CurrentWeightName()
+        {
+            if (ComposedActive) return _composed.GetSelectionWeightName();
+            var value = _box.Selection.GetPropertyValue(TextElement.FontWeightProperty);
+            if (!(value is FontWeight)) return "mixed";
+            var weight = (FontWeight)value;
+            var name = FlowConverter.WeightName(weight);
+            if (name != null) return name;
+            return weight >= FontWeights.Bold ? "Bold" : null;
+        }
+
+        private void ApplyWeight(string weight)
+        {
+            if (_item == null) return;
+            if (ComposedActive)
+            {
+                _composed.ApplyWeight(weight);
+                _composed.Focus();
+                return;
+            }
+            _box.Selection.ApplyPropertyValue(TextElement.FontWeightProperty,
+                weight == null ? FontWeights.Normal : FlowConverter.ParseWeight(weight));
+            AfterFormat();
         }
 
         private ToggleButton AlignToggle(string align, string tooltip)
         {
             var button = new ToggleButton
             {
-                Content = AlignIcon(align),
+                Content = Icons.Make("text-align-" + align + "-bold", 14, Chrome.Ink),
                 ToolTip = tooltip,
-                Width = 28,
+                Width = 32,
                 Margin = new Thickness(1, 0, 1, 0),
                 Focusable = false,
                 Tag = align
             };
             button.Click += delegate
             {
+                if (ComposedActive) { _composed.ApplyAlign(align); _composed.Focus(); return; }
                 var command = align == "center" ? EditingCommands.AlignCenter
                             : align == "right" ? EditingCommands.AlignRight
                             : align == "justify" ? EditingCommands.AlignJustify
@@ -192,52 +845,79 @@ namespace UniversSale.View
 
         private Button PaletteButton(string tooltip, bool isForeground)
         {
+            var accent = new SolidColorBrush(Color.FromRgb(0x5B, 0x67, 0xD8));
+            accent.Freeze();
             var button = new Button
             {
                 ToolTip = tooltip,
-                Width = 30,
+                Width = 34,
                 Margin = new Thickness(1, 0, 1, 0),
-                Focusable = false
+                Focusable = false,
+                Content = Icons.Make(isForeground ? "text-t-bold" : "text-t-fill", 14, accent)
             };
-            if (isForeground)
-            {
-                button.Content = new TextBlock
-                {
-                    Text = "A",
-                    FontWeight = FontWeights.Bold,
-                    Foreground = new SolidColorBrush(Color.FromRgb(0xC0, 0x39, 0x2B))
-                };
-            }
-            else
-            {
-                button.Content = new Border
-                {
-                    Background = new SolidColorBrush(Color.FromRgb(0xFF, 0xF3, 0xA3)),
-                    CornerRadius = new CornerRadius(2),
-                    Padding = new Thickness(3, 0, 3, 0),
-                    Child = new TextBlock { Text = "A", Foreground = Brushes.Black }
-                };
-            }
-
-            var menu = new ContextMenu { Placement = PlacementMode.Bottom };
-            if (isForeground)
-            {
-                AddColorEntry(menu, "Automatique", null, true);
-                foreach (var hex in new[] { "#C0392B", "#E67E22", "#C9A227", "#27AE60",
-                    "#16A085", "#2980B9", "#5B67D8", "#8E44AD", "#7F8C8D", "#703C2F" })
-                    AddColorEntry(menu, hex, hex, true);
-            }
-            else
-            {
-                AddColorEntry(menu, "Aucun", null, false);
-                foreach (var hex in new[] { "#FFF3A3", "#FFD9A8", "#D3F8D3", "#D0E8FF",
-                    "#FFD6E7", "#E5D4FF", "#E8E8E8" })
-                    AddColorEntry(menu, hex, hex, false);
-            }
-            menu.PlacementTarget = button;
+            var menu = new ContextMenu { Placement = PlacementMode.Bottom, PlacementTarget = button };
             button.ContextMenu = menu;
-            button.Click += delegate { menu.IsOpen = true; };
+            button.Click += delegate
+            {
+                BuildPaletteMenu(menu, isForeground); // custom colors live per project
+                menu.IsOpen = true;
+            };
             return button;
+        }
+
+        /// <summary>Rebuilt at each opening: the project's custom colors first,
+        /// then « Nouvelle couleur… », then the standard palette.</summary>
+        private void BuildPaletteMenu(ContextMenu menu, bool isForeground)
+        {
+            menu.Items.Clear();
+            AddColorEntry(menu, isForeground ? "Automatique" : "Aucun", null, isForeground);
+
+            if (_project != null && _project.CustomColors.Count > 0)
+            {
+                menu.Items.Add(new Separator());
+                foreach (var hex in _project.CustomColors)
+                    AddColorEntry(menu, hex, hex, isForeground);
+            }
+            var custom = new MenuItem { Header = "Nouvelle couleur…" };
+            custom.Click += delegate
+            {
+                var hex = ColorDialog.Ask(Window.GetWindow(this));
+                if (hex == null || _project == null) return;
+                if (!_project.CustomColors.Contains(hex))
+                {
+                    _project.CustomColors.Insert(0, hex);
+                    NotifyEdited(); // le projet a changé
+                }
+                ApplyPaletteColor(hex, isForeground);
+            };
+            menu.Items.Add(custom);
+            menu.Items.Add(new Separator());
+
+            var standard = isForeground
+                ? new[] { "#C0392B", "#E67E22", "#C9A227", "#27AE60",
+                    "#16A085", "#2980B9", "#5B67D8", "#8E44AD", "#7F8C8D", "#703C2F" }
+                : new[] { "#FFF3A3", "#FFD9A8", "#D3F8D3", "#D0E8FF",
+                    "#FFD6E7", "#E5D4FF", "#E8E8E8" };
+            foreach (var hex in standard)
+                AddColorEntry(menu, hex, hex, isForeground);
+        }
+
+        private void ApplyPaletteColor(string hex, bool isForeground)
+        {
+            if (ComposedActive)
+            {
+                if (isForeground) _composed.ApplyColor(hex);
+                else _composed.ApplyHighlight(hex);
+                _composed.Focus();
+                return;
+            }
+            if (isForeground)
+                _box.Selection.ApplyPropertyValue(TextElement.ForegroundProperty,
+                    hex == null ? (Brush)Chrome.Ink : new SolidColorBrush(FlowConverter.ParseColor(hex)));
+            else
+                _box.Selection.ApplyPropertyValue(TextElement.BackgroundProperty,
+                    hex == null ? null : new SolidColorBrush(FlowConverter.ParseColor(hex)));
+            AfterFormat();
         }
 
         private void AddColorEntry(ContextMenu menu, string label, string hex, bool isForeground)
@@ -253,16 +933,7 @@ namespace UniversSale.View
                     BorderBrush = Chrome.Border,
                     BorderThickness = new Thickness(1)
                 };
-            entry.Click += delegate
-            {
-                if (isForeground)
-                    _box.Selection.ApplyPropertyValue(TextElement.ForegroundProperty,
-                        hex == null ? (Brush)Chrome.Ink : new SolidColorBrush(FlowConverter.ParseColor(hex)));
-                else
-                    _box.Selection.ApplyPropertyValue(TextElement.BackgroundProperty,
-                        hex == null ? null : new SolidColorBrush(FlowConverter.ParseColor(hex)));
-                AfterFormat();
-            };
+            entry.Click += delegate { ApplyPaletteColor(hex, isForeground); };
             menu.Items.Add(entry);
         }
 
@@ -377,23 +1048,795 @@ namespace UniversSale.View
                 Foreground = Chrome.Ink,
                 CaretBrush = Chrome.Ink,
                 AcceptsTab = true,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                // The sheet grows with its content; scrolling belongs to the
+                // outer viewer so the page keeps its physical size on screen.
+                VerticalScrollBarVisibility = ScrollBarVisibility.Hidden
             };
-            _box.TextChanged += delegate { if (!_loading) NotifyEdited(); };
-            _box.SelectionChanged += delegate { SyncToolbar(); };
+            // The native selection highlight paints one continuous band across
+            // paragraph margins — over our page gaps. We draw it ourselves,
+            // line by line, under the text (Word look), and it survives focus
+            // moves to the toolbars.
+            _box.SelectionBrush = Brushes.Transparent;
+            _box.IsInactiveSelectionHighlightEnabled = true;
+
+            _box.TextChanged += delegate
+            {
+                // _paginating: the engine's own margin pushes must neither dirty
+                // the project nor reschedule themselves.
+                if (_loading || _paginating) return;
+                NotifyEdited();
+                ScheduleMarks();
+            };
+            _box.SelectionChanged += delegate
+            {
+                SyncToolbar();
+                if (!_loading)
+                {
+                    UpdateClassicCaret(); // our caret — the native one is unmirrored
+                    EnsureCaretVisible();
+                    RaisePageInfo();
+                    ScheduleOverlay(); // redraw the hand-drawn selection
+                }
+            };
             _box.PreviewMouseLeftButtonDown += OnEditorMouseDown;
 
-            var page = new Border
+            _sheets = new Canvas { IsHitTestVisible = false };
+            _pageMarks = new Canvas { IsHitTestVisible = false };
+            _classicCaret = new System.Windows.Shapes.Rectangle
+            {
+                Width = 1.4,
+                Fill = Chrome.Ink,
+                Visibility = Visibility.Collapsed
+            };
+            _pageMarks.Children.Add(_classicCaret);
+            _pageHost = new Grid { Width = new PageSetup().PageWidthPx };
+            _pageHost.Children.Add(_sheets); // selection under the text
+            _pageHost.Children.Add(_box);
+            _pageHost.Children.Add(_pageMarks);
+
+            // Hidden measuring host: rendered (the VisualBrush needs it) but
+            // clipped to nothing. A Canvas gives the host free height.
+            var measure = new Canvas();
+            measure.Children.Add(_pageHost);
+            var hiddenClip = new Border
+            {
+                Width = 0,
+                Height = 0,
+                ClipToBounds = true,
+                Child = measure
+            };
+            // The hidden editor must never hijack the scroll viewer: its own
+            // bring-into-view requests (caret moves, focus) are swallowed —
+            // EnsureCaretVisible scrolls to the PAGE carrying the caret.
+            hiddenClip.RequestBringIntoView += delegate(object sender, RequestBringIntoViewEventArgs e)
+            {
+                e.Handled = true;
+            };
+
+            _mirror = new StackPanel();
+            _page = new Border
+            {
+                Background = Brushes.Transparent,
+                Margin = new Thickness(24, 20, 24, 20),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top,
+                Child = _mirror
+            };
+            var surface = new Grid();
+            surface.Children.Add(hiddenClip);
+            surface.Children.Add(_page);
+            _scroller = new ScrollViewer
+            {
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Background = Brushes.Transparent,
+                Content = surface
+            };
+
+            _classicBlink = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(530) };
+            _classicBlink.Tick += delegate
+            {
+                if (_item == null || !_box.IsKeyboardFocused)
+                { _classicCaret.Visibility = Visibility.Collapsed; return; }
+                _classicCaret.Visibility = _classicCaret.Visibility == Visibility.Visible
+                    ? Visibility.Hidden : Visibility.Visible;
+            };
+            _classicBlink.Start();
+            _scroller.ScrollChanged += delegate(object sender, ScrollChangedEventArgs e)
+            {
+                // ¶ marks, line numbers and the hand-drawn selection are
+                // viewport-limited: fast redraw (no repagination) after moves.
+                if ((_showMarks || _pageSetup.LineNumbers || !_box.Selection.IsEmpty)
+                    && Math.Abs(e.VerticalChange) > 0.5)
+                    ScheduleOverlay();
+            };
+            _composed = new ComposedView { Visibility = Visibility.Collapsed };
+            _composed.ExitRequested += delegate { SetComposition(false); };
+            _composed.Edited += delegate { NotifyEdited(); };
+            _composed.LinkClicked += delegate(string title)
+            {
+                var handler = LinkClicked;
+                if (handler != null) handler(title);
+            };
+            _composed.PageInfoChanged += delegate(int page, int total)
+            {
+                var handler = PageInfoChanged;
+                if (handler != null && _item != null) handler(page, total);
+            };
+
+            var centerHost = new Grid();
+            centerHost.Children.Add(_scroller);
+            centerHost.Children.Add(_composed);
+            Children.Add(centerHost); // last child fills the remaining space
+
+            _marksTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            _marksTimer.Tick += delegate { _marksTimer.Stop(); UpdatePagination(); };
+            _overlayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+            _overlayTimer.Tick += delegate { _overlayTimer.Stop(); RefreshOverlay(); };
+
+            PreviewMouseWheel += delegate(object sender, MouseWheelEventArgs e)
+            {
+                if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
+                e.Handled = true;
+                var handler = ZoomStepRequested;
+                if (handler != null) handler(e.Delta > 0 ? 10 : -10);
+            };
+        }
+
+        /// <summary>Zoom factor of the page surface (1.0 = 100 %).</summary>
+        public void SetZoom(double factor)
+        {
+            _zoom = Math.Max(0.5, Math.Min(3.0, factor));
+            _page.LayoutTransform = Math.Abs(_zoom - 1.0) < 0.001
+                ? null : new ScaleTransform(_zoom, _zoom);
+            if (_composed != null) _composed.SetZoom(_zoom);
+            ScheduleOverlay(); // marks & line numbers follow the new viewport
+        }
+
+        private void ScheduleMarks()
+        {
+            _marksTimer.Stop();
+            _marksTimer.Start();
+        }
+
+        private void ScheduleOverlay()
+        {
+            _overlayTimer.Stop();
+            _overlayTimer.Start();
+        }
+
+        /// <summary>The pagination engine. Word model, paragraph granularity:
+        /// a paragraph that no longer fits on the current page is pushed to the
+        /// next one by a presentation margin (paused undo — see UndoGate), so
+        /// every page carries its own top/bottom margins and the sheets are
+        /// truly separate. A paragraph taller than a page stretches its page
+        /// (line-level splitting is the 4b refinement). One extra verification
+        /// pass runs after the relayout; the algorithm is stable because
+        /// vertical margins never change line wrapping.</summary>
+        /// <summary>The paged mirror's pagination: walks the laid-out lines of
+        /// the CONTINUOUS RichTextBox and cuts page slices between them — a
+        /// line that no longer fits opens the next page, manual breaks force
+        /// one. No document mutation at all: the pages are pure presentation
+        /// (VisualBrush slices), so undo/redo stay native and no hole can ever
+        /// appear at a page bottom.</summary>
+        private void UpdatePagination()
+        {
+            if (_pageMarks == null || _paginating || _pageHost == null) return;
+            _paginating = true;
+            try
+            {
+                var setup = _pageSetup;
+                var pageHeight = setup.PageHeightMm * PageSetup.PxPerMm;
+                var top = setup.MarginTopMm * PageSetup.PxPerMm;
+                var bottom = setup.MarginBottomMm * PageSetup.PxPerMm;
+                var contentHeight = pageHeight - top - bottom;
+                if (contentHeight < 60) return;
+
+                _sliceTops.Clear();
+                _sliceHeights.Clear();
+                var sliceTop = top;
+                double lastBottom = top;
+
+                if (_item != null && _box.Document != null)
+                {
+                    try
+                    {
+                        var line = _box.Document.ContentStart
+                            .GetInsertionPosition(LogicalDirection.Forward);
+                        var start = line.GetLineStartPosition(0);
+                        if (start != null) line = start;
+                        var guard = 0;
+                        while (line != null && guard++ < 100000)
+                        {
+                            var rect = line.GetCharacterRect(LogicalDirection.Forward);
+                            if (!rect.IsEmpty)
+                            {
+                                var forced = IsForcedBreakLine(line, rect);
+                                if ((rect.Bottom > sliceTop + contentHeight + 0.5 || forced)
+                                    && rect.Top > sliceTop + 0.5)
+                                {
+                                    _sliceTops.Add(sliceTop);
+                                    _sliceHeights.Add(Math.Max(8, lastBottom - sliceTop));
+                                    sliceTop = rect.Top;
+                                }
+                                lastBottom = Math.Max(lastBottom, rect.Bottom);
+                            }
+                            var next = line.GetLineStartPosition(1);
+                            if (next == null || next.CompareTo(line) <= 0) break;
+                            line = next;
+                        }
+                    }
+                    catch { return; } // layout not ready: the debounce returns
+                }
+                _sliceTops.Add(sliceTop);
+                _sliceHeights.Add(Math.Max(8, Math.Max(lastBottom - sliceTop, 12)));
+
+                _pageHost.Width = setup.PageWidthPx;
+                _pageHost.MinHeight = lastBottom + bottom;
+                RebuildMirror();
+                RefreshOverlay();
+                RaisePageInfo();
+            }
+            finally
+            {
+                _paginating = false;
+            }
+        }
+
+        /// <summary>True when this line is the first of a paragraph carrying a
+        /// manual page break.</summary>
+        private static bool IsForcedBreakLine(TextPointer line, Rect rect)
+        {
+            var paragraph = line.Paragraph;
+            if (paragraph == null || !paragraph.BreakPageBefore) return false;
+            var first = paragraph.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+            return !first.IsEmpty && Math.Abs(first.Top - rect.Top) < 1.5;
+        }
+
+        /// <summary>Builds/updates the visible page frames, each mirroring its
+        /// slice of the hidden continuous surface.</summary>
+        private void RebuildMirror()
+        {
+            var setup = _pageSetup;
+            var pageWidth = setup.PageWidthPx;
+            var pageHeight = setup.PageHeightMm * PageSetup.PxPerMm;
+            var top = setup.MarginTopMm * PageSetup.PxPerMm;
+            var bottom = setup.MarginBottomMm * PageSetup.PxPerMm;
+            var left = setup.MarginLeftMm * PageSetup.PxPerMm;
+            var right = setup.MarginRightMm * PageSetup.PxPerMm;
+
+            while (_mirror.Children.Count > _sliceTops.Count)
+                _mirror.Children.RemoveAt(_mirror.Children.Count - 1);
+            while (_mirror.Children.Count < _sliceTops.Count)
+                _mirror.Children.Add(BuildMirrorFrame(_mirror.Children.Count));
+
+            for (var k = 0; k < _sliceTops.Count; k++)
+            {
+                var frame = (Border)_mirror.Children[k];
+                frame.Width = pageWidth;
+                frame.Height = pageHeight;
+                frame.Margin = new Thickness(0, k == 0 ? 0 : PageGap, 0, 0);
+                var grid = (Grid)frame.Child;
+                var slice = (System.Windows.Shapes.Rectangle)grid.Children[0];
+                var guides = (System.Windows.Shapes.Rectangle)grid.Children[1];
+                var folio = (TextBlock)grid.Children[2];
+
+                slice.Width = pageWidth;
+                slice.Height = Math.Min(_sliceHeights[k], pageHeight - top - 2);
+                slice.Margin = new Thickness(0, top, 0, 0);
+                var brush = slice.Fill as VisualBrush;
+                if (brush == null)
+                {
+                    brush = new VisualBrush(_pageHost)
+                    {
+                        ViewboxUnits = BrushMappingMode.Absolute,
+                        Stretch = Stretch.None,
+                        AlignmentX = AlignmentX.Left,
+                        AlignmentY = AlignmentY.Top
+                    };
+                    slice.Fill = brush;
+                }
+                brush.Viewbox = new Rect(0, _sliceTops[k], pageWidth,
+                    Math.Max(8, slice.Height));
+
+                guides.Visibility = setup.ShowMarginGuides ? Visibility.Visible : Visibility.Collapsed;
+                guides.Margin = new Thickness(left, top, right, bottom);
+
+                folio.Visibility = setup.FooterPageNumbers ? Visibility.Visible : Visibility.Collapsed;
+                folio.Text = (k + 1).ToString();
+                folio.FontFamily = new FontFamily(setup.FooterFont ?? "Times New Roman");
+                folio.Margin = new Thickness(0, 0, 0, Math.Max(2, bottom / 2 - 8));
+            }
+        }
+
+        private Border BuildMirrorFrame(int index)
+        {
+            var slice = new System.Windows.Shapes.Rectangle
+            {
+                VerticalAlignment = VerticalAlignment.Top,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                SnapsToDevicePixels = true
+            };
+            var guides = new System.Windows.Shapes.Rectangle
+            {
+                Stroke = Chrome.Border,
+                StrokeThickness = 1,
+                StrokeDashArray = new DoubleCollection(new double[] { 3, 4 }),
+                IsHitTestVisible = false,
+                SnapsToDevicePixels = true
+            };
+            var folio = new TextBlock
+            {
+                FontSize = 11,
+                Foreground = Chrome.SoftText,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                IsHitTestVisible = false
+            };
+            var grid = new Grid();
+            grid.Children.Add(slice);
+            grid.Children.Add(guides);
+            grid.Children.Add(folio);
+            var frame = new Border
             {
                 Background = Chrome.PaperBg,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(6),
-                MaxWidth = 900,
-                Margin = new Thickness(24, 20, 24, 20),
-                Child = _box
+                Child = grid
             };
-            Children.Add(page); // last child fills the remaining space
+            WireMirrorInput(frame, slice);
+            return frame;
+        }
+
+        /// <summary>Forwards mouse gestures from a page frame to the hidden
+        /// continuous editor (caret, drag selection, double-click word).</summary>
+        private void WireMirrorInput(Border frame, System.Windows.Shapes.Rectangle slice)
+        {
+            frame.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (_item == null) return;
+                var index = _mirror.Children.IndexOf(frame);
+                if (index < 0 || index >= _sliceTops.Count) return;
+                var position = SourcePosition(e.GetPosition(slice), index);
+                if (position == null) return;
+                _box.Focus();
+                if (e.ClickCount == 2)
+                {
+                    SelectWordAtPointer(position);
+                }
+                else if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+                {
+                    _box.Selection.Select(_mirrorAnchor ?? _box.Selection.Start, position);
+                }
+                else
+                {
+                    _mirrorAnchor = position;
+                    _box.Selection.Select(position, position);
+                }
+                frame.CaptureMouse();
+                e.Handled = true;
+            };
+            frame.MouseMove += delegate(object sender, MouseEventArgs e)
+            {
+                if (!frame.IsMouseCaptured || e.LeftButton != MouseButtonState.Pressed) return;
+                var index = _mirror.Children.IndexOf(frame);
+                if (index < 0 || index >= _sliceTops.Count) return;
+                var position = SourcePosition(e.GetPosition(slice), index);
+                if (position != null && _mirrorAnchor != null)
+                    _box.Selection.Select(_mirrorAnchor, position);
+            };
+            frame.MouseLeftButtonUp += delegate { frame.ReleaseMouseCapture(); };
+        }
+
+        private TextPointer SourcePosition(Point local, int sliceIndex)
+        {
+            try
+            {
+                var source = new Point(local.X, _sliceTops[sliceIndex] + local.Y);
+                return _box.GetPositionFromPoint(source, true);
+            }
+            catch { return null; }
+        }
+
+        private void SelectWordAtPointer(TextPointer position)
+        {
+            var start = position;
+            var end = position;
+            while (true)
+            {
+                var previous = start.GetNextInsertionPosition(LogicalDirection.Backward);
+                if (previous == null) break;
+                var range = new TextRange(previous, start);
+                if (range.Text.Length != 1 || !char.IsLetterOrDigit(range.Text[0])) break;
+                start = previous;
+            }
+            while (true)
+            {
+                var next = end.GetNextInsertionPosition(LogicalDirection.Forward);
+                if (next == null) break;
+                var range = new TextRange(end, next);
+                if (range.Text.Length != 1 || !char.IsLetterOrDigit(range.Text[0])) break;
+                end = next;
+            }
+            _box.Selection.Select(start, end);
+        }
+
+        /// <summary>Our own caret in the mirrored layer — the RichTextBox's
+        /// native caret lives in the adorner layer, which VisualBrush does not
+        /// reflect.</summary>
+        private void UpdateClassicCaret()
+        {
+            if (_item == null || ComposedActive)
+            {
+                _classicCaret.Visibility = Visibility.Collapsed;
+                return;
+            }
+            try
+            {
+                var rect = _box.CaretPosition.GetCharacterRect(LogicalDirection.Forward);
+                if (rect.IsEmpty) { _classicCaret.Visibility = Visibility.Collapsed; return; }
+                Canvas.SetLeft(_classicCaret, rect.X);
+                Canvas.SetTop(_classicCaret, rect.Top + 1);
+                _classicCaret.Height = Math.Max(8, rect.Height - 2);
+                _classicCaret.Visibility = _box.IsKeyboardFocused
+                    ? Visibility.Visible : Visibility.Collapsed;
+            }
+            catch { }
+        }
+
+        /// <summary>Fast redraw of everything painted around the text: sheets,
+        /// margin guides, folios, line numbers, ¶ marks. Never re-measures the
+        /// pagination itself.</summary>
+        private void RefreshOverlay()
+        {
+            if (_pageMarks == null || _sliceTops.Count == 0) return;
+            for (var i = _sheets.Children.Count - 1; i >= 0; i--) _sheets.Children.RemoveAt(i);
+            for (var i = _pageMarks.Children.Count - 1; i >= 0; i--)
+                if (!ReferenceEquals(_pageMarks.Children[i], _classicCaret))
+                    _pageMarks.Children.RemoveAt(i);
+            UpdateClassicCaret();
+            DrawSelection(); // under the text, mirrored into the pages
+            if (_pageSetup.LineNumbers) DrawLineNumbers();
+            if (_showMarks) DrawFormattingMarks();
+        }
+
+        /// <summary>Word-style selection: one rectangle per selected line,
+        /// drawn beneath the text and inside the page text blocks (line boxes
+        /// never live in the inter-page gaps), viewport-limited. Being ours,
+        /// it stays visible when focus moves to a toolbar or a tab.</summary>
+        private void DrawSelection()
+        {
+            if (_item == null) return;
+            var selection = _box.Selection;
+            if (selection == null || selection.IsEmpty) return;
+            double viewTop, viewBottom;
+            ViewportBounds(out viewTop, out viewBottom);
+
+            var brush = new SolidColorBrush(SystemColors.HighlightColor) { Opacity = 0.45 };
+            brush.Freeze();
+            var start = selection.Start;
+            var end = selection.End;
+            try
+            {
+                var line = start.GetLineStartPosition(0) ?? start;
+                // Jump ahead when the selection begins far above the viewport.
+                var probe = _box.GetPositionFromPoint(new Point(5, Math.Max(0, viewTop)), true);
+                if (probe != null && probe.CompareTo(start) > 0)
+                    line = probe.GetLineStartPosition(0) ?? probe;
+
+                var guard = 0;
+                while (line != null && guard++ < 3000)
+                {
+                    if (line.CompareTo(end) > 0) break;
+                    var next = line.GetLineStartPosition(1);
+                    // Last position ON this line: one insertion position back
+                    // from the next line's start (its start itself measures on
+                    // the following line and would produce sliver rectangles).
+                    var lineEnd = next != null
+                        ? (next.GetNextInsertionPosition(LogicalDirection.Backward) ?? next)
+                        : end;
+                    if (lineEnd.CompareTo(line) < 0) lineEnd = next ?? end;
+
+                    var segmentStart = start.CompareTo(line) > 0 ? start : line;
+                    var segmentEnd = end.CompareTo(lineEnd) < 0 ? end : lineEnd;
+                    // <=: an empty selected line still shows its newline sliver.
+                    if (segmentStart.CompareTo(segmentEnd) <= 0)
+                    {
+                        var r1 = segmentStart.GetCharacterRect(LogicalDirection.Forward);
+                        var r2 = segmentEnd.GetCharacterRect(LogicalDirection.Backward);
+                        if (!r1.IsEmpty && !r2.IsEmpty)
+                        {
+                            if (r1.Top > viewBottom) break;
+                            if (r2.Bottom >= viewTop)
+                            {
+                                // Selection running past the line end shows the
+                                // newline, Word-style.
+                                var extend = end.CompareTo(lineEnd) >= 0 && next != null ? 5 : 0;
+                                var rect = new System.Windows.Shapes.Rectangle
+                                {
+                                    Width = Math.Max(2, r2.Right - r1.X + extend),
+                                    Height = Math.Max(2, Math.Max(r1.Height, r2.Bottom - r1.Top)),
+                                    Fill = brush
+                                };
+                                Canvas.SetLeft(rect, r1.X);
+                                Canvas.SetTop(rect, Math.Min(r1.Top, r2.Top));
+                                _sheets.Children.Add(rect);
+                            }
+                        }
+                    }
+                    if (next == null) break;
+                    line = next;
+                }
+            }
+            catch { } // layout raced an edit: the next overlay pass redraws
+        }
+
+        /// <summary>Line numbers in the left margin, restarting on each page
+        /// (matches the docx export), drawn for the visible pages only.</summary>
+        private void DrawLineNumbers()
+        {
+            if (_item == null) return;
+            var setup = _pageSetup;
+            var top = setup.MarginTopMm * PageSetup.PxPerMm;
+            var bottom = setup.MarginBottomMm * PageSetup.PxPerMm;
+            var left = setup.MarginLeftMm * PageSetup.PxPerMm;
+            double viewTop, viewBottom;
+            ViewportBounds(out viewTop, out viewBottom);
+
+            try
+            {
+                for (var k = 0; k < _sliceTops.Count; k++)
+                {
+                    var contentTop = _sliceTops[k];
+                    var contentBottom = _sliceTops[k] + _sliceHeights[k];
+                    if (contentBottom < viewTop || contentTop > viewBottom) continue;
+
+                    var pointer = _box.GetPositionFromPoint(new Point(left + 2, contentTop + 2), true);
+                    if (pointer == null) continue;
+                    var line = pointer.GetLineStartPosition(0) ?? pointer;
+                    var number = 0;
+                    while (line != null)
+                    {
+                        var rect = line.GetCharacterRect(LogicalDirection.Forward);
+                        if (rect.IsEmpty) break;
+                        if (rect.Top > contentBottom - 1 || rect.Top > viewBottom) break;
+                        number++;
+                        if (rect.Bottom >= viewTop && rect.Top >= contentTop - 1)
+                        {
+                            // Right-aligned column, vertically centered on its
+                            // line so counting reads at a glance.
+                            var label = new TextBlock
+                            {
+                                Text = number.ToString(),
+                                FontSize = 9,
+                                Foreground = Chrome.SoftText,
+                                Width = 26,
+                                TextAlignment = TextAlignment.Right
+                            };
+                            Canvas.SetLeft(label, Math.Max(2, left - 34));
+                            Canvas.SetTop(label, rect.Top + Math.Max(0, (rect.Height - 12) / 2));
+                            _pageMarks.Children.Add(label);
+                        }
+                        var next = line.GetLineStartPosition(1);
+                        if (next == null || next.CompareTo(line) <= 0) break;
+                        line = next;
+                    }
+                }
+            }
+            catch { } // layout raced an edit: the next overlay pass redraws
+        }
+
+        /// <summary>Visible SOURCE range (hidden-surface coordinates): the
+        /// union of the slices whose page frames intersect the viewport.</summary>
+        private void ViewportBounds(out double viewTop, out double viewBottom)
+        {
+            var zoom = Math.Max(0.1, _zoom);
+            var pageHeight = _pageSetup.PageHeightMm * PageSetup.PxPerMm;
+            var stride = pageHeight + PageGap;
+            var offset = (_scroller.VerticalOffset - _page.Margin.Top * zoom) / zoom;
+            var first = Math.Max(0, Math.Min(_sliceTops.Count - 1, (int)(offset / stride)));
+            var last = Math.Max(first, Math.Min(_sliceTops.Count - 1,
+                (int)((offset + _scroller.ViewportHeight / zoom) / stride)));
+            if (_sliceTops.Count == 0) { viewTop = 0; viewBottom = 0; return; }
+            viewTop = _sliceTops[first] - 20;
+            viewBottom = _sliceTops[last] + _sliceHeights[last] + 40;
+        }
+
+        /// <summary>The caret's page (1-based) from the slice table.</summary>
+        private int CaretPage()
+        {
+            try
+            {
+                var rect = _box.CaretPosition.GetCharacterRect(LogicalDirection.Forward);
+                if (rect.IsEmpty) return 1;
+                var page = 1;
+                for (var k = 0; k < _sliceTops.Count; k++)
+                    if (rect.Top >= _sliceTops[k] - 0.5) page = k + 1;
+                return page;
+            }
+            catch { }
+            return Math.Max(1, _sliceTops.Count);
+        }
+
+        private void RaisePageInfo()
+        {
+            var handler = PageInfoChanged;
+            if (handler != null && _item != null)
+                handler(CaretPage(), Math.Max(1, _sliceTops.Count));
+        }
+
+        // ============================================================= ¶ formatting marks
+
+        /// <summary>Draws the printing characters (¶ end of paragraph, · space,
+        /// ° non-breaking space, → tab, ↵ line break), viewport-limited so big
+        /// chapters stay fluid.</summary>
+        private void DrawFormattingMarks()
+        {
+            if (!_showMarks || _item == null) return;
+            double viewTop, viewBottom;
+            ViewportBounds(out viewTop, out viewBottom);
+
+            try
+            {
+                foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
+                {
+                    var startRect = paragraph.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+                    if (startRect.IsEmpty || startRect.Top > viewBottom) break;
+                    var endRect = paragraph.ContentEnd.GetCharacterRect(LogicalDirection.Backward);
+                    if (endRect.IsEmpty || endRect.Bottom < viewTop) continue;
+
+                    AddMark("¶", endRect.Right + 1, endRect.Top, endRect.Height);
+                    DrawInlineMarks(paragraph.Inlines, viewTop, viewBottom);
+                }
+            }
+            catch { } // layout raced an edit: next debounce redraws
+        }
+
+        private void DrawInlineMarks(InlineCollection inlines, double viewTop, double viewBottom)
+        {
+            foreach (var inline in inlines)
+            {
+                var lineBreak = inline as LineBreak;
+                if (lineBreak != null)
+                {
+                    var rect = lineBreak.ElementStart.GetCharacterRect(LogicalDirection.Forward);
+                    if (!rect.IsEmpty && rect.Bottom >= viewTop && rect.Top <= viewBottom)
+                        AddMark("↵", rect.Right + 1, rect.Top, rect.Height);
+                    continue;
+                }
+                var run = inline as Run;
+                if (run != null)
+                {
+                    var text = run.Text;
+                    if (text.IndexOf(' ') < 0 && text.IndexOf('\u00A0') < 0 && text.IndexOf('\t') < 0)
+                        continue;
+                    for (var i = 0; i < text.Length; i++)
+                    {
+                        var c = text[i];
+                        if (c != ' ' && c != '\u00A0' && c != '\t') continue;
+                        var pointer = run.ContentStart.GetPositionAtOffset(i);
+                        if (pointer == null) continue;
+                        var rect = pointer.GetCharacterRect(LogicalDirection.Forward);
+                        if (rect.IsEmpty || rect.Bottom < viewTop) continue;
+                        if (rect.Top > viewBottom) return;
+                        if (c == ' ')
+                            AddMark("·", rect.X + 0.5, rect.Top, rect.Height);
+                        else if (c == '\u00A0')
+                            AddMark("°", rect.X, rect.Top, rect.Height);
+                        else
+                            AddMark("→", rect.X + 1, rect.Top, rect.Height);
+                    }
+                    continue;
+                }
+                var span = inline as Span;
+                if (span != null) DrawInlineMarks(span.Inlines, viewTop, viewBottom);
+            }
+        }
+
+        private void AddMark(string glyph, double x, double y, double lineHeight)
+        {
+            var mark = new TextBlock
+            {
+                Text = glyph,
+                FontSize = Math.Max(8, Math.Min(13, lineHeight * 0.62)),
+                // Accent ink: clearly visible, clearly not body text.
+                Foreground = Chrome.Accent
+            };
+            Canvas.SetLeft(mark, x);
+            Canvas.SetTop(mark, y + lineHeight * 0.12);
+            _pageMarks.Children.Add(mark);
+        }
+
+        /// <summary>Keeps the caret in view: source coordinates are mapped to
+        /// the page frame carrying the caret's slice.</summary>
+        private void EnsureCaretVisible()
+        {
+            if (_scroller == null || _item == null || _sliceTops.Count == 0) return;
+            try
+            {
+                var rect = _box.CaretPosition.GetCharacterRect(LogicalDirection.Forward);
+                if (rect.IsEmpty) return;
+                var slice = 0;
+                for (var k = 0; k < _sliceTops.Count; k++)
+                    if (rect.Top >= _sliceTops[k] - 0.5) slice = k;
+                var setup = _pageSetup;
+                var pageHeight = setup.PageHeightMm * PageSetup.PxPerMm;
+                var top = setup.MarginTopMm * PageSetup.PxPerMm;
+                var zoom = Math.Max(0.1, _zoom);
+                var screenTop = (_page.Margin.Top + slice * (pageHeight + PageGap)
+                    + top + (rect.Top - _sliceTops[slice])) * zoom;
+                var screenBottom = screenTop + rect.Height * zoom;
+                if (screenTop < _scroller.VerticalOffset + 8)
+                    _scroller.ScrollToVerticalOffset(Math.Max(0, screenTop - 60));
+                else if (screenBottom > _scroller.VerticalOffset + _scroller.ViewportHeight - 8)
+                    _scroller.ScrollToVerticalOffset(screenBottom - _scroller.ViewportHeight + 60);
+            }
+            catch { }
+        }
+
+        // ============================================================= page setup
+
+        /// <summary>Applies the project's page setup to the editing surface:
+        /// paper width, real margins, optional margin guides, hyphenation.</summary>
+        public void ApplyPageSetup(PageSetup setup)
+        {
+            if (setup != null) _pageSetup = setup;
+            ApplyPageVisuals();
+            if (ComposedActive) _composed.RefreshComposition();
+        }
+
+        private void ApplyPageVisuals()
+        {
+            var setup = _pageSetup;
+            _pageHost.Width = Math.Max(200, setup.PageWidthPx);
+            var margins = new Thickness(
+                setup.MarginLeftMm * PageSetup.PxPerMm,
+                setup.MarginTopMm * PageSetup.PxPerMm,
+                setup.MarginRightMm * PageSetup.PxPerMm,
+                setup.MarginBottomMm * PageSetup.PxPerMm);
+            var flow = _box.Document;
+            if (flow != null)
+            {
+                flow.PagePadding = margins;
+                flow.IsHyphenationEnabled = setup.Hyphenation;
+                if (setup.Columns > 1)
+                {
+                    // Honored by print/export; WPF's RichTextBox itself always
+                    // renders a single column.
+                    flow.ColumnGap = 20;
+                    flow.ColumnWidth = Math.Max(60,
+                        (setup.ContentWidthPx - (setup.Columns - 1) * 20) / setup.Columns);
+                }
+                else
+                    flow.ColumnWidth = double.PositiveInfinity;
+
+                // The RichTextBox silently coerces PagePadding to (5,0,5,0)
+                // during its own layout pass (probed) — the cause of "text
+                // glued to the edges". Re-assert once layout settled, then
+                // paginate right away: no debounce lag on load or page-setup
+                // changes, the flash of unformatted text stays subliminal.
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(delegate
+                {
+                    if (_box.Document != flow) return;
+                    flow.PagePadding = margins;
+                    Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
+                        new Action(UpdatePagination));
+                }));
+            }
+            _pageHost.MinHeight = setup.PageHeightMm * PageSetup.PxPerMm;
+            SyncPageTab();
+        }
+
+        /// <summary>Toggles a manual page break above the caret's paragraph.</summary>
+        public void InsertPageBreak()
+        {
+            if (_item == null) return;
+            if (ComposedActive) { _composed.TogglePageBreak(); return; }
+            var paragraph = _box.CaretPosition.Paragraph;
+            if (paragraph == null) return;
+            FlowConverter.MarkPageBreak(paragraph, !paragraph.BreakPageBefore);
+            NotifyEdited();
+            _box.Focus();
         }
 
         // ============================================================= item lifecycle
@@ -404,32 +1847,60 @@ namespace UniversSale.View
             _syncing = true;
             _styleCombo.Items.Clear();
             foreach (var style in styles.Styles)
-                _styleCombo.Items.Add(new ComboBoxItem { Content = style.Name, Tag = style.Id });
+                _styleCombo.Items.Add(new ComboBoxItem
+                {
+                    // Each entry previews its style's font — nothing else.
+                    Content = new TextBlock
+                    {
+                        Text = style.Name,
+                        FontFamily = new FontFamily(style.FontFamily)
+                    },
+                    Tag = style.Id
+                });
             _syncing = false;
+        }
+
+        /// <summary>Binds the editor to the open project (image store).</summary>
+        public void SetProject(Project project)
+        {
+            _project = project;
         }
 
         public void LoadItem(BinderItem item)
         {
             _item = item;
             _loading = true;
-            _box.Document = FlowConverter.ToFlow(item.Document, _styles);
+            _appliedExtra.Clear(); // fresh document, fresh pagination
+            _box.Document = FlowConverter.ToFlow(item.Document, _styles, _project);
             _loading = false;
+            ApplyPageVisuals();
             RebuildNotesPanel();
             HideSearch();
+            // The composed pages are the default writing surface.
+            if (Settings.AppSettings.CompositionMode) SetComposition(true);
+            else if (ComposedActive) SetComposition(false);
         }
 
         /// <summary>Flushes the FlowDocument back into the pivot. Call before any
-        /// save, item switch or style-sheet edit.</summary>
+        /// save, item switch or style-sheet edit. In Composition mode the pivot
+        /// IS the live model — flushing the dormant RichTextBox would wipe the
+        /// composed edits, so it is skipped.</summary>
         public void Commit()
         {
-            if (_item == null) return;
-            _item.Document = FlowConverter.FromFlow(_box.Document, _styles, _item.Document.Footnotes);
+            if (_item == null || ComposedActive) return;
+            _item.Document = FlowConverter.FromFlow(_box.Document, _styles,
+                _item.Document.Footnotes, _project);
         }
 
         /// <summary>Re-renders the current item (after the style sheet changed).</summary>
         public void Reload()
         {
             if (_item == null) return;
+            if (ComposedActive)
+            {
+                _composed.Attach(_item, _styles, _pageSetup, _project); // recompose
+                return;
+            }
             Commit();
             LoadItem(_item);
         }
@@ -442,6 +1913,13 @@ namespace UniversSale.View
             _loading = true;
             _box.Document = new FlowDocument();
             _loading = false;
+            if (_composed != null)
+            {
+                _composed.Detach();
+                _composed.Visibility = Visibility.Collapsed;
+                _scroller.Visibility = Visibility.Visible;
+            }
+            ApplyPageVisuals();
             RebuildNotesPanel();
             HideSearch();
         }
@@ -458,7 +1936,8 @@ namespace UniversSale.View
                     var box = child as TextBox;
                     if (box != null && box.IsKeyboardFocused) return;
                 }
-            var ordered = FlowConverter.RenumberFootnotes(_box.Document);
+            var ordered = ComposedActive ? PivotFootnoteOrder()
+                : FlowConverter.RenumberFootnotes(_box.Document);
             var changed = ordered.Count != _notesList.Children.Count;
             if (!changed)
             {
@@ -482,9 +1961,31 @@ namespace UniversSale.View
             _box.Focus();
         }
 
+        /// <summary>Text undo/redo, claimed only when the writer is typing here
+        /// (keyboard focus inside the box). Lets the window's Ctrl+Z / Ctrl+Y
+        /// route to the text first and to the Binder history otherwise.</summary>
+        public bool TryUndo()
+        {
+            if (_item == null) return false;
+            if (ComposedActive) return _composed.Undo();
+            if (!_box.IsKeyboardFocusWithin || !_box.CanUndo) return false;
+            _box.Undo();
+            return true;
+        }
+
+        public bool TryRedo()
+        {
+            if (_item == null) return false;
+            if (ComposedActive) return _composed.Redo();
+            if (!_box.IsKeyboardFocusWithin || !_box.CanRedo) return false;
+            _box.Redo();
+            return true;
+        }
+
         public string PlainText()
         {
             if (_item == null) return "";
+            if (ComposedActive) return _item.Document.ToPlainText();
             return new TextRange(_box.Document.ContentStart, _box.Document.ContentEnd).Text;
         }
 
@@ -509,6 +2010,7 @@ namespace UniversSale.View
             var chosen = _styleCombo.SelectedItem as ComboBoxItem;
             if (chosen == null) return;
             var style = _styles.Find((string)chosen.Tag);
+            if (ComposedActive) { _composed.ApplyStyle(style.Id); _composed.Focus(); return; }
 
             var paragraph = _box.Selection.Start.Paragraph;
             var last = _box.Selection.End.Paragraph;
@@ -526,6 +2028,12 @@ namespace UniversSale.View
         private void OnFontComboChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_syncing || _item == null || _fontCombo.SelectedItem == null) return;
+            if (ComposedActive)
+            {
+                _composed.ApplyFont((string)_fontCombo.SelectedItem);
+                _composed.Focus();
+                return;
+            }
             _box.Selection.ApplyPropertyValue(TextElement.FontFamilyProperty,
                 new FontFamily((string)_fontCombo.SelectedItem));
             AfterFormat();
@@ -534,9 +2042,200 @@ namespace UniversSale.View
         private void OnSizeComboChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_syncing || _item == null || _sizeCombo.SelectedItem == null) return;
+            if (ComposedActive)
+            {
+                _composed.ApplySizePx((int)_sizeCombo.SelectedItem * 4.0 / 3.0);
+                _composed.Focus();
+                return;
+            }
             _box.Selection.ApplyPropertyValue(TextElement.FontSizeProperty,
-                (double)(int)_sizeCombo.SelectedItem);
+                (int)_sizeCombo.SelectedItem * 4.0 / 3.0); // pt -> px
             AfterFormat();
+        }
+
+        /// <summary>Checkbox "list": a text prefix, so it stays plain text in
+        /// every export. Cycles ☐ → ☑ → none on each selected paragraph.</summary>
+        private void ToggleChecklist()
+        {
+            if (_item == null) return;
+            var paragraph = _box.Selection.Start.Paragraph;
+            var last = _box.Selection.End.Paragraph;
+            while (paragraph != null)
+            {
+                ToggleCheckboxPrefix(paragraph);
+                if (paragraph == last) break;
+                Block next = paragraph.NextBlock;
+                while (next != null && !(next is Paragraph)) next = next.NextBlock;
+                paragraph = next as Paragraph;
+            }
+            AfterFormat();
+        }
+
+        private static void ToggleCheckboxPrefix(Paragraph paragraph)
+        {
+            Run run = null;
+            foreach (var inline in paragraph.Inlines)
+            {
+                var candidate = inline as Run;
+                if (candidate == null) break;
+                var tag = candidate.Tag as string;
+                if (tag != null && tag.StartsWith("fn:")) break; // never touch markers
+                run = candidate;
+                break;
+            }
+            if (run == null)
+            {
+                if (paragraph.Inlines.FirstInline == null)
+                    paragraph.Inlines.Add(new Run("☐ "));
+                else
+                    paragraph.Inlines.InsertBefore(paragraph.Inlines.FirstInline, new Run("☐ "));
+                return;
+            }
+            var text = run.Text;
+            if (text.StartsWith("☐", StringComparison.Ordinal))
+                run.Text = "☑" + text.Substring(1);
+            else if (text.StartsWith("☑", StringComparison.Ordinal))
+                run.Text = text.Substring(1).TrimStart(' ');
+            else
+                run.Text = "☐ " + text;
+        }
+
+        /// <summary>Inserts a horizontal rule on its own paragraph, below the
+        /// caret's one; the caret lands on a fresh paragraph after it.</summary>
+        public void InsertRule()
+        {
+            if (_item == null) return;
+            if (ComposedActive)
+            {
+                _composed.InsertElementAtCaret(new TextRun { IsRule = true });
+                return;
+            }
+            var rule = new Paragraph();
+            FlowConverter.ApplyParagraphStyle(rule, _styles.Body);
+            rule.TextAlignment = TextAlignment.Center;
+            rule.TextIndent = 0;
+            rule.Inlines.Add(FlowConverter.MakeRuleInline(_project));
+            InsertBlockBelowCaret(rule);
+        }
+
+        /// <summary>Inserts the project's scene separator ("***" by default,
+        /// centered; text/font/size live in the project settings).</summary>
+        public void InsertSeparator()
+        {
+            if (_item == null) return;
+            var text = _project == null || string.IsNullOrEmpty(_project.SeparatorText)
+                ? "***" : _project.SeparatorText;
+            var font = _project != null && _project.SeparatorFont != null
+                ? _project.SeparatorFont : _styles.Body.FontFamily;
+            var sizePt = _project != null ? _project.SeparatorSizePt : 12;
+
+            if (ComposedActive)
+            {
+                // Its own centered paragraph, then a clean continuation one.
+                _composed.InsertParagraphBreak();
+                int paragraph, offset;
+                _composed.GetCaret(out paragraph, out offset);
+                _composed.TypeText(text);
+                _composed.PlaceCaret(paragraph, 0, false);
+                _composed.PlaceCaret(paragraph, text.Length, true);
+                _composed.ApplyFont(font);
+                _composed.ApplySizePx(Math.Max(6, sizePt * 4.0 / 3.0));
+                _composed.PlaceCaret(paragraph, text.Length, false);
+                _composed.ApplyAlign("center");
+                _composed.InsertParagraphBreak();
+                int after, afterOffset;
+                _composed.GetCaret(out after, out afterOffset);
+                var style = _styles.Find(_item.Document.Paragraphs[after].StyleId);
+                _composed.ApplyAlign(style.Align); // clears the inherited centering
+                _composed.Focus();
+                return;
+            }
+
+            var separatorParagraph = new Paragraph();
+            FlowConverter.ApplyParagraphStyle(separatorParagraph, _styles.Body);
+            separatorParagraph.TextAlignment = TextAlignment.Center;
+            separatorParagraph.TextIndent = 0;
+            separatorParagraph.Inlines.Add(new Run(text)
+            {
+                FontFamily = new FontFamily(font),
+                FontSize = Math.Max(6, sizePt * 4.0 / 3.0)
+            });
+            InsertBlockBelowCaret(separatorParagraph);
+        }
+
+        /// <summary>Inserts a block after the caret's paragraph (after its list
+        /// when the caret is inside one) and moves the caret to a fresh body
+        /// paragraph below the inserted block.</summary>
+        private void InsertBlockBelowCaret(Block block)
+        {
+            var current = _box.CaretPosition.Paragraph;
+            Block anchor = current;
+            if (current != null)
+            {
+                var listItem = current.Parent as ListItem;
+                var list = listItem == null ? null : listItem.Parent as System.Windows.Documents.List;
+                if (list != null) anchor = list;
+                var section = current.Parent as Section;
+                if (section != null) anchor = section;
+            }
+            if (anchor != null && anchor.Parent is FlowDocument)
+                _box.Document.Blocks.InsertAfter(anchor, block);
+            else
+                _box.Document.Blocks.Add(block);
+
+            var following = block.NextBlock as Paragraph;
+            if (following == null)
+            {
+                following = new Paragraph();
+                FlowConverter.ApplyParagraphStyle(following, _styles.Body);
+                _box.Document.Blocks.InsertAfter(block, following);
+            }
+            _box.CaretPosition = following.ContentStart;
+            NotifyEdited();
+            ScheduleMarks();
+            _box.Focus();
+        }
+
+        /// <summary>Inserts an image at the caret; bytes go to the project
+        /// image store (saved inside the .plot).</summary>
+        public void InsertImage()
+        {
+            if (_item == null || _project == null) return;
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp"
+            };
+            if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+            try
+            {
+                var info = new System.IO.FileInfo(dialog.FileName);
+                if (info.Length > 20 * 1024 * 1024)
+                    throw new InvalidOperationException("image de plus de 20 Mo — réduisez-la d'abord.");
+                var bytes = System.IO.File.ReadAllBytes(dialog.FileName);
+                var id = _project.AddImage(bytes, System.IO.Path.GetExtension(dialog.FileName));
+                if (ComposedActive)
+                {
+                    _composed.InsertElementAtCaret(new TextRun { ImageId = id });
+                    _composed.Focus();
+                    return;
+                }
+                var stored = _project.FindImage(id);
+                var caret = _box.CaretPosition.GetInsertionPosition(LogicalDirection.Forward);
+                var container = new InlineUIContainer(FlowConverter.MakeImageElement(stored), caret)
+                {
+                    Tag = "img:" + id,
+                    BaselineAlignment = BaselineAlignment.Bottom
+                };
+                _box.CaretPosition = container.ElementEnd;
+                NotifyEdited();
+                _box.Focus();
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show(Window.GetWindow(this),
+                    "Impossible d'insérer l'image :\n" + error.Message,
+                    "Univers Sale", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         private void ToggleDecoration(TextDecorationLocation location)
@@ -559,10 +2258,19 @@ namespace UniversSale.View
             AfterFormat();
         }
 
+        private List<string> PivotFootnoteOrder()
+        {
+            var ordered = new List<string>();
+            foreach (var paragraph in _item.Document.Paragraphs)
+                foreach (var run in paragraph.Runs)
+                    if (run.FootnoteId != null) ordered.Add(run.FootnoteId);
+            return ordered;
+        }
+
         /// <summary>Reflects the selection's formatting in the format bar.</summary>
         private void SyncToolbar()
         {
-            if (_loading || _item == null) return;
+            if (_loading || _item == null || ComposedActive) return;
             _syncing = true;
             try
             {
@@ -589,7 +2297,8 @@ namespace UniversSale.View
                 _fontCombo.SelectedItem = family == null ? null : (object)family.Source;
 
                 var size = _box.Selection.GetPropertyValue(TextElement.FontSizeProperty);
-                _sizeCombo.SelectedItem = size is double ? (object)(int)Math.Round((double)size) : null;
+                _sizeCombo.SelectedItem = size is double
+                    ? (object)(int)Math.Round((double)size * 0.75) : null; // px -> pt
 
                 var paragraph = _box.Selection.Start.Paragraph;
                 if (paragraph != null)
@@ -605,6 +2314,22 @@ namespace UniversSale.View
                     _alignCenter.IsChecked = align == TextAlignment.Center;
                     _alignRight.IsChecked = align == TextAlignment.Right;
                     _alignJustify.IsChecked = align == TextAlignment.Justify;
+
+                    var listItem = paragraph.Parent as ListItem;
+                    var list = listItem == null ? null : listItem.Parent as System.Windows.Documents.List;
+                    var numbered = list != null
+                        && (list.MarkerStyle == TextMarkerStyle.Decimal
+                            || list.MarkerStyle == TextMarkerStyle.LowerLatin
+                            || list.MarkerStyle == TextMarkerStyle.UpperLatin
+                            || list.MarkerStyle == TextMarkerStyle.LowerRoman
+                            || list.MarkerStyle == TextMarkerStyle.UpperRoman);
+                    _bulletBtn.IsChecked = list != null && !numbered;
+                    _numberBtn.IsChecked = numbered;
+
+                    var firstRun = paragraph.Inlines.FirstInline as Run;
+                    var firstText = firstRun == null ? "" : firstRun.Text;
+                    _checkBtn.IsChecked = firstText.StartsWith("☐", StringComparison.Ordinal)
+                        || firstText.StartsWith("☑", StringComparison.Ordinal);
                 }
             }
             finally
@@ -618,6 +2343,8 @@ namespace UniversSale.View
         public void ShowSearch()
         {
             if (_item == null) return;
+            // Find & replace still lives on the classic surface.
+            if (ComposedActive) SetComposition(false);
             _searchBar.Visibility = Visibility.Visible;
             _searchInfo.Text = "";
             if (!_box.Selection.IsEmpty && _box.Selection.Text.Length < 80
@@ -795,6 +2522,12 @@ namespace UniversSale.View
         public void InsertWikiLink(string title)
         {
             if (_item == null || string.IsNullOrEmpty(title)) return;
+            if (ComposedActive)
+            {
+                _composed.TypeText("[[" + title + "]]");
+                _composed.Focus();
+                return;
+            }
             var caret = _box.CaretPosition.GetInsertionPosition(LogicalDirection.Forward);
             var link = new Run("[[" + title + "]]", caret)
             {
@@ -814,6 +2547,14 @@ namespace UniversSale.View
         public void InsertFootnote()
         {
             if (_item == null) return;
+            if (ComposedActive)
+            {
+                _composed.InsertFootnoteAtCaret();
+                RebuildNotesPanel();
+                if (_item.Document.Footnotes.Count > 0)
+                    FocusNote(_item.Document.Footnotes[_item.Document.Footnotes.Count - 1].Id);
+                return;
+            }
             var note = new Footnote();
             _item.Document.Footnotes.Add(note);
 
@@ -851,7 +2592,8 @@ namespace UniversSale.View
             _notesList.Children.Clear();
             if (_item == null) { _notesBar.Visibility = Visibility.Collapsed; return; }
 
-            var ordered = FlowConverter.RenumberFootnotes(_box.Document);
+            var ordered = ComposedActive ? PivotFootnoteOrder()
+                : FlowConverter.RenumberFootnotes(_box.Document);
             _notesBar.Visibility = ordered.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
             var number = 0;
@@ -889,6 +2631,7 @@ namespace UniversSale.View
                 box.TextChanged += delegate
                 {
                     noteRef.Text = box.Text;
+                    if (ComposedActive) _composed.RefreshNotes();
                     NotifyEdited();
                 };
                 row.Children.Add(box);

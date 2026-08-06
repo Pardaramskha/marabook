@@ -17,6 +17,9 @@ namespace UniversSale.View
         private readonly TextBox _nameBox;
         private readonly StackPanel _fieldsPanel;
         private SheetTemplate _current;
+        private ListBoxItem _currentEntry; // list row of _current — NOT SelectedItem,
+                                           // which already points to the next row
+                                           // when SelectionChanged commits the name
         private bool _accepted, _syncing;
 
         private TemplatesDialog(Window owner, List<SheetTemplate> source)
@@ -147,6 +150,7 @@ namespace UniversSale.View
         private void ShowTemplate(SheetTemplate template)
         {
             _current = template;
+            _currentEntry = _list.SelectedItem as ListBoxItem;
             _syncing = true;
             _nameBox.Text = template == null ? "" : template.Name;
             _syncing = false;
@@ -158,8 +162,7 @@ namespace UniversSale.View
             if (_current == null || _syncing) return;
             var name = _nameBox.Text.Trim();
             if (name.Length > 0) _current.Name = name;
-            var entry = _list.SelectedItem as ListBoxItem;
-            if (entry != null) entry.Content = _current.Name;
+            if (_currentEntry != null) _currentEntry.Content = _current.Name;
         }
 
         private void RebuildFields()
@@ -174,7 +177,7 @@ namespace UniversSale.View
         {
             var row = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
 
-            var remove = new Button { Content = "✕", Width = 24, Margin = new Thickness(6, 0, 0, 0) };
+            var remove = new Button { Content = "✕", Width = 28, Margin = new Thickness(6, 0, 0, 0) };
             DockPanel.SetDock(remove, Dock.Right);
             remove.Click += delegate
             {

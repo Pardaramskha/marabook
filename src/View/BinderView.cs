@@ -28,6 +28,10 @@ namespace UniversSale.View
         private BinderItem _dragCandidate;
         private Point _dragStart;
 
+        // Inline rename state
+        private TextBox _renameBox;
+        private bool _renameClosing;
+
         public event Action<BinderItem> SelectionChanged;
         public event Action StructureChanged; // a user-initiated, undoable change happened
 
@@ -47,6 +51,18 @@ namespace UniversSale.View
             _tree.PreviewMouseMove += OnPreviewMouseMove;
             _tree.DragOver += OnDragOver;
             _tree.Drop += OnDrop;
+            // Clicking the already-selected row fires no SelectedItemChanged;
+            // re-announce it so the main window can bring its view back.
+            _tree.MouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (_rebuilding || _renameBox != null) return;
+                var node = NodeFromSource(e.OriginalSource);
+                if (node == null || !node.IsSelected) return;
+                var item = node.Tag as BinderItem;
+                if (item == null || _selectedId != item.Id) return;
+                var handler = SelectionChanged;
+                if (handler != null) handler(item);
+            };
 
             var layout = new DockPanel();
             layout.Children.Add(BuildSearchBar());
@@ -58,6 +74,20 @@ namespace UniversSale.View
                 Background = Brushes.Transparent
             };
             _results.SelectionChanged += OnResultChosen;
+            // Re-clicking the already-selected result fires no SelectionChanged;
+            // announce it on mouse-up so the item always opens.
+            _results.PreviewMouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
+            {
+                var current = e.OriginalSource as DependencyObject;
+                while (current != null && !(current is ListBoxItem))
+                    current = current is Visual ? VisualTreeHelper.GetParent(current)
+                                                : LogicalTreeHelper.GetParent(current);
+                var entry = current as ListBoxItem;
+                if (entry == null || entry.Tag == null || !entry.IsSelected) return;
+                _selectedId = (string)entry.Tag;
+                var handler = SelectionChanged;
+                if (handler != null) handler(SelectedItem);
+            };
 
             var host = new Grid();
             host.Children.Add(_tree);
@@ -170,16 +200,8 @@ namespace UniversSale.View
         private UIElement BuildHeader(BinderItem item)
         {
             var panel = new StackPanel { Orientation = Orientation.Horizontal };
-            var icon = new TextBlock
-            {
-                Text = Glyph(item),
-                FontFamily = new FontFamily("Segoe MDL2 Assets"),
-                FontSize = 12,
-                Foreground = item.IsCategory ? (Brush)Chrome.Accent : Chrome.SoftText,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 6, 0)
-            };
-            panel.Children.Add(icon);
+            panel.Children.Add(ItemIcons.Render(item, 12,
+                item.IsCategory ? (Brush)Chrome.Accent : Chrome.SoftText));
 
             var title = new TextBlock
             {
@@ -194,23 +216,59 @@ namespace UniversSale.View
                 title.Foreground = Chrome.SoftText;
             }
             panel.Children.Add(title);
+
+            // Double-click renames in place (folders included: expansion is on
+            // the chevron, Scrivener-style rename wins on the label).
+            if (!item.IsCategory)
+            {
+                var itemRef = item;
+                panel.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+                {
+                    if (e.ClickCount != 2) return;
+                    e.Handled = true;
+                    BeginInlineRename(itemRef, panel, title);
+                };
+            }
             return panel;
         }
 
-        private static string Glyph(BinderItem item)
+        // ------------------------------------------------------- inline rename
+
+        /// <summary>Swaps the header label for a TextBox. Enter or clicking
+        /// elsewhere commits (undoable), Escape cancels.</summary>
+        private void BeginInlineRename(BinderItem item, StackPanel header, TextBlock title)
         {
-            if (item.IsCategory)
+            if (_renameBox != null) return; // one rename at a time
+            var box = new TextBox
             {
-                if (item.CategoryKey == Project.KeyWritings) return "\uE70F"; // pencil
-                if (item.CategoryKey == Project.KeyResearch) return "\uE721"; // search
-                if (item.CategoryKey == Project.KeySheets) return "\uE716"; // people
-                if (item.CategoryKey == Project.KeyTrash) return "\uE74D"; // trash can
-            }
-            if (item.Kind == ItemKind.Folder) return "\uE8B7"; // folder
-            if (item.Kind == ItemKind.Sheet) return "\uE77B";  // contact card
-            if (item.Kind == ItemKind.Media)
-                return MediaView.IsImage(item.MediaExtension) ? "\uE722" : "\uE723"; // camera / attach
-            return "\uE7C3"; // page
+                Text = item.Title,
+                MinWidth = 120,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            _renameBox = box;
+            _renameClosing = false;
+            var index = header.Children.IndexOf(title);
+            header.Children.RemoveAt(index);
+            header.Children.Insert(index, box);
+
+            Action<bool> finish = delegate(bool commit)
+            {
+                if (_renameClosing) return;
+                _renameClosing = true;
+                _renameBox = null;
+                var newTitle = box.Text.Trim();
+                if (commit && newTitle.Length > 0 && newTitle != item.Title)
+                    RunAndSelect(new RenameItemAction(item, newTitle), item.Id, null);
+                else
+                    Rebuild(); // restore the plain label
+            };
+            box.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key == Key.Enter) { e.Handled = true; finish(true); }
+                else if (e.Key == Key.Escape) { e.Handled = true; finish(false); }
+            };
+            box.LostKeyboardFocus += delegate { finish(true); };
+            box.Loaded += delegate { box.Focus(); box.SelectAll(); };
         }
 
         private void OnNodeExpandedChanged(object sender, RoutedEventArgs e)
@@ -293,6 +351,7 @@ namespace UniversSale.View
             {
                 menu.Items.Add(new Separator());
                 AddMenu(menu, "Renommer…", delegate { Rename(item); });
+                AddMenu(menu, "Changer l'icône…", delegate { ChangeIcon(item); });
                 AddMenu(menu, "Supprimer", delegate { Delete(item); });
             }
             return menu;
@@ -307,13 +366,15 @@ namespace UniversSale.View
 
         // ------------------------------------------------------- operations
 
-        /// <summary>The parent that receives a new item, given the current selection.</summary>
+        /// <summary>The parent that receives a new item, given the current
+        /// selection. Texts can carry children, but new items land as their
+        /// siblings — nesting under a text is an explicit act (Ctrl+drop).</summary>
         private BinderItem TargetParent()
         {
             var selected = SelectedItem;
             if (selected == null || selected.RootCategory().CategoryKey == Project.KeyTrash)
                 return _project.Category(Project.KeyWritings);
-            return selected.CanHaveChildren ? selected : selected.Parent;
+            return selected.IsContainer ? selected : selected.Parent;
         }
 
         public void NewText(BinderItem parent)
@@ -334,13 +395,43 @@ namespace UniversSale.View
             RunAndSelect(new AddItemAction(parent, item, -1), item.Id, parent.Id);
         }
 
+        /// <summary>Renames in place when the item's row is on screen (F2, menu,
+        /// context menu); falls back to a dialog otherwise (search mode).</summary>
         public void Rename(BinderItem item)
         {
             if (item == null) item = SelectedItem;
             if (item == null || item.IsCategory) return;
-            var title = InputDialog.Ask(Window.GetWindow(this), "Renommer", "Nouveau titre :", item.Title);
-            if (title == null || title == item.Title) return;
-            RunAndSelect(new RenameItemAction(item, title), item.Id, null);
+
+            TreeViewItem node;
+            if (_tree.Visibility == Visibility.Visible
+                && _nodesById.TryGetValue(item.Id, out node))
+            {
+                SelectItem(item.Id);
+                var header = node.Header as StackPanel;
+                TextBlock title = null;
+                if (header != null)
+                    foreach (var child in header.Children)
+                        if (child is TextBlock && !(child is TextBox)) title = (TextBlock)child;
+                if (header != null && title != null)
+                {
+                    BeginInlineRename(item, header, title);
+                    return;
+                }
+            }
+            var answer = InputDialog.Ask(Window.GetWindow(this), "Renommer", "Nouveau titre :", item.Title);
+            if (answer == null || answer == item.Title) return;
+            RunAndSelect(new RenameItemAction(item, answer), item.Id, null);
+        }
+
+        public void ChangeIcon(BinderItem item)
+        {
+            if (item == null) item = SelectedItem;
+            if (item == null || item.IsCategory) return;
+            var chosen = IconPickerDialog.Ask(Window.GetWindow(this));
+            if (chosen == null) return; // cancelled
+            var icon = chosen.Length == 0 ? null : chosen;
+            if (icon == item.Icon) return;
+            RunAndSelect(new ChangeIconAction(item, icon), item.Id, null);
         }
 
         public void Delete(BinderItem item)
@@ -436,16 +527,21 @@ namespace UniversSale.View
             var dragged = _project.FindById((string)e.Data.GetData("UniversSaleItem"));
             if (dragged == null) return;
 
+            // Containers swallow the drop; on a document the default is sibling
+            // reordering (insert right after) and Ctrl makes it a child.
+            var asChild = target.IsContainer
+                || (target.CanHaveChildren
+                    && (e.KeyStates & DragDropKeyStates.ControlKey) == DragDropKeyStates.ControlKey);
+
             BinderItem newParent;
             int newIndex;
-            if (target.CanHaveChildren)
+            if (asChild)
             {
                 newParent = target;
                 newIndex = -1;
             }
             else
             {
-                // Dropping on a text item inserts right after it: cheap sibling ordering.
                 newParent = target.Parent;
                 newIndex = newParent.Children.IndexOf(target) + 1;
                 var oldIndex = dragged.Parent == newParent ? newParent.Children.IndexOf(dragged) : -1;
@@ -519,15 +615,7 @@ namespace UniversSale.View
         {
             var panel = new StackPanel();
             var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
-            titleRow.Children.Add(new TextBlock
-            {
-                Text = Glyph(item),
-                FontFamily = new FontFamily("Segoe MDL2 Assets"),
-                FontSize = 11,
-                Foreground = Chrome.SoftText,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 6, 0)
-            });
+            titleRow.Children.Add(ItemIcons.Render(item, 11, Chrome.SoftText));
             titleRow.Children.Add(new TextBlock
             {
                 Text = item.Title,
@@ -571,7 +659,7 @@ namespace UniversSale.View
             var selected = SelectedItem;
             if (selected == null || selected.RootCategory().CategoryKey == Project.KeyTrash)
                 return _project.Category(Project.KeyWritings);
-            return selected.CanHaveChildren ? selected : selected.Parent;
+            return selected.IsContainer ? selected : selected.Parent;
         }
 
         public void NewSheet(BinderItem parent)
@@ -579,7 +667,7 @@ namespace UniversSale.View
             if (parent == null)
             {
                 var selected = SelectedItem;
-                parent = selected != null && selected.CanHaveChildren
+                parent = selected != null && selected.IsContainer
                     && selected.RootCategory().CategoryKey != Project.KeyTrash
                     ? selected : _project.Category(Project.KeySheets);
             }

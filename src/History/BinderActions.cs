@@ -78,6 +78,24 @@ namespace UniversSale.History
         public void Undo() { _item.Title = _oldTitle; }
     }
 
+    /// <summary>Changes an item's Binder icon (null restores the default).</summary>
+    public class ChangeIconAction : IUndoableAction
+    {
+        private readonly BinderItem _item;
+        private readonly string _oldIcon;
+        private readonly string _newIcon;
+
+        public ChangeIconAction(BinderItem item, string newIcon)
+        {
+            _item = item;
+            _oldIcon = item.Icon;
+            _newIcon = newIcon;
+        }
+
+        public void Do() { _item.Icon = _newIcon; }
+        public void Undo() { _item.Icon = _oldIcon; }
+    }
+
     /// <summary>Moves an item to another parent (drag and drop, restore from trash).</summary>
     public class MoveItemAction : IUndoableAction
     {

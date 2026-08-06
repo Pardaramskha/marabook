@@ -13,20 +13,27 @@ namespace UniversSale.Model
     {
         public string Text = "";
         public bool? Bold, Italic, Underline, Strike;
+        public string Weight;       // "Light|Medium|SemiBold|Black"… fine-grained
+                                    // variant; wins over Bold when set
         public string FontFamily;   // null = style font
         public double? FontSize;    // null = style size
         public string Color;        // "#RRGGBB", null = automatic (style color, else theme ink)
         public string Highlight;    // "#RRGGBB", null = none
         public string FootnoteId;   // set on footnote markers; Text is regenerated
         public bool IsLineBreak;    // explicit line break (Shift+Enter)
+        public string ImageId;      // inline image (bytes live in the project image store)
+        public bool IsRule;         // horizontal rule (its paragraph holds nothing else)
 
         public bool HasSameFormat(TextRun other)
         {
             return Bold == other.Bold && Italic == other.Italic
                 && Underline == other.Underline && Strike == other.Strike
+                && Weight == other.Weight
                 && FontFamily == other.FontFamily && FontSize == other.FontSize
                 && Color == other.Color && Highlight == other.Highlight
                 && FootnoteId == null && other.FootnoteId == null
+                && ImageId == null && other.ImageId == null
+                && !IsRule && !other.IsRule
                 && !IsLineBreak && !other.IsLineBreak;
         }
     }
@@ -35,10 +42,11 @@ namespace UniversSale.Model
     {
         public string StyleId = "body";
         public string AlignOverride; // "left"|"center"|"right"|"justify", null = style alignment
+        public string ListKind;      // null | "bullet" | "number"
         public List<TextRun> Runs = new List<TextRun>();
 
-        // Compilation output only (title page, chapter starts): honored by the
-        // docx exporter, never persisted in .plot and invisible in the editor.
+        // Manual page break (Mise en page), also set by the compiler on chapter
+        // starts. Persisted in .plot since v4; honored by the docx exporter.
         public bool PageBreakBefore;
     }
 
@@ -79,7 +87,7 @@ namespace UniversSale.Model
                 if (i > 0) sb.Append('\n');
                 foreach (var run in Paragraphs[i].Runs)
                 {
-                    if (run.FootnoteId != null) continue;
+                    if (run.FootnoteId != null || run.ImageId != null || run.IsRule) continue;
                     if (run.IsLineBreak) { sb.Append('\n'); continue; }
                     sb.Append(run.Text);
                 }

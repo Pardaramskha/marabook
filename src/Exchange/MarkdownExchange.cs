@@ -22,14 +22,22 @@ namespace UniversSale.Exchange
             for (var i = 0; i < document.Footnotes.Count; i++)
                 noteNumbers[document.Footnotes[i].Id] = i + 1;
 
+            var listNumber = 0;
             foreach (var paragraph in document.Paragraphs)
             {
-                if (paragraph.StyleId == "title1") sb.Append("# ");
-                else if (paragraph.StyleId == "title2") sb.Append("## ");
-                else if (paragraph.StyleId == "quote") sb.Append("> ");
+                if (paragraph.ListKind == "number") sb.Append(++listNumber).Append(". ");
+                else
+                {
+                    listNumber = 0;
+                    if (paragraph.ListKind == "bullet") sb.Append("- ");
+                    else if (paragraph.StyleId == "title1") sb.Append("# ");
+                    else if (paragraph.StyleId == "title2") sb.Append("## ");
+                    else if (paragraph.StyleId == "quote") sb.Append("> ");
+                }
 
                 foreach (var run in paragraph.Runs)
                 {
+                    if (run.IsRule) { sb.Append("---"); continue; }
                     if (run.IsLineBreak) { sb.Append("  \n"); continue; }
                     if (run.FootnoteId != null)
                     {
@@ -105,7 +113,28 @@ namespace UniversSale.Exchange
                 else if (line.StartsWith("## ")) { paragraph.StyleId = "title2"; line = line.Substring(3); }
                 else if (line.StartsWith("### ")) { paragraph.StyleId = "title2"; line = line.Substring(4); }
                 else if (line.StartsWith("> ")) { paragraph.StyleId = "quote"; line = line.Substring(2); }
+                else if (line.StartsWith("- ") || line.StartsWith("* "))
+                { paragraph.ListKind = "bullet"; line = line.Substring(2); }
+                else
+                {
+                    // "12. item" -> numbered list entry
+                    var dot = line.IndexOf(". ", StringComparison.Ordinal);
+                    if (dot > 0 && dot <= 3)
+                    {
+                        var digits = true;
+                        for (var d = 0; d < dot; d++) if (!char.IsDigit(line[d])) digits = false;
+                        if (digits) { paragraph.ListKind = "number"; line = line.Substring(dot + 2); }
+                    }
+                }
 
+                var trimmed = line.Trim();
+                if (trimmed == "---" || trimmed == "___" || trimmed == "- - -")
+                {
+                    var rule = new TextParagraph();
+                    rule.Runs.Add(new TextRun { IsRule = true });
+                    document.Paragraphs.Add(rule);
+                    continue;
+                }
                 if (line.Trim().Length == 0)
                 {
                     // Blank lines separate paragraphs; avoid stacking empties.

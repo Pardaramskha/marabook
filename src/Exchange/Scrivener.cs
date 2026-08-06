@@ -73,14 +73,14 @@ namespace UniversSale.Exchange
             var title = titleNode == null ? "(sans titre)" : titleNode.InnerText;
 
             var children = node.SelectSingleNode("Children");
-            var isContainer = type == "Folder" || (children != null && children.ChildNodes.Count > 0);
+            var hasChildren = children != null && children.ChildNodes.Count > 0;
 
             BinderItem item;
-            if (isContainer)
+            if (type == "Folder")
             {
                 item = new BinderItem { Kind = ItemKind.Folder, Title = title };
-                // A Scrivener "text with children" also carries its own text:
-                // imported as a first child to keep the content.
+                // A Scrivener folder can carry its own text: imported as a
+                // first child to keep the content.
                 var ownText = LoadContent(root, uuid, id, project);
                 if (ownText != null)
                 {
@@ -88,6 +88,18 @@ namespace UniversSale.Exchange
                     own.Parent = item;
                     item.Children.Add(own);
                 }
+            }
+            else if (hasChildren)
+            {
+                // A text with children stays a text (our documents carry
+                // sub-documents too since v0.6) — clicking it opens the text.
+                item = new BinderItem
+                {
+                    Kind = ItemKind.Text,
+                    Title = title,
+                    Document = LoadContent(root, uuid, id, project)
+                        ?? new TextDocument { Paragraphs = { new TextParagraph() } }
+                };
             }
             else
             {

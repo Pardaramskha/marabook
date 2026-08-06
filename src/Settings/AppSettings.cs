@@ -49,8 +49,16 @@ namespace UniversSale.Settings
             new ActionDefinition("import-scrivener", "Fichier", "Importer un projet Scrivener", null),
             new ActionDefinition("export-item", "Fichier", "Exporter l'écrit sélectionné", "Ctrl+E"),
             new ActionDefinition("compile", "Fichier", "Compiler le manuscrit", "Ctrl+Shift+E"),
+            new ActionDefinition("export-pdf", "Fichier", "Exporter en PDF prêt à imprimer", null),
             new ActionDefinition("styles", "Format", "Gérer les styles", null),
             new ActionDefinition("insert-footnote", "Format", "Note de bas de page", "Ctrl+Shift+N"),
+            new ActionDefinition("insert-image", "Format", "Insérer une image", null),
+            new ActionDefinition("insert-rule", "Format", "Ligne horizontale", null),
+            new ActionDefinition("insert-separator", "Format", "Séparateur de scène", null),
+            new ActionDefinition("page-break", "Mise en page", "Saut de page", "Ctrl+Return"),
+            new ActionDefinition("project-settings", "Fichier", "Paramètres du projet", null),
+            new ActionDefinition("print-preview", "Fichier", "Aperçu des pages", "Ctrl+Alt+P"),
+            new ActionDefinition("print", "Fichier", "Imprimer", "Ctrl+P"),
             new ActionDefinition("session-goal", "Écriture", "Objectif de session", null),
             new ActionDefinition("toggle-binder", "Affichage", "Afficher la Pile", "Ctrl+D1"),
             new ActionDefinition("toggle-inspector", "Affichage", "Afficher l'inspecteur", "Ctrl+D2"),
@@ -63,6 +71,9 @@ namespace UniversSale.Settings
         public static bool InspectorVisible = true;
         public static double BinderWidth = 260;
         public static double InspectorWidth = 280;
+        public static double Zoom = 100; // page zoom, percent (50–300)
+        public static bool ShowFormattingMarks; // ¶ printing characters
+        public static bool CompositionMode = true; // write in the composed pages by default
         public static List<string> RecentFiles = new List<string>(); // last 5 .plot files
 
         public static void AddRecentFile(string path)
@@ -122,6 +133,11 @@ namespace UniversSale.Settings
                 InspectorVisible = Json.AsBool(Json.Field(root, "inspectorVisible"), true);
                 BinderWidth = Json.AsDouble(Json.Field(root, "binderWidth"), 260);
                 InspectorWidth = Json.AsDouble(Json.Field(root, "inspectorWidth"), 280);
+                Zoom = Json.AsDouble(Json.Field(root, "zoom"), 100);
+                if (Zoom < 50) Zoom = 50;
+                if (Zoom > 300) Zoom = 300;
+                ShowFormattingMarks = Json.AsBool(Json.Field(root, "formattingMarks"), false);
+                CompositionMode = Json.AsBool(Json.Field(root, "compositionMode"), true);
                 var recents = Json.AsList(Json.Field(root, "recentFiles"));
                 if (recents != null)
                 {
@@ -144,6 +160,9 @@ namespace UniversSale.Settings
                 root["inspectorVisible"] = InspectorVisible;
                 root["binderWidth"] = BinderWidth;
                 root["inspectorWidth"] = InspectorWidth;
+                root["zoom"] = Zoom;
+                root["formattingMarks"] = ShowFormattingMarks;
+                root["compositionMode"] = CompositionMode;
                 root["recentFiles"] = new List<object>(RecentFiles.ToArray());
                 File.WriteAllText(SettingsPath(), Json.Write(root), new UTF8Encoding(false));
             }
@@ -169,6 +188,7 @@ namespace UniversSale.Settings
                 var p = parts[i];
                 if (p == "Shift") parts[i] = "Maj";
                 else if (p == "Delete") parts[i] = "Suppr";
+                else if (p == "Return") parts[i] = "Entrée";
                 else if (p == "Add") parts[i] = "+ (pavé)";
                 else if (p == "Subtract") parts[i] = "- (pavé)";
                 else if (p == "OemPlus") parts[i] = "=";

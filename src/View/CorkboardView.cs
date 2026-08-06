@@ -8,14 +8,17 @@ using UniversSale.Model;
 
 namespace UniversSale.View
 {
-    /// <summary>The corkboard: one index card per child of the selected folder,
-    /// title + editable synopsis (media get a thumbnail). Cards reorder by drag
-    /// &amp; drop (undoable), double-click opens the item.</summary>
+    /// <summary>The corkboard: one index card per child of the selected folder
+    /// (or category). Card text is read-only: notes first, else the start of
+    /// the text for written documents, empty for sheets; sheets show their main
+    /// image, media a thumbnail. Cards reorder by drag &amp; drop (undoable),
+    /// double-click opens the item.</summary>
     public class CorkboardView : Border
     {
         private readonly WrapPanel _cards;
         private BinderItem _folder;
         private HistoryManager _history;
+        private Project _project; // image store lookups
 
         private BinderItem _dragCandidate;
         private Point _dragStart;
@@ -38,10 +41,11 @@ namespace UniversSale.View
             Drop += OnBoardDrop;
         }
 
-        public void Load(BinderItem folder, HistoryManager history)
+        public void Load(BinderItem folder, HistoryManager history, Project project)
         {
             _folder = folder;
             _history = history;
+            _project = project;
             Rebuild();
         }
 
@@ -94,15 +98,7 @@ namespace UniversSale.View
             };
             DockPanel.SetDock(titleBar, Dock.Top);
             var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
-            titleRow.Children.Add(new TextBlock
-            {
-                Text = KindGlyph(item),
-                FontFamily = new FontFamily("Segoe MDL2 Assets"),
-                FontSize = 11,
-                Foreground = Chrome.SoftText,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 6, 0)
-            });
+            titleRow.Children.Add(ItemIcons.Render(item, 11, Chrome.SoftText));
             titleRow.Children.Add(new TextBlock
             {
                 Text = item.Title,
@@ -114,68 +110,70 @@ namespace UniversSale.View
             titleBar.Child = titleRow;
             layout.Children.Add(titleBar);
 
-            if (item.Kind == ItemKind.Media && MediaView.IsImage(item.MediaExtension)
-                && item.MediaBytes != null)
+            var body = new StackPanel();
+
+            // Pictures first: media thumbnail, or a sheet's main image.
+            byte[] pictureBytes = null;
+            if (item.Kind == ItemKind.Media && MediaView.IsImage(item.MediaExtension))
+                pictureBytes = item.MediaBytes;
+            else if (item.Kind == ItemKind.Sheet && _project != null)
             {
-                var thumb = MediaView.TryImage(item.MediaBytes, 200);
-                layout.Children.Add(new Image
-                {
-                    Source = thumb,
-                    Stretch = Stretch.Uniform,
-                    MaxHeight = 90,
-                    Margin = new Thickness(8)
-                });
+                var image = _project.FindImage(item.ImageId);
+                if (image != null) pictureBytes = image.Bytes;
             }
-            else
+            if (pictureBytes != null)
             {
-                var synopsis = new TextBox
+                var thumb = MediaView.TryImage(pictureBytes, 200);
+                if (thumb != null)
+                    body.Children.Add(new Image
+                    {
+                        Source = thumb,
+                        Stretch = Stretch.Uniform,
+                        MaxHeight = 90,
+                        Margin = new Thickness(8, 8, 8, 0)
+                    });
+            }
+
+            // Card text, read-only: notes first; else the beginning of the text
+            // for written documents; sheets without notes stay blank.
+            var text = (item.Notes ?? "").Trim();
+            if (text.Length == 0 && item.Kind == ItemKind.Text)
+            {
+                text = item.Document.ToPlainText().Trim();
+                if (text.Length > 220) text = text.Substring(0, 220).TrimEnd() + "…";
+            }
+            if (text.Length > 0)
+                body.Children.Add(new TextBlock
                 {
-                    Text = item.Synopsis ?? "",
+                    Text = text,
                     TextWrapping = TextWrapping.Wrap,
-                    AcceptsReturn = true,
-                    BorderThickness = new Thickness(0),
-                    Background = Brushes.Transparent,
                     Foreground = Chrome.SoftText,
                     FontSize = 12,
                     Padding = new Thickness(8),
-                    VerticalContentAlignment = VerticalAlignment.Top,
-                    ToolTip = "Synopsis — modifiable directement sur la carte"
-                };
-                var itemRef = item;
-                synopsis.TextChanged += delegate
-                {
-                    itemRef.Synopsis = synopsis.Text;
-                    var handler = Changed;
-                    if (handler != null) handler();
-                };
-                layout.Children.Add(synopsis);
-            }
+                    MaxHeight = 150,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
+            layout.Children.Add(body);
 
             card.Child = layout;
             card.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
             {
-                if (e.ClickCount == 2)
-                {
-                    var handler = Navigate;
-                    if (handler != null) handler(item);
-                    e.Handled = true;
-                    return;
-                }
                 _dragCandidate = item;
                 _dragStart = e.GetPosition(this);
+            };
+            // Single click opens (Word/Explorer feel); a drag that actually
+            // started clears the candidate, so reordering still works.
+            card.MouseLeftButtonUp += delegate
+            {
+                if (_dragCandidate != item) return;
+                _dragCandidate = null;
+                var handler = Navigate;
+                if (handler != null) handler(item);
             };
             card.MouseMove += OnCardMouseMove;
             card.DragOver += OnBoardDragOver;
             card.Drop += delegate(object sender, DragEventArgs e) { DropOnCard(item, e); };
             return card;
-        }
-
-        private static string KindGlyph(BinderItem item)
-        {
-            if (item.Kind == ItemKind.Folder) return "\uE8B7";
-            if (item.Kind == ItemKind.Sheet) return "\uE77B";
-            if (item.Kind == ItemKind.Media) return "\uE723";
-            return "\uE7C3";
         }
 
         // ------------------------------------------------------- drag reorder

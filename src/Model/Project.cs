@@ -3,6 +3,14 @@ using System.Collections.Generic;
 
 namespace UniversSale.Model
 {
+    /// <summary>An image embedded in the project (sheet portraits, inline text
+    /// images). Bytes are written verbatim to the .plot zip.</summary>
+    public class ProjectImage
+    {
+        public byte[] Bytes;
+        public string Extension = ".png"; // includes the dot
+    }
+
     /// <summary>A .plot project: metadata plus the Binder tree, whose four fixed
     /// roots are the categories Écrits / Recherche / Fiches / Corbeille.</summary>
     public class Project
@@ -14,11 +22,60 @@ namespace UniversSale.Model
 
         public string Name = "Sans titre";
         public string Author = "";
+
+        // Scene separator (Format bar + project settings). A null font means
+        // "use the body style's font".
+        public string SeparatorText = "***";
+        public string SeparatorFont;
+        public double SeparatorSizePt = 12;
+
+        // Custom text/highlight colors, shared by the whole project (hex).
+        public List<string> CustomColors = new List<string>();
         public string CreatedAt = "";
         public string ModifiedAt = "";
         public StyleSheet Styles = StyleSheet.CreateDefault();
         public List<SheetTemplate> Templates = SheetTemplate.CreateDefaults();
+        public PageSetup Page = new PageSetup();
+        public Dictionary<string, ProjectImage> Images = new Dictionary<string, ProjectImage>();
         public List<BinderItem> Roots = new List<BinderItem>();
+
+        /// <summary>Registers image bytes in the store and returns their id.</summary>
+        public string AddImage(byte[] bytes, string extension)
+        {
+            var image = new ProjectImage
+            {
+                Bytes = bytes,
+                Extension = string.IsNullOrEmpty(extension) ? ".png" : extension.ToLowerInvariant()
+            };
+            var id = Guid.NewGuid().ToString("N");
+            Images[id] = image;
+            return id;
+        }
+
+        public ProjectImage FindImage(string id)
+        {
+            ProjectImage image;
+            return id != null && Images.TryGetValue(id, out image) ? image : null;
+        }
+
+        /// <summary>Drops images no item references anymore (called at save so
+        /// deleted pictures do not bloat the .plot forever).</summary>
+        public void PurgeUnusedImages()
+        {
+            var used = new HashSet<string>();
+            foreach (var item in AllItems())
+            {
+                if (item.ImageId != null) used.Add(item.ImageId);
+                if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet) continue;
+                foreach (var paragraph in item.Document.Paragraphs)
+                    foreach (var run in paragraph.Runs)
+                        if (run.ImageId != null) used.Add(run.ImageId);
+            }
+            var stale = new List<string>();
+            foreach (var id in Images.Keys)
+                if (!used.Contains(id)) stale.Add(id);
+            foreach (var id in stale) Images.Remove(id);
+        }
 
         public SheetTemplate FindTemplate(string id)
         {

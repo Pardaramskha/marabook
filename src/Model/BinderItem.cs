@@ -21,7 +21,12 @@ namespace UniversSale.Model
         public ItemKind Kind = ItemKind.Text;
         public string CategoryKey; // categories only: "writings" | "research" | "sheets" | "trash"
         public string Synopsis = "";
+        public string Notes = ""; // texts and sheets: working notes (corkboard cards show them first)
+        public string Icon; // null = default; "glyph:<char>" preset or "file:<name>" custom (app icons folder)
         public TextDocument Document = new TextDocument(); // text items and sheet bodies
+
+        // Sheets only: main image (wiki portrait), stored in the project image store.
+        public string ImageId;
 
         // Sheet items only.
         public string TemplateId;
@@ -39,7 +44,21 @@ namespace UniversSale.Model
 
         public bool IsCategory { get { return Kind == ItemKind.Category; } }
 
+        /// <summary>Items that may hold children. Texts qualify (Scrivener
+        /// model: a document can carry sub-documents); clicking one still opens
+        /// the text — the corkboard is reserved to true containers.</summary>
         public bool CanHaveChildren
+        {
+            get
+            {
+                return Kind == ItemKind.Category || Kind == ItemKind.Folder
+                    || Kind == ItemKind.Text;
+            }
+        }
+
+        /// <summary>True containers (category, folder): show the corkboard on
+        /// click and receive new items created while they are selected.</summary>
+        public bool IsContainer
         {
             get { return Kind == ItemKind.Category || Kind == ItemKind.Folder; }
         }
@@ -50,7 +69,7 @@ namespace UniversSale.Model
         public string SearchText()
         {
             var sb = new System.Text.StringBuilder();
-            sb.Append(Title).Append('\n').Append(Synopsis).Append('\n');
+            sb.Append(Title).Append('\n').Append(Synopsis).Append('\n').Append(Notes).Append('\n');
             if (Kind == ItemKind.Text || Kind == ItemKind.Sheet)
             {
                 sb.Append(Document.ToPlainText()).Append('\n');
