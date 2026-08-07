@@ -192,6 +192,7 @@ namespace UniversSale.Print
         private readonly Project _project;
         private readonly PageSetup _setup;
         private readonly bool _appendNotes;
+        private readonly IGlyphMetrics _metrics;
 
         // Per-paragraph numbering context (list numbers, footnote numbers):
         // recomposition compares them to catch renumbering ripples.
@@ -207,14 +208,18 @@ namespace UniversSale.Print
         /// <summary>Header/footer decor of the document. Applied at ComposeAll.</summary>
         public PageDecor DefaultDecor;
 
+        /// <summary>metrics : la seule route du moteur vers les largeurs de
+        /// caractères (batch 24) — WpfGlyphMetrics dans l'app, StubGlyphMetrics
+        /// dans les tests console.</summary>
         public CompositionEngine(TextDocument document, StyleSheet styles,
-            PageSetup setup, Project project, bool appendNotes)
+            PageSetup setup, Project project, bool appendNotes, IGlyphMetrics metrics)
         {
             _document = document;
             _styles = styles;
             _setup = setup;
             _project = project;
             _appendNotes = appendNotes;
+            _metrics = metrics;
         }
 
         /// <summary>Full composition of every paragraph plus pagination.</summary>
@@ -460,55 +465,18 @@ namespace UniversSale.Print
         }
 
         // ============================================================ fonts
-
-        private sealed class FontInfo
-        {
-            public GlyphTypeface Glyphs;
-            public Typeface Typeface;
-            public double Baseline;
-        }
-
-        private static readonly Dictionary<string, FontInfo> _fonts = new Dictionary<string, FontInfo>();
-
-        private static FontInfo ResolveFont(string family, FontWeight weight, bool italic)
-        {
-            var key = family + "|" + weight + "|" + italic;
-            FontInfo info;
-            if (_fonts.TryGetValue(key, out info)) return info;
-            info = new FontInfo();
-            info.Typeface = new Typeface(new FontFamily(family),
-                italic ? FontStyles.Italic : FontStyles.Normal,
-                weight,
-                FontStretches.Normal);
-            GlyphTypeface glyphs;
-            info.Glyphs = info.Typeface.TryGetGlyphTypeface(out glyphs) ? glyphs : null;
-            info.Baseline = info.Glyphs != null ? info.Glyphs.Baseline : 0.8;
-            _fonts[key] = info;
-            return info;
-        }
+        // FontInfo, FontCache (le cache de mesure historique) et l'interface
+        // IGlyphMetrics vivent dans Print/GlyphMetrics.cs depuis le batch 24.
 
         /// <summary>tracking : approche en millièmes de cadratin, ajoutée à
-        /// l'avance de CHAQUE caractère (unités InDesign).</summary>
-        private static double MeasureText(string text, FontInfo font, double size,
+        /// l'avance de CHAQUE caractère (unités InDesign). Les largeurs
+        /// passent par _metrics — l'unique couture entre la composition et
+        /// les polices réelles.</summary>
+        private double MeasureText(string text, FontInfo font, double size,
             double tracking = 0)
         {
-            var extra = size * tracking / 1000.0;
-            if (font.Glyphs != null)
-            {
-                double width = 0;
-                var complete = true;
-                foreach (var c in text)
-                {
-                    ushort glyph;
-                    if (font.Glyphs.CharacterToGlyphMap.TryGetValue(c, out glyph))
-                        width += font.Glyphs.AdvanceWidths[glyph] * size + extra;
-                    else { complete = false; break; }
-                }
-                if (complete) return width;
-            }
-            return new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-                font.Typeface, size, Brushes.Black, 1.0).WidthIncludingTrailingWhitespace
-                + extra * text.Length;
+            return _metrics.AdvanceWidth(font.Family, size, font.WeightValue,
+                font.Italic, text) + size * tracking / 1000.0 * text.Length;
         }
 
         // ============================================================ atoms
@@ -688,7 +656,7 @@ namespace UniversSale.Print
             var weight = run != null && run.Weight != null
                 ? View.FlowConverter.ParseWeight(run.Weight)
                 : (bold ? FontWeights.Bold : FontWeights.Normal);
-            var font = ResolveFont(family, weight, italic);
+            var font = FontCache.Resolve(family, weight, italic);
             Brush ink = Brushes.Black;
             if (run != null && run.Color != null)
                 ink = new SolidColorBrush(View.FlowConverter.ParseColor(run.Color));
@@ -935,13 +903,13 @@ namespace UniversSale.Print
             return atom.SourceStart < 0 ? cursor : cursor + atom.SourceLength;
         }
 
-        private static void UpdateMetrics(Atom atom, ref double ascent, ref double height)
+        private void UpdateMetrics(Atom atom, ref double ascent, ref double height)
         {
             if (atom.Font == null) return;
-            var a = atom.Font.Baseline * atom.Size;
-            if (a > ascent) ascent = a;
-            var h = atom.Size * 1.25;
-            if (h > height) height = h;
+            var m = _metrics.Metrics(atom.Font.Family, atom.Size,
+                atom.Font.WeightValue, atom.Font.Italic);
+            if (m.Ascent > ascent) ascent = m.Ascent;
+            if (m.LineHeight > height) height = m.LineHeight;
         }
 
         private static void TrimTrailingSpaces(ComposedLine line)
@@ -1430,7 +1398,8 @@ namespace UniversSale.Print
         public static Composition Compose(TextDocument document, StyleSheet styles,
             PageSetup setup, Project project)
         {
-            var engine = new CompositionEngine(document, styles, setup, project, true);
+            var engine = new CompositionEngine(document, styles, setup, project, true,
+                new WpfGlyphMetrics());
             engine.ComposeAll();
             return engine.Current;
         }

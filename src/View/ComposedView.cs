@@ -155,7 +155,8 @@ namespace UniversSale.View
             _project = project;
             // appendNotes: footnotes sit at the bottom of their page, like on
             // paper — the composed surface is print-exact.
-            _engine = new CompositionEngine(item.Document, styles, setup, project, true);
+            _engine = new CompositionEngine(item.Document, styles, setup, project, true,
+                new Print.WpfGlyphMetrics());
             _engine.FolioOffset = FolioOffset;
             _engine.DefaultDecor = Decor;
             _engine.ComposeAll();
