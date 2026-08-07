@@ -121,6 +121,10 @@ namespace UniversSale.Model
             var first = new BinderItem();
             first.Kind = ItemKind.Text;
             first.Title = "Nouvel écrit";
+            // Un document ne vit JAMAIS à zéro paragraphe (famille du crash
+            // « Composition impossible » du batch 14 : les gardes aval
+            // existaient, la source non). Le chargement normalise déjà ainsi.
+            first.Document.Paragraphs.Add(new TextParagraph());
             var writings = project.Category(KeyWritings);
             first.Parent = writings;
             writings.Children.Add(first);
