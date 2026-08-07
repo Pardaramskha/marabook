@@ -100,6 +100,8 @@ namespace UniversSale.View
 
         private Border _annBar;      // panneau Révision (annotations)
         private StackPanel _annList;
+        private Canvas _bubbleLayer; // bulles de commentaire façon Word (classique)
+        private Grid _surface;       // hôte du miroir + des bulles
 
         public event Action Edited; // any content or footnote change
         public event Action<string> LinkClicked; // Ctrl+click on a [[wiki link]]
@@ -541,6 +543,24 @@ namespace UniversSale.View
                 if (_sizeCombo.SelectedItem == null)
                     _sizeCombo.Text = sizePt.ToString("0.#",
                         System.Globalization.CultureInfo.CurrentCulture);
+
+                // Les BASCULES aussi (gras/italique/…, alignements exclusifs,
+                // listes) — sans cette synchro, un ToggleButton cliqué gardait
+                // son état à lui (centré ET justifié actifs à la fois).
+                bool bold, italic, underline, strike;
+                string align, listKind;
+                _composed.SelectionFlags(out bold, out italic, out underline,
+                    out strike, out align, out listKind);
+                _boldBtn.IsChecked = bold;
+                _italicBtn.IsChecked = italic;
+                _underBtn.IsChecked = underline;
+                _strikeBtn.IsChecked = strike;
+                _alignLeft.IsChecked = align == "left";
+                _alignCenter.IsChecked = align == "center";
+                _alignRight.IsChecked = align == "right";
+                _alignJustify.IsChecked = align == "justify";
+                _bulletBtn.IsChecked = listKind == "bullet";
+                _numberBtn.IsChecked = listKind == "number";
             }
             finally
             {
@@ -1699,6 +1719,10 @@ namespace UniversSale.View
                 if (annotation == null) continue;
                 _annList.Children.Add(BuildAnnotationRow(annotation));
             }
+            // Les bulles à droite des pages suivent (après le layout, la
+            // géométrie des tranches doit être posée).
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
+                new Action(RebuildAnnotationBubbles));
         }
 
         private UIElement BuildAnnotationRow(Annotation annotation)
@@ -1761,6 +1785,147 @@ namespace UniversSale.View
             return row;
         }
 
+        // -------------------------------------------------- bulles façon Word
+
+        /// <summary>Reconstruit les bulles de commentaire à droite des pages
+        /// (mode classique). Chaque bulle est posée à la hauteur de son
+        /// passage (coordonnées boîte → tranche du miroir), empilée sans
+        /// chevauchement, reliée à la page par un filet or.</summary>
+        private void RebuildAnnotationBubbles()
+        {
+            if (_bubbleLayer == null) return;
+            // Ne pas voler le focus d'une bulle en cours de frappe.
+            foreach (var child in _bubbleLayer.Children)
+            {
+                var host = child as Border;
+                if (host == null) continue;
+                var panel = host.Child as StackPanel;
+                if (panel == null) continue;
+                foreach (var inner in panel.Children)
+                {
+                    var focused = inner as TextBox;
+                    if (focused != null && focused.IsKeyboardFocused) return;
+                }
+            }
+            _bubbleLayer.Children.Clear();
+            _bubbleLayer.Width = 0;
+            if (_item == null || ComposedActive || _calm) return;
+            var order = AnnotationOrderLive();
+            if (order.Count == 0) return;
+
+            const double bubbleWidth = 190;
+            var gold = new SolidColorBrush(Color.FromRgb(0xC9, 0xA2, 0x27));
+            double pageRight, pageTop;
+            try
+            {
+                // TranslatePoint rend l'origine POST-marge du _page : les
+                // cadres du miroir commencent exactement là.
+                var origin = _page.TranslatePoint(new Point(0, 0), _surface);
+                pageRight = origin.X + _pageSetup.PageWidthPx;
+                pageTop = origin.Y;
+            }
+            catch { return; }
+
+            var lastBottom = 0.0;
+            foreach (var id in order)
+            {
+                var annotation = _item.Document.FindAnnotation(id);
+                if (annotation == null) continue;
+                Run first = null, last = null;
+                foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
+                    FindAnnotationRuns(paragraph.Inlines, id, ref first, ref last);
+                if (first == null) continue;
+                Rect anchor;
+                try { anchor = first.ContentStart.GetCharacterRect(LogicalDirection.Forward); }
+                catch { continue; }
+                if (anchor.IsEmpty) continue;
+
+                // Coordonnées boîte → miroir : la tranche qui porte la ligne.
+                var slice = 0;
+                for (var k = 0; k < _sliceTops.Count; k++)
+                    if (anchor.Top >= _sliceTops[k] - 0.5) slice = k;
+                var topMargin = _pageSetup.MarginTopMm * PageSetup.PxPerMm;
+                var pageHeight = _pageSetup.PageHeightMm * PageSetup.PxPerMm;
+                var frameTop = slice * (pageHeight + PageGap);
+                var y = pageTop + frameTop + topMargin
+                    + (anchor.Top - (_sliceTops.Count > slice ? _sliceTops[slice] : 0));
+                y = Math.Max(y, lastBottom + 6);
+
+                var bubble = BuildAnnotationBubble(annotation, gold, bubbleWidth);
+                Canvas.SetLeft(bubble, pageRight + 16);
+                Canvas.SetTop(bubble, y);
+                // Filet de liaison, du bord de page à la bulle.
+                var link = new System.Windows.Shapes.Line
+                {
+                    X1 = pageRight - 2,
+                    Y1 = y + 12,
+                    X2 = pageRight + 16,
+                    Y2 = y + 12,
+                    Stroke = gold,
+                    StrokeThickness = 1,
+                    Opacity = annotation.Resolved ? 0.4 : 0.8
+                };
+                _bubbleLayer.Children.Add(link);
+                _bubbleLayer.Children.Add(bubble);
+
+                bubble.Measure(new Size(bubbleWidth, double.PositiveInfinity));
+                lastBottom = y + Math.Max(34, bubble.DesiredSize.Height);
+            }
+            // La surface s'élargit pour que les bulles comptent dans l'étendue
+            // de défilement.
+            _bubbleLayer.Width = pageRight + 16 + bubbleWidth + 12;
+        }
+
+        private Border BuildAnnotationBubble(Annotation annotation, Brush gold, double width)
+        {
+            var panel = new StackPanel();
+            var excerptText = AnnotatedTextLive(annotation.Id).Trim();
+            if (excerptText.Length > 36) excerptText = excerptText.Substring(0, 36) + "…";
+            var excerpt = new TextBlock
+            {
+                Text = "« " + excerptText + " »",
+                Foreground = Chrome.SoftText,
+                FontStyle = FontStyles.Italic,
+                FontSize = 10,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Cursor = Cursors.Hand,
+                ToolTip = "Aller au passage"
+            };
+            excerpt.MouseLeftButtonDown += delegate { GoToAnnotation(annotation.Id); };
+            panel.Children.Add(excerpt);
+            var comment = new TextBox
+            {
+                Text = annotation.Text,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                AcceptsReturn = true,
+                BorderThickness = new Thickness(0),
+                Background = Brushes.Transparent,
+                Padding = new Thickness(0),
+                Margin = new Thickness(0, 3, 0, 0),
+                ToolTip = "Le commentaire — édité ici ou dans le panneau Révision"
+            };
+            comment.TextChanged += delegate
+            {
+                if (_loading) return;
+                annotation.Text = comment.Text;
+                NotifyEdited();
+            };
+            panel.Children.Add(comment);
+            return new Border
+            {
+                Width = width,
+                Background = Chrome.BarBgLight,
+                BorderBrush = gold, // liseré or, épais côté page (façon Word)
+                BorderThickness = new Thickness(3, 1, 1, 1),
+                CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(8, 5, 8, 6),
+                Opacity = annotation.Resolved ? 0.5 : 1.0,
+                Child = panel,
+                Tag = annotation.Id
+            };
+        }
+
         /// <summary>Met le focus dans le champ de commentaire d'une annotation
         /// (après création).</summary>
         private void FocusAnnotation(string id)
@@ -1784,7 +1949,13 @@ namespace UniversSale.View
                 BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent,
                 Foreground = Chrome.PaperInk,
-                CaretBrush = Chrome.PaperInk,
+                // PIÈGE (élucidé au batch 23) : le caret natif vit dans un
+                // AdornerLayer INTERNE au template du TextBox — il est donc
+                // reflété par le VisualBrush du miroir, superposé à notre
+                // caret maison… jusqu'à une frontière de format (run annoté)
+                // où les deux divergent : « deux carets ». Le natif s'éteint,
+                // le caret maison fait foi.
+                CaretBrush = Brushes.Transparent,
                 AcceptsTab = true,
                 // The sheet grows with its content; scrolling belongs to the
                 // outer viewer so the page keeps its physical size on screen.
@@ -1863,6 +2034,14 @@ namespace UniversSale.View
             var surface = new Grid();
             surface.Children.Add(hiddenClip);
             surface.Children.Add(_page);
+            // Bulles de commentaire (révision) à droite des pages, façon Word.
+            _bubbleLayer = new Canvas
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top
+            };
+            surface.Children.Add(_bubbleLayer);
+            _surface = surface;
             _scroller = new ScrollViewer
             {
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -2039,6 +2218,9 @@ namespace UniversSale.View
                 RebuildMirror();
                 RefreshOverlay();
                 RaisePageInfo();
+                // Les bulles d'annotation suivent la nouvelle pagination.
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
+                    new Action(RebuildAnnotationBubbles));
             }
             finally
             {
@@ -2200,11 +2382,61 @@ namespace UniversSale.View
                 if (!frame.IsMouseCaptured || e.LeftButton != MouseButtonState.Pressed) return;
                 var index = _mirror.Children.IndexOf(frame);
                 if (index < 0 || index >= _sliceTops.Count) return;
-                var position = SourcePosition(e.GetPosition(slice), index);
+                // Hors du cadre, la position serait projetée LOIN dans le
+                // document et chaque mouvement faisait défiler d'un bond
+                // (« vitesse folle »). On borne la sélection au cadre, et un
+                // défilement RYTHMÉ (une ligne par tic) prend le relais.
+                var local = e.GetPosition(slice);
+                var sliceHeight = slice.ActualHeight;
+                _dragScrollDirection = local.Y < -2 ? -1
+                    : local.Y > sliceHeight + 2 ? 1 : 0;
+                var clamped = new Point(local.X,
+                    Math.Max(0, Math.Min(sliceHeight, local.Y)));
+                var position = SourcePosition(clamped, index);
                 if (position != null && _mirrorAnchor != null)
                     _box.Selection.Select(_mirrorAnchor, position);
+                if (_dragScrollDirection != 0)
+                {
+                    if (_dragScrollTimer == null)
+                    {
+                        _dragScrollTimer = new DispatcherTimer
+                        { Interval = TimeSpan.FromMilliseconds(120) };
+                        _dragScrollTimer.Tick += delegate { DragScrollStep(); };
+                    }
+                    _dragScrollTimer.Start();
+                }
+                else if (_dragScrollTimer != null) _dragScrollTimer.Stop();
             };
-            frame.MouseLeftButtonUp += delegate { frame.ReleaseMouseCapture(); };
+            frame.MouseLeftButtonUp += delegate
+            {
+                frame.ReleaseMouseCapture();
+                if (_dragScrollTimer != null) _dragScrollTimer.Stop();
+                _dragScrollDirection = 0;
+            };
+        }
+
+        private DispatcherTimer _dragScrollTimer;
+        private int _dragScrollDirection;
+
+        /// <summary>Un tic de défilement de sélection : l'extrémité mobile
+        /// avance d'UNE ligne — EnsureCaretVisible suit en douceur.</summary>
+        private void DragScrollStep()
+        {
+            if (_dragScrollDirection == 0 || _mirrorAnchor == null || _item == null)
+            {
+                if (_dragScrollTimer != null) _dragScrollTimer.Stop();
+                return;
+            }
+            try
+            {
+                var selection = _box.Selection;
+                var moving = selection.Start.CompareTo(_mirrorAnchor) == 0
+                    ? selection.End : selection.Start;
+                var next = moving.GetLineStartPosition(_dragScrollDirection);
+                if (next == null) { _dragScrollTimer.Stop(); return; }
+                _box.Selection.Select(_mirrorAnchor, next);
+            }
+            catch { _dragScrollTimer.Stop(); }
         }
 
         private TextPointer SourcePosition(Point local, int sliceIndex)

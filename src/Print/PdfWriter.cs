@@ -467,13 +467,13 @@ namespace UniversSale.Print
             var top = _composition.TopPx;
             var height = _composition.PageHeightPx;
             var bottom = _composition.BottomPx;
-            // Écart signé : négatif = dans le bloc de texte (voir ComposedRenderer).
+            // Écart signé et continu depuis la position centrée (voir
+            // ComposedRenderer — mêmes formules).
             var gap = gapMm * PageSetup.PxPerMm;
             var y = isHeader
-                ? (Math.Abs(gap) > 0.01 ? Math.Max(2, top - gap - maxHeight)
-                              : Math.Max(2, top / 2 - maxHeight / 2))
-                : (Math.Abs(gap) > 0.01 ? Math.Min(height - maxHeight - 2, height - bottom + gap)
-                              : height - bottom / 2 - maxHeight / 2);
+                ? Math.Max(2, top / 2 - maxHeight / 2 - gap)
+                : Math.Min(height - maxHeight - 2,
+                    height - bottom / 2 - maxHeight / 2 + gap);
             foreach (var run in runs)
             {
                 EmitSimpleText(ops, run.Text, run.Typeface, run.SizePx,

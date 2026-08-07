@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.20.0-alpha";
+        public const string AppVersion = "0.21.0-alpha";
 
         private Project _project;
         private string _path;
@@ -52,6 +52,10 @@ namespace UniversSale
         private TextBlock _inspTitle, _inspKind, _inspStats, _inspDates;
         private StackPanel _statsSection;
         private System.Windows.Shapes.Path _statsChevron;
+        private StackPanel _statusSection;   // état du texte + couleur de carte
+        private ComboBox _statusCombo;
+        private WrapPanel _colorSwatches;
+        private TextBlock _statusLabel, _colorLabel;
         private TextBlock _synopsisLabel, _notesLabel;
         private TextBox _synopsisBox, _notesBox;
         private StackPanel _linksPanel;
@@ -461,6 +465,43 @@ namespace UniversSale
                 Margin = new Thickness(0, 2, 0, 12)
             };
             panel.Children.Add(_inspKind);
+
+            // État d'avancement + couleur de carte, au-dessus du Synopsis.
+            _statusSection = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+            _statusLabel = new TextBlock
+            {
+                Text = "État du texte",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            _statusSection.Children.Add(_statusLabel);
+            _statusCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+            _statusCombo.Items.Add("—");
+            foreach (var key in TextStatus.Keys)
+                _statusCombo.Items.Add(TextStatus.Label(key));
+            _statusCombo.SelectionChanged += delegate
+            {
+                if (_loadingInspector || _current == null) return;
+                var index = _statusCombo.SelectedIndex;
+                _current.Status = index <= 0 ? null : TextStatus.Keys[index - 1];
+                MarkDirty();
+                RefreshOpenCorkboards();
+            };
+            _statusSection.Children.Add(_statusCombo);
+            _colorLabel = new TextBlock
+            {
+                Text = "Couleur",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                Margin = new Thickness(0, 8, 0, 4),
+                ToolTip = "Bordure de la carte au corkboard — et teinte de la "
+                    + "boîte pour un dossier de livre"
+            };
+            _statusSection.Children.Add(_colorLabel);
+            _colorSwatches = new WrapPanel();
+            _statusSection.Children.Add(_colorSwatches);
+            panel.Children.Add(_statusSection);
 
             _synopsisLabel = new TextBlock
             {
@@ -1558,10 +1599,22 @@ namespace UniversSale
                 if (title == null) return;
                 item = new BinderItem { Kind = ItemKind.Text, Title = title };
                 item.Document = TextDocument.FromPlainText("");
+                item.Page = book.Book.Template.Clone(); // suit le gabarit intérieur
+            }
+            else if (kind == "folder")
+            {
+                // Une PARTIE : dossier purement indicatif — la compilation et
+                // les folios le traversent (CollectBookTexts/Compiler récursifs).
+                var title = InputDialog.Ask(this, "Nouvelle partie",
+                    "Nom de la partie :", "Partie");
+                if (title == null) return;
+                item = new BinderItem { Kind = ItemKind.Folder, Title = title };
             }
             else
+            {
                 item = ExtraPages.Create(kind, book, _project);
-            item.Page = book.Book.Template.Clone(); // suit le gabarit intérieur
+                item.Page = book.Book.Template.Clone();
+            }
             _history.Run(new AddItemAction(book, item, -1));
             if (item.IsToc) RegenerateToc(item);
             MarkDirty();
@@ -2029,6 +2082,7 @@ namespace UniversSale
                 _synopsisBox.IsEnabled = false;
                 _notesBox.Text = "";
                 _notesBox.IsEnabled = false;
+                _statusSection.Visibility = Visibility.Collapsed;
                 SetInspectorFieldVisibility(true, false);
             }
             else
@@ -2054,6 +2108,26 @@ namespace UniversSale
                 SetInspectorFieldVisibility(
                     _current.Kind != ItemKind.Sheet && _current.Kind != ItemKind.PageTemplate,
                     _current.Kind == ItemKind.Text || _current.Kind == ItemKind.Sheet);
+
+                // État (textes seulement) + couleur de carte (documents,
+                // fiches, médias — et dossiers, dont les boîtes de livre).
+                var showStatus = _current.Kind == ItemKind.Text;
+                var showColor = _current.Kind == ItemKind.Text
+                    || _current.Kind == ItemKind.Sheet
+                    || _current.Kind == ItemKind.Media
+                    || _current.Kind == ItemKind.Folder;
+                _statusSection.Visibility = showStatus || showColor
+                    ? Visibility.Visible : Visibility.Collapsed;
+                _statusLabel.Visibility = showStatus ? Visibility.Visible : Visibility.Collapsed;
+                _statusCombo.Visibility = _statusLabel.Visibility;
+                _colorLabel.Visibility = showColor ? Visibility.Visible : Visibility.Collapsed;
+                _colorSwatches.Visibility = _colorLabel.Visibility;
+                if (showStatus)
+                {
+                    var index = Array.IndexOf(TextStatus.Keys, _current.Status);
+                    _statusCombo.SelectedIndex = index < 0 ? 0 : index + 1;
+                }
+                if (showColor) RebuildColorSwatches();
             }
             _loadingInspector = false;
 
@@ -2061,6 +2135,50 @@ namespace UniversSale
 
             _inspDates.Text = string.IsNullOrEmpty(_project.CreatedAt) ? ""
                 : "Créé le " + _project.CreatedAt + "\nModifié le " + _project.ModifiedAt;
+        }
+
+        /// <summary>Reconstruit la rangée de pastilles de couleur pour
+        /// l'élément courant (coche = couleur active).</summary>
+        private void RebuildColorSwatches()
+        {
+            _colorSwatches.Children.Clear();
+            if (_current == null) return;
+            foreach (var swatch in View.ItemIcons.TintSwatches)
+            {
+                var value = swatch;
+                var active = _current.CardColor == value;
+                var chip = new Border
+                {
+                    Width = 18,
+                    Height = 18,
+                    CornerRadius = new CornerRadius(9),
+                    Margin = new Thickness(0, 0, 5, 4),
+                    Background = value == null
+                        ? Brushes.Transparent
+                        : new SolidColorBrush(View.FlowConverter.ParseColor(value)),
+                    BorderBrush = active ? (Brush)Chrome.Ink : Chrome.Border,
+                    BorderThickness = new Thickness(active ? 2.2 : 1),
+                    ToolTip = value == null ? "Aucune couleur" : value,
+                    Cursor = System.Windows.Input.Cursors.Hand
+                };
+                chip.MouseLeftButtonUp += delegate
+                {
+                    if (_current == null) return;
+                    _current.CardColor = value;
+                    MarkDirty();
+                    RebuildColorSwatches();
+                    RefreshOpenCorkboards();
+                };
+                _colorSwatches.Children.Add(chip);
+            }
+        }
+
+        /// <summary>Les cartes reflètent état/couleur sans attendre une
+        /// navigation : rafraîchit le corkboard ou la vue livre affichés.</summary>
+        private void RefreshOpenCorkboards()
+        {
+            if (_corkboard.Visibility == Visibility.Visible) _corkboard.Refresh();
+            if (_bookView.Visibility == Visibility.Visible) _bookView.RefreshCards();
         }
 
         /// <summary>Chevron + body of the « Statistiques » accordion.</summary>

@@ -701,18 +701,21 @@ namespace UniversSale.View
   </Style>
 
   <!-- ============================== Tooltips ============================== -->
+  <!-- Façon web/MUI : pilule gris foncé inversée, texte blanc compact —
+       la même dans les deux thèmes (surface inversée assumée). -->
   <Style TargetType=""ToolTip"">
-    <Setter Property=""Foreground"" Value=""{StaticResource Ink}""/>
+    <Setter Property=""Foreground"" Value=""#FFFFFF""/>
+    <Setter Property=""FontSize"" Value=""11""/>
+    <Setter Property=""HasDropShadow"" Value=""False""/>
     <Setter Property=""Template"">
       <Setter.Value>
         <ControlTemplate TargetType=""ToolTip"">
-          <Border CornerRadius=""6"" Background=""{StaticResource Paper}""
-                  BorderBrush=""{StaticResource Border}"" BorderThickness=""1""
-                  Padding=""8,4"" Margin=""4"">
+          <Border CornerRadius=""4"" Background=""#E8616161""
+                  Padding=""8,4,8,5"" Margin=""4"">
             <Border.Effect>
-              <DropShadowEffect Color=""Black"" Opacity=""0.2"" BlurRadius=""6"" ShadowDepth=""1""/>
+              <DropShadowEffect Color=""Black"" Opacity=""0.18"" BlurRadius=""5"" ShadowDepth=""1""/>
             </Border.Effect>
-            <ContentPresenter/>
+            <ContentPresenter TextBlock.Foreground=""#FFFFFF""/>
           </Border>
         </ControlTemplate>
       </Setter.Value>

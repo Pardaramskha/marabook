@@ -122,6 +122,26 @@ namespace UniversSale.View
                 }
             }
 
+            // Annotations (écran seulement) : en plus de la teinte du passage,
+            // une pastille or dans la marge de droite signale chaque ligne
+            // annotée — visible d'un coup d'œil en Composition.
+            if (screenExtras)
+            {
+                var markerBrush = new SolidColorBrush(Color.FromRgb(0xC9, 0xA2, 0x27));
+                foreach (var placed in page.Lines)
+                {
+                    var line = composition.Paragraphs[placed.ParagraphIndex].Lines[placed.LineIndex];
+                    var annotated = false;
+                    foreach (var piece in line.Pieces)
+                        if (ReferenceEquals(piece.Highlight, Chrome.AnnotationTint))
+                        { annotated = true; break; }
+                    if (!annotated) continue;
+                    dc.DrawRoundedRectangle(markerBrush, null, new Rect(
+                        Math.Min(width - 8, left + contentWidth + 10),
+                        placed.Y + Math.Max(0, line.Height / 2 - 4), 5, 8), 2.5, 2.5);
+                }
+            }
+
             // Marqueurs veuves/orphelines (écran seulement) : orange = une
             // correction retient des lignes ici, gris = correction débrayée.
             // Cliquables dans la vue Composition.
@@ -202,15 +222,15 @@ namespace UniversSale.View
             var x = align == "left" ? left
                   : align == "right" ? left + contentWidth - totalWidth
                   : left + (contentWidth - totalWidth) / 2;
-            // Écart signé : positif = vers le bord de page, négatif = DANS le
-            // bloc de texte (rapprocher/faire chevaucher) ; 0 pile = centré
-            // dans la marge (comportement historique).
+            // Écart signé et CONTINU : un décalage depuis la position centrée
+            // dans la marge (0 = centré, positif = vers le bord de page,
+            // négatif = vers le corps, jusqu'à mordre dedans) — plus de saut
+            // entre 0 et ±1.
             var gap = gapMm * PageSetup.PxPerMm;
             var y = isHeader
-                ? (Math.Abs(gap) > 0.01 ? Math.Max(2, top - gap - maxHeight)
-                              : Math.Max(2, top / 2 - maxHeight / 2))
-                : (Math.Abs(gap) > 0.01 ? Math.Min(height - maxHeight - 2, height - bottom + gap)
-                              : height - bottom / 2 - maxHeight / 2);
+                ? Math.Max(2, top / 2 - maxHeight / 2 - gap)
+                : Math.Min(height - maxHeight - 2,
+                    height - bottom / 2 - maxHeight / 2 + gap);
             foreach (var piece in pieces)
             {
                 // Alignés sur une même ligne de base.

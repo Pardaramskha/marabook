@@ -336,6 +336,13 @@ namespace UniversSale.View
 
         public bool ShowsItem(BinderItem item) { return _item == item; }
 
+        /// <summary>Redessine les cartes du livre (état/couleur édités dans
+        /// l'inspecteur pendant que la vue est affichée).</summary>
+        public void RefreshCards()
+        {
+            _corkboard.Refresh();
+        }
+
         private void Sync()
         {
             if (_item == null) return;

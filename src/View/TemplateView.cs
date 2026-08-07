@@ -166,13 +166,13 @@ namespace UniversSale.View
                 row.Children.Add(chip);
             }
 
-            // Écarts au bloc de texte (mm), champs à la Adobe (▲▼ + valeur).
-            // Signés : négatif = rapprocher jusqu'à mordre dans le bloc de
-            // texte ; 0 pile = centré dans la marge (comportement historique).
+            // Écarts (mm), champs à la Adobe (▲▼ + valeur). CONTINUS : un
+            // décalage depuis la position centrée dans la marge — 0 = centré,
+            // positif = vers le bord de page, négatif = vers le corps.
             row.Children.Add(Label("   En-tête ↔ corps (mm) :"));
             var headerGap = new SpinnerField(_item.HeaderGapMm, -30, 30, 1,
-                "Distance entre l'en-tête et le bloc de texte\n"
-                + "(négatif = dans le bloc, 0 = centré dans la marge)");
+                "Décalage de l'en-tête depuis le centre de la marge\n"
+                + "(positif = vers le bord de page, négatif = vers le corps)");
             headerGap.ValueChanged += delegate(double value)
             {
                 _item.HeaderGapMm = value;
@@ -182,8 +182,8 @@ namespace UniversSale.View
             row.Children.Add(headerGap);
             row.Children.Add(Label("   Pied ↔ corps (mm) :"));
             var footerGap = new SpinnerField(_item.FooterGapMm, -30, 30, 1,
-                "Distance entre le pied de page et le bloc de texte\n"
-                + "(négatif = dans le bloc, 0 = centré dans la marge)");
+                "Décalage du pied de page depuis le centre de la marge\n"
+                + "(positif = vers le bord de page, négatif = vers le corps)");
             footerGap.ValueChanged += delegate(double value)
             {
                 _item.FooterGapMm = value;
@@ -239,13 +239,32 @@ namespace UniversSale.View
                 delegate { ToggleProperty(TextElement.FontStyleProperty, FontStyles.Italic, FontStyles.Normal); }));
             bar.Children.Add(FormatButton("text-underline-bold", "Souligné", ToggleUnderline));
 
-            _sizeCombo = new ComboBox { Width = 52, Margin = new Thickness(6, 0, 0, 0), ToolTip = "Taille (pt)" };
+            _sizeCombo = new ComboBox
+            {
+                Width = 52,
+                Margin = new Thickness(6, 0, 0, 0),
+                IsEditable = true,
+                ToolTip = "Taille (pt) — tapez une valeur libre puis Entrée"
+            };
             foreach (var pt in new[] { 7, 8, 9, 10, 11, 12, 14, 16 }) _sizeCombo.Items.Add(pt);
             _sizeCombo.SelectionChanged += delegate
             {
                 if (_syncingBar || _focusedZone == null || _sizeCombo.SelectedItem == null) return;
                 _focusedZone.Selection.ApplyPropertyValue(TextElement.FontSizeProperty,
                     (int)_sizeCombo.SelectedItem * 4.0 / 3.0);
+                ZoneEdited(_focusedZone);
+            };
+            _sizeCombo.KeyDown += delegate(object sender, System.Windows.Input.KeyEventArgs e)
+            {
+                if (e.Key != System.Windows.Input.Key.Enter) return;
+                e.Handled = true;
+                if (_focusedZone == null) return;
+                double pt;
+                if (!double.TryParse(_sizeCombo.Text.Trim().Replace(',', '.'),
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out pt)) return;
+                pt = Math.Max(4, Math.Min(96, pt));
+                _focusedZone.Selection.ApplyPropertyValue(TextElement.FontSizeProperty, pt * 4.0 / 3.0);
                 ZoneEdited(_focusedZone);
             };
             bar.Children.Add(_sizeCombo);
@@ -394,13 +413,10 @@ namespace UniversSale.View
             const double zoneH = 26;
             var gap = (isHeader ? _item.HeaderGapMm : _item.FooterGapMm)
                 * PageSetup.PxPerMm * scale;
-            // Distance du bord de page au bord extérieur de la zone — la même
-            // règle que ComposedRenderer.DrawDecor (header et footer sont
+            // Décalage CONTINU depuis la position centrée dans la marge — la
+            // même règle que ComposedRenderer.DrawDecor (header et footer
             // symétriques une fois exprimés depuis leur bord).
-            var edgeOffset = Math.Abs(gap) > 0.01
-                ? marginPx - gap - zoneH
-                : marginPx / 2 - zoneH / 2;
-            edgeOffset = Math.Max(1, edgeOffset);
+            var edgeOffset = Math.Max(1, marginPx / 2 - zoneH / 2 - gap);
             var zone = new RichTextBox
             {
                 Height = zoneH,
@@ -514,8 +530,18 @@ namespace UniversSale.View
             try
             {
                 var size = _focusedZone.Selection.GetPropertyValue(TextElement.FontSizeProperty);
-                _sizeCombo.SelectedItem = size is double
-                    ? (object)(int)Math.Round((double)size * 0.75) : null;
+                if (size is double)
+                {
+                    var pt = (int)Math.Round((double)size * 0.75);
+                    if (_sizeCombo.Items.Contains(pt)) _sizeCombo.SelectedItem = pt;
+                    else
+                    {
+                        // Valeur hors liste (taille libre) : affichée en texte.
+                        _sizeCombo.SelectedIndex = -1;
+                        _sizeCombo.Text = pt.ToString();
+                    }
+                }
+                else _sizeCombo.SelectedIndex = -1;
                 var family = _focusedZone.Selection
                     .GetPropertyValue(TextElement.FontFamilyProperty) as FontFamily;
                 _fontCombo.SelectedItem = family == null ? null : (object)family.Source;

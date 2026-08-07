@@ -27,6 +27,8 @@ namespace UniversSale.View
         // Drag & drop state
         private BinderItem _dragCandidate;
         private Point _dragStart;
+        private Canvas _dropOverlay;   // indicateur d'insertion pendant le drag
+        private Border _dropLine, _dropBox;
         private string _expectedSelectId; // seule sélection légitime (anti-fantôme)
         private bool _keyboardNav;        // flèches/Home/End en cours
 
@@ -114,8 +116,79 @@ namespace UniversSale.View
             var host = new Grid();
             host.Children.Add(_tree);
             host.Children.Add(_results);
+
+            // Indicateur de dépôt : filet d'insertion entre deux lignes, ou
+            // cadre autour d'un conteneur qui avalera l'élément.
+            _dropLine = new Border
+            {
+                Height = 2.5,
+                CornerRadius = new CornerRadius(1.25),
+                Background = Chrome.Accent,
+                Visibility = Visibility.Collapsed
+            };
+            _dropBox = new Border
+            {
+                CornerRadius = new CornerRadius(5),
+                BorderBrush = Chrome.Accent,
+                BorderThickness = new Thickness(1.5),
+                Visibility = Visibility.Collapsed
+            };
+            _dropOverlay = new Canvas { IsHitTestVisible = false };
+            _dropOverlay.Children.Add(_dropLine);
+            _dropOverlay.Children.Add(_dropBox);
+            host.Children.Add(_dropOverlay);
+            _tree.DragLeave += delegate { ClearDropIndicator(); };
+
             layout.Children.Add(host);
             Child = layout;
+        }
+
+        private void ClearDropIndicator()
+        {
+            _dropLine.Visibility = Visibility.Collapsed;
+            _dropBox.Visibility = Visibility.Collapsed;
+        }
+
+        /// <summary>Montre où le dépôt agira : filet accent SOUS la ligne visée
+        /// (insertion après elle) ou cadre autour d'un conteneur (imbrication).</summary>
+        private void ShowDropIndicator(TreeViewItem node, bool asChild)
+        {
+            var header = FirstBorderOf(node);
+            if (header == null) { ClearDropIndicator(); return; }
+            Point origin;
+            try { origin = header.TranslatePoint(new Point(0, 0), _dropOverlay); }
+            catch { ClearDropIndicator(); return; }
+            if (asChild)
+            {
+                _dropLine.Visibility = Visibility.Collapsed;
+                _dropBox.Width = Math.Max(20, header.ActualWidth);
+                _dropBox.Height = Math.Max(8, header.ActualHeight);
+                Canvas.SetLeft(_dropBox, origin.X);
+                Canvas.SetTop(_dropBox, origin.Y);
+                _dropBox.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                _dropBox.Visibility = Visibility.Collapsed;
+                _dropLine.Width = Math.Max(20, header.ActualWidth - 18);
+                Canvas.SetLeft(_dropLine, origin.X + 18); // aligné sur le libellé
+                Canvas.SetTop(_dropLine, origin.Y + header.ActualHeight - 1);
+                _dropLine.Visibility = Visibility.Visible;
+            }
+        }
+
+        private static Border FirstBorderOf(DependencyObject node)
+        {
+            var count = VisualTreeHelper.GetChildrenCount(node);
+            for (var i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(node, i);
+                var border = child as Border;
+                if (border != null) return border;
+                var inner = FirstBorderOf(child);
+                if (inner != null) return inner;
+            }
+            return null;
         }
 
         private UIElement BuildSearchBar()
@@ -734,12 +807,23 @@ namespace UniversSale.View
                 e.Handled = true;
                 return;
             }
-            e.Effects = DropTarget(e) == null ? DragDropEffects.None : DragDropEffects.Move;
+            var target = DropTarget(e);
+            e.Effects = target == null ? DragDropEffects.None : DragDropEffects.Move;
             e.Handled = true;
+            if (target == null) { ClearDropIndicator(); return; }
+            var node = NodeFromSource(e.OriginalSource);
+            if (node == null) { ClearDropIndicator(); return; }
+            // Même règle que le dépôt : conteneur = imbrication, sinon
+            // insertion après la ligne (Ctrl force l'imbrication).
+            var asChild = target.IsContainer
+                || (target.CanHaveChildren
+                    && (e.KeyStates & DragDropKeyStates.ControlKey) == DragDropKeyStates.ControlKey);
+            ShowDropIndicator(node, asChild);
         }
 
         private void OnDrop(object sender, DragEventArgs e)
         {
+            ClearDropIndicator();
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 var files = e.Data.GetData(DataFormats.FileDrop) as string[];

@@ -49,9 +49,17 @@ namespace UniversSale.View
         {
             var result = new List<BinderItem>();
             if (_folder == null) return result;
-            foreach (var child in _folder.Children)
-                if (_selected.Contains(child.Id)) result.Add(child);
+            CollectSelected(_folder, result); // parties comprises
             return result;
+        }
+
+        private void CollectSelected(BinderItem parent, List<BinderItem> result)
+        {
+            foreach (var child in parent.Children)
+            {
+                if (_selected.Contains(child.Id)) result.Add(child);
+                CollectSelected(child, result);
+            }
         }
 
         public CorkboardView()
@@ -79,15 +87,66 @@ namespace UniversSale.View
             layout.Children.Add(_templateSeparator);
             layout.Children.Add(_documentActions);
             layout.Children.Add(_cards);
+
+            // Barre d'insertion pendant le glisser : un trait vertical accent
+            // là où la carte sera déposée (avant la carte survolée).
+            _dropBar = new Border
+            {
+                Width = 3,
+                CornerRadius = new CornerRadius(1.5),
+                Background = Chrome.Accent,
+                Visibility = Visibility.Collapsed
+            };
+            _dropOverlay = new Canvas { IsHitTestVisible = false };
+            _dropOverlay.Children.Add(_dropBar);
+            var host = new Grid();
+            host.Children.Add(layout);
+            host.Children.Add(_dropOverlay);
+
             var scroll = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Content = layout
+                Content = host
             };
             Child = scroll;
             AllowDrop = true;
             DragOver += OnBoardDragOver;
             Drop += OnBoardDrop;
+            DragLeave += delegate { HideDropBar(); };
+        }
+
+        private Canvas _dropOverlay;
+        private Border _dropBar;
+
+        private void HideDropBar()
+        {
+            _dropBar.Visibility = Visibility.Collapsed;
+        }
+
+        /// <summary>Trait d'insertion à GAUCHE de la carte visée (le dépôt
+        /// insère avant elle), ou à droite de la dernière (dépôt en fin).</summary>
+        private void ShowDropBar(Border card, bool after)
+        {
+            Point origin;
+            try
+            {
+                origin = card.TranslatePoint(
+                    new Point(after ? card.ActualWidth + card.Margin.Right + 1
+                                    : -card.Margin.Left + 1, 0), _dropOverlay);
+            }
+            catch { HideDropBar(); return; }
+            _dropBar.Height = Math.Max(24, card.ActualHeight);
+            Canvas.SetLeft(_dropBar, origin.X);
+            Canvas.SetTop(_dropBar, origin.Y);
+            _dropBar.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>La dernière carte de la rangée des documents, pour marquer
+        /// le dépôt « en fin de liste » sur l'espace vide.</summary>
+        private Border LastCard()
+        {
+            var cards = AllCards();
+            return cards.Count == 0 ? null : cards[cards.Count - 1];
         }
 
         public void Load(BinderItem folder, HistoryManager history, Project project)
@@ -99,21 +158,48 @@ namespace UniversSale.View
             Rebuild();
         }
 
+        /// <summary>Toutes les cartes du tableau, y compris CELLES DES BOÎTES
+        /// de partie (les livres imbriquent des dossiers).</summary>
+        private List<Border> AllCards()
+        {
+            var cards = new List<Border>();
+            foreach (var top in _cards.Children)
+            {
+                var card = top as Border;
+                if (card != null && card.Tag is BinderItem) { cards.Add(card); continue; }
+                var host = top as Grid; // boîte de partie
+                if (host == null || host.Children.Count == 0) continue;
+                var boxBorder = host.Children[0] as Border;
+                var inner = boxBorder == null ? null : boxBorder.Child as WrapPanel;
+                if (inner == null) continue;
+                foreach (var child in inner.Children)
+                {
+                    var nested = child as Border;
+                    if (nested != null && nested.Tag is BinderItem) cards.Add(nested);
+                }
+            }
+            return cards;
+        }
+
         private void RefreshSelectionVisuals()
         {
-            foreach (var child in _cards.Children)
+            foreach (var card in AllCards())
             {
-                var card = child as Border;
-                var item = card == null ? null : card.Tag as BinderItem;
+                var item = card.Tag as BinderItem;
                 if (item == null) continue;
                 var selected = _selected.Contains(item.Id);
                 // Le liseré orange de divergence de gabarit garde la priorité.
                 var divergent = card.BorderBrush is SolidColorBrush
                     && ((SolidColorBrush)card.BorderBrush).Color == Color.FromRgb(230, 126, 34);
                 if (!divergent)
-                    card.BorderBrush = selected ? (Brush)Chrome.Accent : Chrome.Border;
-                card.BorderThickness = new Thickness(selected ? 2 : 1);
-                card.Margin = new Thickness(selected ? 7 : 8);
+                    card.BorderBrush = selected ? (Brush)Chrome.Accent
+                        : item.CardColor != null
+                            ? new SolidColorBrush(FlowConverter.ParseColor(item.CardColor))
+                            : Chrome.Border;
+                card.BorderThickness = new Thickness(selected ? 2
+                    : item.CardColor != null ? 1.6 : 1);
+                card.Margin = new Thickness(selected ? 7
+                    : item.CardColor != null ? 7.4 : 8);
             }
         }
 
@@ -201,6 +287,13 @@ namespace UniversSale.View
 
         public bool ShowsItem(BinderItem item) { return _folder == item; }
 
+        /// <summary>Redessine les cartes (état/couleur édités dans
+        /// l'inspecteur pendant que le tableau est affiché).</summary>
+        public void Refresh()
+        {
+            if (_folder != null) Rebuild();
+        }
+
         /// <summary>The page gabarit applied to a document, when any.</summary>
         private BinderItem AppliedTemplate(BinderItem item)
         {
@@ -234,7 +327,12 @@ namespace UniversSale.View
             foreach (var child in _folder.Children)
             {
                 if (child.Kind == ItemKind.PageTemplate) continue;
-                _cards.Children.Add(BuildCard(child));
+                // Dans un LIVRE, un dossier est une PARTIE : une boîte à bords
+                // ronds qui contient les cartes de ses documents.
+                if (_folder.Kind == ItemKind.Book && child.Kind == ItemKind.Folder)
+                    _cards.Children.Add(BuildFolderBox(child));
+                else
+                    _cards.Children.Add(BuildCard(child));
                 documents++;
             }
             if (documents == 0)
@@ -244,6 +342,106 @@ namespace UniversSale.View
                     Foreground = Chrome.SoftText,
                     Margin = new Thickness(12)
                 });
+        }
+
+        /// <summary>La boîte d'une partie : bordure fine à bords ronds (gris
+        /// clair, ou la couleur du dossier avec un fond éclairci), le nom posé
+        /// DANS la bordure, les cartes des documents à l'intérieur.</summary>
+        private UIElement BuildFolderBox(BinderItem folder)
+        {
+            var accent = folder.CardColor != null
+                ? (Color?)FlowConverter.ParseColor(folder.CardColor) : null;
+            var borderBrush = accent.HasValue
+                ? (Brush)new SolidColorBrush(accent.Value) : Chrome.Border;
+            var fill = accent.HasValue
+                ? (Brush)new SolidColorBrush(Chrome.Blend(accent.Value,
+                    Chrome.WindowBg.Color, 0.88))
+                : Brushes.Transparent;
+
+            var inner = new WrapPanel
+            {
+                Margin = new Thickness(2, 8, 2, 2),
+                MaxWidth = 3 * 226 + 12 // trois cartes par rangée
+            };
+            var count = 0;
+            foreach (var child in folder.Children)
+            {
+                if (child.Kind == ItemKind.PageTemplate) continue;
+                inner.Children.Add(BuildCard(child));
+                count++;
+            }
+            if (count == 0)
+                inner.Children.Add(new TextBlock
+                {
+                    Text = "(glissez des documents dans cette partie)",
+                    Foreground = Chrome.SoftText,
+                    FontSize = 12,
+                    Margin = new Thickness(14, 10, 14, 10)
+                });
+
+            var box = new Border
+            {
+                BorderBrush = borderBrush,
+                BorderThickness = new Thickness(1.4),
+                CornerRadius = new CornerRadius(10),
+                Background = fill,
+                Margin = new Thickness(0, 9, 0, 0), // place pour la légende
+                Padding = new Thickness(4, 8, 4, 4),
+                AllowDrop = true,
+                Child = inner
+            };
+            var folderRef = folder;
+            box.DragOver += delegate(object sender, DragEventArgs e)
+            {
+                e.Effects = e.Data.GetDataPresent("UniversSaleCard")
+                    ? DragDropEffects.Move : DragDropEffects.None;
+                e.Handled = true;
+            };
+            box.Drop += delegate(object sender, DragEventArgs e)
+            {
+                // Dépôt sur le fond de la boîte : la carte rejoint la partie.
+                HideDropBar();
+                var dragged = FindChild((string)e.Data.GetData("UniversSaleCard"));
+                if (dragged == null || dragged == folderRef
+                    || folderRef.IsDescendantOf(dragged)) return;
+                _history.Run(new MoveItemAction(dragged, folderRef, -1));
+                Rebuild();
+                var handler = Changed;
+                if (handler != null) handler();
+                e.Handled = true;
+            };
+
+            // Légende : le nom coupe la bordure (fond du tableau derrière).
+            var legend = new Border
+            {
+                Background = Chrome.WindowBg,
+                Padding = new Thickness(6, 0, 6, 0),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(24, 0, 0, 0),
+                Cursor = Cursors.Hand,
+                ToolTip = "Partie « " + folder.Title + " » — double-clic pour l'ouvrir",
+                Child = new TextBlock
+                {
+                    Text = folder.Title,
+                    Foreground = accent.HasValue
+                        ? (Brush)new SolidColorBrush(accent.Value) : Chrome.SoftText,
+                    FontSize = 12,
+                    FontWeight = FontWeights.SemiBold
+                }
+            };
+            legend.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (e.ClickCount != 2) return;
+                e.Handled = true;
+                var handler = Navigate;
+                if (handler != null) handler(folderRef);
+            };
+
+            var host = new Grid { Margin = new Thickness(8, 4, 8, 6), Tag = folder };
+            host.Children.Add(box);
+            host.Children.Add(legend);
+            return host;
         }
 
         /// <summary>A gabarit card: blueprint tinted with its color, name,
@@ -389,6 +587,12 @@ namespace UniversSale.View
             arrow.Click += delegate
             {
                 var menu = new ContextMenu { PlacementTarget = arrow };
+                // Partie : un dossier purement indicatif — la compilation et
+                // les folios l'ignorent, le corkboard l'affiche en boîte.
+                AddExtraEntry(menu, "Dossier (partie)", "folder",
+                    "Regroupe des documents dans une boîte du corkboard — sans "
+                    + "effet sur la compilation ni les folios");
+                menu.Items.Add(new Separator());
                 AddExtraEntry(menu, "Document vierge", ExtraPages.KindBlank,
                     "Page vierge au gabarit intérieur du livre");
                 AddExtraEntry(menu, "Pages de titre", ExtraPages.KindTitle,
@@ -430,10 +634,17 @@ namespace UniversSale.View
                 Width = 210,
                 MinHeight = 130,
                 Background = Chrome.CardBg,
-                BorderBrush = selected ? (Brush)Chrome.Accent : Chrome.Border,
-                BorderThickness = new Thickness(selected ? 2 : 1),
+                // Couleur personnelle de la carte (inspecteur) ; la sélection
+                // et le liseré de divergence gardent la priorité.
+                BorderBrush = selected ? (Brush)Chrome.Accent
+                    : item.CardColor != null
+                        ? new SolidColorBrush(FlowConverter.ParseColor(item.CardColor))
+                        : Chrome.Border,
+                BorderThickness = new Thickness(selected ? 2
+                    : item.CardColor != null ? 1.6 : 1),
                 CornerRadius = new CornerRadius(6),
-                Margin = new Thickness(selected ? 7 : 8), // épaisseur compensée : rien ne bouge
+                Margin = new Thickness(selected ? 7
+                    : item.CardColor != null ? 7.4 : 8), // épaisseur compensée
                 Tag = item,
                 AllowDrop = true
             };
@@ -527,6 +738,61 @@ namespace UniversSale.View
                     MaxHeight = 150,
                     TextTrimming = TextTrimming.CharacterEllipsis
                 });
+
+            // Pied de carte : pastille d'état + compteur d'annotations.
+            var footer = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(10, 2, 10, 5)
+            };
+            if (item.Status != null && TextStatus.Label(item.Status).Length > 0)
+            {
+                footer.Children.Add(new Border
+                {
+                    Width = 8,
+                    Height = 8,
+                    CornerRadius = new CornerRadius(4),
+                    Background = new SolidColorBrush(
+                        FlowConverter.ParseColor(TextStatus.ColorOf(item.Status))),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 1, 5, 0)
+                });
+                footer.Children.Add(new TextBlock
+                {
+                    Text = TextStatus.Label(item.Status),
+                    Foreground = Chrome.SoftText,
+                    FontSize = 10,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 10, 0)
+                });
+            }
+            var annotationCount = item.Kind == ItemKind.Text
+                ? item.Document.AnnotationOrder(false).Count : 0;
+            if (annotationCount > 0)
+            {
+                footer.Children.Add(new Border
+                {
+                    Width = 5,
+                    Height = 9,
+                    CornerRadius = new CornerRadius(2.5),
+                    Background = new SolidColorBrush(Color.FromRgb(0xC9, 0xA2, 0x27)),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 1, 5, 0)
+                });
+                footer.Children.Add(new TextBlock
+                {
+                    Text = annotationCount + (annotationCount > 1 ? " annotations" : " annotation"),
+                    Foreground = Chrome.SoftText,
+                    FontSize = 10,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    ToolTip = "Annotations de révision dans ce document"
+                });
+            }
+            if (footer.Children.Count > 0)
+            {
+                DockPanel.SetDock(footer, Dock.Bottom);
+                layout.Children.Add(footer);
+            }
             layout.Children.Add(body);
 
             card.Child = layout;
@@ -560,7 +826,13 @@ namespace UniversSale.View
                 RefreshSelectionVisuals();
             };
             card.MouseMove += OnCardMouseMove;
-            card.DragOver += OnBoardDragOver;
+            card.DragOver += delegate(object sender, DragEventArgs e)
+            {
+                e.Effects = e.Data.GetDataPresent("UniversSaleCard")
+                    ? DragDropEffects.Move : DragDropEffects.None;
+                e.Handled = true;
+                if (e.Effects == DragDropEffects.Move) ShowDropBar(card, false);
+            };
             card.Drop += delegate(object sender, DragEventArgs e) { DropOnCard(item, e); };
 
             // Inside a book: a document that strays from the gabarit gets a
@@ -610,42 +882,69 @@ namespace UniversSale.View
         {
             e.Effects = e.Data.GetDataPresent("UniversSaleCard") ? DragDropEffects.Move : DragDropEffects.None;
             e.Handled = true;
+            // Espace vide : le dépôt enverra la carte en fin de liste.
+            if (e.Effects == DragDropEffects.Move)
+            {
+                var last = LastCard();
+                if (last != null) ShowDropBar(last, true);
+            }
         }
 
         private void DropOnCard(BinderItem target, DragEventArgs e)
         {
+            HideDropBar();
             var dragged = FindChild((string)e.Data.GetData("UniversSaleCard"));
-            if (dragged == null || dragged == target) return;
-            var index = _folder.Children.IndexOf(target);
-            var oldIndex = _folder.Children.IndexOf(dragged);
-            if (oldIndex < index) index--; // account for removal before insertion
-            Reorder(dragged, index);
+            if (dragged == null || dragged == target
+                || target.IsDescendantOf(dragged)) return;
+            // Le dépôt insère AVANT la carte visée, dans SON parent — une carte
+            // d'une partie se réordonne dans la partie, une carte externe y entre.
+            var parent = target.Parent;
+            var index = parent.Children.IndexOf(target);
+            var oldIndex = dragged.Parent == parent ? parent.Children.IndexOf(dragged) : -1;
+            if (oldIndex >= 0 && oldIndex < index) index--;
+            if (oldIndex == index && dragged.Parent == parent) { e.Handled = true; return; }
+            _history.Run(new MoveItemAction(dragged, parent, index));
+            Rebuild();
+            var handler = Changed;
+            if (handler != null) handler();
             e.Handled = true;
         }
 
         private void OnBoardDrop(object sender, DragEventArgs e)
         {
+            HideDropBar();
             var dragged = FindChild((string)e.Data.GetData("UniversSaleCard"));
-            if (dragged == null) return;
-            Reorder(dragged, _folder.Children.Count - 1); // empty space: move to end
-            e.Handled = true;
-        }
-
-        private BinderItem FindChild(string id)
-        {
-            if (_folder == null || id == null) return null;
-            foreach (var child in _folder.Children)
-                if (child.Id == id) return child;
-            return null;
-        }
-
-        private void Reorder(BinderItem item, int newIndex)
-        {
-            if (newIndex < 0 || _folder.Children.IndexOf(item) == newIndex) return;
-            _history.Run(new MoveItemAction(item, _folder, newIndex));
+            if (dragged == null || _folder.IsDescendantOf(dragged)) return;
+            // Espace vide : en fin de liste du tableau (une carte d'une partie
+            // en SORT).
+            var newIndex = dragged.Parent == _folder
+                ? _folder.Children.Count - 1 : -1;
+            if (dragged.Parent == _folder
+                && _folder.Children.IndexOf(dragged) == newIndex) return;
+            _history.Run(new MoveItemAction(dragged, _folder, newIndex));
             Rebuild();
             var handler = Changed;
             if (handler != null) handler();
+            e.Handled = true;
+        }
+
+        /// <summary>Retrouve un élément par id parmi les DESCENDANTS du dossier
+        /// affiché (les cartes des parties comprises).</summary>
+        private BinderItem FindChild(string id)
+        {
+            if (_folder == null || id == null) return null;
+            return FindIn(_folder, id);
+        }
+
+        private static BinderItem FindIn(BinderItem parent, string id)
+        {
+            foreach (var child in parent.Children)
+            {
+                if (child.Id == id) return child;
+                var nested = FindIn(child, id);
+                if (nested != null) return nested;
+            }
+            return null;
         }
     }
 }

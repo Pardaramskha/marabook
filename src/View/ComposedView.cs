@@ -1298,6 +1298,52 @@ namespace UniversSale.View
             ApplyToSelection(delegate(TextRun run) { run.Highlight = hex; });
         }
 
+        /// <summary>État effectif de la sélection (ou du caret) pour les
+        /// bascules du ruban : gras/italique/souligné/barré, alignement et
+        /// liste — la synchro qui manquait aux boutons en Composition.</summary>
+        public void SelectionFlags(out bool bold, out bool italic, out bool underline,
+            out bool strike, out string align, out string listKind)
+        {
+            bold = italic = underline = strike = false;
+            align = "left";
+            listKind = null;
+            if (_item == null || _caretParagraph >= _item.Document.Paragraphs.Count) return;
+            var paragraph = _item.Document.Paragraphs[_caretParagraph];
+            var style = _styles.Find(paragraph.StyleId);
+            align = paragraph.AlignOverride ?? style.Align ?? "left";
+            listKind = paragraph.ListKind;
+            if (HasSelection())
+            {
+                bold = SelectionAll(delegate(TextRun run, ParagraphStyle st)
+                { return run.Bold ?? st.Bold; });
+                italic = SelectionAll(delegate(TextRun run, ParagraphStyle st)
+                { return run.Italic ?? st.Italic; });
+                underline = SelectionAll(delegate(TextRun run, ParagraphStyle st)
+                { return run.Underline == true; });
+                strike = SelectionAll(delegate(TextRun run, ParagraphStyle st)
+                { return run.Strike == true; });
+                return;
+            }
+            // Sans sélection : le run sous le caret (ou juste avant — règle du
+            // traitement de texte).
+            var reference = RunAtCaret(paragraph);
+            bold = reference != null ? (reference.Bold ?? style.Bold) : style.Bold;
+            italic = reference != null ? (reference.Italic ?? style.Italic) : style.Italic;
+            underline = reference != null && reference.Underline == true;
+            strike = reference != null && reference.Strike == true;
+        }
+
+        private TextRun RunAtCaret(TextParagraph paragraph)
+        {
+            int runIndex, inner;
+            PivotEdit.Locate(paragraph, _caretOffset, out runIndex, out inner);
+            if (inner == 0 && _caretOffset > 0)
+                PivotEdit.Locate(paragraph, _caretOffset - 1, out runIndex, out inner);
+            if (runIndex >= paragraph.Runs.Count) return null;
+            var run = paragraph.Runs[runIndex];
+            return PivotEdit.IsElement(run) ? null : run;
+        }
+
         // ============================================================= révision
 
         /// <summary>Ancre une annotation sur la sélection (faux sans sélection).</summary>

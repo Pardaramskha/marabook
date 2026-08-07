@@ -180,6 +180,8 @@ namespace UniversSale.Persistence
             if (!string.IsNullOrEmpty(item.Synopsis)) node["synopsis"] = item.Synopsis;
             if (!string.IsNullOrEmpty(item.Notes)) node["notes"] = item.Notes;
             if (item.Icon != null) node["icon"] = item.Icon;
+            if (item.Status != null) node["status"] = item.Status;
+            if (item.CardColor != null) node["cardColor"] = item.CardColor;
             if (item.ImageId != null) node["image"] = item.ImageId;
             if (item.Kind == ItemKind.Sheet)
             {
@@ -576,6 +578,8 @@ namespace UniversSale.Persistence
             item.Synopsis = Json.AsString(Json.Field(obj, "synopsis")) ?? "";
             item.Notes = Json.AsString(Json.Field(obj, "notes")) ?? "";
             item.Icon = Json.AsString(Json.Field(obj, "icon"));
+            item.Status = Json.AsString(Json.Field(obj, "status"));
+            item.CardColor = Json.AsString(Json.Field(obj, "cardColor"));
             item.ImageId = Json.AsString(Json.Field(obj, "image"));
             item.CategoryKey = Json.AsString(Json.Field(obj, "category"));
 

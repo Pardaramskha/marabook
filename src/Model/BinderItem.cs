@@ -15,6 +15,43 @@ namespace UniversSale.Model
                      // en-têtes/pieds recto-verso, pastille de couleur
     }
 
+    /// <summary>Les états d'avancement d'un texte : clés stables persistées,
+    /// libellés français, couleur de pastille.</summary>
+    public static class TextStatus
+    {
+        public static readonly string[] Keys =
+        { "todo", "draft", "revise", "correct", "beta", "done" };
+
+        public static string Label(string key)
+        {
+            switch (key ?? "")
+            {
+                case "todo": return "À écrire";
+                case "draft": return "Brouillon";
+                case "revise": return "À réviser";
+                case "correct": return "À corriger";
+                case "beta": return "Bêta";
+                case "done": return "Terminé";
+                default: return "";
+            }
+        }
+
+        /// <summary>"#RRGGBB" de la pastille d'état.</summary>
+        public static string ColorOf(string key)
+        {
+            switch (key ?? "")
+            {
+                case "todo": return "#7F8C8D";
+                case "draft": return "#2980B9";
+                case "revise": return "#E67E22";
+                case "correct": return "#C0392B";
+                case "beta": return "#8E44AD";
+                case "done": return "#27AE60";
+                default: return "#7F8C8D";
+            }
+        }
+    }
+
     /// <summary>A node of the Binder tree. Categories are fixed roots (cannot be
     /// renamed, moved or deleted). Text items hold a pivot TextDocument.</summary>
     public class BinderItem
@@ -26,6 +63,13 @@ namespace UniversSale.Model
         public string Synopsis = "";
         public string Notes = ""; // texts and sheets: working notes (corkboard cards show them first)
         public string Icon; // null = default; "glyph:<char>" preset or "file:<name>" custom (app icons folder)
+
+        // État d'avancement du texte ("todo"|"draft"|"revise"|"correct"|
+        // "beta"|"done", null = aucun) et couleur de carte au corkboard
+        // ("#RRGGBB", null = neutre). Pour un DOSSIER de livre, la couleur
+        // teinte sa boîte (bordure + fond éclairci).
+        public string Status;
+        public string CardColor;
         public TextDocument Document = new TextDocument(); // text items and sheet bodies
 
         // Sheets only: main image (wiki portrait), stored in the project image store.
