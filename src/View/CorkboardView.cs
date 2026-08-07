@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -23,17 +24,65 @@ namespace UniversSale.View
         private BinderItem _dragCandidate;
         private Point _dragStart;
 
+        // Cartes sélectionnables (multi avec Ctrl) — le double-clic ouvre.
+        private readonly HashSet<string> _selected = new HashSet<string>();
+
+        private readonly WrapPanel _templateCards; // section gabarits (livres)
+        private readonly Border _templateSeparator;
+        private readonly StackPanel _documentActions; // « Nouveau document ▾ »
+
         public event Action<BinderItem> Navigate;
         public event Action Changed; // synopsis edited or cards reordered
+        public event Action<BinderItem> ExportRequested;      // menu ⋮
+        public event Action<BinderItem> DeleteRequested;      // menu ⋮ (corbeille)
+        public event Action<List<BinderItem>> ApplyTemplateRequested; // gabarit sur la sélection
+        public event Action<BinderItem> NewTemplateRequested;    // livre
+        public event Action<BinderItem> ImportTemplateRequested; // livre
+        public event Action<BinderItem> ExportTemplateRequested; // gabarit
+        public event Action<BinderItem> CopyTemplateRequested;   // gabarit
+        // Livres : « Nouveau document » et sa flèche — le second argument est
+        // la sorte de page extra (ExtraPages.Kind*), null = document simple.
+        public event Action<BinderItem, string> NewDocumentRequested;
+
+        /// <summary>The selected cards, in reading order.</summary>
+        public List<BinderItem> SelectedItems()
+        {
+            var result = new List<BinderItem>();
+            if (_folder == null) return result;
+            foreach (var child in _folder.Children)
+                if (_selected.Contains(child.Id)) result.Add(child);
+            return result;
+        }
 
         public CorkboardView()
         {
+            Focusable = true; // le focus logique quitte la Pile à l'affichage
             Background = Chrome.WindowBg;
-            _cards = new WrapPanel { Margin = new Thickness(16) };
+            _templateCards = new WrapPanel { Margin = new Thickness(16, 12, 16, 4) };
+            _templateSeparator = new Border
+            {
+                Height = 1,
+                Background = Chrome.Border,
+                Margin = new Thickness(24, 6, 24, 2),
+                Visibility = Visibility.Collapsed
+            };
+            _documentActions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(24, 8, 24, 0),
+                Visibility = Visibility.Collapsed
+            };
+            BuildDocumentActions();
+            _cards = new WrapPanel { Margin = new Thickness(16, 8, 16, 16) };
+            var layout = new StackPanel();
+            layout.Children.Add(_templateCards);
+            layout.Children.Add(_templateSeparator);
+            layout.Children.Add(_documentActions);
+            layout.Children.Add(_cards);
             var scroll = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Content = _cards
+                Content = layout
             };
             Child = scroll;
             AllowDrop = true;
@@ -43,10 +92,105 @@ namespace UniversSale.View
 
         public void Load(BinderItem folder, HistoryManager history, Project project)
         {
+            if (!ReferenceEquals(_folder, folder)) _selected.Clear();
             _folder = folder;
             _history = history;
             _project = project;
             Rebuild();
+        }
+
+        private void RefreshSelectionVisuals()
+        {
+            foreach (var child in _cards.Children)
+            {
+                var card = child as Border;
+                var item = card == null ? null : card.Tag as BinderItem;
+                if (item == null) continue;
+                var selected = _selected.Contains(item.Id);
+                // Le liseré orange de divergence de gabarit garde la priorité.
+                var divergent = card.BorderBrush is SolidColorBrush
+                    && ((SolidColorBrush)card.BorderBrush).Color == Color.FromRgb(230, 126, 34);
+                if (!divergent)
+                    card.BorderBrush = selected ? (Brush)Chrome.Accent : Chrome.Border;
+                card.BorderThickness = new Thickness(selected ? 2 : 1);
+                card.Margin = new Thickness(selected ? 7 : 8);
+            }
+        }
+
+        /// <summary>The ⋮ options menu, top right of every card.</summary>
+        private UIElement BuildCardMenu(BinderItem item)
+        {
+            var button = new Button
+            {
+                Content = "⋮",
+                FontSize = 14,
+                Width = 24,
+                Height = 22,
+                Padding = new Thickness(0),
+                Margin = new Thickness(4, 0, 0, 0),
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Foreground = Chrome.SoftText,
+                Focusable = false,
+                ToolTip = "Options"
+            };
+            DockPanel.SetDock(button, Dock.Right);
+            var itemRef = item;
+            button.Click += delegate
+            {
+                var menu = new ContextMenu { PlacementTarget = button };
+                if (itemRef.Kind == ItemKind.Text || itemRef.Kind == ItemKind.Sheet)
+                {
+                    var export = new MenuItem { Header = "Exporter…" };
+                    export.Click += delegate
+                    {
+                        var handler = ExportRequested;
+                        if (handler != null) handler(itemRef);
+                    };
+                    menu.Items.Add(export);
+                }
+                if (itemRef.Kind == ItemKind.Text && _folder != null
+                    && _folder.EnclosingBook() != null)
+                {
+                    var apply = new MenuItem { Header = "Appliquer un gabarit…" };
+                    apply.Click += delegate
+                    {
+                        var handler = ApplyTemplateRequested;
+                        if (handler == null) return;
+                        // Sur une carte de la sélection : toute la sélection.
+                        var targets = _selected.Contains(itemRef.Id) && _selected.Count > 1
+                            ? SelectedItems() : new List<BinderItem> { itemRef };
+                        handler(targets);
+                    };
+                    menu.Items.Add(apply);
+
+                    // Page extra : hors du récit — sans folio, exclue de la
+                    // table des matières. La coche marque l'état actif.
+                    var extra = new MenuItem
+                    {
+                        Header = "Marquer comme page extra",
+                        Icon = itemRef.IsExtraPage
+                            ? Icons.Make("check-bold", 12, Chrome.Ink) : null
+                    };
+                    extra.Click += delegate
+                    {
+                        itemRef.IsExtraPage = !itemRef.IsExtraPage;
+                        var changed = Changed;
+                        if (changed != null) changed();
+                    };
+                    menu.Items.Add(extra);
+                }
+                if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+                var delete = new MenuItem { Header = "Supprimer" };
+                delete.Click += delegate
+                {
+                    var handler = DeleteRequested;
+                    if (handler != null) handler(itemRef);
+                };
+                menu.Items.Add(delete);
+                menu.IsOpen = true;
+            };
+            return button;
         }
 
         public void Clear()
@@ -55,35 +199,241 @@ namespace UniversSale.View
             _cards.Children.Clear();
         }
 
+        public bool ShowsItem(BinderItem item) { return _folder == item; }
+
+        /// <summary>The page gabarit applied to a document, when any.</summary>
+        private BinderItem AppliedTemplate(BinderItem item)
+        {
+            if (item.Kind != ItemKind.Text || item.PageTemplateId == null || _project == null)
+                return null;
+            var gabarit = _project.FindById(item.PageTemplateId);
+            return gabarit != null && gabarit.Kind == ItemKind.PageTemplate ? gabarit : null;
+        }
+
         private void Rebuild()
         {
             _cards.Children.Clear();
+            _templateCards.Children.Clear();
+            _templateSeparator.Visibility = Visibility.Collapsed;
+            _documentActions.Visibility = Visibility.Collapsed;
             if (_folder == null) return;
-            if (_folder.Children.Count == 0)
+
+            // Livres : la section GABARITS vit au-dessus des documents,
+            // séparée par un filet — autre niveau hiérarchique.
+            if (_folder.Kind == ItemKind.Book)
             {
+                _templateSeparator.Visibility = Visibility.Visible;
+                _documentActions.Visibility = Visibility.Visible;
+                foreach (var child in _folder.Children)
+                    if (child.Kind == ItemKind.PageTemplate)
+                        _templateCards.Children.Add(BuildTemplateCard(child));
+                _templateCards.Children.Add(BuildTemplateActions());
+            }
+
+            var documents = 0;
+            foreach (var child in _folder.Children)
+            {
+                if (child.Kind == ItemKind.PageTemplate) continue;
+                _cards.Children.Add(BuildCard(child));
+                documents++;
+            }
+            if (documents == 0)
                 _cards.Children.Add(new TextBlock
                 {
-                    Text = "(dossier vide)",
+                    Text = _folder.Kind == ItemKind.Book ? "(livre sans document)" : "(dossier vide)",
                     Foreground = Chrome.SoftText,
                     Margin = new Thickness(12)
                 });
-                return;
+        }
+
+        /// <summary>A gabarit card: blueprint tinted with its color, name,
+        /// ⋮ menu (Exporter, Copier vers un autre livre, Supprimer). Le
+        /// double-clic ouvre la maquette.</summary>
+        private UIElement BuildTemplateCard(BinderItem gabarit)
+        {
+            var card = new Border
+            {
+                Width = 170,
+                Background = Chrome.CardBg,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Margin = new Thickness(8, 4, 8, 4),
+                Padding = new Thickness(10, 8, 4, 8),
+                Tag = gabarit
+            };
+            var row = new DockPanel();
+            var menu = BuildTemplateMenu(gabarit);
+            row.Children.Add(menu);
+            var left = new StackPanel { Orientation = Orientation.Horizontal };
+            var brush = gabarit.TemplateColor != null
+                ? (Brush)new SolidColorBrush(FlowConverter.ParseColor(gabarit.TemplateColor))
+                : Chrome.SoftText;
+            var icon = Icons.Make("blueprint-bold", 14, brush) as FrameworkElement;
+            if (icon != null)
+            {
+                icon.VerticalAlignment = VerticalAlignment.Center;
+                icon.Margin = new Thickness(0, 0, 7, 0);
+                left.Children.Add(icon);
             }
-            foreach (var child in _folder.Children)
-                _cards.Children.Add(BuildCard(child));
+            left.Children.Add(new TextBlock
+            {
+                Text = gabarit.Title,
+                Foreground = Chrome.Ink,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 110
+            });
+            row.Children.Add(left);
+            card.Child = row;
+            var gabaritRef = gabarit;
+            card.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (e.ClickCount != 2) return;
+                e.Handled = true;
+                var handler = Navigate;
+                if (handler != null) handler(gabaritRef);
+            };
+            return card;
+        }
+
+        private UIElement BuildTemplateMenu(BinderItem gabarit)
+        {
+            var button = new Button
+            {
+                Content = Icons.Make("dots-three-vertical-bold", 13, Chrome.SoftText),
+                Width = 24,
+                Height = 22,
+                Padding = new Thickness(0),
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Focusable = false,
+                ToolTip = "Options du gabarit"
+            };
+            DockPanel.SetDock(button, Dock.Right);
+            var gabaritRef = gabarit;
+            button.Click += delegate
+            {
+                var menu = new ContextMenu { PlacementTarget = button };
+                var export = new MenuItem { Header = "Exporter (.usgab)…" };
+                export.Click += delegate
+                { var h = ExportTemplateRequested; if (h != null) h(gabaritRef); };
+                menu.Items.Add(export);
+                var copy = new MenuItem { Header = "Copier vers un autre livre…" };
+                copy.Click += delegate
+                { var h = CopyTemplateRequested; if (h != null) h(gabaritRef); };
+                menu.Items.Add(copy);
+                menu.Items.Add(new Separator());
+                var delete = new MenuItem { Header = "Supprimer" };
+                delete.Click += delegate
+                { var h = DeleteRequested; if (h != null) h(gabaritRef); };
+                menu.Items.Add(delete);
+                menu.IsOpen = true;
+            };
+            return button;
+        }
+
+        private UIElement BuildTemplateActions()
+        {
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 4, 8, 4)
+            };
+            var create = new Button
+            {
+                Content = "Nouveau gabarit…",
+                Padding = new Thickness(8, 3, 8, 3),
+                Margin = new Thickness(0, 0, 6, 0),
+                ToolTip = "Deux pages en vis-à-vis aux marges du livre — en-têtes et "
+                    + "pieds recto/verso marqués aux outils texte"
+            };
+            create.Click += delegate
+            { var h = NewTemplateRequested; if (h != null && _folder != null) h(_folder); };
+            panel.Children.Add(create);
+            var import = new Button
+            {
+                Content = "Importer…",
+                Padding = new Thickness(8, 3, 8, 3),
+                ToolTip = "Ajouter un gabarit .usgab à ce livre"
+            };
+            import.Click += delegate
+            { var h = ImportTemplateRequested; if (h != null && _folder != null) h(_folder); };
+            panel.Children.Add(import);
+            return panel;
+        }
+
+        /// <summary>« Nouveau document » + flèche (livres) : le bouton crée un
+        /// document en fin de liste ; la flèche déroule les pages extra —
+        /// liminaires, table des matières, page éditeur, page de soutien.</summary>
+        private void BuildDocumentActions()
+        {
+            var create = new Button
+            {
+                Content = "Nouveau document",
+                Padding = new Thickness(8, 3, 8, 3),
+                ToolTip = "Ajouter un document à la fin du livre"
+            };
+            create.Click += delegate { RequestNewDocument(null); };
+            _documentActions.Children.Add(create);
+            var arrow = new Button
+            {
+                Content = Icons.Make("caret-down-bold", 11, Chrome.SoftText),
+                Width = 22,
+                Padding = new Thickness(0, 3, 0, 3),
+                Margin = new Thickness(2, 0, 0, 0),
+                ToolTip = "Pages extra : liminaires, table des matières…"
+            };
+            arrow.Click += delegate
+            {
+                var menu = new ContextMenu { PlacementTarget = arrow };
+                AddExtraEntry(menu, "Document vierge", ExtraPages.KindBlank,
+                    "Page vierge au gabarit intérieur du livre");
+                AddExtraEntry(menu, "Pages de titre", ExtraPages.KindTitle,
+                    "Deux gardes vierges, faux-titre, page de titre et copyright");
+                AddExtraEntry(menu, "Page de direction d'anthologie", ExtraPages.KindDirection,
+                    "Direction du recueil et auteurs participants, verso vierge");
+                AddExtraEntry(menu, "Page d'avertissement", ExtraPages.KindWarning,
+                    "Avertissement de contenu, verso vierge");
+                AddExtraEntry(menu, "Table des matières", ExtraPages.KindToc,
+                    "Collecte les documents du livre — mise à jour dynamique");
+                AddExtraEntry(menu, "Page éditeur", ExtraPages.KindPublisher,
+                    "Présentation de la maison d'édition");
+                AddExtraEntry(menu, "Page soutien", ExtraPages.KindSupport,
+                    "Mention des soutiens du livre");
+                menu.IsOpen = true;
+            };
+            _documentActions.Children.Add(arrow);
+        }
+
+        private void AddExtraEntry(ContextMenu menu, string label, string kind, string tip)
+        {
+            var entry = new MenuItem { Header = label, ToolTip = tip };
+            var kindRef = kind;
+            entry.Click += delegate { RequestNewDocument(kindRef); };
+            menu.Items.Add(entry);
+        }
+
+        private void RequestNewDocument(string kind)
+        {
+            var handler = NewDocumentRequested;
+            if (handler != null && _folder != null) handler(_folder, kind);
         }
 
         private UIElement BuildCard(BinderItem item)
         {
+            var selected = _selected.Contains(item.Id);
             var card = new Border
             {
                 Width = 210,
                 MinHeight = 130,
-                Background = Chrome.PaperBg,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(1),
+                Background = Chrome.CardBg,
+                BorderBrush = selected ? (Brush)Chrome.Accent : Chrome.Border,
+                BorderThickness = new Thickness(selected ? 2 : 1),
                 CornerRadius = new CornerRadius(6),
-                Margin = new Thickness(8),
+                Margin = new Thickness(selected ? 7 : 8), // épaisseur compensée : rien ne bouge
                 Tag = item,
                 AllowDrop = true
             };
@@ -94,19 +444,43 @@ namespace UniversSale.View
             {
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(10, 6, 10, 6)
+                Padding = new Thickness(10, 4, 4, 4)
             };
             DockPanel.SetDock(titleBar, Dock.Top);
-            var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
-            titleRow.Children.Add(ItemIcons.Render(item, 11, Chrome.SoftText));
-            titleRow.Children.Add(new TextBlock
+            var titleRow = new DockPanel();
+            if (!item.IsCategory) titleRow.Children.Add(BuildCardMenu(item));
+            var titleLeft = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            titleLeft.Children.Add(ItemIcons.Render(item, 11, Chrome.SoftText));
+            // Gabarit appliqué : l'icône blueprint teintée de sa couleur, le
+            // nom du gabarit en infobulle.
+            var gabarit = AppliedTemplate(item);
+            if (gabarit != null)
+            {
+                var brush = gabarit.TemplateColor != null
+                    ? (Brush)new SolidColorBrush(FlowConverter.ParseColor(gabarit.TemplateColor))
+                    : Chrome.SoftText;
+                var badge = Icons.Make("blueprint-bold", 11, brush) as FrameworkElement;
+                if (badge != null)
+                {
+                    badge.VerticalAlignment = VerticalAlignment.Center;
+                    badge.Margin = new Thickness(0, 0, 5, 0);
+                    badge.ToolTip = "Gabarit : " + gabarit.Title;
+                    titleLeft.Children.Add(badge);
+                }
+            }
+            titleLeft.Children.Add(new TextBlock
             {
                 Text = item.Title,
                 Foreground = Chrome.Ink,
                 FontWeight = FontWeights.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxWidth = 160
+                MaxWidth = 150
             });
+            titleRow.Children.Add(titleLeft);
             titleBar.Child = titleRow;
             layout.Children.Add(titleBar);
 
@@ -160,19 +534,62 @@ namespace UniversSale.View
             {
                 _dragCandidate = item;
                 _dragStart = e.GetPosition(this);
+                if (e.ClickCount == 2)
+                {
+                    // Le double-clic ouvre (document comme livre).
+                    _dragCandidate = null;
+                    e.Handled = true;
+                    var handler = Navigate;
+                    if (handler != null) handler(item);
+                }
             };
-            // Single click opens (Word/Explorer feel); a drag that actually
-            // started clears the candidate, so reordering still works.
+            // Le clic simple SÉLECTIONNE (Ctrl = multi) — il n'ouvre plus.
             card.MouseLeftButtonUp += delegate
             {
-                if (_dragCandidate != item) return;
+                if (_dragCandidate != item) return; // un glisser est parti
                 _dragCandidate = null;
-                var handler = Navigate;
-                if (handler != null) handler(item);
+                if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+                {
+                    if (!_selected.Remove(item.Id)) _selected.Add(item.Id);
+                }
+                else
+                {
+                    _selected.Clear();
+                    _selected.Add(item.Id);
+                }
+                RefreshSelectionVisuals();
             };
             card.MouseMove += OnCardMouseMove;
             card.DragOver += OnBoardDragOver;
             card.Drop += delegate(object sender, DragEventArgs e) { DropOnCard(item, e); };
+
+            // Inside a book: a document that strays from the gabarit gets a
+            // warning tint and the fix in its context menu.
+            var book = _folder == null ? null : _folder.EnclosingBook();
+            if (book != null && book.Book != null && item.Kind == ItemKind.Text
+                && _project != null)
+            {
+                var effective = item.Page ?? _project.Page;
+                if (!effective.SameLayout(book.Book.Template))
+                {
+                    card.BorderBrush = new SolidColorBrush(Color.FromRgb(230, 126, 34));
+                    card.ToolTip = "Ce document ne suit pas le gabarit du livre.";
+                    var menu = new ContextMenu();
+                    var apply = new MenuItem { Header = "Appliquer le gabarit du livre au document" };
+                    var itemRef = item;
+                    var bookRef = book;
+                    apply.Click += delegate
+                    {
+                        if (itemRef.Page == null) itemRef.Page = bookRef.Book.Template.Clone();
+                        else itemRef.Page.ApplyLayout(bookRef.Book.Template);
+                        Rebuild();
+                        var handler = Changed;
+                        if (handler != null) handler();
+                    };
+                    menu.Items.Add(apply);
+                    card.ContextMenu = menu;
+                }
+            }
             return card;
         }
 

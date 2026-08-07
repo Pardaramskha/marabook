@@ -1,5 +1,6 @@
 # Build output
 UniversSale.exe
+Marabook.exe
 *.pdb
 
 # Local test artifacts

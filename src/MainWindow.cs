@@ -20,8 +20,8 @@ namespace UniversSale
     /// inspector (right), menu bar on top, status bar below.</summary>
     public class MainWindow : Window
     {
-        public const string AppName = "Univers Sale";
-        public const string AppVersion = "0.13.0-alpha";
+        public const string AppName = "Marabook";
+        public const string AppVersion = "0.19.0-alpha";
 
         private Project _project;
         private string _path;
@@ -35,12 +35,19 @@ namespace UniversSale
         private EditorView _editor;
         private SheetView _sheetView;
         private CorkboardView _corkboard;
+        private View.BookView _bookView;
+        private View.TemplateView _templateView;
+        private bool _navigating; // garde anti-sélection-fantôme (voir OnBinderSelection)
         private MediaView _mediaView;
+        private JournalView _journalView;
+        private Grid _centerHost; // hôte du toast de célébration
         private TextBlock _placeholder;
         private BinderItem _current;
 
         private Border _inspector;
         private TextBlock _inspTitle, _inspKind, _inspStats, _inspDates;
+        private StackPanel _statsSection;
+        private System.Windows.Shapes.Path _statsChevron;
         private TextBlock _synopsisLabel, _notesLabel;
         private TextBox _synopsisBox, _notesBox;
         private StackPanel _linksPanel;
@@ -49,9 +56,12 @@ namespace UniversSale
         private TextBlock _statusLeft, _statusRight, _statusPages, _zoomLabel;
         private DispatcherTimer _statsTimer, _autosaveTimer;
 
-        private MenuItem _undoMenu, _redoMenu, _darkMenu, _binderMenu, _inspectorMenu, _recentMenu;
+        private MenuItem _undoMenu, _redoMenu, _darkMenu, _binderMenu, _inspectorMenu, _recentMenu, _rulersMenu;
 
         // Session goal: words written since the goal was set, project-wide.
+        // The same cache feeds the writing journal: each recount of the OPEN
+        // document yields a net delta, credited to today — imports, purges and
+        // moves never touch the journal (see UpdateStats).
         private readonly Dictionary<string, int> _wordCache = new Dictionary<string, int>();
         private int _sessionGoal, _sessionBaseWords;
 
@@ -62,6 +72,7 @@ namespace UniversSale
             Height = 760;
             MinWidth = 800;
             MinHeight = 500;
+            WindowState = WindowState.Maximized; // plein écran au lancement
             Background = Chrome.WindowBg;
             Foreground = Chrome.Ink;
 
@@ -111,6 +122,7 @@ namespace UniversSale
             file.Items.Add(Entry("save-as", "Enregistrer sous…", DoSaveAs));
             file.Items.Add(new Separator());
             file.Items.Add(Entry("project-settings", "Paramètres du projet…", OpenProjectSettings));
+            file.Items.Add(Entry("preferences", "Préférences…", OpenPreferences));
             file.Items.Add(new Separator());
             file.Items.Add(Entry("print-preview", "Aperçu des pages", ShowPrintPreview));
             file.Items.Add(Entry("print", "Imprimer…", PrintCurrent));
@@ -142,6 +154,7 @@ namespace UniversSale
             edit.Items.Add(Entry("new-text", "Nouvel écrit", delegate { _binder.NewText(null); }));
             edit.Items.Add(Entry("new-sheet", "Nouvelle fiche", delegate { _binder.NewSheet(null); }));
             edit.Items.Add(Entry("new-folder", "Nouveau dossier", delegate { _binder.NewFolder(null); }));
+            edit.Items.Add(Entry("new-book", "Nouveau livre", delegate { _binder.NewBook(null); }));
             edit.Items.Add(Entry("import-media", "Importer dans Recherche…", delegate { _binder.ImportMediaDialog(null); }));
             edit.Items.Add(Entry("rename", "Renommer…", delegate { _binder.Rename(null); }));
             edit.Items.Add(Entry("delete", "Supprimer", delegate { _binder.Delete(null); }));
@@ -174,15 +187,19 @@ namespace UniversSale
             _darkMenu = Entry("dark-theme", "Thème sombre", ToggleDarkTheme);
             _darkMenu.IsCheckable = true;
             _darkMenu.IsChecked = AppSettings.DarkTheme;
+            _rulersMenu = Entry("toggle-rulers", "Règles", ToggleRulers);
+            _rulersMenu.IsCheckable = true;
+            _rulersMenu.IsChecked = AppSettings.ShowRulers;
             view.Items.Add(_binderMenu);
             view.Items.Add(_inspectorMenu);
+            view.Items.Add(_rulersMenu);
             view.Items.Add(new Separator());
             view.Items.Add(_darkMenu);
             menu.Items.Add(view);
 
             // --- Aide ---
             var help = new MenuItem { Header = "Aid_e" };
-            help.Items.Add(Entry(null, "À propos d'Univers Sale…", ShowAbout));
+            help.Items.Add(Entry(null, "À propos de Marabook…", ShowAbout));
             menu.Items.Add(help);
 
             bar.Child = menu;
@@ -233,7 +250,16 @@ namespace UniversSale
 
             _binder = new BinderView();
             _binder.SelectionChanged += OnBinderSelection;
-            _binder.StructureChanged += MarkDirty;
+            _binder.JournalRequested += ShowJournal;
+            _binder.StructureChanged += delegate
+            {
+                MarkDirty();
+                _pageCountCache.Clear(); // moves change book folio offsets
+                // Chauffe le cache de mots : un document importé entre au cache
+                // à sa taille réelle, sans jamais créditer le journal.
+                ProjectWords();
+            };
+            _binder.BookPageTotal = BookPageTotal;
             Grid.SetColumn(_binder, 0);
             grid.Children.Add(_binder);
 
@@ -266,6 +292,7 @@ namespace UniversSale
             {
                 _sheetView.ApplyPageSetup(_project.Page);
                 MarkDirty();
+                _binder.Rebuild(); // book alert chips follow margin edits
             };
             _editor.PageInfoChanged += delegate(int page, int pages)
             {
@@ -301,12 +328,38 @@ namespace UniversSale
 
             _corkboard = new CorkboardView { Visibility = Visibility.Collapsed };
             _corkboard.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
-            _corkboard.Changed += delegate { MarkDirty(); UpdateInspector(); };
+            _corkboard.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
+            _corkboard.ExportRequested += ExportItem;
+            _corkboard.DeleteRequested += delegate(BinderItem item) { _binder.Delete(item); };
+            _corkboard.ApplyTemplateRequested += ApplyPageTemplateTo;
             center.Children.Add(_corkboard);
+
+            _bookView = new BookView { Visibility = Visibility.Collapsed };
+            _bookView.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _bookView.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
+            _bookView.PublishRequested += PublishBook;
+            _bookView.ExportRequested += ExportItem;
+            _bookView.DeleteRequested += delegate(BinderItem item) { _binder.Delete(item); };
+            _bookView.ApplyTemplateRequested += ApplyPageTemplateTo;
+            _bookView.NewTemplateRequested += NewPageTemplate;
+            _bookView.ExportTemplateRequested += ExportPageTemplate;
+            _bookView.ImportTemplateRequested += ImportPageTemplate;
+            _bookView.CopyTemplateRequested += CopyPageTemplate;
+            _bookView.NewDocumentRequested += NewBookDocument;
+            center.Children.Add(_bookView);
+
+            _templateView = new View.TemplateView { Visibility = Visibility.Collapsed };
+            _templateView.Changed += delegate { MarkDirty(); _binder.Rebuild(); };
+            center.Children.Add(_templateView);
 
             _mediaView = new MediaView { Visibility = Visibility.Collapsed };
             center.Children.Add(_mediaView);
 
+            _journalView = new JournalView { Visibility = Visibility.Collapsed };
+            _journalView.Changed += delegate { MarkDirty(); CheckDailyGoal(); };
+            center.Children.Add(_journalView);
+
+            _centerHost = center;
             Grid.SetColumn(center, 2);
             grid.Children.Add(center);
 
@@ -389,14 +442,50 @@ namespace UniversSale
             _notesBox.TextChanged += OnNotesChanged;
             panel.Children.Add(_notesBox);
 
+            // Les stats vivent repliées dans un accordion pour ne pas
+            // surcharger le panneau ; l'état ouvert/fermé est un réglage de
+            // l'application (persistant).
+            _statsSection = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
+            _statsChevron = new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse("M0,0 L4,4 0,8"),
+                Stroke = Chrome.SoftText,
+                StrokeThickness = 1.6,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 1, 6, 0)
+            };
+            var statsHeader = new StackPanel { Orientation = Orientation.Horizontal };
+            statsHeader.Children.Add(_statsChevron);
+            statsHeader.Children.Add(new TextBlock
+            {
+                Text = "Statistiques",
+                Foreground = Chrome.SoftText,
+                FontSize = 12
+            });
+            var statsToggle = new Border
+            {
+                Background = Brushes.Transparent, // hit-test sur toute la ligne
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Child = statsHeader
+            };
+            statsToggle.MouseLeftButtonDown += delegate
+            {
+                AppSettings.StatsExpanded = !AppSettings.StatsExpanded;
+                AppSettings.Save();
+                ApplyStatsExpansion();
+            };
+            _statsSection.Children.Add(statsToggle);
+
             _inspStats = new TextBlock
             {
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
-                Margin = new Thickness(0, 14, 0, 0),
+                Margin = new Thickness(10, 6, 0, 0),
                 TextWrapping = TextWrapping.Wrap
             };
-            panel.Children.Add(_inspStats);
+            _statsSection.Children.Add(_inspStats);
+            ApplyStatsExpansion();
+            panel.Children.Add(_statsSection);
 
             panel.Children.Add(new TextBlock
             {
@@ -544,6 +633,7 @@ namespace UniversSale
             _dirty = false;
             _history.Clear();
             _wordCache.Clear();
+            _pageCountCache.Clear();
             _sessionGoal = 0;
             _editor.SetStyleSheet(project.Styles);
             _editor.SetProject(project);
@@ -555,7 +645,11 @@ namespace UniversSale
             _sheetView.Clear();
             _mediaView.Clear();
             _corkboard.Clear();
+            _journalView.Clear();
             _binder.LoadProject(project, _history);
+            // Chauffe le cache de mots : les comptes existants deviennent la
+            // référence des deltas du journal (rien n'est crédité à l'ouverture).
+            ProjectWords();
             ShowItem(null);
             UpdateRecentMenu();
             UpdateTitle();
@@ -670,6 +764,12 @@ namespace UniversSale
 
         private void OnBinderSelection(BinderItem item)
         {
+            // Phantom selections: hiding the view that holds keyboard focus
+            // makes WPF re-focus a TreeViewItem, which SELECTS ITSELF
+            // (TreeViewItem.OnGotFocus → Select) — reentering here mid-open
+            // and flipping the center back (the « double-clic obligatoire »).
+            if (_navigating) return;
+
             // Re-clicking the already-open item must not reload it (that would
             // commit + reset the caret); it only re-shows its view if another
             // view took over, and refreshes the side panels.
@@ -679,40 +779,100 @@ namespace UniversSale
                 UpdateStats();
                 return;
             }
-            CommitActive();
-            _current = item;
-            ShowItem(item);
+            _navigating = true;
+            try
+            {
+                CommitActive();
+                _current = item;
+                ShowItem(item);
+            }
+            finally
+            {
+                _navigating = false;
+            }
+            // The phantom may have moved the tree's selection while we were
+            // opening: pull it back onto the item actually shown — sans
+            // BringIntoView : le défilement déplaçait la ligne sous la souris
+            // entre les deux clics d'un double-clic (renommage cassé).
+            if (item != null) _binder.SelectItem(item.Id, false);
             UpdateInspector();
             UpdateStats();
         }
 
-        /// <summary>True when the center already displays this item's view.</summary>
+        /// <summary>True when the center already displays THIS item's view —
+        /// identity-checked, never visibility alone: a stale _current with a
+        /// merely-visible view used to swallow the first sidebar click (the
+        /// « double-clic obligatoire » from a book's corkboard).</summary>
         private bool IsItemViewVisible(BinderItem item)
         {
             if (item.Kind == ItemKind.Text)
-                return _editor.Visibility == Visibility.Visible && _editor.HasItem;
+                return _editor.Visibility == Visibility.Visible && _editor.ShowsItem(item);
             if (item.Kind == ItemKind.Sheet)
-                return _sheetView.Visibility == Visibility.Visible && _sheetView.HasItem;
+                return _sheetView.Visibility == Visibility.Visible && _sheetView.ShowsItem(item);
             if (item.Kind == ItemKind.Media)
                 return _mediaView.Visibility == Visibility.Visible;
-            return _corkboard.Visibility == Visibility.Visible;
+            if (item.Kind == ItemKind.Book)
+                return _bookView.Visibility == Visibility.Visible && _bookView.ShowsItem(item);
+            if (item.Kind == ItemKind.PageTemplate)
+                return _templateView.Visibility == Visibility.Visible && _templateView.ShowsItem(item);
+            return _corkboard.Visibility == Visibility.Visible && _corkboard.ShowsItem(item);
         }
 
         private void ShowItem(BinderItem item)
         {
+            // LE bug du « double-clic obligatoire », enfin élucidé : masquer la
+            // vue qui porte le focus clavier fait retomber ce focus sur un
+            // TreeViewItem de la Pile — et un TreeViewItem SE SÉLECTIONNE
+            // quand il reçoit le focus (TreeViewItem.OnGotFocus → Select).
+            // La sélection fantôme rouvrait alors la vue précédente — le
+            // remède est logique, pas focal : OnBinderSelection est gardé
+            // contre la réentrance pendant ShowItem, puis ramène la sélection
+            // de l'arbre sur l'élément réellement ouvert.
+
             _editor.Visibility = Visibility.Collapsed;
             _sheetView.Visibility = Visibility.Collapsed;
             _corkboard.Visibility = Visibility.Collapsed;
+            _bookView.Visibility = Visibility.Collapsed;
+            _bookView.Clear();
+            _templateView.Visibility = Visibility.Collapsed;
+            _templateView.Clear();
             _mediaView.Visibility = Visibility.Collapsed;
+            _journalView.Visibility = Visibility.Collapsed;
             _placeholder.Visibility = Visibility.Collapsed;
             if (item == null || item.Kind != ItemKind.Text) _statusPages.Text = "";
 
             if (item != null && item.Kind == ItemKind.Text)
             {
                 _sheetView.Clear();
+                // The document's own page setup wins over the project default
+                // (books stamp their gabarit on their documents), and a book
+                // document opens at its REAL folio in the book, with its
+                // header/footer decor (menu Gabarit ou gabarit de pages).
+                if (item.IsToc) RegenerateToc(item); // table des matières à jour
+                _editor.FolioOffset = ComputeFolioOffset(item);
+                _editor.Decor = PageDecor.For(item, _project);
+                _editor.ApplyPageSetup(item.Page ?? _project.Page);
                 _editor.LoadItem(item);
                 _editor.Visibility = Visibility.Visible;
                 _editor.FocusEditor();
+                return;
+            }
+            if (item != null && item.Kind == ItemKind.PageTemplate)
+            {
+                _editor.Clear();
+                _sheetView.Clear();
+                _templateView.Load(item, _project);
+                _templateView.Visibility = Visibility.Visible;
+                _templateView.Focus();
+                return;
+            }
+            if (item != null && item.Kind == ItemKind.Book)
+            {
+                _editor.Clear();
+                _sheetView.Clear();
+                _bookView.Load(item, _history, _project);
+                _bookView.Visibility = Visibility.Visible;
+                _bookView.Focus(); // le focus logique quitte la Pile
                 return;
             }
             if (item != null && item.Kind == ItemKind.Sheet)
@@ -738,12 +898,41 @@ namespace UniversSale
                 _sheetView.Clear();
                 _corkboard.Load(item, _history, _project);
                 _corkboard.Visibility = Visibility.Visible;
+                _corkboard.Focus();
                 return;
             }
             _editor.Clear();
             _sheetView.Clear();
             _placeholder.Visibility = Visibility.Visible;
             _placeholder.Text = "Sélectionnez un élément dans la Pile,\nou créez un écrit (Ctrl+T).";
+        }
+
+        /// <summary>Ouvre le Journal perso au centre (entrée fixe de la Pile).
+        /// Aucun élément d'arbre : la sélection courante est simplement rendue,
+        /// et tout clic dans la Pile reprend la main.</summary>
+        private void ShowJournal()
+        {
+            if (_journalView.Visibility == Visibility.Visible)
+            {
+                _journalView.Refresh();
+                return;
+            }
+            _navigating = true;
+            try
+            {
+                CommitActive();
+                _current = null;
+                ShowItem(null);
+                _placeholder.Visibility = Visibility.Collapsed;
+                _journalView.Load(_project);
+                _journalView.Visibility = Visibility.Visible;
+            }
+            finally
+            {
+                _navigating = false;
+            }
+            UpdateInspector();
+            UpdateStats();
         }
 
         // ----- routing to whichever editor is on screen -----
@@ -803,6 +992,8 @@ namespace UniversSale
         private void OnEditorEdited()
         {
             MarkDirty();
+            // The edited document's page count is stale (book folio offsets).
+            if (_current != null) _pageCountCache.Remove(_current.Id);
             _statsTimer.Stop();
             _statsTimer.Start();
         }
@@ -975,6 +1166,14 @@ namespace UniversSale
             ExportDocument(document, _current.Title);
         }
 
+        /// <summary>Export from a corkboard card's ⋮ menu.</summary>
+        private void ExportItem(BinderItem item)
+        {
+            if (item == null || (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet)) return;
+            CommitActive();
+            ExportDocument(item.Document, item.Title);
+        }
+
         private void CompileManuscript()
         {
             CommitActive();
@@ -1085,17 +1284,28 @@ namespace UniversSale
         /// pagination across its documents).</summary>
         private TextDocument BuildPrintable(out string name)
         {
+            PageSetup setup;
+            return BuildPrintable(out name, out setup);
+        }
+
+        private TextDocument BuildPrintable(out string name, out PageSetup setup)
+        {
             name = null;
+            setup = _project.Page;
             CommitActive();
             if (_current != null
                 && (_current.Kind == ItemKind.Text || _current.Kind == ItemKind.Sheet))
             {
                 name = _current.Title;
+                if (_current.Page != null) setup = _current.Page;
                 return _current.Document;
             }
             if (_current != null && _current.IsContainer)
             {
                 name = _current.Title;
+                // A book's pages follow its gabarit, whatever the project says.
+                if (_current.Kind == ItemKind.Book && _current.Book != null)
+                    setup = _current.Book.Template;
                 return Exchange.Compiler.Build(_project, _current, new Exchange.CompileOptions
                 {
                     TitlePage = false,
@@ -1112,11 +1322,17 @@ namespace UniversSale
         private void ShowPrintPreview()
         {
             string name;
-            var document = BuildPrintable(out name);
+            PageSetup setup;
+            var document = BuildPrintable(out name, out setup);
             if (document == null) return;
             try
             {
-                Print.Printing.ShowPreview(this, document, _project.Styles, _project, name);
+                var offset = _current != null && _current.Kind == ItemKind.Text
+                    ? ComputeFolioOffset(_current) : 0;
+                var decor = _current != null && _current.Kind == ItemKind.Text
+                    ? PageDecor.For(_current, _project) : null;
+                Print.Printing.ShowPreview(this, document, _project.Styles, _project,
+                    name, setup, offset, decor);
             }
             catch (Exception error)
             {
@@ -1128,11 +1344,17 @@ namespace UniversSale
         private void PrintCurrent()
         {
             string name;
-            var document = BuildPrintable(out name);
+            PageSetup setup;
+            var document = BuildPrintable(out name, out setup);
             if (document == null) return;
             try
             {
-                Print.Printing.Print(document, _project.Styles, _project, AppName + " — " + name);
+                var offset = _current != null && _current.Kind == ItemKind.Text
+                    ? ComputeFolioOffset(_current) : 0;
+                var decor = _current != null && _current.Kind == ItemKind.Text
+                    ? PageDecor.For(_current, _project) : null;
+                Print.Printing.Print(document, _project.Styles, _project,
+                    AppName + " — " + name, setup, offset, decor);
             }
             catch (Exception error)
             {
@@ -1146,10 +1368,288 @@ namespace UniversSale
         private void ExportPdf()
         {
             string name;
-            var document = BuildPrintable(out name);
+            PageSetup setup;
+            var document = BuildPrintable(out name, out setup);
             if (document == null) return;
             var options = View.PdfExportDialog.Ask(this, name);
             if (options == null) return;
+            var decor = _current != null && _current.Kind == ItemKind.Text
+                ? PageDecor.For(_current, _project) : null;
+            WritePdf(document, setup, name, options, decor,
+                _current != null && _current.Kind == ItemKind.Text
+                    ? ComputeFolioOffset(_current) : 0);
+        }
+
+        // ============================================================= folio de livre
+
+        // Page counts per document (composition), so a book document opens at
+        // its real folio without recomposing the whole book every time.
+        private readonly Dictionary<string, int> _pageCountCache = new Dictionary<string, int>();
+
+        /// <summary>Pages of the book preceding this document. Every document
+        /// opens on a RECTO (odd folio) — feuillet reasoning, InDesign-style —
+        /// so an odd running count gets a blank verso.</summary>
+        private int ComputeFolioOffset(BinderItem item)
+        {
+            var book = item.EnclosingBook();
+            if (book == null || book.Book == null || book == item) return 0;
+            var texts = new List<BinderItem>();
+            CollectBookTexts(book, texts);
+            var offset = 0;
+            foreach (var text in texts)
+            {
+                if (text == item) return offset;
+                offset += PageCountOf(text);
+                if (offset % 2 == 1) offset++; // le prochain document ouvre un recto
+            }
+            return 0; // item not found (moved?): behave like a standalone doc
+        }
+
+        private static void CollectBookTexts(BinderItem root, List<BinderItem> texts)
+        {
+            foreach (var child in root.Children)
+            {
+                if (child.Kind == ItemKind.Text) texts.Add(child);
+                CollectBookTexts(child, texts);
+            }
+        }
+
+        private int PageCountOf(BinderItem text)
+        {
+            int pages;
+            if (_pageCountCache.TryGetValue(text.Id, out pages)) return pages;
+            try
+            {
+                var composition = Print.Composer.Compose(text.Document,
+                    _project.Styles, text.Page ?? _project.Page, _project);
+                pages = Math.Max(1, composition.Pages.Count);
+            }
+            catch { pages = 1; }
+            _pageCountCache[text.Id] = pages;
+            return pages;
+        }
+
+        /// <summary>Total pages of a book (recto starts included) — feeds the
+        /// « page finale impaire » danger icon in the Pile.</summary>
+        private int BookPageTotal(BinderItem book)
+        {
+            if (book == null || book.Book == null || _project == null) return 0;
+            var texts = new List<BinderItem>();
+            CollectBookTexts(book, texts);
+            var total = 0;
+            foreach (var text in texts)
+            {
+                if (total % 2 == 1) total++; // chaque document ouvre un recto
+                total += PageCountOf(text);
+            }
+            return total;
+        }
+
+        // ============================================================= pages extra
+
+        /// <summary>Corkboard « Nouveau document ▾ » : adds a document at the
+        /// end of the book — plain, or one of the extra pages (liminaires,
+        /// table des matières, éditeur, soutien), pre-filled from the model
+        /// and marked IsExtraPage (no folio).</summary>
+        private void NewBookDocument(BinderItem book, string kind)
+        {
+            if (book == null || book.Book == null) return;
+            BinderItem item;
+            if (kind == null)
+            {
+                var title = InputDialog.Ask(this, "Nouveau document",
+                    "Titre du document :", "Nouveau document");
+                if (title == null) return;
+                item = new BinderItem { Kind = ItemKind.Text, Title = title };
+                item.Document = TextDocument.FromPlainText("");
+            }
+            else
+                item = ExtraPages.Create(kind, book, _project);
+            item.Page = book.Book.Template.Clone(); // suit le gabarit intérieur
+            _history.Run(new AddItemAction(book, item, -1));
+            if (item.IsToc) RegenerateToc(item);
+            MarkDirty();
+            _pageCountCache.Clear();
+            _binder.Rebuild();
+            if (_current == book) _bookView.Load(book, _history, _project);
+        }
+
+        /// <summary>Rebuilds a dynamic table of contents: every non-extra
+        /// document of the book, in order, with its opening folio.</summary>
+        private void RegenerateToc(BinderItem toc)
+        {
+            var book = toc.EnclosingBook();
+            if (book == null || book.Book == null) return;
+            var texts = new List<BinderItem>();
+            CollectBookTexts(book, texts);
+            var entries = new List<ExtraPages.TocEntry>();
+            foreach (var text in texts)
+            {
+                if (text.IsExtraPage || text == toc) continue;
+                entries.Add(new ExtraPages.TocEntry
+                {
+                    Title = text.Title,
+                    Folio = ComputeFolioOffset(text) + 1
+                });
+            }
+            ExtraPages.EnsureStyle(_project);
+            ExtraPages.FillToc(toc.Document, entries,
+                ExtraPages.LinesFor(book.Book.Template, _project));
+            _pageCountCache.Remove(toc.Id); // son nombre de pages a pu changer
+        }
+
+        // ============================================================= gabarits de pages
+
+        private void NewPageTemplate(BinderItem book)
+        {
+            var title = View.InputDialog.Ask(this, "Nouveau gabarit",
+                "Nom du gabarit (ex. « Corps de texte », « Ouverture de chapitre ») :",
+                "Corps de texte");
+            if (title == null) return;
+            var gabarit = new BinderItem
+            {
+                Kind = ItemKind.PageTemplate,
+                Title = title,
+                TemplateColor = View.ItemIcons.TintSwatches[1] // indigo par défaut
+            };
+            gabarit.Parent = book;
+            book.Children.Add(gabarit);
+            MarkDirty();
+            _binder.Rebuild();
+            _binder.SelectItem(gabarit.Id); // ouvre la vue du gabarit
+        }
+
+        private void ExportPageTemplate(BinderItem gabarit)
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter = Persistence.GabaritFile.Filter,
+                FileName = SafeFileName(gabarit.Title) + ".usgab"
+            };
+            if (dialog.ShowDialog(this) != true) return;
+            try
+            {
+                Persistence.GabaritFile.Export(gabarit, dialog.FileName);
+                MessageBox.Show(this, "Gabarit exporté :\n" + dialog.FileName,
+                    AppName, MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show(this, "Export impossible :\n" + error.Message,
+                    AppName, MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void ImportPageTemplate(BinderItem book)
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog { Filter = Persistence.GabaritFile.Filter };
+            if (dialog.ShowDialog(this) != true) return;
+            try
+            {
+                var gabarit = Persistence.GabaritFile.Import(dialog.FileName);
+                gabarit.Parent = book;
+                book.Children.Add(gabarit);
+                MarkDirty();
+                _binder.Rebuild();
+                if (_current == book) _bookView.Load(book, _history, _project);
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show(this, "Import impossible :\n" + error.Message,
+                    AppName, MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>« Copier vers un autre livre » : facilite les séries.</summary>
+        private void CopyPageTemplate(BinderItem gabarit)
+        {
+            var books = new List<BinderItem>();
+            foreach (var item in _project.AllItems())
+                if (item.Kind == ItemKind.Book && item != gabarit.EnclosingBook())
+                    books.Add(item);
+            if (books.Count == 0)
+            {
+                MessageBox.Show(this, "Aucun autre livre dans ce projet.",
+                    AppName, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            var titles = new List<string>();
+            foreach (var book in books) titles.Add(book.Title);
+            var choice = View.LinkDialog.Ask(this, titles);
+            if (choice == null) return;
+            foreach (var book in books)
+                if (book.Title == choice)
+                {
+                    var copy = Persistence.GabaritFile.Duplicate(gabarit);
+                    copy.Parent = book;
+                    book.Children.Add(copy);
+                    MarkDirty();
+                    _binder.Rebuild();
+                    return;
+                }
+        }
+
+        /// <summary>« Appliquer un gabarit » depuis le menu ⋮ d'une carte —
+        /// à un document ou à toute la sélection (groupée).</summary>
+        private void ApplyPageTemplateTo(List<BinderItem> targets)
+        {
+            if (targets == null || targets.Count == 0) return;
+            var book = targets[0].EnclosingBook();
+            if (book == null) return;
+            var gabarits = new List<BinderItem>();
+            foreach (var child in book.Children)
+                if (child.Kind == ItemKind.PageTemplate) gabarits.Add(child);
+            if (gabarits.Count == 0)
+            {
+                MessageBox.Show(this,
+                    "Ce livre n'a pas encore de gabarit de pages (vue du livre → Nouveau gabarit).",
+                    AppName, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            var titles = new List<string> { "(aucun gabarit)" };
+            foreach (var gabarit in gabarits) titles.Add(gabarit.Title);
+            var choice = View.LinkDialog.Ask(this, titles);
+            if (choice == null) return;
+            string id = null;
+            foreach (var gabarit in gabarits)
+                if (gabarit.Title == choice) id = gabarit.Id;
+            foreach (var target in targets)
+                if (target.Kind == ItemKind.Text) target.PageTemplateId = id;
+            MarkDirty();
+            _binder.Rebuild();
+            // La vue courante (livre) redessine ses cartes avec les pastilles.
+            if (_current != null && _current.Kind == ItemKind.Book)
+                _bookView.Load(_current, _history, _project);
+        }
+
+        /// <summary>« Publier » : the whole book compiled into one PDF —
+        /// title page from its metadata, continuous pagination, its gabarit,
+        /// print-shop defaults (CMJN FOGRA39, traits de coupe, fond perdu du
+        /// livre).</summary>
+        private void PublishBook(BinderItem book)
+        {
+            if (book == null || book.Book == null) return;
+            CommitActive();
+            // Tables des matières à jour avant compilation.
+            foreach (var item in _project.AllItems())
+                if (item.IsToc && item.EnclosingBook() == book) RegenerateToc(item);
+            // Pas de page de titre générée : sa personnalisation arrive — le
+            // PDF publié n'est que le contenu, chaque document sur un recto.
+            var document = Exchange.Compiler.Build(_project, book, new Exchange.CompileOptions
+            {
+                TitlePage = false,
+                ChapterHeadings = false,
+                PageBreakPerText = true,
+                RectoChapterStarts = true // chaque document ouvre un recto
+            });
+            var options = View.PdfExportDialog.Ask(this, book.Title, true, book.Book.BleedMm);
+            if (options == null) return;
+            WritePdf(document, book.Book.Template, book.Title, options);
+        }
+
+        private void WritePdf(TextDocument document, PageSetup setup, string name,
+            Print.PdfExportOptions options, PageDecor decor = null, int folioOffset = 0)
+        {
             var dialog = new Microsoft.Win32.SaveFileDialog
             {
                 Filter = "PDF (*.pdf)|*.pdf",
@@ -1160,7 +1660,9 @@ namespace UniversSale
             try
             {
                 var composition = Print.Composer.Compose(
-                    document, _project.Styles, _project.Page, _project);
+                    document, _project.Styles, setup, _project);
+                composition.DefaultDecor = decor;
+                composition.FolioOffset = folioOffset;
                 Print.PdfWriter.Write(dialog.FileName, composition, options);
                 MessageBox.Show(this, "Export terminé :\n" + dialog.FileName,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Information);
@@ -1190,6 +1692,89 @@ namespace UniversSale
             _sessionGoal = goal;
             _sessionBaseWords = ProjectWords();
             UpdateStats();
+        }
+
+        // ============================================================= journal perso
+
+        /// <summary>Credits a net word delta to today's journal entry, refreshes
+        /// the journal view when visible, and fires the goal fanfare when the
+        /// daily target is crossed.</summary>
+        private void AddJournalWords(int delta)
+        {
+            _project.Journal.Add(WritingJournal.Today(), delta);
+            if (_journalView.Visibility == Visibility.Visible) _journalView.Refresh();
+            if (delta > 0) CheckDailyGoal();
+        }
+
+        /// <summary>One fanfare per day: the celebration date is persisted in
+        /// the journal so reopening the project stays quiet.</summary>
+        private void CheckDailyGoal()
+        {
+            var journal = _project.Journal;
+            var today = WritingJournal.Today();
+            if (journal.DailyGoal <= 0) return;
+            if (journal.WordsOn(today) < journal.DailyGoal) return;
+            if (journal.LastCelebrated == today) return;
+            journal.LastCelebrated = today;
+            MarkDirty();
+            ShowGoalToast(journal.DailyGoal);
+        }
+
+        /// <summary>Le petit truc visuel : un toast accent glisse au bas de la
+        /// zone centrale, s'attarde, puis s'efface — l'écriture n'est jamais
+        /// interrompue.</summary>
+        private void ShowGoalToast(int goal)
+        {
+            var text = new TextBlock
+            {
+                Text = "🎉  Objectif du jour atteint — "
+                    + goal.ToString("N0", CultureInfo.CurrentCulture) + " mots !",
+                Foreground = Brushes.White,
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold
+            };
+            var toast = new Border
+            {
+                Background = Chrome.Accent,
+                CornerRadius = new CornerRadius(18),
+                Padding = new Thickness(20, 10, 20, 10),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 0, 34),
+                IsHitTestVisible = false,
+                Opacity = 0,
+                Child = text,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    Color = Colors.Black,
+                    Opacity = 0.3,
+                    BlurRadius = 12,
+                    ShadowDepth = 2
+                },
+                RenderTransform = new TranslateTransform(0, 16)
+            };
+            _centerHost.Children.Add(toast);
+
+            var appear = new System.Windows.Media.Animation.DoubleAnimation(0, 1,
+                TimeSpan.FromMilliseconds(220));
+            var rise = new System.Windows.Media.Animation.DoubleAnimation(16, 0,
+                TimeSpan.FromMilliseconds(260))
+            {
+                EasingFunction = new System.Windows.Media.Animation.CubicEase
+                {
+                    EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut
+                }
+            };
+            var fade = new System.Windows.Media.Animation.DoubleAnimation(1, 0,
+                TimeSpan.FromMilliseconds(500))
+            {
+                BeginTime = TimeSpan.FromSeconds(4)
+            };
+            fade.Completed += delegate { _centerHost.Children.Remove(toast); };
+            toast.BeginAnimation(OpacityProperty, appear);
+            toast.RenderTransform.BeginAnimation(TranslateTransform.YProperty, rise);
+            toast.BeginAnimation(OpacityProperty, fade, System.Windows.Media.Animation
+                .HandoffBehavior.Compose);
         }
 
         private int ProjectWords()
@@ -1244,13 +1829,36 @@ namespace UniversSale
             _inspectorMenu.IsChecked = inspectorOn;
         }
 
+        private void ToggleRulers()
+        {
+            AppSettings.ShowRulers = !AppSettings.ShowRulers;
+            _rulersMenu.IsChecked = AppSettings.ShowRulers;
+            AppSettings.Save();
+            _editor.UpdateRulers();
+            _sheetView.UpdateRulers();
+        }
+
         private void ToggleDarkTheme()
         {
             AppSettings.DarkTheme = !AppSettings.DarkTheme;
             _darkMenu.IsChecked = AppSettings.DarkTheme;
+            ApplyAppearance();
+            AppSettings.Save();
+        }
+
+        /// <summary>Re-applies the mutable chrome brushes and the themed styles
+        /// after any appearance change (dark theme, accent, white paper).</summary>
+        private void ApplyAppearance()
+        {
             Chrome.Toggle(AppSettings.DarkTheme);
             Theme.Switch(Application.Current, AppSettings.DarkTheme);
-            AppSettings.Save();
+        }
+
+        private void OpenPreferences()
+        {
+            var dialog = new PreferencesDialog(this);
+            dialog.AppearanceChanged += ApplyAppearance;
+            dialog.ShowDialog();
         }
 
         // ============================================================= displays
@@ -1324,6 +1932,14 @@ namespace UniversSale
 
             _inspDates.Text = string.IsNullOrEmpty(_project.CreatedAt) ? ""
                 : "Créé le " + _project.CreatedAt + "\nModifié le " + _project.ModifiedAt;
+        }
+
+        /// <summary>Chevron + body of the « Statistiques » accordion.</summary>
+        private void ApplyStatsExpansion()
+        {
+            var open = AppSettings.StatsExpanded;
+            _statsChevron.Data = Geometry.Parse(open ? "M0,0 L4,4 8,0" : "M0,0 L4,4 0,8");
+            _inspStats.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void SetInspectorFieldVisibility(bool synopsis, bool notes)
@@ -1410,6 +2026,12 @@ namespace UniversSale
             if (_current != null && _current.Kind == ItemKind.Text && _editor.HasItem)
             {
                 var stats = TextStats.Compute(_editor.PlainText());
+                // Journal perso : le delta net du document ouvert est crédité au
+                // jour courant (cache chauffé au chargement et aux imports, donc
+                // un premier passage sans référence ne crédite jamais un stock).
+                int before;
+                if (_wordCache.TryGetValue(_current.Id, out before) && stats.Words != before)
+                    AddJournalWords(stats.Words - before);
                 _wordCache[_current.Id] = stats.Words;
                 _statusRight.Text = stats.ShortLabel();
                 _inspStats.Text = stats.LongLabel();
@@ -1425,6 +2047,8 @@ namespace UniversSale
                 _statusRight.Text = "";
                 _inspStats.Text = "";
             }
+            _statsSection.Visibility = _inspStats.Text.Length > 0
+                ? Visibility.Visible : Visibility.Collapsed;
 
             var left = _path == null ? _project.Name + " (jamais enregistré)" : _path;
             if (_sessionGoal > 0)

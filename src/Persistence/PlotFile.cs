@@ -19,8 +19,10 @@ namespace UniversSale.Persistence
         public const string OpenFilter = "Projets Univers Sale (*.plot)|*.plot|Tous les fichiers (*.*)|*.*";
         public const string SaveFilter = "Projet Univers Sale (*.plot)|*.plot|Tous les fichiers (*.*)|*.*";
         // v2: pivot + styles; v3: sheets, templates, media;
-        // v4: notes, per-item icons, image store, lists, page breaks, page setup.
-        private const int FormatVersion = 4;
+        // v4: notes, per-item icons, image store, lists, page breaks, page setup;
+        // v5: books (metadata + gabarit), per-document page setup;
+        // v6: en-têtes/pieds, gabarits de pages, veuves/orphelines débrayées.
+        private const int FormatVersion = 6;
 
         // ------------------------------------------------------- writing
 
@@ -88,6 +90,25 @@ namespace UniversSale.Persistence
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
             manifest["page"] = BuildPageSetup(project.Page);
+            if (project.Journal.DailyGoal > 0 || project.Journal.Days.Count > 0)
+            {
+                var journal = new Dictionary<string, object>();
+                if (project.Journal.DailyGoal > 0)
+                    journal["goal"] = (double)project.Journal.DailyGoal;
+                if (project.Journal.LastCelebrated != null)
+                    journal["praised"] = project.Journal.LastCelebrated;
+                var days = new List<object>();
+                foreach (var day in project.Journal.Days)
+                {
+                    if (day.Words <= 0) continue;
+                    var entry = new Dictionary<string, object>();
+                    entry["d"] = day.Date;
+                    entry["w"] = (double)day.Words;
+                    days.Add(entry);
+                }
+                if (days.Count > 0) journal["days"] = days;
+                manifest["journal"] = journal;
+            }
             var roots = new List<object>();
             foreach (var root in project.Roots) roots.Add(BuildNode(root));
             manifest["binder"] = roots;
@@ -121,8 +142,41 @@ namespace UniversSale.Persistence
             node["kind"] = item.Kind == ItemKind.Category ? "category"
                          : item.Kind == ItemKind.Folder ? "folder"
                          : item.Kind == ItemKind.Sheet ? "sheet"
-                         : item.Kind == ItemKind.Media ? "media" : "text";
+                         : item.Kind == ItemKind.Media ? "media"
+                         : item.Kind == ItemKind.Book ? "book"
+                         : item.Kind == ItemKind.PageTemplate ? "pagetpl" : "text";
             if (item.CategoryKey != null) node["category"] = item.CategoryKey;
+            if (item.Page != null) node["page"] = BuildPageSetup(item.Page);
+            if (item.Header != null) node["header"] = GabaritFile.BuildHeaderFooter(item.Header);
+            if (item.Footer != null) node["footer"] = GabaritFile.BuildHeaderFooter(item.Footer);
+            if (item.PageTemplateId != null) node["pageTemplate"] = item.PageTemplateId;
+            if (item.IsExtraPage) node["extra"] = true;
+            if (item.IsToc) node["toc"] = true;
+            if (item.Kind == ItemKind.PageTemplate)
+            {
+                if (item.TemplateColor != null) node["chip"] = item.TemplateColor;
+                if (item.HeaderRecto != null) node["headerRecto"] = GabaritFile.BuildHeaderFooter(item.HeaderRecto);
+                if (item.FooterRecto != null) node["footerRecto"] = GabaritFile.BuildHeaderFooter(item.FooterRecto);
+                if (item.HeaderVerso != null) node["headerVerso"] = GabaritFile.BuildHeaderFooter(item.HeaderVerso);
+                if (item.FooterVerso != null) node["footerVerso"] = GabaritFile.BuildHeaderFooter(item.FooterVerso);
+                if (item.HeaderGapMm != 0) node["headerGapMm"] = item.HeaderGapMm;
+                if (item.FooterGapMm != 0) node["footerGapMm"] = item.FooterGapMm;
+                if (item.HeaderHideFirst) node["headerHideFirst"] = true;
+                if (item.FooterHideFirst) node["footerHideFirst"] = true;
+            }
+            if (item.Kind == ItemKind.Book && item.Book != null)
+            {
+                var book = new Dictionary<string, object>();
+                if (item.Book.Subtitle.Length > 0) book["subtitle"] = item.Book.Subtitle;
+                if (item.Book.AuthorOverride.Length > 0) book["author"] = item.Book.AuthorOverride;
+                if (item.Book.Publisher.Length > 0) book["publisher"] = item.Book.Publisher;
+                if (item.Book.Collection.Length > 0) book["collection"] = item.Book.Collection;
+                if (item.Book.Isbn.Length > 0) book["isbn"] = item.Book.Isbn;
+                if (item.Book.Year.Length > 0) book["year"] = item.Book.Year;
+                book["bleedMm"] = item.Book.BleedMm;
+                book["template"] = BuildPageSetup(item.Book.Template);
+                node["book"] = book;
+            }
             if (!string.IsNullOrEmpty(item.Synopsis)) node["synopsis"] = item.Synopsis;
             if (!string.IsNullOrEmpty(item.Notes)) node["notes"] = item.Notes;
             if (item.Icon != null) node["icon"] = item.Icon;
@@ -245,6 +299,7 @@ namespace UniversSale.Persistence
                 if (paragraph.AlignOverride != null) p["align"] = paragraph.AlignOverride;
                 if (paragraph.ListKind != null) p["list"] = paragraph.ListKind;
                 if (paragraph.PageBreakBefore) p["pb"] = true;
+                if (paragraph.AllowWidows) p["wo"] = true; // veuves/orphelines autorisées ici
                 var runs = new List<object>();
                 foreach (var run in paragraph.Runs)
                 {
@@ -259,6 +314,7 @@ namespace UniversSale.Persistence
                     if (run.Underline.HasValue) r["u"] = run.Underline.Value;
                     if (run.Strike.HasValue) r["st"] = run.Strike.Value;
                     if (run.Weight != null) r["w"] = run.Weight;
+                    if (run.Tracking.HasValue) r["trk"] = run.Tracking.Value;
                     if (run.FontFamily != null) r["font"] = run.FontFamily;
                     if (run.FontSize.HasValue) r["size"] = run.FontSize.Value;
                     if (run.Color != null) r["color"] = run.Color;
@@ -312,6 +368,24 @@ namespace UniversSale.Persistence
                         if (entry is string) project.CustomColors.Add((string)entry);
                 project.CreatedAt = Json.AsString(Json.Field(manifest, "createdAt")) ?? "";
                 project.ModifiedAt = Json.AsString(Json.Field(manifest, "modifiedAt")) ?? "";
+
+                var journal = Json.AsObject(Json.Field(manifest, "journal"));
+                if (journal != null)
+                {
+                    project.Journal.DailyGoal = (int)Json.AsDouble(Json.Field(journal, "goal"), 0);
+                    project.Journal.LastCelebrated = Json.AsString(Json.Field(journal, "praised"));
+                    var days = Json.AsList(Json.Field(journal, "days"));
+                    if (days != null)
+                        foreach (var rawDay in days)
+                        {
+                            var dayObj = Json.AsObject(rawDay);
+                            if (dayObj == null) continue;
+                            var date = Json.AsString(Json.Field(dayObj, "d"));
+                            var words = (int)Json.AsDouble(Json.Field(dayObj, "w"), 0);
+                            if (date != null && words > 0)
+                                project.Journal.Days.Add(new JournalDay { Date = date, Words = words });
+                        }
+                }
 
                 var stylesEntry = archive.GetEntry("styles.json");
                 if (stylesEntry != null)
@@ -494,7 +568,47 @@ namespace UniversSale.Persistence
             item.Kind = kind == "category" ? ItemKind.Category
                       : kind == "folder" ? ItemKind.Folder
                       : kind == "sheet" ? ItemKind.Sheet
-                      : kind == "media" ? ItemKind.Media : ItemKind.Text;
+                      : kind == "media" ? ItemKind.Media
+                      : kind == "book" ? ItemKind.Book
+                      : kind == "pagetpl" ? ItemKind.PageTemplate : ItemKind.Text;
+
+            var ownPage = Json.AsObject(Json.Field(obj, "page"));
+            if (ownPage != null) item.Page = ReadPageSetup(ownPage);
+            item.Header = GabaritFile.ReadHeaderFooter(Json.Field(obj, "header"));
+            item.Footer = GabaritFile.ReadHeaderFooter(Json.Field(obj, "footer"));
+            item.PageTemplateId = Json.AsString(Json.Field(obj, "pageTemplate"));
+            item.IsExtraPage = Json.AsBool(Json.Field(obj, "extra"), false);
+            item.IsToc = Json.AsBool(Json.Field(obj, "toc"), false);
+            if (item.Kind == ItemKind.PageTemplate)
+            {
+                item.TemplateColor = Json.AsString(Json.Field(obj, "chip"));
+                item.HeaderRecto = GabaritFile.ReadHeaderFooter(Json.Field(obj, "headerRecto"));
+                item.FooterRecto = GabaritFile.ReadHeaderFooter(Json.Field(obj, "footerRecto"));
+                item.HeaderVerso = GabaritFile.ReadHeaderFooter(Json.Field(obj, "headerVerso"));
+                item.FooterVerso = GabaritFile.ReadHeaderFooter(Json.Field(obj, "footerVerso"));
+                item.HeaderGapMm = Json.AsDouble(Json.Field(obj, "headerGapMm"), 0);
+                item.FooterGapMm = Json.AsDouble(Json.Field(obj, "footerGapMm"), 0);
+                item.HeaderHideFirst = Json.AsBool(Json.Field(obj, "headerHideFirst"), false);
+                item.FooterHideFirst = Json.AsBool(Json.Field(obj, "footerHideFirst"), false);
+            }
+
+            if (item.Kind == ItemKind.Book)
+            {
+                item.Book = new BookInfo();
+                var book = Json.AsObject(Json.Field(obj, "book"));
+                if (book != null)
+                {
+                    item.Book.Subtitle = Json.AsString(Json.Field(book, "subtitle")) ?? "";
+                    item.Book.AuthorOverride = Json.AsString(Json.Field(book, "author")) ?? "";
+                    item.Book.Publisher = Json.AsString(Json.Field(book, "publisher")) ?? "";
+                    item.Book.Collection = Json.AsString(Json.Field(book, "collection")) ?? "";
+                    item.Book.Isbn = Json.AsString(Json.Field(book, "isbn")) ?? "";
+                    item.Book.Year = Json.AsString(Json.Field(book, "year")) ?? "";
+                    item.Book.BleedMm = Json.AsDouble(Json.Field(book, "bleedMm"), 3);
+                    var template = Json.AsObject(Json.Field(book, "template"));
+                    if (template != null) item.Book.Template = ReadPageSetup(template);
+                }
+            }
 
             if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
                 item.Document = ReadDocument(item.Id, archive);
@@ -573,6 +687,7 @@ namespace UniversSale.Persistence
                     paragraph.AlignOverride = Json.AsString(Json.Field(p, "align"));
                     paragraph.ListKind = Json.AsString(Json.Field(p, "list"));
                     paragraph.PageBreakBefore = Json.AsBool(Json.Field(p, "pb"), false);
+                    paragraph.AllowWidows = Json.AsBool(Json.Field(p, "wo"), false);
                     var runs = Json.AsList(Json.Field(p, "runs"));
                     if (runs != null)
                         foreach (var runEntry in runs)
@@ -604,6 +719,8 @@ namespace UniversSale.Persistence
                                 run.Underline = OptBool(r, "u");
                                 run.Strike = OptBool(r, "st");
                                 run.Weight = Json.AsString(Json.Field(r, "w"));
+                                var tracking = Json.Field(r, "trk");
+                                if (tracking is double) run.Tracking = (double)tracking;
                                 run.FontFamily = Json.AsString(Json.Field(r, "font"));
                                 var size = Json.Field(r, "size");
                                 if (size is double) run.FontSize = (double)size;

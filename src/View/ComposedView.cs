@@ -54,6 +54,16 @@ namespace UniversSale.View
         public event Action<string> LinkClicked;
         public event Action<int, int> PageInfoChanged;
         public event Action ExitRequested; // Échap : retour à l'éditeur classique
+        public event Action SelectionStateChanged; // caret/sélection ont bougé
+
+        /// <summary>Pages du livre précédant ce document (0 hors livre) —
+        /// folio affiché, parité des marges miroir. Pris en compte à l'Attach
+        /// et au RefreshComposition.</summary>
+        public int FolioOffset;
+
+        /// <summary>Décor en-tête/pied du document (menu Gabarit, gabarit de
+        /// pages appliqué). Pris en compte à l'Attach et au Refresh.</summary>
+        public PageDecor Decor;
 
         public ComposedView()
         {
@@ -105,6 +115,26 @@ namespace UniversSale.View
         }
 
         public bool HasItem { get { return _item != null; } }
+
+        /// <summary>On-screen page rectangles (zoom applied), for the rulers.</summary>
+        public List<Rect> PageRects(UIElement reference)
+        {
+            var result = new List<Rect>();
+            foreach (UIElement child in _pages.Children)
+            {
+                var element = child as FrameworkElement;
+                if (element == null || element.ActualWidth < 1) continue;
+                try
+                {
+                    var p0 = element.TranslatePoint(new Point(0, 0), reference);
+                    var p1 = element.TranslatePoint(
+                        new Point(element.ActualWidth, element.ActualHeight), reference);
+                    result.Add(new Rect(p0, p1));
+                }
+                catch { }
+            }
+            return result;
+        }
         public bool CanUndo { get { return _undo.Count > 0; } }
         public bool CanRedo { get { return _redo.Count > 0; } }
 
@@ -112,6 +142,13 @@ namespace UniversSale.View
 
         public void Attach(BinderItem item, StyleSheet styles, PageSetup setup, Project project)
         {
+            // A freshly created BinderItem carries a ZERO-paragraph document
+            // (only FromPlainText seeds one). The classic surface used to
+            // repair it through its flush — skipped when the composed editor
+            // is already active — and LineOf would index an empty list (the
+            // « Composition impossible » crash on adding a document).
+            if (item.Document.Paragraphs.Count == 0)
+                item.Document.Paragraphs.Add(new TextParagraph());
             _item = item;
             _styles = styles;
             _setup = setup;
@@ -119,6 +156,8 @@ namespace UniversSale.View
             // appendNotes: footnotes sit at the bottom of their page, like on
             // paper — the composed surface is print-exact.
             _engine = new CompositionEngine(item.Document, styles, setup, project, true);
+            _engine.FolioOffset = FolioOffset;
+            _engine.DefaultDecor = Decor;
             _engine.ComposeAll();
             _undo.Clear();
             _redo.Clear();
@@ -164,6 +203,8 @@ namespace UniversSale.View
         public void RefreshComposition()
         {
             if (_engine == null) return;
+            _engine.FolioOffset = FolioOffset;
+            _engine.DefaultDecor = Decor;
             _engine.ComposeAll();
             RebuildPages();
             ClampCaret();
@@ -216,6 +257,7 @@ namespace UniversSale.View
                 _owner = owner;
                 _index = index;
                 SnapsToDevicePixels = true;
+                Cursor = Cursors.IBeam; // writing surface: text cursor
             }
 
             protected override Size MeasureOverride(Size availableSize)
@@ -243,6 +285,8 @@ namespace UniversSale.View
             pageIndex = 0;
             lineY = 0;
             var composition = _engine.Current;
+            if (paragraphIndex < 0 || paragraphIndex >= composition.Paragraphs.Count)
+                return null;
             var layout = composition.Paragraphs[paragraphIndex];
             var lineIndex = layout.Lines.Count - 1;
             for (var i = 0; i < layout.Lines.Count; i++)
@@ -260,25 +304,27 @@ namespace UniversSale.View
             return layout.Lines.Count > 0 ? layout.Lines[lineIndex] : null;
         }
 
-        private double CaretX(ComposedLine line, int offset)
+        /// <summary>left = LeftPxFor(page de la ligne) — mirrored margins make
+        /// the text column shift with the folio parity.</summary>
+        private double CaretX(ComposedLine line, int offset, double left)
         {
-            var x = _engine.Current.LeftPx;
+            var x = left;
             double best = -1;
             foreach (var piece in line.Pieces)
             {
                 if (piece.SourceStart < 0 || piece.SourceLength <= 0) continue;
                 if (offset <= piece.SourceStart)
                 {
-                    if (best < 0) best = _engine.Current.LeftPx + piece.Origin.X;
+                    if (best < 0) best = left + piece.Origin.X;
                     continue;
                 }
                 if (offset <= piece.SourceStart + piece.SourceLength)
                 {
                     var into = offset - piece.SourceStart;
                     var dx = into == 0 ? 0 : piece.CharRights[Math.Min(into, piece.CharRights.Length) - 1];
-                    return _engine.Current.LeftPx + piece.Origin.X + dx;
+                    return left + piece.Origin.X + dx;
                 }
-                x = _engine.Current.LeftPx + piece.Origin.X
+                x = left + piece.Origin.X
                     + (piece.CharRights != null && piece.CharRights.Length > 0
                         ? piece.CharRights[piece.CharRights.Length - 1]
                         : 0);
@@ -286,9 +332,8 @@ namespace UniversSale.View
             return best >= 0 && offset <= line.Start ? best : x;
         }
 
-        private int OffsetFromX(ComposedLine line, double xPage)
+        private int OffsetFromX(ComposedLine line, double xPage, double left)
         {
-            var left = _engine.Current.LeftPx;
             var offset = line.Start;
             var lastEnd = line.Start;
             foreach (var piece in line.Pieces)
@@ -333,7 +378,7 @@ namespace UniversSale.View
             double lineY;
             var line = LineOf(_caretParagraph, _caretOffset, out pageIndex, out lineY);
             if (line == null) { _caretBar.Visibility = Visibility.Collapsed; return; }
-            var x = CaretX(line, _caretOffset);
+            var x = CaretX(line, _caretOffset, _engine.Current.LeftPxFor(pageIndex));
             var y = PageTop(pageIndex) + lineY;
             Canvas.SetLeft(_caretBar, x);
             Canvas.SetTop(_caretBar, y + 1);
@@ -342,6 +387,8 @@ namespace UniversSale.View
 
             EnsureCaretVisible(y, line.Height);
             RaisePageInfo();
+            var stateHandler = SelectionStateChanged;
+            if (stateHandler != null) stateHandler();
         }
 
         private void EnsureCaretVisible(double y, double height)
@@ -373,8 +420,9 @@ namespace UniversSale.View
                     var to = placed.ParagraphIndex == pb ? Math.Min(line.End, ob) : line.End;
                     if (from > to) continue;
                     if (from == to && !(placed.ParagraphIndex < pb && line.EndsParagraph)) continue;
-                    var x1 = CaretX(line, from);
-                    var x2 = CaretX(line, to);
+                    var pageLeft = composition.LeftPxFor(k);
+                    var x1 = CaretX(line, from, pageLeft);
+                    var x2 = CaretX(line, to, pageLeft);
                     if (placed.ParagraphIndex < pb && line.EndsParagraph) x2 += 6; // pilcrow
                     if (x2 - x1 < 2) x2 = x1 + 2;
                     var rect = new System.Windows.Shapes.Rectangle
@@ -397,7 +445,10 @@ namespace UniversSale.View
             int pageIndex;
             double lineY;
             LineOf(_caretParagraph, _caretOffset, out pageIndex, out lineY);
-            handler(pageIndex + 1, Math.Max(1, _engine.Current.Pages.Count));
+            // Book documents report their REAL folio in the book.
+            var offset = _engine.Current.FolioOffset;
+            handler(pageIndex + 1 + offset,
+                Math.Max(1, _engine.Current.Pages.Count) + offset);
         }
 
         // ============================================================ selection model
@@ -427,7 +478,18 @@ namespace UniversSale.View
         private void OnMouseDown(object sender, MouseButtonEventArgs e)
         {
             if (_item == null) return;
+            // Les clics destinés aux BARRES DE DÉFILEMENT ne sont pas à nous :
+            // le Preview les intercepterait et rendrait le scroll inaccessible.
+            var source = e.OriginalSource as DependencyObject;
+            while (source != null)
+            {
+                if (source is System.Windows.Controls.Primitives.ScrollBar) return;
+                source = source is System.Windows.Media.Visual
+                    ? System.Windows.Media.VisualTreeHelper.GetParent(source)
+                    : LogicalTreeHelper.GetParent(source);
+            }
             Focus();
+            if (ToggleWidowMarkAt(e)) { e.Handled = true; return; }
             int paragraph, offset;
             if (!HitTestPosition(e, out paragraph, out offset)) return;
 
@@ -467,6 +529,37 @@ namespace UniversSale.View
             CaptureMouse();
             UpdateCaretVisual();
             e.Handled = true;
+        }
+
+        /// <summary>Click on a widow/orphan margin marker: toggles the
+        /// paragraph's « autoriser l'aberration » flag and repaginates. The
+        /// mark stays (orange = correction active, gris = débrayée).</summary>
+        private bool ToggleWidowMarkAt(MouseButtonEventArgs e)
+        {
+            var composition = _engine == null ? null : _engine.Current;
+            if (composition == null || composition.Pages.Count == 0) return false;
+            var point = e.GetPosition(_pages);
+            var stride = composition.PageHeightPx + PageGapPx;
+            var pageIndex = Math.Max(0, Math.Min(composition.Pages.Count - 1,
+                (int)(point.Y / stride)));
+            var yInPage = point.Y - pageIndex * stride;
+            var xInPage = point.X;
+            var left = composition.LeftPxFor(pageIndex);
+            foreach (var mark in composition.Pages[pageIndex].WidowMarks)
+            {
+                var rect = new Rect(Math.Max(2, left - 22) - 2, mark.Y - 2, 18, 18);
+                if (!rect.Contains(new Point(xInPage, yInPage))) continue;
+                var paragraph = _item.Document.Paragraphs[mark.ParagraphIndex];
+                paragraph.AllowWidows = !paragraph.AllowWidows;
+                var firstChanged = _engine.Repaginate();
+                RefreshPages(Math.Min(firstChanged, pageIndex));
+                UpdateCaretVisual();
+                RaisePageInfo();
+                var handler = Edited;
+                if (handler != null) handler(); // persisté : le projet est sale
+                return true;
+            }
+            return false;
         }
 
         private void OnMouseMoveDrag(object sender, MouseEventArgs e)
@@ -509,7 +602,7 @@ namespace UniversSale.View
             }
             paragraph = chosen.ParagraphIndex;
             var chosenLine = composition.Paragraphs[paragraph].Lines[chosen.LineIndex];
-            offset = OffsetFromX(chosenLine, point.X);
+            offset = OffsetFromX(chosenLine, point.X, composition.LeftPxFor(pageIndex));
             return true;
         }
 
@@ -701,10 +794,14 @@ namespace UniversSale.View
             double lineY;
             var line = LineOf(_caretParagraph, _caretOffset, out pageIndex, out lineY);
             if (line == null) return;
-            if (_caretDesiredX < 0) _caretDesiredX = CaretX(line, _caretOffset);
+            var composition = _engine.Current;
+            // Column memory is COLUMN-relative: with mirrored margins the
+            // absolute x of the same column differs between recto and verso.
+            if (_caretDesiredX < 0)
+                _caretDesiredX = CaretX(line, _caretOffset, composition.LeftPxFor(pageIndex))
+                    - composition.LeftPxFor(pageIndex);
 
             // Find the placed line above/below in reading order.
-            var composition = _engine.Current;
             var flat = new List<PlacedLine>();
             var pageOf = new List<int>();
             for (var k = 0; k < composition.Pages.Count; k++)
@@ -723,7 +820,8 @@ namespace UniversSale.View
             var targetPlaced = flat[next];
             var targetLine = composition.Paragraphs[targetPlaced.ParagraphIndex].Lines[targetPlaced.LineIndex];
             _caretParagraph = targetPlaced.ParagraphIndex;
-            _caretOffset = OffsetFromX(targetLine, _caretDesiredX);
+            var targetLeft = composition.LeftPxFor(pageOf[next]);
+            _caretOffset = OffsetFromX(targetLine, targetLeft + _caretDesiredX, targetLeft);
         }
 
         private void MoveHomeEnd(bool home, bool extend, bool document)
@@ -1103,6 +1201,66 @@ namespace UniversSale.View
             ApplyToSelection(delegate(TextRun run) { run.Underline = all ? (bool?)null : true; });
         }
 
+        /// <summary>Approche (millièmes de cadratin) ajoutée à la sélection —
+        /// l'outil fin contre les veuves/orphelines tenaces.</summary>
+        public void ApplyTracking(double delta)
+        {
+            ApplyToSelection(delegate(TextRun run)
+            {
+                var value = (run.Tracking ?? 0) + delta;
+                run.Tracking = Math.Abs(value) < 0.01
+                    ? (double?)null
+                    : Math.Max(-100, Math.Min(400, value));
+            });
+        }
+
+        /// <summary>Approche ABSOLUE sur la sélection (champ de valeur).</summary>
+        public void SetTracking(double value)
+        {
+            var clamped = Math.Max(-100, Math.Min(400, value));
+            ApplyToSelection(delegate(TextRun run)
+            {
+                run.Tracking = Math.Abs(clamped) < 0.01 ? (double?)null : clamped;
+            });
+        }
+
+        /// <summary>Approche de la sélection (ou du run au caret) : valeur
+        /// uniforme (0 = aucune), null = mixte.</summary>
+        public double? SelectionTracking()
+        {
+            if (_item == null) return 0;
+            int pa, oa, pb, ob;
+            if (HasSelection()) OrderedSelection(out pa, out oa, out pb, out ob);
+            else
+            {
+                pa = pb = _caretParagraph;
+                oa = Math.Max(0, _caretOffset - 1);
+                ob = _caretOffset;
+            }
+            double? found = null;
+            var mixed = false;
+            for (var p = pa; p <= pb && !mixed; p++)
+            {
+                var paragraph = _item.Document.Paragraphs[p];
+                var offset = 0;
+                foreach (var run in paragraph.Runs)
+                {
+                    var length = run.IsLineBreak || run.IsRule || run.ImageId != null
+                        || run.FootnoteId != null ? 1 : (run.Text ?? "").Length;
+                    var from = p == pa ? oa : 0;
+                    var to = p == pb ? ob : int.MaxValue;
+                    var overlaps = offset < to && offset + length > from;
+                    offset += length;
+                    if (!overlaps || run.FootnoteId != null || run.ImageId != null
+                        || run.IsRule || run.IsLineBreak) continue;
+                    var value = run.Tracking ?? 0;
+                    if (!found.HasValue) found = value;
+                    else if (Math.Abs(found.Value - value) > 0.01) { mixed = true; break; }
+                }
+            }
+            return mixed ? (double?)null : (found ?? 0);
+        }
+
         public void ToggleStrike()
         {
             if (!HasSelection()) return;
@@ -1209,6 +1367,30 @@ namespace UniversSale.View
         }
 
         /// <summary>Font family at the caret (run override, else style).</summary>
+        /// <summary>Style id, font family and size (pt) at the caret — feeds
+        /// the ribbon combos in Composition mode.</summary>
+        public void CaretFormat(out string styleId, out string fontFamily, out double sizePt)
+        {
+            styleId = "body";
+            fontFamily = null;
+            sizePt = 12;
+            if (_item == null || _caretParagraph >= _item.Document.Paragraphs.Count) return;
+            var paragraph = _item.Document.Paragraphs[_caretParagraph];
+            var style = _styles.Find(paragraph.StyleId);
+            styleId = style.Id;
+            fontFamily = style.FontFamily;
+            var sizePx = style.FontSize;
+            int runIndex, inner;
+            PivotEdit.Locate(paragraph, Math.Max(0, _caretOffset - 1), out runIndex, out inner);
+            if (runIndex < paragraph.Runs.Count && !PivotEdit.IsElement(paragraph.Runs[runIndex]))
+            {
+                var run = paragraph.Runs[runIndex];
+                if (run.FontFamily != null) fontFamily = run.FontFamily;
+                if (run.FontSize.HasValue) sizePx = run.FontSize.Value;
+            }
+            sizePt = sizePx * 0.75;
+        }
+
         public string GetCaretFontFamily()
         {
             if (_item == null) return null;

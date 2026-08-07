@@ -33,6 +33,7 @@ namespace UniversSale.Model
         public List<string> CustomColors = new List<string>();
         public string CreatedAt = "";
         public string ModifiedAt = "";
+        public WritingJournal Journal = new WritingJournal();
         public StyleSheet Styles = StyleSheet.CreateDefault();
         public List<SheetTemplate> Templates = SheetTemplate.CreateDefaults();
         public PageSetup Page = new PageSetup();

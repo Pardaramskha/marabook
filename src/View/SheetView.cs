@@ -183,6 +183,8 @@ namespace UniversSale.View
 
         public bool HasItem { get { return _item != null; } }
 
+        public bool ShowsItem(BinderItem item) { return _item == item; }
+
         public void SetStyleSheet(StyleSheet styles)
         {
             _styles = styles;
@@ -249,7 +251,7 @@ namespace UniversSale.View
             {
                 MessageBox.Show(Window.GetWindow(this),
                     "Impossible de charger l'image :\n" + error.Message,
-                    "Univers Sale", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    "Marabook", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -354,14 +356,14 @@ namespace UniversSale.View
                 Text = _item.Title,
                 FontSize = 26,
                 FontWeight = FontWeights.Bold,
-                Foreground = Chrome.Ink,
+                Foreground = Chrome.PaperInk,
                 TextWrapping = TextWrapping.Wrap
             });
             main.Children.Add(new TextBlock
             {
                 Text = _template == null ? "Fiche" : _template.Name,
                 FontSize = 12,
-                Foreground = Chrome.SoftText,
+                Foreground = Chrome.PaperSoftInk,
                 Margin = new Thickness(0, 2, 0, 8)
             });
             main.Children.Add(new Border
@@ -420,6 +422,7 @@ namespace UniversSale.View
         public bool TryRedo() { return _body.TryRedo(); }
         public void ApplyPageSetup(PageSetup setup) { _body.ApplyPageSetup(setup); }
         public void SetFormattingMarks(bool visible) { _body.SetFormattingMarks(visible); }
+        public void UpdateRulers() { _body.UpdateRulers(); }
         public void ShowSearch() { _body.ShowSearch(); }
         public void InsertFootnote() { _body.InsertFootnote(); }
         public void InsertWikiLink(string title) { _body.InsertWikiLink(title); }

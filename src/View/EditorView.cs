@@ -42,6 +42,8 @@ namespace UniversSale.View
         private DispatcherTimer _classicBlink;
         private TextPointer _mirrorAnchor; // forwarded drag-selection anchor
         private ComposedView _composed;        // « Composition » mode (composer 4b)
+        private RulerView _rulerH, _rulerV;    // règles cm (Ctrl+R)
+        private TextBox _trackingBox;          // champ d'approche (em/1000)
         private ToggleButton _composeBtn;
         private DispatcherTimer _marksTimer;   // full pagination, debounced typing
         private DispatcherTimer _overlayTimer; // fast overlay redraw (scroll, zoom)
@@ -64,6 +66,16 @@ namespace UniversSale.View
         public event Action<int> ZoomStepRequested; // +10 / -10 (percent)
         public event Action PageSetupChanged;       // edited from the Mise en page tab
         public event Action<int, int> PageInfoChanged; // caret page, page count
+
+        /// <summary>Pages du livre précédant ce document (0 hors livre) :
+        /// folio affiché et parité des marges miroir de la Composition. Le
+        /// miroir classique n'alterne pas sa colonne (RichTextBox mono-flux)
+        /// mais ses folios suivent.</summary>
+        public int FolioOffset;
+
+        /// <summary>Décor en-tête/pied du document (fixé par la coquille à
+        /// l'ouverture, recalculé après édition via le menu Gabarit).</summary>
+        public PageDecor Decor;
         public event Action<bool> MarksToggled;     // ¶ button
         public event Action StylesRequested;        // « Gestion des styles » button
 
@@ -92,6 +104,10 @@ namespace UniversSale.View
         }
 
         public bool HasItem { get { return _item != null; } }
+
+        /// <summary>True when THIS item is the one on screen — the shell's
+        /// re-click guard must never trust visibility alone.</summary>
+        public bool ShowsItem(Model.BinderItem item) { return _item == item; }
 
         // ============================================================= construction
 
@@ -125,17 +141,43 @@ namespace UniversSale.View
             };
             panel.Children.Add(manageStyles);
 
-            _fontCombo = new ComboBox { Width = 140, Margin = new Thickness(0, 0, 6, 0) };
+            // Éditables : on peut TAPER un nom de police ou une taille
+            // personnalisée (Entrée applique).
+            _fontCombo = new ComboBox
+            {
+                Width = 140,
+                Margin = new Thickness(0, 0, 6, 0),
+                IsEditable = true,
+                ToolTip = "Police — tapez un nom puis Entrée pour une police hors liste"
+            };
             foreach (var family in ListFonts()) _fontCombo.Items.Add(family);
             _fontCombo.SelectionChanged += OnFontComboChanged;
+            _fontCombo.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key != Key.Enter) return;
+                e.Handled = true;
+                ApplyTypedFont(_fontCombo.Text);
+            };
             panel.Children.Add(_fontCombo);
 
             // Sizes are displayed in points (like every word processor);
             // internally everything stays WPF pixels (1 pt = 4/3 px).
-            _sizeCombo = new ComboBox { Width = 52, Margin = new Thickness(0, 0, 10, 0), ToolTip = "Taille (points)" };
+            _sizeCombo = new ComboBox
+            {
+                Width = 52,
+                Margin = new Thickness(0, 0, 10, 0),
+                IsEditable = true,
+                ToolTip = "Taille (points) — tapez une valeur libre puis Entrée"
+            };
             foreach (var size in new[] { 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 28, 32, 36, 48, 72 })
                 _sizeCombo.Items.Add(size);
             _sizeCombo.SelectionChanged += OnSizeComboChanged;
+            _sizeCombo.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key != Key.Enter) return;
+                e.Handled = true;
+                ApplyTypedSize(_sizeCombo.Text);
+            };
             panel.Children.Add(_sizeCombo);
 
             // Variantes de caractère (Fin, Normal, Moyen, Demi-gras, Gras, Noir).
@@ -279,6 +321,69 @@ namespace UniversSale.View
             };
             panel.Children.Add(_marksBtn);
 
+            // Approche (tracking, millièmes de cadratin) — champ de valeur à
+            // la Adobe : petits boutons ± verticaux à gauche, valeur absolue
+            // lisible et retouchable. Rendue par le compositeur (Composition,
+            // aperçu, PDF).
+            panel.Children.Add(VerticalRule());
+            var trackLabel = new TextBlock
+            {
+                Text = "Approche",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(3, 0, 3, 0),
+                ToolTip = "Espacement entre les caractères, en millièmes de cadratin "
+                    + "— valeur de la sélection, pas de 5 aux flèches"
+            };
+            panel.Children.Add(trackLabel);
+            var spinner = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var trackUp = new RepeatButton
+            {
+                Content = "▲",
+                FontSize = 6,
+                Width = 15,
+                Height = 11,
+                Padding = new Thickness(0, -1, 0, 0),
+                Focusable = false,
+                ToolTip = "+5"
+            };
+            trackUp.Click += delegate { ApplyTrackingStep(5); };
+            var trackDown = new RepeatButton
+            {
+                Content = "▼",
+                FontSize = 6,
+                Width = 15,
+                Height = 11,
+                Padding = new Thickness(0, -1, 0, 0),
+                Focusable = false,
+                ToolTip = "−5"
+            };
+            trackDown.Click += delegate { ApplyTrackingStep(-5); };
+            spinner.Children.Add(trackUp);
+            spinner.Children.Add(trackDown);
+            panel.Children.Add(spinner);
+            _trackingBox = new TextBox
+            {
+                Width = 42,
+                Margin = new Thickness(1, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Text = "0",
+                ToolTip = "Approche de la sélection (millièmes de cadratin, −100 à 400) — "
+                    + "Entrée pour appliquer ; vide = mixte"
+            };
+            _trackingBox.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key != Key.Enter) return;
+                e.Handled = true;
+                double value;
+                if (double.TryParse(_trackingBox.Text.Trim().Replace(',', '.'),
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out value))
+                    ApplyTrackingAbsolute(value);
+            };
+            panel.Children.Add(_trackingBox);
+
             // Ribbon: « Texte » (this panel) + « Mise en page » (page setup).
             var tabs = new TabControl
             {
@@ -288,9 +393,143 @@ namespace UniversSale.View
             };
             tabs.Items.Add(new TabItem { Header = "Texte", Content = panel });
             tabs.Items.Add(new TabItem { Header = "Mise en page", Content = BuildPageSetupTab() });
+            tabs.Items.Add(new TabItem { Header = "Gabarit", Content = BuildDecorTab() });
             tabs.Items.Add(new TabItem { Header = "Composition", Content = BuildCompositionTab() });
             bar.Child = tabs;
             Children.Add(bar);
+        }
+
+        // ============================================================= « Gabarit » tab
+
+        /// <summary>Header/footer of THIS document — applied to every page.
+        /// A page gabarit applied to the document wins over these.</summary>
+        private UIElement BuildDecorTab()
+        {
+            var panel = new WrapPanel { Margin = new Thickness(8, 4, 8, 4) };
+            var header = new Button
+            {
+                Content = TabButtonContent("sort-descending-bold", "Éditer l'en-tête…"),
+                ToolTip = "Ligne d'en-tête sur toutes les pages du document "
+                    + "(jetons : {page}, {pages}, {titre})",
+                Margin = new Thickness(0, 0, 6, 0),
+                Padding = new Thickness(8, 2, 8, 2),
+                Focusable = false
+            };
+            header.Click += delegate { EditHeaderFooter(true); };
+            panel.Children.Add(header);
+            var footer = new Button
+            {
+                Content = TabButtonContent("sort-ascending-bold", "Éditer le pied de page…"),
+                ToolTip = "Pied de page sur toutes les pages — c'est ici que se "
+                    + "règle le look des numéros de page ({page})",
+                Margin = new Thickness(0, 0, 10, 0),
+                Padding = new Thickness(8, 2, 8, 2),
+                Focusable = false
+            };
+            footer.Click += delegate { EditHeaderFooter(false); };
+            panel.Children.Add(footer);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Un gabarit de pages appliqué au document (livres) remplace ces réglages.",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            return panel;
+        }
+
+        /// <summary>Approche sur la sélection : effective dans la Composition
+        /// (le RichTextBox classique ne rend pas l'interlettrage — le réglage
+        /// s'applique au pivot et se voit en Composition/aperçu/PDF).</summary>
+        private void ApplyTrackingStep(double delta)
+        {
+            if (_item == null) return;
+            if (ComposedActive)
+            {
+                _composed.ApplyTracking(delta);
+                SyncTrackingBox();
+                _composed.Focus();
+                return;
+            }
+            MessageBox.Show(Window.GetWindow(this),
+                "L'approche se règle depuis le mode Composition (onglet Composition),\n"
+                + "où son effet est visible à l'écran.",
+                "Approche", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private void ApplyTrackingAbsolute(double value)
+        {
+            if (_item == null) return;
+            if (ComposedActive)
+            {
+                _composed.SetTracking(value);
+                SyncTrackingBox();
+                _composed.Focus();
+                return;
+            }
+            MessageBox.Show(Window.GetWindow(this),
+                "L'approche se règle depuis le mode Composition (onglet Composition),\n"
+                + "où son effet est visible à l'écran.",
+                "Approche", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        /// <summary>Combos du ruban en MODE COMPOSITION : style, police et
+        /// taille au caret — la synchro classique (SyncToolbar) s'arrête dès
+        /// que la surface composée est active, d'où des combos vides.</summary>
+        private void SyncToolbarComposed()
+        {
+            if (!ComposedActive || _item == null || _styleCombo == null) return;
+            _syncing = true;
+            try
+            {
+                string styleId, fontFamily;
+                double sizePt;
+                _composed.CaretFormat(out styleId, out fontFamily, out sizePt);
+                ComboBoxItem match = null;
+                foreach (ComboBoxItem candidate in _styleCombo.Items)
+                    if ((string)candidate.Tag == styleId) { match = candidate; break; }
+                _styleCombo.SelectedItem = match;
+                _fontCombo.SelectedItem = fontFamily;
+                if (fontFamily != null && _fontCombo.SelectedItem == null)
+                    _fontCombo.Text = fontFamily;
+                _sizeCombo.SelectedItem = (int)Math.Round(sizePt);
+                if (_sizeCombo.SelectedItem == null)
+                    _sizeCombo.Text = sizePt.ToString("0.#",
+                        System.Globalization.CultureInfo.CurrentCulture);
+            }
+            finally
+            {
+                _syncing = false;
+            }
+        }
+
+        /// <summary>Reflète l'approche de la sélection dans le champ (vide =
+        /// valeurs mixtes).</summary>
+        private void SyncTrackingBox()
+        {
+            if (_trackingBox == null || _trackingBox.IsKeyboardFocused) return;
+            if (!ComposedActive || _item == null) { _trackingBox.Text = "0"; return; }
+            var value = _composed.SelectionTracking();
+            _trackingBox.Text = value.HasValue
+                ? value.Value.ToString("0.#", System.Globalization.CultureInfo.CurrentCulture)
+                : "";
+        }
+
+        private void EditHeaderFooter(bool isHeader)
+        {
+            if (_item == null) return;
+            var edited = HeaderFooterDialog.Edit(Window.GetWindow(this),
+                isHeader ? _item.Header : _item.Footer, isHeader);
+            if (edited == null) return; // annulé
+            if (isHeader) _item.Header = edited.IsEmpty ? null : edited;
+            else _item.Footer = edited.IsEmpty ? null : edited;
+            Decor = PageDecor.For(_item, _project);
+            if (ComposedActive)
+            {
+                _composed.Decor = Decor;
+                _composed.RefreshComposition();
+            }
+            NotifyEdited();
         }
 
         // ============================================================= « Composition » tab
@@ -373,10 +612,16 @@ namespace UniversSale.View
             var panel = new WrapPanel { Margin = new Thickness(8, 4, 8, 4) };
 
             panel.Children.Add(PageLabel("Marges"));
-            _marginsCombo = new ComboBox { Width = 130, Margin = new Thickness(4, 0, 10, 0) };
-            _marginsCombo.Items.Add("Normales (2,5 cm)");
+            _marginsCombo = new ComboBox
+            {
+                Width = 150,
+                Margin = new Thickness(4, 0, 10, 0),
+                ToolTip = "Nomenclature PAO : de tête (haut), de pied (bas), "
+                    + "petit fond (côté reliure), grand fond (côté extérieur)"
+            };
+            _marginsCombo.Items.Add("Livre (20/20/30/20)");
+            _marginsCombo.Items.Add("Uniformes (2,5 cm)");
             _marginsCombo.Items.Add("Étroites (1,27 cm)");
-            _marginsCombo.Items.Add("Larges (5 cm)");
             _marginsCombo.Items.Add("Personnalisées…");
             _marginsCombo.SelectionChanged += OnMarginsComboChanged;
             panel.Children.Add(_marginsCombo);
@@ -405,7 +650,7 @@ namespace UniversSale.View
             _columnsCombo.SelectionChanged += delegate
             {
                 if (_syncingPage || _project == null || _columnsCombo.SelectedItem == null) return;
-                _project.Page.Columns = (int)_columnsCombo.SelectedItem;
+                _pageSetup.Columns = (int)_columnsCombo.SelectedItem;
                 AfterPageSetupEdit();
             };
             panel.Children.Add(_columnsCombo);
@@ -426,7 +671,7 @@ namespace UniversSale.View
             _guidesBtn.Click += delegate
             {
                 if (_project == null) return;
-                _project.Page.ShowMarginGuides = _guidesBtn.IsChecked == true;
+                _pageSetup.ShowMarginGuides = _guidesBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
             panel.Children.Add(_guidesBtn);
@@ -436,7 +681,7 @@ namespace UniversSale.View
             _lineNumbersBtn.Click += delegate
             {
                 if (_project == null) return;
-                _project.Page.LineNumbers = _lineNumbersBtn.IsChecked == true;
+                _pageSetup.LineNumbers = _lineNumbersBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
             panel.Children.Add(_lineNumbersBtn);
@@ -445,7 +690,7 @@ namespace UniversSale.View
             _hyphenBtn.Click += delegate
             {
                 if (_project == null) return;
-                _project.Page.Hyphenation = _hyphenBtn.IsChecked == true;
+                _pageSetup.Hyphenation = _hyphenBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
             panel.Children.Add(_hyphenBtn);
@@ -454,7 +699,7 @@ namespace UniversSale.View
             _folioBtn.Click += delegate
             {
                 if (_project == null) return;
-                _project.Page.FooterPageNumbers = _folioBtn.IsChecked == true;
+                _pageSetup.FooterPageNumbers = _folioBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
             panel.Children.Add(_folioBtn);
@@ -488,14 +733,20 @@ namespace UniversSale.View
         private void OnMarginsComboChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_syncingPage || _project == null || _marginsCombo.SelectedIndex < 0) return;
-            var page = _project.Page;
-            if (_marginsCombo.SelectedIndex == 0) SetMarginsMm(page, 25, 25, 25, 25);
-            else if (_marginsCombo.SelectedIndex == 1) SetMarginsMm(page, 12.7, 12.7, 12.7, 12.7);
-            else if (_marginsCombo.SelectedIndex == 2) SetMarginsMm(page, 25, 25, 50, 50);
+            var page = _pageSetup;
+            if (_marginsCombo.SelectedIndex == 0) SetMarginsMm(page, 20, 20, 30, 20);
+            else if (_marginsCombo.SelectedIndex == 1) SetMarginsMm(page, 25, 25, 25, 25);
+            else if (_marginsCombo.SelectedIndex == 2) SetMarginsMm(page, 12.7, 12.7, 12.7, 12.7);
             else
             {
                 var values = NumbersDialog.Ask(Window.GetWindow(this), "Marges (cm)",
-                    new[] { "Haut", "Bas", "Gauche", "Droite" },
+                    new[]
+                    {
+                        "De tête (marge haute)",
+                        "De pied (marge basse)",
+                        "Petit fond (côté reliure)",
+                        "Grand fond (côté extérieur)"
+                    },
                     new[] { page.MarginTopMm / 10, page.MarginBottomMm / 10, page.MarginLeftMm / 10, page.MarginRightMm / 10 },
                     0.5, 10);
                 if (values == null) { SyncPageTab(); return; }
@@ -515,7 +766,7 @@ namespace UniversSale.View
         private void OnPageSizeComboChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_syncingPage || _project == null || _sizeComboPage.SelectedIndex < 0) return;
-            var page = _project.Page;
+            var page = _pageSetup;
             if (_sizeComboPage.SelectedIndex == 0) { page.PageWidthMm = 210; page.PageHeightMm = 297; }
             else if (_sizeComboPage.SelectedIndex == 1) { page.PageWidthMm = 148; page.PageHeightMm = 210; }
             else if (_sizeComboPage.SelectedIndex == 2) { page.PageWidthMm = 216; page.PageHeightMm = 279; }
@@ -594,6 +845,8 @@ namespace UniversSale.View
                     _item.Document = FlowConverter.FromFlow(_box.Document, _styles,
                         _item.Document.Footnotes, _project);
                 _composed.SetZoom(_zoom);
+                _composed.FolioOffset = FolioOffset;
+                _composed.Decor = Decor;
                 _composed.Attach(_item, _styles, _pageSetup, _project);
                 _composed.Visibility = Visibility.Visible;
                 _scroller.Visibility = Visibility.Collapsed;
@@ -603,7 +856,7 @@ namespace UniversSale.View
             {
                 MessageBox.Show(Window.GetWindow(this),
                     "Composition impossible :\n" + error.Message,
-                    "Univers Sale", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    "Marabook", MessageBoxButton.OK, MessageBoxImage.Warning);
                 SetComposition(false);
             }
         }
@@ -617,10 +870,11 @@ namespace UniversSale.View
             {
                 var page = _pageSetup;
                 _marginsCombo.SelectedIndex =
-                    Near(page.MarginTopMm, 25) && Near(page.MarginBottomMm, 25)
-                        && Near(page.MarginLeftMm, 25) && Near(page.MarginRightMm, 25) ? 0
-                    : Near(page.MarginTopMm, 12.7) && Near(page.MarginLeftMm, 12.7) ? 1
-                    : Near(page.MarginLeftMm, 50) && Near(page.MarginRightMm, 50) ? 2 : 3;
+                    Near(page.MarginTopMm, 20) && Near(page.MarginBottomMm, 20)
+                        && Near(page.MarginLeftMm, 30) && Near(page.MarginRightMm, 20) ? 0
+                    : Near(page.MarginTopMm, 25) && Near(page.MarginBottomMm, 25)
+                        && Near(page.MarginLeftMm, 25) && Near(page.MarginRightMm, 25) ? 1
+                    : Near(page.MarginTopMm, 12.7) && Near(page.MarginLeftMm, 12.7) ? 2 : 3;
                 _sizeComboPage.SelectedIndex =
                     Near(page.PageWidthMm, 210) && Near(page.PageHeightMm, 297) ? 0
                     : Near(page.PageWidthMm, 148) ? 1
@@ -641,6 +895,36 @@ namespace UniversSale.View
         private static bool Near(double a, double b)
         {
             return Math.Abs(a - b) < 0.05;
+        }
+
+        /// <summary>Recomputes the ruler bands from the on-screen page rects
+        /// of the active surface. Cheap: geometry only.</summary>
+        public void UpdateRulers()
+        {
+            if (_rulerH == null) return;
+            var show = Settings.AppSettings.ShowRulers && _item != null;
+            _rulerH.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            _rulerV.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            if (!show) return;
+            var pages = new System.Collections.Generic.List<Rect>();
+            try
+            {
+                if (ComposedActive)
+                    pages = _composed.PageRects(_rulerH);
+                else
+                    foreach (var child in _mirror.Children)
+                    {
+                        var frame = child as FrameworkElement;
+                        if (frame == null || frame.ActualWidth < 1) continue;
+                        var p0 = frame.TranslatePoint(new Point(0, 0), _rulerH);
+                        var p1 = frame.TranslatePoint(
+                            new Point(frame.ActualWidth, frame.ActualHeight), _rulerH);
+                        pages.Add(new Rect(p0, p1));
+                    }
+            }
+            catch { }
+            _rulerH.Update(pages, _pageSetup.PageWidthMm, _pageSetup.PageHeightMm);
+            _rulerV.Update(pages, _pageSetup.PageWidthMm, _pageSetup.PageHeightMm);
         }
 
         /// <summary>¶ state, pushed by the shell so both editors stay in sync.
@@ -913,7 +1197,7 @@ namespace UniversSale.View
             }
             if (isForeground)
                 _box.Selection.ApplyPropertyValue(TextElement.ForegroundProperty,
-                    hex == null ? (Brush)Chrome.Ink : new SolidColorBrush(FlowConverter.ParseColor(hex)));
+                    hex == null ? (Brush)Chrome.PaperInk : new SolidColorBrush(FlowConverter.ParseColor(hex)));
             else
                 _box.Selection.ApplyPropertyValue(TextElement.BackgroundProperty,
                     hex == null ? null : new SolidColorBrush(FlowConverter.ParseColor(hex)));
@@ -1045,8 +1329,8 @@ namespace UniversSale.View
             {
                 BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent,
-                Foreground = Chrome.Ink,
-                CaretBrush = Chrome.Ink,
+                Foreground = Chrome.PaperInk,
+                CaretBrush = Chrome.PaperInk,
                 AcceptsTab = true,
                 // The sheet grows with its content; scrolling belongs to the
                 // outer viewer so the page keeps its physical size on screen.
@@ -1085,7 +1369,7 @@ namespace UniversSale.View
             _classicCaret = new System.Windows.Shapes.Rectangle
             {
                 Width = 1.4,
-                Fill = Chrome.Ink,
+                Fill = Chrome.PaperInk,
                 Visibility = Visibility.Collapsed
             };
             _pageMarks.Children.Add(_classicCaret);
@@ -1163,10 +1447,34 @@ namespace UniversSale.View
                 var handler = PageInfoChanged;
                 if (handler != null && _item != null) handler(page, total);
             };
+            _composed.SelectionStateChanged += delegate
+            {
+                SyncTrackingBox();
+                SyncToolbarComposed();
+            };
 
             var centerHost = new Grid();
             centerHost.Children.Add(_scroller);
             centerHost.Children.Add(_composed);
+            // Règles cm (Ctrl+R) : bandes fixes au bord du viewport, nourries
+            // des rectangles de pages à l'écran ; la verticale repart à zéro
+            // à chaque page.
+            _rulerV = new RulerView(true)
+            {
+                Width = RulerView.Thickness,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Visibility = Visibility.Collapsed
+            };
+            _rulerH = new RulerView(false)
+            {
+                Height = RulerView.Thickness,
+                VerticalAlignment = VerticalAlignment.Top,
+                Visibility = Visibility.Collapsed
+            };
+            centerHost.Children.Add(_rulerV);
+            centerHost.Children.Add(_rulerH);
+            _scroller.ScrollChanged += delegate { UpdateRulers(); };
+            _composed.ScrollChanged += delegate { UpdateRulers(); };
             Children.Add(centerHost); // last child fills the remaining space
 
             _marksTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
@@ -1186,6 +1494,7 @@ namespace UniversSale.View
         /// <summary>Zoom factor of the page surface (1.0 = 100 %).</summary>
         public void SetZoom(double factor)
         {
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(UpdateRulers));
             _zoom = Math.Max(0.5, Math.Min(3.0, factor));
             _page.LayoutTransform = Math.Abs(_zoom - 1.0) < 0.001
                 ? null : new ScaleTransform(_zoom, _zoom);
@@ -1321,9 +1630,16 @@ namespace UniversSale.View
                 var guides = (System.Windows.Shapes.Rectangle)grid.Children[1];
                 var folio = (TextBlock)grid.Children[2];
 
+                // Marges en miroir : l'hôte compose au petit fond à gauche ;
+                // les versos décalent leur tranche pour que le petit fond
+                // passe côté reliure (droite). Les overlays vivent DANS
+                // l'hôte : ils suivent, et les clics sont relatifs à la
+                // tranche — tout reste aligné.
+                var isRecto = (k + 1 + FolioOffset) % 2 == 1;
+                var shift = isRecto ? 0 : (right - left);
                 slice.Width = pageWidth;
                 slice.Height = Math.Min(_sliceHeights[k], pageHeight - top - 2);
-                slice.Margin = new Thickness(0, top, 0, 0);
+                slice.Margin = new Thickness(shift, top, 0, 0);
                 var brush = slice.Fill as VisualBrush;
                 if (brush == null)
                 {
@@ -1340,10 +1656,14 @@ namespace UniversSale.View
                     Math.Max(8, slice.Height));
 
                 guides.Visibility = setup.ShowMarginGuides ? Visibility.Visible : Visibility.Collapsed;
-                guides.Margin = new Thickness(left, top, right, bottom);
+                guides.Margin = isRecto
+                    ? new Thickness(left, top, right, bottom)
+                    : new Thickness(right, top, left, bottom); // verso : petit fond à droite
 
-                folio.Visibility = setup.FooterPageNumbers ? Visibility.Visible : Visibility.Collapsed;
-                folio.Text = (k + 1).ToString();
+                folio.Visibility = setup.FooterPageNumbers
+                    && (Decor == null || !Decor.SuppressFolio)
+                    ? Visibility.Visible : Visibility.Collapsed;
+                folio.Text = (k + 1 + FolioOffset).ToString();
                 folio.FontFamily = new FontFamily(setup.FooterFont ?? "Times New Roman");
                 folio.Margin = new Thickness(0, 0, 0, Math.Max(2, bottom / 2 - 8));
             }
@@ -1355,20 +1675,24 @@ namespace UniversSale.View
             {
                 VerticalAlignment = VerticalAlignment.Top,
                 HorizontalAlignment = HorizontalAlignment.Left,
-                SnapsToDevicePixels = true
+                SnapsToDevicePixels = true,
+                // The mirror frame is the visible writing surface; the hidden
+                // RichTextBox's own IBeam never shows through the VisualBrush.
+                Cursor = Cursors.IBeam
             };
             var guides = new System.Windows.Shapes.Rectangle
             {
-                Stroke = Chrome.Border,
+                // Cyan continu légèrement transparent, façon PAO — même
+                // pinceau que la Composition (ComposedRenderer.MarginPen).
+                Stroke = ComposedRenderer.MarginPen.Brush,
                 StrokeThickness = 1,
-                StrokeDashArray = new DoubleCollection(new double[] { 3, 4 }),
                 IsHitTestVisible = false,
                 SnapsToDevicePixels = true
             };
             var folio = new TextBlock
             {
                 FontSize = 11,
-                Foreground = Chrome.SoftText,
+                Foreground = Chrome.PaperSoftInk,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Bottom,
                 IsHitTestVisible = false
@@ -1382,6 +1706,7 @@ namespace UniversSale.View
                 Background = Chrome.PaperBg,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
+                ClipToBounds = true, // les tranches décalées (miroir) ne débordent pas
                 Child = grid
             };
             WireMirrorInput(frame, slice);
@@ -1609,7 +1934,7 @@ namespace UniversSale.View
                             {
                                 Text = number.ToString(),
                                 FontSize = 9,
-                                Foreground = Chrome.SoftText,
+                                Foreground = Chrome.PaperSoftInk,
                                 Width = 26,
                                 TextAlignment = TextAlignment.Right
                             };
@@ -1662,7 +1987,8 @@ namespace UniversSale.View
         {
             var handler = PageInfoChanged;
             if (handler != null && _item != null)
-                handler(CaretPage(), Math.Max(1, _sliceTops.Count));
+                handler(CaretPage() + FolioOffset,
+                    Math.Max(1, _sliceTops.Count) + FolioOffset);
         }
 
         // ============================================================= ¶ formatting marks
@@ -1879,6 +2205,11 @@ namespace UniversSale.View
             // The composed pages are the default writing surface.
             if (Settings.AppSettings.CompositionMode) SetComposition(true);
             else if (ComposedActive) SetComposition(false);
+            // Les combos du ruban (style, police, taille) reflètent le caret
+            // dès l'ouverture — la synchro au chargement était avalée par le
+            // garde _loading (dropdowns « vides »).
+            SyncToolbar();
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(UpdateRulers));
         }
 
         /// <summary>Flushes the FlowDocument back into the pivot. Call before any
@@ -1898,6 +2229,8 @@ namespace UniversSale.View
             if (_item == null) return;
             if (ComposedActive)
             {
+                _composed.FolioOffset = FolioOffset;
+                _composed.Decor = Decor;
                 _composed.Attach(_item, _styles, _pageSetup, _project); // recompose
                 return;
             }
@@ -2036,6 +2369,42 @@ namespace UniversSale.View
             }
             _box.Selection.ApplyPropertyValue(TextElement.FontFamilyProperty,
                 new FontFamily((string)_fontCombo.SelectedItem));
+            AfterFormat();
+        }
+
+        /// <summary>Police tapée à la main dans la combo éditable.</summary>
+        private void ApplyTypedFont(string name)
+        {
+            if (_item == null) return;
+            name = (name ?? "").Trim();
+            if (name.Length == 0) return;
+            if (ComposedActive)
+            {
+                _composed.ApplyFont(name);
+                _composed.Focus();
+                return;
+            }
+            _box.Selection.ApplyPropertyValue(TextElement.FontFamilyProperty,
+                new FontFamily(name));
+            AfterFormat();
+        }
+
+        /// <summary>Taille personnalisée tapée dans la combo éditable (pt).</summary>
+        private void ApplyTypedSize(string text)
+        {
+            if (_item == null) return;
+            double sizePt;
+            if (!double.TryParse((text ?? "").Trim().Replace(',', '.'),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out sizePt)) return;
+            sizePt = Math.Max(4, Math.Min(200, sizePt));
+            if (ComposedActive)
+            {
+                _composed.ApplySizePx(sizePt * 4.0 / 3.0);
+                _composed.Focus();
+                return;
+            }
+            _box.Selection.ApplyPropertyValue(TextElement.FontSizeProperty, sizePt * 4.0 / 3.0);
             AfterFormat();
         }
 
@@ -2234,7 +2603,7 @@ namespace UniversSale.View
             {
                 MessageBox.Show(Window.GetWindow(this),
                     "Impossible d'insérer l'image :\n" + error.Message,
-                    "Univers Sale", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    "Marabook", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -2295,10 +2664,15 @@ namespace UniversSale.View
 
                 var family = _box.Selection.GetPropertyValue(TextElement.FontFamilyProperty) as FontFamily;
                 _fontCombo.SelectedItem = family == null ? null : (object)family.Source;
+                if (family != null && _fontCombo.SelectedItem == null)
+                    _fontCombo.Text = family.Source; // police hors liste (combo éditable)
 
                 var size = _box.Selection.GetPropertyValue(TextElement.FontSizeProperty);
                 _sizeCombo.SelectedItem = size is double
                     ? (object)(int)Math.Round((double)size * 0.75) : null; // px -> pt
+                if (size is double && _sizeCombo.SelectedItem == null)
+                    _sizeCombo.Text = ((double)size * 0.75).ToString("0.#",
+                        System.Globalization.CultureInfo.CurrentCulture);
 
                 var paragraph = _box.Selection.Start.Paragraph;
                 if (paragraph != null)
@@ -2537,7 +2911,7 @@ namespace UniversSale.View
             };
             _box.CaretPosition = link.ElementEnd;
             _box.Selection.Select(link.ElementEnd, link.ElementEnd);
-            _box.Selection.ApplyPropertyValue(TextElement.ForegroundProperty, (Brush)Chrome.Ink);
+            _box.Selection.ApplyPropertyValue(TextElement.ForegroundProperty, (Brush)Chrome.PaperInk);
             NotifyEdited();
             _box.Focus();
         }
@@ -2577,7 +2951,7 @@ namespace UniversSale.View
             _box.Selection.ApplyPropertyValue(Inline.BaselineAlignmentProperty, BaselineAlignment.Baseline);
             _box.Selection.ApplyPropertyValue(TextElement.FontSizeProperty, size);
             _box.Selection.ApplyPropertyValue(TextElement.FontWeightProperty, FontWeights.Normal);
-            _box.Selection.ApplyPropertyValue(TextElement.ForegroundProperty, (Brush)Chrome.Ink);
+            _box.Selection.ApplyPropertyValue(TextElement.ForegroundProperty, (Brush)Chrome.PaperInk);
 
             RebuildNotesPanel();
             NotifyEdited();

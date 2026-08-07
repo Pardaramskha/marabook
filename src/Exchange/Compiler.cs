@@ -6,10 +6,14 @@ namespace UniversSale.Exchange
     public class CompileOptions
     {
         public bool TitlePage = true;
+        public string Title;          // null = project name
+        public string Subtitle = "";  // books
         public string Author = "";
+        public string Colophon = "";  // books: éditeur — collection — année — ISBN
         public bool ChapterHeadings = true;
         public bool NumberChapters;
         public bool PageBreakPerText = true;
+        public bool RectoChapterStarts;   // books: every text opens on a recto
         public string Separator = ""; // used between texts when no page break
     }
 
@@ -26,13 +30,29 @@ namespace UniversSale.Exchange
             if (options.TitlePage)
             {
                 var title = new TextParagraph { StyleId = "title1" };
-                title.Runs.Add(new TextRun { Text = project.Name });
+                title.Runs.Add(new TextRun { Text = options.Title ?? project.Name });
                 output.Paragraphs.Add(title);
+                if (!string.IsNullOrEmpty(options.Subtitle))
+                {
+                    var subtitle = new TextParagraph { StyleId = "title2", AlignOverride = "center" };
+                    subtitle.Runs.Add(new TextRun { Text = options.Subtitle, Bold = false, Italic = true });
+                    output.Paragraphs.Add(subtitle);
+                }
                 if (!string.IsNullOrEmpty(options.Author))
                 {
                     var author = new TextParagraph { StyleId = "body", AlignOverride = "center" };
                     author.Runs.Add(new TextRun { Text = options.Author });
                     output.Paragraphs.Add(author);
+                }
+                if (!string.IsNullOrEmpty(options.Colophon))
+                {
+                    var colophon = new TextParagraph { StyleId = "body", AlignOverride = "center" };
+                    colophon.Runs.Add(new TextRun
+                    {
+                        Text = options.Colophon,
+                        FontSize = 12 // 9 pt: la ligne d'édition reste discrète
+                    });
+                    output.Paragraphs.Add(colophon);
                 }
             }
 
@@ -56,6 +76,9 @@ namespace UniversSale.Exchange
                     output.Paragraphs.Add(heading);
                 }
 
+                // Chaque page du manuscrit fusionné retrouve le décor
+                // (en-tête/pied, gabarit de pages) de SON chapitre.
+                var decor = PageDecor.For(text, project);
                 foreach (var paragraph in text.Document.Paragraphs)
                 {
                     // Clone the paragraph shell (runs shared): footnote markers
@@ -65,7 +88,9 @@ namespace UniversSale.Exchange
                         StyleId = paragraph.StyleId,
                         AlignOverride = paragraph.AlignOverride,
                         ListKind = paragraph.ListKind,
-                        PageBreakBefore = paragraph.PageBreakBefore
+                        PageBreakBefore = paragraph.PageBreakBefore,
+                        AllowWidows = paragraph.AllowWidows,
+                        Decor = decor
                     };
                     copy.Runs.AddRange(paragraph.Runs);
                     output.Paragraphs.Add(copy);
@@ -76,7 +101,11 @@ namespace UniversSale.Exchange
                 if (!first || options.TitlePage)
                 {
                     if (options.PageBreakPerText && output.Paragraphs.Count > startIndex)
+                    {
                         output.Paragraphs[startIndex].PageBreakBefore = true;
+                        if (options.RectoChapterStarts)
+                            output.Paragraphs[startIndex].StartOnRecto = true;
+                    }
                     else if (!options.PageBreakPerText && !first
                         && !string.IsNullOrEmpty(options.Separator))
                     {

@@ -5,9 +5,10 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
 
-/// <summary>Generates app.ico — the Univers Sale logo: a ringed planet (the
-/// universe) on an indigo rounded square, white ink. Multi-size ICO with
-/// PNG-compressed entries (fine on Vista+). Run via make-icon.bat.</summary>
+/// <summary>Generates app.ico — the MARABOOK logo: a marabou stork's head
+/// (bald dome, huge conical beak, neck ruff) in white ink on the indigo
+/// rounded square. Multi-size ICO with PNG-compressed entries (fine on
+/// Vista+). Run via make-icon.bat ; second arg = PNG preview path.</summary>
 public static class MakeIcon
 {
     public static void Main(string[] args)
@@ -18,6 +19,8 @@ public static class MakeIcon
         foreach (var size in sizes)
             pngs.Add(DrawPng(size));
         WriteIco(output, sizes, pngs);
+        if (args.Length > 1)
+            File.WriteAllBytes(args[1], DrawPng(256));
         Console.WriteLine("OK: " + Path.GetFullPath(output));
     }
 
@@ -40,32 +43,56 @@ public static class MakeIcon
                     LinearGradientMode.Vertical))
                     g.FillPath(fill, path);
 
-                // Stars.
-                using (var star = new SolidBrush(Color.FromArgb(235, 255, 255, 255)))
+                // La tête de marabout, encre blanche : crâne chauve, énorme
+                // bec conique plongeant, collerette de plumes au col.
+                var ink = Color.FromArgb(255, 0xF4, 0xF5, 0xFF);
+                using (var white = new SolidBrush(ink))
                 {
-                    Dot(g, star, s * 0.26f, s * 0.24f, Math.Max(1f, s * 0.030f));
-                    Dot(g, star, s * 0.76f, s * 0.20f, Math.Max(1f, s * 0.022f));
-                    if (s >= 32) Dot(g, star, s * 0.82f, s * 0.62f, Math.Max(1f, s * 0.018f));
+                    // Collerette (bas gauche) : trois bosses de plumes.
+                    g.FillEllipse(white, s * 0.10f, s * 0.62f, s * 0.34f, s * 0.30f);
+                    g.FillEllipse(white, s * 0.20f, s * 0.68f, s * 0.32f, s * 0.28f);
+                    g.FillEllipse(white, s * 0.05f, s * 0.70f, s * 0.28f, s * 0.24f);
+
+                    // Cou, du crâne à la collerette.
+                    using (var neck = new GraphicsPath())
+                    {
+                        neck.AddPolygon(new[]
+                        {
+                            new PointF(s * 0.24f, s * 0.36f),
+                            new PointF(s * 0.46f, s * 0.36f),
+                            new PointF(s * 0.44f, s * 0.80f),
+                            new PointF(s * 0.16f, s * 0.80f)
+                        });
+                        g.FillPath(white, neck);
+                    }
+
+                    // Crâne chauve, dôme légèrement penché vers le bec.
+                    g.FillEllipse(white, s * 0.16f, s * 0.16f, s * 0.36f, s * 0.34f);
+
+                    // Le bec : long cône massif qui plonge vers la droite.
+                    using (var beak = new GraphicsPath())
+                    {
+                        beak.AddPolygon(new[]
+                        {
+                            new PointF(s * 0.40f, s * 0.22f),  // naissance haute
+                            new PointF(s * 0.92f, s * 0.66f),  // pointe
+                            new PointF(s * 0.38f, s * 0.46f)   // naissance basse
+                        });
+                        g.FillPath(white, beak);
+                    }
                 }
 
-                // The planet.
-                var cx = s * 0.47f;
-                var cy = s * 0.56f;
-                var pr = s * 0.21f;
-                using (var planet = new SolidBrush(Color.FromArgb(255, 0xF4, 0xF5, 0xFF)))
-                    g.FillEllipse(planet, cx - pr, cy - pr, pr * 2, pr * 2);
+                // La commissure du bec, à l'encre du fond.
+                using (var seam = new Pen(Color.FromArgb(255, 0x3F, 0x42, 0xA5),
+                    Math.Max(1f, s * 0.022f)))
+                    g.DrawLine(seam, s * 0.50f, s * 0.385f, s * 0.89f, s * 0.645f);
 
-                // The ring, tilted like an orbit — drawn after the planet so it
-                // reads as passing in front.
-                var state = g.Save();
-                g.TranslateTransform(cx, cy);
-                g.RotateTransform(-24f);
-                var rw = s * 0.40f; // ring half-width
-                var rh = s * 0.135f; // ring half-height
-                using (var ringPen = new Pen(Color.FromArgb(255, 0xF4, 0xF5, 0xFF),
-                    Math.Max(1f, s * 0.045f)))
-                    g.DrawEllipse(ringPen, -rw, -rh, rw * 2, rh * 2);
-                g.Restore(state);
+                // L'œil.
+                using (var eye = new SolidBrush(Color.FromArgb(255, 0x3A, 0x3D, 0x99)))
+                {
+                    var er = Math.Max(1f, s * 0.042f);
+                    g.FillEllipse(eye, s * 0.335f - er, s * 0.28f - er, er * 2, er * 2);
+                }
             }
 
             using (var buffer = new MemoryStream())

@@ -38,7 +38,7 @@ namespace UniversSale.View
         {
             var folder = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Univers Sale", "icons");
+                "Marabook", "icons");
             Directory.CreateDirectory(folder);
             return folder;
         }
@@ -55,6 +55,8 @@ namespace UniversSale.View
                 if (item.CategoryKey == Project.KeyTrash) return "trash-bold";
             }
             if (item.Kind == ItemKind.Folder) return "folder-bold";
+            if (item.Kind == ItemKind.Book) return "book-bold";
+            if (item.Kind == ItemKind.PageTemplate) return "article-bold";
             if (item.Kind == ItemKind.Sheet) return "file-dashed-bold";
             if (item.Kind == ItemKind.Media)
                 return MediaView.IsImage(item.MediaExtension) ? "image-square-bold" : null;

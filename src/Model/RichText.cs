@@ -15,6 +15,9 @@ namespace UniversSale.Model
         public bool? Bold, Italic, Underline, Strike;
         public string Weight;       // "Light|Medium|SemiBold|Black"… fine-grained
                                     // variant; wins over Bold when set
+        public double? Tracking;    // approche, en millièmes de cadratin
+                                    // (unités InDesign) — rendue par le
+                                    // compositeur, pas par le RichTextBox
         public string FontFamily;   // null = style font
         public double? FontSize;    // null = style size
         public string Color;        // "#RRGGBB", null = automatic (style color, else theme ink)
@@ -28,7 +31,7 @@ namespace UniversSale.Model
         {
             return Bold == other.Bold && Italic == other.Italic
                 && Underline == other.Underline && Strike == other.Strike
-                && Weight == other.Weight
+                && Weight == other.Weight && Tracking == other.Tracking
                 && FontFamily == other.FontFamily && FontSize == other.FontSize
                 && Color == other.Color && Highlight == other.Highlight
                 && FootnoteId == null && other.FootnoteId == null
@@ -48,6 +51,21 @@ namespace UniversSale.Model
         // Manual page break (Mise en page), also set by the compiler on chapter
         // starts. Persisted in .plot since v4; honored by the docx exporter.
         public bool PageBreakBefore;
+
+        // Books: the compiler marks chapter starts so pagination opens them on
+        // a RECTO (odd folio), inserting a blank verso when needed. Transient,
+        // never persisted.
+        public bool StartOnRecto;
+
+        // « Autoriser veuves et orphelines ici » : coupe ce paragraphe où bon
+        // lui semble, sans contrôle 2/2 — l'annulation ciblée d'une correction
+        // qui déséquilibrait les pages. Persisté (.plot v6, clé "wo").
+        public bool AllowWidows;
+
+        // Compiled books: the chapter's header/footer decor rides on its
+        // paragraphs so each page of the merged manuscript knows its chapter.
+        // Transient, never persisted.
+        public PageDecor Decor;
     }
 
     public class Footnote

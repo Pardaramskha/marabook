@@ -50,7 +50,7 @@ namespace UniversSale.Correction
         {
             var culture = CultureInfo.CurrentCulture;
             return "Mots : " + Words.ToString("N0", culture)
-                 + "\nSEC : " + Sec.ToString("N0", culture)
+                 + "\nCaractères espaces comprises : " + Sec.ToString("N0", culture)
                  + "\nSans espaces : " + NoSpaces.ToString("N0", culture)
                  + "\nFeuillets (1 500) : " + Sheets.ToString("0.0", culture)
                  + "\nLecture : ~" + ReadingMinutes + " min";

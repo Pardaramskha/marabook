@@ -24,8 +24,9 @@ namespace UniversSale.View
         {
             try
             {
+                var palette = ApplyAccent(dark ? DarkPalette : LightPalette, dark);
                 var next = (ResourceDictionary)XamlReader.Parse(
-                    Header + (dark ? DarkPalette : LightPalette) + Templates);
+                    Header + palette + Templates);
                 if (_current != null) application.Resources.MergedDictionaries.Remove(_current);
                 application.Resources.MergedDictionaries.Add(next);
                 _current = next;
@@ -34,6 +35,38 @@ namespace UniversSale.View
             {
                 // If a template misparses, the application stays usable in classic style.
             }
+        }
+
+        /// <summary>Substitutes the customized accent into the palette string
+        /// before parsing. Soft and hover steps are re-derived from the accent
+        /// with the same blends that produced the stock indigo steps (≈ 0.82 and
+        /// 0.90 toward the theme's ground), so any hue keeps the house look.</summary>
+        private static string ApplyAccent(string palette, bool dark)
+        {
+            var custom = Chrome.ParseAccent();
+            if (custom == null) return palette;
+
+            var ground = dark
+                ? System.Windows.Media.Color.FromRgb(0x1B, 0x1E, 0x23)
+                : System.Windows.Media.Colors.White;
+            var accent = dark ? Chrome.Lighten(custom.Value, 0.22) : custom.Value;
+            var soft = Chrome.Blend(accent, ground, 0.82);
+            var hover = Chrome.Blend(accent, ground, 0.90);
+
+            if (dark)
+                return palette
+                    .Replace("#7B86E8", Hex(accent))
+                    .Replace("#2C3352", Hex(soft))
+                    .Replace("#262B3C", Hex(hover));
+            return palette
+                .Replace("#5B67D8", Hex(accent))
+                .Replace("#E2E5F9", Hex(soft))
+                .Replace("#EEF0FB", Hex(hover));
+        }
+
+        private static string Hex(System.Windows.Media.Color color)
+        {
+            return "#" + color.R.ToString("X2") + color.G.ToString("X2") + color.B.ToString("X2");
         }
 
         private const string Header = @"
@@ -100,7 +133,6 @@ namespace UniversSale.View
             </Trigger>
             <Trigger Property=""IsDefault"" Value=""True"">
               <Setter TargetName=""Bg"" Property=""BorderBrush"" Value=""{StaticResource Accent}""/>
-              <Setter TargetName=""Bg"" Property=""BorderThickness"" Value=""1.5""/>
             </Trigger>
             <Trigger Property=""IsEnabled"" Value=""False"">
               <Setter Property=""Opacity"" Value=""0.45""/>
@@ -187,8 +219,9 @@ namespace UniversSale.View
               <Setter TargetName=""Bg"" Property=""BorderBrush"" Value=""{StaticResource InkSoft}""/>
             </Trigger>
             <Trigger Property=""IsKeyboardFocusWithin"" Value=""True"">
+              <!-- Accent seul : l'épaisseur constante évite tout décalage de
+                   mise en page au focus. -->
               <Setter TargetName=""Bg"" Property=""BorderBrush"" Value=""{StaticResource Accent}""/>
-              <Setter TargetName=""Bg"" Property=""BorderThickness"" Value=""1.5""/>
             </Trigger>
             <Trigger Property=""IsEnabled"" Value=""False"">
               <Setter Property=""Opacity"" Value=""0.45""/>
@@ -280,6 +313,7 @@ namespace UniversSale.View
               </ToggleButton.Template>
             </ToggleButton>
             <ContentPresenter x:Name=""Choice"" Margin=""8,2,22,2"" VerticalAlignment=""Center""
+                              HorizontalAlignment=""Left""
                               Content=""{TemplateBinding SelectionBoxItem}""
                               ContentTemplate=""{TemplateBinding SelectionBoxItemTemplate}""
                               IsHitTestVisible=""False""/>

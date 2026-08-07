@@ -16,6 +16,9 @@ namespace UniversSale.Print
     {
         public double BleedMm;      // fond perdu autour du format fini
         public bool CropMarks;      // traits de coupe
+        public bool BleedGuides;    // repères : cadre cyan sur la zone de fond perdu
+        public bool Cmyk;           // sortie DeviceCMYK + OutputIntent FOGRA39
+                                    // (noir texte = 0/0/0/1) ; sinon RVB
         public string Title = "";   // métadonnées du document
     }
 
@@ -58,6 +61,13 @@ namespace UniversSale.Print
             public HashSet<ushort> Used = new HashSet<ushort>();
             public string Res;                       // /F1
             public int Type0Id, CidId, DescId, FileId, ToUnicodeId;
+
+            // The embedded file only carries its own design (variable fonts:
+            // the default instance). A heavier requested weight — WPF bold
+            // simulation OR a variable-font instance — is emulated by
+            // stroking the fill (Tr 2); simulated italic by a shear matrix.
+            public bool EmulateBold;
+            public bool EmulateItalic;
         }
 
         private sealed class ImageEntry
@@ -68,8 +78,13 @@ namespace UniversSale.Print
             public byte[] Rgb;                       // raw RGB24
         }
 
-        private readonly Dictionary<GlyphTypeface, FontEntry> _fonts =
-            new Dictionary<GlyphTypeface, FontEntry>();
+        // PIÈGE : GlyphTypeface.Equals compare le FICHIER de police — pour une
+        // fonte variable, la Regular et la Bold sont « égales » alors que
+        // leurs métriques diffèrent (bug des mots collés du chapitre 1 : le
+        // /W du corps venait de l'instance grasse du titre). Clé composite
+        // fichier+graisse+style+simulations obligatoire.
+        private readonly Dictionary<string, FontEntry> _fonts =
+            new Dictionary<string, FontEntry>();
         private readonly List<FontEntry> _fontList = new List<FontEntry>();
         private readonly Dictionary<ImageSource, ImageEntry> _imageMap =
             new Dictionary<ImageSource, ImageEntry>();
@@ -83,6 +98,7 @@ namespace UniversSale.Print
 
         // Graphics state trackers (per content stream).
         private Color _fill;
+        private Color _stroke;
         private double _tz;
 
         public PdfBuilder(Composition composition, PdfExportOptions options)
@@ -127,9 +143,16 @@ namespace UniversSale.Print
             output.WriteByte((byte)'%');
             output.Write(new byte[] { 0xE2, 0xE3, 0xCF, 0xD3, (byte)'\n' }, 0, 5);
 
-            // 1 — catalog
+            // 1 — catalog (CMYK output declares its printing condition:
+            // FOGRA39 is a registered identifier, no ICC blob needed)
             offsets[1] = output.Position;
-            WriteRaw(output, "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+            var intent = _options.Cmyk
+                ? " /OutputIntents [<< /Type /OutputIntent /S /GTS_PDFX"
+                    + " /OutputConditionIdentifier (FOGRA39)"
+                    + " /OutputCondition (Coated FOGRA39 \\(ISO 12647-2:2004\\))"
+                    + " /RegistryName (http://www.color.org) >>]"
+                : "";
+            WriteRaw(output, "1 0 obj\n<< /Type /Catalog /Pages 2 0 R" + intent + " >>\nendobj\n");
 
             // 2 — pages tree
             offsets[2] = output.Position;
@@ -181,11 +204,29 @@ namespace UniversSale.Print
             foreach (var image in _images)
             {
                 offsets[image.Id] = output.Position;
+                var pixels = image.Rgb;
+                var space = "/DeviceRGB";
+                if (_options.Cmyk)
+                {
+                    space = "/DeviceCMYK";
+                    pixels = new byte[image.W * image.H * 4];
+                    var o = 0;
+                    for (var i = 0; i < image.Rgb.Length; i += 3)
+                    {
+                        double c, m, y, k;
+                        RgbToCmyk(image.Rgb[i] / 255.0, image.Rgb[i + 1] / 255.0,
+                            image.Rgb[i + 2] / 255.0, out c, out m, out y, out k);
+                        pixels[o++] = (byte)Math.Round(c * 255);
+                        pixels[o++] = (byte)Math.Round(m * 255);
+                        pixels[o++] = (byte)Math.Round(y * 255);
+                        pixels[o++] = (byte)Math.Round(k * 255);
+                    }
+                }
                 WriteStream(output, image.Id,
                     " /Type /XObject /Subtype /Image /Width " + image.W
                     + " /Height " + image.H
-                    + " /ColorSpace /DeviceRGB /BitsPerComponent 8",
-                    image.Rgb);
+                    + " /ColorSpace " + space + " /BitsPerComponent 8",
+                    pixels);
             }
 
             foreach (var font in _fontList)
@@ -193,7 +234,7 @@ namespace UniversSale.Print
 
             offsets[infoId] = output.Position;
             WriteRaw(output, infoId + " 0 obj\n<< /Title " + Utf16String(_options.Title ?? "")
-                + " /Producer " + Utf16String("Univers Sale") + " >>\nendobj\n");
+                + " /Producer " + Utf16String("Marabook") + " >>\nendobj\n");
 
             // xref + trailer
             var xref = output.Position;
@@ -214,14 +255,19 @@ namespace UniversSale.Print
 
         private string BuildPageContent(int index)
         {
-            _fill = Colors.Black;
+            // Sentinel trackers: the first ink of the page is always written
+            // out — a FOGRA39 proof must carry its 0/0/0/1 explicitly, not
+            // ride on the DeviceGray default.
+            _fill = Color.FromArgb(0, 0, 0, 0);
+            _stroke = Color.FromArgb(0, 0, 0, 0);
             _tz = 100;
             var setup = _composition.Setup;
             var page = _composition.Pages[index];
-            var left = _composition.LeftPx;
+            var left = _composition.LeftPxFor(index); // marges en miroir
             var ops = new StringBuilder();
 
             if (_options.CropMarks) EmitCropMarks(ops);
+            if (_options.BleedGuides) EmitBleedGuides(ops);
 
             foreach (var placed in page.Lines)
                 EmitLine(ops,
@@ -232,9 +278,7 @@ namespace UniversSale.Print
             {
                 if (page.NotesRuleY >= 0)
                 {
-                    var right = setup.MarginRightMm * PageSetup.PxPerMm;
-                    var ruleWidth = Math.Min(160,
-                        Math.Max(40, (_composition.PageWidthPx - left - right) / 3));
+                    var ruleWidth = Math.Min(160, Math.Max(40, setup.ContentWidthPx / 3));
                     EmitRect(ops, left, page.NotesRuleY, ruleWidth, 0.8, Colors.Black);
                 }
                 foreach (var placed in page.NoteLines)
@@ -261,27 +305,154 @@ namespace UniversSale.Print
                 }
             }
 
-            if (setup.FooterPageNumbers)
+            // En-tête / pied personnalisés (décor du document ou du gabarit),
+            // pied par défaut = folio ; pages blanches d'imposition nues.
+            var blank = page.Lines.Count == 0 && page.NoteLines.Count == 0;
+            if (!blank)
             {
-                var typeface = new Typeface(setup.FooterFont ?? "Times New Roman");
-                var size = Math.Max(6, setup.FooterSizePt * 4.0 / 3.0);
-                var folio = new FormattedText((index + 1).ToString(),
-                    CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-                    typeface, size, Brushes.Black, 1.0);
-                EmitSimpleText(ops, (index + 1).ToString(), typeface, size,
-                    (_composition.PageWidthPx - folio.Width) / 2,
-                    _composition.PageHeightPx - _composition.BottomPx / 2
-                        - folio.Height / 2 + folio.Baseline,
-                    Colors.Black);
+                var decor = _composition.DecorOf(index);
+                var recto = _composition.FolioOf(index) % 2 == 1;
+                var firstOfDoc = index == 0
+                    || !ReferenceEquals(decor, _composition.DecorOf(index - 1));
+                var header = decor == null ? null : (recto ? decor.HeaderRecto : decor.HeaderVerso);
+                var footer = decor == null ? null : (recto ? decor.FooterRecto : decor.FooterVerso);
+                if (decor != null && decor.HeaderHideFirst && firstOfDoc) header = null;
+                var footerHidden = decor != null && decor.FooterHideFirst && firstOfDoc;
+                var title = decor == null ? "" : decor.Title;
+                if (header != null && !header.IsEmpty)
+                    EmitDecor(ops, header, index, title, left, true,
+                        decor == null ? 0 : decor.HeaderGapMm);
+                if (footer != null && !footer.IsEmpty)
+                {
+                    if (!footerHidden)
+                        EmitDecor(ops, footer, index, title, left, false,
+                            decor == null ? 0 : decor.FooterGapMm);
+                }
+                else if (setup.FooterPageNumbers && !footerHidden
+                    && (decor == null || !decor.SuppressFolio))
+                {
+                    var label = _composition.FolioOf(index).ToString();
+                    var typeface = new Typeface(setup.FooterFont ?? "Times New Roman");
+                    var size = Math.Max(6, setup.FooterSizePt * 4.0 / 3.0);
+                    var folio = new FormattedText(label,
+                        CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                        typeface, size, Brushes.Black, 1.0);
+                    EmitSimpleText(ops, label, typeface, size,
+                        (_composition.PageWidthPx - folio.Width) / 2,
+                        _composition.PageHeightPx - _composition.BottomPx / 2
+                            - folio.Height / 2 + folio.Baseline,
+                        Colors.Black);
+                }
             }
             return ops.ToString();
+        }
+
+        private sealed class DecorRun
+        {
+            public string Text;
+            public Typeface Typeface;
+            public double SizePx;
+            public Color Ink;
+            public FormattedText Measured;
+        }
+
+        private void EmitDecor(StringBuilder ops, HeaderFooter decor, int index,
+            string title, double left, bool isHeader, double gapMm)
+        {
+            var setup = _composition.Setup;
+            var folio = _composition.FolioOf(index);
+            var pages = _composition.Pages.Count + _composition.FolioOffset;
+            var runs = new List<DecorRun>();
+            var align = decor.Align;
+            if (decor.Rich != null)
+            {
+                if (decor.Rich.AlignOverride != null) align = decor.Rich.AlignOverride;
+                foreach (var run in decor.Rich.Runs)
+                {
+                    var text = new HeaderFooter { Text = run.Text }.Expand(folio, pages, title);
+                    if (text.Length == 0) continue;
+                    runs.Add(new DecorRun
+                    {
+                        Text = text,
+                        Typeface = new Typeface(
+                            new FontFamily(run.FontFamily ?? setup.FooterFont ?? "Times New Roman"),
+                            run.Italic == true ? FontStyles.Italic : FontStyles.Normal,
+                            run.Weight != null ? UniversSale.View.FlowConverter.ParseWeight(run.Weight)
+                                : run.Bold == true ? FontWeights.Bold : FontWeights.Normal,
+                            FontStretches.Normal),
+                        SizePx = run.FontSize ?? Math.Max(6, decor.SizePt * 4.0 / 3.0),
+                        Ink = run.Color != null
+                            ? UniversSale.View.FlowConverter.ParseColor(run.Color) : Colors.Black
+                    });
+                }
+            }
+            else
+            {
+                var text = decor.Expand(folio, pages, title);
+                if (text.Trim().Length == 0) return;
+                runs.Add(new DecorRun
+                {
+                    Text = text,
+                    Typeface = new Typeface(
+                        new FontFamily(decor.FontFamily ?? setup.FooterFont ?? "Times New Roman"),
+                        decor.Italic ? FontStyles.Italic : FontStyles.Normal,
+                        decor.Bold ? FontWeights.Bold : FontWeights.Normal,
+                        FontStretches.Normal),
+                    SizePx = Math.Max(6, decor.SizePt * 4.0 / 3.0),
+                    Ink = Colors.Black
+                });
+            }
+            if (runs.Count == 0) return;
+
+            double totalWidth = 0, maxHeight = 0, maxBaseline = 0;
+            foreach (var run in runs)
+            {
+                run.Measured = new FormattedText(run.Text, CultureInfo.CurrentCulture,
+                    FlowDirection.LeftToRight, run.Typeface, run.SizePx, Brushes.Black, 1.0);
+                totalWidth += run.Measured.WidthIncludingTrailingWhitespace;
+                if (run.Measured.Height > maxHeight) maxHeight = run.Measured.Height;
+                if (run.Measured.Baseline > maxBaseline) maxBaseline = run.Measured.Baseline;
+            }
+            var contentWidth = setup.ContentWidthPx;
+            var x = align == "left" ? left
+                  : align == "right" ? left + contentWidth - totalWidth
+                  : left + (contentWidth - totalWidth) / 2;
+            var top = _composition.TopPx;
+            var height = _composition.PageHeightPx;
+            var bottom = _composition.BottomPx;
+            var gap = gapMm * PageSetup.PxPerMm;
+            var y = isHeader
+                ? (gap > 0.01 ? Math.Max(2, top - gap - maxHeight)
+                              : Math.Max(2, top / 2 - maxHeight / 2))
+                : (gap > 0.01 ? Math.Min(height - maxHeight - 2, height - bottom + gap)
+                              : height - bottom / 2 - maxHeight / 2);
+            foreach (var run in runs)
+            {
+                EmitSimpleText(ops, run.Text, run.Typeface, run.SizePx,
+                    x, y + maxBaseline, run.Ink);
+                x += run.Measured.WidthIncludingTrailingWhitespace;
+            }
         }
 
         private void EmitLine(StringBuilder ops, ComposedLine line, double leftPx, double topPx)
         {
             var baseline = topPx + line.Ascent;
+
+            // Highlights first, behind the ink (spaces included).
             foreach (var piece in line.Pieces)
             {
+                if (piece.Highlight == null) continue;
+                var w = piece.VisualWidth();
+                if (w < 0.1) continue;
+                var size = piece.FontSizePx > 0 ? piece.FontSizePx : 16;
+                EmitRect(ops, leftPx + piece.Origin.X,
+                    baseline + piece.Origin.Y - size * 0.8, w, size * 1.05,
+                    InkColor(piece.Highlight));
+            }
+
+            foreach (var piece in line.Pieces)
+            {
+                EmitDecorations(ops, piece, leftPx, baseline);
                 if (piece.IsSpace) continue;
                 if (piece.IsRule)
                 {
@@ -307,6 +478,37 @@ namespace UniversSale.Print
             }
         }
 
+        /// <summary>Underline / strikethrough — same geometry as the screen
+        /// renderer (font metrics when available, ratios otherwise).</summary>
+        private void EmitDecorations(StringBuilder ops, ComposedPiece piece,
+            double leftPx, double baselinePx)
+        {
+            if (!piece.Underline && !piece.Strike) return;
+            var w = piece.VisualWidth();
+            if (w < 0.1) return;
+            var size = piece.FontSizePx > 0 ? piece.FontSizePx : 16;
+            var typeface = piece.Glyphs != null ? piece.Glyphs.GlyphTypeface : null;
+            var ink = InkColor(piece.Ink);
+            var x = leftPx + piece.Origin.X;
+            var y = baselinePx + piece.Origin.Y;
+            if (piece.Underline)
+            {
+                var offset = typeface != null ? -typeface.UnderlinePosition * size : size * 0.09;
+                var thickness = typeface != null
+                    ? Math.Max(0.8, typeface.UnderlineThickness * size)
+                    : Math.Max(0.8, size * 0.05);
+                EmitRect(ops, x, y + offset, w, thickness, ink);
+            }
+            if (piece.Strike)
+            {
+                var offset = typeface != null ? -typeface.StrikethroughPosition * size : -size * 0.3;
+                var thickness = typeface != null
+                    ? Math.Max(0.8, typeface.StrikethroughThickness * size)
+                    : Math.Max(0.8, size * 0.05);
+                EmitRect(ops, x, y + offset, w, thickness, ink);
+            }
+        }
+
         /// <summary>A justified glyph run: the piece's advances are the FINAL
         /// screen advances (letter-spacing baked in, glyph scaling via Tz), so
         /// each TJ adjustment is natural width minus wanted advance.</summary>
@@ -318,7 +520,8 @@ namespace UniversSale.Print
             var sizePx = run.FontRenderingEmSize;
             if (sizePx <= 0) return;
 
-            SetFill(ops, InkColor(piece.Ink));
+            var ink = InkColor(piece.Ink);
+            SetFill(ops, ink);
             ops.Append("BT /").Append(font.Res).Append(" ")
                 .Append(N(sizePx * PxToPt)).Append(" Tf\n");
             var tz = piece.ScaleX * 100;
@@ -327,8 +530,21 @@ namespace UniversSale.Print
                 ops.Append(N(tz)).Append(" Tz\n");
                 _tz = tz;
             }
-            ops.Append(N(XPt(leftPx + piece.Origin.X))).Append(" ")
-                .Append(N(YPt(baselinePx + piece.Origin.Y))).Append(" Td\n[<");
+            if (font.EmulateBold)
+            {
+                // The embedded outlines carry the file's own weight (variable
+                // fonts: the default instance) — thicken by stroking the fill.
+                SetStroke(ops, ink);
+                ops.Append("2 Tr ").Append(N(Math.Max(0.2, sizePx * PxToPt * 0.028)))
+                    .Append(" w\n");
+            }
+            var x = XPt(leftPx + piece.Origin.X);
+            var y = YPt(baselinePx + piece.Origin.Y);
+            if (font.EmulateItalic)
+                ops.Append("1 0 0.2126 1 ").Append(N(x)).Append(" ")
+                    .Append(N(y)).Append(" Tm\n[<");
+            else
+                ops.Append(N(x)).Append(" ").Append(N(y)).Append(" Td\n[<");
 
             for (var i = 0; i < run.GlyphIndices.Count; i++)
             {
@@ -341,7 +557,9 @@ namespace UniversSale.Print
                 if (adjust != 0 && i < run.GlyphIndices.Count - 1)
                     ops.Append("> ").Append(adjust).Append(" <");
             }
-            ops.Append(">] TJ\nET\n");
+            ops.Append(">] TJ\n");
+            if (font.EmulateBold) ops.Append("0 Tr\n");
+            ops.Append("ET\n");
         }
 
         /// <summary>Characters outside the font (the composer's FormattedText
@@ -377,7 +595,7 @@ namespace UniversSale.Print
         private void EmitSimpleText(StringBuilder ops, string text, Typeface typeface,
             double sizePx, double xPx, double baselinePx, Color color)
         {
-            var key = typeface.FontFamily.Source ?? "";
+            var key = (typeface.FontFamily.Source ?? "") + "|" + typeface.Weight + "|" + typeface.Style;
             GlyphTypeface glyphs;
             if (!_labelTypefaces.TryGetValue(key, out glyphs))
             {
@@ -429,7 +647,8 @@ namespace UniversSale.Print
             var x1 = _margin + _trimW;
             var y0 = _margin;
             var y1 = _margin + _trimH;
-            ops.Append("0.25 w 0 G\n");
+            ops.Append("0.25 w ").Append(_options.Cmyk ? "0 0 0 1 K\n" : "0 G\n");
+            _stroke = Color.FromArgb(0, 0, 0, 0); // tracker invalidated
             // horizontal marks (left/right of the trim corners)
             AppendMark(ops, x0 - gap - len, y0, x0 - gap, y0);
             AppendMark(ops, x0 - gap - len, y1, x0 - gap, y1);
@@ -440,6 +659,23 @@ namespace UniversSale.Print
             AppendMark(ops, x1, y0 - gap - len, x1, y0 - gap);
             AppendMark(ops, x0, y1 + gap, x0, y1 + gap + len);
             AppendMark(ops, x1, y1 + gap, x1, y1 + gap + len);
+        }
+
+        /// <summary>Bleed guides: a cyan frame on the bleed box (and, when a
+        /// bleed is set, a second one on the trim box) so the zone reads at a
+        /// glance on the proof.</summary>
+        private void EmitBleedGuides(StringBuilder ops)
+        {
+            var bleed = _options.BleedMm * MmToPt;
+            ops.Append("0.5 w ").Append(_options.Cmyk ? "1 0 0 0 K\n" : "0.24 0.77 0.9 RG\n");
+            ops.Append(N(_margin - bleed)).Append(" ").Append(N(_margin - bleed)).Append(" ")
+                .Append(N(_trimW + 2 * bleed)).Append(" ").Append(N(_trimH + 2 * bleed))
+                .Append(" re S\n");
+            if (bleed > 0.1)
+                ops.Append(N(_margin)).Append(" ").Append(N(_margin)).Append(" ")
+                    .Append(N(_trimW)).Append(" ").Append(N(_trimH)).Append(" re S\n");
+            // Invalidate the stroke tracker (sentinel no ink will ever equal).
+            _stroke = Color.FromArgb(0, 0, 0, 0);
         }
 
         private static void AppendMark(StringBuilder ops,
@@ -453,8 +689,39 @@ namespace UniversSale.Print
         {
             if (color == _fill) return;
             _fill = color;
-            ops.Append(N(color.R / 255.0)).Append(" ").Append(N(color.G / 255.0))
-                .Append(" ").Append(N(color.B / 255.0)).Append(" rg\n");
+            ops.Append(ColorOps(color, false));
+        }
+
+        private void SetStroke(StringBuilder ops, Color color)
+        {
+            if (color == _stroke) return;
+            _stroke = color;
+            ops.Append(ColorOps(color, true));
+        }
+
+        /// <summary>rg/RG in RGB output, k/K in CMYK output. The CMYK
+        /// conversion keeps true black on the K channel alone (0 0 0 1) —
+        /// what a printer expects for text.</summary>
+        private string ColorOps(Color color, bool stroke)
+        {
+            if (!_options.Cmyk)
+                return N(color.R / 255.0) + " " + N(color.G / 255.0) + " "
+                    + N(color.B / 255.0) + (stroke ? " RG\n" : " rg\n");
+            double c, m, y, k;
+            RgbToCmyk(color.R / 255.0, color.G / 255.0, color.B / 255.0,
+                out c, out m, out y, out k);
+            return N(c) + " " + N(m) + " " + N(y) + " " + N(k)
+                + (stroke ? " K\n" : " k\n");
+        }
+
+        private static void RgbToCmyk(double r, double g, double b,
+            out double c, out double m, out double y, out double k)
+        {
+            k = 1 - Math.Max(r, Math.Max(g, b));
+            if (k > 0.999) { c = 0; m = 0; y = 0; k = 1; return; }
+            c = (1 - r - k) / (1 - k);
+            m = (1 - g - k) / (1 - k);
+            y = (1 - b - k) / (1 - k);
         }
 
         private static Color InkColor(Brush ink)
@@ -474,15 +741,23 @@ namespace UniversSale.Print
 
         private FontEntry GetFont(GlyphTypeface typeface)
         {
+            var key = typeface.FontUri + "|" + typeface.Weight.ToOpenTypeWeight()
+                + "|" + typeface.Style + "|" + (int)typeface.StyleSimulations;
             FontEntry entry;
-            if (_fonts.TryGetValue(typeface, out entry)) return entry;
+            if (_fonts.TryGetValue(key, out entry)) return entry;
             entry = new FontEntry
             {
                 Typeface = typeface,
                 Data = TrueTypeFont.Load(typeface),
                 Res = "F" + (_fontList.Count + 1)
             };
-            _fonts[typeface] = entry;
+            var fileWeight = entry.Data != null ? entry.Data.WeightClass : 400;
+            entry.EmulateBold =
+                (typeface.StyleSimulations & StyleSimulations.BoldSimulation) != 0
+                || typeface.Weight.ToOpenTypeWeight() >= fileWeight + 150;
+            entry.EmulateItalic =
+                (typeface.StyleSimulations & StyleSimulations.ItalicSimulation) != 0;
+            _fonts[key] = entry;
             _fontList.Add(entry);
             return entry;
         }
@@ -492,8 +767,12 @@ namespace UniversSale.Print
             var typeface = font.Typeface;
             var data = font.Data;
             var scale = data != null ? 1000.0 / data.UnitsPerEm : 1.0;
-            var baseName = SubsetTag(font) + "+"
-                + (data != null ? data.PostScriptName : "Embedded");
+            var psName = data != null ? data.PostScriptName : "Embedded";
+            // Variable-font instances share one PostScript name; suffix the
+            // requested weight so the two faces stay distinct for viewers.
+            if (data != null && typeface.Weight.ToOpenTypeWeight() != data.WeightClass)
+                psName += "-W" + typeface.Weight.ToOpenTypeWeight();
+            var baseName = SubsetTag(font) + "+" + psName;
             var italic = typeface.Style != FontStyles.Normal;
 
             byte[] fontFile = null;

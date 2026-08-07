@@ -9,7 +9,10 @@ namespace UniversSale.Model
         Folder,
         Text,
         Sheet,    // a template-based wiki card (fiche)
-        Media     // an imported file (research material)
+        Media,    // an imported file (research material)
+        Book,     // Écrits only: metadata + gabarit + « Publier »
+        PageTemplate // gabarit de pages d'un livre : deux pages vis-à-vis,
+                     // en-têtes/pieds recto-verso, pastille de couleur
     }
 
     /// <summary>A node of the Binder tree. Categories are fixed roots (cannot be
@@ -37,6 +40,30 @@ namespace UniversSale.Model
         public byte[] MediaBytes;
         public string MediaExtension; // includes the dot, e.g. ".png"
 
+        // Books only: metadata + gabarit.
+        public BookInfo Book;
+
+        // Texts only: the document's own page setup. Null = project default.
+        // Documents created inside a book copy the book's gabarit here.
+        public PageSetup Page;
+
+        // Texts only: header/footer applied to every page (menu Gabarit de
+        // l'éditeur), and the id of the applied page gabarit — which then
+        // wins over Header/Footer with its recto/verso pairs.
+        public HeaderFooter Header, Footer;
+        public string PageTemplateId;
+
+        // Pages extra (liminaires, TdM, page éditeur…) : hors du flux du
+        // récit — sans folio par défaut, exclues de la table des matières.
+        public bool IsExtraPage;
+        public bool IsToc; // table des matières, régénérée dynamiquement
+
+        // PageTemplate items only: color chip + the four recto/verso slots.
+        public string TemplateColor; // "#RRGGBB", null = pas de pastille
+        public HeaderFooter HeaderRecto, FooterRecto, HeaderVerso, FooterVerso;
+        public double HeaderGapMm, FooterGapMm;      // écart au bloc de texte (0 = centré marge)
+        public bool HeaderHideFirst, FooterHideFirst; // masqués sur la 1re page du document
+
         public List<BinderItem> Children = new List<BinderItem>();
 
         // Runtime only, rebuilt after load — never serialized.
@@ -52,15 +79,31 @@ namespace UniversSale.Model
             get
             {
                 return Kind == ItemKind.Category || Kind == ItemKind.Folder
-                    || Kind == ItemKind.Text;
+                    || Kind == ItemKind.Text || Kind == ItemKind.Book;
             }
         }
 
-        /// <summary>True containers (category, folder): show the corkboard on
-        /// click and receive new items created while they are selected.</summary>
+        /// <summary>True containers (category, folder, book): show the
+        /// corkboard on click and receive new items created while selected.</summary>
         public bool IsContainer
         {
-            get { return Kind == ItemKind.Category || Kind == ItemKind.Folder; }
+            get
+            {
+                return Kind == ItemKind.Category || Kind == ItemKind.Folder
+                    || Kind == ItemKind.Book;
+            }
+        }
+
+        /// <summary>The book this item lives in (itself included), or null.</summary>
+        public BinderItem EnclosingBook()
+        {
+            var item = this;
+            while (item != null)
+            {
+                if (item.Kind == ItemKind.Book) return item;
+                item = item.Parent;
+            }
+            return null;
         }
 
         /// <summary>Everything searchable about this item, for the project-wide

@@ -24,10 +24,11 @@ namespace UniversSale.Print
 
         // ------------------------------------------------------- document
 
-        public static FlowDocument BuildFlow(TextDocument document, StyleSheet styles, Project project)
+        public static FlowDocument BuildFlow(TextDocument document, StyleSheet styles,
+            Project project, PageSetup setup = null)
         {
             var flow = FlowConverter.ToFlow(document, styles, project);
-            var setup = project.Page;
+            if (setup == null) setup = project.Page;
             flow.PageWidth = setup.PageWidthMm * PageSetup.PxPerMm;
             flow.PageHeight = setup.PageHeightMm * PageSetup.PxPerMm;
             flow.PagePadding = new Thickness(
@@ -82,7 +83,7 @@ namespace UniversSale.Print
 
         private static void ForceBlockInk(Block block)
         {
-            if (ReferenceEquals(block.Foreground, Chrome.Ink)) block.Foreground = Brushes.Black;
+            if (ReferenceEquals(block.Foreground, Chrome.PaperInk)) block.Foreground = Brushes.Black;
             var paragraph = block as Paragraph;
             if (paragraph != null) { ForceInlineInk(paragraph.Inlines); return; }
             var section = block as Section;
@@ -94,7 +95,7 @@ namespace UniversSale.Print
             var list = block as List;
             if (list != null)
             {
-                if (ReferenceEquals(list.Foreground, Chrome.Ink)) list.Foreground = Brushes.Black;
+                if (ReferenceEquals(list.Foreground, Chrome.PaperInk)) list.Foreground = Brushes.Black;
                 foreach (ListItem item in list.ListItems)
                     foreach (var inner in item.Blocks) ForceBlockInk(inner);
             }
@@ -104,7 +105,7 @@ namespace UniversSale.Print
         {
             foreach (var inline in inlines)
             {
-                if (ReferenceEquals(inline.Foreground, Chrome.Ink)) inline.Foreground = Brushes.Black;
+                if (ReferenceEquals(inline.Foreground, Chrome.PaperInk)) inline.Foreground = Brushes.Black;
                 var span = inline as Span;
                 if (span != null) ForceInlineInk(span.Inlines);
             }
@@ -210,29 +211,103 @@ namespace UniversSale.Print
             }
         }
 
-        /// <summary>Composer first, WPF flow paginator as safety net.</summary>
-        private static DocumentPaginator BuildPaginator(TextDocument document,
-            StyleSheet styles, Project project)
+        /// <summary>Spread preview: pages paired like a real book — the recto
+        /// alone first (folio 1), then facing pages (2-3, 4-5…) with the two
+        /// petits fonds meeting at the spine. The margin mirroring reads at a
+        /// glance, InDesign-style.</summary>
+        private sealed class SpreadPaginator : DocumentPaginator
         {
+            private readonly Composition _composition;
+            private Size _size;
+
+            public SpreadPaginator(Composition composition)
+            {
+                _composition = composition;
+                _size = new Size(composition.PageWidthPx * 2, composition.PageHeightPx);
+            }
+
+            public override bool IsPageCountValid { get { return true; } }
+            public override int PageCount
+            {
+                get { return 1 + _composition.Pages.Count / 2; }
+            }
+            public override Size PageSize { get { return _size; } set { _size = value; } }
+            public override IDocumentPaginatorSource Source { get { return null; } }
+
+            public override DocumentPage GetPage(int pageNumber)
+            {
+                if (pageNumber < 0 || pageNumber >= PageCount)
+                    return DocumentPage.Missing;
+                var width = _composition.PageWidthPx;
+                var height = _composition.PageHeightPx;
+                var leftIndex = pageNumber == 0 ? -1 : 2 * pageNumber - 1;   // versos pairs
+                var rightIndex = pageNumber == 0 ? 0 : 2 * pageNumber;       // rectos impairs
+
+                var visual = new DrawingVisual();
+                using (var dc = visual.RenderOpen())
+                {
+                    dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, _size.Width, _size.Height));
+                    var edge = new Pen(Brushes.Gainsboro, 1);
+                    if (leftIndex >= 0 && leftIndex < _composition.Pages.Count)
+                    {
+                        dc.DrawRectangle(null, edge, new Rect(0.5, 0.5, width - 1, height - 1));
+                        UniversSale.View.ComposedRenderer.DrawPage(dc, _composition, leftIndex, false);
+                    }
+                    else
+                        dc.DrawRectangle(Brushes.WhiteSmoke, edge,
+                            new Rect(0.5, 0.5, width - 1, height - 1));
+                    if (rightIndex >= 0 && rightIndex < _composition.Pages.Count)
+                    {
+                        dc.DrawRectangle(null, edge, new Rect(width + 0.5, 0.5, width - 1, height - 1));
+                        dc.PushTransform(new TranslateTransform(width, 0));
+                        UniversSale.View.ComposedRenderer.DrawPage(dc, _composition, rightIndex, false);
+                        dc.Pop();
+                    }
+                    else
+                        dc.DrawRectangle(Brushes.WhiteSmoke, edge,
+                            new Rect(width + 0.5, 0.5, width - 1, height - 1));
+                    // Le dos.
+                    dc.DrawLine(new Pen(Brushes.Silver, 1.2),
+                        new Point(width, 0), new Point(width, height));
+                }
+                return new DocumentPage(visual, _size, new Rect(_size), new Rect(_size));
+            }
+        }
+
+        /// <summary>Composer first, WPF flow paginator as safety net. The
+        /// setup defaults to the project's, or the document's own (books).
+        /// spreads: paired book pages (preview) instead of single sheets
+        /// (printing).</summary>
+        private static DocumentPaginator BuildPaginator(TextDocument document,
+            StyleSheet styles, Project project, PageSetup setup, bool spreads,
+            int folioOffset, PageDecor decor = null)
+        {
+            if (setup == null) setup = project.Page;
             try
             {
-                return new ComposerPaginator(
-                    Composer.Compose(document, styles, project.Page, project));
+                var composition = Composer.Compose(document, styles, setup, project);
+                composition.FolioOffset = folioOffset;
+                composition.DefaultDecor = decor;
+                return spreads
+                    ? (DocumentPaginator)new SpreadPaginator(composition)
+                    : new ComposerPaginator(composition);
             }
             catch
             {
-                var flow = BuildFlow(document, styles, project);
-                return Paginate(flow, project.Page);
+                var flow = BuildFlow(document, styles, project, setup);
+                return Paginate(flow, setup);
             }
         }
 
         // ------------------------------------------------------- print & preview
 
-        public static void Print(TextDocument document, StyleSheet styles, Project project, string jobName)
+        public static void Print(TextDocument document, StyleSheet styles, Project project,
+            string jobName, PageSetup setup = null, int folioOffset = 0, PageDecor decor = null)
         {
             var dialog = new System.Windows.Controls.PrintDialog();
             if (dialog.ShowDialog() != true) return;
-            dialog.PrintDocument(BuildPaginator(document, styles, project), jobName);
+            dialog.PrintDocument(
+                BuildPaginator(document, styles, project, setup, false, folioOffset, decor), jobName);
         }
 
         /// <summary>Page-by-page preview: the paginated document is written to
@@ -240,9 +315,10 @@ namespace UniversSale.Print
         /// scroll, fit/zoom controls — PDF export goes through Imprimer with
         /// « Microsoft Print to PDF »).</summary>
         public static void ShowPreview(Window owner, TextDocument document, StyleSheet styles,
-            Project project, string title)
+            Project project, string title, PageSetup setup = null, int folioOffset = 0,
+            PageDecor decor = null)
         {
-            var paginator = BuildPaginator(document, styles, project);
+            var paginator = BuildPaginator(document, styles, project, setup, true, folioOffset, decor);
 
             var buffer = new MemoryStream();
             var package = Package.Open(buffer, FileMode.Create, FileAccess.ReadWrite);

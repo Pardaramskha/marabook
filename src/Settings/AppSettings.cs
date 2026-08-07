@@ -36,6 +36,7 @@ namespace UniversSale.Settings
             new ActionDefinition("redo", "Édition", "Rétablir", "Ctrl+Y"),
             new ActionDefinition("new-text", "Pile", "Nouvel écrit", "Ctrl+T"),
             new ActionDefinition("new-folder", "Pile", "Nouveau dossier", "Ctrl+Shift+T"),
+            new ActionDefinition("new-book", "Pile", "Nouveau livre", null),
             new ActionDefinition("rename", "Pile", "Renommer", "F2"),
             new ActionDefinition("delete", "Pile", "Supprimer vers la corbeille", "Delete"),
             new ActionDefinition("empty-trash", "Pile", "Vider la corbeille", null),
@@ -57,12 +58,14 @@ namespace UniversSale.Settings
             new ActionDefinition("insert-separator", "Format", "Séparateur de scène", null),
             new ActionDefinition("page-break", "Mise en page", "Saut de page", "Ctrl+Return"),
             new ActionDefinition("project-settings", "Fichier", "Paramètres du projet", null),
+            new ActionDefinition("preferences", "Fichier", "Préférences de l'application", null),
             new ActionDefinition("print-preview", "Fichier", "Aperçu des pages", "Ctrl+Alt+P"),
             new ActionDefinition("print", "Fichier", "Imprimer", "Ctrl+P"),
             new ActionDefinition("session-goal", "Écriture", "Objectif de session", null),
             new ActionDefinition("toggle-binder", "Affichage", "Afficher la Pile", "Ctrl+D1"),
             new ActionDefinition("toggle-inspector", "Affichage", "Afficher l'inspecteur", "Ctrl+D2"),
             new ActionDefinition("dark-theme", "Affichage", "Thème sombre", "Ctrl+Shift+L"),
+            new ActionDefinition("toggle-rulers", "Affichage", "Règles", "Ctrl+R"),
         };
 
         public static Dictionary<string, string> Shortcuts = new Dictionary<string, string>();
@@ -73,7 +76,11 @@ namespace UniversSale.Settings
         public static double InspectorWidth = 280;
         public static double Zoom = 100; // page zoom, percent (50–300)
         public static bool ShowFormattingMarks; // ¶ printing characters
+        public static bool ShowRulers;          // règles cm (Ctrl+R)
         public static bool CompositionMode = true; // write in the composed pages by default
+        public static string AccentColor;    // "#RRGGBB", null = default indigo
+        public static bool WhitePaperInDark; // keep white pages under the dark theme
+        public static bool StatsExpanded;    // « Statistiques » accordion of the inspector
         public static List<string> RecentFiles = new List<string>(); // last 5 .plot files
 
         public static void AddRecentFile(string path)
@@ -90,10 +97,31 @@ namespace UniversSale.Settings
 
         private static string SettingsPath()
         {
-            var folder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Univers Sale");
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var folder = Path.Combine(appData, "Marabook");
             Directory.CreateDirectory(folder);
-            return Path.Combine(folder, "settings.json");
+            var path = Path.Combine(folder, "settings.json");
+            // Rebrand : migration douce depuis « Univers Sale » (réglages,
+            // récents, icônes persos) — une seule fois, sans rien détruire.
+            if (!File.Exists(path))
+            {
+                var legacy = Path.Combine(appData, "Univers Sale");
+                try
+                {
+                    var legacySettings = Path.Combine(legacy, "settings.json");
+                    if (File.Exists(legacySettings)) File.Copy(legacySettings, path);
+                    var legacyIcons = Path.Combine(legacy, "icons");
+                    var icons = Path.Combine(folder, "icons");
+                    if (Directory.Exists(legacyIcons) && !Directory.Exists(icons))
+                    {
+                        Directory.CreateDirectory(icons);
+                        foreach (var file in Directory.GetFiles(legacyIcons))
+                            File.Copy(file, Path.Combine(icons, Path.GetFileName(file)), true);
+                    }
+                }
+                catch { }
+            }
+            return path;
         }
 
         public static ActionDefinition Definition(string id)
@@ -137,7 +165,11 @@ namespace UniversSale.Settings
                 if (Zoom < 50) Zoom = 50;
                 if (Zoom > 300) Zoom = 300;
                 ShowFormattingMarks = Json.AsBool(Json.Field(root, "formattingMarks"), false);
+                ShowRulers = Json.AsBool(Json.Field(root, "rulers"), false);
                 CompositionMode = Json.AsBool(Json.Field(root, "compositionMode"), true);
+                AccentColor = Json.AsString(Json.Field(root, "accentColor"));
+                WhitePaperInDark = Json.AsBool(Json.Field(root, "whitePaperInDark"), false);
+                StatsExpanded = Json.AsBool(Json.Field(root, "statsExpanded"), false);
                 var recents = Json.AsList(Json.Field(root, "recentFiles"));
                 if (recents != null)
                 {
@@ -162,7 +194,11 @@ namespace UniversSale.Settings
                 root["inspectorWidth"] = InspectorWidth;
                 root["zoom"] = Zoom;
                 root["formattingMarks"] = ShowFormattingMarks;
+                root["rulers"] = ShowRulers;
                 root["compositionMode"] = CompositionMode;
+                if (AccentColor != null) root["accentColor"] = AccentColor;
+                root["whitePaperInDark"] = WhitePaperInDark;
+                root["statsExpanded"] = StatsExpanded;
                 root["recentFiles"] = new List<object>(RecentFiles.ToArray());
                 File.WriteAllText(SettingsPath(), Json.Write(root), new UTF8Encoding(false));
             }

@@ -27,6 +27,8 @@ namespace UniversSale.View
         // Drag & drop state
         private BinderItem _dragCandidate;
         private Point _dragStart;
+        private string _expectedSelectId; // seule sélection légitime (anti-fantôme)
+        private bool _keyboardNav;        // flèches/Home/End en cours
 
         // Inline rename state
         private TextBox _renameBox;
@@ -34,6 +36,11 @@ namespace UniversSale.View
 
         public event Action<BinderItem> SelectionChanged;
         public event Action StructureChanged; // a user-initiated, undoable change happened
+        public event Action JournalRequested; // clic sur « Journal perso » (pied de Pile)
+
+        // Fourni par MainWindow (cache de composition) : total de pages d'un
+        // livre, pour le garde-fou « page finale impaire ». Null = pas d'icône.
+        public Func<BinderItem, int> BookPageTotal;
 
         private TextBox _searchBox;
         private ComboBox _searchFilter;
@@ -48,6 +55,20 @@ namespace UniversSale.View
             _tree = new TreeView { AllowDrop = true };
             _tree.SelectedItemChanged += OnSelectedItemChanged;
             _tree.PreviewMouseLeftButtonDown += OnPreviewMouseDown;
+            // Le clic droit sélectionne aussi (menu contextuel) : il doit être
+            // « attendu » pour passer le filtre anti-fantôme.
+            _tree.PreviewMouseRightButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                var node = NodeFromSource(e.OriginalSource);
+                _expectedSelectId = node == null ? null : ((BinderItem)node.Tag).Id;
+            };
+            _tree.PreviewKeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Left
+                    || e.Key == Key.Right || e.Key == Key.Home || e.Key == Key.End
+                    || e.Key == Key.PageUp || e.Key == Key.PageDown)
+                    _keyboardNav = true;
+            };
             _tree.PreviewMouseMove += OnPreviewMouseMove;
             _tree.DragOver += OnDragOver;
             _tree.Drop += OnDrop;
@@ -66,6 +87,7 @@ namespace UniversSale.View
 
             var layout = new DockPanel();
             layout.Children.Add(BuildSearchBar());
+            layout.Children.Add(BuildJournalRow());
 
             _results = new ListBox
             {
@@ -125,6 +147,46 @@ namespace UniversSale.View
             };
             row.Children.Add(_searchBox);
             bar.Child = row;
+            return bar;
+        }
+
+        /// <summary>Pied de Pile : l'entrée fixe « Journal perso ». Hors de
+        /// l'arbre (aucun BinderItem, aucune persistance d'arborescence) — un
+        /// clic ouvre la vue journal au centre.</summary>
+        private UIElement BuildJournalRow()
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            var icon = Icons.Make("book-open-text-bold", 15, Chrome.SoftText) as FrameworkElement;
+            if (icon != null)
+            {
+                icon.VerticalAlignment = VerticalAlignment.Center;
+                icon.Margin = new Thickness(0, 0, 8, 0);
+                row.Children.Add(icon);
+            }
+            row.Children.Add(new TextBlock
+            {
+                Text = "Journal perso",
+                Foreground = Chrome.Ink,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            var bar = new Border
+            {
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(12, 8, 12, 8),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                ToolTip = "Statistiques d'écriture et objectif journalier",
+                Child = row
+            };
+            bar.MouseEnter += delegate { bar.Background = Chrome.BarBg; };
+            bar.MouseLeave += delegate { bar.Background = Brushes.Transparent; };
+            bar.MouseLeftButtonUp += delegate
+            {
+                var handler = JournalRequested;
+                if (handler != null) handler();
+            };
+            DockPanel.SetDock(bar, Dock.Bottom);
             return bar;
         }
 
@@ -191,8 +253,33 @@ namespace UniversSale.View
             node.Expanded += OnNodeExpandedChanged;
             node.Collapsed += OnNodeExpandedChanged;
             node.ContextMenu = BuildContextMenu(item);
-            foreach (var child in item.Children)
-                node.Items.Add(BuildNode(child));
+            if (item.Kind == ItemKind.Book)
+            {
+                // Les gabarits d'abord, puis un filet, puis les documents.
+                var gabarits = 0;
+                foreach (var child in item.Children)
+                    if (child.Kind == ItemKind.PageTemplate)
+                    { node.Items.Add(BuildNode(child)); gabarits++; }
+                if (gabarits > 0)
+                    node.Items.Add(new TreeViewItem
+                    {
+                        Header = new Border
+                        {
+                            Height = 1,
+                            Background = Chrome.Border,
+                            Margin = new Thickness(0, 2, 8, 2),
+                            MinWidth = 120
+                        },
+                        IsEnabled = false,
+                        Focusable = false
+                    });
+                foreach (var child in item.Children)
+                    if (child.Kind != ItemKind.PageTemplate)
+                        node.Items.Add(BuildNode(child));
+            }
+            else
+                foreach (var child in item.Children)
+                    node.Items.Add(BuildNode(child));
             _nodesById[item.Id] = node;
             return node;
         }
@@ -200,8 +287,23 @@ namespace UniversSale.View
         private UIElement BuildHeader(BinderItem item)
         {
             var panel = new StackPanel { Orientation = Orientation.Horizontal };
-            panel.Children.Add(ItemIcons.Render(item, 12,
-                item.IsCategory ? (Brush)Chrome.Accent : Chrome.SoftText));
+            // Gabarits de pages : blueprint teinté de leur couleur.
+            if (item.Kind == ItemKind.PageTemplate)
+            {
+                var brush = item.TemplateColor != null
+                    ? (Brush)new SolidColorBrush(FlowConverter.ParseColor(item.TemplateColor))
+                    : Chrome.SoftText;
+                var icon = Icons.Make("blueprint-bold", 12, brush) as FrameworkElement;
+                if (icon != null)
+                {
+                    icon.VerticalAlignment = VerticalAlignment.Center;
+                    icon.Margin = new Thickness(0, 0, 6, 0);
+                    panel.Children.Add(icon);
+                }
+            }
+            else
+                panel.Children.Add(ItemIcons.Render(item, 12,
+                    item.IsCategory ? (Brush)Chrome.Accent : Chrome.SoftText));
 
             var title = new TextBlock
             {
@@ -216,6 +318,40 @@ namespace UniversSale.View
                 title.Foreground = Chrome.SoftText;
             }
             panel.Children.Add(title);
+
+            // Books: alert chip when a document strays from the gabarit.
+            if (item.Kind == ItemKind.Book && BookHasDivergentDocs(item))
+                panel.Children.Add(new System.Windows.Shapes.Ellipse
+                {
+                    Width = 7,
+                    Height = 7,
+                    Margin = new Thickness(5, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Fill = new SolidColorBrush(Color.FromRgb(230, 126, 34)),
+                    ToolTip = "Des documents de ce livre ne suivent pas son gabarit "
+                        + "(clic droit → Appliquer le gabarit à tous les documents)"
+                });
+
+            // Livres : garde-fou d'imposition — icône danger quand la page
+            // finale n'est pas impaire (erreur de mise en page courante).
+            if (item.Kind == ItemKind.Book && BookPageTotal != null)
+            {
+                var total = BookPageTotal(item);
+                if (total > 0 && total % 2 == 0)
+                {
+                    var danger = Icons.Make("warning-fill", 12,
+                        new SolidColorBrush(Color.FromRgb(241, 196, 15))) as FrameworkElement;
+                    if (danger != null)
+                    {
+                        danger.VerticalAlignment = VerticalAlignment.Center;
+                        danger.Margin = new Thickness(5, 0, 0, 0);
+                        danger.ToolTip = "La page finale de ce livre (" + total
+                            + ") n'est pas impaire — ajoutez ou retirez une page "
+                            + "pour une imposition correcte.";
+                        panel.Children.Add(danger);
+                    }
+                }
+            }
 
             // Double-click renames in place (folders included: expansion is on
             // the chevron, Scrivener-style rename wins on the label).
@@ -286,14 +422,58 @@ namespace UniversSale.View
         {
             if (_rebuilding) return;
             var node = _tree.SelectedItem as TreeViewItem;
-            _selectedId = node == null ? null : ((BinderItem)node.Tag).Id;
+            var id = node == null || !(node.Tag is BinderItem)
+                ? null : ((BinderItem)node.Tag).Id;
+
+            // WPF selects a TreeViewItem the moment it RECEIVES the keyboard
+            // focus (TreeViewItem.OnGotFocus → Select) — and masquer une vue
+            // qui portait le focus le fait retomber sur un nœud de l'arbre.
+            // Toute sélection qui ne vient ni d'un clic sur CE nœud, ni du
+            // clavier, ni de SelectItem, est un fantôme : révoquée.
+            var allowed = id == null || _keyboardNav || id == _expectedSelectId;
+            _keyboardNav = false;
+            if (!allowed)
+            {
+                RestoreSelection(node);
+                return;
+            }
+
+            _selectedId = id;
             var handler = SelectionChanged;
             if (handler != null) handler(node == null ? null : (BinderItem)node.Tag);
         }
 
+        /// <summary>Revokes a phantom selection: the previously selected node
+        /// takes the selection back (silently), the phantom is deselected.</summary>
+        private void RestoreSelection(TreeViewItem phantom)
+        {
+            _rebuilding = true;
+            try
+            {
+                TreeViewItem node;
+                if (_selectedId != null && _nodesById.TryGetValue(_selectedId, out node))
+                    node.IsSelected = true;
+                else if (phantom != null)
+                    phantom.IsSelected = false;
+            }
+            finally
+            {
+                _rebuilding = false;
+            }
+        }
+
         public void SelectItem(string id)
         {
+            SelectItem(id, true);
+        }
+
+        /// <summary>bringIntoView false = re-sélection silencieuse (le rappel
+        /// anti-fantôme) : NE PAS faire défiler l'arbre, sinon la ligne bouge
+        /// sous la souris entre les deux clics d'un double-clic (renommage).</summary>
+        public void SelectItem(string id, bool bringIntoView)
+        {
             _selectedId = id;
+            _expectedSelectId = id; // sélection programmée = légitime
             TreeViewItem node;
             if (id != null && _nodesById.TryGetValue(id, out node))
             {
@@ -305,7 +485,7 @@ namespace UniversSale.View
                     parent = parent.Parent as TreeViewItem;
                 }
                 node.IsSelected = true;
-                node.BringIntoView();
+                if (bringIntoView) node.BringIntoView();
             }
         }
 
@@ -343,6 +523,10 @@ namespace UniversSale.View
                 else
                 {
                     AddMenu(menu, "Nouvel écrit", delegate { NewText(item); });
+                    // Un Livre se crée dans Écrits uniquement, jamais dans un
+                    // autre livre.
+                    if (rootKey == Project.KeyWritings && item.EnclosingBook() == null)
+                        AddMenu(menu, "Nouveau livre", delegate { NewBook(item); });
                     AddMenu(menu, "Nouvelle fiche", delegate { NewSheet(item); });
                 }
                 AddMenu(menu, "Nouveau dossier", delegate { NewFolder(item); });
@@ -383,6 +567,11 @@ namespace UniversSale.View
             var title = InputDialog.Ask(Window.GetWindow(this), "Nouvel écrit", "Titre de l'écrit :", "Nouvel écrit");
             if (title == null) return;
             var item = new BinderItem { Kind = ItemKind.Text, Title = title };
+            item.Document = TextDocument.FromPlainText(""); // jamais zéro paragraphe
+            // Created inside a book: the document inherits the gabarit.
+            var book = parent.EnclosingBook();
+            if (book != null && book.Book != null)
+                item.Page = book.Book.Template.Clone();
             RunAndSelect(new AddItemAction(parent, item, -1), item.Id, parent.Id);
         }
 
@@ -393,6 +582,48 @@ namespace UniversSale.View
             if (title == null) return;
             var item = new BinderItem { Kind = ItemKind.Folder, Title = title };
             RunAndSelect(new AddItemAction(parent, item, -1), item.Id, parent.Id);
+        }
+
+        /// <summary>Books live in Écrits only (never nested in another book):
+        /// out-of-scope parents fall back to the Écrits category.</summary>
+        public void NewBook(BinderItem parent)
+        {
+            if (parent == null) parent = TargetParent();
+            if (parent.RootCategory().CategoryKey != Project.KeyWritings
+                || parent.EnclosingBook() != null)
+                parent = _project.Category(Project.KeyWritings);
+            var title = InputDialog.Ask(Window.GetWindow(this), "Nouveau livre", "Titre du livre :", "Nouveau livre");
+            if (title == null) return;
+            var item = new BinderItem { Kind = ItemKind.Book, Title = title, Book = new BookInfo() };
+            RunAndSelect(new AddItemAction(parent, item, -1), item.Id, parent.Id);
+        }
+
+        private string TemplateColorOf(string id)
+        {
+            var gabarit = _project.FindById(id);
+            return gabarit == null ? null : gabarit.TemplateColor;
+        }
+
+        /// <summary>True when a text of the book does not follow its gabarit —
+        /// the alert chip next to the book's name.</summary>
+        public bool BookHasDivergentDocs(BinderItem book)
+        {
+            if (book.Book == null || _project == null) return false;
+            return DivergesRecursive(book, book.Book.Template);
+        }
+
+        private bool DivergesRecursive(BinderItem item, Model.PageSetup template)
+        {
+            foreach (var child in item.Children)
+            {
+                if (child.Kind == ItemKind.Text)
+                {
+                    var effective = child.Page ?? _project.Page;
+                    if (!effective.SameLayout(template)) return true;
+                }
+                if (DivergesRecursive(child, template)) return true;
+            }
+            return false;
         }
 
         /// <summary>Renames in place when the item's row is on screen (F2, menu,
@@ -446,7 +677,7 @@ namespace UniversSale.View
         {
             if (_project.Trash.Children.Count == 0) return;
             var answer = MessageBox.Show(Window.GetWindow(this),
-                "Vider définitivement la corbeille ?", "Univers Sale",
+                "Vider définitivement la corbeille ?", "Marabook",
                 MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (answer != MessageBoxResult.Yes) return;
             RunAndSelect(new EmptyTrashAction(_project.Trash), null, null);
@@ -477,6 +708,7 @@ namespace UniversSale.View
         private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
         {
             var node = NodeFromSource(e.OriginalSource);
+            _expectedSelectId = node == null ? null : ((BinderItem)node.Tag).Id;
             _dragCandidate = node == null ? null : node.Tag as BinderItem;
             if (_dragCandidate != null && _dragCandidate.IsCategory) _dragCandidate = null;
             _dragStart = e.GetPosition(_tree);

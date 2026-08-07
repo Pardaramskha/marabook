@@ -94,7 +94,7 @@ namespace UniversSale.View
                 {
                     _content.Child = new Border
                     {
-                        Background = Chrome.PaperBg,
+                        Background = Chrome.CardBg,
                         BorderBrush = Chrome.Border,
                         BorderThickness = new Thickness(1),
                         CornerRadius = new CornerRadius(6),
@@ -112,7 +112,7 @@ namespace UniversSale.View
                 catch { text = "(contenu illisible)"; }
                 _content.Child = new Border
                 {
-                    Background = Chrome.PaperBg,
+                    Background = Chrome.CardBg,
                     BorderBrush = Chrome.Border,
                     BorderThickness = new Thickness(1),
                     CornerRadius = new CornerRadius(6),
@@ -149,7 +149,7 @@ namespace UniversSale.View
         {
             return new Border
             {
-                Background = Chrome.PaperBg,
+                Background = Chrome.CardBg,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
@@ -183,7 +183,7 @@ namespace UniversSale.View
             {
                 MessageBox.Show(Window.GetWindow(this),
                     "Impossible d'ouvrir le fichier :\n" + error.Message,
-                    "Univers Sale", MessageBoxButton.OK, MessageBoxImage.Error);
+                    "Marabook", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

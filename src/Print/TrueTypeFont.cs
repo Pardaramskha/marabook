@@ -22,6 +22,11 @@ namespace UniversSale.Print
         public double CapHeight;             // font units
         public double ItalicAngle;           // degrees
         public string PostScriptName = "";
+        public int WeightClass = 400;        // OS/2 usWeightClass — the weight
+                                             // the FILE actually carries
+        public bool IsVariable;              // fvar present: one file, many
+                                             // instances (only the default
+                                             // instance's outlines embed)
 
         private int _face;                            // table directory offset
         private Dictionary<string, int[]> _tables;    // tag → { offset, length }
@@ -118,10 +123,14 @@ namespace UniversSale.Print
                 _numGlyphs = U16(Bytes, table[0] + 4);
             if (_tables.TryGetValue("post", out table))
                 ItalicAngle = (int)U32(Bytes, table[0] + 4) / 65536.0;
-            if (_tables.TryGetValue("OS/2", out table)
-                && U16(Bytes, table[0]) >= 2 && table[1] >= 90)
-                CapHeight = S16(Bytes, table[0] + 88);
+            if (_tables.TryGetValue("OS/2", out table))
+            {
+                if (table[1] >= 6) WeightClass = U16(Bytes, table[0] + 4);
+                if (U16(Bytes, table[0]) >= 2 && table[1] >= 90)
+                    CapHeight = S16(Bytes, table[0] + 88);
+            }
             if (CapHeight <= 0) CapHeight = 0.7 * UnitsPerEm;
+            IsVariable = _tables.ContainsKey("fvar");
             PostScriptName = ReadName(6);
         }
 

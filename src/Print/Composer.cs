@@ -31,6 +31,27 @@ namespace UniversSale.Print
         public int SourceStart = -1; // flat offset in the paragraph, -1 = decoration
         public int SourceLength;
         public double[] CharRights;  // cumulative right x, piece-relative, per source char
+
+        // Text decorations, carried through to every renderer (screen, print,
+        // PDF): underline/strike drawn over the text, highlight behind it.
+        public bool Underline, Strike;
+        public Brush Highlight;
+        public double FontSizePx;    // decoration geometry (spaces included)
+
+        /// <summary>Visual advance of the piece (justified, scaled).</summary>
+        public double VisualWidth()
+        {
+            if (IsSpace) return SpaceWidth;
+            if (Glyphs != null)
+            {
+                double width = 0;
+                foreach (var advance in Glyphs.AdvanceWidths) width += advance;
+                return width * ScaleX;
+            }
+            if (Fallback != null)
+                return Fallback.WidthIncludingTrailingWhitespace * ScaleX;
+            return Rect.Width;
+        }
     }
 
     /// <summary>A composed line: pieces, metrics, and the flat range
@@ -53,6 +74,7 @@ namespace UniversSale.Print
         public ParagraphStyle Style;
         public double SpaceBefore, SpaceAfter;
         public bool PageBreakBefore;
+        public bool StartOnRecto; // books: chapter opens on an odd folio
         public int FlatLength;
 
         // Footnote markers of this paragraph: flat offset and global marker
@@ -82,6 +104,20 @@ namespace UniversSale.Print
         public List<int> NoteIndices = new List<int>();
         public List<PlacedLine> NoteLines = new List<PlacedLine>();
         public double NotesRuleY = -1;
+
+        // Widow/orphan corrections taken (or deliberately skipped) on this
+        // page: the margin markers letting the writer toggle each one.
+        public List<WidowMark> WidowMarks = new List<WidowMark>();
+    }
+
+    /// <summary>A widow/orphan decision point: pagination withheld lines here
+    /// (Disabled=false), or would have but the paragraph allows the aberration
+    /// (Disabled=true). Y is page-relative.</summary>
+    public struct WidowMark
+    {
+        public int ParagraphIndex;
+        public double Y;
+        public bool Disabled;
     }
 
     public class Composition
@@ -94,11 +130,53 @@ namespace UniversSale.Print
         /// at the bottom of the page carrying the marker.</summary>
         public List<ComposedParagraphLayout> NoteParagraphs = new List<ComposedParagraphLayout>();
 
+        /// <summary>Folio of page index i = i + 1 + FolioOffset. Documents of
+        /// a book carry the pages of the preceding documents here, so their
+        /// pagination reads as the book's — and the margin mirroring follows
+        /// the real folio parity.</summary>
+        public int FolioOffset;
+
+        /// <summary>Header/footer decor of the document (single docs); pages
+        /// of a compiled book prefer the Decor riding on their paragraphs.</summary>
+        public PageDecor DefaultDecor;
+
+        /// <summary>The source pivot (composed paragraphs match its list 1:1).</summary>
+        public TextDocument Source;
+
+        /// <summary>The decor governing a page: its first paragraph's chapter
+        /// decor (compiled books), else the document's.</summary>
+        public PageDecor DecorOf(int pageIndex)
+        {
+            var page = Pages[pageIndex];
+            if (page.Lines.Count > 0 && Source != null)
+            {
+                var paragraph = page.Lines[0].ParagraphIndex;
+                if (paragraph < Source.Paragraphs.Count
+                    && Source.Paragraphs[paragraph].Decor != null)
+                    return Source.Paragraphs[paragraph].Decor;
+            }
+            return DefaultDecor;
+        }
+
         public double PageWidthPx { get { return Setup.PageWidthMm * PageSetup.PxPerMm; } }
         public double PageHeightPx { get { return Setup.PageHeightMm * PageSetup.PxPerMm; } }
         public double LeftPx { get { return Setup.MarginLeftMm * PageSetup.PxPerMm; } }
         public double TopPx { get { return Setup.MarginTopMm * PageSetup.PxPerMm; } }
         public double BottomPx { get { return Setup.MarginBottomMm * PageSetup.PxPerMm; } }
+
+        public int FolioOf(int pageIndex)
+        {
+            return pageIndex + 1 + FolioOffset;
+        }
+
+        /// <summary>Mirrored margins, spread-style (InDesign) : le petit fond
+        /// (MarginLeft) borde la reliure — à gauche sur les rectos (folios
+        /// impairs), à droite sur les versos.</summary>
+        public double LeftPxFor(int pageIndex)
+        {
+            var mm = FolioOf(pageIndex) % 2 == 1 ? Setup.MarginLeftMm : Setup.MarginRightMm;
+            return mm * PageSetup.PxPerMm;
+        }
     }
 
     /// <summary>The 4b composition engine — the InDesign-style motor behind the
@@ -122,6 +200,13 @@ namespace UniversSale.Print
 
         public Composition Current { get; private set; }
 
+        /// <summary>Pages of the book that precede this document (0 outside a
+        /// book). Applied at ComposeAll.</summary>
+        public int FolioOffset;
+
+        /// <summary>Header/footer decor of the document. Applied at ComposeAll.</summary>
+        public PageDecor DefaultDecor;
+
         public CompositionEngine(TextDocument document, StyleSheet styles,
             PageSetup setup, Project project, bool appendNotes)
         {
@@ -135,7 +220,13 @@ namespace UniversSale.Print
         /// <summary>Full composition of every paragraph plus pagination.</summary>
         public void ComposeAll()
         {
-            Current = new Composition { Setup = _setup };
+            Current = new Composition
+            {
+                Setup = _setup,
+                FolioOffset = FolioOffset,
+                DefaultDecor = DefaultDecor,
+                Source = _document
+            };
             RefreshContexts();
             Current.Paragraphs.Clear();
             for (var i = 0; i < _document.Paragraphs.Count; i++)
@@ -396,8 +487,12 @@ namespace UniversSale.Print
             return info;
         }
 
-        private static double MeasureText(string text, FontInfo font, double size)
+        /// <summary>tracking : approche en millièmes de cadratin, ajoutée à
+        /// l'avance de CHAQUE caractère (unités InDesign).</summary>
+        private static double MeasureText(string text, FontInfo font, double size,
+            double tracking = 0)
         {
+            var extra = size * tracking / 1000.0;
             if (font.Glyphs != null)
             {
                 double width = 0;
@@ -406,13 +501,14 @@ namespace UniversSale.Print
                 {
                     ushort glyph;
                     if (font.Glyphs.CharacterToGlyphMap.TryGetValue(c, out glyph))
-                        width += font.Glyphs.AdvanceWidths[glyph] * size;
+                        width += font.Glyphs.AdvanceWidths[glyph] * size + extra;
                     else { complete = false; break; }
                 }
                 if (complete) return width;
             }
             return new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-                font.Typeface, size, Brushes.Black, 1.0).WidthIncludingTrailingWhitespace;
+                font.Typeface, size, Brushes.Black, 1.0).WidthIncludingTrailingWhitespace
+                + extra * text.Length;
         }
 
         // ============================================================ atoms
@@ -434,6 +530,9 @@ namespace UniversSale.Print
             public bool IsRule;
             public int SourceStart = -1;
             public int SourceLength;
+            public bool Underline, Strike;
+            public Brush Highlight;
+            public double Tracking; // approche (em/1000)
         }
 
         private ComposedParagraphLayout ComposeParagraph(TextParagraph paragraph,
@@ -476,6 +575,7 @@ namespace UniversSale.Print
                 SpaceBefore = style.SpaceBefore,
                 SpaceAfter = style.SpaceAfter,
                 PageBreakBefore = paragraph.PageBreakBefore,
+                StartOnRecto = paragraph.StartOnRecto,
                 FlatLength = PivotEdit.FlatLength(paragraph)
             };
 
@@ -595,7 +695,14 @@ namespace UniversSale.Print
             else if (style.Color != null)
                 ink = new SolidColorBrush(View.FlowConverter.ParseColor(style.Color));
 
-            var spaceWidth = MeasureText(" ", font, size);
+            var underline = run != null && run.Underline == true && !superscript;
+            var strike = run != null && run.Strike == true && !superscript;
+            Brush highlight = run != null && run.Highlight != null
+                ? new SolidColorBrush(View.FlowConverter.ParseColor(run.Highlight))
+                : null;
+            var tracking = run != null && run.Tracking.HasValue ? run.Tracking.Value : 0;
+
+            var spaceWidth = MeasureText(" ", font, size, tracking);
             var start = 0;
             for (var i = 0; i <= text.Length; i++)
             {
@@ -608,14 +715,18 @@ namespace UniversSale.Print
                         atoms.Add(new Atom
                         {
                             Text = word,
-                            Width = MeasureText(word, font, size),
+                            Width = MeasureText(word, font, size, tracking),
                             SpaceWidth = spaceWidth,
                             Font = font,
                             Size = size,
                             Ink = ink,
+                            Tracking = tracking,
                             Superscript = superscript,
                             SourceStart = sourceBase < 0 ? -1 : (superscript ? sourceBase : sourceBase + start),
                             SourceLength = superscript ? 1 : word.Length,
+                            Underline = underline,
+                            Strike = strike,
+                            Highlight = highlight,
                             Breaks = style.HyphenationEnabled && !superscript
                                 ? FrenchHyphenator.BreakPoints(word,
                                     style.HyphenMinWordLength, style.HyphenMinBefore, style.HyphenMinAfter)
@@ -631,6 +742,10 @@ namespace UniversSale.Print
                             Font = font,
                             Size = size,
                             Ink = ink,
+                            Tracking = tracking,
+                            Underline = underline,
+                            Strike = strike,
+                            Highlight = highlight,
                             SourceStart = sourceBase < 0 ? -1 : sourceBase + i,
                             SourceLength = 1
                         });
@@ -714,7 +829,12 @@ namespace UniversSale.Print
                             SpaceWidth = atom.Width,
                             SpaceNatural = atom.Width,
                             SourceStart = atom.SourceStart,
-                            SourceLength = 1
+                            SourceLength = 1,
+                            Ink = atom.Ink,
+                            Underline = atom.Underline,
+                            Strike = atom.Strike,
+                            Highlight = atom.Highlight,
+                            FontSizePx = atom.Size
                         });
                     }
                     else
@@ -738,7 +858,7 @@ namespace UniversSale.Print
                     foreach (var cut in atom.Breaks)
                     {
                         var prefix = atom.Text.Substring(0, cut) + "-";
-                        if (x + MeasureText(prefix, atom.Font, atom.Size) <= avail + 0.05)
+                        if (x + MeasureText(prefix, atom.Font, atom.Size, atom.Tracking) <= avail + 0.05)
                             bestCut = cut;
                     }
                     if (bestCut > 0)
@@ -749,11 +869,15 @@ namespace UniversSale.Print
                         atoms[index] = new Atom
                         {
                             Text = rest,
-                            Width = MeasureText(rest, atom.Font, atom.Size),
+                            Width = MeasureText(rest, atom.Font, atom.Size, atom.Tracking),
                             SpaceWidth = atom.SpaceWidth,
                             Font = atom.Font,
                             Size = atom.Size,
                             Ink = atom.Ink,
+                            Tracking = atom.Tracking,
+                            Underline = atom.Underline,
+                            Strike = atom.Strike,
+                            Highlight = atom.Highlight,
                             SourceStart = atom.SourceStart < 0 ? -1 : atom.SourceStart + bestCut,
                             SourceLength = atom.SourceLength - bestCut,
                             Breaks = FrenchHyphenator.BreakPoints(rest,
@@ -809,17 +933,23 @@ namespace UniversSale.Print
             int sourceLength, double x)
         {
             var y = atom.Superscript ? -atom.Size * 0.35 : 0;
-            var piece = BuildTextPiece(text, atom.Font, atom.Size, atom.Ink, new Point(x, y));
+            var piece = BuildTextPiece(text, atom.Font, atom.Size, atom.Ink,
+                new Point(x, y), atom.Tracking);
             piece.SourceStart = atom.SourceStart;
             piece.SourceLength = atom.SourceStart < 0 ? 0 : sourceLength;
+            piece.Underline = atom.Underline;
+            piece.Strike = atom.Strike;
+            piece.Highlight = atom.Highlight;
+            piece.FontSizePx = atom.Size;
             line.Pieces.Add(piece);
         }
 
         private static ComposedPiece BuildTextPiece(string text, FontInfo font, double size,
-            Brush ink, Point origin)
+            Brush ink, Point origin, double tracking = 0)
         {
             if (font.Glyphs != null)
             {
+                var extra = size * tracking / 1000.0; // approche par caractère
                 var indices = new List<ushort>();
                 var advances = new List<double>();
                 var complete = true;
@@ -829,7 +959,7 @@ namespace UniversSale.Print
                     if (!font.Glyphs.CharacterToGlyphMap.TryGetValue(c, out glyph))
                     { complete = false; break; }
                     indices.Add(glyph);
-                    advances.Add(font.Glyphs.AdvanceWidths[glyph] * size);
+                    advances.Add(font.Glyphs.AdvanceWidths[glyph] * size + extra);
                 }
                 if (complete && indices.Count > 0)
                     return new ComposedPiece
@@ -865,15 +995,7 @@ namespace UniversSale.Print
 
         private static double PieceWidth(ComposedPiece piece)
         {
-            if (piece.Glyphs != null)
-            {
-                double w = 0;
-                foreach (var advance in piece.Glyphs.AdvanceWidths) w += advance;
-                return w * piece.ScaleX;
-            }
-            if (piece.Fallback != null)
-                return piece.Fallback.WidthIncludingTrailingWhitespace * piece.ScaleX;
-            return piece.Rect.Width;
+            return piece.VisualWidth();
         }
 
         private void JustifyLine(ComposedLine line, double avail, string align, ParagraphStyle style)
@@ -1040,6 +1162,14 @@ namespace UniversSale.Print
                 {
                     page = new ComposedPageLayout();
                     pages.Add(page);
+                    // Chapter start of a book: land on a RECTO — an even folio
+                    // gets a blank verso inserted before it.
+                    if (paragraph.StartOnRecto
+                        && (pages.Count + Current.FolioOffset) % 2 == 0)
+                    {
+                        page = new ComposedPageLayout();
+                        pages.Add(page);
+                    }
                     y = top;
                     noteHeight = 0;
                     pageStartIndex = p;
@@ -1119,9 +1249,35 @@ namespace UniversSale.Print
                     var pageEmpty = page.Lines.Count == 0 && y <= top + paragraph.SpaceBefore + 0.5;
                     if (fit < remaining)
                     {
-                        if (remaining - fit == 1 && fit > 1) fit--;
-                        if (fit < 2 && lineIndex == 0 && remaining >= 2 && !pageEmpty) fit = 0;
+                        // Contrôle veuves/orphelines 2/2 — débrayable paragraphe
+                        // par paragraphe (AllowWidows) : la correction saute,
+                        // le marqueur de marge reste (grisé) pour la rétablir.
+                        var allow = p < _document.Paragraphs.Count
+                            && _document.Paragraphs[p].AllowWidows;
+                        var adjusted = false;
+                        if (remaining - fit == 1 && fit > 1)
+                        {
+                            adjusted = true;
+                            if (!allow) fit--;
+                        }
+                        if (fit == 1 && lineIndex == 0 && remaining >= 2 && !pageEmpty)
+                        {
+                            adjusted = true;
+                            if (!allow) fit = 0;
+                        }
                         if (fit <= 0 && pageEmpty) fit = 1;
+                        if (adjusted)
+                        {
+                            double kept = 0;
+                            for (var k = 0; k < fit && lineIndex + k < paragraph.Lines.Count; k++)
+                                kept += paragraph.Lines[lineIndex + k].Height;
+                            page.WidowMarks.Add(new WidowMark
+                            {
+                                ParagraphIndex = p,
+                                Y = Math.Min(y + kept, top + contentHeight - 14),
+                                Disabled = allow
+                            });
+                        }
                     }
                     for (var k = 0; k < fit; k++)
                     {
@@ -1182,6 +1338,11 @@ namespace UniversSale.Print
                 if (PlacedDiffer(before[k].Lines, after[k].Lines)
                     || PlacedDiffer(before[k].NoteLines, after[k].NoteLines)
                     || Math.Abs(before[k].NotesRuleY - after[k].NotesRuleY) > 0.1) return k;
+                if (before[k].WidowMarks.Count != after[k].WidowMarks.Count) return k;
+                for (var i = 0; i < before[k].WidowMarks.Count; i++)
+                    if (before[k].WidowMarks[i].Disabled != after[k].WidowMarks[i].Disabled
+                        || Math.Abs(before[k].WidowMarks[i].Y - after[k].WidowMarks[i].Y) > 0.1)
+                        return k;
             }
             return before.Count == after.Count ? int.MaxValue : common;
         }

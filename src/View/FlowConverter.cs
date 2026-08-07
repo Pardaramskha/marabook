@@ -10,7 +10,7 @@ namespace UniversSale.View
     /// <summary>Bridge between the pivot model and WPF FlowDocument. The pivot
     /// is the source of truth; the FlowDocument only exists while editing.
     /// Paragraphs carry their style id in Tag; footnote markers carry
-    /// "fn:&lt;id&gt;" in Tag. "Automatic" color is the mutable Chrome.Ink brush,
+    /// "fn:&lt;id&gt;" in Tag. "Automatic" color is the mutable Chrome.PaperInk brush,
     /// so documents recolor instantly on theme switch.</summary>
     public static class FlowConverter
     {
@@ -150,7 +150,7 @@ namespace UniversSale.View
                 Child = new System.Windows.Controls.TextBlock
                 {
                     Text = "[image introuvable]",
-                    Foreground = Chrome.SoftText
+                    Foreground = Chrome.PaperSoftInk
                 }
             };
         }
@@ -197,7 +197,7 @@ namespace UniversSale.View
             paragraph.FontWeight = style.Bold ? FontWeights.Bold : FontWeights.Normal;
             paragraph.FontStyle = style.Italic ? FontStyles.Italic : FontStyles.Normal;
             paragraph.Foreground = style.Color != null
-                ? new SolidColorBrush(ParseColor(style.Color)) : (Brush)Chrome.Ink;
+                ? new SolidColorBrush(ParseColor(style.Color)) : (Brush)Chrome.PaperInk;
             paragraph.TextAlignment = ParseAlign(style.Align);
             paragraph.Margin = new Thickness(style.LeftIndent, style.SpaceBefore,
                 style.RightIndent, style.SpaceAfter);
@@ -275,6 +275,9 @@ namespace UniversSale.View
             if (run.FontSize.HasValue) wpfRun.FontSize = run.FontSize.Value;
             if (run.Color != null) wpfRun.Foreground = new SolidColorBrush(ParseColor(run.Color));
             if (run.Highlight != null) wpfRun.Background = new SolidColorBrush(ParseColor(run.Highlight));
+            // L'approche n'a pas d'équivalent FlowDocument : elle voyage sur
+            // le Tag du Run pour survivre à l'aller-retour classique.
+            if (run.Tracking.HasValue) wpfRun.Tag = run.Tracking.Value;
             return wpfRun;
         }
 
@@ -488,6 +491,7 @@ namespace UniversSale.View
         private static TextRun ReadRun(Run wpfRun, ParagraphStyle style)
         {
             var run = new TextRun { Text = wpfRun.Text };
+            if (wpfRun.Tag is double) run.Tracking = (double)wpfRun.Tag; // approche
 
             var weightName = WeightName(wpfRun.FontWeight);
             if (weightName != null)
@@ -521,11 +525,11 @@ namespace UniversSale.View
 
         private static string ReadColorOverride(Brush foreground, ParagraphStyle style)
         {
-            if (ReferenceEquals(foreground, Chrome.Ink)) // automatic: no override
+            if (ReferenceEquals(foreground, Chrome.PaperInk)) // automatic: no override
                 return null;
             var brush = foreground as SolidColorBrush;
             if (brush == null) return null;
-            if (brush.Color == Chrome.Ink.Color && style.Color == null) return null;
+            if (brush.Color == Chrome.PaperInk.Color && style.Color == null) return null;
             if (style.Color != null && brush.Color == ParseColor(style.Color)) return null;
             return ColorToHex(brush.Color);
         }

@@ -1,10 +1,10 @@
 @echo off
-rem Univers Sale build. Requires only the .NET Framework 4.8 (included in Windows 10/11).
+rem Marabook build. Requires only the .NET Framework 4.8 (included in Windows 10/11).
 rem No System.Web.Extensions: JSON is handled by the in-tree Json.cs (see benchmark note there).
 setlocal
 set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
 
-"%FW%\csc.exe" /nologo /target:winexe /out:UniversSale.exe /optimize+ /codepage:65001 ^
+"%FW%\csc.exe" /nologo /target:winexe /out:Marabook.exe /optimize+ /codepage:65001 ^
   /win32icon:tools\app.ico ^
   /lib:"%FW%\WPF" ^
   /r:PresentationFramework.dll /r:PresentationCore.dll /r:WindowsBase.dll /r:System.Xaml.dll ^
@@ -17,4 +17,4 @@ if errorlevel 1 (
   echo *** Build failed ***
   exit /b 1
 )
-echo Build OK: UniversSale.exe
+echo Build OK: Marabook.exe

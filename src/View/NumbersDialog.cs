@@ -23,26 +23,24 @@ namespace UniversSale.View
             ShowInTaskbar = false;
             Background = Chrome.WindowBg;
 
-            var panel = new StackPanel { Margin = new Thickness(16), MinWidth = 240 };
+            // Label ABOVE its field: the PAO margin names (« Petit fond (côté
+            // reliure) »…) are long — side-by-side they overlapped the boxes.
+            var panel = new StackPanel { Margin = new Thickness(16), MinWidth = 280 };
             _boxes = new TextBox[labels.Length];
             for (var i = 0; i < labels.Length; i++)
             {
-                var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
-                var caption = new TextBlock
+                panel.Children.Add(new TextBlock
                 {
                     Text = labels[i],
-                    Width = 90,
                     Foreground = Chrome.SoftText,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                DockPanel.SetDock(caption, Dock.Left);
-                row.Children.Add(caption);
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, i == 0 ? 0 : 6, 0, 2)
+                });
                 _boxes[i] = new TextBox
                 {
                     Text = initial[i].ToString("0.##", CultureInfo.CurrentCulture)
                 };
-                row.Children.Add(_boxes[i]);
-                panel.Children.Add(row);
+                panel.Children.Add(_boxes[i]);
             }
 
             var buttons = new StackPanel
