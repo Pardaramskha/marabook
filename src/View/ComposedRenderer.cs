@@ -47,7 +47,7 @@ namespace UniversSale.View
 
             foreach (var placed in page.Lines)
                 DrawLine(dc, composition.Paragraphs[placed.ParagraphIndex].Lines[placed.LineIndex],
-                    left, placed.Y);
+                    left, placed.Y, screenExtras);
 
             // Bottom-of-page footnotes: separator rule, then the note lines.
             if (page.NoteLines.Count > 0)
@@ -58,7 +58,7 @@ namespace UniversSale.View
                         Math.Min(160, Math.Max(40, contentWidth / 3)), 0.8));
                 foreach (var placed in page.NoteLines)
                     DrawLine(dc, composition.NoteParagraphs[placed.ParagraphIndex].Lines[placed.LineIndex],
-                        left, placed.Y);
+                        left, placed.Y, screenExtras);
             }
 
             if (setup.LineNumbers)
@@ -97,14 +97,15 @@ namespace UniversSale.View
                 if (decor != null && decor.HeaderHideFirst && firstOfDoc) header = null;
                 var footerHidden = decor != null && decor.FooterHideFirst && firstOfDoc;
                 var title = decor == null ? "" : decor.Title;
+                var book = decor == null ? "" : decor.BookTitle;
                 if (header != null && !header.IsEmpty)
-                    DrawDecor(dc, header, composition, index, title, left, contentWidth,
+                    DrawDecor(dc, header, composition, index, title, book, left, contentWidth,
                         true, top, height, bottom, setup,
                         decor == null ? 0 : decor.HeaderGapMm);
                 if (footer != null && !footer.IsEmpty)
                 {
                     if (!footerHidden)
-                        DrawDecor(dc, footer, composition, index, title, left, contentWidth,
+                        DrawDecor(dc, footer, composition, index, title, book, left, contentWidth,
                             false, top, height, bottom, setup,
                             decor == null ? 0 : decor.FooterGapMm);
                 }
@@ -144,9 +145,9 @@ namespace UniversSale.View
         /// text column. Rich zones (gabarits marqués au texte) rendent leurs
         /// runs stylés ; gapMm écarte du bloc de texte (0 = centré marge).</summary>
         private static void DrawDecor(DrawingContext dc, UniversSale.Model.HeaderFooter decor,
-            Composition composition, int index, string title, double left, double contentWidth,
-            bool isHeader, double top, double height, double bottom, PageSetup setup,
-            double gapMm)
+            Composition composition, int index, string title, string book, double left,
+            double contentWidth, bool isHeader, double top, double height, double bottom,
+            PageSetup setup, double gapMm)
         {
             var folio = composition.FolioOf(index);
             var pages = composition.Pages.Count + composition.FolioOffset;
@@ -158,7 +159,7 @@ namespace UniversSale.View
                 foreach (var run in decor.Rich.Runs)
                 {
                     var text = new UniversSale.Model.HeaderFooter { Text = run.Text }
-                        .Expand(folio, pages, title);
+                        .Expand(folio, pages, title, book);
                     if (text.Length == 0) continue;
                     var typeface = new Typeface(
                         new FontFamily(run.FontFamily ?? setup.FooterFont ?? "Times New Roman"),
@@ -177,7 +178,7 @@ namespace UniversSale.View
             }
             else
             {
-                var text = decor.Expand(folio, pages, title);
+                var text = decor.Expand(folio, pages, title, book);
                 if (text.Trim().Length == 0) return;
                 var typeface = new Typeface(
                     new FontFamily(decor.FontFamily ?? setup.FooterFont ?? "Times New Roman"),
@@ -201,11 +202,14 @@ namespace UniversSale.View
             var x = align == "left" ? left
                   : align == "right" ? left + contentWidth - totalWidth
                   : left + (contentWidth - totalWidth) / 2;
+            // Écart signé : positif = vers le bord de page, négatif = DANS le
+            // bloc de texte (rapprocher/faire chevaucher) ; 0 pile = centré
+            // dans la marge (comportement historique).
             var gap = gapMm * PageSetup.PxPerMm;
             var y = isHeader
-                ? (gap > 0.01 ? Math.Max(2, top - gap - maxHeight)
+                ? (Math.Abs(gap) > 0.01 ? Math.Max(2, top - gap - maxHeight)
                               : Math.Max(2, top / 2 - maxHeight / 2))
-                : (gap > 0.01 ? Math.Min(height - maxHeight - 2, height - bottom + gap)
+                : (Math.Abs(gap) > 0.01 ? Math.Min(height - maxHeight - 2, height - bottom + gap)
                               : height - bottom / 2 - maxHeight / 2);
             foreach (var piece in pieces)
             {
@@ -215,16 +219,25 @@ namespace UniversSale.View
             }
         }
 
+        private static bool IsTranslucent(Brush brush)
+        {
+            var solid = brush as SolidColorBrush;
+            return solid != null && solid.Color.A < 0xFF;
+        }
+
         /// <summary>One composed line (body or footnote), pieces drawn through
         /// translations at page position <paramref name="top"/>.</summary>
-        private static void DrawLine(DrawingContext dc, ComposedLine line, double left, double top)
+        private static void DrawLine(DrawingContext dc, ComposedLine line, double left, double top,
+            bool screenExtras = true)
         {
             var baseline = top + line.Ascent;
 
-            // Pass 1 — highlights, behind everything (spaces included).
+            // Pass 1 — highlights, behind everything (spaces included). Les
+            // teintes d'annotation (semi-transparentes) sont écran seulement.
             foreach (var piece in line.Pieces)
             {
                 if (piece.Highlight == null) continue;
+                if (!screenExtras && IsTranslucent(piece.Highlight)) continue;
                 var w = piece.VisualWidth();
                 if (w < 0.1) continue;
                 var size = piece.FontSizePx > 0 ? piece.FontSizePx : 16;

@@ -17,7 +17,8 @@ namespace UniversSale.Exchange
         public static void Export(TextDocument document, StyleSheet styles, string path,
             Project project = null)
         {
-            var flow = FlowConverter.ToFlow(document, styles, project);
+            var flow = FlowConverter.ToFlow(document, styles, project,
+                revisionTints: false); // le RTF exporté reste vierge d'annotations
             var range = new TextRange(flow.ContentStart, flow.ContentEnd);
             using (var stream = new FileStream(path, FileMode.Create))
                 range.Save(stream, System.Windows.DataFormats.Rtf);

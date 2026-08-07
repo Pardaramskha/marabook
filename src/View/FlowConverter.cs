@@ -17,7 +17,7 @@ namespace UniversSale.View
         // ------------------------------------------------------- pivot -> flow
 
         public static FlowDocument ToFlow(TextDocument document, StyleSheet styles,
-            Project project = null)
+            Project project = null, bool revisionTints = true)
         {
             var flow = new FlowDocument
             {
@@ -62,6 +62,12 @@ namespace UniversSale.View
                         continue;
                     }
                     // [[wiki links]] become accent-colored, Ctrl+clickable runs.
+                    // Une annotation ACTIVE teinte son passage (cosmétique,
+                    // jamais persistée comme surlignage — voir ReadRun).
+                    var annotation = run.AnnotationId == null
+                        ? null : document.FindAnnotation(run.AnnotationId);
+                    var tinted = revisionTints && annotation != null
+                        && !annotation.Resolved && run.Highlight == null;
                     var text = run.Text;
                     var cursor = 0;
                     while (cursor < text.Length)
@@ -70,12 +76,12 @@ namespace UniversSale.View
                         var close = open < 0 ? -1 : text.IndexOf("]]", open + 2, StringComparison.Ordinal);
                         if (open < 0 || close < 0)
                         {
-                            wpfParagraph.Inlines.Add(MakeRun(SliceRun(run, text.Substring(cursor))));
+                            wpfParagraph.Inlines.Add(MakeRun(SliceRun(run, text.Substring(cursor)), tinted));
                             break;
                         }
                         if (open > cursor)
-                            wpfParagraph.Inlines.Add(MakeRun(SliceRun(run, text.Substring(cursor, open - cursor))));
-                        var linkRun = MakeRun(SliceRun(run, text.Substring(open, close + 2 - open)));
+                            wpfParagraph.Inlines.Add(MakeRun(SliceRun(run, text.Substring(cursor, open - cursor)), tinted));
+                        var linkRun = MakeRun(SliceRun(run, text.Substring(open, close + 2 - open)), tinted);
                         linkRun.Tag = "wikilink";
                         linkRun.Foreground = Chrome.Accent;
                         linkRun.Cursor = System.Windows.Input.Cursors.Hand;
@@ -226,10 +232,13 @@ namespace UniversSale.View
                 Italic = source.Italic,
                 Underline = source.Underline,
                 Strike = source.Strike,
+                Weight = source.Weight,
+                Tracking = source.Tracking,
                 FontFamily = source.FontFamily,
                 FontSize = source.FontSize,
                 Color = source.Color,
-                Highlight = source.Highlight
+                Highlight = source.Highlight,
+                AnnotationId = source.AnnotationId
             };
         }
 
@@ -259,7 +268,7 @@ namespace UniversSale.View
             return null; // Normal/Bold travel through the Bold flag
         }
 
-        private static Run MakeRun(TextRun run)
+        private static Run MakeRun(TextRun run, bool annotationTint = false)
         {
             var wpfRun = new Run(run.Text);
             if (run.Weight != null)
@@ -275,9 +284,16 @@ namespace UniversSale.View
             if (run.FontSize.HasValue) wpfRun.FontSize = run.FontSize.Value;
             if (run.Color != null) wpfRun.Foreground = new SolidColorBrush(ParseColor(run.Color));
             if (run.Highlight != null) wpfRun.Background = new SolidColorBrush(ParseColor(run.Highlight));
+            if (annotationTint) wpfRun.Background = Chrome.AnnotationTint;
             // L'approche n'a pas d'équivalent FlowDocument : elle voyage sur
-            // le Tag du Run pour survivre à l'aller-retour classique.
-            if (run.Tracking.HasValue) wpfRun.Tag = run.Tracking.Value;
+            // le Tag du Run pour survivre à l'aller-retour classique — combinée
+            // à l'ancre d'annotation quand les deux cohabitent.
+            if (run.AnnotationId != null)
+                wpfRun.Tag = "ann:" + run.AnnotationId + (run.Tracking.HasValue
+                    ? ";trk=" + run.Tracking.Value.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture)
+                    : "");
+            else if (run.Tracking.HasValue) wpfRun.Tag = run.Tracking.Value;
             return wpfRun;
         }
 
@@ -448,6 +464,22 @@ namespace UniversSale.View
                     // and hand cursor are cosmetic, never stored as overrides.
                     if (tag == "wikilink" && run.Color == ColorToHex(Chrome.Accent.Color))
                         run.Color = null;
+                    // Ancre d'annotation (éventuellement combinée à l'approche).
+                    if (tag != null && tag.StartsWith("ann:"))
+                    {
+                        var spec = tag.Substring(4);
+                        var semi = spec.IndexOf(";trk=", StringComparison.Ordinal);
+                        if (semi >= 0)
+                        {
+                            double tracking;
+                            if (double.TryParse(spec.Substring(semi + 5),
+                                System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out tracking))
+                                run.Tracking = tracking;
+                            spec = spec.Substring(0, semi);
+                        }
+                        if (spec.Length > 0) run.AnnotationId = spec;
+                    }
                     var last = paragraph.Runs.Count > 0 ? paragraph.Runs[paragraph.Runs.Count - 1] : null;
                     if (last != null && last.HasSameFormat(run))
                         last.Text += run.Text; // merge to keep files compact after heavy editing
@@ -516,8 +548,10 @@ namespace UniversSale.View
             if (Math.Abs(wpfRun.FontSize - style.FontSize) > 0.1) run.FontSize = wpfRun.FontSize;
 
             run.Color = ReadColorOverride(wpfRun.Foreground, style);
+            // Les surlignages persistés sont opaques ; la teinte d'annotation
+            // (semi-transparente, cosmétique) ne doit jamais en devenir un.
             var background = wpfRun.Background as SolidColorBrush;
-            if (background != null && background.Color.A > 0)
+            if (background != null && background.Color.A == 0xFF)
                 run.Highlight = ColorToHex(background.Color);
 
             return run;

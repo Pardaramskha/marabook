@@ -700,6 +700,15 @@ namespace UniversSale.Print
             Brush highlight = run != null && run.Highlight != null
                 ? new SolidColorBrush(View.FlowConverter.ParseColor(run.Highlight))
                 : null;
+            // Passage annoté (révision) : teinte semi-transparente, filtrée par
+            // les rendus papier (aperçu, impression, PDF) sur son alpha.
+            if (highlight == null && run != null && run.AnnotationId != null)
+            {
+                var annotation = _document == null ? null
+                    : _document.FindAnnotation(run.AnnotationId);
+                if (annotation != null && !annotation.Resolved)
+                    highlight = View.Chrome.AnnotationTint;
+            }
             var tracking = run != null && run.Tracking.HasValue ? run.Tracking.Value : 0;
 
             var spaceWidth = MeasureText(" ", font, size, tracking);

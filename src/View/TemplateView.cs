@@ -117,7 +117,8 @@ namespace UniversSale.View
                 Margin = new Thickness(12, 4, 0, 4),
                 Text = "{page} le folio de la page (le numéro de page dans le livre)\n"
                     + "{pages} le nombre total de pages\n"
-                    + "{titre} le titre du document auquel le gabarit est appliqué"
+                    + "{titre} le titre du document auquel le gabarit est appliqué\n"
+                    + "{livre} le titre du livre"
             };
             return new Expander
             {
@@ -166,21 +167,27 @@ namespace UniversSale.View
             }
 
             // Écarts au bloc de texte (mm), champs à la Adobe (▲▼ + valeur).
+            // Signés : négatif = rapprocher jusqu'à mordre dans le bloc de
+            // texte ; 0 pile = centré dans la marge (comportement historique).
             row.Children.Add(Label("   En-tête ↔ corps (mm) :"));
-            var headerGap = new SpinnerField(_item.HeaderGapMm, 0, 30, 1,
-                "Distance entre l'en-tête et le bloc de texte (0 = centré dans la marge)");
+            var headerGap = new SpinnerField(_item.HeaderGapMm, -30, 30, 1,
+                "Distance entre l'en-tête et le bloc de texte\n"
+                + "(négatif = dans le bloc, 0 = centré dans la marge)");
             headerGap.ValueChanged += delegate(double value)
             {
                 _item.HeaderGapMm = value;
+                Rebuild(); // la maquette reflète l'écart
                 RaiseChanged();
             };
             row.Children.Add(headerGap);
             row.Children.Add(Label("   Pied ↔ corps (mm) :"));
-            var footerGap = new SpinnerField(_item.FooterGapMm, 0, 30, 1,
-                "Distance entre le pied de page et le bloc de texte (0 = centré dans la marge)");
+            var footerGap = new SpinnerField(_item.FooterGapMm, -30, 30, 1,
+                "Distance entre le pied de page et le bloc de texte\n"
+                + "(négatif = dans le bloc, 0 = centré dans la marge)");
             footerGap.ValueChanged += delegate(double value)
             {
                 _item.FooterGapMm = value;
+                Rebuild(); // la maquette reflète l'écart
                 RaiseChanged();
             };
             row.Children.Add(footerGap);
@@ -279,6 +286,7 @@ namespace UniversSale.View
             variables.Items.Add("{page}");
             variables.Items.Add("{pages}");
             variables.Items.Add("{titre}");
+            variables.Items.Add("{livre}");
             variables.SelectionChanged += delegate
             {
                 if (_focusedZone == null || variables.SelectedItem == null) return;
@@ -360,8 +368,8 @@ namespace UniversSale.View
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             });
-            grid.Children.Add(BuildZone(recto, true, Math.Max(26, top - 2), left, right));
-            grid.Children.Add(BuildZone(recto, false, Math.Max(26, bottom - 2), left, right));
+            grid.Children.Add(BuildZone(recto, true, top, left, right, scale));
+            grid.Children.Add(BuildZone(recto, false, bottom, left, right, scale));
 
             return new Border
             {
@@ -373,18 +381,33 @@ namespace UniversSale.View
             };
         }
 
-        /// <summary>One editable rich zone, marked with the format bar tools.</summary>
-        private UIElement BuildZone(bool recto, bool isHeader, double band,
-            double left, double right)
+        /// <summary>One editable rich zone, marked with the format bar tools.
+        /// Placée là où le rendu la posera : à l'écart réglé du bloc de texte
+        /// (négatif = dans le bloc), 0 = centrée dans la marge — changer
+        /// l'écart se JUGE sur la maquette.</summary>
+        private UIElement BuildZone(bool recto, bool isHeader, double marginPx,
+            double left, double right, double scale)
         {
             var hf = ZoneOf(recto, isHeader);
             var setup = _project == null ? new PageSetup()
                 : (_book != null && _book.Book != null ? _book.Book.Template : _project.Page);
+            const double zoneH = 26;
+            var gap = (isHeader ? _item.HeaderGapMm : _item.FooterGapMm)
+                * PageSetup.PxPerMm * scale;
+            // Distance du bord de page au bord extérieur de la zone — la même
+            // règle que ComposedRenderer.DrawDecor (header et footer sont
+            // symétriques une fois exprimés depuis leur bord).
+            var edgeOffset = Math.Abs(gap) > 0.01
+                ? marginPx - gap - zoneH
+                : marginPx / 2 - zoneH / 2;
+            edgeOffset = Math.Max(1, edgeOffset);
             var zone = new RichTextBox
             {
-                Height = band,
+                Height = zoneH,
                 VerticalAlignment = isHeader ? VerticalAlignment.Top : VerticalAlignment.Bottom,
-                Margin = new Thickness(left, isHeader ? 2 : 0, right, isHeader ? 0 : 2),
+                Margin = isHeader
+                    ? new Thickness(left, edgeOffset, right, 0)
+                    : new Thickness(left, 0, right, edgeOffset),
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(0.6),
                 Background = Brushes.Transparent,
@@ -464,10 +487,16 @@ namespace UniversSale.View
                 if (existing != null) { SetZone(recto, isHeader, null); RaiseChanged(); }
                 return;
             }
+            // Ne signaler que les VRAIS changements : la perte de focus commite
+            // toujours, et un Changed gratuit reconstruisait la Pile en plein
+            // clic (le nœud visé disparaissait sous la souris).
+            var before = existing == null ? null
+                : Json.Write(Persistence.GabaritFile.BuildHeaderFooter(existing));
             var hf = existing ?? new HeaderFooter();
             hf.Rich = paragraph;
             SetZone(recto, isHeader, hf);
-            RaiseChanged();
+            var after = Json.Write(Persistence.GabaritFile.BuildHeaderFooter(hf));
+            if (before != after) RaiseChanged();
         }
 
         /// <summary>A format action touched a zone: schedule its commit.</summary>

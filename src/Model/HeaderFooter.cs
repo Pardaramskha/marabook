@@ -59,12 +59,13 @@ namespace UniversSale.Model
             return copy;
         }
 
-        public string Expand(int folio, int pages, string title)
+        public string Expand(int folio, int pages, string title, string book)
         {
             return (Text ?? "")
                 .Replace("{page}", folio.ToString())
                 .Replace("{pages}", pages.ToString())
-                .Replace("{titre}", title ?? "");
+                .Replace("{titre}", title ?? "")
+                .Replace("{livre}", book ?? "");
         }
     }
 
@@ -75,6 +76,7 @@ namespace UniversSale.Model
     {
         public HeaderFooter HeaderRecto, HeaderVerso, FooterRecto, FooterVerso;
         public string Title = "";
+        public string BookTitle = ""; // jeton {livre} — titre du livre ancêtre
 
         // Réglages du gabarit : espace en-tête/pied ↔ bloc de texte (mm,
         // 0 = centré dans la marge, comportement historique) et masquage sur
@@ -91,6 +93,8 @@ namespace UniversSale.Model
         public static PageDecor For(BinderItem item, Project project)
         {
             var decor = new PageDecor { Title = item.Title, SuppressFolio = item.IsExtraPage };
+            for (var ancestor = item.Parent; ancestor != null; ancestor = ancestor.Parent)
+                if (ancestor.Kind == ItemKind.Book) { decor.BookTitle = ancestor.Title; break; }
             BinderItem gabarit = null;
             // Pages extra : pas de folio ni de titre courant par défaut — le
             // gabarit (porteur des {page}) est ignoré ; seul un en-tête/pied

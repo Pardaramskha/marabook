@@ -33,6 +33,12 @@ namespace UniversSale.View
         // writing paper is forced white — they are chrome, not manuscript.
         public static readonly SolidColorBrush CardBg = Brush(0xFF, 0xFF, 0xFF);
 
+        // Teinte des passages annotés (révision) : or semi-transparent, lisible
+        // sur papier blanc comme sombre. Cosmétique — jamais persistée, jamais
+        // imprimée (les surlignages réels sont opaques, elle non).
+        public static readonly SolidColorBrush AnnotationTint =
+            BrushAlpha(0x55, 0xF1, 0xC4, 0x0F);
+
         public const string DefaultAccent = "#5B67D8";
 
         public static void Toggle(bool dark)

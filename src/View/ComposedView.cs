@@ -1298,6 +1298,99 @@ namespace UniversSale.View
             ApplyToSelection(delegate(TextRun run) { run.Highlight = hex; });
         }
 
+        // ============================================================= révision
+
+        /// <summary>Ancre une annotation sur la sélection (faux sans sélection).</summary>
+        public bool AnnotateSelection(string id)
+        {
+            if (!HasSelection()) return false;
+            ApplyToSelection(delegate(TextRun run) { run.AnnotationId = id; });
+            return true;
+        }
+
+        /// <summary>L'annotation portée par le caret (le run sous lui, sinon
+        /// celui juste avant — règle du traitement de texte), ou null.</summary>
+        public string AnnotationAtCaret()
+        {
+            if (_item == null || _caretParagraph >= _item.Document.Paragraphs.Count) return null;
+            var paragraph = _item.Document.Paragraphs[_caretParagraph];
+            int runIndex, inner;
+            PivotEdit.Locate(paragraph, _caretOffset, out runIndex, out inner);
+            if (runIndex < paragraph.Runs.Count && paragraph.Runs[runIndex].AnnotationId != null)
+                return paragraph.Runs[runIndex].AnnotationId;
+            if (inner == 0 && _caretOffset > 0)
+            {
+                PivotEdit.Locate(paragraph, _caretOffset - 1, out runIndex, out inner);
+                if (runIndex < paragraph.Runs.Count)
+                    return paragraph.Runs[runIndex].AnnotationId;
+            }
+            return null;
+        }
+
+        /// <summary>Sélectionne le passage d'une annotation et l'amène à
+        /// l'écran. Faux si l'ancre a disparu.</summary>
+        public bool GoToAnnotation(string id)
+        {
+            if (_item == null) return false;
+            for (var p = 0; p < _item.Document.Paragraphs.Count; p++)
+            {
+                var paragraph = _item.Document.Paragraphs[p];
+                var cursor = 0;
+                var start = -1;
+                var end = -1;
+                foreach (var run in paragraph.Runs)
+                {
+                    var length = PivotEdit.IsElement(run) ? 1 : run.Text.Length;
+                    if (run.AnnotationId == id)
+                    {
+                        if (start < 0) start = cursor;
+                        end = cursor + length;
+                    }
+                    cursor += length;
+                }
+                if (start < 0) continue;
+                _anchorParagraph = p;
+                _anchorOffset = start;
+                _caretParagraph = p;
+                _caretOffset = end;
+                _caretDesiredX = -1;
+                UpdateCaretVisual();
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Efface l'ancre d'une annotation dans tout le document
+        /// (suppression de l'annotation) et recompose les paragraphes touchés.</summary>
+        public void ClearAnnotation(string id)
+        {
+            if (_item == null) return;
+            PushUndo(false);
+            for (var p = 0; p < _item.Document.Paragraphs.Count; p++)
+            {
+                var touched = false;
+                foreach (var run in _item.Document.Paragraphs[p].Runs)
+                    if (run.AnnotationId == id) { run.AnnotationId = null; touched = true; }
+                if (touched) _engine.RecomposeParagraph(p);
+            }
+            AfterEdit(0);
+        }
+
+        /// <summary>Recompose les paragraphes porteurs d'une annotation (la
+        /// teinte suit l'état résolu/actif).</summary>
+        public void RefreshAnnotation(string id)
+        {
+            if (_item == null || _engine == null) return;
+            for (var p = 0; p < _item.Document.Paragraphs.Count; p++)
+                foreach (var run in _item.Document.Paragraphs[p].Runs)
+                    if (run.AnnotationId == id)
+                    {
+                        _engine.RecomposeParagraph(p);
+                        break;
+                    }
+            AfterEdit(0);
+        }
+
         public void ApplyStyle(string styleId)
         {
             PushUndo(false);

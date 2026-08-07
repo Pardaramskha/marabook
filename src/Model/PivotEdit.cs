@@ -63,10 +63,12 @@ namespace UniversSale.Model
                 Italic = source.Italic,
                 Underline = source.Underline,
                 Strike = source.Strike,
+                Tracking = source.Tracking,
                 FontFamily = source.FontFamily,
                 FontSize = source.FontSize,
                 Color = source.Color,
-                Highlight = source.Highlight
+                Highlight = source.Highlight,
+                AnnotationId = source.AnnotationId
             };
         }
 

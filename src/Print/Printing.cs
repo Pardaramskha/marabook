@@ -27,7 +27,8 @@ namespace UniversSale.Print
         public static FlowDocument BuildFlow(TextDocument document, StyleSheet styles,
             Project project, PageSetup setup = null)
         {
-            var flow = FlowConverter.ToFlow(document, styles, project);
+            var flow = FlowConverter.ToFlow(document, styles, project,
+                revisionTints: false); // les annotations ne s'impriment jamais
             if (setup == null) setup = project.Page;
             flow.PageWidth = setup.PageWidthMm * PageSetup.PxPerMm;
             flow.PageHeight = setup.PageHeightMm * PageSetup.PxPerMm;

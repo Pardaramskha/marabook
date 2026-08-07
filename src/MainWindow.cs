@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.19.0-alpha";
+        public const string AppVersion = "0.20.0-alpha";
 
         private Project _project;
         private string _path;
@@ -40,7 +40,11 @@ namespace UniversSale
         private bool _navigating; // garde anti-sélection-fantôme (voir OnBinderSelection)
         private MediaView _mediaView;
         private JournalView _journalView;
+        private bool _journalOpen; // le journal masque l'inspecteur
         private Grid _centerHost; // hôte du toast de célébration
+        private UIElement _menuBar, _statusBar;
+        private Border _calmExit;  // bouton flottant de sortie du mode calme
+        private bool _calmMode;
         private TextBlock _placeholder;
         private BinderItem _current;
 
@@ -77,10 +81,20 @@ namespace UniversSale
             Foreground = Chrome.Ink;
 
             var root = new DockPanel();
-            root.Children.Add(BuildMenuBar());
-            root.Children.Add(BuildStatusBar());
+            _menuBar = BuildMenuBar();
+            _statusBar = BuildStatusBar();
+            root.Children.Add(_menuBar);
+            root.Children.Add(_statusBar);
             root.Children.Add(BuildContent());
             Content = root;
+            _editor.CalmRequested += ToggleCalmMode;
+            _sheetView.CalmRequested += ToggleCalmMode;
+            KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                // Échap quitte le mode calme — en bulle, pour laisser la barre
+                // de recherche de l'éditeur consommer son propre Échap.
+                if (_calmMode && e.Key == Key.Escape) { SetCalmMode(false); e.Handled = true; }
+            };
             ApplyZoom(AppSettings.Zoom);
             _editor.SetFormattingMarks(AppSettings.ShowFormattingMarks);
             _sheetView.SetFormattingMarks(AppSettings.ShowFormattingMarks);
@@ -349,7 +363,15 @@ namespace UniversSale
             center.Children.Add(_bookView);
 
             _templateView = new View.TemplateView { Visibility = Visibility.Collapsed };
-            _templateView.Changed += delegate { MarkDirty(); _binder.Rebuild(); };
+            _templateView.Changed += delegate
+            {
+                MarkDirty();
+                // Différé : le Changed peut arriver au beau milieu d'un clic
+                // dans la Pile (perte de focus d'une zone → commit) — rebâtir
+                // l'arbre à cet instant détruit le nœud cliqué sous la souris.
+                Dispatcher.BeginInvoke(new Action(delegate { _binder.Rebuild(); }),
+                    DispatcherPriority.Background);
+            };
             center.Children.Add(_templateView);
 
             _mediaView = new MediaView { Visibility = Visibility.Collapsed };
@@ -358,6 +380,45 @@ namespace UniversSale
             _journalView = new JournalView { Visibility = Visibility.Collapsed };
             _journalView.Changed += delegate { MarkDirty(); CheckDailyGoal(); };
             center.Children.Add(_journalView);
+
+            // Sortie du mode calme : une pastille discrète en haut à droite des
+            // pages — s'affirme au survol.
+            var calmLabel = new StackPanel { Orientation = Orientation.Horizontal };
+            calmLabel.Children.Add(new TextBlock
+            {
+                Text = "✕",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 6, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            calmLabel.Children.Add(new TextBlock
+            {
+                Text = "Mode calme",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            _calmExit = new Border
+            {
+                Background = Chrome.BarBg,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(12),
+                Padding = new Thickness(10, 4, 10, 4),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 10, 24, 0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Opacity = 0.45,
+                Visibility = Visibility.Collapsed,
+                ToolTip = "Quitter le mode calme (Échap)",
+                Child = calmLabel
+            };
+            _calmExit.MouseEnter += delegate { _calmExit.Opacity = 1.0; };
+            _calmExit.MouseLeave += delegate { _calmExit.Opacity = 0.45; };
+            _calmExit.MouseLeftButtonUp += delegate { SetCalmMode(false); };
+            center.Children.Add(_calmExit);
 
             _centerHost = center;
             Grid.SetColumn(center, 2);
@@ -838,6 +899,11 @@ namespace UniversSale
             _templateView.Clear();
             _mediaView.Visibility = Visibility.Collapsed;
             _journalView.Visibility = Visibility.Collapsed;
+            if (_journalOpen)
+            {
+                _journalOpen = false;
+                ApplyPanelVisibility(); // l'inspecteur revient en quittant le journal
+            }
             _placeholder.Visibility = Visibility.Collapsed;
             if (item == null || item.Kind != ItemKind.Text) _statusPages.Text = "";
 
@@ -926,6 +992,10 @@ namespace UniversSale
                 _placeholder.Visibility = Visibility.Collapsed;
                 _journalView.Load(_project);
                 _journalView.Visibility = Visibility.Visible;
+                if (_inspectorCol.Width.Value > 0)
+                    AppSettings.InspectorWidth = _inspectorCol.Width.Value;
+                _journalOpen = true;
+                ApplyPanelVisibility();
             }
             finally
             {
@@ -1371,13 +1441,39 @@ namespace UniversSale
             PageSetup setup;
             var document = BuildPrintable(out name, out setup);
             if (document == null) return;
-            var options = View.PdfExportDialog.Ask(this, name);
-            if (options == null) return;
             var decor = _current != null && _current.Kind == ItemKind.Text
                 ? PageDecor.For(_current, _project) : null;
-            WritePdf(document, setup, name, options, decor,
-                _current != null && _current.Kind == ItemKind.Text
-                    ? ComputeFolioOffset(_current) : 0);
+            var offset = _current != null && _current.Kind == ItemKind.Text
+                ? ComputeFolioOffset(_current) : 0;
+            var options = View.PdfExportDialog.Ask(this, name, false, 0,
+                delegate(Print.PdfExportOptions o)
+                { return PreviewPdf(document, setup, name, o, decor, offset); });
+            if (options == null) return;
+            WritePdf(document, setup, name, options, decor, offset);
+        }
+
+        /// <summary>Le BAT dans l'aperçu (4b-3) : produit le PDF EXACT dans un
+        /// fichier temporaire et l'ouvre dans la visionneuse du système —
+        /// boîtes, fond perdu, traits et imposition compris.</summary>
+        private bool PreviewPdf(TextDocument document, PageSetup setup, string name,
+            Print.PdfExportOptions options, PageDecor decor, int folioOffset)
+        {
+            try
+            {
+                var composition = Print.Composer.Compose(
+                    document, _project.Styles, setup, _project);
+                composition.DefaultDecor = decor;
+                composition.FolioOffset = folioOffset;
+                var path = Path.Combine(Path.GetTempPath(),
+                    "marabook-bat-" + SafeFileName(name) + ".pdf");
+                Print.PdfWriter.Write(path, composition, options);
+                System.Diagnostics.Process.Start(path);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         // ============================================================= folio de livre
@@ -1642,7 +1738,9 @@ namespace UniversSale
                 PageBreakPerText = true,
                 RectoChapterStarts = true // chaque document ouvre un recto
             });
-            var options = View.PdfExportDialog.Ask(this, book.Title, true, book.Book.BleedMm);
+            var options = View.PdfExportDialog.Ask(this, book.Title, true, book.Book.BleedMm,
+                delegate(Print.PdfExportOptions o)
+                { return PreviewPdf(document, book.Book.Template, book.Title, o, null, 0); });
             if (options == null) return;
             WritePdf(document, book.Book.Template, book.Title, options);
         }
@@ -1814,15 +1912,44 @@ namespace UniversSale
             AppSettings.Save();
         }
 
+        // ============================================================= mode calme
+
+        private void ToggleCalmMode()
+        {
+            SetCalmMode(!_calmMode);
+        }
+
+        /// <summary>Mode calme : plus que les pages. Menus, barre d'état, Pile,
+        /// inspecteur et rubans s'effacent ; la pastille flottante (ou Échap)
+        /// ramène tout. Transitoire — rien n'est persisté.</summary>
+        private void SetCalmMode(bool calm)
+        {
+            if (_calmMode == calm) return;
+            if (calm)
+            {
+                // Mémorise les largeurs réelles avant de replier les panneaux.
+                if (_binderCol.Width.Value > 0) AppSettings.BinderWidth = _binderCol.Width.Value;
+                if (_inspectorCol.Width.Value > 0) AppSettings.InspectorWidth = _inspectorCol.Width.Value;
+            }
+            _calmMode = calm;
+            _menuBar.Visibility = calm ? Visibility.Collapsed : Visibility.Visible;
+            _statusBar.Visibility = _menuBar.Visibility;
+            _calmExit.Visibility = calm ? Visibility.Visible : Visibility.Collapsed;
+            ApplyPanelVisibility();
+            _editor.SetCalm(calm);
+            _sheetView.SetCalm(calm);
+        }
+
         private void ApplyPanelVisibility()
         {
-            var binderOn = AppSettings.BinderVisible;
+            var binderOn = AppSettings.BinderVisible && !_calmMode;
             _binder.Visibility = binderOn ? Visibility.Visible : Visibility.Collapsed;
             _binderSplit.Visibility = _binder.Visibility;
             _binderCol.Width = binderOn ? new GridLength(AppSettings.BinderWidth) : new GridLength(0);
             _binderMenu.IsChecked = binderOn;
 
-            var inspectorOn = AppSettings.InspectorVisible;
+            // Le Journal perso vit sans inspecteur (pas de synopsis à montrer).
+            var inspectorOn = AppSettings.InspectorVisible && !_journalOpen && !_calmMode;
             _inspector.Visibility = inspectorOn ? Visibility.Visible : Visibility.Collapsed;
             _inspectorSplit.Visibility = _inspector.Visibility;
             _inspectorCol.Width = inspectorOn ? new GridLength(AppSettings.InspectorWidth) : new GridLength(0);
@@ -1915,15 +2042,17 @@ namespace UniversSale
                                     ? "Fiche" + (template != null ? " — " + template.Name : "")
                                : _current.Kind == ItemKind.Media
                                     ? "Document" + (_current.MediaExtension ?? "")
+                               : _current.Kind == ItemKind.Book ? "Livre"
+                               : _current.Kind == ItemKind.PageTemplate ? "Gabarit de pages"
                                : "Écrit";
                 _synopsisBox.Text = _current.Synopsis ?? "";
                 _synopsisBox.IsEnabled = !_current.IsCategory;
                 _notesBox.Text = _current.Notes ?? "";
                 _notesBox.IsEnabled = !_current.IsCategory;
-                // Sheets have no synopsis (their cards show notes only);
-                // notes exist on texts and sheets.
+                // Sheets have no synopsis (their cards show notes only); a page
+                // gabarit has neither; notes exist on texts and sheets.
                 SetInspectorFieldVisibility(
-                    _current.Kind != ItemKind.Sheet,
+                    _current.Kind != ItemKind.Sheet && _current.Kind != ItemKind.PageTemplate,
                     _current.Kind == ItemKind.Text || _current.Kind == ItemKind.Sheet);
             }
             _loadingInspector = false;

@@ -28,7 +28,7 @@ namespace UniversSale.View
             Background = Chrome.WindowBg;
 
             var panel = new StackPanel { Margin = new Thickness(16), MinWidth = 360 };
-            panel.Children.Add(Label("Texte — jetons : {page} (folio), {pages} (total), {titre} :"));
+            panel.Children.Add(Label("Texte — jetons : {page} (folio), {pages} (total), {titre}, {livre} :"));
             _text = new TextBox { Text = initial == null ? (isHeader ? "" : "{page}") : initial.Text };
             panel.Children.Add(_text);
 

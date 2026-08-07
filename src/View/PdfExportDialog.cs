@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
@@ -13,10 +14,19 @@ namespace UniversSale.View
         private readonly CheckBox _marks;
         private readonly CheckBox _guides;
         private readonly ComboBox _profile;
+        private readonly ComboBox _imposition;
+        private readonly string _title;
         private bool _accepted;
 
-        private PdfExportDialog(Window owner, bool bookDefaults)
+        /// <summary>Aperçu du BAT : reçoit les options courantes, produit le
+        /// PDF (fichier temporaire) et l'ouvre — retour faux si échec.</summary>
+        private readonly Func<PdfExportOptions, bool> _preview;
+
+        private PdfExportDialog(Window owner, bool bookDefaults, string title,
+            Func<PdfExportOptions, bool> preview)
         {
+            _title = title ?? "";
+            _preview = preview;
             Title = "PDF prêt à imprimer";
             Owner = owner;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -86,12 +96,61 @@ namespace UniversSale.View
             profileRow.Children.Add(_profile);
             panel.Children.Add(profileRow);
 
+            // 4b-3 : imposition. Le cahier plie le tirage en livret — deux
+            // pages par face, complété à un multiple de 4 ; fond perdu et
+            // traits n'ont pas cours (coupe au pli).
+            var impositionRow = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
+            var impositionLabel = new TextBlock
+            {
+                Text = "Imposition :",
+                Foreground = Chrome.Ink,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            DockPanel.SetDock(impositionLabel, Dock.Left);
+            impositionRow.Children.Add(impositionLabel);
+            _imposition = new ComboBox { MinWidth = 220 };
+            _imposition.Items.Add("Pages — une page par feuille");
+            _imposition.Items.Add("Cahier — livret à cheval (2 pages par face)");
+            _imposition.SelectedIndex = 0;
+            _imposition.ToolTip = "Le cahier s'imprime recto-verso puis se plie en deux :\n"
+                + "les faces portent les bonnes paires de pages (complété en\n"
+                + "pages blanches à un multiple de 4). Fond perdu et traits de\n"
+                + "coupe sont ignorés dans ce mode.";
+            _imposition.SelectionChanged += delegate
+            {
+                var booklet = _imposition.SelectedIndex == 1;
+                _bleed.IsEnabled = !booklet;
+                _marks.IsEnabled = !booklet;
+                _guides.IsEnabled = !booklet;
+            };
+            impositionRow.Children.Add(_imposition);
+            panel.Children.Add(impositionRow);
+
             var buttons = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Margin = new Thickness(0, 14, 0, 0)
             };
+            if (_preview != null)
+            {
+                var previewBtn = new Button
+                {
+                    Content = "Aperçu du BAT…",
+                    MinWidth = 110,
+                    Margin = new Thickness(0, 0, 8, 0),
+                    ToolTip = "Produit le PDF exact (options ci-dessus) dans un fichier\n"
+                        + "temporaire et l'ouvre — le BAT, trait pour trait."
+                };
+                previewBtn.Click += delegate
+                {
+                    if (!_preview(CurrentOptions()))
+                        MessageBox.Show(this, "Aperçu impossible.", "PDF prêt à imprimer",
+                            MessageBoxButton.OK, MessageBoxImage.Warning);
+                };
+                buttons.Children.Add(previewBtn);
+            }
             var ok = new Button { Content = "Exporter", IsDefault = true, MinWidth = 90 };
             ok.Click += delegate { _accepted = true; Close(); };
             var cancel = new Button
@@ -109,33 +168,43 @@ namespace UniversSale.View
             Loaded += delegate { _bleed.Focus(); _bleed.SelectAll(); };
         }
 
+        /// <summary>Les options telles que réglées à l'instant (export et
+        /// aperçu du BAT lisent la même vérité).</summary>
+        private PdfExportOptions CurrentOptions()
+        {
+            double bleed;
+            var text = _bleed.Text.Trim().Replace(',', '.');
+            if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out bleed)
+                || bleed < 0) bleed = 0;
+            return new PdfExportOptions
+            {
+                BleedMm = System.Math.Min(20, bleed),
+                CropMarks = _marks.IsChecked == true,
+                BleedGuides = _guides.IsChecked == true,
+                Cmyk = _profile.SelectedIndex == 1,
+                Booklet = _imposition.SelectedIndex == 1,
+                Title = _title
+            };
+        }
+
         public static PdfExportOptions Ask(Window owner, string title)
         {
             return Ask(owner, title, false, 0);
         }
 
         /// <summary>bookDefaults : préréglages imprimerie (CMJN FOGRA39 +
-        /// traits de coupe) et fond perdu proposé depuis le gabarit.</summary>
+        /// traits de coupe) et fond perdu proposé depuis le gabarit ;
+        /// preview : générateur d'aperçu du BAT (null = pas de bouton).</summary>
         public static PdfExportOptions Ask(Window owner, string title,
-            bool bookDefaults, double bleedMm)
+            bool bookDefaults, double bleedMm,
+            Func<PdfExportOptions, bool> preview = null)
         {
-            var dialog = new PdfExportDialog(owner, bookDefaults);
+            var dialog = new PdfExportDialog(owner, bookDefaults, title, preview);
             if (bleedMm > 0)
                 dialog._bleed.Text = bleedMm.ToString(CultureInfo.InvariantCulture);
             dialog.ShowDialog();
             if (!dialog._accepted) return null;
-            double bleed;
-            var text = dialog._bleed.Text.Trim().Replace(',', '.');
-            if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out bleed)
-                || bleed < 0) bleed = 0;
-            return new PdfExportOptions
-            {
-                BleedMm = System.Math.Min(20, bleed),
-                CropMarks = dialog._marks.IsChecked == true,
-                BleedGuides = dialog._guides.IsChecked == true,
-                Cmyk = dialog._profile.SelectedIndex == 1,
-                Title = title ?? ""
-            };
+            return dialog.CurrentOptions();
         }
     }
 }

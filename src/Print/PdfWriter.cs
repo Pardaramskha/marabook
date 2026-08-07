@@ -19,6 +19,9 @@ namespace UniversSale.Print
         public bool BleedGuides;    // repères : cadre cyan sur la zone de fond perdu
         public bool Cmyk;           // sortie DeviceCMYK + OutputIntent FOGRA39
                                     // (noir texte = 0/0/0/1) ; sinon RVB
+        public bool Booklet;        // 4b-3 : imposition en cahier (livret à
+                                    // cheval, 2 pages par face, complété à un
+                                    // multiple de 4 ; fond perdu/traits ignorés)
         public string Title = "";   // métadonnées du document
     }
 
@@ -101,14 +104,23 @@ namespace UniversSale.Print
         private Color _stroke;
         private double _tz;
 
+        // Réglages effectifs : l'imposition en cahier neutralise fond perdu et
+        // traits (le livret plié se coupe au format fini, dos au pli).
+        private readonly bool _booklet;
+        private readonly double _bleedPt;
+        private readonly bool _cropMarks, _bleedGuides;
+
         public PdfBuilder(Composition composition, PdfExportOptions options)
         {
             _composition = composition;
             _options = options;
+            _booklet = options.Booklet;
+            _bleedPt = _booklet ? 0 : options.BleedMm * MmToPt;
+            _cropMarks = !_booklet && options.CropMarks;
+            _bleedGuides = !_booklet && options.BleedGuides;
             _trimW = composition.PageWidthPx * PxToPt;
             _trimH = composition.PageHeightPx * PxToPt;
-            _margin = options.BleedMm * MmToPt
-                + (options.CropMarks ? MarkZoneMm * MmToPt : 0);
+            _margin = _bleedPt + (_cropMarks ? MarkZoneMm * MmToPt : 0);
             _mediaW = _trimW + 2 * _margin;
             _mediaH = _trimH + 2 * _margin;
         }
@@ -118,10 +130,28 @@ namespace UniversSale.Print
         public byte[] Build()
         {
             // Pass 1: page contents (registers fonts, used glyphs, images).
-            var pageCount = _composition.Pages.Count;
+            var composedCount = _composition.Pages.Count;
+            var pageOps = new List<string>();
+            for (var k = 0; k < composedCount; k++)
+                pageOps.Add(BuildPageContent(k));
+
+            // 4b-3 — imposition en cahier : deux pages composées par face,
+            // complété en pages blanches à un multiple de 4. Feuille s :
+            // recto = [N−2s | 2s+1], verso = [2s+2 | N−2s−1] (folios 1-based) —
+            // plié en deux, le livret se lit dans l'ordre.
             var contents = new List<byte[]>();
-            for (var k = 0; k < pageCount; k++)
-                contents.Add(Latin1(BuildPageContent(k)));
+            if (_booklet)
+            {
+                var padded = ((composedCount + 3) / 4) * 4;
+                for (var s = 0; s < padded / 4; s++)
+                {
+                    contents.Add(BookletSheet(pageOps, padded - 1 - 2 * s, 2 * s));
+                    contents.Add(BookletSheet(pageOps, 2 * s + 1, padded - 2 - 2 * s));
+                }
+            }
+            else
+                foreach (var ops in pageOps) contents.Add(Latin1(ops));
+            var pageCount = contents.Count;
 
             // Ids: 1 catalog, 2 pages, 3 resources, then page/content pairs,
             // then images, fonts, info.
@@ -185,8 +215,10 @@ namespace UniversSale.Print
             WriteRaw(output, resources.ToString());
 
             // pages + contents
-            var bleed = _options.BleedMm * MmToPt;
-            var boxes = " /MediaBox [0 0 " + N(_mediaW) + " " + N(_mediaH) + "]"
+            var bleed = _bleedPt;
+            var boxes = _booklet
+                ? " /MediaBox [0 0 " + N(2 * _trimW) + " " + N(_trimH) + "]"
+                : " /MediaBox [0 0 " + N(_mediaW) + " " + N(_mediaH) + "]"
                 + " /BleedBox [" + N(_margin - bleed) + " " + N(_margin - bleed) + " "
                     + N(_margin + _trimW + bleed) + " " + N(_margin + _trimH + bleed) + "]"
                 + " /TrimBox [" + N(_margin) + " " + N(_margin) + " "
@@ -253,6 +285,20 @@ namespace UniversSale.Print
 
         // ============================================================ content
 
+        /// <summary>Une face de cahier : la page de gauche telle quelle, celle
+        /// de droite translatée d'une largeur de page. Un index au-delà des
+        /// pages composées est une page de complément, blanche.</summary>
+        private byte[] BookletSheet(List<string> pageOps, int leftIndex, int rightIndex)
+        {
+            var sb = new StringBuilder();
+            if (leftIndex < pageOps.Count)
+                sb.Append("q\n").Append(pageOps[leftIndex]).Append("\nQ\n");
+            if (rightIndex < pageOps.Count)
+                sb.Append("q 1 0 0 1 ").Append(N(_trimW)).Append(" 0 cm\n")
+                    .Append(pageOps[rightIndex]).Append("\nQ\n");
+            return Latin1(sb.ToString());
+        }
+
         private string BuildPageContent(int index)
         {
             // Sentinel trackers: the first ink of the page is always written
@@ -266,8 +312,8 @@ namespace UniversSale.Print
             var left = _composition.LeftPxFor(index); // marges en miroir
             var ops = new StringBuilder();
 
-            if (_options.CropMarks) EmitCropMarks(ops);
-            if (_options.BleedGuides) EmitBleedGuides(ops);
+            if (_cropMarks) EmitCropMarks(ops);
+            if (_bleedGuides) EmitBleedGuides(ops);
 
             foreach (var placed in page.Lines)
                 EmitLine(ops,
@@ -319,13 +365,14 @@ namespace UniversSale.Print
                 if (decor != null && decor.HeaderHideFirst && firstOfDoc) header = null;
                 var footerHidden = decor != null && decor.FooterHideFirst && firstOfDoc;
                 var title = decor == null ? "" : decor.Title;
+                var book = decor == null ? "" : decor.BookTitle;
                 if (header != null && !header.IsEmpty)
-                    EmitDecor(ops, header, index, title, left, true,
+                    EmitDecor(ops, header, index, title, book, left, true,
                         decor == null ? 0 : decor.HeaderGapMm);
                 if (footer != null && !footer.IsEmpty)
                 {
                     if (!footerHidden)
-                        EmitDecor(ops, footer, index, title, left, false,
+                        EmitDecor(ops, footer, index, title, book, left, false,
                             decor == null ? 0 : decor.FooterGapMm);
                 }
                 else if (setup.FooterPageNumbers && !footerHidden
@@ -357,7 +404,7 @@ namespace UniversSale.Print
         }
 
         private void EmitDecor(StringBuilder ops, HeaderFooter decor, int index,
-            string title, double left, bool isHeader, double gapMm)
+            string title, string book, double left, bool isHeader, double gapMm)
         {
             var setup = _composition.Setup;
             var folio = _composition.FolioOf(index);
@@ -369,7 +416,7 @@ namespace UniversSale.Print
                 if (decor.Rich.AlignOverride != null) align = decor.Rich.AlignOverride;
                 foreach (var run in decor.Rich.Runs)
                 {
-                    var text = new HeaderFooter { Text = run.Text }.Expand(folio, pages, title);
+                    var text = new HeaderFooter { Text = run.Text }.Expand(folio, pages, title, book);
                     if (text.Length == 0) continue;
                     runs.Add(new DecorRun
                     {
@@ -388,7 +435,7 @@ namespace UniversSale.Print
             }
             else
             {
-                var text = decor.Expand(folio, pages, title);
+                var text = decor.Expand(folio, pages, title, book);
                 if (text.Trim().Length == 0) return;
                 runs.Add(new DecorRun
                 {
@@ -420,11 +467,12 @@ namespace UniversSale.Print
             var top = _composition.TopPx;
             var height = _composition.PageHeightPx;
             var bottom = _composition.BottomPx;
+            // Écart signé : négatif = dans le bloc de texte (voir ComposedRenderer).
             var gap = gapMm * PageSetup.PxPerMm;
             var y = isHeader
-                ? (gap > 0.01 ? Math.Max(2, top - gap - maxHeight)
+                ? (Math.Abs(gap) > 0.01 ? Math.Max(2, top - gap - maxHeight)
                               : Math.Max(2, top / 2 - maxHeight / 2))
-                : (gap > 0.01 ? Math.Min(height - maxHeight - 2, height - bottom + gap)
+                : (Math.Abs(gap) > 0.01 ? Math.Min(height - maxHeight - 2, height - bottom + gap)
                               : height - bottom / 2 - maxHeight / 2);
             foreach (var run in runs)
             {
@@ -438,10 +486,13 @@ namespace UniversSale.Print
         {
             var baseline = topPx + line.Ascent;
 
-            // Highlights first, behind the ink (spaces included).
+            // Highlights first, behind the ink (spaces included). Les teintes
+            // d'annotation (semi-transparentes) ne vont jamais au papier.
             foreach (var piece in line.Pieces)
             {
                 if (piece.Highlight == null) continue;
+                var solidHighlight = piece.Highlight as SolidColorBrush;
+                if (solidHighlight != null && solidHighlight.Color.A < 0xFF) continue;
                 var w = piece.VisualWidth();
                 if (w < 0.1) continue;
                 var size = piece.FontSizePx > 0 ? piece.FontSizePx : 16;

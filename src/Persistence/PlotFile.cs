@@ -319,6 +319,7 @@ namespace UniversSale.Persistence
                     if (run.FontSize.HasValue) r["size"] = run.FontSize.Value;
                     if (run.Color != null) r["color"] = run.Color;
                     if (run.Highlight != null) r["hl"] = run.Highlight;
+                    if (run.AnnotationId != null) r["ann"] = run.AnnotationId;
                     runs.Add(r);
                 }
                 p["runs"] = runs;
@@ -336,6 +337,20 @@ namespace UniversSale.Persistence
                     notes.Add(n);
                 }
                 root["footnotes"] = notes;
+            }
+            if (document.Annotations.Count > 0)
+            {
+                var annotations = new List<object>();
+                foreach (var annotation in document.Annotations)
+                {
+                    var a = new Dictionary<string, object>();
+                    a["id"] = annotation.Id;
+                    a["text"] = annotation.Text;
+                    if (annotation.Created.Length > 0) a["created"] = annotation.Created;
+                    if (annotation.Resolved) a["resolved"] = true;
+                    annotations.Add(a);
+                }
+                root["annotations"] = annotations;
             }
             return root;
         }
@@ -726,6 +741,7 @@ namespace UniversSale.Persistence
                                 if (size is double) run.FontSize = (double)size;
                                 run.Color = Json.AsString(Json.Field(r, "color"));
                                 run.Highlight = Json.AsString(Json.Field(r, "hl"));
+                                run.AnnotationId = Json.AsString(Json.Field(r, "ann"));
                             }
                             paragraph.Runs.Add(run);
                         }
@@ -745,6 +761,21 @@ namespace UniversSale.Persistence
                     if (!string.IsNullOrEmpty(noteId)) note.Id = noteId;
                     note.Text = Json.AsString(Json.Field(n, "text")) ?? "";
                     document.Footnotes.Add(note);
+                }
+
+            var annotations = Json.AsList(Json.Field(root, "annotations"));
+            if (annotations != null)
+                foreach (var entry in annotations)
+                {
+                    var a = Json.AsObject(entry);
+                    if (a == null) continue;
+                    var annotation = new Annotation();
+                    var annotationId = Json.AsString(Json.Field(a, "id"));
+                    if (!string.IsNullOrEmpty(annotationId)) annotation.Id = annotationId;
+                    annotation.Text = Json.AsString(Json.Field(a, "text")) ?? "";
+                    annotation.Created = Json.AsString(Json.Field(a, "created")) ?? "";
+                    annotation.Resolved = Json.AsBool(Json.Field(a, "resolved"), false);
+                    document.Annotations.Add(annotation);
                 }
             return document;
         }

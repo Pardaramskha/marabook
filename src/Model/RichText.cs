@@ -23,6 +23,8 @@ namespace UniversSale.Model
         public string Color;        // "#RRGGBB", null = automatic (style color, else theme ink)
         public string Highlight;    // "#RRGGBB", null = none
         public string FootnoteId;   // set on footnote markers; Text is regenerated
+        public string AnnotationId; // révision : le passage porte ce commentaire
+                                    // (ancre de format, survit aux éditions)
         public bool IsLineBreak;    // explicit line break (Shift+Enter)
         public string ImageId;      // inline image (bytes live in the project image store)
         public bool IsRule;         // horizontal rule (its paragraph holds nothing else)
@@ -34,6 +36,7 @@ namespace UniversSale.Model
                 && Weight == other.Weight && Tracking == other.Tracking
                 && FontFamily == other.FontFamily && FontSize == other.FontSize
                 && Color == other.Color && Highlight == other.Highlight
+                && AnnotationId == other.AnnotationId
                 && FootnoteId == null && other.FootnoteId == null
                 && ImageId == null && other.ImageId == null
                 && !IsRule && !other.IsRule
@@ -74,10 +77,22 @@ namespace UniversSale.Model
         public string Text = "";
     }
 
+    /// <summary>Une annotation de révision : un commentaire ancré à un passage
+    /// (les runs du passage portent AnnotationId). Résolue = conservée mais
+    /// éteinte à l'écran. Jamais imprimée ni exportée.</summary>
+    public class Annotation
+    {
+        public string Id = Guid.NewGuid().ToString("N");
+        public string Text = "";
+        public string Created = ""; // "yyyy-MM-dd HH:mm"
+        public bool Resolved;
+    }
+
     public class TextDocument
     {
         public List<TextParagraph> Paragraphs = new List<TextParagraph>();
         public List<Footnote> Footnotes = new List<Footnote>();
+        public List<Annotation> Annotations = new List<Annotation>();
 
         public static TextDocument FromPlainText(string text)
         {
@@ -118,6 +133,50 @@ namespace UniversSale.Model
             foreach (var note in Footnotes)
                 if (note.Id == id) return note;
             return null;
+        }
+
+        public Annotation FindAnnotation(string id)
+        {
+            foreach (var annotation in Annotations)
+                if (annotation.Id == id) return annotation;
+            return null;
+        }
+
+        /// <summary>Ids d'annotations dans l'ordre du texte, et purge : une
+        /// annotation dont plus aucun run ne porte l'ancre est abandonnée
+        /// (passage supprimé) ; une ancre sans annotation est effacée.</summary>
+        public List<string> AnnotationOrder(bool purge)
+        {
+            var order = new List<string>();
+            foreach (var paragraph in Paragraphs)
+                foreach (var run in paragraph.Runs)
+                {
+                    if (run.AnnotationId == null) continue;
+                    if (FindAnnotation(run.AnnotationId) == null)
+                    {
+                        if (purge) run.AnnotationId = null;
+                        continue;
+                    }
+                    if (!order.Contains(run.AnnotationId)) order.Add(run.AnnotationId);
+                }
+            if (purge)
+                Annotations.RemoveAll(delegate(Annotation annotation)
+                {
+                    return !order.Contains(annotation.Id);
+                });
+            return order;
+        }
+
+        /// <summary>Le texte du passage ancré (extrait pour le panneau).</summary>
+        public string AnnotatedText(string id)
+        {
+            var sb = new StringBuilder();
+            foreach (var paragraph in Paragraphs)
+                foreach (var run in paragraph.Runs)
+                    if (run.AnnotationId == id && run.FootnoteId == null
+                        && run.ImageId == null && !run.IsRule)
+                        sb.Append(run.Text);
+            return sb.ToString();
         }
     }
 }

@@ -84,6 +84,12 @@ namespace UniversSale.View
         private ToggleButton _alignLeft, _alignCenter, _alignRight, _alignJustify;
         private ToggleButton _bulletBtn, _numberBtn, _checkBtn;
 
+        private Border _ribbonBar; // le ruban entier (masqué en mode calme)
+        private bool _calm;
+
+        /// <summary>Clic sur le bouton « Mode calme » du ruban.</summary>
+        public event Action CalmRequested;
+
         private Border _searchBar;
         private TextBox _searchBox, _replaceBox;
         private CheckBox _caseCheck;
@@ -91,6 +97,9 @@ namespace UniversSale.View
 
         private Border _notesBar;
         private StackPanel _notesList;
+
+        private Border _annBar;      // panneau Révision (annotations)
+        private StackPanel _annList;
 
         public event Action Edited; // any content or footnote change
         public event Action<string> LinkClicked; // Ctrl+click on a [[wiki link]]
@@ -100,6 +109,7 @@ namespace UniversSale.View
             BuildFormatBar();
             BuildSearchBar();
             BuildNotesBar();
+            BuildAnnotationsBar();
             BuildPage();
         }
 
@@ -395,8 +405,43 @@ namespace UniversSale.View
             tabs.Items.Add(new TabItem { Header = "Mise en page", Content = BuildPageSetupTab() });
             tabs.Items.Add(new TabItem { Header = "Gabarit", Content = BuildDecorTab() });
             tabs.Items.Add(new TabItem { Header = "Composition", Content = BuildCompositionTab() });
-            bar.Child = tabs;
+            tabs.Items.Add(new TabItem { Header = "Révision", Content = BuildRevisionTab() });
+
+            // « Mode calme », collé au bord droit de la barre d'onglets : tout
+            // le chrome disparaît, il ne reste que les pages.
+            var calm = new Button
+            {
+                Content = Icons.Make("article-bold", 14, Chrome.SoftText),
+                ToolTip = "Mode calme — ne garder que les pages (Échap pour revenir)",
+                Width = 32,
+                Padding = new Thickness(2),
+                Margin = new Thickness(0, 4, 6, 0),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Focusable = false
+            };
+            calm.Click += delegate
+            {
+                var handler = CalmRequested;
+                if (handler != null) handler();
+            };
+            var host = new Grid();
+            host.Children.Add(tabs);
+            host.Children.Add(calm);
+            bar.Child = host;
+            _ribbonBar = bar;
             Children.Add(bar);
+        }
+
+        /// <summary>Mode calme : le ruban et le panneau de notes s'effacent,
+        /// la coquille masque le reste (Pile, inspecteur, menus, barre d'état).</summary>
+        public void SetCalm(bool calm)
+        {
+            _calm = calm;
+            _ribbonBar.Visibility = calm ? Visibility.Collapsed : Visibility.Visible;
+            if (calm) _searchBar.Visibility = Visibility.Collapsed;
+            RebuildNotesPanel(); // la visibilité des panneaux suit _calm
+            RebuildAnnotationsPanel();
         }
 
         // ============================================================= « Gabarit » tab
@@ -826,6 +871,7 @@ namespace UniversSale.View
                         _loading = false;
                         ApplyPageVisuals();
                         RebuildNotesPanel();
+                        RebuildAnnotationsPanel();
                     }
                     _box.Focus();
                 }
@@ -840,10 +886,16 @@ namespace UniversSale.View
             if (_item == null) { if (_composeBtn != null) _composeBtn.IsChecked = false; return; }
             try
             {
-                // The classic surface may hold unsaved keystrokes: flush first.
+                // The classic surface may hold unsaved keystrokes: flush first
+                // (la liste d'annotations vit à part des runs, elle survit).
                 if (!ComposedActive && _box.Document != null)
+                {
+                    var annotations = _item.Document.Annotations;
                     _item.Document = FlowConverter.FromFlow(_box.Document, _styles,
                         _item.Document.Footnotes, _project);
+                    _item.Document.Annotations = annotations;
+                    _item.Document.AnnotationOrder(true);
+                }
                 _composed.SetZoom(_zoom);
                 _composed.FolioOffset = FolioOffset;
                 _composed.Decor = Decor;
@@ -851,6 +903,7 @@ namespace UniversSale.View
                 _composed.Visibility = Visibility.Visible;
                 _scroller.Visibility = Visibility.Collapsed;
                 _composed.Focus();
+                RebuildAnnotationsPanel();
             }
             catch (Exception error)
             {
@@ -1321,6 +1374,407 @@ namespace UniversSale.View
             });
             _notesBar.Child = panel;
             Children.Add(_notesBar);
+        }
+
+        // ============================================================= révision
+
+        /// <summary>Onglet « Révision » : annoter la sélection, naviguer entre
+        /// les annotations. Le panneau du bas porte le détail (commentaires,
+        /// résolution, suppression).</summary>
+        private UIElement BuildRevisionTab()
+        {
+            var panel = new WrapPanel { Margin = new Thickness(8, 4, 8, 4) };
+            var annotate = new Button
+            {
+                Content = TabButtonContent("check-square-bold", "Annoter la sélection"),
+                ToolTip = "Ancre un commentaire de révision au passage sélectionné "
+                    + "(teinte or à l'écran, jamais imprimée)",
+                Margin = new Thickness(0, 0, 10, 0),
+                Padding = new Thickness(8, 2, 8, 2),
+                Focusable = false
+            };
+            annotate.Click += delegate { CreateAnnotation(); };
+            panel.Children.Add(annotate);
+
+            var previous = new Button
+            {
+                Content = "◀ Précédente",
+                ToolTip = "Aller à l'annotation précédente",
+                Margin = new Thickness(0, 0, 4, 0),
+                Padding = new Thickness(8, 2, 8, 2),
+                Focusable = false
+            };
+            previous.Click += delegate { NavigateAnnotation(-1); };
+            panel.Children.Add(previous);
+            var next = new Button
+            {
+                Content = "Suivante ▶",
+                ToolTip = "Aller à l'annotation suivante",
+                Margin = new Thickness(0, 0, 10, 0),
+                Padding = new Thickness(8, 2, 8, 2),
+                Focusable = false
+            };
+            next.Click += delegate { NavigateAnnotation(1); };
+            panel.Children.Add(next);
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Les annotations restent dans le projet — jamais dans les exports ni à l'impression.",
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            return panel;
+        }
+
+        private void BuildAnnotationsBar()
+        {
+            _annBar = new Border
+            {
+                Background = Chrome.BarBgLight,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(24, 8, 24, 8),
+                Visibility = Visibility.Collapsed,
+                MaxHeight = 220
+            };
+            SetDock(_annBar, Dock.Bottom);
+            var panel = new StackPanel();
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Annotations",
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            _annList = new StackPanel();
+            panel.Children.Add(new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                MaxHeight = 170,
+                Content = _annList
+            });
+            _annBar.Child = panel;
+            Children.Add(_annBar);
+        }
+
+        /// <summary>Ids d'annotations dans l'ordre du texte — pivot en mode
+        /// Composition (toujours vivant), FlowDocument en classique (le pivot
+        /// n'y est à jour qu'au Commit).</summary>
+        private List<string> AnnotationOrderLive()
+        {
+            if (_item == null) return new List<string>();
+            if (ComposedActive) return _item.Document.AnnotationOrder(false);
+            var order = new List<string>();
+            foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
+                CollectAnnotationIds(paragraph.Inlines, order);
+            return order;
+        }
+
+        private void CollectAnnotationIds(InlineCollection inlines, List<string> order)
+        {
+            foreach (var inline in inlines)
+            {
+                var span = inline as Span;
+                if (span != null) { CollectAnnotationIds(span.Inlines, order); continue; }
+                var id = AnnotationIdOf(inline as Run);
+                if (id != null && _item.Document.FindAnnotation(id) != null
+                    && !order.Contains(id))
+                    order.Add(id);
+            }
+        }
+
+        private static string AnnotationIdOf(Run run)
+        {
+            var tag = run == null ? null : run.Tag as string;
+            if (tag == null || !tag.StartsWith("ann:")) return null;
+            var spec = tag.Substring(4);
+            var semi = spec.IndexOf(";trk=", StringComparison.Ordinal);
+            if (semi >= 0) spec = spec.Substring(0, semi);
+            return spec.Length > 0 ? spec : null;
+        }
+
+        /// <summary>Le passage annoté tel qu'affiché (extrait du panneau).</summary>
+        private string AnnotatedTextLive(string id)
+        {
+            if (ComposedActive) return _item.Document.AnnotatedText(id);
+            var sb = new System.Text.StringBuilder();
+            foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
+                AppendAnnotatedText(paragraph.Inlines, id, sb);
+            return sb.ToString();
+        }
+
+        private void AppendAnnotatedText(InlineCollection inlines, string id,
+            System.Text.StringBuilder sb)
+        {
+            foreach (var inline in inlines)
+            {
+                var span = inline as Span;
+                if (span != null) { AppendAnnotatedText(span.Inlines, id, sb); continue; }
+                var run = inline as Run;
+                if (run != null && AnnotationIdOf(run) == id) sb.Append(run.Text);
+            }
+        }
+
+        /// <summary>Annoter la sélection : ancre un commentaire neuf au passage
+        /// et ouvre son champ dans le panneau.</summary>
+        public void CreateAnnotation()
+        {
+            if (_item == null) return;
+            var annotation = new Annotation
+            {
+                Created = DateTime.Now.ToString("yyyy-MM-dd HH:mm")
+            };
+            var anchored = ComposedActive
+                ? _composed.AnnotateSelection(annotation.Id)
+                : AnnotateClassicSelection(annotation.Id);
+            if (!anchored)
+            {
+                MessageBox.Show(Window.GetWindow(this),
+                    "Sélectionnez d'abord le passage à annoter.",
+                    "Révision", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            _item.Document.Annotations.Add(annotation);
+            NotifyEdited();
+            RebuildAnnotationsPanel();
+            FocusAnnotation(annotation.Id);
+        }
+
+        /// <summary>Mode classique : pose le fond cosmétique (ce qui découpe les
+        /// runs aux bornes de la sélection), puis étiquette les runs couverts.</summary>
+        private bool AnnotateClassicSelection(string id)
+        {
+            var selection = _box.Selection;
+            if (selection.IsEmpty) return false;
+            selection.ApplyPropertyValue(TextElement.BackgroundProperty, Chrome.AnnotationTint);
+            var pointer = selection.Start;
+            while (pointer != null && pointer.CompareTo(selection.End) < 0)
+            {
+                var run = pointer.Parent as Run;
+                if (run != null && run.ContentStart.CompareTo(selection.Start) >= 0)
+                {
+                    var tracking = run.Tag is double ? (double?)(double)run.Tag : null;
+                    run.Tag = "ann:" + id + (tracking.HasValue
+                        ? ";trk=" + tracking.Value.ToString(
+                            System.Globalization.CultureInfo.InvariantCulture)
+                        : "");
+                    pointer = run.ElementEnd;
+                    continue;
+                }
+                pointer = pointer.GetNextContextPosition(LogicalDirection.Forward);
+                if (pointer == null) break;
+            }
+            return true;
+        }
+
+        /// <summary>Navigation ruban : va à l'annotation suivante/précédente
+        /// après celle du caret (ou la première/dernière).</summary>
+        private void NavigateAnnotation(int direction)
+        {
+            var order = AnnotationOrderLive();
+            if (order.Count == 0) return;
+            var current = ComposedActive ? _composed.AnnotationAtCaret() : ClassicAnnotationAtCaret();
+            var index = current == null ? -1 : order.IndexOf(current);
+            index = index < 0
+                ? (direction > 0 ? 0 : order.Count - 1)
+                : (index + direction + order.Count) % order.Count;
+            GoToAnnotation(order[index]);
+        }
+
+        private string ClassicAnnotationAtCaret()
+        {
+            var run = _box.CaretPosition.Parent as Run;
+            var id = AnnotationIdOf(run);
+            if (id != null) return id;
+            var backward = _box.CaretPosition.GetNextInsertionPosition(LogicalDirection.Backward);
+            return backward == null ? null : AnnotationIdOf(backward.Parent as Run);
+        }
+
+        /// <summary>Sélectionne le passage d'une annotation et l'amène à l'écran.</summary>
+        public void GoToAnnotation(string id)
+        {
+            if (ComposedActive)
+            {
+                _composed.GoToAnnotation(id);
+                _composed.Focus();
+                return;
+            }
+            Run first = null, last = null;
+            foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
+                FindAnnotationRuns(paragraph.Inlines, id, ref first, ref last);
+            if (first == null) return;
+            _box.Selection.Select(first.ContentStart, last.ContentEnd);
+            _box.Focus(); // EnsureCaretVisible suit le SelectionChanged
+        }
+
+        private void FindAnnotationRuns(InlineCollection inlines, string id,
+            ref Run first, ref Run last)
+        {
+            foreach (var inline in inlines)
+            {
+                var span = inline as Span;
+                if (span != null) { FindAnnotationRuns(span.Inlines, id, ref first, ref last); continue; }
+                var run = inline as Run;
+                if (run == null || AnnotationIdOf(run) != id) continue;
+                if (first == null) first = run;
+                last = run;
+            }
+        }
+
+        /// <summary>Résout/rouvre : la teinte s'éteint ou revient, l'ancre reste.</summary>
+        private void ToggleAnnotationResolved(Annotation annotation)
+        {
+            annotation.Resolved = !annotation.Resolved;
+            if (ComposedActive) _composed.RefreshAnnotation(annotation.Id);
+            else RetintClassicAnnotation(annotation.Id, !annotation.Resolved);
+            NotifyEdited();
+            RebuildAnnotationsPanel();
+        }
+
+        /// <summary>Supprime l'annotation : commentaire ET ancres.</summary>
+        private void DeleteAnnotation(Annotation annotation)
+        {
+            _item.Document.Annotations.Remove(annotation);
+            if (ComposedActive) _composed.ClearAnnotation(annotation.Id);
+            else ClearClassicAnnotation(annotation.Id);
+            NotifyEdited();
+            RebuildAnnotationsPanel();
+        }
+
+        private void RetintClassicAnnotation(string id, bool tint)
+        {
+            foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
+                RetintRuns(paragraph.Inlines, id, tint, false);
+        }
+
+        private void ClearClassicAnnotation(string id)
+        {
+            foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
+                RetintRuns(paragraph.Inlines, id, false, true);
+        }
+
+        private void RetintRuns(InlineCollection inlines, string id, bool tint, bool clearTag)
+        {
+            foreach (var inline in inlines)
+            {
+                var span = inline as Span;
+                if (span != null) { RetintRuns(span.Inlines, id, tint, clearTag); continue; }
+                var run = inline as Run;
+                if (run == null || AnnotationIdOf(run) != id) continue;
+                // Le fond cosmétique seulement — un vrai surlignage (opaque)
+                // n'est jamais touché.
+                var background = run.Background as SolidColorBrush;
+                var cosmetic = background == null || background.Color.A < 0xFF;
+                if (tint && cosmetic) run.Background = Chrome.AnnotationTint;
+                else if (!tint && cosmetic) run.Background = null;
+                if (clearTag)
+                {
+                    var tag = run.Tag as string;
+                    var semi = tag == null ? -1 : tag.IndexOf(";trk=", StringComparison.Ordinal);
+                    run.Tag = semi >= 0
+                        ? (object)double.Parse(tag.Substring(semi + 5),
+                            System.Globalization.CultureInfo.InvariantCulture)
+                        : null;
+                }
+            }
+        }
+
+        /// <summary>Reconstruit le panneau Révision. Visible dès qu'une
+        /// annotation existe (hors mode calme).</summary>
+        public void RebuildAnnotationsPanel()
+        {
+            _annList.Children.Clear();
+            if (_item == null)
+            {
+                _annBar.Visibility = Visibility.Collapsed;
+                return;
+            }
+            var order = AnnotationOrderLive();
+            _annBar.Visibility = order.Count == 0 || _calm
+                ? Visibility.Collapsed : Visibility.Visible;
+            foreach (var id in order)
+            {
+                var annotation = _item.Document.FindAnnotation(id);
+                if (annotation == null) continue;
+                _annList.Children.Add(BuildAnnotationRow(annotation));
+            }
+        }
+
+        private UIElement BuildAnnotationRow(Annotation annotation)
+        {
+            var row = new DockPanel
+            {
+                Margin = new Thickness(0, 2, 0, 2),
+                Opacity = annotation.Resolved ? 0.55 : 1.0,
+                Tag = annotation.Id
+            };
+
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+            var go = SmallButton("Aller", delegate { GoToAnnotation(annotation.Id); });
+            go.ToolTip = "Sélectionner le passage annoté";
+            buttons.Children.Add(go);
+            var resolve = SmallButton(annotation.Resolved ? "Rouvrir" : "Résoudre",
+                delegate { ToggleAnnotationResolved(annotation); });
+            resolve.ToolTip = annotation.Resolved
+                ? "Réactiver l'annotation (la teinte revient)"
+                : "Marquer comme traitée (la teinte s'éteint, le commentaire reste)";
+            buttons.Children.Add(resolve);
+            var remove = SmallButton("Supprimer", delegate { DeleteAnnotation(annotation); });
+            remove.ToolTip = "Supprimer le commentaire et son ancre";
+            buttons.Children.Add(remove);
+            DockPanel.SetDock(buttons, Dock.Right);
+            row.Children.Add(buttons);
+
+            var excerptText = AnnotatedTextLive(annotation.Id).Trim();
+            if (excerptText.Length > 52) excerptText = excerptText.Substring(0, 52) + "…";
+            var excerpt = new TextBlock
+            {
+                Text = "« " + excerptText + " »",
+                Foreground = Chrome.SoftText,
+                FontStyle = FontStyles.Italic,
+                FontSize = 11,
+                Width = 190,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = annotation.Created.Length > 0 ? "Créée le " + annotation.Created : null,
+                Cursor = Cursors.Hand
+            };
+            excerpt.MouseLeftButtonDown += delegate { GoToAnnotation(annotation.Id); };
+            DockPanel.SetDock(excerpt, Dock.Left);
+            row.Children.Add(excerpt);
+
+            var comment = new TextBox
+            {
+                Text = annotation.Text,
+                Margin = new Thickness(8, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = "Le commentaire de révision"
+            };
+            comment.TextChanged += delegate
+            {
+                if (_loading) return;
+                annotation.Text = comment.Text;
+                NotifyEdited();
+            };
+            row.Children.Add(comment);
+            return row;
+        }
+
+        /// <summary>Met le focus dans le champ de commentaire d'une annotation
+        /// (après création).</summary>
+        private void FocusAnnotation(string id)
+        {
+            foreach (var child in _annList.Children)
+            {
+                var row = child as DockPanel;
+                if (row == null || (string)row.Tag != id) continue;
+                foreach (var element in row.Children)
+                {
+                    var box = element as TextBox;
+                    if (box != null) { box.Focus(); return; }
+                }
+            }
         }
 
         private void BuildPage()
@@ -2201,6 +2655,7 @@ namespace UniversSale.View
             _loading = false;
             ApplyPageVisuals();
             RebuildNotesPanel();
+            RebuildAnnotationsPanel();
             HideSearch();
             // The composed pages are the default writing surface.
             if (Settings.AppSettings.CompositionMode) SetComposition(true);
@@ -2219,8 +2674,13 @@ namespace UniversSale.View
         public void Commit()
         {
             if (_item == null || ComposedActive) return;
+            var annotations = _item.Document.Annotations;
             _item.Document = FlowConverter.FromFlow(_box.Document, _styles,
                 _item.Document.Footnotes, _project);
+            // Les annotations vivent à part des runs : la liste survit au
+            // Commit, puis les orphelines (passage supprimé) sont purgées.
+            _item.Document.Annotations = annotations;
+            _item.Document.AnnotationOrder(true);
         }
 
         /// <summary>Re-renders the current item (after the style sheet changed).</summary>
@@ -2254,6 +2714,7 @@ namespace UniversSale.View
             }
             ApplyPageVisuals();
             RebuildNotesPanel();
+            RebuildAnnotationsPanel();
             HideSearch();
         }
 
@@ -2968,7 +3429,8 @@ namespace UniversSale.View
 
             var ordered = ComposedActive ? PivotFootnoteOrder()
                 : FlowConverter.RenumberFootnotes(_box.Document);
-            _notesBar.Visibility = ordered.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            _notesBar.Visibility = ordered.Count == 0 || _calm
+                ? Visibility.Collapsed : Visibility.Visible;
 
             var number = 0;
             foreach (var id in ordered)

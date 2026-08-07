@@ -35,6 +35,14 @@ namespace UniversSale.View
         public event Action StylesRequested;
         public event Action PreviewRequested, PrintRequested, ExportRequested, CompileRequested;
         public event Action PdfRequested;
+        public event Action CalmRequested;
+
+        /// <summary>Mode calme : le corps masque son ruban ; l'entête de la
+        /// fiche reste (il fait partie de la « page » d'une fiche).</summary>
+        public void SetCalm(bool calm)
+        {
+            _body.SetCalm(calm);
+        }
 
         public SheetView()
         {
@@ -168,6 +176,7 @@ namespace UniversSale.View
             _body.ExportRequested += delegate { var h = ExportRequested; if (h != null) h(); };
             _body.CompileRequested += delegate { var h = CompileRequested; if (h != null) h(); };
             _body.PdfRequested += delegate { var h = PdfRequested; if (h != null) h(); };
+            _body.CalmRequested += delegate { var h = CalmRequested; if (h != null) h(); };
 
             _preview = new ScrollViewer
             {
