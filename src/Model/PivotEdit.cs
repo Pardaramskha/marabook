@@ -54,6 +54,10 @@ namespace UniversSale.Model
             inner = 0;
         }
 
+        /// <summary>Copies every FORMAT field of a run (not its content).
+        /// RÈGLE : tout nouveau champ de format de TextRun doit être ajouté
+        /// ici ET dans TextRun.HasSameFormat — sinon il meurt au premier
+        /// split de run (SliceRun, Split, ApplyFormat passent tous par là).</summary>
         private static TextRun CloneFormat(TextRun source)
         {
             return new TextRun
@@ -274,7 +278,13 @@ namespace UniversSale.Model
                     document.Footnotes.RemoveAt(i);
         }
 
-        /// <summary>Deep clone for the undo stack (strings shared).</summary>
+        /// <summary>Deep clone for the undo stack (strings shared).
+        /// RÈGLE : tout nouveau champ de TextParagraph, TextRun, Footnote ou
+        /// Annotation DOIT être ajouté ici (et dans CloneFormat pour un champ
+        /// de FORMAT de TextRun) — l'oubli est silencieux et se paie en
+        /// réglage perdu au premier Ctrl+Z (AllowWidows l'a payé au batch 24).
+        /// Le test C3 du harnais compare Clone par réflexion champ à champ :
+        /// un futur oubli fera échouer build-tests.bat.</summary>
         public static TextDocument Clone(TextDocument document)
         {
             var copy = new TextDocument();
@@ -285,7 +295,12 @@ namespace UniversSale.Model
                     StyleId = paragraph.StyleId,
                     AlignOverride = paragraph.AlignOverride,
                     ListKind = paragraph.ListKind,
-                    PageBreakBefore = paragraph.PageBreakBefore
+                    PageBreakBefore = paragraph.PageBreakBefore,
+                    AllowWidows = paragraph.AllowWidows,
+                    // Transitoires de compilation (jamais persistés) — copiés
+                    // quand même : Clone reste exhaustif, champ par champ.
+                    StartOnRecto = paragraph.StartOnRecto,
+                    Decor = paragraph.Decor
                 };
                 foreach (var run in paragraph.Runs)
                 {
@@ -301,6 +316,18 @@ namespace UniversSale.Model
             }
             foreach (var note in document.Footnotes)
                 copy.Footnotes.Add(new Footnote { Id = note.Id, Text = note.Text });
+            // Les annotations sont clonées pour l'exhaustivité, mais
+            // RestoreSnapshot ne restaure QUE Paragraphs et Footnotes : les
+            // commentaires de révision vivent hors du flux d'annulation
+            // (annuler du texte ne doit pas ravaler un commentaire tapé après).
+            foreach (var annotation in document.Annotations)
+                copy.Annotations.Add(new Annotation
+                {
+                    Id = annotation.Id,
+                    Text = annotation.Text,
+                    Created = annotation.Created,
+                    Resolved = annotation.Resolved
+                });
             return copy;
         }
     }

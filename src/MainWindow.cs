@@ -66,6 +66,10 @@ namespace UniversSale
 
         private MenuItem _undoMenu, _redoMenu, _darkMenu, _binderMenu, _inspectorMenu, _recentMenu, _rulersMenu;
 
+        // Bandeau « lecture seule » : projet écrit par un format plus récent
+        // que celui que cette version sait réécrire sans perte (A2, batch 24).
+        private Border _readOnlyBanner;
+
         // Session goal: words written since the goal was set, project-wide.
         // The same cache feeds the writing journal: each recount of the OPEN
         // document yields a net delta, credited to today — imports, purges and
@@ -88,6 +92,7 @@ namespace UniversSale
             _menuBar = BuildMenuBar();
             _statusBar = BuildStatusBar();
             root.Children.Add(_menuBar);
+            root.Children.Add(BuildReadOnlyBanner());
             root.Children.Add(_statusBar);
             root.Children.Add(BuildContent());
             Content = root;
@@ -122,6 +127,27 @@ namespace UniversSale
         }
 
         // ============================================================= layout
+
+        private UIElement BuildReadOnlyBanner()
+        {
+            _readOnlyBanner = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0xB4, 0x5B, 0x00)),
+                Padding = new Thickness(12, 6, 12, 6),
+                Visibility = Visibility.Collapsed,
+                Child = new TextBlock
+                {
+                    Foreground = Brushes.White,
+                    FontSize = 13,
+                    TextWrapping = TextWrapping.Wrap,
+                    Text = "Ce projet a été enregistré avec une version plus récente de Marabook. "
+                         + "Il est ouvert en lecture seule pour ne rien détruire : "
+                         + "l'enregistrement et la sauvegarde automatique sont désactivés."
+                }
+            };
+            DockPanel.SetDock(_readOnlyBanner, Dock.Top);
+            return _readOnlyBanner;
+        }
 
         private UIElement BuildMenuBar()
         {
@@ -733,6 +759,8 @@ namespace UniversSale
             _path = path;
             _current = null;
             _dirty = false;
+            _readOnlyBanner.Visibility = project.ReadOnlyNewerFormat
+                ? Visibility.Visible : Visibility.Collapsed;
             _history.Clear();
             _wordCache.Clear();
             _pageCountCache.Clear();
@@ -763,17 +791,79 @@ namespace UniversSale
         {
             try
             {
-                var project = PlotFile.Load(path);
+                var warnings = new List<string>();
+                var project = PlotFile.Load(path, warnings);
                 project.Name = Path.GetFileNameWithoutExtension(path);
                 LoadProject(project, path);
                 AppSettings.AddRecentFile(path);
                 AppSettings.Save();
                 UpdateRecentMenu();
+
+                // Un .tmp orphelin signale une sauvegarde interrompue (crash en
+                // pleine écriture). Le .plot est resté intact — l'écriture est
+                // atomique — mais le débris ne doit pas rester en silence.
+                var orphan = path + ".tmp";
+                if (File.Exists(orphan))
+                {
+                    try { File.Delete(orphan); } catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                    warnings.Insert(0, "Une sauvegarde précédente a été interrompue "
+                        + "(fichier temporaire « .tmp » retrouvé, maintenant supprimé). "
+                        + "Le projet ouvert est la dernière sauvegarde complète.");
+                }
+
+                if (warnings.Count > 0)
+                    MessageBox.Show(this,
+                        "Le projet s'est ouvert, avec des réserves :\n\n— "
+                        + string.Join("\n— ", warnings.ToArray()),
+                        AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             catch (Exception error)
             {
+                TryRecoverFromBackup(path, error);
+            }
+        }
+
+        /// <summary>The .plot itself is unreadable: offer the rolling .bak
+        /// (written at every successful save) before giving up.</summary>
+        private void TryRecoverFromBackup(string path, Exception error)
+        {
+            var bak = path + ".bak";
+            if (!File.Exists(bak))
+            {
                 MessageBox.Show(this,
                     "Impossible d'ouvrir le projet :\n" + error.Message,
+                    AppName, MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            var stamp = File.GetLastWriteTime(bak).ToString("dd/MM/yyyy HH:mm");
+            var answer = MessageBox.Show(this,
+                "Impossible d'ouvrir le projet :\n" + error.Message + "\n\n"
+                + "Une copie de secours existe (dernier enregistrement réussi, "
+                + "du " + stamp + ").\nL'ouvrir à la place ?",
+                AppName, MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.Yes) return;
+            try
+            {
+                var warnings = new List<string>();
+                var project = PlotFile.Load(bak, warnings);
+                project.Name = Path.GetFileNameWithoutExtension(path);
+                // Le projet vit sous son chemin normal : le prochain Ctrl+S
+                // remplacera le .plot corrompu. Marqué modifié pour que la
+                // fermeture propose cet enregistrement.
+                LoadProject(project, path);
+                _dirty = true;
+                UpdateTitle();
+                if (warnings.Count > 0)
+                    MessageBox.Show(this,
+                        "La copie de secours s'est ouverte, avec des réserves :\n\n— "
+                        + string.Join("\n— ", warnings.ToArray()),
+                        AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (Exception bakError)
+            {
+                MessageBox.Show(this,
+                    "La copie de secours est illisible elle aussi :\n" + bakError.Message,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -795,9 +885,22 @@ namespace UniversSale
         private void DoSave()
         {
             if (_path == null) { DoSaveAs(); return; }
+            if (_project.ReadOnlyNewerFormat)
+            {
+                MessageBox.Show(this,
+                    "Ce projet a été enregistré avec une version plus récente de Marabook.\n"
+                    + "Il est ouvert en lecture seule pour ne rien détruire : "
+                    + "l'enregistrement est désactivé.",
+                    AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
             try
             {
-                _editor.Commit();
+                // Every editable view must flush before writing: the sheet body
+                // (SheetView._body) is a second EditorView the plain
+                // _editor.Commit() never reached — typing in a sheet then Ctrl+S
+                // used to lose the text.
+                CommitActive();
                 PlotFile.Save(_project, _path);
                 _dirty = false;
                 AppSettings.AddRecentFile(_path);
@@ -816,6 +919,17 @@ namespace UniversSale
 
         private void DoSaveAs()
         {
+            if (_project.ReadOnlyNewerFormat)
+            {
+                // Re-writing under another name would silently drop every field
+                // this version does not know — same destruction, new path.
+                MessageBox.Show(this,
+                    "Ce projet a été enregistré avec une version plus récente de Marabook.\n"
+                    + "L'enregistrer avec cette version détruirait les données "
+                    + "qu'elle ne connaît pas : ouvrez-le avec la version qui l'a créé.",
+                    AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
             var dialog = new Microsoft.Win32.SaveFileDialog
             {
                 Filter = PlotFile.SaveFilter,
@@ -829,6 +943,7 @@ namespace UniversSale
 
         private void Autosave()
         {
+            if (_project.ReadOnlyNewerFormat) return; // never write a newer format
             if (_dirty && _path != null) DoSave();
         }
 
@@ -836,6 +951,16 @@ namespace UniversSale
         private bool ConfirmDiscard()
         {
             if (!_dirty) return true;
+            if (_project.ReadOnlyNewerFormat)
+            {
+                // Saving is impossible in this state: offer to leave anyway.
+                var leave = MessageBox.Show(this,
+                    "Ce projet est ouvert en lecture seule (format plus récent) :\n"
+                    + "les modifications ne peuvent pas être enregistrées.\n"
+                    + "Continuer et les abandonner ?",
+                    AppName, MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                return leave == MessageBoxResult.Yes;
+            }
             var answer = MessageBox.Show(this,
                 "Enregistrer les modifications du projet « " + _project.Name + " » ?",
                 AppName, MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
@@ -862,6 +987,9 @@ namespace UniversSale
         {
             if (_editor.HasItem) _editor.Commit();
             if (_sheetView.HasItem) _sheetView.Commit();
+            // Template zones normally commit on focus loss, but a pending
+            // debounced edit must not be lost by a save that races it.
+            _templateView.CommitZones();
         }
 
         private void OnBinderSelection(BinderItem item)

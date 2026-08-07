@@ -827,7 +827,7 @@ namespace UniversSale.Print
                     continue;
                 }
 
-                if (x + atom.Width <= avail + 0.05 || !contentPlaced)
+                if (x + atom.Width <= avail + 0.05)
                 {
                     if (atom.IsSpace)
                     {
@@ -858,7 +858,10 @@ namespace UniversSale.Print
                     continue;
                 }
 
-                // Overflow: hyphenation attempt.
+                // Overflow: hyphenation attempt — INCLUDING for the first atom
+                // of the line. Un mot plus large que la colonne doit d'abord
+                // tenter ses points de coupe ; le débordement dans la marge
+                // n'est que le dernier recours (mot incoupable trop large).
                 if (atom.Breaks != null && atom.Breaks.Count > 0
                     && style.HyphenConsecutiveLimit > 0
                     && consecutiveHyphens < style.HyphenConsecutiveLimit)
@@ -901,6 +904,20 @@ namespace UniversSale.Print
                         TrimTrailingSpaces(line);
                         return line;
                     }
+                }
+
+                // Last resort: nothing on the line yet and no exploitable cut —
+                // the atom is placed overflowing so composition always advances
+                // (never an infinite loop, never an empty line).
+                if (!contentPlaced && !atom.IsSpace)
+                {
+                    AddAtomPiece(line, atom, atom.Text, atom.SourceLength, x);
+                    contentPlaced = true;
+                    UpdateMetrics(atom, ref ascent, ref height);
+                    x += atom.Width;
+                    index++;
+                    cursor = Advance(cursor, atom);
+                    continue;
                 }
                 break;
             }
@@ -1055,7 +1072,7 @@ namespace UniversSale.Print
                 }
             }
             if (Math.Abs(delta) > 0.25 && spaces.Count > 0)
-                spaceAdjust += delta;
+                spaceAdjust += delta; // déversoir d'urgence (plafonds au backlog)
 
             var perSpace = spaces.Count > 0 ? spaceAdjust / spaces.Count : 0;
             double x = 0;
@@ -1064,7 +1081,16 @@ namespace UniversSale.Print
                 if (piece.IsSpace)
                 {
                     piece.Origin = new Point(x, 0);
-                    if (piece.SpaceWidth > 0) piece.SpaceWidth += perSpace;
+                    if (piece.SpaceWidth > 0)
+                    {
+                        piece.SpaceWidth += perSpace;
+                        // Garde de rendu : sur une ligne sur-remplie le déversoir
+                        // peut être très négatif — un espace ne descend jamais
+                        // sous JustifyWordMin % de sa largeur naturelle, sinon
+                        // les mots se chevauchent.
+                        var floor = piece.SpaceNatural * style.JustifyWordMin / 100.0;
+                        if (piece.SpaceWidth < floor) piece.SpaceWidth = floor;
+                    }
                     x += piece.SpaceWidth;
                     continue;
                 }
@@ -1324,12 +1350,20 @@ namespace UniversSale.Print
                 foreach (var index in page.NoteIndices)
                     total += ParagraphHeight(Current.NoteParagraphs[index]) + NoteGap;
                 var y = top + contentHeight - total + NotesRuleGap;
+                // Garde de rendu : une pile de notes plus haute que la page
+                // (note-fleuve sur page quasi vide) remonterait AU-DESSUS du
+                // bloc de texte et se dessinerait par-dessus lui. Le filet ne
+                // monte jamais plus haut que le bloc ; les lignes qui débordent
+                // sous la page sont tronquées plutôt qu'empiétantes.
+                if (y - 5 < top) y = top + 5;
                 page.NotesRuleY = y - 5;
+                var bottom = top + contentHeight;
                 foreach (var index in page.NoteIndices)
                 {
                     var layout = Current.NoteParagraphs[index];
                     for (var l = 0; l < layout.Lines.Count; l++)
                     {
+                        if (y + layout.Lines[l].Height > bottom + 0.5) break; // tronqué
                         page.NoteLines.Add(new PlacedLine { ParagraphIndex = index, LineIndex = l, Y = y });
                         y += layout.Lines[l].Height;
                     }

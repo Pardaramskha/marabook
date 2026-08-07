@@ -23,6 +23,13 @@ namespace UniversSale.Model
         public string Name = "Sans titre";
         public string Author = "";
 
+        // Runtime only, set at load — never serialized. A file written by a
+        // NEWER Marabook (manifest version > FormatVersion) opens read-only:
+        // saving it with this version would silently destroy every field this
+        // version does not know about.
+        public bool ReadOnlyNewerFormat;
+        public int LoadedFormatVersion;
+
         // Scene separator (Format bar + project settings). A null font means
         // "use the body style's font".
         public string SeparatorText = "***";

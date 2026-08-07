@@ -36,7 +36,13 @@ namespace UniversSale.Model
         public bool HyphenationEnabled = true;
         public int HyphenMinWordLength = 5;
         public int HyphenMinBefore = 2;   // après les X premières lettres
-        public int HyphenMinAfter = 2;    // avant les X dernières lettres
+        // L'usage français impose 3 lettres minimum rejetées à la ligne (les
+        // fins en « -ce », « -re », « -te » sont fautives). Défaut porté de
+        // 2 à 3 au batch 24 — les styles déjà PERSISTÉS gardent leur valeur :
+        // la sérialisation garde 2 pour sentinelle (PlotFile écrit la clé
+        // « hyphenAfter » dès que la valeur diffère de 2, et lit 2 en absence
+        // de clé), un projet mis en page ne change donc jamais sous son auteur.
+        public int HyphenMinAfter = 3;    // avant les X dernières lettres
         public int HyphenConsecutiveLimit = 3;
 
         // --- Justification (composer 4b ; percentages, 100 = 100 %) ---

@@ -12,17 +12,29 @@ using System.Text;
 
 namespace UniversSale
 {
+    /// <summary>Raised on malformed JSON — including nesting beyond
+    /// Json.MaxDepth, which would otherwise be a StackOverflowException:
+    /// uncatchable in .NET, the process dies without a message or a save.</summary>
+    public class JsonException : Exception
+    {
+        public JsonException(string message) : base(message) { }
+    }
+
     public static class Json
     {
+        /// <summary>Maximum nesting depth accepted, reading AND writing. Real
+        /// .plot files stay under ~20; only corrupt or hostile files go deeper.</summary>
+        public const int MaxDepth = 256;
+
         // ------------------------------------------------------- reading
 
         public static object Parse(string text)
         {
             var pos = 0;
-            var v = ParseValue(text, ref pos);
+            var v = ParseValue(text, ref pos, 0);
             SkipWhitespace(text, ref pos);
             if (pos < text.Length)
-                throw new Exception("JSON: trailing characters at position " + pos);
+                throw new JsonException("JSON: trailing characters at position " + pos);
             return v;
         }
 
@@ -72,13 +84,16 @@ namespace UniversSale
                 pos++;
         }
 
-        private static object ParseValue(string s, ref int pos)
+        private static object ParseValue(string s, ref int pos, int depth)
         {
+            if (depth > MaxDepth)
+                throw new JsonException("JSON: nesting deeper than " + MaxDepth
+                    + " levels at position " + pos + " — corrupt file?");
             SkipWhitespace(s, ref pos);
-            if (pos >= s.Length) throw new Exception("JSON: unexpected end of input");
+            if (pos >= s.Length) throw new JsonException("JSON: unexpected end of input");
             var c = s[pos];
-            if (c == '{') return ParseObject(s, ref pos);
-            if (c == '[') return ParseList(s, ref pos);
+            if (c == '{') return ParseObject(s, ref pos, depth);
+            if (c == '[') return ParseList(s, ref pos, depth);
             if (c == '"') return ParseString(s, ref pos);
             if (c == 't') { Expect(s, ref pos, "true"); return true; }
             if (c == 'f') { Expect(s, ref pos, "false"); return false; }
@@ -93,7 +108,7 @@ namespace UniversSale
             pos += word.Length;
         }
 
-        private static Dictionary<string, object> ParseObject(string s, ref int pos)
+        private static Dictionary<string, object> ParseObject(string s, ref int pos, int depth)
         {
             var result = new Dictionary<string, object>();
             pos++;   // '{'
@@ -109,7 +124,7 @@ namespace UniversSale
                 if (pos >= s.Length || s[pos] != ':')
                     throw new Exception("JSON: \":\" expected at position " + pos);
                 pos++;
-                result[name] = ParseValue(s, ref pos);
+                result[name] = ParseValue(s, ref pos, depth + 1);
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length)
                     throw new Exception("JSON: unterminated object");
@@ -119,7 +134,7 @@ namespace UniversSale
             }
         }
 
-        private static List<object> ParseList(string s, ref int pos)
+        private static List<object> ParseList(string s, ref int pos, int depth)
         {
             var result = new List<object>();
             pos++;   // '['
@@ -127,7 +142,7 @@ namespace UniversSale
             if (pos < s.Length && s[pos] == ']') { pos++; return result; }
             while (true)
             {
-                result.Add(ParseValue(s, ref pos));
+                result.Add(ParseValue(s, ref pos, depth + 1));
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length)
                     throw new Exception("JSON: unterminated array");
@@ -188,12 +203,15 @@ namespace UniversSale
         public static string Write(object value)
         {
             var sb = new StringBuilder();
-            WriteValue(sb, value);
+            WriteValue(sb, value, 0);
             return sb.ToString();
         }
 
-        private static void WriteValue(StringBuilder sb, object v)
+        private static void WriteValue(StringBuilder sb, object v, int depth)
         {
+            if (depth > MaxDepth)
+                throw new JsonException("JSON: value nested deeper than " + MaxDepth
+                    + " levels — cyclic or pathological structure?");
             if (v == null) { sb.Append("null"); return; }
             if (v is bool) { sb.Append((bool)v ? "true" : "false"); return; }
             if (v is string) { WriteString(sb, (string)v); return; }
@@ -215,7 +233,7 @@ namespace UniversSale
                     first = false;
                     WriteString(sb, kv.Key);
                     sb.Append(':');
-                    WriteValue(sb, kv.Value);
+                    WriteValue(sb, kv.Value, depth + 1);
                 }
                 sb.Append('}');
                 return;
@@ -229,7 +247,7 @@ namespace UniversSale
                 {
                     if (!first) sb.Append(',');
                     first = false;
-                    WriteValue(sb, item);
+                    WriteValue(sb, item, depth + 1);
                 }
                 sb.Append(']');
                 return;

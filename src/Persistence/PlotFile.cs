@@ -18,11 +18,24 @@ namespace UniversSale.Persistence
         public const string Extension = ".plot";
         public const string OpenFilter = "Projets Univers Sale (*.plot)|*.plot|Tous les fichiers (*.*)|*.*";
         public const string SaveFilter = "Projet Univers Sale (*.plot)|*.plot|Tous les fichiers (*.*)|*.*";
+        // DOCTRINE DU FORMAT — tout changement de format passe par ici :
+        //   1. incrémenter FormatVersion ;
+        //   2. documenter ci-dessous ce que la version AJOUTE ;
+        //   3. donner un défaut à chaque nouveau champ (rétrocompatibilité
+        //      descendante perpétuelle : un vieux .plot se charge toujours) ;
+        //   4. ne JAMAIS réutiliser une clé existante pour un autre sens.
+        // À l'ouverture, un manifeste de version SUPÉRIEURE passe le projet en
+        // lecture seule (Project.ReadOnlyNewerFormat) : le réécrire avec cette
+        // version détruirait silencieusement les champs inconnus.
         // v2: pivot + styles; v3: sheets, templates, media;
         // v4: notes, per-item icons, image store, lists, page breaks, page setup;
         // v5: books (metadata + gabarit), per-document page setup;
         // v6: en-têtes/pieds, gabarits de pages, veuves/orphelines débrayées.
         private const int FormatVersion = 6;
+
+        // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
+        // récursive à l'écriture (BuildNode) comme à la lecture.
+        private const int MaxTreeDepth = 256;
 
         // ------------------------------------------------------- writing
 
@@ -36,6 +49,18 @@ namespace UniversSale.Persistence
             // mid-save can never corrupt the project. The previous version becomes .bak.
             var tempPath = path + ".tmp";
             project.PurgeUnusedImages();
+
+            // Deux items de même id créeraient deux entrées texts/<id>.json :
+            // le zip les accepte, GetEntry n'en relit qu'une — un document
+            // serait perdu SANS ERREUR. C'est toujours un bug en amont :
+            // refuser d'écrire plutôt que de persister la perte.
+            var ids = new HashSet<string>();
+            foreach (var item in project.AllItems())
+                if (!ids.Add(item.Id))
+                    throw new InvalidOperationException(
+                        "Bug interne : deux éléments partagent l'identifiant « "
+                        + item.Id + " » (dont « " + item.Title + " »). "
+                        + "Enregistrement refusé pour ne perdre aucun document.");
             using (var stream = new FileStream(tempPath, FileMode.Create))
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
             {
@@ -110,7 +135,7 @@ namespace UniversSale.Persistence
                 manifest["journal"] = journal;
             }
             var roots = new List<object>();
-            foreach (var root in project.Roots) roots.Add(BuildNode(root));
+            foreach (var root in project.Roots) roots.Add(BuildNode(root, 0));
             manifest["binder"] = roots;
             return manifest;
         }
@@ -134,8 +159,15 @@ namespace UniversSale.Persistence
             return p;
         }
 
-        private static Dictionary<string, object> BuildNode(BinderItem item)
+        private static Dictionary<string, object> BuildNode(BinderItem item, int depth)
         {
+            // Une arborescence pathologique (cycle Parent/Children, fichier
+            // trafiqué) ferait déborder la pile — irrattrapable en .NET : le
+            // processus meurt sans message ET sans sauvegarde. On lève propre.
+            if (depth > MaxTreeDepth)
+                throw new InvalidOperationException(
+                    "L'arborescence de la Pile dépasse " + MaxTreeDepth
+                    + " niveaux : probable cycle. Enregistrement interrompu.");
             var node = new Dictionary<string, object>();
             node["id"] = item.Id;
             node["title"] = item.Title;
@@ -212,7 +244,7 @@ namespace UniversSale.Persistence
             if (item.Children.Count > 0)
             {
                 var children = new List<object>();
-                foreach (var child in item.Children) children.Add(BuildNode(child));
+                foreach (var child in item.Children) children.Add(BuildNode(child, depth + 1));
                 node["children"] = children;
             }
             return node;
@@ -361,6 +393,15 @@ namespace UniversSale.Persistence
 
         public static Project Load(string path)
         {
+            return Load(path, null);
+        }
+
+        /// <summary>Loads a .plot. The manifest is the only fatal entry: any
+        /// other unreadable entry (text, image, media, styles) degrades to a
+        /// warning so a 119/120-chapters project still opens. Warnings are
+        /// collected into <paramref name="warnings"/> when provided.</summary>
+        public static Project Load(string path, List<string> warnings)
+        {
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read))
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
             {
@@ -374,6 +415,14 @@ namespace UniversSale.Persistence
                     throw new InvalidDataException("Le manifeste du projet est illisible.");
 
                 var project = new Project();
+
+                // A2 — le champ version, écrit depuis la v1, est enfin LU.
+                // Absent ou illisible = v1 (fichiers de la phase 0). Supérieur
+                // à FormatVersion = fichier d'un Marabook plus récent : ouvert
+                // en lecture seule (la sauvegarde perdrait les champs inconnus).
+                project.LoadedFormatVersion = (int)Json.AsDouble(Json.Field(manifest, "version"), 1);
+                if (project.LoadedFormatVersion > FormatVersion)
+                    project.ReadOnlyNewerFormat = true;
                 project.Name = Json.AsString(Json.Field(manifest, "name")) ?? "Sans titre";
                 project.Author = Json.AsString(Json.Field(manifest, "author")) ?? "";
                 project.SeparatorText = Json.AsString(Json.Field(manifest, "separatorText")) ?? "***";
@@ -406,11 +455,22 @@ namespace UniversSale.Persistence
 
                 var stylesEntry = archive.GetEntry("styles.json");
                 if (stylesEntry != null)
-                    project.Styles = ReadStyles(ReadEntry(stylesEntry));
+                    try { project.Styles = ReadStyles(ReadEntry(stylesEntry)); }
+                    catch (Exception error)
+                    {
+                        project.Styles = StyleSheet.CreateDefault();
+                        Warn(warnings, "Feuille de styles illisible ("
+                            + error.Message + ") : styles par défaut appliqués.");
+                    }
 
                 var templatesEntry = archive.GetEntry("sheets/templates.json");
                 if (templatesEntry != null)
-                    project.Templates = ReadTemplates(ReadEntry(templatesEntry));
+                    try { project.Templates = ReadTemplates(ReadEntry(templatesEntry)); }
+                    catch (Exception error)
+                    {
+                        Warn(warnings, "Modèles de fiches illisibles ("
+                            + error.Message + ") : modèles par défaut conservés.");
+                    }
 
                 var page = Json.AsObject(Json.Field(manifest, "page"));
                 if (page != null) project.Page = ReadPageSetup(page);
@@ -422,15 +482,23 @@ namespace UniversSale.Persistence
                     var dot = file.IndexOf('.');
                     var id = dot < 0 ? file : file.Substring(0, dot);
                     if (id.Length == 0) continue;
-                    using (var imageStream = entry.Open())
-                    using (var buffer = new MemoryStream())
+                    try
                     {
-                        imageStream.CopyTo(buffer);
-                        project.Images[id] = new ProjectImage
+                        using (var imageStream = entry.Open())
+                        using (var buffer = new MemoryStream())
                         {
-                            Bytes = buffer.ToArray(),
-                            Extension = dot < 0 ? "" : file.Substring(dot)
-                        };
+                            imageStream.CopyTo(buffer);
+                            project.Images[id] = new ProjectImage
+                            {
+                                Bytes = buffer.ToArray(),
+                                Extension = dot < 0 ? "" : file.Substring(dot)
+                            };
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        Warn(warnings, "Image « " + entry.FullName
+                            + " » illisible (" + error.Message + ") : ignorée.");
                     }
                 }
 
@@ -438,7 +506,7 @@ namespace UniversSale.Persistence
                 if (roots != null)
                     foreach (var root in roots)
                     {
-                        var item = ReadNode(root, archive);
+                        var item = ReadNode(root, archive, warnings);
                         if (item != null) project.Roots.Add(item);
                     }
 
@@ -448,9 +516,29 @@ namespace UniversSale.Persistence
                 EnsureCategory(project, "Fiches", Project.KeySheets);
                 EnsureCategory(project, "Corbeille", Project.KeyTrash);
 
+                // A5 — deux items de même id : GetEntry n'aurait relu qu'un
+                // texte pour les deux. Le second reçoit un id neuf (ordre et
+                // contenu conservés — les octets sont déjà en mémoire) et la
+                // sauvegarde suivante ré-écrira deux entrées distinctes.
+                var seenIds = new HashSet<string>();
+                foreach (var item in project.AllItems())
+                    if (!seenIds.Add(item.Id))
+                    {
+                        var old = item.Id;
+                        item.Id = Guid.NewGuid().ToString("N");
+                        Warn(warnings, "Deux éléments partageaient l'identifiant « "
+                            + old + " » : « " + item.Title
+                            + " » a reçu un identifiant neuf.");
+                    }
+
                 project.RelinkParents();
                 return project;
             }
+        }
+
+        private static void Warn(List<string> warnings, string message)
+        {
+            if (warnings != null) warnings.Add(message);
         }
 
         private static string ReadEntry(ZipArchiveEntry entry)
@@ -566,7 +654,7 @@ namespace UniversSale.Persistence
             return templates; // an empty list is legitimate (user deleted them all)
         }
 
-        private static BinderItem ReadNode(object node, ZipArchive archive)
+        private static BinderItem ReadNode(object node, ZipArchive archive, List<string> warnings)
         {
             var obj = Json.AsObject(node);
             if (obj == null) return null;
@@ -630,7 +718,7 @@ namespace UniversSale.Persistence
             }
 
             if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
-                item.Document = ReadDocument(item.Id, archive);
+                item.Document = ReadDocument(item, archive, warnings);
 
             if (item.Kind == ItemKind.Sheet)
             {
@@ -659,11 +747,20 @@ namespace UniversSale.Persistence
                 item.MediaExtension = Json.AsString(Json.Field(obj, "mediaExt"));
                 var media = archive.GetEntry("research/" + item.Id + (item.MediaExtension ?? ""));
                 if (media != null)
-                    using (var mediaStream = media.Open())
-                    using (var buffer = new MemoryStream())
+                    try
                     {
-                        mediaStream.CopyTo(buffer);
-                        item.MediaBytes = buffer.ToArray();
+                        using (var mediaStream = media.Open())
+                        using (var buffer = new MemoryStream())
+                        {
+                            mediaStream.CopyTo(buffer);
+                            item.MediaBytes = buffer.ToArray();
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        item.LoadDamaged = true;
+                        Warn(warnings, "Média « " + item.Title + " » illisible ("
+                            + error.Message + ") : carte conservée, contenu absent.");
                     }
             }
 
@@ -671,23 +768,37 @@ namespace UniversSale.Persistence
             if (children != null)
                 foreach (var child in children)
                 {
-                    var childItem = ReadNode(child, archive);
+                    var childItem = ReadNode(child, archive, warnings);
                     if (childItem != null) item.Children.Add(childItem);
                 }
             return item;
         }
 
-        private static TextDocument ReadDocument(string id, ZipArchive archive)
+        /// <summary>Reads one item's text entry. An unreadable entry (truncated
+        /// JSON, corrupt deflate…) must never fail the whole project: the item
+        /// opens as an empty document, title preserved, flagged LoadDamaged.</summary>
+        private static TextDocument ReadDocument(BinderItem item, ZipArchive archive,
+            List<string> warnings)
         {
-            var jsonEntry = archive.GetEntry("texts/" + id + ".json");
-            if (jsonEntry != null)
-                return ParseDocument(ReadEntry(jsonEntry));
+            try
+            {
+                var jsonEntry = archive.GetEntry("texts/" + item.Id + ".json");
+                if (jsonEntry != null)
+                    return ParseDocument(ReadEntry(jsonEntry));
 
-            // v1 fallback: plain text entry.
-            var txtEntry = archive.GetEntry("texts/" + id + ".txt");
-            if (txtEntry != null)
-                return TextDocument.FromPlainText(ReadEntry(txtEntry));
-
+                // v1 fallback: plain text entry.
+                var txtEntry = archive.GetEntry("texts/" + item.Id + ".txt");
+                if (txtEntry != null)
+                    return TextDocument.FromPlainText(ReadEntry(txtEntry));
+            }
+            catch (Exception error)
+            {
+                item.LoadDamaged = true;
+                Warn(warnings, "Texte de « " + item.Title + " » illisible ("
+                    + error.Message + ") : document ouvert vide. "
+                    + "N'enregistrez pas si vous espérez récupérer ce texte "
+                    + "d'une copie de secours.");
+            }
             return new TextDocument { Paragraphs = { new TextParagraph() } };
         }
 

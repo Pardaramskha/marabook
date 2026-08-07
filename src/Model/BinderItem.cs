@@ -113,6 +113,11 @@ namespace UniversSale.Model
         // Runtime only, rebuilt after load — never serialized.
         public BinderItem Parent;
 
+        // Runtime only, set at load — never serialized. True when this item's
+        // text entry was unreadable in the .plot: the document opened empty
+        // (title preserved) instead of failing the whole project.
+        public bool LoadDamaged;
+
         public bool IsCategory { get { return Kind == ItemKind.Category; } }
 
         /// <summary>Items that may hold children. Texts qualify (Scrivener
