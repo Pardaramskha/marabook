@@ -41,12 +41,21 @@ namespace UniversSale.Correction
             var kept = new List<Finding>();
             foreach (var finding in findings)
                 if (!IsFiltered(document, finding)) kept.Add(finding);
+            // Tri TOTAL (batch 27, lot 0.4) : List.Sort est un introsort
+            // INSTABLE — deux signalements au même (paragraphe, offset), cas
+            // normal en typographie, s'ordonnaient arbitrairement. Le
+            // départage descend jusqu'à la longueur pour que deux passes
+            // rendent toujours le même ordre.
             kept.Sort(delegate(Finding a, Finding b)
             {
                 if (a.ParagraphIndex != b.ParagraphIndex)
                     return a.ParagraphIndex.CompareTo(b.ParagraphIndex);
                 if (a.Start != b.Start) return a.Start.CompareTo(b.Start);
-                return string.CompareOrdinal(a.CheckerId, b.CheckerId);
+                var checker = string.CompareOrdinal(a.CheckerId, b.CheckerId);
+                if (checker != 0) return checker;
+                var rule = string.CompareOrdinal(a.RuleId, b.RuleId);
+                if (rule != 0) return rule;
+                return a.Length.CompareTo(b.Length);
             });
             return kept;
         }

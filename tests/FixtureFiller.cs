@@ -4,17 +4,25 @@ using System.Reflection;
 
 namespace UniversSale.Tests
 {
-    /// <summary>Remplissage réflexif de la fixture C1 (batch 26, lot 0.1) :
-    /// tout champ public SCALAIRE encore à sa valeur de constructeur reçoit
-    /// une sentinelle discriminante. Un champ AJOUTÉ au modèle mais oublié
-    /// par la sérialisation fait donc échouer FullRoundTrip sans que
-    /// personne n'ait à penser à mettre la fixture à jour — c'est la moitié
-    /// du verrou qui manquait (l'autre moitié, Clone, est C3).
+    /// <summary>Remplissage réflexif de la fixture C1 (batch 26, durci au
+    /// batch 27 lot 0.5) : tout champ public SCALAIRE encore à sa valeur de
+    /// constructeur reçoit une sentinelle discriminante. Un champ AJOUTÉ au
+    /// modèle mais oublié par la sérialisation fait donc échouer
+    /// FullRoundTrip sans que personne n'ait à penser à mettre la fixture à
+    /// jour — c'est la moitié du verrou qui manquait (l'autre, Clone, est C3).
     ///
-    /// Les listes d'objets, dictionnaires et sous-objets ne sont PAS créés
-    /// ici : la fixture les instancie à la main et DeepCompare les parcourt
-    /// — un sous-objet ajouté au modèle doit être ajouté à la fixture (le
-    /// filler remplit alors ses scalaires).</summary>
+    /// DEUX RÈGLES DE DURCISSEMENT (0.5) :
+    /// 1. Un défaut DÉLIBÉRÉ de la fixture est inviolable : le champ posé à
+    ///    la main À SA VALEUR PAR DÉFAUT se déclare par nom à l'appel
+    ///    (« Fill(header, "Italic") ») — le filler ne peut plus l'écraser.
+    /// 2. Un type NON GÉRÉ fait ÉCHOUER le filler (enum, int?, long, float,
+    ///    DateTime, string[], List&lt;int&gt;, dictionnaires de scalaires…) sauf
+    ///    exclusion explicite dans NoFill — c'était le trou résiduel du
+    ///    verrou. Les types du MODÈLE (classes UniversSale.*, listes et
+    ///    dictionnaires de modèles, byte[]) restent délégués à la fixture
+    ///    manuelle + DeepCompare : un Fill récursif serait une fausse bonne
+    ///    idée (sous-objets légitimement null, cycles via Parent, ids
+    ///    croisés écrasés).</summary>
     public static class FixtureFiller
     {
         /// <summary>Champs qu'il ne faut PAS remplir aveuglément. RÈGLE :
@@ -58,19 +66,28 @@ namespace UniversSale.Tests
             "BinderItem.HeaderGapMm",       // gabarit de pages
             "BinderItem.FooterGapMm",       // gabarit de pages
             "BinderItem.HeaderHideFirst",   // gabarit de pages
-            "BinderItem.FooterHideFirst"    // gabarit de pages
+            "BinderItem.FooterHideFirst",   // gabarit de pages
+            // --- types non scalaires exercés à la main (règle 2 du 0.5).
+            "BinderItem.Kind",              // enum : détermine le jeu de clés
+            "BinderItem.FieldValues"        // Dictionary<string,string> — la
+                                            //   fiche héroïne l'exerce
         };
 
         /// <summary>Remplit les scalaires encore à leur défaut de l'objet
         /// donné (jamais ses sous-objets). Sûre à appeler APRÈS le
-        /// remplissage manuel : un champ déjà exercé n'est pas touché.</summary>
-        public static void Fill(object target)
+        /// remplissage manuel : un champ déjà exercé n'est pas touché.
+        /// deliberateDefaults : les champs que la fixture pose EXPRÈS à leur
+        /// valeur par défaut (« Italic = false ») — l'intention est
+        /// inviolable, le filler les saute.</summary>
+        public static void Fill(object target, params string[] deliberateDefaults)
         {
             var type = target.GetType();
             var fresh = Activator.CreateInstance(type);
+            var deliberate = new HashSet<string>(deliberateDefaults);
             foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
             {
                 if (NoFill.Contains(type.Name + "." + field.Name)) continue;
+                if (deliberate.Contains(field.Name)) continue;
                 var fieldType = field.FieldType;
                 var current = field.GetValue(target);
                 var initial = field.GetValue(fresh);
@@ -107,10 +124,45 @@ namespace UniversSale.Tests
                     if (list != null && (seed == null || list.Count == seed.Count))
                         list.Add("sentinelle-" + field.Name);
                 }
-                // enums, listes d'objets, dictionnaires, sous-objets :
-                // instanciés à la main par la fixture, couverts par
-                // DeepCompare (voir l'en-tête de classe).
+                else if (IsDelegated(fieldType))
+                {
+                    // Types du modèle : instanciés à la main par la fixture,
+                    // parcourus par DeepCompare — jamais remplis ici.
+                }
+                else
+                    throw new InvalidOperationException(
+                        "FixtureFiller : type non géré pour " + type.Name + "."
+                        + field.Name + " (" + fieldType.Name + ") — le champ"
+                        + " échapperait au verrou C1. Gérer le type, ou"
+                        + " l'ajouter à NoFill avec la preuve qu'il est"
+                        + " exercé à la main.");
             }
+        }
+
+        /// <summary>Vrai pour les types dont la couverture appartient à la
+        /// fixture manuelle + DeepCompare : classes du modèle, listes et
+        /// dictionnaires DE modèles, byte[] (blobs de contenu semés à la
+        /// main). Tout le reste est un trou → Fill lève.</summary>
+        private static bool IsDelegated(Type type)
+        {
+            if (type == typeof(byte[])) return true;
+            if (IsModelType(type)) return true;
+            if (type.IsGenericType)
+            {
+                var definition = type.GetGenericTypeDefinition();
+                var arguments = type.GetGenericArguments();
+                if (definition == typeof(List<>))
+                    return IsModelType(arguments[0]);
+                if (definition == typeof(Dictionary<,>))
+                    return IsModelType(arguments[1]);
+            }
+            return false;
+        }
+
+        private static bool IsModelType(Type type)
+        {
+            return type.IsClass && type.Namespace != null
+                && type.Namespace.StartsWith("UniversSale", StringComparison.Ordinal);
         }
     }
 }

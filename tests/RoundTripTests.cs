@@ -400,12 +400,14 @@ namespace UniversSale.Tests
             FixtureFiller.Fill(project.Page);
             FixtureFiller.Fill(project.Journal);
             FixtureFiller.Fill(project.Journal.Days[0]);
-            FixtureFiller.Fill(project.Styles.Find("special"));
+            // « KeepWithPrevious = false » et « Italic = false » sont des
+            // défauts DÉLIBÉRÉS de la fixture (0.5) : déclarés, inviolables.
+            FixtureFiller.Fill(project.Styles.Find("special"), "KeepWithPrevious");
             FixtureFiller.Fill(template);
             FixtureFiller.Fill(template.Fields[0]);
             FixtureFiller.Fill(chapter);
             FixtureFiller.Fill(chapter.Page);
-            FixtureFiller.Fill(chapter.Header);
+            FixtureFiller.Fill(chapter.Header, "Italic");
             FixtureFiller.Fill(chapter.Footer);
             FixtureFiller.Fill(book);
             FixtureFiller.Fill(book.Book);

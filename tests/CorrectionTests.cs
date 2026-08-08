@@ -27,6 +27,7 @@ namespace UniversSale.Tests
             IgnoreLists(t);
             IgnoreHereIsPositional(t);
             AggregationAndOrder(t);
+            TotalOrder(t);
             FiftyThousandWords(t);
         }
 
@@ -230,34 +231,61 @@ namespace UniversSale.Tests
 
         // ------------------------------------------------------------ mesure
 
-        private static void FiftyThousandWords(Harness t)
+        /// <summary>Le chapitre de mesure : 50 000 mots. L'ancien générateur
+        /// (« seed * 31 % 97 + 1 ») avait une PÉRIODE DE 48 — il mesurait une
+        /// boucle de 48 mots répétée mille fois (0.5, batch 27). Celui-ci :
+        /// LCG pleine période + vocabulaire de 2 000 formes distinctes tiré
+        /// en loi zipfienne (une tête fréquente, une longue queue) — la
+        /// physionomie d'un vrai texte.</summary>
+        public static TextDocument FiftyThousandWordChapter()
         {
-            // Un « chapitre » de 50 000 mots : 500 paragraphes de 100 mots,
-            // vocabulaire tournant assez large pour un texte plausible.
-            var vocabulary = new[]
+            var onsets = new[]
             {
-                "marabout", "plume", "silence", "fenetre", "cendre", "riviere",
-                "montagne", "lumiere", "ombre", "chemin", "visage", "regard",
-                "souffle", "matin", "soir", "pierre", "sable", "foret",
-                "orage", "brume", "paupiere", "murmure", "vertige", "frisson"
+                "mar", "bel", "cor", "dun", "fer", "gal", "hor", "jal",
+                "lum", "nov", "pel", "quar", "ros", "sab", "tor", "vel",
+                "arg", "bru", "cha", "dor", "fla", "gri", "mon", "pra",
+                "sil", "tan", "ver", "bla", "cre", "dri", "fon", "gue",
+                "lan", "mor", "nue", "pil", "rou", "sen", "tul", "vau"
             };
+            var rimes = new[]
+            {
+                "abe", "aile", "ance", "arde", "asse", "atre", "aume", "avre",
+                "eche", "eille", "ence", "erne", "esse", "estre", "eule", "euse",
+                "iche", "ienne", "igne", "ille", "ine", "ise", "isse", "ithe",
+                "oche", "oire", "onde", "onne", "orne", "osse", "ote", "ouche",
+                "oule", "ourde", "ouse", "ule", "umes", "ure", "usse", "yre",
+                "aison", "ement", "erie", "esque", "iere", "oison", "ude", "ynthe"
+            };
+            var vocabulary = new List<string>();
+            foreach (var onset in onsets)
+                foreach (var rime in rimes)
+                    vocabulary.Add(onset + rime);
+
             var document = new TextDocument();
-            var seed = 0;
+            long seed = 12345;
             for (var p = 0; p < 500; p++)
             {
                 var sb = new StringBuilder();
                 for (var w = 0; w < 100; w++)
                 {
                     if (w > 0) sb.Append(' ');
-                    sb.Append(vocabulary[seed % vocabulary.Length]);
-                    seed = seed * 31 % 97 + 1; // déterministe, pas de Random
+                    seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF;
+                    var uniform = seed / 2147483647.0;
+                    // Zipf approché : le carré pousse vers la tête du lexique.
+                    var index = (int)(vocabulary.Count * uniform * uniform);
+                    sb.Append(vocabulary[Math.Min(index, vocabulary.Count - 1)]);
                 }
                 sb.Append('.');
                 var paragraph = new TextParagraph();
                 paragraph.Runs.Add(new TextRun { Text = sb.ToString() });
                 document.Paragraphs.Add(paragraph);
             }
+            return document;
+        }
 
+        private static void FiftyThousandWords(Harness t)
+        {
+            var document = FiftyThousandWordChapter();
             var host = Host(new RepetitionChecker());
             host.Run(document, null); // chauffe (JIT)
             var watch = Stopwatch.StartNew();
@@ -267,7 +295,60 @@ namespace UniversSale.Tests
                 + " ms (" + findings.Count + " signalements)");
             t.Check(watch.ElapsedMilliseconds < 500,
                 "la passe complète tient largement sous la demi-seconde");
-            t.Check(findings.Count > 0, "le texte-jouet produit des répétitions");
+            t.Check(findings.Count > 0, "le texte zipfien produit des répétitions");
+        }
+
+        /// <summary>0.4 — le tri du pilote est TOTAL : deux signalements au
+        /// même (paragraphe, offset) — guillemet droit et espace insécable au
+        /// même endroit, le cas normal en typographie — s'ordonnent par
+        /// règle puis par longueur, reproductiblement.</summary>
+        private sealed class TieChecker : IChecker
+        {
+            public string Id { get { return "typo-jouet"; } }
+            public string Label { get { return "Typographie-jouet"; } }
+            public FindingCategory Category { get { return FindingCategory.Typography; } }
+
+            public List<Finding> Check(TextDocument document, StyleSheet styles)
+            {
+                // Volontairement dans le MAUVAIS ordre : le pilote trie.
+                var findings = new List<Finding>();
+                findings.Add(new Finding
+                {
+                    ParagraphIndex = 0, Start = 3, Length = 2,
+                    Category = FindingCategory.Typography,
+                    Message = "b", RuleId = "zz-nbsp", CheckerId = Id, Word = "b"
+                });
+                findings.Add(new Finding
+                {
+                    ParagraphIndex = 0, Start = 3, Length = 4,
+                    Category = FindingCategory.Typography,
+                    Message = "c", RuleId = "aa-quote", CheckerId = Id, Word = "c"
+                });
+                findings.Add(new Finding
+                {
+                    ParagraphIndex = 0, Start = 3, Length = 1,
+                    Category = FindingCategory.Typography,
+                    Message = "a", RuleId = "aa-quote", CheckerId = Id, Word = "a"
+                });
+                return findings;
+            }
+        }
+
+        private static void TotalOrder(Harness t)
+        {
+            var document = Document("N'importe quel texte.");
+            var first = Host(new TieChecker()).Run(document, null);
+            var second = Host(new TieChecker()).Run(document, null);
+            t.Equal(3, first.Count, "les trois ex æquo survivent");
+            t.Equal("aa-quote", first[0].RuleId, "départage par règle d'abord");
+            t.Equal(1, first[0].Length, "puis par longueur (1 avant 4)");
+            t.Equal(4, first[1].Length, "le second aa-quote suit");
+            t.Equal("zz-nbsp", first[2].RuleId, "la règle zz ferme la marche");
+            var same = true;
+            for (var i = 0; i < first.Count; i++)
+                if (first[i].RuleId != second[i].RuleId
+                    || first[i].Length != second[i].Length) same = false;
+            t.Check(same, "deux passes rendent exactement le même ordre");
         }
     }
 }
