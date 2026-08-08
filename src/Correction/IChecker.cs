@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using UniversSale.Model;
 
 namespace UniversSale.Correction
@@ -44,5 +46,23 @@ namespace UniversSale.Correction
         /// signalements sont locaux au paragraphe ; ParagraphIndex est posé
         /// par le pilote au moment du réemploi).</summary>
         List<Finding> CheckParagraph(TextParagraph paragraph, StyleSheet styles);
+    }
+
+    /// <summary>Un vérificateur DIFFÉRÉ (batch 29, lot A) : tout ce qui passe
+    /// par un processus externe — Grammalecte répond en dizaines ou centaines
+    /// de millisecondes, le brancher sur le chemin synchrone gèlerait le fil
+    /// UI à chaque cycle. Le pilote ne l'attend JAMAIS : il lance la demande,
+    /// rend la passe courante sans elle, et fusionne la réponse au cycle
+    /// suivant si le paragraphe n'a pas changé entre-temps (résultat périmé =
+    /// jeté). Contraintes : portée ParagraphLocal obligatoire (le cache
+    /// d'empreinte est l'arbitre de la péremption) ; CheckParagraph n'est
+    /// jamais appelé (NotSupportedException) ; la tâche honore le token —
+    /// fermer le projet ou quitter ne doit ni attendre ni planter ; un échec
+    /// (processus mort, timeout, réponse illisible) rend une tâche en faute
+    /// et le vérificateur SE TAIT — jamais un point de panne.</summary>
+    public interface IDeferredChecker : IChecker
+    {
+        Task<List<Finding>> CheckParagraphAsync(TextParagraph paragraph,
+            StyleSheet styles, CancellationToken token);
     }
 }

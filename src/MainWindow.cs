@@ -997,6 +997,8 @@ namespace UniversSale
         private void OnClosingWindow(object sender, System.ComponentModel.CancelEventArgs e)
         {
             if (!ConfirmDiscard()) { e.Cancel = true; return; }
+            // Quitter n'attend jamais la correction différée (batch 29).
+            _editor.ShutdownProofing();
             AppSettings.BinderWidth = _binderCol.Width.Value > 0 ? _binderCol.Width.Value : AppSettings.BinderWidth;
             AppSettings.InspectorWidth = _inspectorCol.Width.Value > 0 ? _inspectorCol.Width.Value : AppSettings.InspectorWidth;
             AppSettings.Save();

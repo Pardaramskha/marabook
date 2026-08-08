@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using UniversSale.Correction;
 using UniversSale.Model;
 
@@ -29,7 +31,167 @@ namespace UniversSale.Tests
             AggregationAndOrder(t);
             TotalOrder(t);
             ParagraphCache(t);
+            DeferredPipeline(t);
             FiftyThousandWords(t);
+        }
+
+        // ---------------------------------------- lot A (batch 29) : différé
+
+        /// <summary>Un vérificateur différé JOUET : chaque demande rend une
+        /// tâche que le test complète lui-même (latence contrôlée à la main,
+        /// déterministe — les continuations du pilote sont synchrones).</summary>
+        private sealed class FakeDeferredChecker : IDeferredChecker
+        {
+            public readonly List<TaskCompletionSource<List<Finding>>> Requests
+                = new List<TaskCompletionSource<List<Finding>>>();
+            public readonly List<CancellationToken> Tokens
+                = new List<CancellationToken>();
+
+            public string Id { get { return "differe-jouet"; } }
+            public string Label { get { return "Différé-jouet"; } }
+            public FindingCategory Category { get { return FindingCategory.Grammar; } }
+            public CheckerScope Scope { get { return CheckerScope.ParagraphLocal; } }
+
+            public List<Finding> Check(TextDocument document, StyleSheet styles)
+            {
+                throw new NotSupportedException();
+            }
+
+            public List<Finding> CheckParagraph(TextParagraph paragraph,
+                StyleSheet styles)
+            {
+                throw new NotSupportedException(
+                    "Un différé ne se vérifie jamais en synchrone.");
+            }
+
+            public Task<List<Finding>> CheckParagraphAsync(
+                TextParagraph paragraph, StyleSheet styles,
+                CancellationToken token)
+            {
+                var source = new TaskCompletionSource<List<Finding>>();
+                Requests.Add(source);
+                Tokens.Add(token);
+                return source.Task;
+            }
+        }
+
+        private static Finding Grammar(int start, int length)
+        {
+            return new Finding
+            {
+                Start = start,
+                Length = length,
+                Category = FindingCategory.Grammar,
+                Severity = FindingSeverity.Warning,
+                Message = "accord de jouet",
+                RuleId = "gn_jouet",
+                CheckerId = "differe-jouet"
+            };
+        }
+
+        /// <summary>Lot A (batch 29) — le pipeline différé, sans WPF et sans
+        /// Grammalecte : fusion dans le bon ordre avec les synchrones,
+        /// résultat périmé jeté, annulation, échec silencieux, invalidation
+        /// de connaissance (génération).</summary>
+        private static void DeferredPipeline(Harness t)
+        {
+            // 1. La passe ne BLOQUE jamais : synchrone servi seul, fusion au
+            // cycle que l'événement déclenche, ordre positionnel respecté.
+            var fake = new FakeDeferredChecker();
+            var host = Host(new RepetitionChecker(), fake);
+            var doc = Document("Le manoir dort et le manoir ronfle.");
+            var arrived = new ManualResetEvent(false);
+            host.DeferredArrived += delegate { arrived.Set(); };
+            var first = host.Run(doc, null);
+            t.Equal(1, first.Count,
+                "le synchrone (répétition) rend SEUL, sans attendre le différé");
+            t.Equal("repetition", first[0].CheckerId, "et c'est bien lui");
+            t.Equal(1, host.PendingDeferred, "une demande différée en vol");
+            fake.Requests[0].SetResult(new List<Finding> { Grammar(0, 2) });
+            t.Check(arrived.WaitOne(2000), "l'arrivée lève l'événement");
+            var merged = host.Run(doc, null);
+            t.Equal(2, merged.Count, "fusion au cycle suivant");
+            t.Equal("differe-jouet", merged[0].CheckerId,
+                "l'ordre reste positionnel (le grammatical à 0 passe devant)");
+            t.Equal(0, host.PendingDeferred, "plus rien en vol");
+            var again = host.Run(doc, null);
+            t.Equal(1, fake.Requests.Count,
+                "paragraphe inchangé : la réponse est en cache, pas de relance");
+            t.Equal(2, again.Count, "et elle ressert");
+
+            // 2. Le résultat périmé est JETÉ : la demande A part, le
+            // paragraphe change, la demande B part — la réponse d'A arrive
+            // en RETARD et doit être ignorée (l'empreinte ne correspond plus).
+            var fakeStale = new FakeDeferredChecker();
+            var hostStale = Host(fakeStale);
+            var docStale = Document("Le paragraphe premier.");
+            var arrivedStale = new ManualResetEvent(false);
+            hostStale.DeferredArrived += delegate { arrivedStale.Set(); };
+            hostStale.Run(docStale, null); // demande A, en vol
+            docStale.Paragraphs[0].Runs[0].Text = "Le paragraphe a changé.";
+            hostStale.Run(docStale, null); // demande B
+            t.Equal(2, fakeStale.Requests.Count,
+                "le texte a changé : une seconde demande part");
+            fakeStale.Requests[0].SetResult(new List<Finding> { Grammar(5, 3) });
+            t.Check(!arrivedStale.WaitOne(150),
+                "la VIEILLE réponse est jetée en silence (pas d'événement)");
+            fakeStale.Requests[1].SetResult(new List<Finding> { Grammar(3, 6) });
+            t.Check(arrivedStale.WaitOne(2000),
+                "la réponse à jour, elle, est admise");
+            var current = hostStale.Run(docStale, null);
+            t.Equal(1, current.Count, "un seul signalement grammatical");
+            t.Equal(3, current[0].Start, "celui de la réponse À JOUR");
+
+            // 3. Annulation : changer d'écrit / fermer n'attend rien.
+            var fake2 = new FakeDeferredChecker();
+            var host2 = Host(fake2);
+            var doc2 = Document("Un autre écrit entier.");
+            var arrived2 = new ManualResetEvent(false);
+            host2.DeferredArrived += delegate { arrived2.Set(); };
+            host2.Run(doc2, null);
+            t.Equal(1, host2.PendingDeferred, "en vol");
+            host2.CancelDeferred();
+            t.Equal(0, host2.PendingDeferred,
+                "l'annulation vide le vol IMMÉDIATEMENT (sans attendre)");
+            t.Check(fake2.Tokens[0].IsCancellationRequested,
+                "le token de la tâche en route est bien annulé");
+            fake2.Requests[0].SetResult(new List<Finding> { Grammar(0, 2) });
+            t.Check(!arrived2.WaitOne(150),
+                "une réponse d'avant l'annulation est jetée (génération)");
+            host2.Run(doc2, null);
+            t.Equal(2, fake2.Requests.Count,
+                "après annulation, la demande repart au cycle suivant");
+
+            // 4. Échec du vérificateur : il se TAIT, jamais un point de panne.
+            var fake3 = new FakeDeferredChecker();
+            var host3 = Host(fake3);
+            var doc3 = Document("Texte dont l'analyse va échouer.");
+            var arrived3 = new ManualResetEvent(false);
+            host3.DeferredArrived += delegate { arrived3.Set(); };
+            host3.Run(doc3, null);
+            fake3.Requests[0].SetException(
+                new InvalidOperationException("processus mort (jouet)"));
+            t.Check(!arrived3.WaitOne(150), "l'échec ne lève pas l'événement");
+            t.Equal(0, host3.PendingDeferred, "et libère le vol");
+            t.Equal(0, host3.Run(doc3, null).Count,
+                "la passe suivante vit très bien sans lui");
+            t.Equal(2, fake3.Requests.Count,
+                "et RETENTE (le processus sera peut-être revenu)");
+
+            // 5. InvalidateCache : une réponse en vol calculée avec la
+            // connaissance d'AVANT est jetée même à texte inchangé.
+            fake3.Requests[1].SetResult(new List<Finding> { Grammar(0, 5) });
+            t.Check(arrived3.WaitOne(2000), "réponse admise (état de référence)");
+            host3.InvalidateCache();
+            arrived3.Reset();
+            host3.Run(doc3, null);
+            t.Equal(3, fake3.Requests.Count, "invalidé : relance");
+            // La réponse de la relance no 3 arrive APRÈS une nouvelle
+            // invalidation : périmée par génération, jetée.
+            host3.InvalidateCache();
+            fake3.Requests[2].SetResult(new List<Finding> { Grammar(0, 5) });
+            t.Check(!arrived3.WaitOne(150),
+                "la génération a tourné : réponse d'ancienne connaissance jetée");
         }
 
         /// <summary>Lot B (batch 27) — un vérificateur LOCAL n'est relancé

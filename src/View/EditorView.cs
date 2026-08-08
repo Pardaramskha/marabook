@@ -119,6 +119,7 @@ namespace UniversSale.View
         public UIElement CorrectionPanel { get { return _corrBar; } }
         private List<Correction.Finding> _findings = new List<Correction.Finding>();
         private DispatcherTimer _checkTimer;
+        private bool _deferredRepaintQueued; // coalescence des lots différés
         private Border _corrBar;
         private StackPanel _corrList;
         private readonly Dictionary<Correction.FindingCategory, ToggleButton> _corrFilters
@@ -185,6 +186,20 @@ namespace UniversSale.View
             _checkHost.GlobalIgnored = Settings.AppSettings.ProofIgnored;
             _checkTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
             _checkTimer.Tick += delegate { _checkTimer.Stop(); RunCheck(); };
+            // Le différé (batch 29, lot A) : l'événement arrive sur un thread
+            // du pool — UN passage Dispatcher par LOT de réponses, coalescé
+            // par le drapeau (dix réponses rapprochées = une repeinture).
+            _checkHost.DeferredArrived += delegate
+            {
+                if (_deferredRepaintQueued) return;
+                _deferredRepaintQueued = true;
+                Dispatcher.BeginInvoke(DispatcherPriority.Background,
+                    new Action(delegate
+                    {
+                        _deferredRepaintQueued = false;
+                        RunCheck(); // tout est en cache : passe quasi gratuite
+                    }));
+            };
         }
 
         public bool HasItem { get { return _item != null; } }
@@ -1898,6 +1913,13 @@ namespace UniversSale.View
         /// <summary>La connaissance des vérificateurs a changé hors édition
         /// (dictionnaire personnel retouché dans les Préférences) : cache
         /// oublié, passe relancée.</summary>
+        /// <summary>À la fermeture de l'application : annule le différé en
+        /// vol sans l'attendre (lot B y ajoutera l'arrêt du pont).</summary>
+        public void ShutdownProofing()
+        {
+            _checkHost.CancelDeferred();
+        }
+
         public void RefreshProofing()
         {
             if (_spellChecker != null) _spellChecker.InvalidateLearned();
@@ -3627,6 +3649,8 @@ namespace UniversSale.View
             // « Ignorer dans ce projet » vit et se sauve avec le projet.
             _checkHost.ProjectIgnored = project != null
                 ? project.ProofIgnored : new List<string>();
+            // Fermer ou changer de projet n'attend jamais le différé (lot A).
+            _checkHost.CancelDeferred();
             // Le dictionnaire personnel du projet aussi — et le cache des
             // verdicts repart de zéro (autre projet, autre connaissance).
             if (_spellChecker != null)
@@ -3640,6 +3664,9 @@ namespace UniversSale.View
 
         public void LoadItem(BinderItem item)
         {
+            // Changer d'écrit annule le différé en vol : les indices de
+            // paragraphes de l'ancien document n'ont plus de sens (lot A).
+            _checkHost.CancelDeferred();
             _item = item;
             _loading = true;
             _appliedExtra.Clear(); // fresh document, fresh pagination
