@@ -50,6 +50,10 @@ namespace UniversSale.Model
         // ≠ « ignorer » : ignorer TAIT un signalement, enseigner APPREND un
         // mot. Le pendant global vit dans les réglages.
         public List<string> LearnedWords = new List<string>();
+        // Règles de correction ignorées dans CE projet (« ignorer cette
+        // règle » du menu d'un signalement grammatical — batch 29) : des
+        // sRuleId de Grammalecte, filtrés par le pilote après cache.
+        public List<string> IgnoredRules = new List<string>();
         public string CreatedAt = "";
         public string ModifiedAt = "";
         public WritingJournal Journal = new WritingJournal();

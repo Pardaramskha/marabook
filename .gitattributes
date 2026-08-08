@@ -8,3 +8,10 @@
 # Données linguistiques tierces (MPL-2.0) : JAMAIS transformées — les
 # empreintes SHA256 d'APPROVISIONNEMENT.md sont vérifiées au build.
 dict/* binary
+# Grammalecte (GPL-3.0+) et le runtime Python embeddable (PSF), embarqués
+# en dur (batch 29) : fichiers AMONT jamais transformés (le build vérifie
+# leurs empreintes — une normalisation de fins de ligne les casserait).
+# Seul marabook_grammar.py est à nous : il suit la règle du projet.
+grammalecte/** binary
+grammalecte/marabook_grammar.py text eol=lf
+python/** binary

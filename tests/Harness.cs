@@ -88,7 +88,8 @@ namespace UniversSale.Tests
                 CorrectionTests.Run,     // C5 — la chaîne de correction
                 SearchTests.Run,         // C6 — la recherche pivot
                 TokenizerTests.Run,      // C7 — le tokeniseur français unique
-                SpellTests.Run           // C8 — l'orthographe (Hunspell maison)
+                SpellTests.Run,          // C8 — l'orthographe (Hunspell maison)
+                GrammarBridgeTests.Run   // C9 — pont Grammalecte (offsets, trames)
             };
             foreach (var suite in suites)
             {

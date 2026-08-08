@@ -90,6 +90,13 @@ namespace UniversSale.Settings
         public static bool ShowAnnotations = true; // teintes + bulles de révision
         public static bool ProofEnabled = true; // vérification continue (Révision)
         public static bool CorrectionPanelVisible; // « Détails de correction » à droite (b28)
+        // La grammaire (batch 29) : interrupteur maître de Grammalecte, et
+        // les choix d'options de l'utilisateur PAR-DESSUS la politique de
+        // recouvrement du lot C (clé = nom d'option Grammalecte). Une entrée
+        // absente = le défaut Marabook s'applique.
+        public static bool GrammarEnabled = true;
+        public static Dictionary<string, bool> GrammarOptions
+            = new Dictionary<string, bool>();
         // Mots ignorés par les correcteurs sur TOUS les projets (« ignorer
         // partout ») — le pendant global de Project.ProofIgnored.
         public static List<string> ProofIgnored = new List<string>();
@@ -189,6 +196,15 @@ namespace UniversSale.Settings
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
                 ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
                 CorrectionPanelVisible = Json.AsBool(Json.Field(root, "correctionPanel"), false);
+                GrammarEnabled = Json.AsBool(Json.Field(root, "grammarEnabled"), true);
+                var grammarOptions = Json.AsObject(Json.Field(root, "grammarOptions"));
+                if (grammarOptions != null)
+                {
+                    GrammarOptions = new Dictionary<string, bool>();
+                    foreach (var pair in grammarOptions)
+                        if (pair.Value is bool)
+                            GrammarOptions[pair.Key] = (bool)pair.Value;
+                }
                 var proofIgnored = Json.AsList(Json.Field(root, "proofIgnored"));
                 if (proofIgnored != null)
                 {
@@ -236,6 +252,14 @@ namespace UniversSale.Settings
                 root["showAnnotations"] = ShowAnnotations;
                 root["proofEnabled"] = ProofEnabled;
                 root["correctionPanel"] = CorrectionPanelVisible;
+                root["grammarEnabled"] = GrammarEnabled;
+                if (GrammarOptions.Count > 0)
+                {
+                    var grammarOptions = new Dictionary<string, object>();
+                    foreach (var pair in GrammarOptions)
+                        grammarOptions[pair.Key] = pair.Value;
+                    root["grammarOptions"] = grammarOptions;
+                }
                 if (ProofIgnored.Count > 0)
                     root["proofIgnored"] = new List<object>(ProofIgnored.ToArray());
                 if (LearnedWords.Count > 0)

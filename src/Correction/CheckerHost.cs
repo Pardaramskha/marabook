@@ -23,6 +23,11 @@ namespace UniversSale.Correction
         /// <summary>« Ignorer partout » — brancher AppSettings.ProofIgnored.</summary>
         public List<string> GlobalIgnored = new List<string>();
 
+        /// <summary>« Ignorer cette règle » (batch 29) — des RuleId (les
+        /// sRuleId de Grammalecte), filtrés APRÈS cache comme les mots
+        /// ignorés. Brancher Project.IgnoredRules (persisté au .plot v10).</summary>
+        public List<string> IgnoredRules = new List<string>();
+
         // « Ignorer ici » : clé règle|paragraphe|début|mot, session seulement.
         private readonly HashSet<string> _here = new HashSet<string>();
 
@@ -347,7 +352,17 @@ namespace UniversSale.Correction
             if (finding.Word.Length > 0
                 && (ContainsWord(ProjectIgnored, finding.Word)
                     || ContainsWord(GlobalIgnored, finding.Word))) return true;
+            if (finding.RuleId.Length > 0 && IgnoredRules.Contains(finding.RuleId))
+                return true;
             return OverlapsNoProof(document, finding);
+        }
+
+        /// <summary>« Ignorer cette règle » : plus aucun signalement portant
+        /// ce RuleId — filtré après cache, aucune invalidation nécessaire.</summary>
+        public void IgnoreRule(string ruleId)
+        {
+            if (!string.IsNullOrEmpty(ruleId) && !IgnoredRules.Contains(ruleId))
+                IgnoredRules.Add(ruleId);
         }
 
         /// <summary>Vrai si la plage du signalement touche un run marqué

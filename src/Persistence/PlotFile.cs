@@ -34,8 +34,10 @@ namespace UniversSale.Persistence
         // v7: exceptions de césure du projet (hyphenExceptions);
         // v8: « ne pas corriger » sur les runs (np) + ignorés de correction
         //     du projet (proofIgnored);
-        // v9: dictionnaire personnel du projet (learnedWords).
-        private const int FormatVersion = 9;
+        // v9: dictionnaire personnel du projet (learnedWords);
+        // v10: règles de correction ignorées du projet (ignoredRules —
+        //      « ignorer cette règle » d'un signalement Grammalecte).
+        private const int FormatVersion = 10;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -122,6 +124,8 @@ namespace UniversSale.Persistence
                 manifest["proofIgnored"] = new List<object>(project.ProofIgnored.ToArray());
             if (project.LearnedWords.Count > 0)
                 manifest["learnedWords"] = new List<object>(project.LearnedWords.ToArray());
+            if (project.IgnoredRules.Count > 0)
+                manifest["ignoredRules"] = new List<object>(project.IgnoredRules.ToArray());
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
             manifest["page"] = BuildPageSetup(project.Page);
@@ -455,6 +459,10 @@ namespace UniversSale.Persistence
                 if (learnedWords != null)
                     foreach (var entry in learnedWords)
                         if (entry is string) project.LearnedWords.Add((string)entry);
+                var ignoredRules = Json.AsList(Json.Field(manifest, "ignoredRules"));
+                if (ignoredRules != null)
+                    foreach (var entry in ignoredRules)
+                        if (entry is string) project.IgnoredRules.Add((string)entry);
                 project.CreatedAt = Json.AsString(Json.Field(manifest, "createdAt")) ?? "";
                 project.ModifiedAt = Json.AsString(Json.Field(manifest, "modifiedAt")) ?? "";
 

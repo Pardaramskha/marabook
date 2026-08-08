@@ -615,6 +615,26 @@ namespace UniversSale.View
                     if (handler != null) handler(findingRef);
                 };
                 menu.Items.Add(here);
+                // « Ignorer cette règle » (batch 29) : réservé au
+                // grammatical — un RuleId d'orthographe (« spelling ») ou de
+                // répétition couvrirait TOUT le vérificateur.
+                if (findingRef.CheckerId == "grammar"
+                    && findingRef.RuleId.Length > 0)
+                {
+                    var rule = new MenuItem
+                    {
+                        Header = "Ignorer cette règle",
+                        ToolTip = "Plus aucun signalement de la règle « "
+                            + findingRef.RuleId + " » dans ce projet "
+                            + "(liste enregistrée avec lui)"
+                    };
+                    rule.Click += delegate
+                    {
+                        var handler = FindingIgnoreRule;
+                        if (handler != null) handler(findingRef);
+                    };
+                    menu.Items.Add(rule);
+                }
                 if (findingRef.Word.Length > 0)
                 {
                     var inProject = new MenuItem
@@ -1545,6 +1565,8 @@ namespace UniversSale.View
         /// menu contextuel — le pilote (EditorView) applique et relance.</summary>
         public event Action<Correction.Finding> FindingIgnoreHere;
         public event Action<Correction.Finding> FindingIgnoreProject;
+        /// <summary>« Ignorer cette règle » — grammatical seulement (batch 29).</summary>
+        public event Action<Correction.Finding> FindingIgnoreRule;
 
         /// <summary>« Ajouter au dictionnaire » (batch 27, lot D) —
         /// portée : true = projet, false = partout.</summary>

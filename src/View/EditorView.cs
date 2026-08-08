@@ -110,6 +110,11 @@ namespace UniversSale.View
         // ---- correction (batch 26) : le pilote, ses signalements, son panneau
         private readonly Correction.CheckerHost _checkHost = new Correction.CheckerHost();
         private Correction.SpellChecker _spellChecker; // null sans dictionnaire
+        // La grammaire (batch 29) : le pont Grammalecte, PARESSEUX — le
+        // processus Python ne démarre qu'au premier paragraphe vérifié, un
+        // utilisateur qui n'active jamais la grammaire ne paie rien.
+        private Correction.Grammalecte.GrammalecteBridge _grammarBridge;
+        private Correction.Grammalecte.GrammarChecker _grammarChecker;
         private ToggleButton _corrDetailsBtn; // « Détails de correction » (b28)
 
         /// <summary>Le panneau des signalements vit À DROITE depuis le batch
@@ -162,6 +167,19 @@ namespace UniversSale.View
                     return spellEngine.Accepts(word) || checker.IsLearned(word);
                 };
             }
+            // La grammaire (batch 29, lot B) : Grammalecte en sous-processus,
+            // vérificateur DIFFÉRÉ — jamais un point de panne : pont absent
+            // (Python ou grammalecte/ manquants), il se tait.
+            _grammarBridge = new Correction.Grammalecte.GrammalecteBridge();
+            _grammarChecker = new Correction.Grammalecte.GrammarChecker(_grammarBridge);
+            _grammarChecker.UserOptions = Settings.AppSettings.GrammarOptions;
+            if (Settings.AppSettings.GrammarEnabled)
+                _checkHost.Add(_grammarChecker);
+            _grammarBridge.StateChanged += delegate
+            {
+                Dispatcher.BeginInvoke(DispatcherPriority.Background,
+                    new Action(UpdateGrammarStatus));
+            };
             _composed.FindingLearn += delegate(Correction.Finding finding, bool projectScope)
             {
                 if (_spellChecker == null || finding.Word.Length == 0) return;
@@ -1914,15 +1932,36 @@ namespace UniversSale.View
         /// (dictionnaire personnel retouché dans les Préférences) : cache
         /// oublié, passe relancée.</summary>
         /// <summary>À la fermeture de l'application : annule le différé en
-        /// vol sans l'attendre (lot B y ajoutera l'arrêt du pont).</summary>
+        /// vol et arrête le pont Grammalecte — sans JAMAIS attendre.</summary>
         public void ShutdownProofing()
         {
             _checkHost.CancelDeferred();
+            if (_grammarBridge != null) _grammarBridge.Dispose();
+        }
+
+        /// <summary>L'état du pont (initialisation, prêt, indisponible) vit
+        /// dans le panneau Correction — pas de modal, pas de sablier (lot D).</summary>
+        private void UpdateGrammarStatus()
+        {
+            RebuildCorrectionPanel();
         }
 
         public void RefreshProofing()
         {
             if (_spellChecker != null) _spellChecker.InvalidateLearned();
+            // L'interrupteur maître de la grammaire (Préférences, batch 29) :
+            // le vérificateur entre ou sort du pilote, le vol est annulé.
+            if (_grammarChecker != null)
+            {
+                var wanted = Settings.AppSettings.GrammarEnabled;
+                var present = _checkHost.Checkers.Contains(_grammarChecker);
+                if (wanted && !present) _checkHost.Add(_grammarChecker);
+                else if (!wanted && present)
+                {
+                    _checkHost.Checkers.Remove(_grammarChecker);
+                    _checkHost.CancelDeferred();
+                }
+            }
             _checkHost.InvalidateCache();
             RunCheck();
         }
@@ -2794,6 +2833,12 @@ namespace UniversSale.View
                 NotifyEdited(); // la liste d'ignorés du projet est persistée
                 RunCheck();
             };
+            _composed.FindingIgnoreRule += delegate(Correction.Finding finding)
+            {
+                _checkHost.IgnoreRule(finding.RuleId);
+                NotifyEdited(); // Project.IgnoredRules vit dans le .plot (v10)
+                RunCheck();     // filtré après cache : aucune invalidation
+            };
             _composed.LinkClicked += delegate(string title)
             {
                 var handler = LinkClicked;
@@ -3651,6 +3696,9 @@ namespace UniversSale.View
                 ? project.ProofIgnored : new List<string>();
             // Fermer ou changer de projet n'attend jamais le différé (lot A).
             _checkHost.CancelDeferred();
+            // « Ignorer cette règle » vit et se sauve avec le projet (v10).
+            _checkHost.IgnoredRules = project != null
+                ? project.IgnoredRules : new List<string>();
             // Le dictionnaire personnel du projet aussi — et le cache des
             // verdicts repart de zéro (autre projet, autre connaissance).
             if (_spellChecker != null)
