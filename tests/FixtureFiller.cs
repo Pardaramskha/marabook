@@ -1,0 +1,116 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+
+namespace UniversSale.Tests
+{
+    /// <summary>Remplissage réflexif de la fixture C1 (batch 26, lot 0.1) :
+    /// tout champ public SCALAIRE encore à sa valeur de constructeur reçoit
+    /// une sentinelle discriminante. Un champ AJOUTÉ au modèle mais oublié
+    /// par la sérialisation fait donc échouer FullRoundTrip sans que
+    /// personne n'ait à penser à mettre la fixture à jour — c'est la moitié
+    /// du verrou qui manquait (l'autre moitié, Clone, est C3).
+    ///
+    /// Les listes d'objets, dictionnaires et sous-objets ne sont PAS créés
+    /// ici : la fixture les instancie à la main et DeepCompare les parcourt
+    /// — un sous-objet ajouté au modèle doit être ajouté à la fixture (le
+    /// filler remplit alors ses scalaires).</summary>
+    public static class FixtureFiller
+    {
+        /// <summary>Champs qu'il ne faut PAS remplir aveuglément. RÈGLE :
+        /// chaque entrée doit être soit un transitoire (jamais persisté),
+        /// soit exercée À LA MAIN ailleurs dans BuildFullProject — sinon le
+        /// verrou a un trou. Commentaire obligatoire par entrée.</summary>
+        private static readonly HashSet<string> NoFill = new HashSet<string>
+        {
+            // --- transitoires : jamais persistés, remplis = faux rouge.
+            "Project.LoadedFormatVersion",  // posé par Load, 0 avant écriture
+            "Project.ReadOnlyNewerFormat",  // posé par Load (version future)
+            "BinderItem.LoadDamaged",       // posé par le chargement tolérant
+            "TextParagraph.StartOnRecto",   // posé par le compilateur
+            // --- identifiants : uniques ou croisés, cohérence à la main.
+            "BinderItem.Id",                // unicité contrôlée à la sauvegarde
+            "ParagraphStyle.Id",            // références StyleId des paragraphes
+            "SheetTemplate.Id",             // référence TemplateId des fiches
+            "SheetField.Id",                // clés de FieldValues
+            "Footnote.Id",                  // référence FootnoteId des runs
+            "Annotation.Id",                // référence AnnotationId des runs
+            "TextRun.FootnoteId",           // ↔ Footnote réelle (exercé au chap.)
+            "TextRun.ImageId",              // ↔ image du magasin (exercée)
+            "TextRun.AnnotationId",         // ↔ Annotation réelle (exercée)
+            "TextParagraph.StyleId",        // ↔ style existant (exercé)
+            "BinderItem.TemplateId",        // ↔ modèle de fiche (exercé)
+            "BinderItem.PageTemplateId",    // ↔ gabarit de pages (exercé)
+            "BinderItem.ImageId",           // ↔ image du magasin (exercée)
+            "BinderItem.Category",          // clé des 4 catégories racines
+            // --- exclusifs par construction : un run de texte n'est ni un
+            //     saut ni un filet (mêmes exclusions que C3).
+            "TextRun.IsLineBreak",
+            "TextRun.IsRule",
+            // --- bornés à la lecture : une sentinelle arbitraire est
+            //     rabattue dans la plage → faux rouge.
+            "PageSetup.Columns",            // clampé 1..3 — exercé par
+                                            //   project.Page.Columns = 2
+            // --- spécifiques à un Kind : persistés seulement pour l'item
+            //     du bon Kind, qui les exerce à la main.
+            "BinderItem.MediaExtension",    // média — « Carnet scanné »
+            "BinderItem.TemplateColor",     // gabarit de pages
+            "BinderItem.HeaderGapMm",       // gabarit de pages
+            "BinderItem.FooterGapMm",       // gabarit de pages
+            "BinderItem.HeaderHideFirst",   // gabarit de pages
+            "BinderItem.FooterHideFirst"    // gabarit de pages
+        };
+
+        /// <summary>Remplit les scalaires encore à leur défaut de l'objet
+        /// donné (jamais ses sous-objets). Sûre à appeler APRÈS le
+        /// remplissage manuel : un champ déjà exercé n'est pas touché.</summary>
+        public static void Fill(object target)
+        {
+            var type = target.GetType();
+            var fresh = Activator.CreateInstance(type);
+            foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (NoFill.Contains(type.Name + "." + field.Name)) continue;
+                var fieldType = field.FieldType;
+                var current = field.GetValue(target);
+                var initial = field.GetValue(fresh);
+                if (fieldType == typeof(string))
+                {
+                    if (Equals(current, initial))
+                        field.SetValue(target, "sentinelle-" + field.Name);
+                }
+                else if (fieldType == typeof(bool))
+                {
+                    if (Equals(current, initial)) field.SetValue(target, !(bool)initial);
+                }
+                else if (fieldType == typeof(bool?))
+                {
+                    if (current == null) field.SetValue(target, true);
+                }
+                else if (fieldType == typeof(int))
+                {
+                    if (Equals(current, initial)) field.SetValue(target, (int)initial + 7);
+                }
+                else if (fieldType == typeof(double))
+                {
+                    if (Equals(current, initial)) field.SetValue(target, (double)initial + 3.25);
+                }
+                else if (fieldType == typeof(double?))
+                {
+                    if (current == null) field.SetValue(target, 8.5);
+                }
+                else if (fieldType == typeof(List<string>))
+                {
+                    // Une entrée sentinelle si la liste est restée au défaut.
+                    var list = current as List<string>;
+                    var seed = initial as List<string>;
+                    if (list != null && (seed == null || list.Count == seed.Count))
+                        list.Add("sentinelle-" + field.Name);
+                }
+                // enums, listes d'objets, dictionnaires, sous-objets :
+                // instanciés à la main par la fixture, couverts par
+                // DeepCompare (voir l'en-tête de classe).
+            }
+        }
+    }
+}

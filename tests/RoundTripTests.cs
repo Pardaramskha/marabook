@@ -341,7 +341,9 @@ namespace UniversSale.Tests
                 FooterRecto = new HeaderFooter { Text = "{page}", Align = "right", Rich = RichZone("{page}") },
                 FooterVerso = new HeaderFooter { Text = "{page}", Align = "left" },
                 HeaderGapMm = -4, FooterGapMm = 6,
-                HeaderHideFirst = true, FooterHideFirst = false
+                // true tous les deux : ces champs sont exclus du filler
+                // (spécifiques au Kind), la fixture DOIT les exercer ici.
+                HeaderHideFirst = true, FooterHideFirst = true
             };
             book.Children.Add(pageTemplate);
 
@@ -387,6 +389,32 @@ namespace UniversSale.Tests
                 MediaBytes = Encoding.UTF8.GetBytes("contenu du média")
             };
             research.Children.Add(media);
+
+            // Remplissage RÉFLEXIF par-dessus la fixture manuelle (lot 0.1,
+            // batch 26) : tout champ scalaire resté à son défaut reçoit une
+            // sentinelle — un champ ajouté au modèle mais oublié par la
+            // sérialisation fait échouer FullRoundTrip tout seul. Un objet
+            // de CHAQUE type persisté passe au filler ; les sous-objets et
+            // les ids croisés restent exercés à la main (voir FixtureFiller).
+            FixtureFiller.Fill(project);
+            FixtureFiller.Fill(project.Page);
+            FixtureFiller.Fill(project.Journal);
+            FixtureFiller.Fill(project.Journal.Days[0]);
+            FixtureFiller.Fill(project.Styles.Find("special"));
+            FixtureFiller.Fill(template);
+            FixtureFiller.Fill(template.Fields[0]);
+            FixtureFiller.Fill(chapter);
+            FixtureFiller.Fill(chapter.Page);
+            FixtureFiller.Fill(chapter.Header);
+            FixtureFiller.Fill(chapter.Footer);
+            FixtureFiller.Fill(book);
+            FixtureFiller.Fill(book.Book);
+            FixtureFiller.Fill(book.Book.Template);
+            FixtureFiller.Fill(pageTemplate);
+            FixtureFiller.Fill(part);
+            FixtureFiller.Fill(sheet);
+            FixtureFiller.Fill(sheet.FreeInfo[0]);
+            FixtureFiller.Fill(media);
 
             project.RelinkParents();
             return project;
@@ -441,6 +469,13 @@ namespace UniversSale.Tests
                 Created = "2026-08-07 10:00",
                 Resolved = true
             });
+
+            // Filler réflexif sur un exemplaire de chaque type du pivot
+            // (voir BuildFullProject) — les champs déjà exercés sont intacts.
+            FixtureFiller.Fill(first);
+            FixtureFiller.Fill(first.Runs[0]);
+            FixtureFiller.Fill(document.Footnotes[0]);
+            FixtureFiller.Fill(document.Annotations[0]);
             return document;
         }
 

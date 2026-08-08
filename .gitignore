@@ -8,3 +8,4 @@ Marabook.exe
 *.plot.bak
 *.plot.tmp
 MarabookTests.exe
+MarabookUiTests.exe
