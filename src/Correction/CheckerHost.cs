@@ -31,13 +31,30 @@ namespace UniversSale.Correction
             _checkers.Add(checker);
         }
 
+        // Cache des vérificateurs LOCAUX (batch 27, lot B) : par
+        // (vérificateur, index de paragraphe), l'empreinte du texte plat et
+        // les signalements produits — un paragraphe inchangé n'est jamais
+        // revérifié. Les vérificateurs globaux (répétitions) repassent
+        // entiers à chaque cycle, par nature.
+        private sealed class CacheEntry
+        {
+            public long Fingerprint;
+            public List<Finding> Findings;
+        }
+        private readonly Dictionary<string, CacheEntry> _cache
+            = new Dictionary<string, CacheEntry>();
+        private int _cachedParagraphCount;
+
         /// <summary>Tous les signalements du document, triés par position,
         /// filtrés (NoProof, ignorés). C'est LA sortie du pilote.</summary>
         public List<Finding> Run(TextDocument document, StyleSheet styles)
         {
             var findings = new List<Finding>();
             foreach (var checker in _checkers)
-                findings.AddRange(checker.Check(document, styles));
+                if (checker.Scope == CheckerScope.WholeDocument)
+                    findings.AddRange(checker.Check(document, styles));
+                else
+                    findings.AddRange(RunLocal(checker, document, styles));
             var kept = new List<Finding>();
             foreach (var finding in findings)
                 if (!IsFiltered(document, finding)) kept.Add(finding);
@@ -58,6 +75,77 @@ namespace UniversSale.Correction
                 return a.Length.CompareTo(b.Length);
             });
             return kept;
+        }
+
+        /// <summary>La passe d'un vérificateur LOCAL sous cache : seuls les
+        /// paragraphes dont l'empreinte a changé sont revérifiés ; les
+        /// signalements mis en cache portent des offsets locaux, leur
+        /// ParagraphIndex est (re)posé ici — un paragraphe qui se déplace
+        /// dans le document garde son cache tant que son texte est le même
+        /// à l'index près.</summary>
+        private List<Finding> RunLocal(IChecker checker, TextDocument document,
+            StyleSheet styles)
+        {
+            // Le document a rétréci : les entrées au-delà meurent.
+            if (document.Paragraphs.Count < _cachedParagraphCount)
+            {
+                var stale = new List<string>();
+                foreach (var key in _cache.Keys)
+                {
+                    var separator = key.LastIndexOf('|');
+                    int index;
+                    if (int.TryParse(key.Substring(separator + 1), out index)
+                        && index >= document.Paragraphs.Count)
+                        stale.Add(key);
+                }
+                foreach (var key in stale) _cache.Remove(key);
+            }
+            _cachedParagraphCount = document.Paragraphs.Count;
+
+            var results = new List<Finding>();
+            for (var p = 0; p < document.Paragraphs.Count; p++)
+            {
+                var paragraph = document.Paragraphs[p];
+                var fingerprint = FingerprintOf(paragraph);
+                var key = checker.Id + "|" + p;
+                CacheEntry entry;
+                if (!_cache.TryGetValue(key, out entry)
+                    || entry.Fingerprint != fingerprint)
+                {
+                    entry = new CacheEntry
+                    {
+                        Fingerprint = fingerprint,
+                        Findings = checker.CheckParagraph(paragraph, styles)
+                            ?? new List<Finding>()
+                    };
+                    _cache[key] = entry;
+                }
+                foreach (var finding in entry.Findings)
+                {
+                    finding.ParagraphIndex = p;
+                    results.Add(finding);
+                }
+            }
+            return results;
+        }
+
+        /// <summary>FNV-1a du texte plat (+ nombre de runs). NoProof ne
+        /// change pas l'empreinte À DESSEIN : le filtrage NoProof relit le
+        /// document VIVANT après cache, jamais les signalements gelés.</summary>
+        private static long FingerprintOf(TextParagraph paragraph)
+        {
+            var text = PivotEdit.FlatText(paragraph);
+            unchecked
+            {
+                var hash = (long)1469598103934665603;
+                foreach (var c in text)
+                {
+                    hash ^= c;
+                    hash *= 1099511628211;
+                }
+                hash ^= paragraph.Runs.Count * 397;
+                return hash;
+            }
         }
 
         /// <summary>« Ignorer ici » : ce signalement précis, cette session.

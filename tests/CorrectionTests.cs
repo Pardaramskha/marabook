@@ -28,7 +28,74 @@ namespace UniversSale.Tests
             IgnoreHereIsPositional(t);
             AggregationAndOrder(t);
             TotalOrder(t);
+            ParagraphCache(t);
             FiftyThousandWords(t);
+        }
+
+        /// <summary>Lot B (batch 27) — un vérificateur LOCAL n'est relancé
+        /// que sur les paragraphes dont l'empreinte a changé ; ses
+        /// signalements gardent des positions justes au réemploi.</summary>
+        private sealed class CountingLocalChecker : IChecker
+        {
+            public int Calls;
+            public string Id { get { return "local-jouet"; } }
+            public string Label { get { return "Local-jouet"; } }
+            public FindingCategory Category { get { return FindingCategory.Spelling; } }
+            public CheckerScope Scope { get { return CheckerScope.ParagraphLocal; } }
+
+            public List<Finding> Check(TextDocument document, StyleSheet styles)
+            {
+                throw new NotSupportedException();
+            }
+
+            public List<Finding> CheckParagraph(TextParagraph paragraph, StyleSheet styles)
+            {
+                Calls++;
+                var findings = new List<Finding>();
+                var text = PivotEdit.FlatText(paragraph);
+                var index = text.IndexOf("faute", StringComparison.Ordinal);
+                if (index >= 0)
+                    findings.Add(new Finding
+                    {
+                        Start = index,
+                        Length = 5,
+                        Category = FindingCategory.Spelling,
+                        Message = "faute-jouet",
+                        RuleId = "faute",
+                        CheckerId = Id,
+                        Word = "faute"
+                    });
+                return findings;
+            }
+        }
+
+        private static void ParagraphCache(Harness t)
+        {
+            var document = Document("Un début sans rien.",
+                "Une faute au milieu.", "Une fin sans rien.");
+            var checker = new CountingLocalChecker();
+            var host = Host(checker);
+
+            var first = host.Run(document, null);
+            t.Equal(3, checker.Calls, "première passe : les trois paragraphes");
+            t.Equal(1, first.Count, "la faute-jouet est signalée");
+            t.Equal(1, first[0].ParagraphIndex, "au bon paragraphe");
+
+            host.Run(document, null);
+            t.Equal(3, checker.Calls, "rien n'a changé : ZÉRO revérification");
+
+            PivotEdit.InsertText(document.Paragraphs[2], 0, "Or ");
+            host.Run(document, null);
+            t.Equal(4, checker.Calls,
+                "une frappe au paragraphe 2 : LUI SEUL est revérifié");
+
+            // Un paragraphe inséré en tête décale les index : les positions
+            // restent justes (ParagraphIndex reposé au réemploi).
+            document.Paragraphs.Insert(0, new TextParagraph());
+            var shifted = host.Run(document, null);
+            t.Equal(1, shifted.Count, "le signalement survit au décalage");
+            t.Equal(2, shifted[0].ParagraphIndex,
+                "son index suit le paragraphe déplacé");
         }
 
         // ------------------------------------------------------------ fixtures
@@ -184,6 +251,12 @@ namespace UniversSale.Tests
             public string Id { get { return "bang"; } }
             public string Label { get { return "Points d'exclamation"; } }
             public FindingCategory Category { get { return FindingCategory.Typography; } }
+            public CheckerScope Scope { get { return CheckerScope.WholeDocument; } }
+
+            public List<Finding> CheckParagraph(TextParagraph paragraph, StyleSheet styles)
+            {
+                throw new NotSupportedException();
+            }
 
             public List<Finding> Check(TextDocument document, StyleSheet styles)
             {
@@ -307,6 +380,12 @@ namespace UniversSale.Tests
             public string Id { get { return "typo-jouet"; } }
             public string Label { get { return "Typographie-jouet"; } }
             public FindingCategory Category { get { return FindingCategory.Typography; } }
+            public CheckerScope Scope { get { return CheckerScope.WholeDocument; } }
+
+            public List<Finding> CheckParagraph(TextParagraph paragraph, StyleSheet styles)
+            {
+                throw new NotSupportedException();
+            }
 
             public List<Finding> Check(TextDocument document, StyleSheet styles)
             {

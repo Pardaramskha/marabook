@@ -29,6 +29,16 @@ namespace UniversSale.Correction
         public string Label { get { return "Répétitions"; } }
         public FindingCategory Category { get { return FindingCategory.Style; } }
 
+        /// <summary>Global par nature : la fenêtre glissante traverse les
+        /// paragraphes — jamais de cache par paragraphe possible.</summary>
+        public CheckerScope Scope { get { return CheckerScope.WholeDocument; } }
+
+        public List<Finding> CheckParagraph(TextParagraph paragraph, StyleSheet styles)
+        {
+            throw new System.NotSupportedException(
+                "RepetitionChecker est WholeDocument : le pilote ne doit jamais appeler CheckParagraph.");
+        }
+
         public List<Finding> Check(TextDocument document, StyleSheet styles)
         {
             var findings = new List<Finding>();
