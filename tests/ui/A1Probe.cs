@@ -84,10 +84,11 @@ namespace UniversSale.Tests.Ui
             project.RelinkParents();
             PlotFile.Save(project, path);
 
-            // — L'application réelle, thémée, hors écran, en mode classique
-            //   (le chemin Commit de l'A1 est celui du RichTextBox).
+            // — L'application réelle, thémée, hors écran, en mode de
+            //   compatibilité (le chemin Commit de l'A1 est celui du
+            //   RichTextBox classique — c'est LUI que la sonde verrouille).
             AppSettings.Load();
-            AppSettings.CompositionMode = false;
+            AppSettings.ClassicCompatibility = true;
             Chrome.Toggle(false);
             var application = new Application
             {

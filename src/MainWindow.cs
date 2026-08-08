@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.23.0-alpha";
+        public const string AppVersion = "0.24.0-alpha";
 
         private Project _project;
         private string _path;
@@ -2166,6 +2166,17 @@ namespace UniversSale
         {
             var dialog = new PreferencesDialog(this);
             dialog.AppearanceChanged += ApplyAppearance;
+            dialog.EditingSurfaceChanged += delegate
+            {
+                // Le mode de compatibilité a changé : le document ouvert
+                // bascule tout de suite sur la bonne surface (Commit d'abord,
+                // rien ne se perd).
+                if (_current == null || _current.Kind != ItemKind.Text) return;
+                CommitActive();
+                var reopen = _current;
+                _current = null;
+                OnBinderSelection(reopen);
+            };
             dialog.ShowDialog();
         }
 

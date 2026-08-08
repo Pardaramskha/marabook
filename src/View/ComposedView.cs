@@ -24,6 +24,8 @@ namespace UniversSale.View
         private readonly Grid _column;      // pages + overlay, centered
         private readonly StackPanel _pages;
         private readonly Canvas _overlay;   // caret + selection
+        private readonly Canvas _bubbleLayer; // bulles d'annotation Word,
+                                              // peuplées par EditorView (B.4)
         private readonly System.Windows.Shapes.Rectangle _caretBar;
         private readonly DispatcherTimer _blink;
         private double _zoom = 1.0;
@@ -75,6 +77,11 @@ namespace UniversSale.View
 
             _pages = new StackPanel();
             _overlay = new Canvas { IsHitTestVisible = false };
+            _bubbleLayer = new Canvas
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top
+            };
             _caretBar = new System.Windows.Shapes.Rectangle
             {
                 Width = 1.4,
@@ -89,6 +96,7 @@ namespace UniversSale.View
             };
             _column.Children.Add(_pages);
             _column.Children.Add(_overlay);
+            _column.Children.Add(_bubbleLayer); // bulles portées (batch 26)
             Content = _column;
 
             _blink = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(530) };
@@ -1531,21 +1539,98 @@ namespace UniversSale.View
             foreach (UIElement child in _pages.Children) child.InvalidateVisual();
         }
 
-        /// <summary>Sélectionne la plage d'un signalement et l'amène à
-        /// l'écran (même mécanique que GoToAnnotation).</summary>
-        public void GoToFinding(Correction.Finding finding)
+        /// <summary>Sélectionne une plage plate et l'amène à l'écran (même
+        /// mécanique que GoToAnnotation) — signalements ET résultats de
+        /// recherche passent par là.</summary>
+        public void SelectRange(int paragraphIndex, int start, int end)
         {
             if (_item == null
-                || finding.ParagraphIndex >= _item.Document.Paragraphs.Count) return;
-            var paragraph = _item.Document.Paragraphs[finding.ParagraphIndex];
+                || paragraphIndex >= _item.Document.Paragraphs.Count) return;
+            var paragraph = _item.Document.Paragraphs[paragraphIndex];
             var flatLength = PivotEdit.FlatLength(paragraph);
-            _anchorParagraph = finding.ParagraphIndex;
-            _anchorOffset = Math.Min(finding.Start, flatLength);
-            _caretParagraph = finding.ParagraphIndex;
-            _caretOffset = Math.Min(finding.End, flatLength);
+            _anchorParagraph = paragraphIndex;
+            _anchorOffset = Math.Min(start, flatLength);
+            _caretParagraph = paragraphIndex;
+            _caretOffset = Math.Min(end, flatLength);
             _caretDesiredX = -1;
             UpdateCaretVisual();
             Focus();
+        }
+
+        /// <summary>Sélectionne la plage d'un signalement.</summary>
+        public void GoToFinding(Correction.Finding finding)
+        {
+            SelectRange(finding.ParagraphIndex, finding.Start, finding.End);
+        }
+
+        // ---------------------------------------------- bulles portées (B.4)
+
+        /// <summary>La couche des bulles d'annotation, dans la colonne (elle
+        /// suit le zoom et le défilement) — EditorView la peuple, la vue ne
+        /// fait que fournir la géométrie.</summary>
+        public Canvas AnnotationBubbleLayer { get { return _bubbleLayer; } }
+
+        /// <summary>Le bord droit des pages dans la colonne (les bulles se
+        /// posent au-delà), 0 sans composition.</summary>
+        public double PagesRightX()
+        {
+            var composition = _engine == null ? null : _engine.Current;
+            return composition == null ? 0 : composition.PageWidthPx;
+        }
+
+        /// <summary>Ordonnée, dans la colonne, de la ligne composée qui porte
+        /// le DÉBUT du passage d'une annotation — ou -1 (annotation orpheline,
+        /// composition absente).</summary>
+        public double AnnotationAnchorY(string id)
+        {
+            var composition = _engine == null ? null : _engine.Current;
+            if (_item == null || composition == null) return -1;
+            for (var p = 0; p < _item.Document.Paragraphs.Count; p++)
+            {
+                var cursor = 0;
+                var start = -1;
+                foreach (var run in _item.Document.Paragraphs[p].Runs)
+                {
+                    var length = PivotEdit.IsElement(run) ? 1 : run.Text.Length;
+                    if (run.AnnotationId == id) { start = cursor; break; }
+                    cursor += length;
+                }
+                if (start < 0) continue;
+                var stride = composition.PageHeightPx + PageGapPx;
+                double firstOfParagraph = -1;
+                for (var pageIndex = 0; pageIndex < composition.Pages.Count; pageIndex++)
+                    foreach (var placed in composition.Pages[pageIndex].Lines)
+                    {
+                        if (placed.ParagraphIndex != p) continue;
+                        var line = composition.Paragraphs[p].Lines[placed.LineIndex];
+                        if (firstOfParagraph < 0)
+                            firstOfParagraph = pageIndex * stride + placed.Y;
+                        if (start >= line.Start && start < Math.Max(line.Start + 1, line.End))
+                            return pageIndex * stride + placed.Y;
+                    }
+                return firstOfParagraph; // repli : la première ligne du paragraphe
+            }
+            return -1;
+        }
+
+        /// <summary>Remplace une plage plate par un texte — une édition
+        /// normale (undo, recomposition, projet sale). Le remplacement de la
+        /// recherche pivot passe par là.</summary>
+        public void ReplaceRange(int paragraphIndex, int start, int length, string text)
+        {
+            if (_item == null
+                || paragraphIndex >= _item.Document.Paragraphs.Count) return;
+            var paragraph = _item.Document.Paragraphs[paragraphIndex];
+            if (start + length > PivotEdit.FlatLength(paragraph)) return; // périmé
+            PushUndo(false);
+            PivotEdit.DeleteInParagraph(paragraph, start, start + length);
+            if (!string.IsNullOrEmpty(text))
+                PivotEdit.InsertText(paragraph, start, text);
+            _engine.RecomposeParagraph(paragraphIndex);
+            _caretParagraph = paragraphIndex;
+            _caretOffset = start + (text == null ? 0 : text.Length);
+            ClearSelection();
+            AfterEdit(0);
         }
 
         /// <summary>La position du caret (navigation des signalements).</summary>
@@ -1555,24 +1640,42 @@ namespace UniversSale.View
             offset = _caretOffset;
         }
 
-        /// <summary>Remplace la plage d'un signalement par une suggestion —
-        /// une édition normale : undo, recomposition, projet sale, et la
-        /// passe de correction suivante repart du texte à jour. Public : le
-        /// panneau Correction (EditorView) applique aussi en un clic.</summary>
+        /// <summary>Remplace la plage d'un signalement par une suggestion.
+        /// Public : le panneau Correction (EditorView) applique en un clic.</summary>
         public void ApplySuggestion(Correction.Finding finding, string suggestion)
         {
-            if (_item == null
-                || finding.ParagraphIndex >= _item.Document.Paragraphs.Count) return;
-            var paragraph = _item.Document.Paragraphs[finding.ParagraphIndex];
-            if (finding.End > PivotEdit.FlatLength(paragraph)) return; // périmé
+            ReplaceRange(finding.ParagraphIndex, finding.Start, finding.Length, suggestion);
+        }
+
+        /// <summary>« Tout remplacer » de la recherche pivot : UNE étape
+        /// d'annulation pour toute la passe, remplacements à REBOURS (les
+        /// offsets des matchs précédents restent justes), recomposition des
+        /// seuls paragraphes touchés.</summary>
+        public int ReplaceAll(List<PivotSearch.Match> matches, string text)
+        {
+            if (_item == null || matches == null || matches.Count == 0) return 0;
             PushUndo(false);
-            PivotEdit.DeleteInParagraph(paragraph, finding.Start, finding.End);
-            PivotEdit.InsertText(paragraph, finding.Start, suggestion);
-            _engine.RecomposeParagraph(finding.ParagraphIndex);
-            _caretParagraph = finding.ParagraphIndex;
-            _caretOffset = finding.Start + suggestion.Length;
+            var count = 0;
+            var touched = new HashSet<int>();
+            for (var i = matches.Count - 1; i >= 0; i--)
+            {
+                var match = matches[i];
+                if (match.ParagraphIndex >= _item.Document.Paragraphs.Count) continue;
+                var paragraph = _item.Document.Paragraphs[match.ParagraphIndex];
+                if (match.Start + match.Length > PivotEdit.FlatLength(paragraph)) continue;
+                PivotEdit.DeleteInParagraph(paragraph, match.Start,
+                    match.Start + match.Length);
+                if (!string.IsNullOrEmpty(text))
+                    PivotEdit.InsertText(paragraph, match.Start, text);
+                touched.Add(match.ParagraphIndex);
+                count++;
+            }
+            foreach (var index in touched)
+                _engine.RecomposeParagraph(index);
+            ClampCaret();
             ClearSelection();
             AfterEdit(0);
+            return count;
         }
 
         /// <summary>Les signalements sous un offset donné (menu contextuel).</summary>

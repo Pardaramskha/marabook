@@ -44,7 +44,10 @@ namespace UniversSale.View
         private ComposedView _composed;        // « Composition » mode (composer 4b)
         private RulerView _rulerH, _rulerV;    // règles cm (Ctrl+R)
         private TextBox _trackingBox;          // champ d'approche (em/1000)
-        private ToggleButton _composeBtn;
+        // L'axe d'affichage (batch 26, lot B.2) : Pages / Brouillon / Calme —
+        // même moteur, même pivot, seule la présentation change.
+        private ToggleButton _pagesViewBtn, _draftViewBtn, _calmViewBtn;
+        private bool _draftView;
         private DispatcherTimer _marksTimer;   // full pagination, debounced typing
         private DispatcherTimer _overlayTimer; // fast overlay redraw (scroll, zoom)
         private double _zoom = 1.0;
@@ -93,13 +96,13 @@ namespace UniversSale.View
         private Border _searchBar;
         private TextBox _searchBox, _replaceBox;
         private CheckBox _caseCheck;
+        private CheckBox _wholeWordCheck;
+        private PivotSearch.Match _searchCurrent; // résultat courant (composé)
         private TextBlock _searchInfo;
 
         private Border _notesBar;
         private StackPanel _notesList;
 
-        private Border _annBar;      // panneau Révision (annotations)
-        private StackPanel _annList;
         private ToggleButton _annVisibleBtn; // « Visibles » de l'onglet Révision
         private Canvas _bubbleLayer; // bulles de commentaire façon Word (classique)
         private Grid _surface;       // hôte du miroir + des bulles
@@ -118,10 +121,10 @@ namespace UniversSale.View
 
         public EditorView()
         {
+            _draftView = Settings.AppSettings.DraftView; // avant le ruban
             BuildFormatBar();
             BuildSearchBar();
             BuildNotesBar();
-            BuildAnnotationsBar();
             BuildCorrectionBar();
             BuildPage();
 
@@ -429,30 +432,106 @@ namespace UniversSale.View
             tabs.Items.Add(new TabItem { Header = "Composition", Content = BuildCompositionTab() });
             tabs.Items.Add(new TabItem { Header = "Révision", Content = BuildRevisionTab() });
 
-            // « Mode calme », collé au bord droit de la barre d'onglets : tout
-            // le chrome disparaît, il ne reste que les pages.
-            var calm = new Button
+            // L'AXE D'AFFICHAGE (batch 26), collé au bord droit des onglets :
+            // comment on VOIT la page — Pages (marges, folios, gabarits),
+            // Brouillon (colonne continue sans décor), Calme (rien que le
+            // texte). Même moteur, même pivot dessous — jamais un moteur.
+            var views = new StackPanel
             {
-                Content = Icons.Make("article-bold", 14, Chrome.SoftText),
-                ToolTip = "Mode calme — ne garder que les pages (Échap pour revenir)",
-                Width = 32,
-                Padding = new Thickness(2),
-                Margin = new Thickness(0, 4, 6, 0),
+                Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Top,
-                Focusable = false
+                Margin = new Thickness(0, 4, 6, 0)
             };
-            calm.Click += delegate
+            _pagesViewBtn = ViewToggle("Pages",
+                "La page réelle : marges, folios, gabarits");
+            _pagesViewBtn.Click += delegate { SetDraftView(false); };
+            views.Children.Add(_pagesViewBtn);
+            _draftViewBtn = ViewToggle("Brouillon",
+                "Colonne continue sans décor de page ni folio — écrire au fil de l'eau");
+            _draftViewBtn.Click += delegate { SetDraftView(true); };
+            views.Children.Add(_draftViewBtn);
+            _calmViewBtn = ViewToggle("Calme",
+                "Ne garder que le texte (Échap pour revenir)");
+            _calmViewBtn.Click += delegate
             {
+                UpdateViewButtons(); // l'état réel suivra SetCalm
                 var handler = CalmRequested;
                 if (handler != null) handler();
             };
+            views.Children.Add(_calmViewBtn);
+            UpdateViewButtons();
+
             var host = new Grid();
             host.Children.Add(tabs);
-            host.Children.Add(calm);
+            host.Children.Add(views);
             bar.Child = host;
             _ribbonBar = bar;
             Children.Add(bar);
+        }
+
+        private ToggleButton ViewToggle(string label, string tooltip)
+        {
+            return new ToggleButton
+            {
+                Content = label,
+                ToolTip = tooltip,
+                Padding = new Thickness(8, 1, 8, 1),
+                Margin = new Thickness(4, 0, 0, 0),
+                FontSize = 11,
+                Focusable = false
+            };
+        }
+
+        /// <summary>L'état du sélecteur d'affichage — une seule position
+        /// enfoncée ; Pages et Brouillon se grisent en mode de compatibilité
+        /// (le repli classique n'a que la vue paginée du miroir).</summary>
+        private void UpdateViewButtons()
+        {
+            if (_pagesViewBtn == null) return;
+            _pagesViewBtn.IsChecked = !_calm && !_draftView;
+            _draftViewBtn.IsChecked = !_calm && _draftView;
+            _calmViewBtn.IsChecked = _calm;
+            var composed = !Settings.AppSettings.ClassicCompatibility;
+            _pagesViewBtn.IsEnabled = composed;
+            _draftViewBtn.IsEnabled = composed;
+            if (!composed)
+            {
+                _pagesViewBtn.ToolTip = "Mode de compatibilité actif (Préférences)";
+                _draftViewBtn.ToolTip = _pagesViewBtn.ToolTip;
+            }
+        }
+
+        /// <summary>Bascule Pages ↔ Brouillon : ré-attache la surface composée
+        /// avec le réglage de page dérivé. Persistant (réglage d'application).</summary>
+        private void SetDraftView(bool draft)
+        {
+            _draftView = draft;
+            Settings.AppSettings.DraftView = draft;
+            Settings.AppSettings.Save();
+            UpdateViewButtons();
+            if (ComposedActive && _item != null) SetComposition(true);
+        }
+
+        /// <summary>Le réglage de page du BROUILLON : même moteur, même pivot —
+        /// colonne continue à mesure confortable, sans marges apparentes,
+        /// numéros de ligne ni folio. Les « pages » font 600 mm : la couture
+        /// entre deux tranches reste rare. Ce n'est PAS un troisième chemin
+        /// de composition, juste un PageSetup dérivé (doctrine du lot B.2).</summary>
+        private static PageSetup DraftSetup(PageSetup source)
+        {
+            var draft = source.Clone();
+            draft.PageWidthMm = 165;
+            draft.PageHeightMm = 600;
+            draft.MarginTopMm = 10;
+            draft.MarginBottomMm = 10;
+            draft.MarginLeftMm = 18;
+            draft.MarginRightMm = 18;
+            draft.Columns = 1;
+            draft.ShowMarginGuides = false;
+            draft.LineNumbers = false;
+            draft.FooterPageNumbers = false;
+            return draft;
         }
 
         /// <summary>Mode calme : le ruban et le panneau de notes s'effacent,
@@ -462,6 +541,7 @@ namespace UniversSale.View
             _calm = calm;
             _ribbonBar.Visibility = calm ? Visibility.Collapsed : Visibility.Visible;
             if (calm) _searchBar.Visibility = Visibility.Collapsed;
+            UpdateViewButtons(); // le sélecteur d'affichage suit
             RebuildNotesPanel(); // la visibilité des panneaux suit _calm
             RebuildCorrectionPanel();
             RebuildAnnotationsPanel();
@@ -630,20 +710,8 @@ namespace UniversSale.View
         {
             var panel = new WrapPanel { Margin = new Thickness(8, 4, 8, 4) };
 
-            _composeBtn = new ToggleButton
-            {
-                ToolTip = "Écrire dans les pages composées par le moteur maison — "
-                    + "justification à plages, césure française, enchaînements",
-                Margin = new Thickness(0, 0, 10, 0),
-                Padding = new Thickness(8, 2, 8, 2),
-                Focusable = false,
-                Content = TabButtonContent("book-open-text-bold", "Composition")
-            };
-            _composeBtn.Click += delegate { SetComposition(_composeBtn.IsChecked == true); };
-            panel.Children.Add(_composeBtn);
-
-            panel.Children.Add(VerticalRule());
-
+            // Le bouton « Composition » a disparu avec le gel du classique
+            // (batch 26) : l'onglet ne porte plus que les sorties.
             panel.Children.Add(CompositionAction("Aperçu des pages",
                 "Les pages exactes, prêtes à relire (Ctrl+Alt+P)",
                 delegate { var handler = PreviewRequested; if (handler != null) handler(); }));
@@ -888,14 +956,13 @@ namespace UniversSale.View
                     && _composed.Visibility == Visibility.Visible; }
         }
 
-        /// <summary>Toggles writing in the composed pages — the home-grown
-        /// editing engine, on by default (« écrire dans un livre déjà mis en
-        /// page »). The choice persists across sessions.</summary>
+        /// <summary>Bascule interne entre la surface composée (LA surface
+        /// d'édition depuis le gel du batch 26) et le repli classique (mode
+        /// de compatibilité des Préférences). Plus aucun bouton de ruban n'y
+        /// mène — le choix de l'utilisateur est un AFFICHAGE (Pages /
+        /// Brouillon / Calme), jamais un moteur.</summary>
         public void SetComposition(bool active)
         {
-            if (_composeBtn != null) _composeBtn.IsChecked = active;
-            Settings.AppSettings.CompositionMode = active;
-            Settings.AppSettings.Save();
             if (!active)
             {
                 if (ComposedActive)
@@ -926,7 +993,7 @@ namespace UniversSale.View
                 RunCheck(); // hors composé : panneau et ondulés s'éteignent
                 return;
             }
-            if (_item == null) { if (_composeBtn != null) _composeBtn.IsChecked = false; return; }
+            if (_item == null) return;
             try
             {
                 // The classic surface may hold unsaved keystrokes: flush first
@@ -940,9 +1007,12 @@ namespace UniversSale.View
                     _item.Document.AnnotationOrder(true);
                 }
                 _composed.SetZoom(_zoom);
-                _composed.FolioOffset = FolioOffset;
-                _composed.Decor = Decor;
-                _composed.Attach(_item, _styles, _pageSetup, _project);
+                // Brouillon : même moteur, réglage de page dérivé — colonne
+                // continue sans décor ni folio (voir DraftSetup).
+                _composed.FolioOffset = _draftView ? 0 : FolioOffset;
+                _composed.Decor = _draftView ? null : Decor;
+                _composed.Attach(_item, _styles,
+                    _draftView ? DraftSetup(_pageSetup) : _pageSetup, _project);
                 _composed.Visibility = Visibility.Visible;
                 _scroller.Visibility = Visibility.Collapsed;
                 _composed.Focus();
@@ -1352,6 +1422,15 @@ namespace UniversSale.View
             };
             panel.Children.Add(_caseCheck);
 
+            _wholeWordCheck = new CheckBox
+            {
+                Content = "Mot entier",
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = Chrome.SoftText,
+                Margin = new Thickness(0, 0, 10, 0)
+            };
+            panel.Children.Add(_wholeWordCheck);
+
             panel.Children.Add(SmallButton("Suivant", FindNext));
             panel.Children.Add(SmallButton("Remplacer", ReplaceCurrent));
             panel.Children.Add(SmallButton("Tout remplacer", ReplaceAll));
@@ -1540,37 +1619,6 @@ namespace UniversSale.View
             return panel;
         }
 
-        private void BuildAnnotationsBar()
-        {
-            _annBar = new Border
-            {
-                Background = Chrome.BarBgLight,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(0, 1, 0, 0),
-                Padding = new Thickness(24, 8, 24, 8),
-                Visibility = Visibility.Collapsed,
-                MaxHeight = 220
-            };
-            SetDock(_annBar, Dock.Bottom);
-            var panel = new StackPanel();
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Annotations",
-                Foreground = Chrome.SoftText,
-                FontSize = 11,
-                Margin = new Thickness(0, 0, 0, 4)
-            });
-            _annList = new StackPanel();
-            panel.Children.Add(new ScrollViewer
-            {
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                MaxHeight = 170,
-                Content = _annList
-            });
-            _annBar.Child = panel;
-            Children.Add(_annBar);
-        }
-
         // ============================================================ correction
 
         /// <summary>Le panneau Correction, sur le modèle du panneau
@@ -1659,6 +1707,10 @@ namespace UniversSale.View
             _findings = _checkHost.Run(_item.Document, _styles);
             _composed.SetFindings(_findings);
             RebuildCorrectionPanel();
+            // Les bulles suivent la recomposition (leurs lignes ont pu bouger
+            // sous la frappe) — même debounce, jamais pendant la saisie en
+            // bulle (garde anti-vol de focus).
+            RebuildAnnotationsPanel();
         }
 
         private void RebuildCorrectionPanel()
@@ -2052,91 +2104,17 @@ namespace UniversSale.View
             RebuildAnnotationsPanel();
         }
 
-        /// <summary>Reconstruit le panneau Révision du bas — COMPOSITION
-        /// seulement (le classique édite dans les bulles), dès qu'une
-        /// annotation existe (hors mode calme, annotations visibles).</summary>
+        /// <summary>Reprogramme les bulles d'annotation (le panneau du bas a
+        /// disparu au B.4 : l'édition vit dans les bulles, deux surfaces).</summary>
         public void RebuildAnnotationsPanel()
         {
-            _annList.Children.Clear();
-            if (_item == null)
-            {
-                _annBar.Visibility = Visibility.Collapsed;
-                return;
-            }
-            var order = AnnotationOrderLive();
-            _annBar.Visibility = order.Count == 0 || _calm || !ComposedActive
-                || !Settings.AppSettings.ShowAnnotations
-                ? Visibility.Collapsed : Visibility.Visible;
-            foreach (var id in order)
-            {
-                var annotation = _item.Document.FindAnnotation(id);
-                if (annotation == null) continue;
-                _annList.Children.Add(BuildAnnotationRow(annotation));
-            }
-            // Les bulles à droite des pages suivent (après le layout, la
-            // géométrie des tranches doit être posée).
+            // Depuis les bulles portées (B.4, batch 26), le panneau Révision
+            // du bas a entièrement disparu : les annotations s'éditent dans
+            // leurs bulles sur les DEUX surfaces. Cette méthode — appelée par
+            // tous les chemins historiques — reprogramme les bulles après le
+            // layout (la géométrie des tranches/pages doit être posée).
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
                 new Action(RebuildAnnotationBubbles));
-        }
-
-        private UIElement BuildAnnotationRow(Annotation annotation)
-        {
-            var row = new DockPanel
-            {
-                Margin = new Thickness(0, 2, 0, 2),
-                Opacity = annotation.Resolved ? 0.55 : 1.0,
-                Tag = annotation.Id
-            };
-
-            var buttons = new StackPanel { Orientation = Orientation.Horizontal };
-            var go = SmallButton("Aller", delegate { GoToAnnotation(annotation.Id); });
-            go.ToolTip = "Sélectionner le passage annoté";
-            buttons.Children.Add(go);
-            var resolve = SmallButton(annotation.Resolved ? "Rouvrir" : "Résoudre",
-                delegate { ToggleAnnotationResolved(annotation); });
-            resolve.ToolTip = annotation.Resolved
-                ? "Réactiver l'annotation (la teinte revient)"
-                : "Marquer comme traitée (la teinte s'éteint, le commentaire reste)";
-            buttons.Children.Add(resolve);
-            var remove = SmallButton("Supprimer", delegate { DeleteAnnotation(annotation); });
-            remove.ToolTip = "Supprimer le commentaire et son ancre";
-            buttons.Children.Add(remove);
-            DockPanel.SetDock(buttons, Dock.Right);
-            row.Children.Add(buttons);
-
-            var excerptText = AnnotatedTextLive(annotation.Id).Trim();
-            if (excerptText.Length > 52) excerptText = excerptText.Substring(0, 52) + "…";
-            var excerpt = new TextBlock
-            {
-                Text = "« " + excerptText + " »",
-                Foreground = Chrome.SoftText,
-                FontStyle = FontStyles.Italic,
-                FontSize = 11,
-                Width = 190,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = annotation.Created.Length > 0 ? "Créée le " + annotation.Created : null,
-                Cursor = Cursors.Hand
-            };
-            excerpt.MouseLeftButtonDown += delegate { GoToAnnotation(annotation.Id); };
-            DockPanel.SetDock(excerpt, Dock.Left);
-            row.Children.Add(excerpt);
-
-            var comment = new TextBox
-            {
-                Text = annotation.Text,
-                Margin = new Thickness(8, 0, 8, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = "Le commentaire de révision"
-            };
-            comment.TextChanged += delegate
-            {
-                if (_loading) return;
-                annotation.Text = comment.Text;
-                NotifyEdited();
-            };
-            row.Children.Add(comment);
-            return row;
         }
 
         // -------------------------------------------------- bulles façon Word
@@ -2160,9 +2138,13 @@ namespace UniversSale.View
         private void RebuildAnnotationBubbles(bool force)
         {
             if (_bubbleLayer == null) return;
+            // La couche active : celle du composé (bulles portées, B.4 batch
+            // 26) ou celle du miroir classique.
+            var layer = ComposedActive && _composed != null && _composed.HasItem
+                ? _composed.AnnotationBubbleLayer : _bubbleLayer;
             // Ne pas voler le focus d'une bulle en cours de frappe.
             if (!force)
-                foreach (var child in _bubbleLayer.Children)
+                foreach (var child in layer.Children)
                 {
                     var host = child as Border;
                     if (host == null) continue;
@@ -2174,10 +2156,17 @@ namespace UniversSale.View
                         if (focused != null && focused.IsKeyboardFocused) return;
                     }
                 }
+            // Les DEUX couches se vident : une bascule de surface ne laisse
+            // pas de bulles orphelines derrière elle.
             _bubbleLayer.Children.Clear();
             _bubbleLayer.Width = 0;
+            if (_composed != null)
+            {
+                _composed.AnnotationBubbleLayer.Children.Clear();
+                _composed.AnnotationBubbleLayer.Width = 0;
+            }
             _activeBubbleEditor = null;
-            if (_item == null || ComposedActive || _calm
+            if (_item == null || _calm
                 || !Settings.AppSettings.ShowAnnotations) return;
             var order = AnnotationOrderLive();
             if (order.Count == 0) return;
@@ -2185,42 +2174,58 @@ namespace UniversSale.View
             const double bubbleWidth = 190;
             var gold = new SolidColorBrush(Color.FromRgb(0xC9, 0xA2, 0x27));
             double pageRight, pageTop;
-            try
+            if (ComposedActive)
             {
-                // TranslatePoint rend l'origine POST-marge du _page : les
-                // cadres du miroir commencent exactement là.
-                var origin = _page.TranslatePoint(new Point(0, 0), _surface);
-                pageRight = origin.X + _pageSetup.PageWidthPx;
-                pageTop = origin.Y;
+                pageRight = _composed.PagesRightX();
+                pageTop = 0; // AnnotationAnchorY parle déjà en colonne
+                if (pageRight <= 0) return;
             }
-            catch { return; }
+            else
+                try
+                {
+                    // TranslatePoint rend l'origine POST-marge du _page : les
+                    // cadres du miroir commencent exactement là.
+                    var origin = _page.TranslatePoint(new Point(0, 0), _surface);
+                    pageRight = origin.X + _pageSetup.PageWidthPx;
+                    pageTop = origin.Y;
+                }
+                catch { return; }
 
             var lastBottom = 0.0;
             foreach (var id in order)
             {
                 var annotation = _item.Document.FindAnnotation(id);
                 if (annotation == null) continue;
-                Run first = null, last = null;
-                foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
-                    FindAnnotationRuns(paragraph.Inlines, id, ref first, ref last);
-                if (first == null) continue;
-                Rect anchor;
-                try { anchor = first.ContentStart.GetCharacterRect(LogicalDirection.Forward); }
-                catch { continue; }
-                if (anchor.IsEmpty) continue;
+                double y;
+                if (ComposedActive)
+                {
+                    y = _composed.AnnotationAnchorY(id);
+                    if (y < 0) continue;
+                }
+                else
+                {
+                    Run first = null, last = null;
+                    foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
+                        FindAnnotationRuns(paragraph.Inlines, id, ref first, ref last);
+                    if (first == null) continue;
+                    Rect anchor;
+                    try { anchor = first.ContentStart.GetCharacterRect(LogicalDirection.Forward); }
+                    catch { continue; }
+                    if (anchor.IsEmpty) continue;
 
-                // Coordonnées boîte → miroir : la tranche qui porte la ligne.
-                var slice = 0;
-                for (var k = 0; k < _sliceTops.Count; k++)
-                    if (anchor.Top >= _sliceTops[k] - 0.5) slice = k;
-                var topMargin = _pageSetup.MarginTopMm * PageSetup.PxPerMm;
-                var pageHeight = _pageSetup.PageHeightMm * PageSetup.PxPerMm;
-                var frameTop = slice * (pageHeight + PageGap);
-                var y = pageTop + frameTop + topMargin
-                    + (anchor.Top - (_sliceTops.Count > slice ? _sliceTops[slice] : 0));
+                    // Coordonnées boîte → miroir : la tranche qui porte la ligne.
+                    var slice = 0;
+                    for (var k = 0; k < _sliceTops.Count; k++)
+                        if (anchor.Top >= _sliceTops[k] - 0.5) slice = k;
+                    var topMargin = _pageSetup.MarginTopMm * PageSetup.PxPerMm;
+                    var pageHeight = _pageSetup.PageHeightMm * PageSetup.PxPerMm;
+                    var frameTop = slice * (pageHeight + PageGap);
+                    y = pageTop + frameTop + topMargin
+                        + (anchor.Top - (_sliceTops.Count > slice ? _sliceTops[slice] : 0));
+                }
                 y = Math.Max(y, lastBottom + 6);
 
-                var bubble = BuildAnnotationBubble(annotation, gold, bubbleWidth);
+                var bubble = BuildAnnotationBubble(annotation, gold, bubbleWidth, layer);
                 Canvas.SetLeft(bubble, pageRight + 16);
                 Canvas.SetTop(bubble, y);
                 // Filet de liaison, du bord de page à la bulle.
@@ -2234,15 +2239,15 @@ namespace UniversSale.View
                     StrokeThickness = 1,
                     Opacity = annotation.Resolved ? 0.4 : 0.8
                 };
-                _bubbleLayer.Children.Add(link);
-                _bubbleLayer.Children.Add(bubble);
+                layer.Children.Add(link);
+                layer.Children.Add(bubble);
 
                 bubble.Measure(new Size(bubbleWidth, double.PositiveInfinity));
                 lastBottom = y + Math.Max(34, bubble.DesiredSize.Height);
             }
             // La surface s'élargit pour que les bulles comptent dans l'étendue
             // de défilement.
-            _bubbleLayer.Width = pageRight + 16 + bubbleWidth + 12;
+            layer.Width = pageRight + 16 + bubbleWidth + 12;
 
             // Après création : le champ de la bulle neuve est prêt à la frappe.
             if (_focusBubbleRequested && _activeBubbleEditor != null)
@@ -2260,8 +2265,10 @@ namespace UniversSale.View
         /// <summary>Une bulle façon Word. Repliée : extrait + aperçu du
         /// commentaire. Dépliée (clic, ou création) : champ d'édition et
         /// commandes Résoudre/Supprimer sur place ; elle se replie quand le
-        /// focus la quitte.</summary>
-        private Border BuildAnnotationBubble(Annotation annotation, Brush gold, double width)
+        /// focus la quitte. layer : la couche qui la portera (miroir
+        /// classique ou colonne composée — B.4).</summary>
+        private Border BuildAnnotationBubble(Annotation annotation, Brush gold,
+            double width, Canvas layer)
         {
             var active = annotation.Id == _activeBubbleId;
             var panel = new StackPanel();
@@ -2368,7 +2375,7 @@ namespace UniversSale.View
                     return;
                 // Une bulle détachée par une reconstruction n'est pas un vrai
                 // départ de focus — seule la bulle encore affichée se replie.
-                if (!_bubbleLayer.Children.Contains(bubble)) return;
+                if (!layer.Children.Contains(bubble)) return;
                 _activeBubbleId = null;
                 Dispatcher.BeginInvoke(DispatcherPriority.Background,
                     new Action(delegate { RebuildAnnotationBubbles(true); }));
@@ -2376,29 +2383,14 @@ namespace UniversSale.View
             return bubble;
         }
 
-        /// <summary>Ouvre le champ de commentaire d'une annotation (après
-        /// création) : la bulle en classique, la ligne du panneau en
-        /// Composition.</summary>
+        /// <summary>Ouvre le champ de commentaire d'une annotation après sa
+        /// création — les bulles viennent d'être programmées
+        /// (RebuildAnnotationsPanel) : celle-ci naîtra dépliée, champ
+        /// focalisé, sur l'une ou l'autre surface (B.4).</summary>
         private void FocusAnnotation(string id)
         {
-            if (!ComposedActive)
-            {
-                // Les bulles viennent d'être programmées (RebuildAnnotationsPanel) :
-                // celle-ci naîtra dépliée, champ focalisé.
-                _activeBubbleId = id;
-                _focusBubbleRequested = true;
-                return;
-            }
-            foreach (var child in _annList.Children)
-            {
-                var row = child as DockPanel;
-                if (row == null || (string)row.Tag != id) continue;
-                foreach (var element in row.Children)
-                {
-                    var box = element as TextBox;
-                    if (box != null) { box.Focus(); return; }
-                }
-            }
+            _activeBubbleId = id;
+            _focusBubbleRequested = true;
         }
 
         private void BuildPage()
@@ -3409,8 +3401,9 @@ namespace UniversSale.View
             RebuildNotesPanel();
             RebuildAnnotationsPanel();
             HideSearch();
-            // The composed pages are the default writing surface.
-            if (Settings.AppSettings.CompositionMode) SetComposition(true);
+            // Le composé est LA surface d'édition (gel du batch 26) ; seul le
+            // mode de compatibilité des Préférences rend le repli classique.
+            if (!Settings.AppSettings.ClassicCompatibility) SetComposition(true);
             else if (ComposedActive) SetComposition(false);
             // Les combos du ruban (style, police, taille) reflètent le caret
             // dès l'ouverture — la synchro au chargement était avalée par le
@@ -3931,14 +3924,22 @@ namespace UniversSale.View
 
         // ============================================================= find & replace
 
+        /// <summary>Ctrl+F. La recherche vit sur le PIVOT (batch 26, lot B.3) :
+        /// elle ne force plus JAMAIS la sortie du mode composé — la barre
+        /// s'ouvre au-dessus de la surface active, quelle qu'elle soit.</summary>
         public void ShowSearch()
         {
             if (_item == null) return;
-            // Find & replace still lives on the classic surface.
-            if (ComposedActive) SetComposition(false);
             _searchBar.Visibility = Visibility.Visible;
             _searchInfo.Text = "";
-            if (!_box.Selection.IsEmpty && _box.Selection.Text.Length < 80
+            _searchCurrent = null;
+            // « Mot entier » vit sur la recherche pivot — le repli classique
+            // (gelé) garde son ancienne recherche telle quelle.
+            _wholeWordCheck.IsEnabled = ComposedActive;
+            _wholeWordCheck.ToolTip = ComposedActive ? null
+                : "Disponible dans les pages composées";
+            if (!ComposedActive && !_box.Selection.IsEmpty
+                && _box.Selection.Text.Length < 80
                 && !_box.Selection.Text.Contains("\n"))
                 _searchBox.Text = _box.Selection.Text;
             _searchBox.Focus();
@@ -3949,7 +3950,9 @@ namespace UniversSale.View
         {
             if (_searchBar.Visibility == Visibility.Collapsed) return;
             _searchBar.Visibility = Visibility.Collapsed;
-            _box.Focus();
+            _searchCurrent = null;
+            if (ComposedActive) _composed.Focus();
+            else _box.Focus();
         }
 
         private StringComparison Comparison()
@@ -4012,7 +4015,42 @@ namespace UniversSale.View
 
         private void FindNext()
         {
-            TryFindNext(true);
+            if (ComposedActive) TryFindNextComposed(true);
+            else TryFindNext(true);
+        }
+
+        /// <summary>La recherche pivot du mode composé : PivotSearch trouve,
+        /// la vue sélectionne — le composé reste actif du début à la fin.</summary>
+        private bool TryFindNextComposed(bool wrap)
+        {
+            var needle = _searchBox.Text;
+            if (string.IsNullOrEmpty(needle) || _item == null) return false;
+            var matches = PivotSearch.FindAll(_item.Document, needle,
+                _caseCheck.IsChecked == true, _wholeWordCheck.IsChecked == true);
+            if (matches.Count == 0)
+            {
+                _searchCurrent = null;
+                _searchInfo.Text = "Aucun résultat";
+                return false;
+            }
+            int paragraph, offset;
+            _composed.CaretLocation(out paragraph, out offset);
+            PivotSearch.Match next = null;
+            foreach (var match in matches)
+                if (match.ParagraphIndex > paragraph
+                    || (match.ParagraphIndex == paragraph && match.Start >= offset))
+                { next = match; break; }
+            if (next == null)
+            {
+                if (!wrap) { _searchInfo.Text = "Aucun résultat"; return false; }
+                next = matches[0];
+                _searchInfo.Text = "Reprise au début";
+            }
+            else _searchInfo.Text = "";
+            _searchCurrent = next;
+            _composed.SelectRange(next.ParagraphIndex, next.Start,
+                next.Start + next.Length);
+            return true;
         }
 
         private bool TryFindNext(bool wrap)
@@ -4066,6 +4104,26 @@ namespace UniversSale.View
         {
             var needle = _searchBox.Text;
             if (string.IsNullOrEmpty(needle)) return;
+            if (ComposedActive)
+            {
+                // Le résultat courant est vérifié contre le texte VIVANT
+                // avant remplacement (le document a pu bouger).
+                if (_searchCurrent != null && _item != null
+                    && _searchCurrent.ParagraphIndex < _item.Document.Paragraphs.Count)
+                {
+                    var text = PivotEdit.FlatText(
+                        _item.Document.Paragraphs[_searchCurrent.ParagraphIndex]);
+                    if (_searchCurrent.Start + _searchCurrent.Length <= text.Length
+                        && string.Equals(text.Substring(_searchCurrent.Start,
+                            _searchCurrent.Length), needle, Comparison()))
+                        _composed.ReplaceRange(_searchCurrent.ParagraphIndex,
+                            _searchCurrent.Start, _searchCurrent.Length,
+                            _replaceBox.Text);
+                    _searchCurrent = null;
+                }
+                TryFindNextComposed(true);
+                return;
+            }
             if (!_box.Selection.IsEmpty
                 && string.Equals(_box.Selection.Text, needle, Comparison()))
             {
@@ -4079,6 +4137,16 @@ namespace UniversSale.View
         {
             var needle = _searchBox.Text;
             if (string.IsNullOrEmpty(needle) || _item == null) return;
+            if (ComposedActive)
+            {
+                var matches = PivotSearch.FindAll(_item.Document, needle,
+                    _caseCheck.IsChecked == true, _wholeWordCheck.IsChecked == true);
+                var replaced = _composed.ReplaceAll(matches, _replaceBox.Text);
+                _searchCurrent = null;
+                _searchInfo.Text = replaced == 0 ? "Aucun résultat"
+                    : replaced == 1 ? "1 remplacement" : replaced + " remplacements";
+                return;
+            }
             var count = 0;
             _box.CaretPosition = _box.Document.ContentStart;
             _box.Selection.Select(_box.Document.ContentStart, _box.Document.ContentStart);

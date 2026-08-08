@@ -16,6 +16,10 @@ namespace UniversSale.View
         /// re-applies Chrome + Theme and refreshes what needs it.</summary>
         public event Action AppearanceChanged;
 
+        /// <summary>Le mode de compatibilité a changé : la fenêtre principale
+        /// recharge le document ouvert sur la bonne surface.</summary>
+        public event Action EditingSurfaceChanged;
+
         private readonly WrapPanel _swatches;
         private CheckBox _whitePaper;
 
@@ -52,6 +56,11 @@ namespace UniversSale.View
                 Header = "Personnalisation",
                 Content = BuildPersonalizationTab()
             });
+            tabs.Items.Add(new TabItem
+            {
+                Header = "Édition",
+                Content = BuildEditingTab()
+            });
 
             var layout = new StackPanel { MinWidth = 380 };
             layout.Children.Add(tabs);
@@ -68,6 +77,47 @@ namespace UniversSale.View
             layout.Children.Add(buttons);
 
             Content = layout;
+        }
+
+        /// <summary>Onglet « Édition » : le mode de compatibilité — le repli
+        /// classique, gelé au batch 26 (gel documenté dans PLAN.md avec ses
+        /// trois conditions de suppression).</summary>
+        private UIElement BuildEditingTab()
+        {
+            var panel = new StackPanel { Margin = new Thickness(12, 10, 12, 10), MaxWidth = 420 };
+            panel.Children.Add(Caption("Mode de compatibilité"));
+            var compat = new CheckBox
+            {
+                Content = "Écrire dans l'ancienne surface (mode de compatibilité)",
+                IsChecked = AppSettings.ClassicCompatibility,
+                Margin = new Thickness(0, 6, 0, 0)
+            };
+            compat.Click += delegate
+            {
+                AppSettings.ClassicCompatibility = compat.IsChecked == true;
+                AppSettings.Save();
+                var handler = EditingSurfaceChanged;
+                if (handler != null) handler();
+            };
+            panel.Children.Add(compat);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Ce qu'il apporte : la saisie IME pour les écritures non "
+                    + "latines, et le correcteur orthographique de Windows.\n\n"
+                    + "Ce qu'il coûte : ni correction Marabook (répétitions, et "
+                    + "bientôt orthographe et grammaire), ni approche, ni bulles "
+                    + "d'annotation, ni gabarits à l'écran, ni affichage "
+                    + "Brouillon.\n\n"
+                    + "Les pages composées sont la surface d'édition de "
+                    + "Marabook ; ce repli est conservé tel quel, sans "
+                    + "nouvelle fonctionnalité, en attendant que le composé "
+                    + "couvre aussi ces deux besoins.",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 8, 0, 0)
+            });
+            return panel;
         }
 
         private UIElement BuildPersonalizationTab()
