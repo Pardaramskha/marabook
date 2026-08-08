@@ -92,6 +92,9 @@ namespace UniversSale.Settings
         // Mots ignorés par les correcteurs sur TOUS les projets (« ignorer
         // partout ») — le pendant global de Project.ProofIgnored.
         public static List<string> ProofIgnored = new List<string>();
+        // Dictionnaire personnel GLOBAL : mots enseignés pour tous les
+        // projets — le pendant de Project.LearnedWords.
+        public static List<string> LearnedWords = new List<string>();
         public static List<string> RecentFiles = new List<string>(); // last 5 .plot files
 
         public static void AddRecentFile(string path)
@@ -191,6 +194,13 @@ namespace UniversSale.Settings
                     foreach (var entry in proofIgnored)
                         if (entry is string) ProofIgnored.Add((string)entry);
                 }
+                var learnedWords = Json.AsList(Json.Field(root, "learnedWords"));
+                if (learnedWords != null)
+                {
+                    LearnedWords = new List<string>();
+                    foreach (var entry in learnedWords)
+                        if (entry is string) LearnedWords.Add((string)entry);
+                }
                 var recents = Json.AsList(Json.Field(root, "recentFiles"));
                 if (recents != null)
                 {
@@ -225,6 +235,8 @@ namespace UniversSale.Settings
                 root["proofEnabled"] = ProofEnabled;
                 if (ProofIgnored.Count > 0)
                     root["proofIgnored"] = new List<object>(ProofIgnored.ToArray());
+                if (LearnedWords.Count > 0)
+                    root["learnedWords"] = new List<object>(LearnedWords.ToArray());
                 root["recentFiles"] = new List<object>(RecentFiles.ToArray());
                 File.WriteAllText(SettingsPath(), Json.Write(root), new UTF8Encoding(false));
             }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -20,6 +21,12 @@ namespace UniversSale.View
         /// recharge le document ouvert sur la bonne surface.</summary>
         public event Action EditingSurfaceChanged;
 
+        /// <summary>Un dictionnaire personnel a changé : l'éditeur doit
+        /// oublier ses verdicts en cache et revérifier.</summary>
+        public event Action ProofingChanged;
+
+        private readonly Model.Project _project; // null : aucun projet ouvert
+
         private readonly WrapPanel _swatches;
         private CheckBox _whitePaper;
 
@@ -39,8 +46,9 @@ namespace UniversSale.View
             new[] { "#5D6D7E", "Ardoise" },
         };
 
-        public PreferencesDialog(Window owner)
+        public PreferencesDialog(Window owner, Model.Project project)
         {
+            _project = project;
             Title = "Préférences";
             Owner = owner;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -117,7 +125,64 @@ namespace UniversSale.View
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 8, 0, 0)
             });
+
+            // — Les dictionnaires personnels (batch 27, lot D). À ne pas
+            // confondre avec les ignorés : « ignorer » TAIT un signalement,
+            // « ajouter au dictionnaire » ENSEIGNE un mot au correcteur.
+            panel.Children.Add(Caption("Dictionnaires personnels", 18));
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Les mots enseignés au correcteur (« Ajouter au "
+                    + "dictionnaire » du clic droit). Différent d'« ignorer », "
+                    + "qui tait un signalement sans rien apprendre.",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 6)
+            });
+            panel.Children.Add(BuildLearnedList("Ce projet",
+                _project != null ? _project.LearnedWords : null, true));
+            panel.Children.Add(BuildLearnedList("Tous les projets",
+                AppSettings.LearnedWords, false));
             return panel;
+        }
+
+        private UIElement BuildLearnedList(string caption, List<string> words,
+            bool projectScope)
+        {
+            var box = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+            box.Children.Add(new TextBlock
+            {
+                Text = caption + (words == null ? " (aucun projet ouvert)" : ""),
+                Foreground = Chrome.SoftText,
+                FontSize = 12
+            });
+            if (words == null) return box;
+            var list = new ListBox
+            {
+                Height = 84,
+                Margin = new Thickness(0, 2, 0, 2)
+            };
+            foreach (var word in words) list.Items.Add(word);
+            box.Children.Add(list);
+            var remove = new Button
+            {
+                Content = "Retirer le mot sélectionné",
+                HorizontalAlignment = HorizontalAlignment.Left,
+                MinWidth = 170
+            };
+            remove.Click += delegate
+            {
+                var selected = list.SelectedItem as string;
+                if (selected == null) return;
+                words.Remove(selected);
+                list.Items.Remove(selected);
+                if (!projectScope) AppSettings.Save();
+                var handler = ProofingChanged;
+                if (handler != null) handler();
+            };
+            box.Children.Add(remove);
+            return box;
         }
 
         private UIElement BuildPersonalizationTab()

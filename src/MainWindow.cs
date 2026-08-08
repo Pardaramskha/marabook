@@ -2164,8 +2164,13 @@ namespace UniversSale
 
         private void OpenPreferences()
         {
-            var dialog = new PreferencesDialog(this);
+            var dialog = new PreferencesDialog(this, _project);
             dialog.AppearanceChanged += ApplyAppearance;
+            dialog.ProofingChanged += delegate
+            {
+                _editor.RefreshProofing();
+                if (_project != null) MarkDirty(); // la liste projet a pu changer
+            };
             dialog.EditingSurfaceChanged += delegate
             {
                 // Le mode de compatibilité a changé : le document ouvert

@@ -141,8 +141,22 @@ namespace UniversSale.View
             if (spellEngine != null)
             {
                 _spellChecker = new Correction.SpellChecker(spellEngine);
+                _spellChecker.GlobalWords = Settings.AppSettings.LearnedWords;
                 _checkHost.Add(_spellChecker);
             }
+            _composed.FindingLearn += delegate(Correction.Finding finding, bool projectScope)
+            {
+                if (_spellChecker == null || finding.Word.Length == 0) return;
+                var list = projectScope
+                    ? _spellChecker.ProjectWords : _spellChecker.GlobalWords;
+                if (!list.Contains(finding.Word)) list.Add(finding.Word);
+                if (projectScope) NotifyEdited(); // la liste vit dans le .plot
+                else Settings.AppSettings.Save();
+                // La connaissance a changé, pas le texte : le cache des
+                // vérificateurs locaux doit oublier ses verdicts.
+                _checkHost.InvalidateCache();
+                RunCheck();
+            };
             _composed.SuggestionProvider = delegate(Correction.Finding finding)
             {
                 return _spellChecker != null && finding.CheckerId == "spelling"
@@ -1697,6 +1711,15 @@ namespace UniversSale.View
             chip.Click += delegate { RebuildCorrectionPanel(); };
             _corrFilters[category] = chip;
             host.Children.Add(chip);
+        }
+
+        /// <summary>La connaissance des vérificateurs a changé hors édition
+        /// (dictionnaire personnel retouché dans les Préférences) : cache
+        /// oublié, passe relancée.</summary>
+        public void RefreshProofing()
+        {
+            _checkHost.InvalidateCache();
+            RunCheck();
         }
 
         private void ScheduleCheck()
@@ -3408,6 +3431,12 @@ namespace UniversSale.View
             // « Ignorer dans ce projet » vit et se sauve avec le projet.
             _checkHost.ProjectIgnored = project != null
                 ? project.ProofIgnored : new List<string>();
+            // Le dictionnaire personnel du projet aussi — et le cache des
+            // verdicts repart de zéro (autre projet, autre connaissance).
+            if (_spellChecker != null)
+                _spellChecker.ProjectWords = project != null
+                    ? project.LearnedWords : new List<string>();
+            _checkHost.InvalidateCache();
         }
 
         public void LoadItem(BinderItem item)

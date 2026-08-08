@@ -33,8 +33,9 @@ namespace UniversSale.Persistence
         // v6: en-têtes/pieds, gabarits de pages, veuves/orphelines débrayées;
         // v7: exceptions de césure du projet (hyphenExceptions);
         // v8: « ne pas corriger » sur les runs (np) + ignorés de correction
-        //     du projet (proofIgnored).
-        private const int FormatVersion = 8;
+        //     du projet (proofIgnored);
+        // v9: dictionnaire personnel du projet (learnedWords).
+        private const int FormatVersion = 9;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -119,6 +120,8 @@ namespace UniversSale.Persistence
                 manifest["hyphenExceptions"] = new List<object>(project.HyphenExceptions.ToArray());
             if (project.ProofIgnored.Count > 0)
                 manifest["proofIgnored"] = new List<object>(project.ProofIgnored.ToArray());
+            if (project.LearnedWords.Count > 0)
+                manifest["learnedWords"] = new List<object>(project.LearnedWords.ToArray());
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
             manifest["page"] = BuildPageSetup(project.Page);
@@ -448,6 +451,10 @@ namespace UniversSale.Persistence
                 if (proofIgnored != null)
                     foreach (var entry in proofIgnored)
                         if (entry is string) project.ProofIgnored.Add((string)entry);
+                var learnedWords = Json.AsList(Json.Field(manifest, "learnedWords"));
+                if (learnedWords != null)
+                    foreach (var entry in learnedWords)
+                        if (entry is string) project.LearnedWords.Add((string)entry);
                 project.CreatedAt = Json.AsString(Json.Field(manifest, "createdAt")) ?? "";
                 project.ModifiedAt = Json.AsString(Json.Field(manifest, "modifiedAt")) ?? "";
 

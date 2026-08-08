@@ -45,6 +45,11 @@ namespace UniversSale.Model
         // projet » du menu de signalement) ; la liste globale vit dans les
         // réglages de l'application.
         public List<string> ProofIgnored = new List<string>();
+        // Dictionnaire personnel du PROJET : les mots ENSEIGNÉS au correcteur
+        // (noms propres du roman, néologismes) — « ajouter au dictionnaire »
+        // ≠ « ignorer » : ignorer TAIT un signalement, enseigner APPREND un
+        // mot. Le pendant global vit dans les réglages.
+        public List<string> LearnedWords = new List<string>();
         public string CreatedAt = "";
         public string ModifiedAt = "";
         public WritingJournal Journal = new WritingJournal();

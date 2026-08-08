@@ -148,6 +148,16 @@ namespace UniversSale.Correction
             }
         }
 
+        /// <summary>Vide le cache des vérificateurs locaux — OBLIGATOIRE
+        /// quand leur CONNAISSANCE change sans que le texte change (mot
+        /// enseigné au dictionnaire personnel) : l'empreinte du paragraphe
+        /// est la même, le verdict ne l'est plus. Les ignorés, eux, sont
+        /// filtrés APRÈS cache et ne demandent rien.</summary>
+        public void InvalidateCache()
+        {
+            _cache.Clear();
+        }
+
         /// <summary>« Ignorer ici » : ce signalement précis, cette session.
         /// Un déplacement du texte AVANT la plage change les offsets et fait
         /// réapparaître le signalement — limite assumée, testée en C5.</summary>

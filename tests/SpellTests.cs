@@ -370,6 +370,21 @@ namespace UniversSale.Tests
             t.Equal(0, host2.Run(Document("Batiatus regarde batiatus."), null).Count,
                 "un mot enseigné couvre toutes ses casses (clé pliée)");
 
+            // Lot D — enseigner un mot exige d'INVALIDER le cache local :
+            // l'empreinte du paragraphe n'a pas changé, la connaissance si.
+            var teach = new SpellChecker(engine);
+            var host4 = new CheckerHost();
+            host4.Add(teach);
+            var invented = Document("Batiatus sourit.");
+            t.Equal(1, host4.Run(invented, null).Count,
+                "le nom inventé rougit d'abord");
+            teach.ProjectWords.Add("Batiatus");
+            t.Equal(1, host4.Run(invented, null).Count,
+                "sans invalidation, le cache ressert son vieux verdict");
+            host4.InvalidateCache();
+            t.Equal(0, host4.Run(invented, null).Count,
+                "cache invalidé : le mot enseigné est appris");
+
             var noProof = new TextDocument();
             var paragraph = new TextParagraph();
             paragraph.Runs.Add(new TextRun { Text = "Le mot " });
