@@ -58,8 +58,12 @@ namespace UniversSale.Tests.Ui
                 catch { }
                 try { Directory.Delete(dir, true); } catch (IOException) { }
             }
+            // Les autres sondes UI de la campagne (même exe, même règle
+            // settings.json — elles n'y touchent pas).
+            Console.WriteLine();
+            _failures += CorrectionProbe.Run();
             Console.WriteLine(_failures == 0
-                ? "SONDE A1 OK" : "*** SONDE A1 : " + _failures + " échec(s) ***");
+                ? "SONDES UI OK" : "*** SONDES UI : " + _failures + " échec(s) ***");
             return _failures == 0 ? 0 : 1;
         }
 

@@ -25,6 +25,9 @@ namespace UniversSale.Model
         public string FootnoteId;   // set on footnote markers; Text is regenerated
         public string AnnotationId; // révision : le passage porte ce commentaire
                                     // (ancre de format, survit aux éditions)
+        public bool NoProof;        // « ne pas corriger » — soustrait le passage
+                                    // aux vérificateurs (noms inventés, langues
+                                    // fictives) ; sémantique du w:noProof de Word
         public bool IsLineBreak;    // explicit line break (Shift+Enter)
         public string ImageId;      // inline image (bytes live in the project image store)
         public bool IsRule;         // horizontal rule (its paragraph holds nothing else)
@@ -37,6 +40,7 @@ namespace UniversSale.Model
                 && FontFamily == other.FontFamily && FontSize == other.FontSize
                 && Color == other.Color && Highlight == other.Highlight
                 && AnnotationId == other.AnnotationId
+                && NoProof == other.NoProof
                 && FootnoteId == null && other.FootnoteId == null
                 && ImageId == null && other.ImageId == null
                 && !IsRule && !other.IsRule

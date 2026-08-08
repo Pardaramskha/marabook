@@ -1,0 +1,273 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Text;
+using UniversSale.Correction;
+using UniversSale.Model;
+
+namespace UniversSale.Tests
+{
+    /// <summary>C5 — la chaîne de correction, entièrement en console (aucune
+    /// dépendance WPF : c'est la condition de conception d'IChecker). Le
+    /// détecteur de répétitions sur des documents construits à la main avec
+    /// les positions calculées à la main ; le respect de NoProof ; les
+    /// ignorés (ici / projet / global) ; l'agrégation multi-vérificateurs ;
+    /// la doctrine des plages après édition (recalcul, pas de survie) ; et
+    /// la mesure sur 50 000 mots.</summary>
+    public static class CorrectionTests
+    {
+        public static void Run(Harness t)
+        {
+            t.Suite("C5 — chaîne de correction");
+            BasicRepetition(t);
+            RadiusBounds(t);
+            CaseAccentAndElision(t);
+            StopWordsAndShortWords(t);
+            NoProofRespected(t);
+            IgnoreLists(t);
+            IgnoreHereIsPositional(t);
+            AggregationAndOrder(t);
+            FiftyThousandWords(t);
+        }
+
+        // ------------------------------------------------------------ fixtures
+
+        private static TextDocument Document(params string[] paragraphs)
+        {
+            var document = new TextDocument();
+            foreach (var text in paragraphs)
+            {
+                var paragraph = new TextParagraph();
+                paragraph.Runs.Add(new TextRun { Text = text });
+                document.Paragraphs.Add(paragraph);
+            }
+            return document;
+        }
+
+        private static CheckerHost Host(params IChecker[] checkers)
+        {
+            var host = new CheckerHost();
+            foreach (var checker in checkers) host.Add(checker);
+            return host;
+        }
+
+        // ------------------------------------------------------------ cas de base
+
+        private static void BasicRepetition(Harness t)
+        {
+            // « marabout » : mots comptés marabout(1) mange(2) marabout(3)
+            // → distance 2, seule la SECONDE occurrence est signalée.
+            var document = Document("Le marabout mange.", "Le marabout dort.");
+            var findings = Host(new RepetitionChecker()).Run(document, null);
+            t.Equal(1, findings.Count, "une répétition signalée, pas deux");
+            t.Equal(1, findings[0].ParagraphIndex, "sur la seconde occurrence");
+            t.Equal(3, findings[0].Start, "position calculée à la main (« Le m… »)");
+            t.Equal(8, findings[0].Length, "la longueur du mot");
+            t.Equal("marabout", findings[0].Word, "le mot tel qu'affiché");
+            t.Check(findings[0].Message.Contains("2 mots plus haut"),
+                "le message porte la distance (" + findings[0].Message + ")");
+            t.Equal(FindingCategory.Style, findings[0].Category, "catégorie style");
+            t.Equal("repetition", findings[0].RuleId, "règle stable");
+        }
+
+        private static void RadiusBounds(Harness t)
+        {
+            // Rayon 3 : quatre mots pleins entre les deux → hors rayon.
+            var checker = new RepetitionChecker { Radius = 3 };
+            var far = Document("Marabout plume bec aile griffe marabout.");
+            t.Equal(0, Host(checker).Run(far, null).Count,
+                "hors rayon : silence");
+            var near = Document("Marabout plume bec marabout.");
+            t.Equal(1, Host(checker).Run(near, null).Count,
+                "dans le rayon : signalé");
+        }
+
+        private static void CaseAccentAndElision(Harness t)
+        {
+            var document = Document("Le cœur bat.", "Ce COEUR ment.");
+            var findings = Host(new RepetitionChecker()).Run(document, null);
+            t.Equal(1, findings.Count, "cœur = COEUR (casse et accents pliés)");
+            t.Equal("COEUR", findings[0].Word, "l'affichage garde la casse d'origine");
+
+            var elision = Document("L'homme marche.", "Un homme parle.");
+            var strip = Host(new RepetitionChecker()).Run(elision, null);
+            t.Equal(1, strip.Count, "l'homme = homme (élision dépouillée)");
+
+            var whole = Document("Aujourd'hui il pleut.", "Aujourd'hui il vente.");
+            var kept = Host(new RepetitionChecker()).Run(whole, null);
+            t.Equal(1, kept.Count, "aujourd'hui reste un seul mot");
+            t.Equal("Aujourd'hui", kept[0].Word, "affiché entier");
+        }
+
+        private static void StopWordsAndShortWords(Harness t)
+        {
+            var stop = Document("Il marche dans la nuit dans le froid.");
+            t.Equal(0, Host(new RepetitionChecker()).Run(stop, null).Count,
+                "« dans » répété : mot-outil, jamais signalé");
+            var conjugated = Document("Elle était partie. Il était tard.");
+            t.Equal(0, Host(new RepetitionChecker()).Run(conjugated, null).Count,
+                "« était » : auxiliaire conjugué, jamais signalé");
+            var shortWord = Document("Ah, la pluie. Ah, la boue.");
+            t.Equal(0, Host(new RepetitionChecker()).Run(shortWord, null).Count,
+                "« ah » : sous la longueur minimale (3 lettres), silence");
+            var threeLetters = Document("Un cri. Un cri encore.");
+            t.Equal(1, Host(new RepetitionChecker()).Run(threeLetters, null).Count,
+                "« cri » : trois lettres, signalé — la répétition compte");
+        }
+
+        // ------------------------------------------------------------ filtres
+
+        private static void NoProofRespected(Harness t)
+        {
+            // La seconde occurrence vit dans un run « ne pas corriger ».
+            var document = new TextDocument();
+            var first = new TextParagraph();
+            first.Runs.Add(new TextRun { Text = "Le wisteria fleurit." });
+            document.Paragraphs.Add(first);
+            var second = new TextParagraph();
+            second.Runs.Add(new TextRun { Text = "Un " });
+            second.Runs.Add(new TextRun { Text = "wisteria", NoProof = true });
+            second.Runs.Add(new TextRun { Text = " grimpe." });
+            document.Paragraphs.Add(second);
+
+            var findings = Host(new RepetitionChecker()).Run(document, null);
+            t.Equal(0, findings.Count, "une plage NoProof n'est jamais signalée");
+
+            // Le même document SANS la marque est bien signalé (contre-épreuve).
+            second.Runs[1].NoProof = false;
+            t.Equal(1, Host(new RepetitionChecker()).Run(document, null).Count,
+                "contre-épreuve : sans NoProof, le signalement revient");
+        }
+
+        private static void IgnoreLists(Harness t)
+        {
+            var document = Document("Le marabout mange.", "Le marabout dort.");
+            var host = Host(new RepetitionChecker());
+            host.IgnoreInProject("MARABOUT"); // insensible à la casse
+            t.Equal(0, host.Run(document, null).Count,
+                "ignoré dans le projet : silence, casse indifférente");
+
+            var global = Host(new RepetitionChecker());
+            global.GlobalIgnored.Add("marabout");
+            t.Equal(0, global.Run(document, null).Count,
+                "ignoré partout (réglages) : silence");
+        }
+
+        private static void IgnoreHereIsPositional(Harness t)
+        {
+            // Doctrine des plages : un signalement est RECALCULÉ après chaque
+            // édition, jamais suivi. « Ignorer ici » est donc positionnel et
+            // de session : si le texte bouge AVANT la plage, les offsets
+            // changent et le signalement réapparaît. Tranché, documenté, testé.
+            var document = Document("Le marabout mange.", "Le marabout dort.");
+            var host = Host(new RepetitionChecker());
+            var first = host.Run(document, null)[0];
+            host.IgnoreHere(first);
+            t.Equal(0, host.Run(document, null).Count,
+                "ignoré ici : le signalement précis se tait");
+
+            PivotEdit.InsertText(document.Paragraphs[1], 0, "Or ");
+            var after = host.Run(document, null);
+            t.Equal(1, after.Count,
+                "le texte a bougé avant la plage : recalculé, il réapparaît");
+            t.Equal(first.Start + 3, after[0].Start,
+                "aux nouveaux offsets (l'ancien « ici » ne colle plus)");
+        }
+
+        // ------------------------------------------------------------ pilote
+
+        /// <summary>Un vérificateur-jouet pour l'agrégation : signale chaque
+        /// « ! » comme typographie (démonstration multi-catégories).</summary>
+        private sealed class BangChecker : IChecker
+        {
+            public string Id { get { return "bang"; } }
+            public string Label { get { return "Points d'exclamation"; } }
+            public FindingCategory Category { get { return FindingCategory.Typography; } }
+
+            public List<Finding> Check(TextDocument document, StyleSheet styles)
+            {
+                var findings = new List<Finding>();
+                for (var p = document.Paragraphs.Count - 1; p >= 0; p--)
+                {
+                    var text = PivotEdit.FlatText(document.Paragraphs[p]);
+                    for (var i = text.Length - 1; i >= 0; i--)
+                        if (text[i] == '!')
+                            findings.Add(new Finding
+                            {
+                                ParagraphIndex = p,
+                                Start = i,
+                                Length = 1,
+                                Category = FindingCategory.Typography,
+                                Message = "Un point d'exclamation",
+                                RuleId = "bang",
+                                CheckerId = "bang",
+                                Word = "!"
+                            });
+                }
+                return findings; // volontairement à REBOURS : le pilote trie
+            }
+        }
+
+        private static void AggregationAndOrder(Harness t)
+        {
+            var document = Document("Oh ! Le marabout crie !", "Le marabout dort.");
+            var host = Host(new RepetitionChecker(), new BangChecker());
+            var findings = host.Run(document, null);
+            t.Equal(3, findings.Count, "deux vérificateurs agrégés (2 ! + 1 répétition)");
+            var ordered = true;
+            for (var i = 1; i < findings.Count; i++)
+            {
+                var before = findings[i - 1];
+                var after = findings[i];
+                if (before.ParagraphIndex > after.ParagraphIndex
+                    || (before.ParagraphIndex == after.ParagraphIndex
+                        && before.Start > after.Start)) ordered = false;
+            }
+            t.Check(ordered, "tri global par (paragraphe, position)");
+            t.Equal(FindingCategory.Typography, findings[0].Category,
+                "le premier signalement est le « ! » de tête");
+        }
+
+        // ------------------------------------------------------------ mesure
+
+        private static void FiftyThousandWords(Harness t)
+        {
+            // Un « chapitre » de 50 000 mots : 500 paragraphes de 100 mots,
+            // vocabulaire tournant assez large pour un texte plausible.
+            var vocabulary = new[]
+            {
+                "marabout", "plume", "silence", "fenetre", "cendre", "riviere",
+                "montagne", "lumiere", "ombre", "chemin", "visage", "regard",
+                "souffle", "matin", "soir", "pierre", "sable", "foret",
+                "orage", "brume", "paupiere", "murmure", "vertige", "frisson"
+            };
+            var document = new TextDocument();
+            var seed = 0;
+            for (var p = 0; p < 500; p++)
+            {
+                var sb = new StringBuilder();
+                for (var w = 0; w < 100; w++)
+                {
+                    if (w > 0) sb.Append(' ');
+                    sb.Append(vocabulary[seed % vocabulary.Length]);
+                    seed = seed * 31 % 97 + 1; // déterministe, pas de Random
+                }
+                sb.Append('.');
+                var paragraph = new TextParagraph();
+                paragraph.Runs.Add(new TextRun { Text = sb.ToString() });
+                document.Paragraphs.Add(paragraph);
+            }
+
+            var host = Host(new RepetitionChecker());
+            host.Run(document, null); // chauffe (JIT)
+            var watch = Stopwatch.StartNew();
+            var findings = host.Run(document, null);
+            watch.Stop();
+            t.Info("50 000 mots vérifiés en " + watch.ElapsedMilliseconds
+                + " ms (" + findings.Count + " signalements)");
+            t.Check(watch.ElapsedMilliseconds < 500,
+                "la passe complète tient largement sous la demi-seconde");
+            t.Check(findings.Count > 0, "le texte-jouet produit des répétitions");
+        }
+    }
+}

@@ -104,6 +104,15 @@ namespace UniversSale.View
         private Canvas _bubbleLayer; // bulles de commentaire façon Word (classique)
         private Grid _surface;       // hôte du miroir + des bulles
 
+        // ---- correction (batch 26) : le pilote, ses signalements, son panneau
+        private readonly Correction.CheckerHost _checkHost = new Correction.CheckerHost();
+        private List<Correction.Finding> _findings = new List<Correction.Finding>();
+        private DispatcherTimer _checkTimer;
+        private Border _corrBar;
+        private StackPanel _corrList;
+        private readonly Dictionary<Correction.FindingCategory, ToggleButton> _corrFilters
+            = new Dictionary<Correction.FindingCategory, ToggleButton>();
+
         public event Action Edited; // any content or footnote change
         public event Action<string> LinkClicked; // Ctrl+click on a [[wiki link]]
 
@@ -113,7 +122,17 @@ namespace UniversSale.View
             BuildSearchBar();
             BuildNotesBar();
             BuildAnnotationsBar();
+            BuildCorrectionBar();
             BuildPage();
+
+            // Le pilote de correction (batch 26) : les vérificateurs actifs,
+            // les ignorés globaux, et la cadence — un debounce de 600 ms,
+            // jamais à chaque touche. La passe complète coûte 46 ms sur
+            // 50 000 mots (mesure C5) : le fil UI suffit largement.
+            _checkHost.Add(new Correction.RepetitionChecker());
+            _checkHost.GlobalIgnored = Settings.AppSettings.ProofIgnored;
+            _checkTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+            _checkTimer.Tick += delegate { _checkTimer.Stop(); RunCheck(); };
         }
 
         public bool HasItem { get { return _item != null; } }
@@ -444,6 +463,7 @@ namespace UniversSale.View
             _ribbonBar.Visibility = calm ? Visibility.Collapsed : Visibility.Visible;
             if (calm) _searchBar.Visibility = Visibility.Collapsed;
             RebuildNotesPanel(); // la visibilité des panneaux suit _calm
+            RebuildCorrectionPanel();
             RebuildAnnotationsPanel();
         }
 
@@ -903,6 +923,7 @@ namespace UniversSale.View
                     _composed.Visibility = Visibility.Collapsed;
                     _scroller.Visibility = Visibility.Visible;
                 }
+                RunCheck(); // hors composé : panneau et ondulés s'éteignent
                 return;
             }
             if (_item == null) { if (_composeBtn != null) _composeBtn.IsChecked = false; return; }
@@ -926,6 +947,7 @@ namespace UniversSale.View
                 _scroller.Visibility = Visibility.Collapsed;
                 _composed.Focus();
                 RebuildAnnotationsPanel();
+                RunCheck(); // la surface composée s'ouvre vérifiée
             }
             catch (Exception error)
             {
@@ -1419,6 +1441,29 @@ namespace UniversSale.View
             annotate.Click += delegate { CreateAnnotation(); };
             panel.Children.Add(annotate);
 
+            var noProof = new Button
+            {
+                Content = "Ne pas corriger",
+                ToolTip = "Soustrait le passage sélectionné aux correcteurs "
+                    + "(noms inventés, langues fictives, citations étrangères) "
+                    + "— re-cliquer pour l'y rendre",
+                Margin = new Thickness(0, 0, 10, 0),
+                Padding = new Thickness(8, 2, 8, 2),
+                Focusable = false
+            };
+            noProof.Click += delegate
+            {
+                // Le gel du classique (batch 26) : la commande vit dans les
+                // pages composées, la seule surface d'édition supportée.
+                if (!ComposedActive || !_composed.ToggleNoProofSelection())
+                    MessageBox.Show(Window.GetWindow(this),
+                        ComposedActive
+                            ? "Sélectionnez d'abord le passage à soustraire."
+                            : "« Ne pas corriger » s'applique dans les pages composées.",
+                        "Révision", MessageBoxButton.OK, MessageBoxImage.Information);
+            };
+            panel.Children.Add(noProof);
+
             var previous = new Button
             {
                 Content = "◀ Précédente",
@@ -1439,6 +1484,39 @@ namespace UniversSale.View
             };
             next.Click += delegate { NavigateAnnotation(1); };
             panel.Children.Add(next);
+
+            // — Correction (batch 26) : vérification continue et navigation.
+            var proofToggle = PageToggle("Vérifier",
+                "Vérification continue du texte — répétitions aujourd'hui, "
+                + "orthographe et grammaire aux prochains batchs");
+            proofToggle.IsChecked = Settings.AppSettings.ProofEnabled;
+            proofToggle.Click += delegate
+            {
+                Settings.AppSettings.ProofEnabled = proofToggle.IsChecked == true;
+                Settings.AppSettings.Save();
+                RunCheck();
+            };
+            panel.Children.Add(proofToggle);
+            var previousFinding = new Button
+            {
+                Content = "◀ Signalement",
+                ToolTip = "Aller au signalement de correction précédent",
+                Margin = new Thickness(0, 0, 4, 0),
+                Padding = new Thickness(8, 2, 8, 2),
+                Focusable = false
+            };
+            previousFinding.Click += delegate { NavigateFinding(-1); };
+            panel.Children.Add(previousFinding);
+            var nextFinding = new Button
+            {
+                Content = "Signalement ▶",
+                ToolTip = "Aller au signalement de correction suivant",
+                Margin = new Thickness(0, 0, 10, 0),
+                Padding = new Thickness(8, 2, 8, 2),
+                Focusable = false
+            };
+            nextFinding.Click += delegate { NavigateFinding(1); };
+            panel.Children.Add(nextFinding);
 
             _annVisibleBtn = PageToggle("Visibles",
                 "Affiche ou masque les annotations (teintes et bulles) — "
@@ -1493,6 +1571,231 @@ namespace UniversSale.View
             Children.Add(_annBar);
         }
 
+        // ============================================================ correction
+
+        /// <summary>Le panneau Correction, sur le modèle du panneau
+        /// Annotations : liste des signalements, extrait cliquable,
+        /// suggestions en un clic, filtres par catégorie. Composé seulement
+        /// (le classique est gelé, batch 26).</summary>
+        private void BuildCorrectionBar()
+        {
+            _corrBar = new Border
+            {
+                Background = Chrome.BarBgLight,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(24, 8, 24, 8),
+                Visibility = Visibility.Collapsed,
+                MaxHeight = 240
+            };
+            SetDock(_corrBar, Dock.Bottom);
+            var panel = new StackPanel();
+            var head = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+            var filters = new StackPanel { Orientation = Orientation.Horizontal };
+            AddCorrectionFilter(filters, Correction.FindingCategory.Spelling, "Orthographe");
+            AddCorrectionFilter(filters, Correction.FindingCategory.Grammar, "Grammaire");
+            AddCorrectionFilter(filters, Correction.FindingCategory.Typography, "Typographie");
+            AddCorrectionFilter(filters, Correction.FindingCategory.Style, "Style");
+            DockPanel.SetDock(filters, Dock.Right);
+            head.Children.Add(filters);
+            head.Children.Add(new TextBlock
+            {
+                Text = "Correction",
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            panel.Children.Add(head);
+            _corrList = new StackPanel();
+            panel.Children.Add(new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                MaxHeight = 180,
+                Content = _corrList
+            });
+            _corrBar.Child = panel;
+            Children.Add(_corrBar);
+        }
+
+        private void AddCorrectionFilter(StackPanel host,
+            Correction.FindingCategory category, string label)
+        {
+            var chip = new ToggleButton
+            {
+                Content = label,
+                IsChecked = true,
+                Margin = new Thickness(6, 0, 0, 0),
+                Padding = new Thickness(7, 1, 7, 1),
+                FontSize = 11,
+                Focusable = false,
+                ToolTip = "Afficher/masquer cette catégorie dans la liste"
+            };
+            chip.Click += delegate { RebuildCorrectionPanel(); };
+            _corrFilters[category] = chip;
+            host.Children.Add(chip);
+        }
+
+        private void ScheduleCheck()
+        {
+            if (_checkTimer == null || _item == null || !ComposedActive) return;
+            _checkTimer.Stop();
+            _checkTimer.Start();
+        }
+
+        /// <summary>La passe de correction complète : pilote → ondulés →
+        /// panneau. Synchrone sur le fil UI, coût mesuré 46 ms / 50 000 mots
+        /// (C5) — bien en deçà du debounce de 600 ms qui l'appelle.</summary>
+        private void RunCheck()
+        {
+            if (_checkTimer != null) _checkTimer.Stop();
+            if (_item == null || !ComposedActive
+                || !Settings.AppSettings.ProofEnabled)
+            {
+                _findings = new List<Correction.Finding>();
+                if (_composed != null && _composed.HasItem) _composed.SetFindings(null);
+                RebuildCorrectionPanel();
+                return;
+            }
+            _findings = _checkHost.Run(_item.Document, _styles);
+            _composed.SetFindings(_findings);
+            RebuildCorrectionPanel();
+        }
+
+        private void RebuildCorrectionPanel()
+        {
+            if (_corrList == null) return;
+            _corrList.Children.Clear();
+            var visible = new List<Correction.Finding>();
+            foreach (var finding in _findings)
+            {
+                ToggleButton chip;
+                if (_corrFilters.TryGetValue(finding.Category, out chip)
+                    && chip.IsChecked != true) continue;
+                visible.Add(finding);
+            }
+            _corrBar.Visibility = visible.Count == 0 || _calm || !ComposedActive
+                || !Settings.AppSettings.ProofEnabled
+                ? Visibility.Collapsed : Visibility.Visible;
+            if (_corrBar.Visibility != Visibility.Visible) return;
+            // Jamais de troncature SILENCIEUSE : la queue est annoncée.
+            const int cap = 150;
+            for (var i = 0; i < visible.Count && i < cap; i++)
+                _corrList.Children.Add(BuildFindingRow(visible[i]));
+            if (visible.Count > cap)
+                _corrList.Children.Add(new TextBlock
+                {
+                    Text = "… et " + (visible.Count - cap) + " autres signalements"
+                        + " — naviguer avec ◀ ▶ (Révision), la liste suit les corrections",
+                    Foreground = Chrome.SoftText,
+                    FontSize = 11,
+                    Margin = new Thickness(14, 4, 0, 2)
+                });
+        }
+
+        private UIElement BuildFindingRow(Correction.Finding finding)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
+            var dot = new Border
+            {
+                Width = 8,
+                Height = 8,
+                CornerRadius = new CornerRadius(4),
+                Background = ComposedRenderer.FindingPen(finding.Category).Brush,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 1, 6, 0)
+            };
+            DockPanel.SetDock(dot, Dock.Left);
+            row.Children.Add(dot);
+
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+            for (var i = 0; i < finding.Suggestions.Count && i < 3; i++)
+            {
+                var suggestion = finding.Suggestions[i];
+                var findingRef = finding;
+                var apply = SmallButton(suggestion,
+                    delegate { _composed.ApplySuggestion(findingRef, suggestion); });
+                apply.FontSize = 11;
+                apply.ToolTip = "Remplacer par « " + suggestion + " »";
+                buttons.Children.Add(apply);
+            }
+            var ignoreRef = finding;
+            var ignore = SmallButton("Ignorer", delegate
+            {
+                if (ignoreRef.Word.Length > 0)
+                {
+                    _checkHost.IgnoreInProject(ignoreRef.Word);
+                    NotifyEdited(); // la liste du projet est persistée
+                }
+                else _checkHost.IgnoreHere(ignoreRef);
+                RunCheck();
+            });
+            ignore.FontSize = 11;
+            ignore.ToolTip = finding.Word.Length > 0
+                ? "Ne plus signaler « " + finding.Word + " » dans ce projet"
+                : "Taire ce signalement (session)";
+            buttons.Children.Add(ignore);
+            DockPanel.SetDock(buttons, Dock.Right);
+            row.Children.Add(buttons);
+
+            var excerpt = new TextBlock
+            {
+                Text = "« " + (finding.Word.Length > 0 ? finding.Word : "…") + " »",
+                Foreground = Chrome.SoftText,
+                FontStyle = FontStyles.Italic,
+                FontSize = 11,
+                Width = 150,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+                Cursor = Cursors.Hand,
+                ToolTip = "Aller au passage signalé"
+            };
+            var goRef = finding;
+            excerpt.MouseLeftButtonDown += delegate { _composed.GoToFinding(goRef); };
+            DockPanel.SetDock(excerpt, Dock.Left);
+            row.Children.Add(excerpt);
+
+            row.Children.Add(new TextBlock
+            {
+                Text = finding.Message,
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                Margin = new Thickness(8, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            return row;
+        }
+
+        /// <summary>Signalement suivant/précédent depuis le caret composé —
+        /// boucle en bout de course, comme la navigation d'annotations.</summary>
+        private void NavigateFinding(int direction)
+        {
+            if (_findings.Count == 0 || !ComposedActive) return;
+            int paragraph, offset;
+            _composed.CaretLocation(out paragraph, out offset);
+            Correction.Finding target = null;
+            if (direction > 0)
+            {
+                foreach (var finding in _findings)
+                    if (finding.ParagraphIndex > paragraph
+                        || (finding.ParagraphIndex == paragraph && finding.Start > offset))
+                    { target = finding; break; }
+                if (target == null) target = _findings[0];
+            }
+            else
+            {
+                for (var i = _findings.Count - 1; i >= 0; i--)
+                {
+                    var finding = _findings[i];
+                    if (finding.ParagraphIndex < paragraph
+                        || (finding.ParagraphIndex == paragraph && finding.End < offset))
+                    { target = finding; break; }
+                }
+                if (target == null) target = _findings[_findings.Count - 1];
+            }
+            _composed.GoToFinding(target);
+        }
+
         /// <summary>Ids d'annotations dans l'ordre du texte — pivot en mode
         /// Composition (toujours vivant), FlowDocument en classique (le pivot
         /// n'y est à jour qu'au Commit).</summary>
@@ -1521,12 +1824,12 @@ namespace UniversSale.View
 
         private static string AnnotationIdOf(Run run)
         {
-            var tag = run == null ? null : run.Tag as string;
-            if (tag == null || !tag.StartsWith("ann:")) return null;
-            var spec = tag.Substring(4);
-            var semi = spec.IndexOf(";trk=", StringComparison.Ordinal);
-            if (semi >= 0) spec = spec.Substring(0, semi);
-            return spec.Length > 0 ? spec : null;
+            if (run == null) return null;
+            string id;
+            double? tracking;
+            bool noProof;
+            FlowConverter.ParseRunTag(run.Tag, out id, out tracking, out noProof);
+            return id;
         }
 
         /// <summary>Le passage annoté tel qu'affiché (extrait du panneau).</summary>
@@ -1598,11 +1901,13 @@ namespace UniversSale.View
                 var run = pointer.Parent as Run;
                 if (run != null && run.ContentStart.CompareTo(selection.Start) >= 0)
                 {
-                    var tracking = run.Tag is double ? (double?)(double)run.Tag : null;
-                    run.Tag = "ann:" + id + (tracking.HasValue
-                        ? ";trk=" + tracking.Value.ToString(
-                            System.Globalization.CultureInfo.InvariantCulture)
-                        : "");
+                    // L'approche et « ne pas corriger » déjà portés par le Tag
+                    // survivent à l'ancrage (mini-format à segments).
+                    string previousId;
+                    double? tracking;
+                    bool noProof;
+                    FlowConverter.ParseRunTag(run.Tag, out previousId, out tracking, out noProof);
+                    run.Tag = FlowConverter.ComposeRunTag(id, tracking, noProof);
                     pointer = run.ElementEnd;
                     continue;
                 }
@@ -1715,12 +2020,12 @@ namespace UniversSale.View
                 else if (!tint && cosmetic) run.Background = null;
                 if (clearTag)
                 {
-                    var tag = run.Tag as string;
-                    var semi = tag == null ? -1 : tag.IndexOf(";trk=", StringComparison.Ordinal);
-                    run.Tag = semi >= 0
-                        ? (object)double.Parse(tag.Substring(semi + 5),
-                            System.Globalization.CultureInfo.InvariantCulture)
-                        : null;
+                    // L'ancre part, l'approche et « ne pas corriger » restent.
+                    string previousId;
+                    double? tracking;
+                    bool noProof;
+                    FlowConverter.ParseRunTag(run.Tag, out previousId, out tracking, out noProof);
+                    run.Tag = FlowConverter.ComposeRunTag(null, tracking, noProof);
                 }
             }
         }
@@ -2224,6 +2529,17 @@ namespace UniversSale.View
             _composed = new ComposedView { Visibility = Visibility.Collapsed };
             _composed.ExitRequested += delegate { SetComposition(false); };
             _composed.Edited += delegate { NotifyEdited(); };
+            _composed.FindingIgnoreHere += delegate(Correction.Finding finding)
+            {
+                _checkHost.IgnoreHere(finding);
+                RunCheck();
+            };
+            _composed.FindingIgnoreProject += delegate(Correction.Finding finding)
+            {
+                _checkHost.IgnoreInProject(finding.Word);
+                NotifyEdited(); // la liste d'ignorés du projet est persistée
+                RunCheck();
+            };
             _composed.LinkClicked += delegate(string title)
             {
                 var handler = LinkClicked;
@@ -3076,6 +3392,9 @@ namespace UniversSale.View
         public void SetProject(Project project)
         {
             _project = project;
+            // « Ignorer dans ce projet » vit et se sauve avec le projet.
+            _checkHost.ProjectIgnored = project != null
+                ? project.ProofIgnored : new List<string>();
         }
 
         public void LoadItem(BinderItem item)
@@ -3145,6 +3464,9 @@ namespace UniversSale.View
                 _composed.Visibility = Visibility.Collapsed;
                 _scroller.Visibility = Visibility.Visible;
             }
+            if (_checkTimer != null) _checkTimer.Stop();
+            _findings = new List<Correction.Finding>();
+            RebuildCorrectionPanel();
             ApplyPageVisuals();
             RebuildNotesPanel();
             RebuildAnnotationsPanel();
@@ -3220,6 +3542,7 @@ namespace UniversSale.View
         {
             var handler = Edited;
             if (handler != null) handler();
+            ScheduleCheck(); // la correction suit l'édition, au debounce
         }
 
         private void AfterFormat()

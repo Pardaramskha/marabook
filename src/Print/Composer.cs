@@ -126,6 +126,12 @@ namespace UniversSale.Print
         public List<ComposedParagraphLayout> Paragraphs = new List<ComposedParagraphLayout>();
         public List<ComposedPageLayout> Pages = new List<ComposedPageLayout>();
 
+        /// <summary>Signalements de correction à L'ÉCRAN, indexés par
+        /// paragraphe (transitoire : posés par la vue Composition, jamais
+        /// persistés — et jamais lus par l'aperçu, l'impression ni le PDF,
+        /// qui passent par DrawPage(screenExtras=false) ou PdfWriter).</summary>
+        public Dictionary<int, List<Correction.Finding>> ScreenFindings;
+
         /// <summary>One layout per footnote marker, in document order — placed
         /// at the bottom of the page carrying the marker.</summary>
         public List<ComposedParagraphLayout> NoteParagraphs = new List<ComposedParagraphLayout>();

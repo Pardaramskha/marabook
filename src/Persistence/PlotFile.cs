@@ -31,8 +31,10 @@ namespace UniversSale.Persistence
         // v4: notes, per-item icons, image store, lists, page breaks, page setup;
         // v5: books (metadata + gabarit), per-document page setup;
         // v6: en-têtes/pieds, gabarits de pages, veuves/orphelines débrayées;
-        // v7: exceptions de césure du projet (hyphenExceptions).
-        private const int FormatVersion = 7;
+        // v7: exceptions de césure du projet (hyphenExceptions);
+        // v8: « ne pas corriger » sur les runs (np) + ignorés de correction
+        //     du projet (proofIgnored).
+        private const int FormatVersion = 8;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -115,6 +117,8 @@ namespace UniversSale.Persistence
                 manifest["customColors"] = new List<object>(project.CustomColors.ToArray());
             if (project.HyphenExceptions.Count > 0)
                 manifest["hyphenExceptions"] = new List<object>(project.HyphenExceptions.ToArray());
+            if (project.ProofIgnored.Count > 0)
+                manifest["proofIgnored"] = new List<object>(project.ProofIgnored.ToArray());
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
             manifest["page"] = BuildPageSetup(project.Page);
@@ -357,6 +361,7 @@ namespace UniversSale.Persistence
                     if (run.Color != null) r["color"] = run.Color;
                     if (run.Highlight != null) r["hl"] = run.Highlight;
                     if (run.AnnotationId != null) r["ann"] = run.AnnotationId;
+                    if (run.NoProof) r["np"] = true; // « ne pas corriger » (v8)
                     runs.Add(r);
                 }
                 p["runs"] = runs;
@@ -439,6 +444,10 @@ namespace UniversSale.Persistence
                 if (hyphenExceptions != null)
                     foreach (var entry in hyphenExceptions)
                         if (entry is string) project.HyphenExceptions.Add((string)entry);
+                var proofIgnored = Json.AsList(Json.Field(manifest, "proofIgnored"));
+                if (proofIgnored != null)
+                    foreach (var entry in proofIgnored)
+                        if (entry is string) project.ProofIgnored.Add((string)entry);
                 project.CreatedAt = Json.AsString(Json.Field(manifest, "createdAt")) ?? "";
                 project.ModifiedAt = Json.AsString(Json.Field(manifest, "modifiedAt")) ?? "";
 
@@ -864,6 +873,7 @@ namespace UniversSale.Persistence
                                 run.Color = Json.AsString(Json.Field(r, "color"));
                                 run.Highlight = Json.AsString(Json.Field(r, "hl"));
                                 run.AnnotationId = Json.AsString(Json.Field(r, "ann"));
+                                run.NoProof = Json.AsBool(Json.Field(r, "np"), false);
                             }
                             paragraph.Runs.Add(run);
                         }

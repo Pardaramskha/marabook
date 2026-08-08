@@ -310,28 +310,8 @@ namespace UniversSale.View
         /// the text column shift with the folio parity.</summary>
         private double CaretX(ComposedLine line, int offset, double left)
         {
-            var x = left;
-            double best = -1;
-            foreach (var piece in line.Pieces)
-            {
-                if (piece.SourceStart < 0 || piece.SourceLength <= 0) continue;
-                if (offset <= piece.SourceStart)
-                {
-                    if (best < 0) best = left + piece.Origin.X;
-                    continue;
-                }
-                if (offset <= piece.SourceStart + piece.SourceLength)
-                {
-                    var into = offset - piece.SourceStart;
-                    var dx = into == 0 ? 0 : piece.CharRights[Math.Min(into, piece.CharRights.Length) - 1];
-                    return left + piece.Origin.X + dx;
-                }
-                x = left + piece.Origin.X
-                    + (piece.CharRights != null && piece.CharRights.Length > 0
-                        ? piece.CharRights[piece.CharRights.Length - 1]
-                        : 0);
-            }
-            return best >= 0 && offset <= line.Start ? best : x;
+            // Géométrie partagée avec l'ondulé des signalements (batch 26).
+            return ComposedRenderer.OffsetX(line, offset, left);
         }
 
         private int OffsetFromX(ComposedLine line, double xPage, double left)
@@ -581,30 +561,99 @@ namespace UniversSale.View
             int paragraph, offset;
             if (!HitTestPosition(e, out paragraph, out offset)) return;
             var word = WordAt(paragraph, offset);
-            if (word == null || word.Length < 2) return;
+            var findings = FindingsAt(paragraph, offset);
+            if ((word == null || word.Length < 2) && findings.Count == 0) return;
 
-            var excepted = false;
-            foreach (var entry in _project.HyphenExceptions)
-                if (string.Equals(entry, word, StringComparison.OrdinalIgnoreCase))
-                {
-                    excepted = true;
-                    break;
-                }
-            var toggle = new MenuItem
-            {
-                Header = excepted
-                    ? "Autoriser la césure de « " + word + " »"
-                    : "Ne plus couper « " + word + " »",
-                ToolTip = "Exception de césure du projet : le compositeur ne "
-                    + "coupe jamais ce mot en fin de ligne"
-            };
-            var wordRef = word;
-            toggle.Click += delegate { ToggleHyphenException(wordRef); };
             var menu = new ContextMenu
             {
                 Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint
             };
-            menu.Items.Add(toggle);
+
+            // — Les signalements de correction sous le pointeur, en tête.
+            foreach (var finding in findings)
+            {
+                var findingRef = finding;
+                var header = new MenuItem
+                {
+                    Header = finding.Message,
+                    IsEnabled = false,
+                    Foreground = ComposedRenderer.FindingPen(finding.Category).Brush
+                };
+                menu.Items.Add(header);
+                foreach (var suggestion in finding.Suggestions)
+                {
+                    var suggestionRef = suggestion;
+                    var apply = new MenuItem
+                    {
+                        Header = suggestion,
+                        FontWeight = FontWeights.SemiBold
+                    };
+                    apply.Click += delegate { ApplySuggestion(findingRef, suggestionRef); };
+                    menu.Items.Add(apply);
+                }
+                var here = new MenuItem
+                {
+                    Header = "Ignorer ici",
+                    ToolTip = "Tait CE signalement, pour cette session"
+                };
+                here.Click += delegate
+                {
+                    var handler = FindingIgnoreHere;
+                    if (handler != null) handler(findingRef);
+                };
+                menu.Items.Add(here);
+                if (findingRef.Word.Length > 0)
+                {
+                    var inProject = new MenuItem
+                    {
+                        Header = "Ignorer « " + findingRef.Word + " » dans ce projet",
+                        ToolTip = "Le mot ne sera plus signalé dans ce projet "
+                            + "(liste enregistrée avec lui)"
+                    };
+                    inProject.Click += delegate
+                    {
+                        var handler = FindingIgnoreProject;
+                        if (handler != null) handler(findingRef);
+                    };
+                    menu.Items.Add(inProject);
+                }
+                menu.Items.Add(new MenuItem
+                {
+                    Header = "Ajouter au dictionnaire",
+                    IsEnabled = false,
+                    ToolTip = "Arrive avec le correcteur orthographique (batch 27)"
+                });
+                menu.Items.Add(new Separator());
+            }
+
+            // — La césure du mot (batch 25).
+            if (word != null && word.Length >= 2)
+            {
+                var excepted = false;
+                foreach (var entry in _project.HyphenExceptions)
+                    if (string.Equals(entry, word, StringComparison.OrdinalIgnoreCase))
+                    {
+                        excepted = true;
+                        break;
+                    }
+                var toggle = new MenuItem
+                {
+                    Header = excepted
+                        ? "Autoriser la césure de « " + word + " »"
+                        : "Ne plus couper « " + word + " »",
+                    ToolTip = "Exception de césure du projet : le compositeur ne "
+                        + "coupe jamais ce mot en fin de ligne"
+                };
+                var wordRef = word;
+                toggle.Click += delegate { ToggleHyphenException(wordRef); };
+                menu.Items.Add(toggle);
+            }
+            else if (menu.Items.Count > 0)
+            {
+                // Pas de mot sous le clic : retirer le séparateur de queue.
+                menu.Items.RemoveAt(menu.Items.Count - 1);
+            }
+            if (menu.Items.Count == 0) return;
             menu.IsOpen = true;
             e.Handled = true;
         }
@@ -1430,6 +1479,112 @@ namespace UniversSale.View
             if (!HasSelection()) return false;
             ApplyToSelection(delegate(TextRun run) { run.AnnotationId = id; });
             return true;
+        }
+
+        /// <summary>« Ne pas corriger » : bascule NoProof sur la sélection —
+        /// tout-marqué → démarque, sinon marque tout (règle des bascules).
+        /// Rend faux sans sélection (le ruban informe l'utilisateur).</summary>
+        public bool ToggleNoProofSelection()
+        {
+            if (!HasSelection()) return false;
+            var all = SelectionAll(delegate(TextRun run, ParagraphStyle style)
+            { return run.NoProof; });
+            ApplyToSelection(delegate(TextRun run) { run.NoProof = !all; });
+            return true;
+        }
+
+        // ============================================================ correction
+
+        // Les signalements affichés (posés par EditorView après chaque passe
+        // du pilote) — la composition porte l'index par paragraphe du rendu.
+        private List<Correction.Finding> _findings;
+
+        /// <summary>« Ignorer ici » / « Ignorer dans ce projet » choisis au
+        /// menu contextuel — le pilote (EditorView) applique et relance.</summary>
+        public event Action<Correction.Finding> FindingIgnoreHere;
+        public event Action<Correction.Finding> FindingIgnoreProject;
+
+        /// <summary>Affiche ces signalements (ondulés). Liste triée par le
+        /// pilote ; null ou vide = plus rien à l'écran.</summary>
+        public void SetFindings(List<Correction.Finding> findings)
+        {
+            _findings = findings;
+            var composition = _engine == null ? null : _engine.Current;
+            if (composition == null) return;
+            if (findings == null || findings.Count == 0)
+                composition.ScreenFindings = null;
+            else
+            {
+                var byParagraph = new Dictionary<int, List<Correction.Finding>>();
+                foreach (var finding in findings)
+                {
+                    List<Correction.Finding> list;
+                    if (!byParagraph.TryGetValue(finding.ParagraphIndex, out list))
+                    {
+                        list = new List<Correction.Finding>();
+                        byParagraph[finding.ParagraphIndex] = list;
+                    }
+                    list.Add(finding);
+                }
+                composition.ScreenFindings = byParagraph;
+            }
+            foreach (UIElement child in _pages.Children) child.InvalidateVisual();
+        }
+
+        /// <summary>Sélectionne la plage d'un signalement et l'amène à
+        /// l'écran (même mécanique que GoToAnnotation).</summary>
+        public void GoToFinding(Correction.Finding finding)
+        {
+            if (_item == null
+                || finding.ParagraphIndex >= _item.Document.Paragraphs.Count) return;
+            var paragraph = _item.Document.Paragraphs[finding.ParagraphIndex];
+            var flatLength = PivotEdit.FlatLength(paragraph);
+            _anchorParagraph = finding.ParagraphIndex;
+            _anchorOffset = Math.Min(finding.Start, flatLength);
+            _caretParagraph = finding.ParagraphIndex;
+            _caretOffset = Math.Min(finding.End, flatLength);
+            _caretDesiredX = -1;
+            UpdateCaretVisual();
+            Focus();
+        }
+
+        /// <summary>La position du caret (navigation des signalements).</summary>
+        public void CaretLocation(out int paragraph, out int offset)
+        {
+            paragraph = _caretParagraph;
+            offset = _caretOffset;
+        }
+
+        /// <summary>Remplace la plage d'un signalement par une suggestion —
+        /// une édition normale : undo, recomposition, projet sale, et la
+        /// passe de correction suivante repart du texte à jour. Public : le
+        /// panneau Correction (EditorView) applique aussi en un clic.</summary>
+        public void ApplySuggestion(Correction.Finding finding, string suggestion)
+        {
+            if (_item == null
+                || finding.ParagraphIndex >= _item.Document.Paragraphs.Count) return;
+            var paragraph = _item.Document.Paragraphs[finding.ParagraphIndex];
+            if (finding.End > PivotEdit.FlatLength(paragraph)) return; // périmé
+            PushUndo(false);
+            PivotEdit.DeleteInParagraph(paragraph, finding.Start, finding.End);
+            PivotEdit.InsertText(paragraph, finding.Start, suggestion);
+            _engine.RecomposeParagraph(finding.ParagraphIndex);
+            _caretParagraph = finding.ParagraphIndex;
+            _caretOffset = finding.Start + suggestion.Length;
+            ClearSelection();
+            AfterEdit(0);
+        }
+
+        /// <summary>Les signalements sous un offset donné (menu contextuel).</summary>
+        private List<Correction.Finding> FindingsAt(int paragraph, int offset)
+        {
+            var result = new List<Correction.Finding>();
+            if (_findings == null) return result;
+            foreach (var finding in _findings)
+                if (finding.ParagraphIndex == paragraph
+                    && offset >= finding.Start && offset <= finding.End)
+                    result.Add(finding);
+            return result;
         }
 
         /// <summary>L'annotation portée par le caret (le run sous lui, sinon

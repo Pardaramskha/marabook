@@ -285,16 +285,69 @@ namespace UniversSale.View
             if (run.Color != null) wpfRun.Foreground = new SolidColorBrush(ParseColor(run.Color));
             if (run.Highlight != null) wpfRun.Background = new SolidColorBrush(ParseColor(run.Highlight));
             if (annotationTint) wpfRun.Background = Chrome.AnnotationTint;
-            // L'approche n'a pas d'équivalent FlowDocument : elle voyage sur
-            // le Tag du Run pour survivre à l'aller-retour classique — combinée
-            // à l'ancre d'annotation quand les deux cohabitent.
-            if (run.AnnotationId != null)
-                wpfRun.Tag = "ann:" + run.AnnotationId + (run.Tracking.HasValue
-                    ? ";trk=" + run.Tracking.Value.ToString(
-                        System.Globalization.CultureInfo.InvariantCulture)
-                    : "");
-            else if (run.Tracking.HasValue) wpfRun.Tag = run.Tracking.Value;
+            // L'approche, l'ancre d'annotation et « ne pas corriger » n'ont
+            // pas d'équivalent FlowDocument : ils voyagent sur le Tag du Run
+            // pour survivre à l'aller-retour classique (mini-format à
+            // segments, voir ComposeRunTag).
+            var tag = ComposeRunTag(run.AnnotationId, run.Tracking, run.NoProof);
+            if (tag != null) wpfRun.Tag = tag;
             return wpfRun;
+        }
+
+        /// <summary>Le Tag des runs du classique : « ann:&lt;id&gt; », « trk=&lt;t&gt; »
+        /// et « np » en segments joints par « ; » (l'ancre d'annotation en
+        /// tête quand elle existe). L'approche seule garde sa forme historique
+        /// de double, que ParseRunTag relit toujours.</summary>
+        public static object ComposeRunTag(string annotationId, double? tracking, bool noProof)
+        {
+            if (annotationId == null && !noProof)
+                return tracking.HasValue ? (object)tracking.Value : null;
+            var tag = "";
+            if (annotationId != null) tag = "ann:" + annotationId;
+            if (tracking.HasValue)
+                tag += (tag.Length > 0 ? ";" : "") + "trk=" + tracking.Value.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+            if (noProof) tag += (tag.Length > 0 ? ";" : "") + "np";
+            return tag;
+        }
+
+        /// <summary>Relit un Tag de run du classique — toutes les formes :
+        /// double historique (approche seule), « ann:… », « ann:…;trk=… »,
+        /// et les segments « np ». Les Tags étrangers (« fn: », « wikilink »,
+        /// « img: », « hr ») rendent trois néants.</summary>
+        public static void ParseRunTag(object tag, out string annotationId,
+            out double? tracking, out bool noProof)
+        {
+            annotationId = null;
+            tracking = null;
+            noProof = false;
+            if (tag is double) { tracking = (double)tag; return; }
+            var text = tag as string;
+            if (text == null) return;
+            if (text.StartsWith("fn:", StringComparison.Ordinal)
+                || text.StartsWith("img:", StringComparison.Ordinal)
+                || text == "hr" || text == "wikilink") return;
+            if (!text.StartsWith("ann:", StringComparison.Ordinal)
+                && !text.StartsWith("trk=", StringComparison.Ordinal)
+                && text != "np" && !text.StartsWith("np;", StringComparison.Ordinal))
+                return; // Tag inconnu : ne rien inventer
+            foreach (var segment in text.Split(';'))
+            {
+                if (segment.StartsWith("ann:", StringComparison.Ordinal))
+                {
+                    var id = segment.Substring(4);
+                    if (id.Length > 0) annotationId = id;
+                }
+                else if (segment.StartsWith("trk=", StringComparison.Ordinal))
+                {
+                    double value;
+                    if (double.TryParse(segment.Substring(4),
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out value))
+                        tracking = value;
+                }
+                else if (segment == "np") noProof = true;
+            }
         }
 
         private static Run MakeFootnoteMarker(string footnoteId, int number, double paragraphSize)
@@ -464,22 +517,15 @@ namespace UniversSale.View
                     // and hand cursor are cosmetic, never stored as overrides.
                     if (tag == "wikilink" && run.Color == ColorToHex(Chrome.Accent.Color))
                         run.Color = null;
-                    // Ancre d'annotation (éventuellement combinée à l'approche).
-                    if (tag != null && tag.StartsWith("ann:"))
-                    {
-                        var spec = tag.Substring(4);
-                        var semi = spec.IndexOf(";trk=", StringComparison.Ordinal);
-                        if (semi >= 0)
-                        {
-                            double tracking;
-                            if (double.TryParse(spec.Substring(semi + 5),
-                                System.Globalization.NumberStyles.Float,
-                                System.Globalization.CultureInfo.InvariantCulture, out tracking))
-                                run.Tracking = tracking;
-                            spec = spec.Substring(0, semi);
-                        }
-                        if (spec.Length > 0) run.AnnotationId = spec;
-                    }
+                    // Ancre d'annotation, approche, « ne pas corriger » : tout
+                    // ce qui voyage sur le Tag (voir ParseRunTag).
+                    string annotationId;
+                    double? tagTracking;
+                    bool noProof;
+                    ParseRunTag(wpfRun.Tag, out annotationId, out tagTracking, out noProof);
+                    if (annotationId != null) run.AnnotationId = annotationId;
+                    if (tagTracking.HasValue) run.Tracking = tagTracking;
+                    if (noProof) run.NoProof = true;
                     var last = paragraph.Runs.Count > 0 ? paragraph.Runs[paragraph.Runs.Count - 1] : null;
                     if (last != null && last.HasSameFormat(run))
                         last.Text += run.Text; // merge to keep files compact after heavy editing

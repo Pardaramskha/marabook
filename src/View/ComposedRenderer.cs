@@ -142,6 +142,30 @@ namespace UniversSale.View
                 }
             }
 
+            // Signalements de correction (écran seulement) : ondulé sous la
+            // plage, couleur par catégorie — jamais dans l'aperçu,
+            // l'impression, le PDF ni les exports (même discipline que la
+            // teinte d'annotation, filtrée sur screenExtras).
+            if (screenExtras && composition.ScreenFindings != null)
+                foreach (var placed in page.Lines)
+                {
+                    List<Correction.Finding> findings;
+                    if (!composition.ScreenFindings.TryGetValue(
+                        placed.ParagraphIndex, out findings)) continue;
+                    var line = composition.Paragraphs[placed.ParagraphIndex]
+                        .Lines[placed.LineIndex];
+                    foreach (var finding in findings)
+                    {
+                        if (finding.End <= line.Start || finding.Start >= line.End)
+                            continue;
+                        var x1 = OffsetX(line, Math.Max(finding.Start, line.Start), left);
+                        var x2 = OffsetX(line, Math.Min(finding.End, line.End), left);
+                        if (x2 - x1 < 1.5) continue;
+                        DrawSquiggle(dc, x1, x2,
+                            placed.Y + line.Ascent + 2.2, FindingPen(finding.Category));
+                    }
+                }
+
             // Marqueurs veuves/orphelines (écran seulement) : orange = une
             // correction retient des lignes ici, gris = correction débrayée.
             // Cliquables dans la vue Composition.
@@ -243,6 +267,90 @@ namespace UniversSale.View
         {
             var solid = brush as SolidColorBrush;
             return solid != null && solid.Color.A < 0xFF;
+        }
+
+        // ------------------------------------------- signalements de correction
+
+        private static readonly Pen SpellingPen = FrozenPen(Color.FromRgb(0xD6, 0x45, 0x41));
+        private static readonly Pen GrammarPen = FrozenPen(Color.FromRgb(0x3B, 0x7D, 0xD8));
+        private static readonly Pen TypographyPen = FrozenPen(Color.FromRgb(0x9B, 0x59, 0xB6));
+        private static readonly Pen StylePen = FrozenPen(Color.FromRgb(0x2E, 0x9E, 0x6B));
+
+        private static Pen FrozenPen(Color color)
+        {
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();
+            var pen = new Pen(brush, 1.1)
+            {
+                StartLineCap = PenLineCap.Round,
+                EndLineCap = PenLineCap.Round,
+                LineJoin = PenLineJoin.Round
+            };
+            pen.Freeze();
+            return pen;
+        }
+
+        /// <summary>La couleur d'un signalement — partagée par l'ondulé, la
+        /// pastille du panneau Correction et le menu contextuel.</summary>
+        public static Pen FindingPen(Correction.FindingCategory category)
+        {
+            switch (category)
+            {
+                case Correction.FindingCategory.Spelling: return SpellingPen;
+                case Correction.FindingCategory.Grammar: return GrammarPen;
+                case Correction.FindingCategory.Typography: return TypographyPen;
+                default: return StylePen;
+            }
+        }
+
+        /// <summary>Le zigzag d'un signalement, période 3 px, amplitude 1,3 px.</summary>
+        private static void DrawSquiggle(DrawingContext dc, double x1, double x2,
+            double y, Pen pen)
+        {
+            var geometry = new StreamGeometry();
+            using (var ctx = geometry.Open())
+            {
+                ctx.BeginFigure(new Point(x1, y), false, false);
+                var up = true;
+                for (var x = x1 + 1.5; x < x2; x += 1.5)
+                {
+                    ctx.LineTo(new Point(x, y + (up ? -1.3 : 1.3)), true, true);
+                    up = !up;
+                }
+                ctx.LineTo(new Point(x2, y), true, true);
+            }
+            geometry.Freeze();
+            dc.DrawGeometry(null, pen, geometry);
+        }
+
+        /// <summary>Abscisse d'un offset plat sur une ligne composée — la
+        /// géométrie du caret de ComposedView, factorisée pour que l'ondulé
+        /// des signalements et le caret parlent du même pixel.</summary>
+        public static double OffsetX(ComposedLine line, int offset, double left)
+        {
+            var x = left;
+            double best = -1;
+            foreach (var piece in line.Pieces)
+            {
+                if (piece.SourceStart < 0 || piece.SourceLength <= 0) continue;
+                if (offset <= piece.SourceStart)
+                {
+                    if (best < 0) best = left + piece.Origin.X;
+                    continue;
+                }
+                if (offset <= piece.SourceStart + piece.SourceLength)
+                {
+                    var into = offset - piece.SourceStart;
+                    var dx = into == 0 ? 0
+                        : piece.CharRights[Math.Min(into, piece.CharRights.Length) - 1];
+                    return left + piece.Origin.X + dx;
+                }
+                x = left + piece.Origin.X
+                    + (piece.CharRights != null && piece.CharRights.Length > 0
+                        ? piece.CharRights[piece.CharRights.Length - 1]
+                        : 0);
+            }
+            return best >= 0 && offset <= line.Start ? best : x;
         }
 
         /// <summary>One composed line (body or footnote), pieces drawn through

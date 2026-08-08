@@ -84,7 +84,8 @@ namespace UniversSale.Tests
                 RoundTripTests.Run,      // C1 — le .plot, champ par champ
                 HyphenCorpusTests.Run,   // C2 — score de césure (plancher)
                 PivotEditTests.Run,      // C3 — l'algèbre d'édition
-                ComposerTests.Run        // C4 — coupure de ligne sur métriques fixes
+                ComposerTests.Run,       // C4 — coupure de ligne sur métriques fixes
+                CorrectionTests.Run      // C5 — la chaîne de correction
             };
             foreach (var suite in suites)
             {

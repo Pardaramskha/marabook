@@ -308,6 +308,8 @@ namespace UniversSale.Exchange
         private static string RunProps(TextRun run)
         {
             var sb = new StringBuilder();
+            // w:noProof d'abord : l'ordre canonique OOXML le place en tête.
+            if (run.NoProof) sb.Append("<w:noProof/>");
             if (run.FontFamily != null)
                 sb.Append("<w:rFonts w:ascii=\"").Append(Esc(run.FontFamily))
                   .Append("\" w:hAnsi=\"").Append(Esc(run.FontFamily)).Append("\"/>");
@@ -653,6 +655,7 @@ namespace UniversSale.Exchange
                 if (!string.IsNullOrEmpty(shd) && shd != "auto") run.Highlight = "#" + shd;
                 var highlight = Attr(rPr.SelectSingleNode("w:highlight", ns), "w:val");
                 if (highlight != null) run.Highlight = NamedHighlight(highlight) ?? run.Highlight;
+                if (IsOn(rPr.SelectSingleNode("w:noProof", ns))) run.NoProof = true;
             }
             paragraph.Runs.Add(run);
         }

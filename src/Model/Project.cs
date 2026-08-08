@@ -41,6 +41,10 @@ namespace UniversSale.Model
         // Exceptions de césure : mots que le compositeur ne coupe jamais
         // (clic droit sur un mot en mode composition).
         public List<string> HyphenExceptions = new List<string>();
+        // Mots ignorés par les correcteurs dans CE projet (« ignorer dans ce
+        // projet » du menu de signalement) ; la liste globale vit dans les
+        // réglages de l'application.
+        public List<string> ProofIgnored = new List<string>();
         public string CreatedAt = "";
         public string ModifiedAt = "";
         public WritingJournal Journal = new WritingJournal();

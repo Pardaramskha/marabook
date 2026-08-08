@@ -82,6 +82,10 @@ namespace UniversSale.Settings
         public static bool WhitePaperInDark; // keep white pages under the dark theme
         public static bool StatsExpanded;    // « Statistiques » accordion of the inspector
         public static bool ShowAnnotations = true; // teintes + bulles de révision
+        public static bool ProofEnabled = true; // vérification continue (Révision)
+        // Mots ignorés par les correcteurs sur TOUS les projets (« ignorer
+        // partout ») — le pendant global de Project.ProofIgnored.
+        public static List<string> ProofIgnored = new List<string>();
         public static List<string> RecentFiles = new List<string>(); // last 5 .plot files
 
         public static void AddRecentFile(string path)
@@ -172,6 +176,14 @@ namespace UniversSale.Settings
                 WhitePaperInDark = Json.AsBool(Json.Field(root, "whitePaperInDark"), false);
                 StatsExpanded = Json.AsBool(Json.Field(root, "statsExpanded"), false);
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
+                ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
+                var proofIgnored = Json.AsList(Json.Field(root, "proofIgnored"));
+                if (proofIgnored != null)
+                {
+                    ProofIgnored = new List<string>();
+                    foreach (var entry in proofIgnored)
+                        if (entry is string) ProofIgnored.Add((string)entry);
+                }
                 var recents = Json.AsList(Json.Field(root, "recentFiles"));
                 if (recents != null)
                 {
@@ -202,6 +214,9 @@ namespace UniversSale.Settings
                 root["whitePaperInDark"] = WhitePaperInDark;
                 root["statsExpanded"] = StatsExpanded;
                 root["showAnnotations"] = ShowAnnotations;
+                root["proofEnabled"] = ProofEnabled;
+                if (ProofIgnored.Count > 0)
+                    root["proofIgnored"] = new List<object>(ProofIgnored.ToArray());
                 root["recentFiles"] = new List<object>(RecentFiles.ToArray());
                 File.WriteAllText(SettingsPath(), Json.Write(root), new UTF8Encoding(false));
             }

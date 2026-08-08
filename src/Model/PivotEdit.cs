@@ -72,7 +72,8 @@ namespace UniversSale.Model
                 FontSize = source.FontSize,
                 Color = source.Color,
                 Highlight = source.Highlight,
-                AnnotationId = source.AnnotationId
+                AnnotationId = source.AnnotationId,
+                NoProof = source.NoProof
             };
         }
 
