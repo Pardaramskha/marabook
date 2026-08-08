@@ -86,7 +86,8 @@ namespace UniversSale.Tests
                 PivotEditTests.Run,      // C3 — l'algèbre d'édition
                 ComposerTests.Run,       // C4 — coupure de ligne sur métriques fixes
                 CorrectionTests.Run,     // C5 — la chaîne de correction
-                SearchTests.Run          // C6 — la recherche pivot
+                SearchTests.Run,         // C6 — la recherche pivot
+                TokenizerTests.Run       // C7 — le tokeniseur français unique
             };
             foreach (var suite in suites)
             {

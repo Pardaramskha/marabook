@@ -1,17 +1,16 @@
 using System;
 using System.Globalization;
-using System.Text.RegularExpressions;
 
 namespace UniversSale.Correction
 {
     /// <summary>Professional writer's counts, ported from Typonanny's
     /// Statistiques: SEC (signs including spaces), signs without spaces, words,
-    /// feuillets of 1,500 signs, reading time at ~220 words/minute.</summary>
+    /// feuillets of 1,500 signs, reading time at ~220 words/minute.
+    /// Les mots sont comptés par le TOKENISEUR UNIQUE (batch 27) : un token
+    /// = un mot — « l'homme » et « dit-il » comptent un, comme avant (la
+    /// regex historique joignait déjà sur l'apostrophe et le trait d'union).</summary>
     public class TextStats
     {
-        private static readonly Regex WordPattern =
-            new Regex("[\\p{L}\\p{Nd}]+(?:['’\\-][\\p{L}\\p{Nd}]+)*", RegexOptions.Compiled);
-
         public int Sec;
         public int NoSpaces;
         public int Words;
@@ -28,7 +27,7 @@ namespace UniversSale.Correction
                 stats.Sec++;
                 if (!char.IsWhiteSpace(c)) stats.NoSpaces++;
             }
-            stats.Words = WordPattern.Matches(text).Count;
+            stats.Words = FrenchTokenizer.Tokenize(text).Count;
             stats.Sheets = stats.Sec / 1500.0;
             stats.ReadingMinutes = (int)Math.Ceiling(stats.Words / 220.0);
             return stats;

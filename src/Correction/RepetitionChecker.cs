@@ -1,30 +1,28 @@
-using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Text;
 using UniversSale.Model;
 
 namespace UniversSale.Correction
 {
     /// <summary>Le détecteur de répétitions — premier étage de l'analyse de
-    /// style (l'axe où aucun outil libre français n'existe) et vérificateur
-    /// de preuve de la chaîne complète du batch 26. Signale un mot qui
-    /// réapparaît dans un rayon de N mots, fenêtre glissante TRAVERSANT les
-    /// paragraphes. Comparaison insensible à la casse et aux accents
-    /// (cœur = coeur = Coeur), affichage dans la casse d'origine. Les
-    /// mots-outils français sont ignorés. Limite assumée : formes exactes
-    /// seulement — la lemmatisation (cheval/chevaux) attend le .dic du
-    /// batch 27, qui fournira les lemmes.</summary>
+    /// style. Signale un mot qui réapparaît dans un rayon de N mots, fenêtre
+    /// glissante TRAVERSANT les paragraphes. Depuis le batch 27, il consomme
+    /// le TOKENISEUR UNIQUE : le cœur des tokens est comparé (sans élision
+    /// ni pronom enclitique — « dit-il » compte pour « dit », qui est
+    /// mot-outil : silence sur l'incise ; « répondit-elle » compte pour
+    /// « répondit », signalé s'il se répète), les nombres et romains ne
+    /// comptent jamais, la clé de comparaison est FrenchTokenizer.Fold
+    /// (casse et accents pliés, cœur = coeur). L'ondulé se pose sur le CŒUR
+    /// (le verbe, pas le pronom). Limite assumée : formes exactes — la
+    /// lemmatisation (cheval/chevaux) attend le .dic.</summary>
     public class RepetitionChecker : IChecker
     {
-        /// <summary>Le rayon en MOTS (pas en caractères). Défaut 100 :
-        /// sur un roman, 200 traque si large qu'il noie l'utile sous les
-        /// faux positifs ; 100 signale ce qu'une oreille de relecteur
-        /// entend, et le réglage reste ouvert à la hausse.</summary>
+        /// <summary>Le rayon en MOTS. Défaut 100 : sur un roman, 200 traque
+        /// si large qu'il noie l'utile ; 100 signale ce qu'une oreille de
+        /// relecteur entend, et le réglage reste ouvert à la hausse.</summary>
         public int Radius = 100;
 
-        /// <summary>Ne jamais signaler les mots de moins de N lettres même
-        /// hors liste (« va », « eu »…) — le bruit pur.</summary>
+        /// <summary>Jamais de signalement sous N lettres (clé pliée) —
+        /// « va », « eu » : le bruit pur.</summary>
         public int MinLength = 3;
 
         public string Id { get { return "repetition"; } }
@@ -34,30 +32,17 @@ namespace UniversSale.Correction
         public List<Finding> Check(TextDocument document, StyleSheet styles)
         {
             var findings = new List<Finding>();
-            // Dernière occurrence de chaque forme normalisée : index global de
-            // mot (la fenêtre traverse les paragraphes) + position d'affichage.
             var lastSeen = new Dictionary<string, int>();
             var wordIndex = 0;
 
             for (var p = 0; p < document.Paragraphs.Count; p++)
             {
-                var text = PivotEdit.FlatText(document.Paragraphs[p]);
-                var i = 0;
-                while (i < text.Length)
+                var tokens = FrenchTokenizer.Tokenize(
+                    PivotEdit.FlatText(document.Paragraphs[p]));
+                foreach (var token in tokens)
                 {
-                    if (!IsWordChar(text[i])) { i++; continue; }
-                    var start = i;
-                    while (i < text.Length && IsWordChar(text[i])) i++;
-                    // Apostrophes et traits d'union INTÉRIEURS prolongent le
-                    // mot (aujourd'hui, porte-plume) — jamais en bordure.
-                    while (i < text.Length - 1 && IsJoiner(text[i])
-                        && IsWordChar(text[i + 1]))
-                    {
-                        i++;
-                        while (i < text.Length && IsWordChar(text[i])) i++;
-                    }
-                    var word = text.Substring(start, i - start);
-                    var key = StripElision(Normalize(word));
+                    if (token.Kind != TokenKind.Word) continue;
+                    var key = token.Folded;
                     if (key.Length < MinLength || FrenchStopWords.Contains(key))
                         continue;
 
@@ -70,65 +55,22 @@ namespace UniversSale.Correction
                         findings.Add(new Finding
                         {
                             ParagraphIndex = p,
-                            Start = start,
-                            Length = word.Length,
+                            Start = token.CoreStart,
+                            Length = token.CoreLength,
                             Category = FindingCategory.Style,
                             Severity = FindingSeverity.Hint,
-                            Message = "« " + word + " » déjà employé "
+                            Message = "« " + token.CoreSurface + " » déjà employé "
                                 + (distance == 1 ? "juste avant"
                                     : distance + " mots plus haut"),
                             RuleId = "repetition",
                             CheckerId = Id,
-                            Word = word
+                            Word = token.CoreSurface
                         });
                     }
                     lastSeen[key] = wordIndex;
                 }
             }
             return findings;
-        }
-
-        private static bool IsWordChar(char c)
-        {
-            return char.IsLetterOrDigit(c);
-        }
-
-        private static bool IsJoiner(char c)
-        {
-            return c == '\'' || c == '’' || c == '-';
-        }
-
-        // Préfixes d'élision français, du plus long au plus court : « l'homme »
-        // et « homme » sont le même mot ; « aujourd'hui » reste entier.
-        private static readonly string[] Elisions =
-        {
-            "jusqu'", "lorsqu'", "puisqu'", "quoiqu'", "qu'",
-            "l'", "d'", "j'", "n'", "s'", "m'", "t'", "c'"
-        };
-
-        private static string StripElision(string key)
-        {
-            foreach (var prefix in Elisions)
-                if (key.StartsWith(prefix, StringComparison.Ordinal)
-                    && key.Length > prefix.Length)
-                    return key.Substring(prefix.Length);
-            return key;
-        }
-
-        /// <summary>Minuscules sans diacritiques (décomposition Unicode),
-        /// œ→oe et æ→ae — la clé de comparaison, jamais affichée.</summary>
-        public static string Normalize(string word)
-        {
-            var lowered = word.ToLowerInvariant()
-                .Replace("œ", "oe").Replace("æ", "ae")
-                .Replace("’", "'");
-            var decomposed = lowered.Normalize(NormalizationForm.FormD);
-            var sb = new StringBuilder(decomposed.Length);
-            foreach (var c in decomposed)
-                if (CharUnicodeInfo.GetUnicodeCategory(c)
-                    != UnicodeCategory.NonSpacingMark)
-                    sb.Append(c);
-            return sb.ToString().Normalize(NormalizationForm.FormC);
         }
     }
 }

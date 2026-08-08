@@ -112,10 +112,15 @@ namespace UniversSale.Correction
                 + finding.Start + "|" + finding.Word;
         }
 
+        /// <summary>0.3 (batch 27) : la clé d'ignoré est LA MÊME normalisation
+        /// que celle des vérificateurs — FrenchTokenizer.Fold (casse ET
+        /// accents pliés). « Ignorer » COEUR fait taire cœur, Cœur et coeur ;
+        /// OrdinalIgnoreCase ne pliait que la casse.</summary>
         private static bool ContainsWord(List<string> list, string word)
         {
+            var key = FrenchTokenizer.Fold(word);
             foreach (var entry in list)
-                if (string.Equals(entry, word, StringComparison.OrdinalIgnoreCase))
+                if (FrenchTokenizer.Fold(entry) == key)
                     return true;
             return false;
         }
