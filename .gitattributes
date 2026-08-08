@@ -1,0 +1,7 @@
+# Fins de ligne normalisées : LF dans le dépôt et dans l'arbre de travail
+# (les sources sont UTF-8 sans BOM + LF, règle du projet). Les .bat restent
+# CRLF (cmd.exe les exige). Les binaires ne sont jamais touchés.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.ico binary
+*.png binary
