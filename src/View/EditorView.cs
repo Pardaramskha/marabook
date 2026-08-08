@@ -150,6 +150,16 @@ namespace UniversSale.View
                 _spellChecker = new Correction.SpellChecker(spellEngine);
                 _spellChecker.GlobalWords = Settings.AppSettings.LearnedWords;
                 _checkHost.Add(_spellChecker);
+                // Le critère composé lexical / grappe enclitique du
+                // tokeniseur (batch 29, 0.1) : la MÊME connaissance que
+                // l'orthographe — moteur ET mots appris (amendement A1 :
+                // un « Vaux-le-Vicomte » enseigné garde son « -le »). Sans
+                // dictionnaire, le prédicat reste nul : liste fermée.
+                var checker = _spellChecker;
+                Correction.FrenchTokenizer.KnownWord = delegate(string word)
+                {
+                    return spellEngine.Accepts(word) || checker.IsLearned(word);
+                };
             }
             _composed.FindingLearn += delegate(Correction.Finding finding, bool projectScope)
             {
@@ -160,7 +170,9 @@ namespace UniversSale.View
                 if (projectScope) NotifyEdited(); // la liste vit dans le .plot
                 else Settings.AppSettings.Save();
                 // La connaissance a changé, pas le texte : le cache des
-                // vérificateurs locaux doit oublier ses verdicts.
+                // vérificateurs locaux doit oublier ses verdicts — et les
+                // clés pliées des appris aussi (batch 29, 0.3).
+                _spellChecker.InvalidateLearned();
                 _checkHost.InvalidateCache();
                 RunCheck();
             };
@@ -1888,6 +1900,7 @@ namespace UniversSale.View
         /// oublié, passe relancée.</summary>
         public void RefreshProofing()
         {
+            if (_spellChecker != null) _spellChecker.InvalidateLearned();
             _checkHost.InvalidateCache();
             RunCheck();
         }
@@ -3617,8 +3630,11 @@ namespace UniversSale.View
             // Le dictionnaire personnel du projet aussi — et le cache des
             // verdicts repart de zéro (autre projet, autre connaissance).
             if (_spellChecker != null)
+            {
                 _spellChecker.ProjectWords = project != null
                     ? project.LearnedWords : new List<string>();
+                _spellChecker.InvalidateLearned();
+            }
             _checkHost.InvalidateCache();
         }
 

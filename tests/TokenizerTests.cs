@@ -14,15 +14,30 @@ namespace UniversSale.Tests
         public static void Run(Harness t)
         {
             t.Suite("C7 — tokeniseur français");
-            Elisions(t);
-            Enclitics(t);
-            Composites(t);
-            NumbersAndRomans(t);
-            CaseShapes(t);
-            NfdAndElements(t);
-            FoldIsTheKey(t);
-            EncliticRepetitions(t);
-            IgnoreKeyMatchesFold(t);
+            // Les deux réalités qui expédient (batch 29, amendement A3) : le
+            // mode dégradé (prédicat nul, liste fermée — ce que voit un
+            // contributeur sans les fichiers dict/, et la plupart des tests
+            // ci-dessous) et le mode nominal (prédicat branché). La suite
+            // garantit l'état du prédicat à l'entrée ET à la sortie.
+            FrenchTokenizer.KnownWord = null;
+            try
+            {
+                Elisions(t);
+                Enclitics(t);
+                Composites(t);
+                CompoundVersusEnclitic(t);
+                CeluiLaReversal(t);
+                NumbersAndRomans(t);
+                CaseShapes(t);
+                NfdAndElements(t);
+                FoldIsTheKey(t);
+                EncliticRepetitions(t);
+                IgnoreKeyMatchesFold(t);
+            }
+            finally
+            {
+                FrenchTokenizer.KnownWord = null;
+            }
         }
 
         private static List<Token> Tok(string text)
@@ -75,7 +90,75 @@ namespace UniversSale.Tests
             t.Equal("prends", Tok("prends-la")[0].CoreSurface,
                 "prends-la : le pronom la est enclitique");
             t.Equal("penses", Tok("penses-y")[0].CoreSurface, "penses-y");
-            t.Equal("celui", Tok("celui-là")[0].CoreSurface, "celui-là");
+        }
+
+        // ------------------------------- 0.1 : composé lexical vs enclitique
+
+        /// <summary>Batch 29, 0.1 — le critère qui distingue le composé
+        /// lexical de la grappe enclitique : le mot connu ENTIER ne se
+        /// découpe pas. Testé dans les DEUX modes (amendement A3) : dégradé
+        /// (liste fermée) et nominal (prédicat injecté — ici un petit jeu
+        /// fermé, le tokeniseur reste testable seul).</summary>
+        private static void CompoundVersusEnclitic(Harness t)
+        {
+            // Mode dégradé : la liste fermée protège les composés usuels.
+            t.Equal("rendez-vous", Tok("rendez-vous")[0].CoreSurface,
+                "rendez-vous : protégé même sans dictionnaire");
+            t.Equal("par-ci", Tok("par-ci")[0].CoreSurface, "par-ci protégé");
+            t.Equal("par-là", Tok("par-là")[0].CoreSurface, "par-là protégé");
+            t.Equal("va-et-vient", Tok("va-et-vient")[0].CoreSurface,
+                "va-et-vient protégé");
+            t.Equal("donne", Tok("donne-le-moi")[0].CoreSurface,
+                "donne-le-moi : les grappes empilées tombent une à une");
+            t.Equal("-le-moi", Tok("donne-le-moi")[0].Enclitic,
+                "la grappe complète survit en surface");
+
+            // Mode nominal : le prédicat fait foi — y compris pour un
+            // composé APPRIS (amendement A1 : Vaux-le-Vicomte enseigné ne
+            // perd pas son -le), et le verbe reste découpé.
+            var known = new HashSet<string>
+            {
+                "rendez-vous", "Vaux-le-Vicomte", "après-midi"
+            };
+            FrenchTokenizer.KnownWord = delegate(string word)
+            {
+                return known.Contains(word);
+            };
+            try
+            {
+                t.Equal("rendez-vous", Tok("Un rendez-vous manqué.")[1].CoreSurface,
+                    "rendez-vous : connu entier, jamais découpé");
+                t.Equal("Vaux-le-Vicomte", Tok("Vaux-le-Vicomte")[0].CoreSurface,
+                    "un toponyme APPRIS garde son -le (A1)");
+                t.Equal("dit", Tok("dit-il")[0].CoreSurface,
+                    "dit-il : inconnu entier, la grappe tombe toujours");
+                t.Equal("donne", Tok("donne-le-moi")[0].CoreSurface,
+                    "donne-le-moi : aucun étage n'est connu, tout tombe");
+                t.Equal("homme", Tok("cet homme-là")[1].CoreSurface,
+                    "homme-là : le -là démonstratif tombe (inconnu entier)");
+            }
+            finally
+            {
+                FrenchTokenizer.KnownWord = null;
+            }
+        }
+
+        /// <summary>Batch 29, amendement A4 — LE RENVERSEMENT DE CELUI-LÀ,
+        /// documenté : jusqu'au batch 28, « celui-là » perdait son « -là »
+        /// (cœur « celui », l'exemple vivait dans le commentaire des
+        /// enclitiques). Le critère du dictionnaire (0.1) l'a renversé :
+        /// « celui-là » est une entrée du .dic — un pronom lexicalisé, de la
+        /// même famille que « par-là » — donc il reste ENTIER, dans les deux
+        /// modes (il figure aussi dans la liste fermée du repli, pour que la
+        /// clé de répétition ne dépende pas du mode). Si ce test rougit, ce
+        /// n'est pas une régression du découpage : c'est la protection des
+        /// composés démonstratifs qui a sauté.</summary>
+        private static void CeluiLaReversal(Harness t)
+        {
+            t.Equal("celui-là", Tok("celui-là")[0].CoreSurface,
+                "celui-là reste entier (renversement 0.1, ex-attendu « celui »)");
+            t.Equal("celle-ci", Tok("celle-ci")[0].CoreSurface,
+                "celle-ci : même famille, même protection");
         }
 
         // ------------------------------------------------------------ composés
@@ -91,6 +174,31 @@ namespace UniversSale.Tests
             t.Equal("arc-en-ciel", tokens[6].CoreSurface,
                 "arc-en-ciel : le -en- INTÉRIEUR n'est jamais consulté");
             t.Equal(3, tokens[6].CoreParts.Length, "trois segments");
+
+            // 0.2 (batch 29) : les offsets des segments sont en unités du
+            // texte D'ORIGINE. Sur « après-midi » DÉCOMPOSÉ (è = e + accent
+            // combinant, 11 unités au lieu de 10), l'ancienne addition de
+            // longueurs NFC posait « midi » une unité trop tôt.
+            var nfd = Tok("apre" + (char) 0x0300 + "s-midi")[0];
+            t.Equal("après-midi", nfd.CoreSurface, "cœur NFC");
+            t.Equal(2, nfd.CoreParts.Length, "deux segments");
+            t.Equal("après", nfd.CoreParts[0], "segment 1 en NFC");
+            t.Equal(0, nfd.CorePartStarts[0], "segment 1 à l'origine");
+            t.Equal(6, nfd.CorePartLengths[0],
+                "« après » couvre 6 unités D'ORIGINE (NFD)");
+            t.Equal("midi", nfd.CoreParts[1], "segment 2");
+            t.Equal(7, nfd.CorePartStarts[1],
+                "« midi » commence à 7 (après l'accent combinant ET le tiret)");
+            t.Equal(4, nfd.CorePartLengths[1], "quatre unités");
+
+            // 0.7 (batch 29) : le trait d'union INSÉCABLE (U+2011) se plie
+            // en « - » — « grand‑père » n'est plus un bloc indécomposable.
+            var nonBreaking = Tok("grand" + (char) 0x2011 + "père")[0];
+            t.Equal(2, nonBreaking.CoreParts.Length,
+                "U+2011 découpe comme le tiret ordinaire");
+            t.Equal("père", nonBreaking.CoreParts[1], "second segment");
+            t.Equal(6, nonBreaking.CorePartStarts[1],
+                "offset d'origine du second segment");
         }
 
         // ---------------------------------------------------- nombres et romains
@@ -107,6 +215,24 @@ namespace UniversSale.Tests
                 "« Ce » n'est pas un romain (tête < 2)");
             t.Equal(TokenKind.Word, Tok("Il")[0].Kind, "« Il » non plus");
             t.Equal(TokenKind.Number, Tok("XIX")[0].Kind, "XIX sans finale");
+
+            // 0.7 (batch 29) : la grammaire romaine est VALIDÉE — les mots
+            // en capitales dont la tête est faite de IVXLCDM ne sont plus
+            // des « romains fantômes » soustraits à la vérification.
+            t.Equal(TokenKind.Word, Tok("VILLE")[0].Kind,
+                "VILLE n'est pas un nombre (VILL n'est pas un romain)");
+            t.Equal(TokenKind.Word, Tok("CIVIL")[0].Kind, "CIVIL non plus");
+            t.Equal(TokenKind.Word, Tok("MIDI")[0].Kind, "MIDI non plus");
+            t.Equal(TokenKind.Word, Tok("VIDE")[0].Kind, "VIDE non plus");
+            t.Equal(TokenKind.Word, Tok("MIME")[0].Kind, "MIME non plus");
+            t.Equal(TokenKind.Word, Tok("DIX")[0].Kind,
+                "DIX (romain VALIDE, 509) : l'ambiguïté est tranchée mot");
+            t.Equal(TokenKind.Number, Tok("MCMXIV")[0].Kind,
+                "MCMXIV : soustractions légales, romain accepté");
+            t.Equal(TokenKind.Number, Tok("IIIes")[0].Kind,
+                "IIIes : finale ordinale plurielle");
+            t.Equal(TokenKind.Word, Tok("XXXX")[0].Kind,
+                "XXXX : plus de trois répétitions, invalide");
         }
 
         // ---------------------------------------------------------------- casse

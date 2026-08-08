@@ -88,21 +88,28 @@ namespace UniversSale.Correction
                 if (token.Kind != TokenKind.Word) continue;
                 var core = token.CoreSurface;
                 if (LetterCount(core) < 2) continue; // initiales (M.), résidus
-                if (Learned(core)) continue;
+                // Le moteur D'ABORD, les appris ENSUITE (batch 29, 0.3) :
+                // même sémantique — un mot que le moteur accepte n'a pas
+                // besoin d'être appris — mais Learned sort du chemin des
+                // 99 % de mots corrects.
                 if (_engine.Accepts(core)) continue;
+                if (Learned(core)) continue;
                 // Sigle : un tout-capitales inconnu se tait (SNCF).
                 if (token.Shape == CaseShape.AllCaps) continue;
 
                 if (token.CoreParts.Length > 1)
                 {
-                    // Composé absent en bloc : chaque segment se défend seul.
-                    var offset = token.CoreStart;
-                    foreach (var part in token.CoreParts)
+                    // Composé absent en bloc : chaque segment se défend seul,
+                    // aux offsets D'ORIGINE portés par le token (batch 29,
+                    // 0.2 — additionner des longueurs NFC décalait l'ondulé
+                    // sur un texte décomposé).
+                    for (var p = 0; p < token.CoreParts.Length; p++)
                     {
-                        if (part.Length >= 2 && !Learned(part)
-                            && !_engine.Accepts(part))
-                            findings.Add(Report(part, offset, part.Length));
-                        offset += part.Length + 1; // + le trait d'union
+                        var part = token.CoreParts[p];
+                        if (LetterCount(part) >= 2 && !_engine.Accepts(part)
+                            && !Learned(part))
+                            findings.Add(Report(part, token.CorePartStarts[p],
+                                token.CorePartLengths[p]));
                     }
                 }
                 else
@@ -131,7 +138,11 @@ namespace UniversSale.Correction
             };
         }
 
-        /// <summary>Suggestions pour un mot signalé, à la demande, en cache.</summary>
+        /// <summary>Suggestions pour un mot signalé, à la demande, en cache.
+        /// Les mots APPRIS proches passent en tête (batch 29, 0.5) : sur un
+        /// roman, le premier service du menu contextuel est de rattraper un
+        /// nom de personnage mal tapé — et ces noms vivent dans le
+        /// dictionnaire personnel, pas dans le .dic.</summary>
         public List<string> Suggestions(string word)
         {
             List<string> suggestions;
@@ -139,21 +150,105 @@ namespace UniversSale.Correction
             {
                 suggestions = _engine == null
                     ? new List<string>() : _engine.Suggest(word);
+                InsertLearnedMatches(word, suggestions);
                 _suggestionCache[word] = suggestions;
             }
             return suggestions;
         }
 
-        /// <summary>Un mot enseigné (projet ou global), clé pliée — enseigner
-        /// « Batiatus » couvre « batiatus » et « BATIATUS ».</summary>
-        private bool Learned(string word)
+        /// <summary>Les mots appris à distance d'édition ≤ 2 du mot fautif
+        /// (clés pliées : « kaladinn » trouve « Kaladin »), insérés en tête
+        /// dans leur casse d'origine. Les listes sont petites (centaines au
+        /// plus), le balayage est marginal à côté de Suggest().</summary>
+        private void InsertLearnedMatches(string word, List<string> suggestions)
         {
             var key = FrenchTokenizer.Fold(word);
-            foreach (var entry in ProjectWords)
-                if (FrenchTokenizer.Fold(entry) == key) return true;
-            foreach (var entry in GlobalWords)
-                if (FrenchTokenizer.Fold(entry) == key) return true;
-            return false;
+            var inserted = 0;
+            for (var source = 0; source < 2 && inserted < 3; source++)
+                foreach (var entry in source == 0 ? ProjectWords : GlobalWords)
+                {
+                    var entryKey = FrenchTokenizer.Fold(entry);
+                    if (entryKey == key) continue; // déjà accepté par Learned
+                    if (Math.Abs(entryKey.Length - key.Length) > 2) continue;
+                    if (EditDistanceAtMost2(key, entryKey) > 2) continue;
+                    if (!suggestions.Contains(entry))
+                        suggestions.Insert(inserted++, entry);
+                    if (inserted >= 3) break;
+                }
+        }
+
+        /// <summary>Damerau-Levenshtein plafonné : rend 0, 1, 2 ou 3 (= « plus
+        /// de 2 »), bandes inutiles non calculées.</summary>
+        private static int EditDistanceAtMost2(string a, string b)
+        {
+            var la = a.Length;
+            var lb = b.Length;
+            var previous2 = new int[lb + 1];
+            var previous = new int[lb + 1];
+            var current = new int[lb + 1];
+            for (var j = 0; j <= lb; j++) previous[j] = j;
+            for (var i = 1; i <= la; i++)
+            {
+                current[0] = i;
+                var rowMin = current[0];
+                for (var j = 1; j <= lb; j++)
+                {
+                    var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                    var best = Math.Min(
+                        Math.Min(previous[j] + 1, current[j - 1] + 1),
+                        previous[j - 1] + cost);
+                    if (i > 1 && j > 1 && a[i - 1] == b[j - 2]
+                        && a[i - 2] == b[j - 1])
+                        best = Math.Min(best, previous2[j - 2] + 1);
+                    current[j] = best;
+                    if (best < rowMin) rowMin = best;
+                }
+                if (rowMin > 2) return 3; // la ligne entière dépasse : stop
+                var swap = previous2;
+                previous2 = previous;
+                previous = current;
+                current = swap;
+            }
+            return previous[lb];
+        }
+
+        /// <summary>Un mot enseigné (projet ou global), clé pliée — enseigner
+        /// « Batiatus » couvre « batiatus » et « BATIATUS ». Public : c'est
+        /// la moitié « mots appris » du prédicat KnownWord du tokeniseur
+        /// (batch 29, amendement A1 — un « Vaux-le-Vicomte » enseigné ne doit
+        /// pas se faire découper à son « -le »).</summary>
+        public bool IsLearned(string word)
+        {
+            return Learned(word);
+        }
+
+        // Les clés pliées des deux listes, reconstruites à la demande —
+        // batch 29, 0.3 : le balayage linéaire refaisait Fold() sur CHAQUE
+        // entrée pour CHAQUE mot du texte (400 appris × 300 mots = 120 000
+        // Fold par revérification de paragraphe).
+        private HashSet<string> _learnedKeys;
+
+        /// <summary>À appeler quand les listes de mots appris changent (mot
+        /// ajouté, retiré dans les Préférences, projet chargé) — les mêmes
+        /// moments que CheckerHost.InvalidateCache().</summary>
+        public void InvalidateLearned()
+        {
+            _learnedKeys = null;
+            // Les suggestions aussi : un nom appris depuis doit apparaître.
+            _suggestionCache.Clear();
+        }
+
+        private bool Learned(string word)
+        {
+            if (_learnedKeys == null)
+            {
+                _learnedKeys = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var entry in ProjectWords)
+                    _learnedKeys.Add(FrenchTokenizer.Fold(entry));
+                foreach (var entry in GlobalWords)
+                    _learnedKeys.Add(FrenchTokenizer.Fold(entry));
+            }
+            return _learnedKeys.Contains(FrenchTokenizer.Fold(word));
         }
 
         private static int LetterCount(string word)

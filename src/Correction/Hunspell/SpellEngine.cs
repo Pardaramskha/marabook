@@ -36,12 +36,33 @@ namespace UniversSale.Correction.Hunspell
         public int StemCount { get { return _stems.Count; } }
         public AffixFile Affix { get { return _affix; } }
 
+        // Voisinage clavier (KEY, batch 29 0.6) : deux caractères adjacents
+        // sur une même rangée déclarée valent une substitution privilégiée —
+        // « parlee » tapé « parlwe » vient d'un doigt qui a glissé.
+        private readonly Dictionary<char, string> _keyNeighbors
+            = new Dictionary<char, string>();
+
         private SpellEngine(AffixFile affix, Dictionary<string, List<string[]>> stems)
         {
             _affix = affix;
             _stems = stems;
             IndexAffixes(_affix.Suffixes, _suffixByAppend, _suffixLengths);
             IndexAffixes(_affix.Prefixes, _prefixByAppend, _prefixLengths);
+            foreach (var row in _affix.KeyRows.Split('|'))
+                for (var i = 0; i < row.Length; i++)
+                {
+                    if (i > 0) AddKeyNeighbor(row[i], row[i - 1]);
+                    if (i < row.Length - 1) AddKeyNeighbor(row[i], row[i + 1]);
+                }
+        }
+
+        private void AddKeyNeighbor(char key, char neighbor)
+        {
+            string current;
+            if (!_keyNeighbors.TryGetValue(key, out current))
+                _keyNeighbors[key] = neighbor.ToString();
+            else if (current.IndexOf(neighbor) < 0)
+                _keyNeighbors[key] = current + neighbor;
         }
 
         public static SpellEngine Load(string affPath, string dicPath)
@@ -140,11 +161,16 @@ namespace UniversSale.Correction.Hunspell
             }
             else if (shape == Shape.AllCaps)
             {
+                // batch 29, 0.7 : Forbidden se teste ici aussi — un mot
+                // interdit tapé en capitales était accepté (la branche
+                // Capitalized, elle, le refusait déjà).
                 var lower = Lower(w);
                 var folded = CheckForm(lower, true, out ns);
+                if (folded == Verdict.Forbidden) return false;
                 if (folded == Verdict.Accept) { noSuggestOnly = ns; return true; }
                 var capital = Capitalize(lower);
                 folded = CheckForm(capital, true, out ns);
+                if (folded == Verdict.Forbidden) return false;
                 if (folded == Verdict.Accept) { noSuggestOnly = ns; return true; }
             }
             return false;
@@ -377,11 +403,16 @@ namespace UniversSale.Correction.Hunspell
                     var body = from.Substring(1);
                     var anchoredEnd = body.EndsWith("$", StringComparison.Ordinal);
                     if (anchoredEnd) body = body.Substring(0, body.Length - 1);
+                    // batch 29, 0.4 : la branche non ancrée passait un
+                    // exactOverride égal au candidat, ce qui court-circuitait
+                    // Restore — « Ecole » corrigé par REP ^e é sortait
+                    // « école » au lieu d'« École ». Seule la branche
+                    // pleine-correspondance garde le remplacement verbatim.
                     if (anchoredEnd
                         ? work == body
                         : work.StartsWith(body, StringComparison.Ordinal))
                         Offer(results, seen, to + work.Substring(body.Length), shape,
-                            anchoredEnd ? to : to + work.Substring(body.Length));
+                            anchoredEnd ? to : null);
                     continue;
                 }
                 if (from.EndsWith("$", StringComparison.Ordinal))
@@ -438,6 +469,19 @@ namespace UniversSale.Correction.Hunspell
                         Offer(results, seen, candidate, shape, null);
                     if (results.Count >= 10) break;
                 }
+            }
+
+            // 2 ter. Voisinage clavier (KEY, batch 29 0.6) : la touche d'à
+            // côté sur la même rangée, essayée AVANT l'alphabet TRY entier —
+            // c'est la coquille physique la plus probable après la confusion
+            // orthographique (REP) et l'accent (MAP).
+            for (var i = 0; i < work.Length; i++)
+            {
+                string near;
+                if (!_keyNeighbors.TryGetValue(work[i], out near)) continue;
+                foreach (var c in near)
+                    Offer(results, seen, work.Substring(0, i) + c
+                        + work.Substring(i + 1), shape, null);
             }
 
             // 3. Damerau-Levenshtein 1 sur TRY.
@@ -539,8 +583,22 @@ namespace UniversSale.Correction.Hunspell
             if (results.Count >= 10) return;
             if (candidate.Length == 0 || !seen.Add(candidate)) return;
             bool noSuggest;
-            if (!AcceptsDetail(candidate, out noSuggest) || noSuggest) return;
-            var restored = exactOverride ?? Restore(candidate, shape);
+            string restored;
+            if (AcceptsDetail(candidate, out noSuggest) && !noSuggest)
+                restored = exactOverride ?? Restore(candidate, shape);
+            else
+            {
+                // batch 29, 0.5 : le travail se fait en minuscules, donc un
+                // nom propre du dictionnaire (Paris, Kevlar) était
+                // structurellement insuggérable. La forme Capitalisée du
+                // candidat se défend elle-même — au prix d'une seconde
+                // recherche sur les seuls candidats rejetés.
+                var capital = Capitalize(candidate);
+                if (capital == candidate) return;
+                if (!AcceptsDetail(capital, out noSuggest) || noSuggest) return;
+                restored = shape == Shape.AllCaps
+                    ? capital.ToUpperInvariant() : capital;
+            }
             restored = ApplyOconv(restored);
             if (!results.Contains(restored)) results.Add(restored);
         }

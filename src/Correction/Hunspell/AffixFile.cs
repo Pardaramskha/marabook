@@ -46,11 +46,14 @@ namespace UniversSale.Correction.Hunspell
     }
 
     /// <summary>Le lecteur du .aff français (batch 27, lot C.1) — SET, FLAG
-    /// long, TRY, KEY, MAP, REP, ICONV/OCONV, BREAK, PFX/SFX et les drapeaux
+    /// long, TRY, KEY, MAP, REP, ICONV/OCONV, PFX/SFX et les drapeaux
     /// spéciaux (NEEDAFFIX, FORBIDDENWORD, CIRCUMFIX, KEEPCASE, NOSUGGEST,
     /// FULLSTRIP). Le français n'a NI COMPOUND* NI PHONE — les deux parties
     /// les plus difficiles de Hunspell sont hors sujet : un .aff futur qui
-    /// en contiendrait fait LEVER proprement, jamais ignorer.</summary>
+    /// en contiendrait fait LEVER proprement, jamais ignorer. BREAK et
+    /// WORDCHARS sont ignorés à dessein : le découpage des mots appartient
+    /// au tokeniseur maison (batch 29, 0.6 — un champ mort ne doit pas
+    /// passer pour une fonctionnalité).</summary>
     public sealed class AffixFile
     {
         public bool FlagLong;                // FLAG long : drapeaux sur 2 chars
@@ -66,7 +69,6 @@ namespace UniversSale.Correction.Hunspell
         public readonly List<string[]> InputConversions = new List<string[]>();
         public readonly List<string[]> OutputConversions = new List<string[]>();
         public readonly List<string> MapClasses = new List<string>();
-        public readonly List<string> BreakPatterns = new List<string>();
         public readonly Dictionary<string, AffixRule> Prefixes
             = new Dictionary<string, AffixRule>();
         public readonly Dictionary<string, AffixRule> Suffixes
@@ -100,6 +102,7 @@ namespace UniversSale.Correction.Hunspell
                     case "TRY": file.TryChars = tokens[1]; break;
                     case "KEY": file.KeyRows = tokens[1]; break;
                     case "WORDCHARS": break; // le tokeniseur maison fait foi
+                    case "BREAK": break;     // idem — jamais un champ mort
                     case "FULLSTRIP": file.FullStrip = true; break;
                     case "NEEDAFFIX": file.NeedAffixFlag = tokens[1]; break;
                     case "FORBIDDENWORD": file.ForbiddenFlag = tokens[1]; break;
@@ -121,9 +124,6 @@ namespace UniversSale.Correction.Hunspell
                     case "OCONV":
                         if (!IsCount(tokens))
                             file.OutputConversions.Add(new[] { tokens[1], tokens[2] });
-                        break;
-                    case "BREAK":
-                        if (!IsCount(tokens)) file.BreakPatterns.Add(tokens[1]);
                         break;
                     case "PFX":
                     case "SFX":

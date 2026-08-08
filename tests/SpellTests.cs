@@ -45,7 +45,69 @@ namespace UniversSale.Tests
             NegativeCorpus(t, engine);
             CaseRules(t, engine);
             CheckerBehavior(t, engine);
+            Batch29Fixes(t, engine);
             Measures(t, engine);
+        }
+
+        // ------------------------------------- 7. rattrapages du batch 29
+
+        /// <summary>LOT 0 du batch 29 : 0.4 (casse rétablie sur les REP
+        /// ancrés), 0.5 (un nom propre peut être suggéré — .dic ET appris),
+        /// 0.6 (voisinage clavier KEY), 0.7 (interdit en capitales). Les cas
+        /// que le .dic 7.7 ne sait pas exercer (REP ancré vers une entrée
+        /// réelle, FORBIDDENWORD : il n'en contient aucune) se prouvent sur
+        /// un mini-dictionnaire jetable.</summary>
+        private static void Batch29Fixes(Harness t, SpellEngine engine)
+        {
+            // 0.5 — nom propre du .dic : « Avignone » doit proposer
+            // « Avignon » (le travail se fait en minuscules, la forme
+            // capitalisée du candidat se défend désormais elle-même).
+            t.Check(engine.Suggest("Avignone").Contains("Avignon"),
+                "un nom propre du dictionnaire peut sortir en suggestion");
+
+            // 0.5 bis — le cas d'usage réel : un nom de personnage APPRIS,
+            // mal tapé, est proposé en tête par le vérificateur.
+            var checker = new SpellChecker(engine);
+            checker.ProjectWords.Add("Kaladin");
+            var suggestions = checker.Suggestions("Kaladinn");
+            t.Check(suggestions.Count > 0 && suggestions[0] == "Kaladin",
+                "un nom appris proche passe en tête des suggestions");
+
+            // 0.6 — KEY : la touche d'à côté (z voisin de a sur la rangée
+            // AZERTY) est une substitution privilégiée, servie avant TRY.
+            var keyboard = engine.Suggest("boulzngerie");
+            t.Check(keyboard.Count > 0 && keyboard[0] == "boulangerie",
+                "le voisinage clavier arrive en tête (KEY lu et appliqué)");
+
+            // 0.4 + 0.7 — mini-dictionnaire jetable.
+            var affPath = Path.Combine(Path.GetTempPath(), "marabook-mini.aff");
+            var dicPath = Path.Combine(Path.GetTempPath(), "marabook-mini.dic");
+            var utf8 = new UTF8Encoding(false);
+            File.WriteAllText(affPath,
+                "SET UTF-8\nFLAG long\nTRY esntiarulo\nFORBIDDENWORD !!\n"
+                + "REP 1\nREP ^e é\n", utf8);
+            File.WriteAllText(dicPath,
+                "4\nécole\nchevals/!!\nChevals\ncheval\n", utf8);
+            try
+            {
+                var mini = SpellEngine.Load(affPath, dicPath);
+                // 0.4 : « Ecole » corrigé par REP ^e é ressortait « école »
+                // — l'exactOverride de la branche non ancrée court-circuitait
+                // le rétablissement de la casse.
+                t.Check(mini.Suggest("Ecole").Contains("École"),
+                    "REP ancré ^ : la casse d'origine est rétablie (École)");
+                // 0.7 : un interdit tapé en capitales restait acceptable par
+                // la voie « Capitalisée » (ici l'homographe propre Chevals).
+                t.Check(!mini.Accepts("chevals"), "l'interdit reste interdit");
+                t.Check(mini.Accepts("Chevals"), "l'homographe propre vit");
+                t.Check(!mini.Accepts("CHEVALS"),
+                    "l'interdit en CAPITALES est interdit (0.7)");
+            }
+            finally
+            {
+                File.Delete(affPath);
+                File.Delete(dicPath);
+            }
         }
 
         // ------------------------------------------------- 1. auto-contrôle
@@ -143,7 +205,12 @@ namespace UniversSale.Tests
             "hospitalisations institutionnalisation internationalisation " +
             "imperméabilisation vraisemblance invraisemblances " +
             // petits pièges
-            "été étés eu eue eues eût")
+            "été étés eu eue eues eût " +
+            // 0.8 (batch 29) : l'apostrophe TYPOGRAPHIQUE (U+2019) telle que
+            // tapée dans un texte réel — la correspondance avec le .dic (qui
+            // stocke la droite) repose entièrement sur l'ICONV du .aff.
+            "aujourd’hui presqu’île lorsqu’elle jusqu’à c’est-à-dire " +
+            "qu’en-dira-t-on chef-d’œuvre prud’homme")
             .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
         private static void PositiveCorpus(Harness t, SpellEngine engine)
@@ -381,6 +448,9 @@ namespace UniversSale.Tests
             teach.ProjectWords.Add("Batiatus");
             t.Equal(1, host4.Run(invented, null).Count,
                 "sans invalidation, le cache ressert son vieux verdict");
+            // Depuis le batch 29 (0.3), les clés pliées des appris sont en
+            // cache elles aussi : enseigner invalide LES DEUX, comme l'app.
+            teach.InvalidateLearned();
             host4.InvalidateCache();
             t.Equal(0, host4.Run(invented, null).Count,
                 "cache invalidé : le mot enseigné est appris");
