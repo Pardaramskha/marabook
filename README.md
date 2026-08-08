@@ -63,14 +63,25 @@ avec le test qui l'aurait attrapé.**
 
 ## Partis pris techniques
 
-- **Zéro dépendance de code** : pas de NuGet, pas de `.csproj` ; `csc.exe`
-  direct, et le zip/JSON/docx/odt/PDF sont écrits à la main dans `src/`.
-  Depuis le batch 27, Marabook embarque en revanche des **données**
-  tierces : le dictionnaire orthographique français `fr-toutesvariantes`
-  v7.7 d'Olivier R. (`dict/`, ~3 Mo, licence MPL-2.0, notice
-  `README_dict_fr.txt` conservée intacte) — des fichiers séparés, jamais
-  fusionnés au code, dont le build vérifie les empreintes SHA256
-  (`APPROVISIONNEMENT.md` documente la provenance et le protocole).
+- **Zéro dépendance de code C#** : pas de NuGet, pas de `.csproj` ;
+  `csc.exe` direct, et le zip/JSON/docx/odt/PDF sont écrits à la main dans
+  `src/`. Mais soyons honnêtes sur ce que l'installation embarque
+  désormais — ce n'est plus la promesse « un seul exe » des débuts :
+  - le dictionnaire orthographique français `fr-toutesvariantes` v7.7
+    d'Olivier R. (`dict/`, ~3 Mo, MPL-2.0, notice `README_dict_fr.txt`
+    intacte) — batch 27 ;
+  - **Grammalecte 2.3.0** (`grammalecte/`, ~24 Mo déployé, GPL-3.0+ comme
+    Marabook), le correcteur grammatical d'Olivier R., piloté en
+    sous-processus par `marabook_grammar.py` — jamais en serveur ;
+  - **un interpréteur Python embeddable** (`python/`, ~21 Mo déployé,
+    licence PSF), le runtime de Grammalecte — c'est un composant TIERS
+    exécutable, à tenir à jour à chaque version corrective de Python.
+  L'exécutable Marabook reste sous le mégaoctet ; l'installation complète
+  pèse une cinquantaine de mégaoctets, et c'est assumé : on privilégie un
+  correcteur grammatical réel à la pureté du chiffre. Le build vérifie les
+  empreintes SHA256 de TOUT l'embarqué (`tools/verify-dict.ps1` +
+  `tools/embedded-hashes.txt`) ; provenance, contre-vérifications et
+  licences : `APPROVISIONNEMENT.md`.
 - **C# 5 / .NET Framework 4.8 / WPF** : tourne sur tout Windows 10/11 sans
   runtime à installer ; l'UI est construite en code, sans XAML.
 - **Un modèle pivot unique** (`src/Model/RichText.cs`) : l'éditeur, le

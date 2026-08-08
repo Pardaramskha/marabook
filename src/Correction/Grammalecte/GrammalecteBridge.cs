@@ -80,6 +80,10 @@ namespace UniversSale.Correction.Grammalecte
         private Timer _watchdog;
         private int _watchdogToken;
 
+        /// <summary>La version du runtime embarqué (lot E) — pour l'À propos
+        /// et APPROVISIONNEMENT.md ; à tenir avec chaque corrective.</summary>
+        public const string EmbeddedPythonVersion = "3.13.15";
+
         public BridgeState State { get { lock (_gate) return _state; } }
         /// <summary>« Python absent », « processus en échec »… — l'état
         /// lisible du lot D, jamais une boîte d'erreur.</summary>

@@ -1,0 +1,9 @@
+python313.zip
+.
+# Marabook : le paquet grammalecte vit a cote (batch 29, lot B) --
+# les chemins d un ._pth sont relatifs a python.exe, et sa presence
+# fige sys.path (ni PYTHONPATH ni repertoire du script).
+../grammalecte
+
+# Uncomment to run site.main() automatically
+#import site

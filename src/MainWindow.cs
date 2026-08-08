@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.26.0-alpha";
+        public const string AppVersion = "0.27.0-alpha";
 
         private Project _project;
         private string _path;
@@ -2580,11 +2580,16 @@ namespace UniversSale
                 "Traitement de texte et construction narrative.\n" +
                 "Alpha : éditeur riche paginé, fiches wiki, corkboard, échanges\n" +
                 "docx/odt/RTF/Markdown/Scrivener, aperçu des pages, impression,\n" +
-                "correction (répétitions, orthographe).\n\n" +
+                "correction (répétitions, orthographe, grammaire).\n\n" +
                 "Ressources embarquées :\n" +
                 "• Dictionnaire orthographique français « toutes variantes » v7.7\n" +
                 "  par Olivier R. — licence MPL-2.0 — https://grammalecte.net/\n" +
                 "  (notice complète : dict\\README_dict_fr.txt)\n" +
+                "• Grammalecte 2.3.0, correcteur grammatical par Olivier R.\n" +
+                "  — licence GPL-3.0+ — https://grammalecte.net/\n" +
+                "  (le source Python livré dans grammalecte\\ EST le source)\n" +
+                "• Python " + Correction.Grammalecte.GrammalecteBridge.EmbeddedPythonVersion + " embeddable (runtime de Grammalecte)\n" +
+                "  — licence PSF — https://www.python.org/\n" +
                 "• Icônes Phosphor — licence MIT — https://phosphoricons.com/\n" +
                 "• Icônes Flaticon — https://www.flaticon.com/ (crédit exigé)",
                 "À propos", MessageBoxButton.OK, MessageBoxImage.Information);

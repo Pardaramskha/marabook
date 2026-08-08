@@ -9,3 +9,6 @@ Marabook.exe
 *.plot.tmp
 MarabookTests.exe
 MarabookUiTests.exe
+
+# Caches de bytecode du Python embarque (crees au premier lancement)
+__pycache__/

@@ -1,7 +1,9 @@
 # Approvisionnement des ressources linguistiques
 
 > Ce document fixe la provenance, les empreintes et les licences des
-> ressources tierces embarquées dans Marabook. Vérifié le 8 août 2026.
+> ressources tierces embarquées dans Marabook. Vérifié le 8 août 2026 ;
+> Grammalecte et Python embarqués le 9 août 2026 (batch 29, voir
+> « Réalisé » en fin de document).
 
 ## Résumé
 
@@ -9,7 +11,7 @@
 |---|---|---|---|---|
 | Dictionnaires Hunspell français | 7.7 | MPL-2.0 | ~3 Mo | oui, en dur |
 | Grammalecte | 2.3.0 (15/12/2025) | GPL-3.0+ | ~24 Mo déployé | oui, en dur, CLI seul |
-| Python embeddable (Windows x64) | 3.13.x | PSF | ~10,4 Mo | oui, runtime de Grammalecte |
+| Python embeddable (Windows x64) | 3.13.15 (embarqué b29) | PSF | ~10,4 Mo zippé, ~21 Mo déployé | oui, runtime de Grammalecte |
 
 ## Sources interdites
 
@@ -149,6 +151,36 @@ Python, qui *est* le source : rien de plus à faire.
   l'interpréteur l'est davantage.
 - La dégradation fonctionnelle d'un Grammalecte figé se compte en années :
   faux positifs non corrigés, néologismes et noms propres absents du lexique.
+
+## Réalisé (batch 29, 9 août 2026)
+
+- **Grammalecte 2.3.0** téléchargé depuis `grammalecte.net`, SHA256 du zip
+  conforme (`aaa42197…`), déployé dans `grammalecte/` — **sans
+  `grammalecte-server.py` ni `grammalecte/bottle.py`** (retirés comme
+  prescrit), sans `setup.py` ni `Dockerfile` (surface minimale). Les
+  `LICENSE*.txt` et `README.txt` amont accompagnent le paquet. Le pilotage
+  réel est `grammalecte/marabook_grammar.py` (à nous) : processus long
+  stdin/stdout, **pas** `grammalecte-cli.py -ff` — lu avant de trancher,
+  son mode interactif est inutilisable en
+  machine (sortie texte sans JSON, apostrophes réécrites sous Windows) et
+  son mode fichier paie l'initialisation à chaque appel.
+- **Python embeddable 3.13.15 (amd64)** téléchargé depuis `python.org`,
+  **signature GPG « Good signature » vérifiée** — clé de **Steve Dower
+  (Python Release Signing, Windows binaries)**, empreinte
+  `7ED1 0B65 31D7 C8E1 BC29 6021 FC62 4643 4870 34E5`, recoupée avec la
+  liste officielle `python.org/downloads/metadata/pgp/`. (Les binaires
+  Windows sont signés par lui, pas par le release manager de la 3.13 —
+  détail qui surprend, vérifié.) SHA256 du zip :
+  `d1f04d990aee1253d8569e8e5104e30fa9f5fa830899f14843448872d936a2cf`.
+  Déployé dans `python/` ; `python313._pth` ajusté (une ligne
+  `../grammalecte` — sa présence fige `sys.path`, ni PYTHONPATH ni
+  répertoire du script n'y entrent).
+- **Vérification au build étendue** : `tools/embedded-hashes.txt` (78
+  empreintes SHA256 des deux arbres, générées depuis ces sources
+  vérifiées) contrôlé par `tools/verify-dict.ps1` à chaque build — un
+  arbre absent EN BLOC est toléré (la grammaire se tait), un arbre partiel
+  ou altéré fait échouer la compilation. `__pycache__/` (créé au premier
+  lancement) est ignoré de git et du manifeste.
 
 ## Non vérifié
 
