@@ -100,6 +100,7 @@ namespace UniversSale.View
 
         private Border _annBar;      // panneau Révision (annotations)
         private StackPanel _annList;
+        private ToggleButton _annVisibleBtn; // « Visibles » de l'onglet Révision
         private Canvas _bubbleLayer; // bulles de commentaire façon Word (classique)
         private Grid _surface;       // hôte du miroir + des bulles
 
@@ -887,7 +888,8 @@ namespace UniversSale.View
                     if (_item != null)
                     {
                         _loading = true;
-                        _box.Document = FlowConverter.ToFlow(_item.Document, _styles, _project);
+                        _box.Document = FlowConverter.ToFlow(_item.Document, _styles,
+                            _project, Settings.AppSettings.ShowAnnotations);
                         _loading = false;
                         ApplyPageVisuals();
                         RebuildNotesPanel();
@@ -1399,8 +1401,9 @@ namespace UniversSale.View
         // ============================================================= révision
 
         /// <summary>Onglet « Révision » : annoter la sélection, naviguer entre
-        /// les annotations. Le panneau du bas porte le détail (commentaires,
-        /// résolution, suppression).</summary>
+        /// les annotations, les masquer. En classique, chaque bulle porte son
+        /// commentaire et ses commandes ; le panneau du bas ne sert qu'en
+        /// Composition (qui n'a pas de bulles).</summary>
         private UIElement BuildRevisionTab()
         {
             var panel = new WrapPanel { Margin = new Thickness(8, 4, 8, 4) };
@@ -1436,6 +1439,18 @@ namespace UniversSale.View
             };
             next.Click += delegate { NavigateAnnotation(1); };
             panel.Children.Add(next);
+
+            _annVisibleBtn = PageToggle("Visibles",
+                "Affiche ou masque les annotations (teintes et bulles) — "
+                + "elles restent dans le projet");
+            _annVisibleBtn.IsChecked = Settings.AppSettings.ShowAnnotations;
+            _annVisibleBtn.Click += delegate
+            {
+                Settings.AppSettings.ShowAnnotations = _annVisibleBtn.IsChecked == true;
+                Settings.AppSettings.Save();
+                ApplyAnnotationVisibility();
+            };
+            panel.Children.Add(_annVisibleBtn);
 
             panel.Children.Add(new TextBlock
             {
@@ -1541,6 +1556,15 @@ namespace UniversSale.View
         public void CreateAnnotation()
         {
             if (_item == null) return;
+            // Annoter en mode masqué réaffiche les annotations (façon Word) :
+            // on veut voir naître la bulle qu'on crée.
+            if (!Settings.AppSettings.ShowAnnotations)
+            {
+                Settings.AppSettings.ShowAnnotations = true;
+                Settings.AppSettings.Save();
+                if (_annVisibleBtn != null) _annVisibleBtn.IsChecked = true;
+                ApplyAnnotationVisibility();
+            }
             var annotation = new Annotation
             {
                 Created = DateTime.Now.ToString("yyyy-MM-dd HH:mm")
@@ -1655,6 +1679,7 @@ namespace UniversSale.View
         /// <summary>Supprime l'annotation : commentaire ET ancres.</summary>
         private void DeleteAnnotation(Annotation annotation)
         {
+            if (_activeBubbleId == annotation.Id) _activeBubbleId = null;
             _item.Document.Annotations.Remove(annotation);
             if (ComposedActive) _composed.ClearAnnotation(annotation.Id);
             else ClearClassicAnnotation(annotation.Id);
@@ -1700,8 +1725,31 @@ namespace UniversSale.View
             }
         }
 
-        /// <summary>Reconstruit le panneau Révision. Visible dès qu'une
-        /// annotation existe (hors mode calme).</summary>
+        /// <summary>Applique le réglage « annotations visibles » : teintes du
+        /// classique (fond cosmétique, jamais persisté), bulles, panneau — et
+        /// recomposition en mode Composition (la teinte y vient du moteur).</summary>
+        private void ApplyAnnotationVisibility()
+        {
+            if (_item == null) return;
+            if (!ComposedActive)
+            {
+                var wasLoading = _loading;
+                _loading = true; // reteinte cosmétique : le projet reste propre
+                try
+                {
+                    foreach (var annotation in _item.Document.Annotations)
+                        RetintClassicAnnotation(annotation.Id,
+                            Settings.AppSettings.ShowAnnotations && !annotation.Resolved);
+                }
+                finally { _loading = wasLoading; }
+            }
+            else _composed.RefreshComposition();
+            RebuildAnnotationsPanel();
+        }
+
+        /// <summary>Reconstruit le panneau Révision du bas — COMPOSITION
+        /// seulement (le classique édite dans les bulles), dès qu'une
+        /// annotation existe (hors mode calme, annotations visibles).</summary>
         public void RebuildAnnotationsPanel()
         {
             _annList.Children.Clear();
@@ -1711,7 +1759,8 @@ namespace UniversSale.View
                 return;
             }
             var order = AnnotationOrderLive();
-            _annBar.Visibility = order.Count == 0 || _calm
+            _annBar.Visibility = order.Count == 0 || _calm || !ComposedActive
+                || !Settings.AppSettings.ShowAnnotations
                 ? Visibility.Collapsed : Visibility.Visible;
             foreach (var id in order)
             {
@@ -1787,29 +1836,44 @@ namespace UniversSale.View
 
         // -------------------------------------------------- bulles façon Word
 
+        // Bulle « dépliée » : son commentaire s'édite sur place, avec les
+        // commandes Résoudre/Supprimer — les autres n'affichent qu'un aperçu.
+        private string _activeBubbleId;
+        private bool _focusBubbleRequested; // création : champ prêt à la frappe
+        private TextBox _activeBubbleEditor;
+
+        private void RebuildAnnotationBubbles()
+        {
+            RebuildAnnotationBubbles(false);
+        }
+
         /// <summary>Reconstruit les bulles de commentaire à droite des pages
         /// (mode classique). Chaque bulle est posée à la hauteur de son
         /// passage (coordonnées boîte → tranche du miroir), empilée sans
-        /// chevauchement, reliée à la page par un filet or.</summary>
-        private void RebuildAnnotationBubbles()
+        /// chevauchement, reliée à la page par un filet or. force : passe
+        /// outre la garde anti-vol de focus (dépliage/repli volontaire).</summary>
+        private void RebuildAnnotationBubbles(bool force)
         {
             if (_bubbleLayer == null) return;
             // Ne pas voler le focus d'une bulle en cours de frappe.
-            foreach (var child in _bubbleLayer.Children)
-            {
-                var host = child as Border;
-                if (host == null) continue;
-                var panel = host.Child as StackPanel;
-                if (panel == null) continue;
-                foreach (var inner in panel.Children)
+            if (!force)
+                foreach (var child in _bubbleLayer.Children)
                 {
-                    var focused = inner as TextBox;
-                    if (focused != null && focused.IsKeyboardFocused) return;
+                    var host = child as Border;
+                    if (host == null) continue;
+                    var panel = host.Child as StackPanel;
+                    if (panel == null) continue;
+                    foreach (var inner in panel.Children)
+                    {
+                        var focused = inner as TextBox;
+                        if (focused != null && focused.IsKeyboardFocused) return;
+                    }
                 }
-            }
             _bubbleLayer.Children.Clear();
             _bubbleLayer.Width = 0;
-            if (_item == null || ComposedActive || _calm) return;
+            _activeBubbleEditor = null;
+            if (_item == null || ComposedActive || _calm
+                || !Settings.AppSettings.ShowAnnotations) return;
             var order = AnnotationOrderLive();
             if (order.Count == 0) return;
 
@@ -1874,10 +1938,27 @@ namespace UniversSale.View
             // La surface s'élargit pour que les bulles comptent dans l'étendue
             // de défilement.
             _bubbleLayer.Width = pageRight + 16 + bubbleWidth + 12;
+
+            // Après création : le champ de la bulle neuve est prêt à la frappe.
+            if (_focusBubbleRequested && _activeBubbleEditor != null)
+            {
+                _focusBubbleRequested = false;
+                var editor = _activeBubbleEditor;
+                Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(delegate
+                {
+                    editor.Focus();
+                    editor.CaretIndex = editor.Text.Length;
+                }));
+            }
         }
 
+        /// <summary>Une bulle façon Word. Repliée : extrait + aperçu du
+        /// commentaire. Dépliée (clic, ou création) : champ d'édition et
+        /// commandes Résoudre/Supprimer sur place ; elle se replie quand le
+        /// focus la quitte.</summary>
         private Border BuildAnnotationBubble(Annotation annotation, Brush gold, double width)
         {
+            var active = annotation.Id == _activeBubbleId;
             var panel = new StackPanel();
             var excerptText = AnnotatedTextLive(annotation.Id).Trim();
             if (excerptText.Length > 36) excerptText = excerptText.Substring(0, 36) + "…";
@@ -1893,26 +1974,69 @@ namespace UniversSale.View
             };
             excerpt.MouseLeftButtonDown += delegate { GoToAnnotation(annotation.Id); };
             panel.Children.Add(excerpt);
-            var comment = new TextBox
+
+            if (active)
             {
-                Text = annotation.Text,
-                FontSize = 11,
-                TextWrapping = TextWrapping.Wrap,
-                AcceptsReturn = true,
-                BorderThickness = new Thickness(0),
-                Background = Brushes.Transparent,
-                Padding = new Thickness(0),
-                Margin = new Thickness(0, 3, 0, 0),
-                ToolTip = "Le commentaire — édité ici ou dans le panneau Révision"
-            };
-            comment.TextChanged += delegate
-            {
-                if (_loading) return;
-                annotation.Text = comment.Text;
-                NotifyEdited();
-            };
-            panel.Children.Add(comment);
-            return new Border
+                var comment = new TextBox
+                {
+                    Text = annotation.Text,
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap,
+                    AcceptsReturn = true,
+                    MinHeight = 36,
+                    Margin = new Thickness(0, 4, 0, 0),
+                    ToolTip = "Le commentaire de révision"
+                };
+                comment.TextChanged += delegate
+                {
+                    if (_loading) return;
+                    annotation.Text = comment.Text;
+                    NotifyEdited();
+                };
+                panel.Children.Add(comment);
+                _activeBubbleEditor = comment;
+
+                var buttons = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(0, 5, 0, 0)
+                };
+                var resolve = SmallButton(annotation.Resolved ? "Rouvrir" : "Résoudre",
+                    delegate { ToggleAnnotationResolved(annotation); });
+                resolve.FontSize = 10;
+                resolve.ToolTip = annotation.Resolved
+                    ? "Réactiver l'annotation (la teinte revient)"
+                    : "Marquer comme traitée (la teinte s'éteint, le commentaire reste)";
+                buttons.Children.Add(resolve);
+                var remove = SmallButton("Supprimer",
+                    delegate { DeleteAnnotation(annotation); });
+                remove.FontSize = 10;
+                remove.ToolTip = "Supprimer le commentaire et son ancre";
+                buttons.Children.Add(remove);
+                panel.Children.Add(buttons);
+            }
+            else if (annotation.Text.Trim().Length > 0)
+                panel.Children.Add(new TextBlock
+                {
+                    Text = annotation.Text.Trim(),
+                    Foreground = Chrome.Ink,
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxHeight = 58,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(0, 3, 0, 0)
+                });
+            else
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "(cliquer pour commenter)",
+                    Foreground = Chrome.SoftText,
+                    FontStyle = FontStyles.Italic,
+                    FontSize = 10,
+                    Margin = new Thickness(0, 3, 0, 0)
+                });
+
+            var bubble = new Border
             {
                 Width = width,
                 Background = Chrome.BarBgLight,
@@ -1920,16 +2044,46 @@ namespace UniversSale.View
                 BorderThickness = new Thickness(3, 1, 1, 1),
                 CornerRadius = new CornerRadius(5),
                 Padding = new Thickness(8, 5, 8, 6),
-                Opacity = annotation.Resolved ? 0.5 : 1.0,
+                Opacity = annotation.Resolved ? (active ? 0.75 : 0.5) : 1.0,
+                Cursor = active ? null : Cursors.Hand,
                 Child = panel,
                 Tag = annotation.Id
             };
+            bubble.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (_activeBubbleId == annotation.Id) return;
+                _activeBubbleId = annotation.Id;
+                _focusBubbleRequested = true;
+                RebuildAnnotationBubbles(true);
+                e.Handled = true;
+            };
+            bubble.IsKeyboardFocusWithinChanged += delegate
+            {
+                if (bubble.IsKeyboardFocusWithin || _activeBubbleId != annotation.Id)
+                    return;
+                // Une bulle détachée par une reconstruction n'est pas un vrai
+                // départ de focus — seule la bulle encore affichée se replie.
+                if (!_bubbleLayer.Children.Contains(bubble)) return;
+                _activeBubbleId = null;
+                Dispatcher.BeginInvoke(DispatcherPriority.Background,
+                    new Action(delegate { RebuildAnnotationBubbles(true); }));
+            };
+            return bubble;
         }
 
-        /// <summary>Met le focus dans le champ de commentaire d'une annotation
-        /// (après création).</summary>
+        /// <summary>Ouvre le champ de commentaire d'une annotation (après
+        /// création) : la bulle en classique, la ligne du panneau en
+        /// Composition.</summary>
         private void FocusAnnotation(string id)
         {
+            if (!ComposedActive)
+            {
+                // Les bulles viennent d'être programmées (RebuildAnnotationsPanel) :
+                // celle-ci naîtra dépliée, champ focalisé.
+                _activeBubbleId = id;
+                _focusBubbleRequested = true;
+                return;
+            }
             foreach (var child in _annList.Children)
             {
                 var row = child as DockPanel;
@@ -2361,11 +2515,26 @@ namespace UniversSale.View
                 var position = SourcePosition(e.GetPosition(slice), index);
                 if (position == null) return;
                 _box.Focus();
+                // Une bulle d'annotation restée dépliée se replie au clic dans
+                // la page (elle n'a pas toujours le focus à perdre).
+                if (_activeBubbleId != null)
+                {
+                    _activeBubbleId = null;
+                    Dispatcher.BeginInvoke(DispatcherPriority.Background,
+                        new Action(delegate { RebuildAnnotationBubbles(true); }));
+                }
                 if (e.ClickCount == 2)
                 {
+                    // Façon Word (et Composition) : PAS de capture après le
+                    // double-clic — sinon le micro-mouvement du relâchement
+                    // remplaçait le mot par une sélection ancre→pointeur.
                     SelectWordAtPointer(position);
+                    _mirrorAnchor = _box.Selection.Start;
+                    RedrawSelectionNow();
+                    e.Handled = true;
+                    return;
                 }
-                else if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+                if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
                 {
                     _box.Selection.Select(_mirrorAnchor ?? _box.Selection.Start, position);
                 }
@@ -2374,6 +2543,7 @@ namespace UniversSale.View
                     _mirrorAnchor = position;
                     _box.Selection.Select(position, position);
                 }
+                RedrawSelectionNow();
                 frame.CaptureMouse();
                 e.Handled = true;
             };
@@ -2390,17 +2560,26 @@ namespace UniversSale.View
                 var sliceHeight = slice.ActualHeight;
                 _dragScrollDirection = local.Y < -2 ? -1
                     : local.Y > sliceHeight + 2 ? 1 : 0;
+                // Vitesse proportionnelle au dépassement (façon Word) : plus le
+                // pointeur s'éloigne du cadre, plus la sélection défile vite.
+                _dragScrollOvershoot = _dragScrollDirection < 0
+                    ? -local.Y : local.Y - sliceHeight;
                 var clamped = new Point(local.X,
                     Math.Max(0, Math.Min(sliceHeight, local.Y)));
                 var position = SourcePosition(clamped, index);
                 if (position != null && _mirrorAnchor != null)
+                {
                     _box.Selection.Select(_mirrorAnchor, position);
+                    // Redessin IMMÉDIAT : le debounce de l'overlay ne se
+                    // déclenche jamais tant que la souris bouge.
+                    RedrawSelectionNow();
+                }
                 if (_dragScrollDirection != 0)
                 {
                     if (_dragScrollTimer == null)
                     {
                         _dragScrollTimer = new DispatcherTimer
-                        { Interval = TimeSpan.FromMilliseconds(120) };
+                        { Interval = TimeSpan.FromMilliseconds(60) };
                         _dragScrollTimer.Tick += delegate { DragScrollStep(); };
                     }
                     _dragScrollTimer.Start();
@@ -2417,9 +2596,11 @@ namespace UniversSale.View
 
         private DispatcherTimer _dragScrollTimer;
         private int _dragScrollDirection;
+        private double _dragScrollOvershoot; // px au-delà du cadre (vitesse)
 
         /// <summary>Un tic de défilement de sélection : l'extrémité mobile
-        /// avance d'UNE ligne — EnsureCaretVisible suit en douceur.</summary>
+        /// avance d'une à cinq lignes selon le dépassement du pointeur —
+        /// EnsureCaretVisible suit en douceur.</summary>
         private void DragScrollStep()
         {
             if (_dragScrollDirection == 0 || _mirrorAnchor == null || _item == null)
@@ -2432,11 +2613,26 @@ namespace UniversSale.View
                 var selection = _box.Selection;
                 var moving = selection.Start.CompareTo(_mirrorAnchor) == 0
                     ? selection.End : selection.Start;
-                var next = moving.GetLineStartPosition(_dragScrollDirection);
+                var steps = 1 + Math.Min(4, (int)(_dragScrollOvershoot / 40));
+                var next = moving.GetLineStartPosition(_dragScrollDirection * steps)
+                    ?? moving.GetLineStartPosition(_dragScrollDirection);
                 if (next == null) { _dragScrollTimer.Stop(); return; }
                 _box.Selection.Select(_mirrorAnchor, next);
+                RedrawSelectionNow();
             }
             catch { _dragScrollTimer.Stop(); }
+        }
+
+        /// <summary>Redessine la sélection SEULE, tout de suite (pendant un
+        /// cliquer-glisser) : _sheets ne porte que ses rectangles, les marques
+        /// et numéros de ligne attendent le debounce de l'overlay.</summary>
+        private void RedrawSelectionNow()
+        {
+            if (_sheets == null || _item == null || ComposedActive) return;
+            for (var i = _sheets.Children.Count - 1; i >= 0; i--)
+                _sheets.Children.RemoveAt(i);
+            UpdateClassicCaret();
+            DrawSelection();
         }
 
         private TextPointer SourcePosition(Point local, int sliceIndex)
@@ -2458,6 +2654,9 @@ namespace UniversSale.View
                 var previous = start.GetNextInsertionPosition(LogicalDirection.Backward);
                 if (previous == null) break;
                 var range = new TextRange(previous, start);
+                // Un pas VIDE est une frontière de run (les annotations
+                // scindent les runs) : on la franchit, le mot continue.
+                if (range.Text.Length == 0) { start = previous; continue; }
                 if (range.Text.Length != 1 || !char.IsLetterOrDigit(range.Text[0])) break;
                 start = previous;
             }
@@ -2466,6 +2665,7 @@ namespace UniversSale.View
                 var next = end.GetNextInsertionPosition(LogicalDirection.Forward);
                 if (next == null) break;
                 var range = new TextRange(end, next);
+                if (range.Text.Length == 0) { end = next; continue; }
                 if (range.Text.Length != 1 || !char.IsLetterOrDigit(range.Text[0])) break;
                 end = next;
             }
@@ -2883,7 +3083,8 @@ namespace UniversSale.View
             _item = item;
             _loading = true;
             _appliedExtra.Clear(); // fresh document, fresh pagination
-            _box.Document = FlowConverter.ToFlow(item.Document, _styles, _project);
+            _box.Document = FlowConverter.ToFlow(item.Document, _styles,
+                _project, Settings.AppSettings.ShowAnnotations);
             _loading = false;
             ApplyPageVisuals();
             RebuildNotesPanel();

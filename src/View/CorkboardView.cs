@@ -113,6 +113,52 @@ namespace UniversSale.View
             DragOver += OnBoardDragOver;
             Drop += OnBoardDrop;
             DragLeave += delegate { HideDropBar(); };
+
+            // Un clic dans le vide (ou Échap) désélectionne les cartes.
+            MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                Focus();
+                if (_selected.Count == 0) return;
+                if (IsWithinCard(e.OriginalSource as DependencyObject)) return;
+                _selected.Clear();
+                RefreshSelectionVisuals();
+            };
+            KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key != Key.Escape || _selected.Count == 0) return;
+                _selected.Clear();
+                RefreshSelectionVisuals();
+                e.Handled = true;
+            };
+            _cards.SizeChanged += delegate { UpdateFolderBoxWidths(); };
+        }
+
+        /// <summary>Vrai si le clic est parti d'une carte ou d'une boîte de
+        /// partie (leur Tag porte le BinderItem) — faux sur le fond.</summary>
+        private static bool IsWithinCard(DependencyObject source)
+        {
+            while (source != null)
+            {
+                var element = source as FrameworkElement;
+                if (element != null && element.Tag is BinderItem) return true;
+                source = source is Visual
+                    ? VisualTreeHelper.GetParent(source)
+                    : LogicalTreeHelper.GetParent(source);
+            }
+            return false;
+        }
+
+        /// <summary>Chaque boîte de partie occupe la largeur du tableau : dans
+        /// le WrapPanel, elle force ainsi son propre retour à la ligne.</summary>
+        private void UpdateFolderBoxWidths()
+        {
+            foreach (var child in _cards.Children)
+            {
+                var host = child as Grid;
+                if (host == null || !(host.Tag is BinderItem)) continue;
+                var width = _cards.ActualWidth - host.Margin.Left - host.Margin.Right;
+                if (width > 240) host.Width = width;
+            }
         }
 
         private Canvas _dropOverlay;
@@ -192,14 +238,9 @@ namespace UniversSale.View
                 var divergent = card.BorderBrush is SolidColorBrush
                     && ((SolidColorBrush)card.BorderBrush).Color == Color.FromRgb(230, 126, 34);
                 if (!divergent)
-                    card.BorderBrush = selected ? (Brush)Chrome.Accent
-                        : item.CardColor != null
-                            ? new SolidColorBrush(FlowConverter.ParseColor(item.CardColor))
-                            : Chrome.Border;
-                card.BorderThickness = new Thickness(selected ? 2
-                    : item.CardColor != null ? 1.6 : 1);
-                card.Margin = new Thickness(selected ? 7
-                    : item.CardColor != null ? 7.4 : 8);
+                    card.BorderBrush = selected ? (Brush)Chrome.Accent : Chrome.Border;
+                card.BorderThickness = new Thickness(selected ? 2 : 1);
+                card.Margin = new Thickness(selected ? 7 : 8);
             }
         }
 
@@ -282,6 +323,7 @@ namespace UniversSale.View
         public void Clear()
         {
             _folder = null;
+            _selected.Clear();
             _cards.Children.Clear();
         }
 
@@ -342,6 +384,7 @@ namespace UniversSale.View
                     Foreground = Chrome.SoftText,
                     Margin = new Thickness(12)
                 });
+            UpdateFolderBoxWidths();
         }
 
         /// <summary>La boîte d'une partie : bordure fine à bords ronds (gris
@@ -358,11 +401,9 @@ namespace UniversSale.View
                     Chrome.WindowBg.Color, 0.88))
                 : Brushes.Transparent;
 
-            var inner = new WrapPanel
-            {
-                Margin = new Thickness(2, 8, 2, 2),
-                MaxWidth = 3 * 226 + 12 // trois cartes par rangée
-            };
+            // La boîte occupe toute la largeur du tableau (retour à la ligne
+            // forcé, cf. UpdateFolderBoxWidths) : les cartes s'y répartissent.
+            var inner = new WrapPanel { Margin = new Thickness(2, 8, 2, 2) };
             var count = 0;
             foreach (var child in folder.Children)
             {
@@ -634,17 +675,12 @@ namespace UniversSale.View
                 Width = 210,
                 MinHeight = 130,
                 Background = Chrome.CardBg,
-                // Couleur personnelle de la carte (inspecteur) ; la sélection
-                // et le liseré de divergence gardent la priorité.
-                BorderBrush = selected ? (Brush)Chrome.Accent
-                    : item.CardColor != null
-                        ? new SolidColorBrush(FlowConverter.ParseColor(item.CardColor))
-                        : Chrome.Border,
-                BorderThickness = new Thickness(selected ? 2
-                    : item.CardColor != null ? 1.6 : 1),
+                // La sélection et le liseré de divergence colorent la bordure ;
+                // la couleur personnelle vit en dégradé dans la barre de titre.
+                BorderBrush = selected ? (Brush)Chrome.Accent : Chrome.Border,
+                BorderThickness = new Thickness(selected ? 2 : 1),
                 CornerRadius = new CornerRadius(6),
-                Margin = new Thickness(selected ? 7
-                    : item.CardColor != null ? 7.4 : 8), // épaisseur compensée
+                Margin = new Thickness(selected ? 7 : 8), // épaisseur compensée
                 Tag = item,
                 AllowDrop = true
             };
@@ -655,8 +691,24 @@ namespace UniversSale.View
             {
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(0, 0, 0, 1),
+                CornerRadius = new CornerRadius(5, 5, 0, 0),
                 Padding = new Thickness(10, 4, 4, 4)
             };
+            if (item.CardColor != null)
+            {
+                // Couleur personnelle : dégradé plein sous le bouton ⋮ à
+                // droite, fondu jusqu'à la moitié de la barre de titre.
+                var accent = FlowConverter.ParseColor(item.CardColor);
+                var fade = new LinearGradientBrush
+                {
+                    StartPoint = new Point(0, 0.5),
+                    EndPoint = new Point(1, 0.5)
+                };
+                fade.GradientStops.Add(new GradientStop(
+                    Color.FromArgb(0, accent.R, accent.G, accent.B), 0.5));
+                fade.GradientStops.Add(new GradientStop(accent, 1.0));
+                titleBar.Background = fade;
+            }
             DockPanel.SetDock(titleBar, Dock.Top);
             var titleRow = new DockPanel();
             if (!item.IsCategory) titleRow.Children.Add(BuildCardMenu(item));

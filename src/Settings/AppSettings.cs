@@ -81,6 +81,7 @@ namespace UniversSale.Settings
         public static string AccentColor;    // "#RRGGBB", null = default indigo
         public static bool WhitePaperInDark; // keep white pages under the dark theme
         public static bool StatsExpanded;    // « Statistiques » accordion of the inspector
+        public static bool ShowAnnotations = true; // teintes + bulles de révision
         public static List<string> RecentFiles = new List<string>(); // last 5 .plot files
 
         public static void AddRecentFile(string path)
@@ -170,6 +171,7 @@ namespace UniversSale.Settings
                 AccentColor = Json.AsString(Json.Field(root, "accentColor"));
                 WhitePaperInDark = Json.AsBool(Json.Field(root, "whitePaperInDark"), false);
                 StatsExpanded = Json.AsBool(Json.Field(root, "statsExpanded"), false);
+                ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
                 var recents = Json.AsList(Json.Field(root, "recentFiles"));
                 if (recents != null)
                 {
@@ -199,6 +201,7 @@ namespace UniversSale.Settings
                 if (AccentColor != null) root["accentColor"] = AccentColor;
                 root["whitePaperInDark"] = WhitePaperInDark;
                 root["statsExpanded"] = StatsExpanded;
+                root["showAnnotations"] = ShowAnnotations;
                 root["recentFiles"] = new List<object>(RecentFiles.ToArray());
                 File.WriteAllText(SettingsPath(), Json.Write(root), new UTF8Encoding(false));
             }

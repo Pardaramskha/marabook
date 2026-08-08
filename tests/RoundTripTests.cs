@@ -241,6 +241,8 @@ namespace UniversSale.Tests
             project.SeparatorSizePt = 14;
             project.CustomColors.Add("#AA3366");
             project.CustomColors.Add("#004488");
+            project.HyphenExceptions.Add("Marabout");
+            project.HyphenExceptions.Add("wisteria");
             project.Journal.DailyGoal = 500;
             project.Journal.LastCelebrated = "2026-08-07";
             project.Journal.Days.Add(new JournalDay { Date = "2026-08-06", Words = 812 });

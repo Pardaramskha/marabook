@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.22.0-alpha";
+        public const string AppVersion = "0.23.0-alpha";
 
         private Project _project;
         private string _path;
@@ -521,8 +521,8 @@ namespace UniversSale
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 Margin = new Thickness(0, 8, 0, 4),
-                ToolTip = "Bordure de la carte au corkboard — et teinte de la "
-                    + "boîte pour un dossier de livre"
+                ToolTip = "Teinte de la barre de titre de la carte au corkboard "
+                    + "— et de la boîte pour un dossier de livre"
             };
             _statusSection.Children.Add(_colorLabel);
             _colorSwatches = new WrapPanel();
@@ -2417,6 +2417,11 @@ namespace UniversSale
                 _statusRight.Text = stats.ShortLabel();
                 _inspStats.Text = stats.LongLabel();
             }
+            else if (_current != null && _current.Kind == ItemKind.Book)
+            {
+                _statusRight.Text = "";
+                _inspStats.Text = BookStatsLabel(_current);
+            }
             else
             {
                 _statusRight.Text = "";
@@ -2435,6 +2440,39 @@ namespace UniversSale
                      + (written >= _sessionGoal ? " — atteint !" : "");
             }
             _statusLeft.Text = left;
+        }
+
+        /// <summary>Statistiques d'un livre pour l'inspecteur : nombre de
+        /// textes, répartition par état, mots et signes — les liminaires et la
+        /// table des matières restent hors du compte.</summary>
+        private string BookStatsLabel(BinderItem book)
+        {
+            var all = new List<BinderItem>();
+            CollectBookTexts(book, all);
+            var texts = new List<BinderItem>();
+            foreach (var text in all)
+                if (!text.IsExtraPage && !text.IsToc) texts.Add(text);
+            var words = 0;
+            var signs = 0;
+            foreach (var text in texts)
+            {
+                var stats = TextStats.Compute(text.Document.ToPlainText());
+                words += stats.Words;
+                signs += stats.Sec;
+            }
+            var culture = CultureInfo.CurrentCulture;
+            var label = "Textes : " + texts.Count.ToString("N0", culture);
+            foreach (var key in TextStatus.Keys)
+            {
+                var count = 0;
+                foreach (var text in texts) if (text.Status == key) count++;
+                if (count > 0)
+                    label += "\n" + TextStatus.Label(key) + " : "
+                        + count.ToString("N0", culture);
+            }
+            label += "\nMots : " + words.ToString("N0", culture)
+                  + "\nSignes : " + signs.ToString("N0", culture);
+            return label;
         }
 
         private void ShowAbout()

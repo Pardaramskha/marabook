@@ -99,6 +99,7 @@ namespace UniversSale.View
             };
 
             PreviewMouseLeftButtonDown += OnMouseDown;
+            PreviewMouseRightButtonDown += OnMouseRightDown;
             PreviewMouseMove += OnMouseMoveDrag;
             PreviewMouseLeftButtonUp += delegate
             {
@@ -561,6 +562,82 @@ namespace UniversSale.View
                 return true;
             }
             return false;
+        }
+
+        /// <summary>Clic droit sur un mot : réglage fin de la césure — retire
+        /// le mot des coupes du compositeur (exception de projet), ou l'y
+        /// autorise de nouveau.</summary>
+        private void OnMouseRightDown(object sender, MouseButtonEventArgs e)
+        {
+            if (_item == null || _project == null) return;
+            var source = e.OriginalSource as DependencyObject;
+            while (source != null)
+            {
+                if (source is System.Windows.Controls.Primitives.ScrollBar) return;
+                source = source is System.Windows.Media.Visual
+                    ? System.Windows.Media.VisualTreeHelper.GetParent(source)
+                    : LogicalTreeHelper.GetParent(source);
+            }
+            int paragraph, offset;
+            if (!HitTestPosition(e, out paragraph, out offset)) return;
+            var word = WordAt(paragraph, offset);
+            if (word == null || word.Length < 2) return;
+
+            var excepted = false;
+            foreach (var entry in _project.HyphenExceptions)
+                if (string.Equals(entry, word, StringComparison.OrdinalIgnoreCase))
+                {
+                    excepted = true;
+                    break;
+                }
+            var toggle = new MenuItem
+            {
+                Header = excepted
+                    ? "Autoriser la césure de « " + word + " »"
+                    : "Ne plus couper « " + word + " »",
+                ToolTip = "Exception de césure du projet : le compositeur ne "
+                    + "coupe jamais ce mot en fin de ligne"
+            };
+            var wordRef = word;
+            toggle.Click += delegate { ToggleHyphenException(wordRef); };
+            var menu = new ContextMenu
+            {
+                Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint
+            };
+            menu.Items.Add(toggle);
+            menu.IsOpen = true;
+            e.Handled = true;
+        }
+
+        /// <summary>Le mot (lettres/chiffres) sous l'offset, ou null.</summary>
+        private string WordAt(int paragraphIndex, int offset)
+        {
+            var text = PivotEdit.FlatText(_item.Document.Paragraphs[paragraphIndex]);
+            if (text.Length == 0) return null;
+            var i = Math.Min(offset, text.Length - 1);
+            if (!char.IsLetterOrDigit(text[i]) && i > 0) i--;
+            if (!char.IsLetterOrDigit(text[i])) return null;
+            var start = i;
+            var end = i;
+            while (start > 0 && char.IsLetterOrDigit(text[start - 1])) start--;
+            while (end < text.Length && char.IsLetterOrDigit(text[end])) end++;
+            return text.Substring(start, end - start);
+        }
+
+        private void ToggleHyphenException(string word)
+        {
+            var removed = false;
+            for (var i = _project.HyphenExceptions.Count - 1; i >= 0; i--)
+                if (string.Equals(_project.HyphenExceptions[i], word,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    _project.HyphenExceptions.RemoveAt(i);
+                    removed = true;
+                }
+            if (!removed) _project.HyphenExceptions.Add(word);
+            RefreshComposition();
+            var handler = Edited;
+            if (handler != null) handler(); // persisté : le projet est sale
         }
 
         private void OnMouseMoveDrag(object sender, MouseEventArgs e)

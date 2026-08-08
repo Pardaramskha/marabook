@@ -38,6 +38,9 @@ namespace UniversSale.Model
 
         // Custom text/highlight colors, shared by the whole project (hex).
         public List<string> CustomColors = new List<string>();
+        // Exceptions de césure : mots que le compositeur ne coupe jamais
+        // (clic droit sur un mot en mode composition).
+        public List<string> HyphenExceptions = new List<string>();
         public string CreatedAt = "";
         public string ModifiedAt = "";
         public WritingJournal Journal = new WritingJournal();

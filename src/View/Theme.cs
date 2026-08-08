@@ -702,21 +702,44 @@ namespace UniversSale.View
 
   <!-- ============================== Tooltips ============================== -->
   <!-- Façon web/MUI : pilule gris foncé inversée, texte blanc compact —
-       la même dans les deux thèmes (surface inversée assumée). -->
+       la même dans les deux thèmes (surface inversée assumée). La flèche
+       pointe vers la cible (placement Bottom global, cf. Program.Main) ;
+       Tag=above (posé par Program.OnToolTipOpened quand le popup est
+       retourné au-dessus de la cible) la bascule vers le bas. -->
   <Style TargetType=""ToolTip"">
     <Setter Property=""Foreground"" Value=""#FFFFFF""/>
     <Setter Property=""FontSize"" Value=""11""/>
     <Setter Property=""HasDropShadow"" Value=""False""/>
+    <Setter Property=""Placement"" Value=""Bottom""/>
     <Setter Property=""Template"">
       <Setter.Value>
         <ControlTemplate TargetType=""ToolTip"">
-          <Border CornerRadius=""4"" Background=""#E8616161""
-                  Padding=""8,4,8,5"" Margin=""4"">
-            <Border.Effect>
-              <DropShadowEffect Color=""Black"" Opacity=""0.18"" BlurRadius=""5"" ShadowDepth=""1""/>
-            </Border.Effect>
-            <ContentPresenter TextBlock.Foreground=""#FFFFFF""/>
-          </Border>
+          <Grid Margin=""4,3,4,3"">
+            <Grid.RowDefinitions>
+              <RowDefinition Height=""Auto""/>
+              <RowDefinition Height=""Auto""/>
+              <RowDefinition Height=""Auto""/>
+            </Grid.RowDefinitions>
+            <Path x:Name=""ArrowTop"" Grid.Row=""0"" Data=""M0,5 L5,0 10,5 Z""
+                  Fill=""#E8616161"" HorizontalAlignment=""Center""
+                  Margin=""0,0,0,-0.5""/>
+            <Border Grid.Row=""1"" CornerRadius=""4"" Background=""#E8616161""
+                    Padding=""8,4,8,5"">
+              <Border.Effect>
+                <DropShadowEffect Color=""Black"" Opacity=""0.18"" BlurRadius=""5"" ShadowDepth=""1""/>
+              </Border.Effect>
+              <ContentPresenter TextBlock.Foreground=""#FFFFFF""/>
+            </Border>
+            <Path x:Name=""ArrowBottom"" Grid.Row=""2"" Data=""M0,0 L5,5 10,0 Z""
+                  Fill=""#E8616161"" HorizontalAlignment=""Center""
+                  Margin=""0,-0.5,0,0"" Visibility=""Collapsed""/>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property=""Tag"" Value=""above"">
+              <Setter TargetName=""ArrowTop"" Property=""Visibility"" Value=""Collapsed""/>
+              <Setter TargetName=""ArrowBottom"" Property=""Visibility"" Value=""Visible""/>
+            </Trigger>
+          </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value>
     </Setter>

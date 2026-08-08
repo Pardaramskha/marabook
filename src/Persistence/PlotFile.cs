@@ -30,8 +30,9 @@ namespace UniversSale.Persistence
         // v2: pivot + styles; v3: sheets, templates, media;
         // v4: notes, per-item icons, image store, lists, page breaks, page setup;
         // v5: books (metadata + gabarit), per-document page setup;
-        // v6: en-têtes/pieds, gabarits de pages, veuves/orphelines débrayées.
-        private const int FormatVersion = 6;
+        // v6: en-têtes/pieds, gabarits de pages, veuves/orphelines débrayées;
+        // v7: exceptions de césure du projet (hyphenExceptions).
+        private const int FormatVersion = 7;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -112,6 +113,8 @@ namespace UniversSale.Persistence
             manifest["separatorSizePt"] = project.SeparatorSizePt;
             if (project.CustomColors.Count > 0)
                 manifest["customColors"] = new List<object>(project.CustomColors.ToArray());
+            if (project.HyphenExceptions.Count > 0)
+                manifest["hyphenExceptions"] = new List<object>(project.HyphenExceptions.ToArray());
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
             manifest["page"] = BuildPageSetup(project.Page);
@@ -432,6 +435,10 @@ namespace UniversSale.Persistence
                 if (customColors != null)
                     foreach (var entry in customColors)
                         if (entry is string) project.CustomColors.Add((string)entry);
+                var hyphenExceptions = Json.AsList(Json.Field(manifest, "hyphenExceptions"));
+                if (hyphenExceptions != null)
+                    foreach (var entry in hyphenExceptions)
+                        if (entry is string) project.HyphenExceptions.Add((string)entry);
                 project.CreatedAt = Json.AsString(Json.Field(manifest, "createdAt")) ?? "";
                 project.ModifiedAt = Json.AsString(Json.Field(manifest, "modifiedAt")) ?? "";
 

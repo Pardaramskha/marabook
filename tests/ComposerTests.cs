@@ -25,7 +25,8 @@ namespace UniversSale.Tests
                 MarginTopMm = 20,
                 MarginBottomMm = 20,
                 MarginLeftMm = 25,
-                MarginRightMm = 25
+                MarginRightMm = 25,
+                Hyphenation = true // le compositeur obéit au bouton du document
             };
         }
 
@@ -98,8 +99,42 @@ namespace UniversSale.Tests
             t.Suite("C4 — compositeur sur métriques fixes");
             LineBreaking(t);
             OversizedWordHyphenated(t);
+            DocumentToggleDisablesHyphenation(t);
+            ExceptionWordNeverHyphenated(t);
             WidowControl(t);
             OrphanControl(t);
+        }
+
+        /// <summary>Le bouton « Césure » du document (PageSetup.Hyphenation)
+        /// est respecté par le compositeur : désactivé, aucun mot n'est coupé
+        /// même si le style l'autorise (le mode composition l'ignorait).</summary>
+        private static void DocumentToggleDisablesHyphenation(Harness t)
+        {
+            var document = Document(CvWord(24));
+            var setup = Setup();
+            setup.Hyphenation = false;
+            var engine = new CompositionEngine(document, Styles(), setup,
+                null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            var lines = engine.Current.Paragraphs[0].Lines;
+            t.Equal(1, lines.Count, "césure du document coupée : aucune coupe");
+            t.Check(!lines[0].Hyphenated, "la ligne ne porte pas de césure");
+        }
+
+        /// <summary>Un mot des exceptions de césure du projet n'est jamais
+        /// coupé, même coupable — comparaison insensible à la casse.</summary>
+        private static void ExceptionWordNeverHyphenated(Harness t)
+        {
+            var word = CvWord(24);
+            var document = Document(word);
+            var project = new Project();
+            project.HyphenExceptions.Add(word.ToUpperInvariant());
+            var engine = new CompositionEngine(document, Styles(), Setup(),
+                project, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            var lines = engine.Current.Paragraphs[0].Lines;
+            t.Equal(1, lines.Count, "mot excepté : placé sans coupe");
+            t.Check(!lines[0].Hyphenated, "aucune césure sur le mot excepté");
         }
 
         private static void LineBreaking(Harness t)

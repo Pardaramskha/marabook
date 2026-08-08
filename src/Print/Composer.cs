@@ -222,9 +222,22 @@ namespace UniversSale.Print
             _metrics = metrics;
         }
 
+        // Exceptions de césure du projet (mots à ne jamais couper) — figées à
+        // chaque ComposeAll, comparaison insensible à la casse.
+        private HashSet<string> _hyphenExceptions;
+
+        private bool IsHyphenException(string word)
+        {
+            return _hyphenExceptions != null && _hyphenExceptions.Contains(word);
+        }
+
         /// <summary>Full composition of every paragraph plus pagination.</summary>
         public void ComposeAll()
         {
+            _hyphenExceptions = _project != null && _project.HyphenExceptions.Count > 0
+                ? new HashSet<string>(_project.HyphenExceptions,
+                    StringComparer.OrdinalIgnoreCase)
+                : null;
             Current = new Composition
             {
                 Setup = _setup,
@@ -669,8 +682,10 @@ namespace UniversSale.Print
                 ? new SolidColorBrush(View.FlowConverter.ParseColor(run.Highlight))
                 : null;
             // Passage annoté (révision) : teinte semi-transparente, filtrée par
-            // les rendus papier (aperçu, impression, PDF) sur son alpha.
-            if (highlight == null && run != null && run.AnnotationId != null)
+            // les rendus papier (aperçu, impression, PDF) sur son alpha — et
+            // éteinte quand l'utilisateur masque les annotations.
+            if (highlight == null && run != null && run.AnnotationId != null
+                && Settings.AppSettings.ShowAnnotations)
             {
                 var annotation = _document == null ? null
                     : _document.FindAnnotation(run.AnnotationId);
@@ -704,7 +719,11 @@ namespace UniversSale.Print
                             Underline = underline,
                             Strike = strike,
                             Highlight = highlight,
-                            Breaks = style.HyphenationEnabled && !superscript
+                            // La césure obéit au bouton du document (PageSetup)
+                            // ET au réglage du style — et jamais sur un mot
+                            // des exceptions du projet.
+                            Breaks = _setup.Hyphenation && style.HyphenationEnabled
+                                && !superscript && !IsHyphenException(word)
                                 ? FrenchHyphenator.BreakPoints(word,
                                     style.HyphenMinWordLength, style.HyphenMinBefore, style.HyphenMinAfter)
                                 : null
