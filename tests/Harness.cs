@@ -87,7 +87,8 @@ namespace UniversSale.Tests
                 ComposerTests.Run,       // C4 — coupure de ligne sur métriques fixes
                 CorrectionTests.Run,     // C5 — la chaîne de correction
                 SearchTests.Run,         // C6 — la recherche pivot
-                TokenizerTests.Run       // C7 — le tokeniseur français unique
+                TokenizerTests.Run,      // C7 — le tokeniseur français unique
+                SpellTests.Run           // C8 — l'orthographe (Hunspell maison)
             };
             foreach (var suite in suites)
             {

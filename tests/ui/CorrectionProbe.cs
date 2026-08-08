@@ -48,13 +48,51 @@ namespace UniversSale.Tests.Ui
                 byParagraph[0] = findings;
                 engine.Current.ScreenFindings = byParagraph;
 
-                var screen = CountSquigglePixels(engine.Current, true);
-                var paper = CountSquigglePixels(engine.Current, false);
+                var screen = CountSquigglePixels(engine.Current, true, 0x2E, 0x9E, 0x6B);
+                var paper = CountSquigglePixels(engine.Current, false, 0x2E, 0x9E, 0x6B);
                 Check(ref failures, screen > 0,
                     "l'ondulé de style est PRÉSENT au rendu écran ("
                     + screen + " px verts)");
                 Check(ref failures, paper == 0,
                     "l'ondulé est ABSENT du rendu papier (aperçu/impression)");
+
+                // — L'orthographe (batch 27) : une faute soulignée en rouge à
+                // l'écran, absente du papier — le critère de sortie du lot C.
+                var spellEngine = SpellDictionary.Default;
+                Check(ref failures, spellEngine != null,
+                    "le dictionnaire embarqué se charge (dict/)");
+                if (spellEngine != null)
+                {
+                    var faulty = new TextDocument();
+                    var p2 = new TextParagraph();
+                    p2.Runs.Add(new TextRun
+                    { Text = "Le chateau domine la vallée." });
+                    faulty.Paragraphs.Add(p2);
+                    var engine2 = new CompositionEngine(faulty, styles, setup,
+                        null, false, new WpfGlyphMetrics());
+                    engine2.ComposeAll();
+                    var spellChecker = new SpellChecker(spellEngine);
+                    var host2 = new CheckerHost();
+                    host2.Add(spellChecker);
+                    var spelling = host2.Run(faulty, styles);
+                    Check(ref failures, spelling.Count == 1
+                        && spelling[0].Word == "chateau",
+                        "la faute est détectée par le vérificateur branché");
+                    Check(ref failures,
+                        spellChecker.Suggestions("chateau").Contains("château"),
+                        "château arrive en suggestion à la demande");
+                    var by2 = new System.Collections.Generic
+                        .Dictionary<int, System.Collections.Generic.List<Finding>>();
+                    by2[0] = spelling;
+                    engine2.Current.ScreenFindings = by2;
+                    var red = CountSquigglePixels(engine2.Current, true, 0xD6, 0x45, 0x41);
+                    var redPaper = CountSquigglePixels(engine2.Current, false, 0xD6, 0x45, 0x41);
+                    Check(ref failures, red > 0,
+                        "l'ondulé ORTHOGRAPHE est PRÉSENT à l'écran ("
+                        + red + " px rouges)");
+                    Check(ref failures, redPaper == 0,
+                        "et ABSENT du rendu papier (donc du PDF)");
+                }
             }
             catch (Exception error)
             {
@@ -64,9 +102,10 @@ namespace UniversSale.Tests.Ui
             return failures;
         }
 
-        /// <summary>Rend la première page et compte les pixels proches du
-        /// vert « style » (0x2E9E6B) de l'ondulé.</summary>
-        private static int CountSquigglePixels(Composition composition, bool screenExtras)
+        /// <summary>Rend la première page et compte les pixels proches de la
+        /// couleur d'ondulé donnée (vert style, rouge orthographe…).</summary>
+        private static int CountSquigglePixels(Composition composition, bool screenExtras,
+            int red, int green, int blue)
         {
             var visual = new DrawingVisual();
             using (var dc = visual.RenderOpen())
@@ -87,8 +126,10 @@ namespace UniversSale.Tests.Ui
                 var b = pixels[i];
                 var g = pixels[i + 1];
                 var r = pixels[i + 2];
-                if (Math.Abs(r - 0x2E) < 60 && Math.Abs(g - 0x9E) < 60
-                    && Math.Abs(b - 0x6B) < 60 && g > r + 30 && g > b + 30)
+                if (Math.Abs(r - red) < 55 && Math.Abs(g - green) < 55
+                    && Math.Abs(b - blue) < 55
+                    && !(r > 200 && g > 200 && b > 200)  // pas le papier
+                    && !(r < 60 && g < 60 && b < 60))    // pas l'encre
                     count++;
             }
             return count;

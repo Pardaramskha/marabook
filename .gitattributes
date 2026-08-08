@@ -5,3 +5,6 @@
 *.bat text eol=crlf
 *.ico binary
 *.png binary
+# Données linguistiques tierces (MPL-2.0) : JAMAIS transformées — les
+# empreintes SHA256 d'APPROVISIONNEMENT.md sont vérifiées au build.
+dict/* binary

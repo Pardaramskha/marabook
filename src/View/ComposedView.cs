@@ -588,7 +588,12 @@ namespace UniversSale.View
                     Foreground = ComposedRenderer.FindingPen(finding.Category).Brush
                 };
                 menu.Items.Add(header);
-                foreach (var suggestion in finding.Suggestions)
+                // Suggestions À LA DEMANDE (batch 27) : le calcul n'a pas eu
+                // lieu pendant la passe, il a lieu ici, au moment de montrer.
+                var provider = SuggestionProvider;
+                var suggestions = provider != null
+                    ? provider(finding) : finding.Suggestions;
+                foreach (var suggestion in suggestions)
                 {
                     var suggestionRef = suggestion;
                     var apply = new MenuItem
@@ -625,12 +630,41 @@ namespace UniversSale.View
                     };
                     menu.Items.Add(inProject);
                 }
-                menu.Items.Add(new MenuItem
+                // « Ajouter au dictionnaire » ENSEIGNE un mot (dictionnaires
+                // personnels du lot D) — rien à voir avec « ignorer », qui
+                // TAIT un signalement. Deux portées, comme les ignorés.
+                if (findingRef.CheckerId == "spelling" && findingRef.Word.Length > 0)
                 {
-                    Header = "Ajouter au dictionnaire",
-                    IsEnabled = false,
-                    ToolTip = "Arrive avec le correcteur orthographique (batch 27)"
-                });
+                    var learn = new MenuItem
+                    {
+                        Header = "Ajouter « " + findingRef.Word + " » au dictionnaire"
+                    };
+                    var inProject = new MenuItem
+                    {
+                        Header = "De ce projet",
+                        ToolTip = "Le mot est enseigné pour CE roman "
+                            + "(enregistré dans le .plot)"
+                    };
+                    inProject.Click += delegate
+                    {
+                        var handler = FindingLearn;
+                        if (handler != null) handler(findingRef, true);
+                    };
+                    learn.Items.Add(inProject);
+                    var everywhere = new MenuItem
+                    {
+                        Header = "De tous les projets",
+                        ToolTip = "Le mot est enseigné partout (réglages de "
+                            + "l'application)"
+                    };
+                    everywhere.Click += delegate
+                    {
+                        var handler = FindingLearn;
+                        if (handler != null) handler(findingRef, false);
+                    };
+                    learn.Items.Add(everywhere);
+                    menu.Items.Add(learn);
+                }
                 menu.Items.Add(new Separator());
             }
 
@@ -1511,6 +1545,16 @@ namespace UniversSale.View
         /// menu contextuel — le pilote (EditorView) applique et relance.</summary>
         public event Action<Correction.Finding> FindingIgnoreHere;
         public event Action<Correction.Finding> FindingIgnoreProject;
+
+        /// <summary>« Ajouter au dictionnaire » (batch 27, lot D) —
+        /// portée : true = projet, false = partout.</summary>
+        public event Action<Correction.Finding, bool> FindingLearn;
+
+        /// <summary>Les suggestions d'un signalement, calculées À LA DEMANDE
+        /// (jamais pendant la passe — posé par EditorView, cache côté
+        /// vérificateur). Null : les suggestions portées par le signalement
+        /// font foi.</summary>
+        public Func<Correction.Finding, List<string>> SuggestionProvider;
 
         /// <summary>Affiche ces signalements (ondulés). Liste triée par le
         /// pilote ; null ou vide = plus rien à l'écran.</summary>

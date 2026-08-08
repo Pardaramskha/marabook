@@ -109,6 +109,7 @@ namespace UniversSale.View
 
         // ---- correction (batch 26) : le pilote, ses signalements, son panneau
         private readonly Correction.CheckerHost _checkHost = new Correction.CheckerHost();
+        private Correction.SpellChecker _spellChecker; // null sans dictionnaire
         private List<Correction.Finding> _findings = new List<Correction.Finding>();
         private DispatcherTimer _checkTimer;
         private Border _corrBar;
@@ -133,6 +134,21 @@ namespace UniversSale.View
             // jamais à chaque touche. La passe complète coûte 46 ms sur
             // 50 000 mots (mesure C5) : le fil UI suffit largement.
             _checkHost.Add(new Correction.RepetitionChecker());
+            // L'orthographe (batch 27) : moteur Hunspell maison sur le
+            // dictionnaire embarqué — absent du disque, le vérificateur se
+            // retire sans bruit. Les suggestions sont servies À LA DEMANDE.
+            var spellEngine = Correction.SpellDictionary.Default;
+            if (spellEngine != null)
+            {
+                _spellChecker = new Correction.SpellChecker(spellEngine);
+                _checkHost.Add(_spellChecker);
+            }
+            _composed.SuggestionProvider = delegate(Correction.Finding finding)
+            {
+                return _spellChecker != null && finding.CheckerId == "spelling"
+                    ? _spellChecker.Suggestions(finding.Word)
+                    : finding.Suggestions;
+            };
             _checkHost.GlobalIgnored = Settings.AppSettings.ProofIgnored;
             _checkTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
             _checkTimer.Tick += delegate { _checkTimer.Stop(); RunCheck(); };
@@ -1760,9 +1776,14 @@ namespace UniversSale.View
             row.Children.Add(dot);
 
             var buttons = new StackPanel { Orientation = Orientation.Horizontal };
-            for (var i = 0; i < finding.Suggestions.Count && i < 3; i++)
+            // Suggestions à la demande (jamais pendant la passe) — le cache
+            // du vérificateur rend la reconstruction du panneau indolore.
+            var suggestions = _spellChecker != null && finding.CheckerId == "spelling"
+                ? _spellChecker.Suggestions(finding.Word)
+                : finding.Suggestions;
+            for (var i = 0; i < suggestions.Count && i < 3; i++)
             {
-                var suggestion = finding.Suggestions[i];
+                var suggestion = suggestions[i];
                 var findingRef = finding;
                 var apply = SmallButton(suggestion,
                     delegate { _composed.ApplySuggestion(findingRef, suggestion); });

@@ -80,13 +80,16 @@ namespace UniversSale.Correction
             "qu'", "l'", "d'", "j'", "n'", "m'", "t'", "s'", "c'"
         };
 
-        // Élisions LEXICALISÉES : un seul mot, jamais découpé (clé pliée).
+        // Élisions LEXICALISÉES : un seul mot, jamais découpé (clé pliée) —
+        // ni l'élision ni la grappe enclitique n'y sont retirées
+        // (qu'en-dira-t-on finit par « -on » et commence par « qu' »…).
         private static readonly HashSet<string> LexicalizedElisions =
             new HashSet<string>
         {
             "aujourd'hui", "presqu'ile", "presqu'iles",
             "prud'homme", "prud'hommes", "prud'homie", "prud'homal",
-            "prud'homale", "prud'homaux", "prud'homales"
+            "prud'homale", "prud'homaux", "prud'homales",
+            "c'est-a-dire", "qu'en-dira-t-on", "m'as-tu-vu"
         };
 
         // Pronoms enclitiques (pliés) — la grammaire fermée de la queue
@@ -178,9 +181,13 @@ namespace UniversSale.Correction
             var coreFrom = 0;            // bornes du cœur, en indices PLIÉS
             var coreTo = flat.Length;
 
-            // 1. Élision en tête — sauf forme lexicalisée (aujourd'hui).
-            var lexical = LexicalizedElisions.Contains(TrimEncliticForLexical(flat));
+            // Forme lexicalisée (aujourd'hui, c'est-à-dire…) : le token EST
+            // le cœur — ni élision ni enclitique retirés.
+            var lexical = LexicalizedElisions.Contains(flat)
+                || LexicalizedElisions.Contains(TrimEncliticForLexical(flat));
             if (!lexical)
+            {
+                // 1. Élision en tête.
                 foreach (var prefix in Elisions)
                     if (flat.Length > prefix.Length
                         && flat.StartsWith(prefix, StringComparison.Ordinal))
@@ -188,11 +195,11 @@ namespace UniversSale.Correction
                         coreFrom = prefix.Length;
                         break;
                     }
-
-            // 2. Grappe enclitique en FIN de token : « -pronom », précédée au
-            // besoin du « -t » euphonique (« -t- » ou « -t' »).
-            var lastCut = LastEncliticCut(flat, coreFrom);
-            if (lastCut > coreFrom) coreTo = lastCut;
+                // 2. Grappe enclitique en FIN de token : « -pronom », précédée
+                // au besoin du « -t » euphonique (« -t- » ou « -t' »).
+                var lastCut = LastEncliticCut(flat, coreFrom);
+                if (lastCut > coreFrom) coreTo = lastCut;
+            }
 
             // Report des bornes pliées sur le texte d'origine.
             var coreStartLocal = map[coreFrom];
