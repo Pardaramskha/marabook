@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.24.0-alpha";
+        public const string AppVersion = "0.25.0-alpha";
 
         private Project _project;
         private string _path;
@@ -2497,7 +2497,13 @@ namespace UniversSale
                 AppName + " " + AppVersion + "\n\n" +
                 "Traitement de texte et construction narrative.\n" +
                 "Alpha : éditeur riche paginé, fiches wiki, corkboard, échanges\n" +
-                "docx/odt/RTF/Markdown/Scrivener, aperçu des pages et impression.",
+                "docx/odt/RTF/Markdown/Scrivener, aperçu des pages, impression,\n" +
+                "correction (répétitions, orthographe).\n\n" +
+                "Ressources embarquées :\n" +
+                "• Dictionnaire orthographique français « toutes variantes » v7.7\n" +
+                "  par Olivier R. — licence MPL-2.0 — https://grammalecte.net/\n" +
+                "  (notice complète : dict\\README_dict_fr.txt)\n" +
+                "• Icônes Phosphor — licence MIT — https://phosphoricons.com/",
                 "À propos", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }

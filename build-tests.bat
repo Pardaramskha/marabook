@@ -10,6 +10,9 @@ set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
 
 if "%1"=="/nobuild" goto run
 
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\verify-dict.ps1"
+if errorlevel 1 exit /b 1
+
 "%FW%\csc.exe" /nologo /target:exe /out:MarabookTests.exe /optimize+ /codepage:65001 ^
   /main:UniversSale.Tests.TestMain ^
   /lib:"%FW%\WPF" ^

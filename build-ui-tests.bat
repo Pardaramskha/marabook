@@ -6,6 +6,9 @@ rem settings.json est sauvegarde/restaure par la sonde elle-meme (batch 11).
 setlocal
 set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
 
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\verify-dict.ps1"
+if errorlevel 1 exit /b 1
+
 "%FW%\csc.exe" /nologo /target:exe /out:MarabookUiTests.exe /codepage:65001 ^
   /main:UniversSale.Tests.Ui.A1Probe ^
   /lib:"%FW%\WPF" ^

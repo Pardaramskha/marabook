@@ -63,8 +63,14 @@ avec le test qui l'aurait attrapé.**
 
 ## Partis pris techniques
 
-- **Zéro dépendance** : pas de NuGet, pas de `.csproj` ; `csc.exe` direct,
-  et le zip/JSON/docx/odt/PDF sont écrits à la main dans `src/`.
+- **Zéro dépendance de code** : pas de NuGet, pas de `.csproj` ; `csc.exe`
+  direct, et le zip/JSON/docx/odt/PDF sont écrits à la main dans `src/`.
+  Depuis le batch 27, Marabook embarque en revanche des **données**
+  tierces : le dictionnaire orthographique français `fr-toutesvariantes`
+  v7.7 d'Olivier R. (`dict/`, ~3 Mo, licence MPL-2.0, notice
+  `README_dict_fr.txt` conservée intacte) — des fichiers séparés, jamais
+  fusionnés au code, dont le build vérifie les empreintes SHA256
+  (`APPROVISIONNEMENT.md` documente la provenance et le protocole).
 - **C# 5 / .NET Framework 4.8 / WPF** : tourne sur tout Windows 10/11 sans
   runtime à installer ; l'UI est construite en code, sans XAML.
 - **Un modèle pivot unique** (`src/Model/RichText.cs`) : l'éditeur, le
@@ -80,7 +86,10 @@ projet — c'est la meilleure porte d'entrée pour un contributeur.
 ## Licence
 
 Le code est publié sous **GPL-3.0** (voir [LICENSE](LICENSE)) : toute
-redistribution modifiée doit rester ouverte. L'icône, les visuels et les
+redistribution modifiée doit rester ouverte. Les **dictionnaires
+orthographiques** de `dict/` restent sous **MPL-2.0** (copyleft au
+fichier, compatible — crédit : Olivier R., <https://grammalecte.net/>,
+notice `dict/README_dict_fr.txt`). L'icône, les visuels et les
 polices éventuellement embarquées ont leur propre statut, à clarifier
 séparément du code (les icônes d'interface proviennent du jeu
 [Phosphor](https://phosphoricons.com/), licence MIT).
