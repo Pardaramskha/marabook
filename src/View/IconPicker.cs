@@ -24,7 +24,10 @@ namespace UniversSale.View
             "books-bold", "book-open-text-bold", "files-bold", "article-bold",
             "image-square-bold", "magnifying-glass-bold", "paragraph-bold",
             "list-dashes-bold", "list-numbers-bold", "check-square-bold",
-            "text-t-bold", "text-columns-bold", "file-arrow-down-bold", "trash-bold"
+            "text-t-bold", "text-columns-bold", "file-arrow-down-bold", "trash-bold",
+            "document", "ecrits", "fiches-menu", "fiche-individual",
+            "tableau-recherche", "folder-open", "extra-document", "trash",
+            "journal-perso", "apercu-wiki", "palette", "symbol", "kerning"
         };
 
         /// <summary>Tint swatches for SVG icons (null = ink color).</summary>
@@ -49,18 +52,19 @@ namespace UniversSale.View
         {
             if (item.IsCategory)
             {
-                if (item.CategoryKey == Project.KeyWritings) return "books-bold";
-                if (item.CategoryKey == Project.KeyResearch) return "magnifying-glass-bold";
-                if (item.CategoryKey == Project.KeySheets) return "files-bold";
-                if (item.CategoryKey == Project.KeyTrash) return "trash-bold";
+                if (item.CategoryKey == Project.KeyWritings) return "ecrits";
+                if (item.CategoryKey == Project.KeyResearch) return "tableau-recherche";
+                if (item.CategoryKey == Project.KeySheets) return "fiches-menu";
+                if (item.CategoryKey == Project.KeyTrash) return "trash";
             }
-            if (item.Kind == ItemKind.Folder) return "folder-bold";
+            if (item.Kind == ItemKind.Folder) return "folder-open";
             if (item.Kind == ItemKind.Book) return "book-bold";
             if (item.Kind == ItemKind.PageTemplate) return "article-bold";
-            if (item.Kind == ItemKind.Sheet) return "file-dashed-bold";
+            if (item.Kind == ItemKind.Sheet) return "fiche-individual";
             if (item.Kind == ItemKind.Media)
                 return MediaView.IsImage(item.MediaExtension) ? "image-square-bold" : null;
-            return "file-text-bold";
+            if (item.IsExtraPage || item.IsToc) return "extra-document";
+            return "document";
         }
 
         /// <summary>Builds the small icon element shown in the Binder tree,

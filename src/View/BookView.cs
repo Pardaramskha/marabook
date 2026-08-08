@@ -336,6 +336,13 @@ namespace UniversSale.View
 
         public bool ShowsItem(BinderItem item) { return _item == item; }
 
+        /// <summary>Relais du compteur de pages vers le corkboard du livre
+        /// (tri « Pages » des filtres, batch 28).</summary>
+        public System.Func<BinderItem, int> PageCounter
+        {
+            set { _corkboard.PageCounter = value; }
+        }
+
         /// <summary>Redessine les cartes du livre (état/couleur édités dans
         /// l'inspecteur pendant que la vue est affichée).</summary>
         public void RefreshCards()

@@ -58,11 +58,31 @@ namespace UniversSale.View
             _tree.SelectedItemChanged += OnSelectedItemChanged;
             _tree.PreviewMouseLeftButtonDown += OnPreviewMouseDown;
             // Le clic droit sélectionne aussi (menu contextuel) : il doit être
-            // « attendu » pour passer le filtre anti-fantôme.
+            // « attendu » pour passer le filtre anti-fantôme. Et l'élément
+            // VISÉ se surligne le temps du menu (batch 28) — sur l'interligne,
+            // on sait enfin à qui le menu s'applique.
             _tree.PreviewMouseRightButtonDown += delegate(object sender, MouseButtonEventArgs e)
             {
                 var node = NodeFromSource(e.OriginalSource);
                 _expectedSelectId = node == null ? null : ((BinderItem)node.Tag).Id;
+                ClearMenuHighlight();
+                if (node == null) return;
+                var header = node.Header as System.Windows.Controls.Panel;
+                if (header == null) return;
+                _menuTarget = header;
+                header.Background = new SolidColorBrush(
+                    Chrome.Blend(Chrome.Accent.Color, Chrome.PanelBg.Color, 0.75));
+                var menu = node.ContextMenu;
+                if (menu != null)
+                {
+                    RoutedEventHandler closed = null;
+                    closed = delegate
+                    {
+                        menu.Closed -= closed;
+                        ClearMenuHighlight();
+                    };
+                    menu.Closed += closed;
+                }
             };
             _tree.PreviewKeyDown += delegate(object sender, KeyEventArgs e)
             {
@@ -229,7 +249,7 @@ namespace UniversSale.View
         private UIElement BuildJournalRow()
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            var icon = Icons.Make("book-open-text-bold", 15, Chrome.SoftText) as FrameworkElement;
+            var icon = Icons.Make("journal-perso", 15, Chrome.SoftText) as FrameworkElement;
             if (icon != null)
             {
                 icon.VerticalAlignment = VerticalAlignment.Center;
@@ -313,6 +333,16 @@ namespace UniversSale.View
             {
                 _rebuilding = false;
             }
+        }
+
+        // L'en-tête surligné pendant un menu contextuel (batch 28).
+        private System.Windows.Controls.Panel _menuTarget;
+
+        private void ClearMenuHighlight()
+        {
+            if (_menuTarget == null) return;
+            _menuTarget.ClearValue(System.Windows.Controls.Panel.BackgroundProperty);
+            _menuTarget = null;
         }
 
         private TreeViewItem BuildNode(BinderItem item)

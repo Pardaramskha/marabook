@@ -89,6 +89,7 @@ namespace UniversSale.Settings
         public static bool StatsExpanded;    // « Statistiques » accordion of the inspector
         public static bool ShowAnnotations = true; // teintes + bulles de révision
         public static bool ProofEnabled = true; // vérification continue (Révision)
+        public static bool CorrectionPanelVisible; // « Détails de correction » à droite (b28)
         // Mots ignorés par les correcteurs sur TOUS les projets (« ignorer
         // partout ») — le pendant global de Project.ProofIgnored.
         public static List<string> ProofIgnored = new List<string>();
@@ -187,6 +188,7 @@ namespace UniversSale.Settings
                 StatsExpanded = Json.AsBool(Json.Field(root, "statsExpanded"), false);
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
                 ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
+                CorrectionPanelVisible = Json.AsBool(Json.Field(root, "correctionPanel"), false);
                 var proofIgnored = Json.AsList(Json.Field(root, "proofIgnored"));
                 if (proofIgnored != null)
                 {
@@ -233,6 +235,7 @@ namespace UniversSale.Settings
                 root["statsExpanded"] = StatsExpanded;
                 root["showAnnotations"] = ShowAnnotations;
                 root["proofEnabled"] = ProofEnabled;
+                root["correctionPanel"] = CorrectionPanelVisible;
                 if (ProofIgnored.Count > 0)
                     root["proofIgnored"] = new List<object>(ProofIgnored.ToArray());
                 if (LearnedWords.Count > 0)

@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using UniversSale.Correction;
 using UniversSale.History;
 using UniversSale.Model;
 
@@ -26,6 +28,17 @@ namespace UniversSale.View
 
         // Cartes sélectionnables (multi avec Ctrl) — le double-clic ouvre.
         private readonly HashSet<string> _selected = new HashSet<string>();
+
+        // LES FILTRES (batch 28) : tri signes/pages asc-desc, statut,
+        // annotations, extras — affichage seulement, le modèle ne bouge pas.
+        private ToggleButton _filterToggle;
+        private Border _filterBar;
+        private ComboBox _filterSort, _filterStatus, _filterAnnotations, _filterExtras;
+        private bool _filterSyncing;
+
+        /// <summary>Compte de pages d'un texte (tri « Pages ») — câblé par la
+        /// coquille (cache de composition de MainWindow) ; null = tri neutre.</summary>
+        public Func<BinderItem, int> PageCounter;
 
         private readonly WrapPanel _templateCards; // section gabarits (livres)
         private readonly Border _templateSeparator;
@@ -86,6 +99,8 @@ namespace UniversSale.View
             layout.Children.Add(_templateCards);
             layout.Children.Add(_templateSeparator);
             layout.Children.Add(_documentActions);
+            layout.Children.Add(BuildFilterHeader());
+            layout.Children.Add(BuildFilterBar());
             layout.Children.Add(_cards);
 
             // Barre d'insertion pendant le glisser : un trait vertical accent
@@ -133,19 +148,214 @@ namespace UniversSale.View
             _cards.SizeChanged += delegate { UpdateFolderBoxWidths(); };
         }
 
-        /// <summary>Vrai si le clic est parti d'une carte ou d'une boîte de
-        /// partie (leur Tag porte le BinderItem) — faux sur le fond.</summary>
+        /// <summary>Vrai si le clic est parti d'une CARTE (Border à Tag
+        /// BinderItem) — faux sur le fond, Y COMPRIS le fond d'une boîte de
+        /// partie : son Grid hôte porte aussi le BinderItem et avalait la
+        /// désélection (la « bordure qui persiste » du batch 28).</summary>
         private static bool IsWithinCard(DependencyObject source)
         {
             while (source != null)
             {
-                var element = source as FrameworkElement;
+                var element = source as Border;
                 if (element != null && element.Tag is BinderItem) return true;
                 source = source is Visual
                     ? VisualTreeHelper.GetParent(source)
                     : LogicalTreeHelper.GetParent(source);
             }
             return false;
+        }
+
+        // ============================================================= filtres
+
+        /// <summary>Le bouton « Filtres », au bord droit, au-dessus des
+        /// cartes — visible dès que le dossier contient des textes.</summary>
+        private UIElement BuildFilterHeader()
+        {
+            _filterToggle = new ToggleButton
+            {
+                Content = "Filtres",
+                ToolTip = "Trier et filtrer les textes de ce tableau "
+                    + "(affichage seulement — l'ordre réel ne bouge pas)",
+                Padding = new Thickness(10, 2, 10, 2),
+                Focusable = false,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(24, 8, 24, 0),
+                Visibility = Visibility.Collapsed
+            };
+            _filterToggle.Click += delegate
+            {
+                _filterBar.Visibility = _filterToggle.IsChecked == true
+                    ? Visibility.Visible : Visibility.Collapsed;
+            };
+            return _filterToggle;
+        }
+
+        /// <summary>Le bandeau déroulé : tri, statut, annotations, extras, et
+        /// le bouton qui efface tout.</summary>
+        private UIElement BuildFilterBar()
+        {
+            _filterBar = new Border
+            {
+                Background = Chrome.BarBgLight,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Margin = new Thickness(24, 6, 24, 0),
+                Padding = new Thickness(10, 6, 10, 6),
+                Visibility = Visibility.Collapsed
+            };
+            var row = new WrapPanel();
+
+            row.Children.Add(FilterLabel("Tri :"));
+            _filterSort = FilterCombo(new[]
+            {
+                "—", "Signes ↑", "Signes ↓", "Pages ↑", "Pages ↓"
+            }, 92);
+            row.Children.Add(_filterSort);
+
+            row.Children.Add(FilterLabel("Statut :"));
+            _filterStatus = new ComboBox
+            {
+                Width = 110,
+                Margin = new Thickness(0, 0, 12, 0)
+            };
+            _filterStatus.Items.Add("Tous");
+            foreach (var key in TextStatus.Keys)
+                _filterStatus.Items.Add(TextStatus.Label(key));
+            _filterStatus.SelectedIndex = 0;
+            _filterStatus.SelectionChanged += OnFilterChanged;
+            row.Children.Add(_filterStatus);
+
+            row.Children.Add(FilterLabel("Annotations :"));
+            _filterAnnotations = FilterCombo(new[]
+            { "Peu importe", "Avec", "Sans" }, 96);
+            row.Children.Add(_filterAnnotations);
+
+            row.Children.Add(FilterLabel("Extras :"));
+            _filterExtras = FilterCombo(new[]
+            { "Peu importe", "Extras", "Hors extras" }, 96);
+            row.Children.Add(_filterExtras);
+
+            var clear = new Button
+            {
+                Content = "Effacer les filtres",
+                Padding = new Thickness(8, 1, 8, 1),
+                Focusable = false,
+                ToolTip = "Tout remettre à neutre"
+            };
+            clear.Click += delegate
+            {
+                _filterSyncing = true;
+                _filterSort.SelectedIndex = 0;
+                _filterStatus.SelectedIndex = 0;
+                _filterAnnotations.SelectedIndex = 0;
+                _filterExtras.SelectedIndex = 0;
+                _filterSyncing = false;
+                Rebuild();
+            };
+            row.Children.Add(clear);
+
+            _filterBar.Child = row;
+            return _filterBar;
+        }
+
+        private static TextBlock FilterLabel(string text)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 4, 0)
+            };
+        }
+
+        private ComboBox FilterCombo(string[] entries, double width)
+        {
+            var combo = new ComboBox { Width = width, Margin = new Thickness(0, 0, 12, 0) };
+            foreach (var entry in entries) combo.Items.Add(entry);
+            combo.SelectedIndex = 0;
+            combo.SelectionChanged += OnFilterChanged;
+            return combo;
+        }
+
+        private void OnFilterChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_filterSyncing && _folder != null) Rebuild();
+        }
+
+        private bool FiltersActive
+        {
+            get
+            {
+                return _filterSort != null
+                    && (_filterSort.SelectedIndex > 0
+                        || _filterStatus.SelectedIndex > 0
+                        || _filterAnnotations.SelectedIndex > 0
+                        || _filterExtras.SelectedIndex > 0);
+            }
+        }
+
+        private bool PassesFilters(BinderItem text)
+        {
+            if (_filterStatus.SelectedIndex > 0
+                && text.Status != TextStatus.Keys[_filterStatus.SelectedIndex - 1])
+                return false;
+            if (_filterAnnotations.SelectedIndex > 0)
+            {
+                var annotated = text.Document.AnnotationOrder(false).Count > 0;
+                if (annotated != (_filterAnnotations.SelectedIndex == 1)) return false;
+            }
+            if (_filterExtras.SelectedIndex > 0)
+            {
+                var extra = text.IsExtraPage || text.IsToc;
+                if (extra != (_filterExtras.SelectedIndex == 1)) return false;
+            }
+            return true;
+        }
+
+        /// <summary>Applique filtres et tri aux TEXTES d'un conteneur — les
+        /// dossiers, fiches et médias passent tels quels. Avec un tri actif,
+        /// les textes se rangent après le reste, triés entre eux ; sans tri,
+        /// l'ordre du modèle est respecté (le modèle ne bouge JAMAIS).</summary>
+        private List<BinderItem> ArrangeChildren(IEnumerable<BinderItem> children)
+        {
+            var texts = new List<BinderItem>();
+            var others = new List<BinderItem>();
+            var mixed = new List<BinderItem>();
+            foreach (var child in children)
+            {
+                if (child.Kind == ItemKind.PageTemplate) continue;
+                if (child.Kind == ItemKind.Text)
+                {
+                    if (!PassesFilters(child)) continue;
+                    texts.Add(child);
+                    mixed.Add(child);
+                }
+                else
+                {
+                    others.Add(child);
+                    mixed.Add(child);
+                }
+            }
+            var sort = _filterSort == null ? 0 : _filterSort.SelectedIndex;
+            if (sort == 0) return mixed;
+            var ascending = sort == 1 || sort == 3;
+            var byPages = sort >= 3;
+            var measures = new Dictionary<string, int>();
+            foreach (var text in texts)
+                measures[text.Id] = byPages
+                    ? (PageCounter != null ? PageCounter(text) : 1)
+                    : TextStats.Compute(text.Document.ToPlainText()).Sec;
+            texts.Sort(delegate(BinderItem a, BinderItem b)
+            {
+                var compare = measures[a.Id].CompareTo(measures[b.Id]);
+                return ascending ? compare : -compare;
+            });
+            var result = new List<BinderItem>(others);
+            result.AddRange(texts);
+            return result;
         }
 
         /// <summary>Chaque boîte de partie occupe la largeur du tableau : dans
@@ -197,7 +407,10 @@ namespace UniversSale.View
 
         public void Load(BinderItem folder, HistoryManager history, Project project)
         {
-            if (!ReferenceEquals(_folder, folder)) _selected.Clear();
+            // Toute NAVIGATION repart sans sélection (batch 28) : revenir sur
+            // le même dossier gardait des bordures accent fantômes. Les
+            // rebuilds internes (Refresh) préservent, eux, la sélection.
+            _selected.Clear();
             _folder = folder;
             _history = history;
             _project = project;
@@ -265,7 +478,19 @@ namespace UniversSale.View
             var itemRef = item;
             button.Click += delegate
             {
-                var menu = new ContextMenu { PlacementTarget = button };
+                var menu = BuildCardOptionsMenu(itemRef);
+                menu.PlacementTarget = button;
+                menu.IsOpen = true;
+            };
+            return button;
+        }
+
+        /// <summary>Le menu d'options d'une carte — servi par le bouton ⋮ ET
+        /// par le clic droit sur la carte (batch 28).</summary>
+        private ContextMenu BuildCardOptionsMenu(BinderItem itemRef)
+        {
+            {
+                var menu = new ContextMenu();
                 if (itemRef.Kind == ItemKind.Text || itemRef.Kind == ItemKind.Sheet)
                 {
                     var export = new MenuItem { Header = "Exporter…" };
@@ -315,9 +540,8 @@ namespace UniversSale.View
                     if (handler != null) handler(itemRef);
                 };
                 menu.Items.Add(delete);
-                menu.IsOpen = true;
-            };
-            return button;
+                return menu;
+            }
         }
 
         public void Clear()
@@ -365,10 +589,17 @@ namespace UniversSale.View
                 _templateCards.Children.Add(BuildTemplateActions());
             }
 
+            // Le bouton Filtres n'apparaît que devant des textes (récursif :
+            // les parties d'un livre comptent).
+            var hasTexts = ContainsTexts(_folder);
+            _filterToggle.Visibility = hasTexts ? Visibility.Visible : Visibility.Collapsed;
+            if (!hasTexts) _filterBar.Visibility = Visibility.Collapsed;
+            else if (_filterToggle.IsChecked == true)
+                _filterBar.Visibility = Visibility.Visible;
+
             var documents = 0;
-            foreach (var child in _folder.Children)
+            foreach (var child in ArrangeChildren(_folder.Children))
             {
-                if (child.Kind == ItemKind.PageTemplate) continue;
                 // Dans un LIVRE, un dossier est une PARTIE : une boîte à bords
                 // ronds qui contient les cartes de ses documents.
                 if (_folder.Kind == ItemKind.Book && child.Kind == ItemKind.Folder)
@@ -380,11 +611,24 @@ namespace UniversSale.View
             if (documents == 0)
                 _cards.Children.Add(new TextBlock
                 {
-                    Text = _folder.Kind == ItemKind.Book ? "(livre sans document)" : "(dossier vide)",
+                    Text = FiltersActive
+                        ? "(aucun texte ne passe les filtres)"
+                        : _folder.Kind == ItemKind.Book
+                            ? "(livre sans document)" : "(dossier vide)",
                     Foreground = Chrome.SoftText,
                     Margin = new Thickness(12)
                 });
             UpdateFolderBoxWidths();
+        }
+
+        private static bool ContainsTexts(BinderItem folder)
+        {
+            foreach (var child in folder.Children)
+            {
+                if (child.Kind == ItemKind.Text) return true;
+                if (child.Kind == ItemKind.Folder && ContainsTexts(child)) return true;
+            }
+            return false;
         }
 
         /// <summary>La boîte d'une partie : bordure fine à bords ronds (gris
@@ -405,16 +649,17 @@ namespace UniversSale.View
             // forcé, cf. UpdateFolderBoxWidths) : les cartes s'y répartissent.
             var inner = new WrapPanel { Margin = new Thickness(2, 8, 2, 2) };
             var count = 0;
-            foreach (var child in folder.Children)
+            foreach (var child in ArrangeChildren(folder.Children))
             {
-                if (child.Kind == ItemKind.PageTemplate) continue;
                 inner.Children.Add(BuildCard(child));
                 count++;
             }
             if (count == 0)
                 inner.Children.Add(new TextBlock
                 {
-                    Text = "(glissez des documents dans cette partie)",
+                    Text = FiltersActive
+                        ? "(aucun texte de cette partie ne passe les filtres)"
+                        : "(glissez des documents dans cette partie)",
                     Foreground = Chrome.SoftText,
                     FontSize = 12,
                     Margin = new Thickness(14, 10, 14, 10)
@@ -877,6 +1122,18 @@ namespace UniversSale.View
                 }
                 RefreshSelectionVisuals();
             };
+            // Clic droit : les mêmes options que le bouton ⋮ (batch 28). Une
+            // carte divergente garde son ContextMenu propre (« appliquer le
+            // gabarit du livre »), qui prime.
+            if (!item.IsCategory)
+                card.MouseRightButtonUp += delegate(object sender, MouseButtonEventArgs e)
+                {
+                    if (card.ContextMenu != null) return;
+                    var menu = BuildCardOptionsMenu(item);
+                    menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+                    menu.IsOpen = true;
+                    e.Handled = true;
+                };
             card.MouseMove += OnCardMouseMove;
             card.DragOver += delegate(object sender, DragEventArgs e)
             {

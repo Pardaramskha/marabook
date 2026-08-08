@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.25.0-alpha";
+        public const string AppVersion = "0.26.0-alpha";
 
         private Project _project;
         private string _path;
@@ -49,6 +49,7 @@ namespace UniversSale
         private BinderItem _current;
 
         private Border _inspector;
+        private Border _correctionHost; // le panneau de correction (batch 28)
         private TextBlock _inspTitle, _inspKind, _inspStats, _inspDates;
         private StackPanel _statsSection;
         private System.Windows.Shapes.Path _statsChevron;
@@ -120,6 +121,16 @@ namespace UniversSale
             _autosaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(2) };
             _autosaveTimer.Tick += delegate { Autosave(); };
             _autosaveTimer.Start();
+
+            // Boutons latéraux de la souris = panneau précédent/suivant
+            // (batch 28). Pas de repli clavier : le rebind arrive bientôt.
+            PreviewMouseDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (e.ChangedButton == MouseButton.XButton1)
+                { NavigateHistory(true); e.Handled = true; }
+                else if (e.ChangedButton == MouseButton.XButton2)
+                { NavigateHistory(false); e.Handled = true; }
+            };
 
             Closing += OnClosingWindow;
 
@@ -371,6 +382,7 @@ namespace UniversSale
             center.Children.Add(_sheetView);
 
             _corkboard = new CorkboardView { Visibility = Visibility.Collapsed };
+            _corkboard.PageCounter = PageCountOf; // le tri « Pages » des filtres
             _corkboard.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _corkboard.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             _corkboard.ExportRequested += ExportItem;
@@ -379,6 +391,7 @@ namespace UniversSale
             center.Children.Add(_corkboard);
 
             _bookView = new BookView { Visibility = Visibility.Collapsed };
+            _bookView.PageCounter = PageCountOf; // filtres du corkboard du livre
             _bookView.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _bookView.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             _bookView.PublishRequested += PublishBook;
@@ -466,6 +479,14 @@ namespace UniversSale
             _inspector = BuildInspector();
             Grid.SetColumn(_inspector, 4);
             grid.Children.Add(_inspector);
+
+            // Le panneau de CORRECTION (batch 28) partage la colonne de
+            // droite : ouvert, il REMPLACE l'inspecteur (bascule « Détails
+            // de correction » du ruban Révision).
+            _correctionHost = new Border { Child = _editor.CorrectionPanel };
+            Grid.SetColumn(_correctionHost, 4);
+            grid.Children.Add(_correctionHost);
+            _editor.CorrectionPanelToggled += ApplyPanelVisibility;
 
             ApplyPanelVisibility();
             return grid;
@@ -992,6 +1013,35 @@ namespace UniversSale
             _templateView.CommitZones();
         }
 
+        // Historique de PANNEAUX (batch 28) : précédent/suivant aux boutons
+        // latéraux de la souris — d'un texte ouvert au panneau livre d'avant.
+        private readonly List<string> _navBack = new List<string>();
+        private readonly List<string> _navForward = new List<string>();
+        private bool _navTravelling;
+
+        /// <summary>Remonte (ou redescend) l'historique des panneaux ouverts.
+        /// Un élément disparu entre-temps est sauté sans bruit.</summary>
+        private void NavigateHistory(bool back)
+        {
+            var source = back ? _navBack : _navForward;
+            while (source.Count > 0)
+            {
+                var targetId = source[source.Count - 1];
+                source.RemoveAt(source.Count - 1);
+                var target = targetId.Length == 0 ? null : _project.FindById(targetId);
+                if (targetId.Length > 0 && target == null) continue; // disparu
+                var other = back ? _navForward : _navBack;
+                other.Add(_current == null ? "" : _current.Id);
+                _navTravelling = true;
+                try
+                {
+                    OnBinderSelection(target);
+                }
+                finally { _navTravelling = false; }
+                return;
+            }
+        }
+
         private void OnBinderSelection(BinderItem item)
         {
             // Phantom selections: hiding the view that holds keyboard focus
@@ -1008,6 +1058,15 @@ namespace UniversSale
                 UpdateInspector();
                 UpdateStats();
                 return;
+            }
+
+            // L'historique enregistre le panneau qu'on quitte — sauf pendant
+            // un voyage dans l'historique lui-même.
+            if (!_navTravelling && !ReferenceEquals(_current, item))
+            {
+                _navBack.Add(_current == null ? "" : _current.Id);
+                if (_navBack.Count > 60) _navBack.RemoveAt(0);
+                _navForward.Clear();
             }
             _navigating = true;
             try
@@ -2129,11 +2188,22 @@ namespace UniversSale
             _binderCol.Width = binderOn ? new GridLength(AppSettings.BinderWidth) : new GridLength(0);
             _binderMenu.IsChecked = binderOn;
 
-            // Le Journal perso vit sans inspecteur (pas de synopsis à montrer).
-            var inspectorOn = AppSettings.InspectorVisible && !_journalOpen && !_calmMode;
+            // Le Journal perso vit sans inspecteur (pas de synopsis à
+            // montrer) — et le niveau PROJET non plus (batch 28) : avant le
+            // premier clic dans la Pile, la barre de droite n'a rien à dire.
+            // Le panneau de CORRECTION, ouvert, remplace l'inspecteur dans la
+            // même colonne.
+            var columnOn = !_journalOpen && !_calmMode && _current != null;
+            var correctionOn = columnOn && AppSettings.CorrectionPanelVisible;
+            var inspectorOn = columnOn && AppSettings.InspectorVisible && !correctionOn;
             _inspector.Visibility = inspectorOn ? Visibility.Visible : Visibility.Collapsed;
-            _inspectorSplit.Visibility = _inspector.Visibility;
-            _inspectorCol.Width = inspectorOn ? new GridLength(AppSettings.InspectorWidth) : new GridLength(0);
+            if (_correctionHost != null)
+                _correctionHost.Visibility = correctionOn
+                    ? Visibility.Visible : Visibility.Collapsed;
+            var anyRight = inspectorOn || correctionOn;
+            _inspectorSplit.Visibility = anyRight ? Visibility.Visible : Visibility.Collapsed;
+            _inspectorCol.Width = anyRight
+                ? new GridLength(AppSettings.InspectorWidth) : new GridLength(0);
             _inspectorMenu.IsChecked = inspectorOn;
         }
 
@@ -2248,9 +2318,13 @@ namespace UniversSale
                 _notesBox.Text = _current.Notes ?? "";
                 _notesBox.IsEnabled = !_current.IsCategory;
                 // Sheets have no synopsis (their cards show notes only); a page
-                // gabarit has neither; notes exist on texts and sheets.
+                // gabarit has neither; notes exist on texts and sheets. Les
+                // CATÉGORIES (Écrits…) non plus (batch 28) : l'encart vide ne
+                // servait à rien.
                 SetInspectorFieldVisibility(
-                    _current.Kind != ItemKind.Sheet && _current.Kind != ItemKind.PageTemplate,
+                    _current.Kind != ItemKind.Sheet
+                        && _current.Kind != ItemKind.PageTemplate
+                        && !_current.IsCategory,
                     _current.Kind == ItemKind.Text || _current.Kind == ItemKind.Sheet);
 
                 // État (textes seulement) + couleur de carte (documents,
@@ -2274,6 +2348,10 @@ namespace UniversSale
                 if (showColor) RebuildColorSwatches();
             }
             _loadingInspector = false;
+
+            // La visibilité de la barre de droite dépend du niveau courant
+            // (projet = masquée) : resynchronisée à chaque navigation.
+            ApplyPanelVisibility();
 
             UpdateLinksPanel();
 
@@ -2459,8 +2537,9 @@ namespace UniversSale
         }
 
         /// <summary>Statistiques d'un livre pour l'inspecteur : nombre de
-        /// textes, répartition par état, mots et signes — les liminaires et la
-        /// table des matières restent hors du compte.</summary>
+        /// textes du récit, répartition par état, mots/signes (liminaires et
+        /// TdM COMPRIS — tout ce qui s'imprime compte, batch 28) et le total
+        /// de pages du livre (recto d'ouverture par document inclus).</summary>
         private string BookStatsLabel(BinderItem book)
         {
             var all = new List<BinderItem>();
@@ -2470,7 +2549,7 @@ namespace UniversSale
                 if (!text.IsExtraPage && !text.IsToc) texts.Add(text);
             var words = 0;
             var signs = 0;
-            foreach (var text in texts)
+            foreach (var text in all) // extras et TdM compris
             {
                 var stats = TextStats.Compute(text.Document.ToPlainText());
                 words += stats.Words;
@@ -2487,7 +2566,8 @@ namespace UniversSale
                         + count.ToString("N0", culture);
             }
             label += "\nMots : " + words.ToString("N0", culture)
-                  + "\nSignes : " + signs.ToString("N0", culture);
+                  + "\nSignes : " + signs.ToString("N0", culture)
+                  + "\nPages : " + BookPageTotal(book).ToString("N0", culture);
             return label;
         }
 
@@ -2503,7 +2583,8 @@ namespace UniversSale
                 "• Dictionnaire orthographique français « toutes variantes » v7.7\n" +
                 "  par Olivier R. — licence MPL-2.0 — https://grammalecte.net/\n" +
                 "  (notice complète : dict\\README_dict_fr.txt)\n" +
-                "• Icônes Phosphor — licence MIT — https://phosphoricons.com/",
+                "• Icônes Phosphor — licence MIT — https://phosphoricons.com/\n" +
+                "• Icônes Flaticon — https://www.flaticon.com/ (crédit exigé)",
                 "À propos", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }

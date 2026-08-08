@@ -110,6 +110,13 @@ namespace UniversSale.View
         // ---- correction (batch 26) : le pilote, ses signalements, son panneau
         private readonly Correction.CheckerHost _checkHost = new Correction.CheckerHost();
         private Correction.SpellChecker _spellChecker; // null sans dictionnaire
+        private ToggleButton _corrDetailsBtn; // « Détails de correction » (b28)
+
+        /// <summary>Le panneau des signalements vit À DROITE depuis le batch
+        /// 28 (il remplace l'inspecteur quand il est ouvert) — la coquille
+        /// l'héberge et écoute cette bascule.</summary>
+        public event Action CorrectionPanelToggled;
+        public UIElement CorrectionPanel { get { return _corrBar; } }
         private List<Correction.Finding> _findings = new List<Correction.Finding>();
         private DispatcherTimer _checkTimer;
         private Border _corrBar;
@@ -185,11 +192,24 @@ namespace UniversSale.View
                 BorderThickness = new Thickness(0, 0, 0, 1)
             };
             SetDock(bar, Dock.Top);
-            var panel = new WrapPanel { Margin = new Thickness(8, 4, 8, 4) }; // wraps on narrow windows
+            // LE RUBAN À DEUX LIGNES (batch 28) : chaque onglet dispose de
+            // deux rangées — les blocs denses s'empilent, les séparateurs
+            // verticaux courent sur toute la hauteur.
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(8, 3, 8, 3),
+                MinHeight = 52
+            };
+            var typeRows = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var typeTop = RibbonRow();
+            var typeBottom = RibbonRow();
+            typeRows.Children.Add(typeTop);
+            typeRows.Children.Add(typeBottom);
 
             _styleCombo = new ComboBox { Width = 120, Margin = new Thickness(0, 0, 2, 0) };
             _styleCombo.SelectionChanged += OnStyleComboChanged;
-            panel.Children.Add(_styleCombo);
+            typeTop.Children.Add(_styleCombo);
 
             var manageStyles = new Button
             {
@@ -204,7 +224,7 @@ namespace UniversSale.View
                 var handler = StylesRequested;
                 if (handler != null) handler();
             };
-            panel.Children.Add(manageStyles);
+            typeTop.Children.Add(manageStyles);
 
             // Éditables : on peut TAPER un nom de police ou une taille
             // personnalisée (Entrée applique).
@@ -223,7 +243,7 @@ namespace UniversSale.View
                 e.Handled = true;
                 ApplyTypedFont(_fontCombo.Text);
             };
-            panel.Children.Add(_fontCombo);
+            typeTop.Children.Add(_fontCombo);
 
             // Sizes are displayed in points (like every word processor);
             // internally everything stays WPF pixels (1 pt = 4/3 px).
@@ -243,7 +263,7 @@ namespace UniversSale.View
                 e.Handled = true;
                 ApplyTypedSize(_sizeCombo.Text);
             };
-            panel.Children.Add(_sizeCombo);
+            typeTop.Children.Add(_sizeCombo);
 
             // Variantes de caractère (Fin, Normal, Moyen, Demi-gras, Gras, Noir).
             var weightBtn = new Button
@@ -252,7 +272,7 @@ namespace UniversSale.View
                 Width = 34,
                 Margin = new Thickness(1, 0, 1, 0),
                 Focusable = false,
-                Content = Icons.Make("text-t-bold", 14, Chrome.Ink)
+                Content = Icons.Make("variante-caractere", 14, Chrome.Ink)
             };
             var weightMenu = new ContextMenu { Placement = PlacementMode.Bottom, PlacementTarget = weightBtn };
             weightBtn.ContextMenu = weightMenu;
@@ -261,7 +281,7 @@ namespace UniversSale.View
                 BuildWeightMenu(weightMenu); // graisses de LA police, coche incluse
                 weightMenu.IsOpen = true;
             };
-            panel.Children.Add(weightBtn);
+            typeTop.Children.Add(weightBtn);
 
             _boldBtn = FormatToggle("G", "Gras (Ctrl+B)", true, false, false, false);
             _boldBtn.Click += delegate
@@ -289,25 +309,44 @@ namespace UniversSale.View
                 if (ComposedActive) { _composed.ToggleStrike(); _composed.Focus(); return; }
                 ToggleDecoration(TextDecorationLocation.Strikethrough);
             };
-            panel.Children.Add(_boldBtn);
-            panel.Children.Add(_italicBtn);
-            panel.Children.Add(_underBtn);
-            panel.Children.Add(_strikeBtn);
+            // Icônes Flaticon (batch 28) — les lettres G/I/S/B laissent place
+            // aux glyphes universels.
+            _boldBtn.Content = Icons.Make("bold", 12, Chrome.Ink);
+            _italicBtn.Content = Icons.Make("italic", 12, Chrome.Ink);
+            _underBtn.Content = Icons.Make("underline", 12, Chrome.Ink);
+            _strikeBtn.Content = Icons.Make("strikethrough", 12, Chrome.Ink);
+            typeBottom.Children.Add(_boldBtn);
+            typeBottom.Children.Add(_italicBtn);
+            typeBottom.Children.Add(_underBtn);
+            typeBottom.Children.Add(_strikeBtn);
+            panel.Children.Add(typeRows);
+            panel.Children.Add(VerticalRuleTall());
 
-            panel.Children.Add(VerticalRule());
+            // Bloc alignements (haut) / listes (bas), borne a droite.
+            var alignRows = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var alignTop = RibbonRow();
+            var alignBottom = RibbonRow();
+            alignRows.Children.Add(alignTop);
+            alignRows.Children.Add(alignBottom);
 
             _alignLeft = AlignToggle("left", "Aligné à gauche");
             _alignCenter = AlignToggle("center", "Centré");
             _alignRight = AlignToggle("right", "Aligné à droite");
             _alignJustify = AlignToggle("justify", "Justifié");
-            panel.Children.Add(_alignLeft);
-            panel.Children.Add(_alignCenter);
-            panel.Children.Add(_alignRight);
-            panel.Children.Add(_alignJustify);
+            _alignLeft.Content = Icons.Make("align-left", 12, Chrome.Ink);
+            _alignCenter.Content = Icons.Make("align-center", 12, Chrome.Ink);
+            // Pas d'icône « droite » dans le jeu : la gauche, en miroir.
+            var alignRightIcon = Icons.Make("align-left", 12, Chrome.Ink) as FrameworkElement;
+            if (alignRightIcon != null)
+                alignRightIcon.LayoutTransform = new ScaleTransform(-1, 1);
+            _alignRight.Content = alignRightIcon;
+            _alignJustify.Content = Icons.Make("align-justify", 12, Chrome.Ink);
+            alignTop.Children.Add(_alignLeft);
+            alignTop.Children.Add(_alignCenter);
+            alignTop.Children.Add(_alignRight);
+            alignTop.Children.Add(_alignJustify);
 
-            panel.Children.Add(VerticalRule());
-
-            _bulletBtn = IconToggle("list-dashes-bold", "Liste à puces");
+            _bulletBtn = IconToggle("list", "Liste à puces");
             _bulletBtn.Click += delegate
             {
                 if (ComposedActive) { _composed.ApplyList("bullet"); _composed.Focus(); return; }
@@ -321,20 +360,28 @@ namespace UniversSale.View
                 EditingCommands.ToggleNumbering.Execute(null, _box);
                 AfterFormat();
             };
-            _checkBtn = IconToggle("check-square-bold", "Case à cocher (☐ → ☑ → retirer)");
+            _checkBtn = IconToggle("list-check", "Case à cocher (☐ → ☑ → retirer)");
             _checkBtn.Click += delegate
             {
                 if (ComposedActive) { _composed.TypeText("☐ "); return; }
                 ToggleChecklist();
             };
-            panel.Children.Add(_bulletBtn);
-            panel.Children.Add(_numberBtn);
-            panel.Children.Add(_checkBtn);
+            alignBottom.Children.Add(_bulletBtn);
+            alignBottom.Children.Add(_numberBtn);
+            alignBottom.Children.Add(_checkBtn);
+            panel.Children.Add(alignRows);
+            panel.Children.Add(VerticalRuleTall());
 
-            panel.Children.Add(VerticalRule());
+            // Le reste du ruban Texte coule sur une ligne, centre verticalement.
+            var rest = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            panel.Children.Add(rest);
 
-            panel.Children.Add(PaletteButton("Couleur du texte", true));
-            panel.Children.Add(PaletteButton("Surlignage", false));
+            rest.Children.Add(PaletteButton("Couleur du texte", true));
+            rest.Children.Add(PaletteButton("Surlignage", false));
 
             var imageBtn = new Button
             {
@@ -345,7 +392,7 @@ namespace UniversSale.View
                 Content = Icons.Make("image-square-bold", 14, Chrome.Ink)
             };
             imageBtn.Click += delegate { InsertImage(); };
-            panel.Children.Add(imageBtn);
+            rest.Children.Add(imageBtn);
 
             var ruleBtn = new Button
             {
@@ -353,10 +400,10 @@ namespace UniversSale.View
                 Width = 34,
                 Margin = new Thickness(1, 0, 1, 0),
                 Focusable = false,
-                Content = new TextBlock { Text = "—", FontSize = 13, FontWeight = FontWeights.Bold }
+                Content = Icons.Make("horizontal-rule", 14, Chrome.Ink)
             };
             ruleBtn.Click += delegate { InsertRule(); };
-            panel.Children.Add(ruleBtn);
+            rest.Children.Add(ruleBtn);
 
             var separatorBtn = new Button
             {
@@ -364,16 +411,15 @@ namespace UniversSale.View
                 Width = 34,
                 Margin = new Thickness(1, 0, 1, 0),
                 Focusable = false,
-                Content = new TextBlock { Text = "⁂", FontSize = 13 }
+                Content = Icons.Make("symbol", 14, Chrome.Ink)
             };
             separatorBtn.Click += delegate { InsertSeparator(); };
-            panel.Children.Add(separatorBtn);
-
-            panel.Children.Add(VerticalRule());
+            rest.Children.Add(separatorBtn);
+            rest.Children.Add(VerticalRule());
 
             _marksBtn = new ToggleButton
             {
-                Content = Icons.Make("paragraph-bold", 14, Chrome.Ink),
+                Content = Icons.Make("paragraph", 14, Chrome.Ink),
                 ToolTip = "Afficher les caractères d'impression (¶ espaces · insécables ° tabulations →)",
                 Width = 32,
                 Margin = new Thickness(1, 0, 1, 0),
@@ -384,13 +430,13 @@ namespace UniversSale.View
                 var handler = MarksToggled;
                 if (handler != null) handler(_marksBtn.IsChecked == true);
             };
-            panel.Children.Add(_marksBtn);
+            rest.Children.Add(_marksBtn);
 
             // Approche (tracking, millièmes de cadratin) — champ de valeur à
             // la Adobe : petits boutons ± verticaux à gauche, valeur absolue
             // lisible et retouchable. Rendue par le compositeur (Composition,
             // aperçu, PDF).
-            panel.Children.Add(VerticalRule());
+            rest.Children.Add(VerticalRule());
             var trackLabel = new TextBlock
             {
                 Text = "Approche",
@@ -401,7 +447,14 @@ namespace UniversSale.View
                 ToolTip = "Espacement entre les caractères, en millièmes de cadratin "
                     + "— valeur de la sélection, pas de 5 aux flèches"
             };
-            panel.Children.Add(trackLabel);
+            var kerningIcon = Icons.Make("kerning", 13, Chrome.SoftText) as FrameworkElement;
+            if (kerningIcon != null)
+            {
+                kerningIcon.VerticalAlignment = VerticalAlignment.Center;
+                kerningIcon.Margin = new Thickness(0, 0, 3, 0);
+                rest.Children.Add(kerningIcon);
+            }
+            rest.Children.Add(trackLabel);
             var spinner = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             var trackUp = new RepeatButton
             {
@@ -427,7 +480,7 @@ namespace UniversSale.View
             trackDown.Click += delegate { ApplyTrackingStep(-5); };
             spinner.Children.Add(trackUp);
             spinner.Children.Add(trackDown);
-            panel.Children.Add(spinner);
+            rest.Children.Add(spinner);
             _trackingBox = new TextBox
             {
                 Width = 42,
@@ -447,7 +500,7 @@ namespace UniversSale.View
                     System.Globalization.CultureInfo.InvariantCulture, out value))
                     ApplyTrackingAbsolute(value);
             };
-            panel.Children.Add(_trackingBox);
+            rest.Children.Add(_trackingBox);
 
             // Ribbon: « Texte » (this panel) + « Mise en page » (page setup).
             var tabs = new TabControl
@@ -851,7 +904,7 @@ namespace UniversSale.View
             panel.Children.Add(breakBtn);
 
             _guidesBtn = PageToggle("Marges", "Cadres de marges sur chaque page");
-            _guidesBtn.Content = TabButtonContent("article-bold", "Marges");
+            _guidesBtn.Content = TabButtonContent("margins", "Marges");
             _guidesBtn.Click += delegate
             {
                 if (_project == null) return;
@@ -1324,6 +1377,122 @@ namespace UniversSale.View
             };
         }
 
+        // --------------------------------------- le ruban à deux lignes (b28)
+
+        /// <summary>Une rangée d'un bloc empilé du ruban.</summary>
+        private static StackPanel RibbonRow()
+        {
+            return new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 1, 0, 1)
+            };
+        }
+
+        /// <summary>Séparateur vertical courant sur les deux lignes.</summary>
+        private static Border VerticalRuleTall()
+        {
+            return new Border
+            {
+                Width = 1,
+                MinHeight = 44,
+                Background = Chrome.Border,
+                Margin = new Thickness(7, 2, 7, 2)
+            };
+        }
+
+        /// <summary>Un bouton « sur deux lignes » du ruban : libellé enroulé,
+        /// pleine hauteur — la monnaie courante d'Office.</summary>
+        private static TextBlock TallLabel(string label)
+        {
+            return new TextBlock
+            {
+                Text = label,
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+                MaxWidth = 76,
+                FontSize = 11
+            };
+        }
+
+        private Button TallButton(string label, string tooltip)
+        {
+            return new Button
+            {
+                Content = TallLabel(label),
+                ToolTip = tooltip,
+                MinHeight = 44,
+                Padding = new Thickness(8, 2, 8, 2),
+                Margin = new Thickness(0, 0, 6, 0),
+                Focusable = false,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        /// <summary>Variante à ICÔNE au-dessus du libellé (façon Office).</summary>
+        private Button TallButton(string icon, string label, string tooltip)
+        {
+            var content = new StackPanel();
+            var glyph = Icons.Make(icon, 16, Chrome.Ink) as FrameworkElement;
+            if (glyph != null)
+            {
+                glyph.HorizontalAlignment = HorizontalAlignment.Center;
+                glyph.Margin = new Thickness(0, 0, 0, 2);
+                content.Children.Add(glyph);
+            }
+            content.Children.Add(TallLabel(label));
+            var button = TallButton(label, tooltip);
+            button.Content = content;
+            return button;
+        }
+
+        private ToggleButton TallToggle(string label, string tooltip)
+        {
+            return new ToggleButton
+            {
+                Content = TallLabel(label),
+                ToolTip = tooltip,
+                MinHeight = 44,
+                Padding = new Thickness(8, 2, 8, 2),
+                Margin = new Thickness(0, 0, 6, 0),
+                Focusable = false,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        /// <summary>Icône + libellé des petits boutons de navigation.</summary>
+        private static UIElement NavContent(string icon, string label)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            var glyph = Icons.Make(icon, 9, Chrome.Ink) as FrameworkElement;
+            if (glyph != null)
+            {
+                glyph.VerticalAlignment = VerticalAlignment.Center;
+                glyph.Margin = new Thickness(0, 0, 4, 0);
+                row.Children.Add(glyph);
+            }
+            row.Children.Add(new TextBlock
+            {
+                Text = label,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            return row;
+        }
+
+        /// <summary>Deux petits boutons empilés (Précédente/Suivante…).</summary>
+        private static StackPanel StackedPair(Button top, Button bottom)
+        {
+            top.Margin = new Thickness(0, 0, 6, 1);
+            bottom.Margin = new Thickness(0, 1, 6, 0);
+            top.HorizontalAlignment = HorizontalAlignment.Stretch;
+            bottom.HorizontalAlignment = HorizontalAlignment.Stretch;
+            var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            stack.Children.Add(top);
+            stack.Children.Add(bottom);
+            return stack;
+        }
+
         private Button PaletteButton(string tooltip, bool isForeground)
         {
             var accent = new SolidColorBrush(Color.FromRgb(0x5B, 0x67, 0xD8));
@@ -1334,7 +1503,7 @@ namespace UniversSale.View
                 Width = 34,
                 Margin = new Thickness(1, 0, 1, 0),
                 Focusable = false,
-                Content = Icons.Make(isForeground ? "text-t-bold" : "text-t-fill", 14, accent)
+                Content = Icons.Make(isForeground ? "palette" : "highlighter-line", 14, accent)
             };
             var menu = new ContextMenu { Placement = PlacementMode.Bottom, PlacementTarget = button };
             button.ContextMenu = menu;
@@ -1537,29 +1706,103 @@ namespace UniversSale.View
         /// Composition (qui n'a pas de bulles).</summary>
         private UIElement BuildRevisionTab()
         {
-            var panel = new WrapPanel { Margin = new Thickness(8, 4, 8, 4) };
-            var annotate = new Button
+            // Deux SECTIONS séparées d'un filet vertical (batch 28) : les
+            // ANNOTATIONS, puis la RÉVISION ORTHOTYPO.
+            var panel = new StackPanel
             {
-                Content = TabButtonContent("check-square-bold", "Annoter la sélection"),
-                ToolTip = "Ancre un commentaire de révision au passage sélectionné "
-                    + "(teinte or à l'écran, jamais imprimée)",
-                Margin = new Thickness(0, 0, 10, 0),
-                Padding = new Thickness(8, 2, 8, 2),
-                Focusable = false
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(8, 3, 8, 3),
+                MinHeight = 52
             };
+
+            // ---- Annotations -------------------------------------------------
+            var annotate = TallButton("add-annotation", "Annoter la sélection",
+                "Ancre un commentaire de révision au passage sélectionné "
+                + "(teinte or à l'écran, jamais imprimée)");
             annotate.Click += delegate { CreateAnnotation(); };
             panel.Children.Add(annotate);
 
-            var noProof = new Button
+            var previous = new Button
             {
-                Content = "Ne pas corriger",
-                ToolTip = "Soustrait le passage sélectionné aux correcteurs "
-                    + "(noms inventés, langues fictives, citations étrangères) "
-                    + "— re-cliquer pour l'y rendre",
-                Margin = new Thickness(0, 0, 10, 0),
-                Padding = new Thickness(8, 2, 8, 2),
+                Content = NavContent("previous", "Précédente"),
+                ToolTip = "Aller à l'annotation précédente",
+                Padding = new Thickness(8, 1, 8, 1),
                 Focusable = false
             };
+            previous.Click += delegate { NavigateAnnotation(-1); };
+            var next = new Button
+            {
+                Content = NavContent("next", "Suivante"),
+                ToolTip = "Aller à l'annotation suivante",
+                Padding = new Thickness(8, 1, 8, 1),
+                Focusable = false
+            };
+            next.Click += delegate { NavigateAnnotation(1); };
+            panel.Children.Add(StackedPair(previous, next));
+
+            _annVisibleBtn = TallToggle("Afficher les notes",
+                "Affiche ou masque les annotations (teintes et bulles) — "
+                + "elles restent dans le projet");
+            _annVisibleBtn.IsChecked = Settings.AppSettings.ShowAnnotations;
+            _annVisibleBtn.Click += delegate
+            {
+                Settings.AppSettings.ShowAnnotations = _annVisibleBtn.IsChecked == true;
+                Settings.AppSettings.Save();
+                ApplyAnnotationVisibility();
+            };
+            panel.Children.Add(_annVisibleBtn);
+
+            panel.Children.Add(VerticalRuleTall());
+
+            // ---- Révision OrthoTypo -----------------------------------------
+            var proofToggle = TallToggle("Vérifier",
+                "Vérification continue du texte — répétitions et orthographe "
+                + "aujourd'hui, grammaire au prochain batch");
+            proofToggle.IsChecked = Settings.AppSettings.ProofEnabled;
+            proofToggle.Click += delegate
+            {
+                Settings.AppSettings.ProofEnabled = proofToggle.IsChecked == true;
+                Settings.AppSettings.Save();
+                RunCheck();
+            };
+            panel.Children.Add(proofToggle);
+
+            var previousFinding = new Button
+            {
+                Content = NavContent("previous", "Signalement"),
+                ToolTip = "Aller au signalement de correction précédent",
+                Padding = new Thickness(8, 1, 8, 1),
+                Focusable = false
+            };
+            previousFinding.Click += delegate { NavigateFinding(-1); };
+            var nextFinding = new Button
+            {
+                Content = NavContent("next", "Signalement"),
+                ToolTip = "Aller au signalement de correction suivant",
+                Padding = new Thickness(8, 1, 8, 1),
+                Focusable = false
+            };
+            nextFinding.Click += delegate { NavigateFinding(1); };
+            panel.Children.Add(StackedPair(previousFinding, nextFinding));
+
+            _corrDetailsBtn = TallToggle("Détails de correction",
+                "Le panneau des signalements, à droite — il remplace les "
+                + "détails du chapitre tant qu'il est ouvert");
+            _corrDetailsBtn.IsChecked = Settings.AppSettings.CorrectionPanelVisible;
+            _corrDetailsBtn.Click += delegate
+            {
+                Settings.AppSettings.CorrectionPanelVisible =
+                    _corrDetailsBtn.IsChecked == true;
+                Settings.AppSettings.Save();
+                var handler = CorrectionPanelToggled;
+                if (handler != null) handler();
+            };
+            panel.Children.Add(_corrDetailsBtn);
+
+            var noProof = TallButton("Ne pas corriger",
+                "Soustrait le passage sélectionné aux correcteurs "
+                + "(noms inventés, langues fictives, citations étrangères) "
+                + "— re-cliquer pour l'y rendre");
             noProof.Click += delegate
             {
                 // Le gel du classique (batch 26) : la commande vit dans les
@@ -1572,80 +1815,6 @@ namespace UniversSale.View
                         "Révision", MessageBoxButton.OK, MessageBoxImage.Information);
             };
             panel.Children.Add(noProof);
-
-            var previous = new Button
-            {
-                Content = "◀ Précédente",
-                ToolTip = "Aller à l'annotation précédente",
-                Margin = new Thickness(0, 0, 4, 0),
-                Padding = new Thickness(8, 2, 8, 2),
-                Focusable = false
-            };
-            previous.Click += delegate { NavigateAnnotation(-1); };
-            panel.Children.Add(previous);
-            var next = new Button
-            {
-                Content = "Suivante ▶",
-                ToolTip = "Aller à l'annotation suivante",
-                Margin = new Thickness(0, 0, 10, 0),
-                Padding = new Thickness(8, 2, 8, 2),
-                Focusable = false
-            };
-            next.Click += delegate { NavigateAnnotation(1); };
-            panel.Children.Add(next);
-
-            // — Correction (batch 26) : vérification continue et navigation.
-            var proofToggle = PageToggle("Vérifier",
-                "Vérification continue du texte — répétitions aujourd'hui, "
-                + "orthographe et grammaire aux prochains batchs");
-            proofToggle.IsChecked = Settings.AppSettings.ProofEnabled;
-            proofToggle.Click += delegate
-            {
-                Settings.AppSettings.ProofEnabled = proofToggle.IsChecked == true;
-                Settings.AppSettings.Save();
-                RunCheck();
-            };
-            panel.Children.Add(proofToggle);
-            var previousFinding = new Button
-            {
-                Content = "◀ Signalement",
-                ToolTip = "Aller au signalement de correction précédent",
-                Margin = new Thickness(0, 0, 4, 0),
-                Padding = new Thickness(8, 2, 8, 2),
-                Focusable = false
-            };
-            previousFinding.Click += delegate { NavigateFinding(-1); };
-            panel.Children.Add(previousFinding);
-            var nextFinding = new Button
-            {
-                Content = "Signalement ▶",
-                ToolTip = "Aller au signalement de correction suivant",
-                Margin = new Thickness(0, 0, 10, 0),
-                Padding = new Thickness(8, 2, 8, 2),
-                Focusable = false
-            };
-            nextFinding.Click += delegate { NavigateFinding(1); };
-            panel.Children.Add(nextFinding);
-
-            _annVisibleBtn = PageToggle("Visibles",
-                "Affiche ou masque les annotations (teintes et bulles) — "
-                + "elles restent dans le projet");
-            _annVisibleBtn.IsChecked = Settings.AppSettings.ShowAnnotations;
-            _annVisibleBtn.Click += delegate
-            {
-                Settings.AppSettings.ShowAnnotations = _annVisibleBtn.IsChecked == true;
-                Settings.AppSettings.Save();
-                ApplyAnnotationVisibility();
-            };
-            panel.Children.Add(_annVisibleBtn);
-
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Les annotations restent dans le projet — jamais dans les exports ni à l'impression.",
-                Foreground = Chrome.SoftText,
-                FontSize = 11,
-                VerticalAlignment = VerticalAlignment.Center
-            });
             return panel;
         }
 
@@ -1655,47 +1824,48 @@ namespace UniversSale.View
         /// Annotations : liste des signalements, extrait cliquable,
         /// suggestions en un clic, filtres par catégorie. Composé seulement
         /// (le classique est gelé, batch 26).</summary>
+        /// <summary>Le PANNEAU de correction — à DROITE depuis le batch 28
+        /// (hébergé par la coquille à la place de l'inspecteur, bascule
+        /// « Détails de correction » du ruban Révision) : pleine hauteur,
+        /// filtres par catégorie empilés en tête, liste défilante.</summary>
         private void BuildCorrectionBar()
         {
             _corrBar = new Border
             {
                 Background = Chrome.BarBgLight,
                 BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(0, 1, 0, 0),
-                Padding = new Thickness(24, 8, 24, 8),
-                Visibility = Visibility.Collapsed,
-                MaxHeight = 240
+                BorderThickness = new Thickness(1, 0, 0, 0),
+                Padding = new Thickness(12, 10, 12, 10)
             };
-            SetDock(_corrBar, Dock.Bottom);
-            var panel = new StackPanel();
-            var head = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
-            var filters = new StackPanel { Orientation = Orientation.Horizontal };
-            AddCorrectionFilter(filters, Correction.FindingCategory.Spelling, "Orthographe");
-            AddCorrectionFilter(filters, Correction.FindingCategory.Grammar, "Grammaire");
-            AddCorrectionFilter(filters, Correction.FindingCategory.Typography, "Typographie");
-            AddCorrectionFilter(filters, Correction.FindingCategory.Style, "Style");
-            DockPanel.SetDock(filters, Dock.Right);
-            head.Children.Add(filters);
+            var panel = new DockPanel();
+            var head = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+            DockPanel.SetDock(head, Dock.Top);
             head.Children.Add(new TextBlock
             {
                 Text = "Correction",
                 Foreground = Chrome.SoftText,
-                FontSize = 11,
-                VerticalAlignment = VerticalAlignment.Center
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 4)
             });
+            var filters = new WrapPanel();
+            AddCorrectionFilter(filters, Correction.FindingCategory.Spelling, "Orthographe");
+            AddCorrectionFilter(filters, Correction.FindingCategory.Grammar, "Grammaire");
+            AddCorrectionFilter(filters, Correction.FindingCategory.Typography, "Typographie");
+            AddCorrectionFilter(filters, Correction.FindingCategory.Style, "Style");
+            head.Children.Add(filters);
             panel.Children.Add(head);
             _corrList = new StackPanel();
             panel.Children.Add(new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                MaxHeight = 180,
                 Content = _corrList
             });
             _corrBar.Child = panel;
-            Children.Add(_corrBar);
+            // Plus AUCUN panneau du bas : la coquille héberge _corrBar.
         }
 
-        private void AddCorrectionFilter(StackPanel host,
+        private void AddCorrectionFilter(Panel host,
             Correction.FindingCategory category, string label)
         {
             var chip = new ToggleButton
@@ -1764,10 +1934,24 @@ namespace UniversSale.View
                     && chip.IsChecked != true) continue;
                 visible.Add(finding);
             }
-            _corrBar.Visibility = visible.Count == 0 || _calm || !ComposedActive
-                || !Settings.AppSettings.ProofEnabled
-                ? Visibility.Collapsed : Visibility.Visible;
-            if (_corrBar.Visibility != Visibility.Visible) return;
+            // La VISIBILITÉ du panneau appartient à la coquille (batch 28) ;
+            // ici on ne gère que son CONTENU — vide inclus.
+            if (visible.Count == 0)
+            {
+                _corrList.Children.Add(new TextBlock
+                {
+                    Text = !Settings.AppSettings.ProofEnabled
+                        ? "La vérification est désactivée (bouton « Vérifier », onglet Révision)."
+                        : !ComposedActive
+                            ? "La correction vit dans les pages composées."
+                            : "Aucun signalement — tout est propre.",
+                    Foreground = Chrome.SoftText,
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 4, 0, 0)
+                });
+                return;
+            }
             // Jamais de troncature SILENCIEUSE : la queue est annoncée.
             const int cap = 150;
             for (var i = 0; i < visible.Count && i < cap; i++)
@@ -1783,10 +1967,14 @@ namespace UniversSale.View
                 });
         }
 
+        /// <summary>Une fiche de signalement du panneau de droite (batch 28) :
+        /// pastille + mot cliquable, message enroulé, puis suggestions et
+        /// « Ignorer » — la colonne est étroite, tout s'empile.</summary>
         private UIElement BuildFindingRow(Correction.Finding finding)
         {
-            var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
-            var dot = new Border
+            var row = new StackPanel { Margin = new Thickness(0, 3, 0, 6) };
+            var title = new StackPanel { Orientation = Orientation.Horizontal };
+            title.Children.Add(new Border
             {
                 Width = 8,
                 Height = 8,
@@ -1794,11 +1982,32 @@ namespace UniversSale.View
                 Background = ComposedRenderer.FindingPen(finding.Category).Brush,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 1, 6, 0)
+            });
+            var excerpt = new TextBlock
+            {
+                Text = "« " + (finding.Word.Length > 0 ? finding.Word : "…") + " »",
+                Foreground = Chrome.Ink,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Cursor = Cursors.Hand,
+                ToolTip = "Aller au passage signalé"
             };
-            DockPanel.SetDock(dot, Dock.Left);
-            row.Children.Add(dot);
+            var goRef = finding;
+            excerpt.MouseLeftButtonDown += delegate { _composed.GoToFinding(goRef); };
+            title.Children.Add(excerpt);
+            row.Children.Add(title);
 
-            var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(new TextBlock
+            {
+                Text = finding.Message,
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(14, 1, 0, 2)
+            });
+
+            var buttons = new WrapPanel { Margin = new Thickness(14, 0, 0, 0) };
             // Suggestions à la demande (jamais pendant la passe) — le cache
             // du vérificateur rend la reconstruction du panneau indolore.
             var suggestions = _spellChecker != null && finding.CheckerId == "spelling"
@@ -1811,6 +2020,7 @@ namespace UniversSale.View
                 var apply = SmallButton(suggestion,
                     delegate { _composed.ApplySuggestion(findingRef, suggestion); });
                 apply.FontSize = 11;
+                apply.Margin = new Thickness(0, 0, 4, 2);
                 apply.ToolTip = "Remplacer par « " + suggestion + " »";
                 buttons.Children.Add(apply);
             }
@@ -1826,39 +2036,12 @@ namespace UniversSale.View
                 RunCheck();
             });
             ignore.FontSize = 11;
+            ignore.Margin = new Thickness(0, 0, 4, 2);
             ignore.ToolTip = finding.Word.Length > 0
                 ? "Ne plus signaler « " + finding.Word + " » dans ce projet"
                 : "Taire ce signalement (session)";
             buttons.Children.Add(ignore);
-            DockPanel.SetDock(buttons, Dock.Right);
             row.Children.Add(buttons);
-
-            var excerpt = new TextBlock
-            {
-                Text = "« " + (finding.Word.Length > 0 ? finding.Word : "…") + " »",
-                Foreground = Chrome.SoftText,
-                FontStyle = FontStyles.Italic,
-                FontSize = 11,
-                Width = 150,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                VerticalAlignment = VerticalAlignment.Center,
-                Cursor = Cursors.Hand,
-                ToolTip = "Aller au passage signalé"
-            };
-            var goRef = finding;
-            excerpt.MouseLeftButtonDown += delegate { _composed.GoToFinding(goRef); };
-            DockPanel.SetDock(excerpt, Dock.Left);
-            row.Children.Add(excerpt);
-
-            row.Children.Add(new TextBlock
-            {
-                Text = finding.Message,
-                Foreground = Chrome.SoftText,
-                FontSize = 11,
-                Margin = new Thickness(8, 0, 8, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            });
             return row;
         }
 
