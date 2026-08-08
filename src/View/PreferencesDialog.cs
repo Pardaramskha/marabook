@@ -69,6 +69,11 @@ namespace UniversSale.View
                 Header = "Édition",
                 Content = BuildEditingTab()
             });
+            tabs.Items.Add(new TabItem
+            {
+                Header = "Correction",
+                Content = BuildProofingTab()
+            });
 
             var layout = new StackPanel { MinWidth = 380 };
             layout.Children.Add(tabs);
@@ -183,6 +188,95 @@ namespace UniversSale.View
             };
             box.Children.Add(remove);
             return box;
+        }
+
+        /// <summary>Onglet « Correction » (batch 29, lot C) : la grammaire
+        /// Grammalecte — interrupteur maître et les options SOUS LEUR
+        /// NOMENCLATURE À LUI (jamais la nôtre), groupées par catégorie.
+        /// La politique de recouvrement est visible et honnête : une option
+        /// éteinte parce que Marabook couvre déjà le terrain (répétitions,
+        /// typographie du compositeur, mots composés) le dit — et reste
+        /// rallumable, en connaissance de cause.</summary>
+        private UIElement BuildProofingTab()
+        {
+            var panel = new StackPanel { Margin = new Thickness(12, 10, 12, 10), MaxWidth = 440 };
+            panel.Children.Add(Caption("Grammaire (Grammalecte)"));
+            var master = new CheckBox
+            {
+                Content = "Vérification grammaticale (Grammalecte, en différé)",
+                IsChecked = AppSettings.GrammarEnabled,
+                Margin = new Thickness(0, 6, 0, 0),
+                ToolTip = "Grammalecte tourne dans un sous-processus : ses "
+                    + "signalements arrivent quelques instants après la frappe,\n"
+                    + "sans jamais ralentir l'orthographe ni la saisie."
+            };
+            master.Click += delegate
+            {
+                AppSettings.GrammarEnabled = master.IsChecked == true;
+                AppSettings.Save();
+                var handler = ProofingChanged;
+                if (handler != null) handler();
+            };
+            panel.Children.Add(master);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Les options reprennent les noms de Grammalecte. Celles "
+                    + "marquées « couvert par Marabook » sont éteintes parce "
+                    + "qu'un vérificateur maison tient déjà ce terrain "
+                    + "(répétitions réglées pour le roman, typographie du "
+                    + "compositeur, mots composés de l'orthographe) — les "
+                    + "rallumer produit des signalements en double.",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 6, 0, 4)
+            });
+
+            var options = new StackPanel();
+            string group = null;
+            foreach (var option in Correction.Grammalecte.GrammalecteOptions.Catalog)
+            {
+                if (option.Group != group)
+                {
+                    group = option.Group;
+                    options.Children.Add(Caption(group, 10));
+                }
+                var optionRef = option;
+                bool overridden;
+                var value = AppSettings.GrammarOptions.TryGetValue(
+                    option.Name, out overridden)
+                    ? overridden : option.MarabookDefault;
+                var check = new CheckBox
+                {
+                    Content = option.Label + " (" + option.Name + ")"
+                        + (option.OverriddenByPolicy
+                            ? " — couvert par Marabook" : ""),
+                    IsChecked = value,
+                    Margin = new Thickness(0, 3, 0, 0)
+                };
+                check.Click += delegate
+                {
+                    var chosen = check.IsChecked == true;
+                    // Revenu au défaut Marabook : l'entrée disparaît (les
+                    // défauts futurs de la politique s'appliqueront).
+                    if (chosen == optionRef.MarabookDefault)
+                        AppSettings.GrammarOptions.Remove(optionRef.Name);
+                    else
+                        AppSettings.GrammarOptions[optionRef.Name] = chosen;
+                    AppSettings.Save();
+                    var handler = ProofingChanged;
+                    if (handler != null) handler();
+                };
+                options.Children.Add(check);
+            }
+            panel.Children.Add(new ScrollViewer
+            {
+                Content = options,
+                Height = 260,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Margin = new Thickness(0, 2, 0, 0)
+            });
+            return panel;
         }
 
         private UIElement BuildPersonalizationTab()
