@@ -93,6 +93,10 @@ namespace UniversSale.Tests.Ui
                     Check(ref failures, redPaper == 0,
                         "et ABSENT du rendu papier (donc du PDF)");
                 }
+                // — La grammaire (batch 29) : le trajet ENTIER, pont réel —
+                // critères de sortie du batch. Sauté proprement si le runtime
+                // embarqué manque (contributeur avant le lot E).
+                GrammarProbe(ref failures, styles, setup);
             }
             catch (Exception error)
             {
@@ -100,6 +104,120 @@ namespace UniversSale.Tests.Ui
                 failures++;
             }
             return failures;
+        }
+
+        /// <summary>Batch 29 — une faute d'accord soulignée dans une page
+        /// composée (couleur Grammar, absente du papier), la suggestion de
+        /// Grammalecte disponible, « ignorer cette règle » fonctionnel, et
+        /// LA MESURE : l'orthographe reste instantanée pendant que la
+        /// grammaire travaille (exigence « mesuré, pas supposé »).</summary>
+        private static void GrammarProbe(ref int failures, StyleSheet styles,
+            PageSetup setup)
+        {
+            if (!System.IO.File.Exists(Correction.Grammalecte
+                .GrammalecteBridge.PythonPath))
+            {
+                Console.WriteLine("  (grammaire sautée : python/ absent — "
+                    + "lot E non déployé sur cette machine)");
+                return;
+            }
+            var bridge = new Correction.Grammalecte.GrammalecteBridge();
+            try
+            {
+                var document = new TextDocument();
+                var first = new TextParagraph();
+                first.Runs.Add(new TextRun
+                { Text = "Les chevaux blanc gambadent dans la prairie." });
+                document.Paragraphs.Add(first);
+                // Du volume pour la mesure : l'orthographe a du travail
+                // pendant que la grammaire attend son sous-processus.
+                for (var i = 0; i < 40; i++)
+                {
+                    var filler = new TextParagraph();
+                    filler.Runs.Add(new TextRun
+                    {
+                        Text = "Le marabout traverse la lande et le vent "
+                            + "psalmodie une complainte ancienne numéro " + i + "."
+                    });
+                    document.Paragraphs.Add(filler);
+                }
+                var engine = new CompositionEngine(document, styles, setup,
+                    null, false, new WpfGlyphMetrics());
+                engine.ComposeAll();
+
+                var host = new CheckerHost();
+                var spellEngine = SpellDictionary.Default;
+                if (spellEngine != null) host.Add(new SpellChecker(spellEngine));
+                var grammar = new Correction.Grammalecte.GrammarChecker(bridge);
+                host.Add(grammar);
+                var arrived = new System.Threading.ManualResetEvent(false);
+                host.DeferredArrived += delegate { arrived.Set(); };
+
+                // LA MESURE : la passe synchrone pendant que le différé part.
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                var immediate = host.Run(document, styles);
+                watch.Stop();
+                Check(ref failures, host.PendingDeferred > 0,
+                    "la grammaire TRAVAILLE (demandes en vol : "
+                    + host.PendingDeferred + ")");
+                Check(ref failures, watch.ElapsedMilliseconds < 250,
+                    "l'orthographe reste instantanée pendant ce temps ("
+                    + watch.ElapsedMilliseconds + " ms la passe, MESURÉ)");
+                var grammarImmediate = 0;
+                foreach (var finding in immediate)
+                    if (finding.CheckerId == "grammar") grammarImmediate++;
+                Check(ref failures, grammarImmediate == 0,
+                    "la passe n'a PAS attendu la grammaire (0 différé servi)");
+
+                // L'initialisation du premier lancement peut prendre ~2 s.
+                Check(ref failures, arrived.WaitOne(30000),
+                    "les réponses différées arrivent");
+                // Les 41 paragraphes répondent par vagues : on laisse le vol
+                // se vider (borné) avant de fusionner.
+                for (var spin = 0; spin < 300 && host.PendingDeferred > 0; spin++)
+                    System.Threading.Thread.Sleep(100);
+                var merged = host.Run(document, styles);
+                Finding accord = null;
+                foreach (var finding in merged)
+                    if (finding.CheckerId == "grammar"
+                        && finding.ParagraphIndex == 0)
+                        accord = finding;
+                Check(ref failures, accord != null,
+                    "la faute d'accord est signalée (différé fusionné)");
+                if (accord == null) return;
+                Check(ref failures, accord.Suggestions.Contains("blancs"),
+                    "la suggestion de Grammalecte (« blancs ») est au menu");
+                var flat = PivotEdit.FlatText(document.Paragraphs[0]);
+                Check(ref failures,
+                    flat.Substring(accord.Start, accord.Length) == "blanc",
+                    "l'ondulé couvre exactement « blanc »");
+
+                var byParagraph = new System.Collections.Generic
+                    .Dictionary<int, System.Collections.Generic.List<Finding>>();
+                byParagraph[0] = new System.Collections.Generic
+                    .List<Finding> { accord };
+                engine.Current.ScreenFindings = byParagraph;
+                var blue = CountSquigglePixels(engine.Current, true, 0x3B, 0x7D, 0xD8);
+                var bluePaper = CountSquigglePixels(engine.Current, false, 0x3B, 0x7D, 0xD8);
+                Check(ref failures, blue > 0,
+                    "l'ondulé GRAMMAIRE est PRÉSENT à l'écran ("
+                    + blue + " px bleus)");
+                Check(ref failures, bluePaper == 0,
+                    "et ABSENT du rendu papier (donc du PDF)");
+
+                // « Ignorer cette règle » : le RuleId de Grammalecte suffit.
+                host.IgnoreRule(accord.RuleId);
+                var silenced = 0;
+                foreach (var finding in host.Run(document, styles))
+                    if (finding.CheckerId == "grammar"
+                        && finding.RuleId == accord.RuleId) silenced++;
+                Check(ref failures, silenced == 0,
+                    "« ignorer cette règle » tait la règle (" + accord.RuleId + ")");
+            }
+            finally
+            {
+                bridge.Dispose();
+            }
         }
 
         /// <summary>Rend la première page et compte les pixels proches de la

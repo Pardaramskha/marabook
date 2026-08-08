@@ -1996,10 +1996,46 @@ namespace UniversSale.View
             RebuildAnnotationsPanel();
         }
 
+        /// <summary>L'état du différé, VISIBLE MAIS DISCRET (batch 29,
+        /// lot D) : une ligne en tête du panneau Correction — jamais un
+        /// modal, jamais un sablier. Dit ce qui est encore en cours, avoue
+        /// l'initialisation du premier lancement, et rend l'indisponibilité
+        /// lisible sans boîte d'erreur. Nul quand il n'y a rien à dire.</summary>
+        private UIElement BuildGrammarStatusLine()
+        {
+            if (!Settings.AppSettings.ProofEnabled || !ComposedActive
+                || !Settings.AppSettings.GrammarEnabled
+                || _grammarBridge == null)
+                return null;
+            string text = null;
+            var state = _grammarBridge.State;
+            if (state == Correction.Grammalecte.BridgeState.Starting)
+                text = "Grammaire : Grammalecte s'initialise (une seconde, "
+                    + "au premier besoin seulement)…";
+            else if (_checkHost.PendingDeferred > 0)
+                text = "Grammaire : analyse en cours…";
+            else if (state == Correction.Grammalecte.BridgeState.Unavailable)
+                text = "Grammaire indisponible ("
+                    + _grammarBridge.StateDetail
+                    + ") — l'orthographe et les répétitions continuent.";
+            if (text == null) return null;
+            return new TextBlock
+            {
+                Text = text,
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                FontStyle = FontStyles.Italic,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 4)
+            };
+        }
+
         private void RebuildCorrectionPanel()
         {
             if (_corrList == null) return;
             _corrList.Children.Clear();
+            var status = BuildGrammarStatusLine();
+            if (status != null) _corrList.Children.Add(status);
             var visible = new List<Correction.Finding>();
             foreach (var finding in _findings)
             {
@@ -2041,6 +2077,22 @@ namespace UniversSale.View
                 });
         }
 
+        /// <summary>Le passage couvert par un signalement SANS Word (la
+        /// grammaire vise une plage, pas un mot) — extrait du document
+        /// vivant, borné à 40 caractères.</summary>
+        private string ExcerptOf(Correction.Finding finding)
+        {
+            if (_item == null || finding.ParagraphIndex < 0
+                || finding.ParagraphIndex >= _item.Document.Paragraphs.Count)
+                return "…";
+            var text = PivotEdit.FlatText(
+                _item.Document.Paragraphs[finding.ParagraphIndex]);
+            if (finding.Start < 0 || finding.Length <= 0
+                || finding.End > text.Length)
+                return "…";
+            return text.Substring(finding.Start, Math.Min(finding.Length, 40));
+        }
+
         /// <summary>Une fiche de signalement du panneau de droite (batch 28) :
         /// pastille + mot cliquable, message enroulé, puis suggestions et
         /// « Ignorer » — la colonne est étroite, tout s'empile.</summary>
@@ -2059,7 +2111,8 @@ namespace UniversSale.View
             });
             var excerpt = new TextBlock
             {
-                Text = "« " + (finding.Word.Length > 0 ? finding.Word : "…") + " »",
+                Text = "« " + (finding.Word.Length > 0
+                    ? finding.Word : ExcerptOf(finding)) + " »",
                 Foreground = Chrome.Ink,
                 FontSize = 12,
                 FontWeight = FontWeights.SemiBold,

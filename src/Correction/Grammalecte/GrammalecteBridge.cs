@@ -45,13 +45,21 @@ namespace UniversSale.Correction.Grammalecte
     /// d'erreur à chaque frappe — un état lisible, c'est tout).</summary>
     public sealed class GrammalecteBridge : IDisposable
     {
-        /// <summary>Timeout d'UNE requête, initialisation comprise (la
-        /// première attend le chargement du moteur derrière elle).</summary>
-        public int TimeoutMilliseconds = 10000;
+        /// <summary>Le délai SANS PROGRÈS avant de tuer le fils (attrapé par
+        /// la sonde UI, batch 29) : un timeout PAR REQUÊTE compté depuis la
+        /// mise en file était faux — quarante demandes s'empilent derrière
+        /// une initialisation à froid (compilation des règles au premier
+        /// lancement) et les minuteurs de queue expiraient pendant que
+        /// Python progressait normalement… puis le premier timeout TUAIT un
+        /// processus sain. Le chien de garde ne court que s'il y a des
+        /// demandes en vol ET qu'aucune ligne n'arrive ; chaque réponse le
+        /// réarme. Le ReDoS reste couvert : un paragraphe pathologique =
+        /// plus aucun progrès = mort au bout de ce délai.</summary>
+        public int TimeoutMilliseconds = 30000;
 
         private readonly object _gate = new object();
         private Process _process;
-        private StreamWriter _input;      // UTF-8 sans BOM sur le BaseStream
+        private Stream _input;            // le tube stdin BRUT du fils
         private Thread _reader;
         private BridgeState _state = BridgeState.Idle;
         private string _stateDetail = "";
@@ -63,10 +71,14 @@ namespace UniversSale.Correction.Grammalecte
         private sealed class Flight
         {
             public TaskCompletionSource<List<BridgeError>> Source;
-            public Timer Timeout;
         }
         private readonly Dictionary<int, Flight> _flights
             = new Dictionary<int, Flight>();
+        // LE chien de garde (un seul pour le pont) : armé quand des vols
+        // attendent, réarmé par chaque ligne reçue, désarmé quand le vol est
+        // vide. Le jeton de garde invalide un tir tardif après réarmement.
+        private Timer _watchdog;
+        private int _watchdogToken;
 
         public BridgeState State { get { lock (_gate) return _state; } }
         /// <summary>« Python absent », « processus en échec »… — l'état
@@ -116,10 +128,12 @@ namespace UniversSale.Correction.Grammalecte
                     return source.Task;
                 }
                 id = _nextId++;
-                var flight = new Flight { Source = source };
-                flight.Timeout = new Timer(delegate { OnTimeout(id); }, null,
-                    TimeoutMilliseconds, System.Threading.Timeout.Infinite);
-                _flights[id] = flight;
+                _flights[id] = new Flight { Source = source };
+                // Le chien de garde s'arme au premier vol ; il n'est PAS
+                // réarmé par les demandes suivantes (seul le PROGRÈS — une
+                // ligne reçue — le réarme, sinon un flot de demandes
+                // masquerait un moteur figé).
+                if (_flights.Count == 1) ArmWatchdogLocked();
                 var request = new Dictionary<string, object>
                 {
                     { "id", id },
@@ -128,13 +142,12 @@ namespace UniversSale.Correction.Grammalecte
                 if (options != null) request["options"] = options;
                 try
                 {
-                    _input.WriteLine(UniversSale.Json.Write(request));
-                    _input.Flush(); // AFFLEURER, toujours (A2)
+                    WriteLineLocked(UniversSale.Json.Write(request));
                 }
                 catch (Exception failure)
                 {
                     _flights.Remove(id);
-                    flight.Timeout.Dispose();
+                    if (_flights.Count == 0) DisarmWatchdogLocked();
                     source.SetException(failure);
                     KillLocked("écriture impossible (processus mort ?)");
                     return source.Task;
@@ -186,11 +199,12 @@ namespace UniversSale.Correction.Grammalecte
                 info.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
                 var process = Process.Start(info);
                 _process = process;
-                // .NET 4.8 n'offre pas StandardInputEncoding : on écrit
-                // l'UTF-8 sans BOM nous-mêmes sur le flux brut.
-                _input = new StreamWriter(process.StandardInput.BaseStream,
-                    new UTF8Encoding(false));
-                _input.AutoFlush = false;
+                // .NET 4.8 n'offre pas StandardInputEncoding — et le BOM
+                // s'invite par des chemins retors (attrapé par la sonde UI :
+                // la PREMIÈRE requête mourait d'un « Unexpected UTF-8 BOM »
+                // côté Python). Donc AUCUN écrivain intermédiaire : les
+                // octets UTF-8 sans BOM sont posés sur le tube brut.
+                _input = process.StandardInput.BaseStream;
                 SetStateLocked(BridgeState.Starting, "initialisation…");
                 _reader = new Thread(ReadLoop) { IsBackground = true };
                 _reader.Start(process);
@@ -246,6 +260,9 @@ namespace UniversSale.Correction.Grammalecte
                         _version = UniversSale.Json.AsString(
                             UniversSale.Json.Field(message, "version")) ?? "";
                         SetStateLocked(BridgeState.Ready, "");
+                        // La ligne « ready » EST un progrès : réarme.
+                        if (_flights.Count > 0) ArmWatchdogLocked();
+                        else DisarmWatchdogLocked();
                     }
                     RaiseStateChanged();
                     continue;
@@ -258,9 +275,12 @@ namespace UniversSale.Correction.Grammalecte
                 {
                     if (_flights.TryGetValue(id, out flight))
                         _flights.Remove(id);
+                    // Une réponse = du progrès : le chien de garde repart
+                    // pour les vols restants, ou se tait s'il n'y en a plus.
+                    if (_flights.Count > 0) ArmWatchdogLocked();
+                    else DisarmWatchdogLocked();
                 }
-                if (flight == null) continue; // expirée ou annulée : jetée
-                flight.Timeout.Dispose();
+                if (flight == null) continue; // annulée ou périmée : jetée
                 if (message.ContainsKey("error"))
                 {
                     flight.Source.TrySetException(new InvalidOperationException(
@@ -279,17 +299,15 @@ namespace UniversSale.Correction.Grammalecte
                 if (_process != process) return; // un remplaçant est déjà là
                 orphans = new List<Flight>(_flights.Values);
                 _flights.Clear();
+                DisarmWatchdogLocked();
                 _process = null;
                 _input = null;
                 if (_state != BridgeState.Unavailable)
                     SetStateLocked(BridgeState.Idle, "processus terminé");
             }
             foreach (var orphan in orphans)
-            {
-                orphan.Timeout.Dispose();
                 orphan.Source.TrySetException(new InvalidOperationException(
                     "Grammalecte : processus terminé"));
-            }
             RaiseStateChanged();
         }
 
@@ -334,21 +352,53 @@ namespace UniversSale.Correction.Grammalecte
             return errors;
         }
 
-        private void OnTimeout(int id)
+        /// <summary>Sous verrou : une ligne JSON en octets UTF-8 SANS BOM,
+        /// LF final, affleurée (A2) — directement sur le tube.</summary>
+        private void WriteLineLocked(string line)
         {
-            Flight flight = null;
+            var bytes = Encoding.UTF8.GetBytes(line + "\n");
+            _input.Write(bytes, 0, bytes.Length);
+            _input.Flush();
+        }
+
+        /// <summary>Sous verrou : (ré)arme le chien de garde. Un tir tardif
+        /// d'un ancien armement est invalidé par le jeton.</summary>
+        private void ArmWatchdogLocked()
+        {
+            _watchdogToken++;
+            var token = _watchdogToken;
+            if (_watchdog != null) _watchdog.Dispose();
+            _watchdog = new Timer(delegate { OnWatchdog(token); }, null,
+                TimeoutMilliseconds, System.Threading.Timeout.Infinite);
+        }
+
+        private void DisarmWatchdogLocked()
+        {
+            _watchdogToken++;
+            if (_watchdog != null) { _watchdog.Dispose(); _watchdog = null; }
+        }
+
+        /// <summary>AUCUN progrès pendant tout le délai alors que des vols
+        /// attendent : moteur figé (ReDoS) ou fils muet — on tue, les vols
+        /// échouent, la prochaine demande relancera un processus sain.</summary>
+        private void OnWatchdog(int token)
+        {
+            List<Flight> starved = null;
             lock (_gate)
             {
-                if (_flights.TryGetValue(id, out flight)) _flights.Remove(id);
-                if (flight != null)
-                    // Un moteur figé (ReDoS) ne se débloquera pas : on tue,
-                    // la prochaine demande relancera un processus sain.
-                    KillLocked("timeout de vérification");
+                if (token != _watchdogToken) return; // réarmé/désarmé depuis
+                if (_flights.Count > 0)
+                {
+                    starved = new List<Flight>(_flights.Values);
+                    _flights.Clear();
+                }
+                DisarmWatchdogLocked();
+                KillLocked("timeout de vérification");
             }
-            if (flight == null) return;
-            flight.Timeout.Dispose();
-            flight.Source.TrySetException(new TimeoutException(
-                "Grammalecte : délai dépassé"));
+            if (starved != null)
+                foreach (var flight in starved)
+                    flight.Source.TrySetException(new TimeoutException(
+                        "Grammalecte : délai dépassé (aucun progrès)"));
             RaiseStateChanged();
         }
 
@@ -388,25 +438,19 @@ namespace UniversSale.Correction.Grammalecte
                 _disposed = true;
                 orphans = new List<Flight>(_flights.Values);
                 _flights.Clear();
+                DisarmWatchdogLocked();
                 process = _process;
                 _process = null;
                 try
                 {
-                    if (_input != null)
-                    {
-                        _input.WriteLine("{\"quit\": true}");
-                        _input.Flush();
-                    }
+                    if (_input != null) WriteLineLocked("{\"quit\": true}");
                 }
                 catch { }
                 _input = null;
                 SetStateLocked(BridgeState.Unavailable, "fermeture");
             }
             foreach (var orphan in orphans)
-            {
-                orphan.Timeout.Dispose();
                 orphan.Source.TrySetCanceled();
-            }
             if (process != null)
                 try { if (!process.HasExited) process.Kill(); }
                 catch { }

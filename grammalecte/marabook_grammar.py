@@ -44,7 +44,13 @@ import sys
 
 # UTF-8 EXPLICITE des deux côtés, quelle que soit la console/codepage Windows
 # (PYTHONIOENCODING est posé par Marabook en ceinture ; ceci est la bretelle).
-sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")
+# stdin en utf-8-SIG : le wrapper StandardInput de .NET Framework écrit le
+# PRÉAMBULE de Console.InputEncoding dans le tube au moment où on y accède
+# (AutoFlush=true dans son getter) — sous une console en codepage 65001, un
+# BOM précède donc la première requête. utf-8-sig l'avale s'il existe et se
+# comporte comme utf-8 sinon. (Attrapé par la sonde UI du batch 29 : la
+# PREMIÈRE requête mourait d'un « Unexpected UTF-8 BOM ».)
+sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8-sig")
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="\n")
 
 import grammalecte
