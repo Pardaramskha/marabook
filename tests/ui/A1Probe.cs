@@ -62,6 +62,16 @@ namespace UniversSale.Tests.Ui
             // settings.json — elles n'y touchent pas).
             Console.WriteLine();
             _failures += CorrectionProbe.Run();
+            Console.WriteLine();
+            _failures += SheetProbe.Run();
+            if (Application.Current != null)
+            {
+                Application.Current.Shutdown();
+                var frame = new DispatcherFrame();
+                Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle,
+                    new Action(delegate { frame.Continue = false; }));
+                Dispatcher.PushFrame(frame);
+            }
             Console.WriteLine(_failures == 0
                 ? "SONDES UI OK" : "*** SONDES UI : " + _failures + " échec(s) ***");
             return _failures == 0 ? 0 : 1;
@@ -84,13 +94,16 @@ namespace UniversSale.Tests.Ui
             project.RelinkParents();
             PlotFile.Save(project, path);
 
-            // — L'application réelle, thémée, hors écran, en mode de
-            //   compatibilité (le chemin Commit de l'A1 est celui du
-            //   RichTextBox classique — c'est LUI que la sonde verrouille).
+            // — L'application réelle, thémée, hors écran. Depuis le batch 31
+            //   le corps d'une fiche est la source markdown (TextBox) : le
+            //   chemin verrouillé par la sonde reste frappe → Edited →
+            //   MarkDirty → Commit → disque, sur les trois sorties.
             AppSettings.Load();
-            AppSettings.ClassicCompatibility = true;
             Chrome.Toggle(false);
-            var application = new Application
+            // UNE Application pour toute la campagne (un AppDomain WPF n'en
+            // accepte qu'une) : créée ici, réutilisée par les sondes
+            // suivantes, éteinte en fin de Main.
+            var application = Application.Current ?? new Application
             {
                 ShutdownMode = ShutdownMode.OnExplicitShutdown
             };
@@ -119,9 +132,10 @@ namespace UniversSale.Tests.Ui
             Invoke(window, "OnBinderSelection", new object[] { target });
             DoEvents();
 
+            // Batch 31 : le corps d'une fiche est la SOURCE markdown, un
+            // TextBox — la sonde tape dedans par le même chemin que l'A1.
             var sheetView = GetField(window, "_sheetView");
-            var body = GetField(sheetView, "_body");
-            var box = (RichTextBox)GetField(body, "_box");
+            var box = (TextBox)GetField(sheetView, "_bodyBox");
 
             // ---- Chemin 1 : Ctrl+S (DoSave) --------------------------------
             TypeInBody(box, "SONDE-A1-CTRLS");
@@ -154,18 +168,18 @@ namespace UniversSale.Tests.Ui
                 && final.Contains("SONDE-A1-AUTOSAVE")
                 && final.Contains("SONDE-A1-FERMETURE"),
                 "fermeture : les trois frappes ont survécu sur le disque");
-
-            application.Shutdown();
-            DoEvents();
+            // L'Application reste vivante pour les sondes suivantes —
+            // extinction en fin de Main.
         }
 
-        /// <summary>Frappe au clavier simulée par l'API du RichTextBox (jamais
+        /// <summary>Frappe au clavier simulée par l'API du TextBox (jamais
         /// de clics/touches synthétiques — règle du batch 3) : le TextChanged
         /// réel se déclenche, la chaîne Edited → MarkDirty aussi.</summary>
-        private static void TypeInBody(RichTextBox box, string text)
+        private static void TypeInBody(TextBox box, string text)
         {
-            box.CaretPosition = box.Document.ContentEnd;
-            box.CaretPosition.InsertTextInRun(text);
+            box.CaretIndex = box.Text.Length;
+            box.SelectedText = text;
+            box.CaretIndex = box.Text.Length;
         }
 
         private static string BodyOnDisk(string path)

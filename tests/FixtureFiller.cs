@@ -48,6 +48,10 @@ namespace UniversSale.Tests
             "TextRun.AnnotationId",         // ↔ Annotation réelle (exercée)
             "TextParagraph.StyleId",        // ↔ style existant (exercé)
             "BinderItem.TemplateId",        // ↔ modèle de fiche (exercé)
+            "BinderItem.CategoryId",        // ↔ catégorie de fiches (exercée
+                                            //   par la fiche héroïne, b31)
+            "SheetCategory.Id",             // référence CategoryId des fiches
+            "SheetCategory.TemplateId",     // ↔ modèle de base (exercé)
             "BinderItem.PageTemplateId",    // ↔ gabarit de pages (exercé)
             "BinderItem.ImageId",           // ↔ image du magasin (exercée)
             "BinderItem.Category",          // clé des 4 catégories racines

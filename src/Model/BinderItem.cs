@@ -77,6 +77,7 @@ namespace UniversSale.Model
 
         // Sheet items only.
         public string TemplateId;
+        public string CategoryId; // catégorie de fiches (batch 31), null = sans
         public Dictionary<string, string> FieldValues = new Dictionary<string, string>();
         public List<InfoEntry> FreeInfo = new List<InfoEntry>();
 

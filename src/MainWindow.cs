@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.28.0-alpha";
+        public const string AppVersion = "0.29.0-alpha";
 
         private Project _project;
         private string _path;
@@ -34,6 +34,7 @@ namespace UniversSale
 
         private EditorView _editor;
         private SheetView _sheetView;
+        private View.SheetLibraryView _sheetLibrary; // catégorie « Fiches » (b31)
         private CorkboardView _corkboard;
         private View.BookView _bookView;
         private View.TemplateView _templateView;
@@ -99,7 +100,6 @@ namespace UniversSale
             root.Children.Add(BuildContent());
             Content = root;
             _editor.CalmRequested += ToggleCalmMode;
-            _sheetView.CalmRequested += ToggleCalmMode;
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 // Échap quitte le mode calme — en bulle, pour laisser la barre
@@ -364,22 +364,12 @@ namespace UniversSale
             _editor.PdfRequested += ExportPdf;
             center.Children.Add(_editor);
 
+            // Batch 31 : la fiche n'a plus de corps à ruban — seuls restent
+            // l'édition, la navigation [[wiki]] et le zoom.
             _sheetView = new SheetView { Visibility = Visibility.Collapsed };
             _sheetView.Edited += OnEditorEdited;
             _sheetView.LinkClicked += NavigateToTitle;
             _sheetView.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
-            _sheetView.PageSetupChanged += delegate
-            {
-                _editor.ApplyPageSetup(_project.Page);
-                MarkDirty();
-            };
-            _sheetView.MarksToggled += OnMarksToggled;
-            _sheetView.StylesRequested += OpenStylesDialog;
-            _sheetView.PreviewRequested += ShowPrintPreview;
-            _sheetView.PrintRequested += PrintCurrent;
-            _sheetView.ExportRequested += ExportCurrentItem;
-            _sheetView.CompileRequested += CompileManuscript;
-            _sheetView.PdfRequested += ExportPdf;
             center.Children.Add(_sheetView);
 
             _corkboard = new CorkboardView { Visibility = Visibility.Collapsed };
@@ -390,6 +380,13 @@ namespace UniversSale
             _corkboard.DeleteRequested += delegate(BinderItem item) { _binder.Delete(item); };
             _corkboard.ApplyTemplateRequested += ApplyPageTemplateTo;
             center.Children.Add(_corkboard);
+
+            // La bibliothèque de fiches (batch 31) : la vue de la catégorie
+            // « Fiches » — rangées par catégorie, cartes, recherche.
+            _sheetLibrary = new View.SheetLibraryView { Visibility = Visibility.Collapsed };
+            _sheetLibrary.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _sheetLibrary.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
+            center.Children.Add(_sheetLibrary);
 
             _bookView = new BookView { Visibility = Visibility.Collapsed };
             _bookView.PageCounter = PageCountOf; // filtres du corkboard du livre
@@ -1125,6 +1122,8 @@ namespace UniversSale
                 return _bookView.Visibility == Visibility.Visible && _bookView.ShowsItem(item);
             if (item.Kind == ItemKind.PageTemplate)
                 return _templateView.Visibility == Visibility.Visible && _templateView.ShowsItem(item);
+            if (item.IsCategory && item.CategoryKey == Project.KeySheets)
+                return _sheetLibrary.Visibility == Visibility.Visible;
             return _corkboard.Visibility == Visibility.Visible && _corkboard.ShowsItem(item);
         }
 
@@ -1141,6 +1140,7 @@ namespace UniversSale
 
             _editor.Visibility = Visibility.Collapsed;
             _sheetView.Visibility = Visibility.Collapsed;
+            _sheetLibrary.Visibility = Visibility.Collapsed;
             _corkboard.Visibility = Visibility.Collapsed;
             _bookView.Visibility = Visibility.Collapsed;
             _bookView.Clear();
@@ -1203,6 +1203,18 @@ namespace UniversSale
                 _sheetView.Clear();
                 _mediaView.LoadItem(item);
                 _mediaView.Visibility = Visibility.Visible;
+                return;
+            }
+            // La catégorie « Fiches » ouvre la BIBLIOTHÈQUE (batch 31) :
+            // rangées par catégorie de fiches, cartes, recherche par nom.
+            if (item != null && item.IsCategory
+                && item.CategoryKey == Project.KeySheets)
+            {
+                _editor.Clear();
+                _sheetView.Clear();
+                _sheetLibrary.Load(_project, _history);
+                _sheetLibrary.Visibility = Visibility.Visible;
+                _sheetLibrary.Focus();
                 return;
             }
             // Corkboard: true containers only (folders, categories). A text
@@ -1297,11 +1309,16 @@ namespace UniversSale
                 AppName, MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (answer != MessageBoxResult.Yes) return;
             var sheets = _project.Category(Project.KeySheets);
+            // Une fiche née d'un [[lien]] rejoint la première catégorie
+            // (batch 31) — déplaçable ensuite depuis la bibliothèque.
+            var home = _project.SheetCategories.Count > 0
+                ? _project.SheetCategories[0] : null;
             var sheet = new BinderItem
             {
                 Kind = ItemKind.Sheet,
                 Title = title,
-                TemplateId = _project.Templates.Count > 0 ? _project.Templates[0].Id : null
+                CategoryId = home != null ? home.Id : null,
+                TemplateId = home != null ? home.TemplateId : null
             };
             _history.Run(new History.AddItemAction(sheets, sheet, -1));
             MarkDirty();

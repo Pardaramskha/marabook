@@ -37,7 +37,12 @@ namespace UniversSale.Persistence
         // v9: dictionnaire personnel du projet (learnedWords);
         // v10: règles de correction ignorées du projet (ignoredRules —
         //      « ignorer cette règle » d'un signalement Grammalecte).
-        private const int FormatVersion = 10;
+        // v11: catégories de fiches (sheets/templates.json : "categories",
+        //      chacune {id, name, template}) ; groupe d'affichage des champs
+        //      de modèle ("group") ; catégorie d'une fiche ("sheetCategory").
+        //      Un .plot d'avant est migré au chargement par
+        //      Project.EnsureSheetCategories (défauts + adoption par nom).
+        private const int FormatVersion = 11;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -72,7 +77,7 @@ namespace UniversSale.Persistence
             {
                 WriteEntry(archive, "manifest.json", Json.Write(BuildManifest(project)));
                 WriteEntry(archive, "styles.json", Json.Write(BuildStyles(project.Styles)));
-                WriteEntry(archive, "sheets/templates.json", Json.Write(BuildTemplates(project.Templates)));
+                WriteEntry(archive, "sheets/templates.json", Json.Write(BuildTemplates(project)));
                 foreach (var kv in project.Images)
                 {
                     if (kv.Value.Bytes == null) continue;
@@ -232,6 +237,7 @@ namespace UniversSale.Persistence
             if (item.Kind == ItemKind.Sheet)
             {
                 if (item.TemplateId != null) node["template"] = item.TemplateId;
+                if (item.CategoryId != null) node["sheetCategory"] = item.CategoryId;
                 if (item.FieldValues.Count > 0)
                 {
                     var fields = new Dictionary<string, object>();
@@ -311,11 +317,11 @@ namespace UniversSale.Persistence
             return root;
         }
 
-        private static Dictionary<string, object> BuildTemplates(List<SheetTemplate> templates)
+        private static Dictionary<string, object> BuildTemplates(Project project)
         {
             var root = new Dictionary<string, object>();
             var list = new List<object>();
-            foreach (var template in templates)
+            foreach (var template in project.Templates)
             {
                 var t = new Dictionary<string, object>();
                 t["id"] = template.Id;
@@ -327,12 +333,24 @@ namespace UniversSale.Persistence
                     f["id"] = field.Id;
                     f["name"] = field.Name;
                     if (field.Kind != "text") f["kind"] = field.Kind;
+                    if (field.Group.Length > 0) f["group"] = field.Group;
                     fields.Add(f);
                 }
                 t["fields"] = fields;
                 list.Add(t);
             }
             root["templates"] = list;
+            // v11 — les catégories de fiches, dans leur ordre d'affichage.
+            var categories = new List<object>();
+            foreach (var category in project.SheetCategories)
+            {
+                var c = new Dictionary<string, object>();
+                c["id"] = category.Id;
+                c["name"] = category.Name;
+                if (category.TemplateId != null) c["template"] = category.TemplateId;
+                categories.Add(c);
+            }
+            root["categories"] = categories;
             return root;
         }
 
@@ -496,11 +514,12 @@ namespace UniversSale.Persistence
 
                 var templatesEntry = archive.GetEntry("sheets/templates.json");
                 if (templatesEntry != null)
-                    try { project.Templates = ReadTemplates(ReadEntry(templatesEntry)); }
+                    try { ReadTemplates(ReadEntry(templatesEntry), project); }
                     catch (Exception error)
                     {
                         Warn(warnings, "Modèles de fiches illisibles ("
-                            + error.Message + ") : modèles par défaut conservés.");
+                            + error.Message + ") : les modèles par défaut "
+                            + "seront recréés.");
                     }
 
                 var page = Json.AsObject(Json.Field(manifest, "page"));
@@ -563,6 +582,10 @@ namespace UniversSale.Persistence
                     }
 
                 project.RelinkParents();
+                // Batch 31 : un projet d'avant les catégories de fiches est
+                // migré ici (défauts + adoption des modèles par nom), et les
+                // fiches orphelines rejoignent la catégorie de leur modèle.
+                project.EnsureSheetCategories();
                 return project;
             }
         }
@@ -654,10 +677,11 @@ namespace UniversSale.Persistence
             return page;
         }
 
-        private static List<SheetTemplate> ReadTemplates(string json)
+        private static void ReadTemplates(string json, Project project)
         {
             var templates = new List<SheetTemplate>();
-            var list = Json.AsList(Json.Field(Json.Parse(json), "templates"));
+            var root = Json.Parse(json);
+            var list = Json.AsList(Json.Field(root, "templates"));
             if (list != null)
                 foreach (var entry in list)
                 {
@@ -678,11 +702,30 @@ namespace UniversSale.Persistence
                             if (!string.IsNullOrEmpty(fieldId)) field.Id = fieldId;
                             field.Name = Json.AsString(Json.Field(f, "name")) ?? "Champ";
                             field.Kind = Json.AsString(Json.Field(f, "kind")) ?? "text";
+                            field.Group = Json.AsString(Json.Field(f, "group")) ?? "";
                             template.Fields.Add(field);
                         }
                     templates.Add(template);
                 }
-            return templates; // an empty list is legitimate (user deleted them all)
+            // an empty list is legitimate (user deleted them all)
+            project.Templates = templates;
+            // v11 — les catégories ; absentes d'un vieux .plot, la migration
+            // EnsureSheetCategories (fin du chargement) les comblera.
+            var categories = new List<SheetCategory>();
+            var categoryList = Json.AsList(Json.Field(root, "categories"));
+            if (categoryList != null)
+                foreach (var entry in categoryList)
+                {
+                    var c = Json.AsObject(entry);
+                    if (c == null) continue;
+                    var category = new SheetCategory();
+                    var id = Json.AsString(Json.Field(c, "id"));
+                    if (!string.IsNullOrEmpty(id)) category.Id = id;
+                    category.Name = Json.AsString(Json.Field(c, "name")) ?? "Catégorie";
+                    category.TemplateId = Json.AsString(Json.Field(c, "template"));
+                    categories.Add(category);
+                }
+            project.SheetCategories = categories;
         }
 
         private static BinderItem ReadNode(object node, ZipArchive archive, List<string> warnings)
@@ -754,6 +797,7 @@ namespace UniversSale.Persistence
             if (item.Kind == ItemKind.Sheet)
             {
                 item.TemplateId = Json.AsString(Json.Field(obj, "template"));
+                item.CategoryId = Json.AsString(Json.Field(obj, "sheetCategory"));
                 var fields = Json.AsObject(Json.Field(obj, "fields"));
                 if (fields != null)
                     foreach (var kv in fields)

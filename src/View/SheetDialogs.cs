@@ -197,6 +197,19 @@ namespace UniversSale.View
             DockPanel.SetDock(kindCombo, Dock.Right);
             row.Children.Add(kindCombo);
 
+            // Groupe d'affichage (batch 31) : les champs d'un même groupe
+            // s'affichent sous un intertitre (« Infos », « Physique »…).
+            var groupBox = new TextBox
+            {
+                Text = field.Group,
+                Width = 90,
+                Margin = new Thickness(6, 0, 0, 0),
+                ToolTip = "Groupe d'affichage (ex. Infos, Physique) — vide : aucun"
+            };
+            groupBox.TextChanged += delegate { field.Group = groupBox.Text.Trim(); };
+            DockPanel.SetDock(groupBox, Dock.Right);
+            row.Children.Add(groupBox);
+
             var nameBox = new TextBox { Text = field.Name };
             nameBox.TextChanged += delegate { field.Name = nameBox.Text; };
             row.Children.Add(nameBox);
@@ -248,14 +261,15 @@ namespace UniversSale.View
         }
     }
 
-    /// <summary>New sheet: title + template choice.</summary>
+    /// <summary>Nouvelle fiche (batch 31) : titre + CATÉGORIE — le modèle
+    /// suit (le modèle de base de la catégorie choisie).</summary>
     public class NewSheetDialog : Window
     {
         private readonly TextBox _titleBox;
-        private readonly ComboBox _templateCombo;
+        private readonly ComboBox _categoryCombo;
         private bool _accepted;
 
-        private NewSheetDialog(Window owner, List<SheetTemplate> templates)
+        private NewSheetDialog(Window owner, Project project)
         {
             Title = "Nouvelle fiche";
             Owner = owner;
@@ -271,13 +285,27 @@ namespace UniversSale.View
             _titleBox.SelectAll();
             panel.Children.Add(_titleBox);
 
-            panel.Children.Add(new TextBlock { Text = "Modèle :", Foreground = Chrome.Ink, Margin = new Thickness(0, 10, 0, 4) });
-            _templateCombo = new ComboBox();
-            foreach (var template in templates)
-                _templateCombo.Items.Add(new ComboBoxItem { Content = template.Name, Tag = template.Id });
-            _templateCombo.Items.Add(new ComboBoxItem { Content = "(sans modèle)", Tag = null });
-            _templateCombo.SelectedIndex = 0;
-            panel.Children.Add(_templateCombo);
+            panel.Children.Add(new TextBlock { Text = "Catégorie :", Foreground = Chrome.Ink, Margin = new Thickness(0, 10, 0, 4) });
+            _categoryCombo = new ComboBox();
+            foreach (var category in project.SheetCategories)
+            {
+                var template = project.FindTemplate(category.TemplateId);
+                _categoryCombo.Items.Add(new ComboBoxItem
+                {
+                    Content = category.Name
+                        + (template != null ? "  ·  modèle " + template.Name : ""),
+                    Tag = category.Id
+                });
+            }
+            if (_categoryCombo.Items.Count > 0)
+                _categoryCombo.Items.Add(new Separator());
+            _categoryCombo.Items.Add(new ComboBoxItem
+            {
+                Content = "(sans catégorie ni modèle)",
+                Tag = null
+            });
+            _categoryCombo.SelectedIndex = 0;
+            panel.Children.Add(_categoryCombo);
 
             var buttons = new StackPanel
             {
@@ -296,14 +324,14 @@ namespace UniversSale.View
             Loaded += delegate { _titleBox.Focus(); };
         }
 
-        public static bool Ask(Window owner, List<SheetTemplate> templates,
-            out string title, out string templateId)
+        public static bool Ask(Window owner, Project project,
+            out string title, out string categoryId)
         {
-            var dialog = new NewSheetDialog(owner, templates);
+            var dialog = new NewSheetDialog(owner, project);
             dialog.ShowDialog();
             title = dialog._titleBox.Text.Trim();
-            var chosen = dialog._templateCombo.SelectedItem as ComboBoxItem;
-            templateId = chosen == null ? null : chosen.Tag as string;
+            var chosen = dialog._categoryCombo.SelectedItem as ComboBoxItem;
+            categoryId = chosen == null ? null : chosen.Tag as string;
             if (!dialog._accepted || title.Length == 0) { title = null; return false; }
             return true;
         }

@@ -1017,10 +1017,19 @@ namespace UniversSale.View
                     && selected.RootCategory().CategoryKey != Project.KeyTrash
                     ? selected : _project.Category(Project.KeySheets);
             }
-            string title, templateId;
-            if (!NewSheetDialog.Ask(Window.GetWindow(this), _project.Templates, out title, out templateId))
+            string title, categoryId;
+            if (!NewSheetDialog.Ask(Window.GetWindow(this), _project, out title, out categoryId))
                 return;
-            var item = new BinderItem { Kind = ItemKind.Sheet, Title = title, TemplateId = templateId };
+            // La fiche naît dans sa catégorie, avec le modèle de base de
+            // celle-ci (batch 31) — sans catégorie : champs libres seuls.
+            var category = _project.FindSheetCategory(categoryId);
+            var item = new BinderItem
+            {
+                Kind = ItemKind.Sheet,
+                Title = title,
+                CategoryId = category != null ? category.Id : null,
+                TemplateId = category != null ? category.TemplateId : null
+            };
             RunAndSelect(new AddItemAction(parent, item, -1), item.Id, parent.Id);
         }
 

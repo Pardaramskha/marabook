@@ -58,7 +58,12 @@ namespace UniversSale.Model
         public string ModifiedAt = "";
         public WritingJournal Journal = new WritingJournal();
         public StyleSheet Styles = StyleSheet.CreateDefault();
-        public List<SheetTemplate> Templates = SheetTemplate.CreateDefaults();
+        // Modèles et catégories de fiches (batch 31) : un projet NEUF est
+        // semé par SheetDefaults.Seed (CreateNew) ; un projet chargé reçoit
+        // le contenu du .plot, la migration d'EnsureSheetCategories comble
+        // les projets d'avant les catégories.
+        public List<SheetTemplate> Templates = new List<SheetTemplate>();
+        public List<SheetCategory> SheetCategories = new List<SheetCategory>();
         public PageSetup Page = new PageSetup();
         public Dictionary<string, ProjectImage> Images = new Dictionary<string, ProjectImage>();
         public List<BinderItem> Roots = new List<BinderItem>();
@@ -108,6 +113,76 @@ namespace UniversSale.Model
             return null;
         }
 
+        public SheetCategory FindSheetCategory(string id)
+        {
+            foreach (var category in SheetCategories)
+                if (category.Id == id) return category;
+            return null;
+        }
+
+        /// <summary>La catégorie d'une fiche : la sienne si elle existe encore,
+        /// sinon celle qui porte son modèle (fiches d'avant les catégories),
+        /// sinon null (« Sans catégorie » dans la bibliothèque).</summary>
+        public SheetCategory SheetCategoryOf(BinderItem sheet)
+        {
+            if (sheet == null) return null;
+            var own = FindSheetCategory(sheet.CategoryId);
+            if (own != null) return own;
+            if (sheet.TemplateId != null)
+                foreach (var category in SheetCategories)
+                    if (category.TemplateId == sheet.TemplateId) return category;
+            return null;
+        }
+
+        /// <summary>Migration des catégories (batch 31), idempotente — appelée
+        /// au chargement. Un projet d'avant la v11 : les sept catégories
+        /// livrées se créent, chacune adopte le modèle existant de même nom
+        /// (les fiches gardent leurs valeurs) ou reçoit le modèle par défaut ;
+        /// tout modèle restant devient sa propre catégorie personnalisée.
+        /// Les fiches sans catégorie rejoignent celle de leur modèle.</summary>
+        public void EnsureSheetCategories()
+        {
+            if (SheetCategories.Count == 0)
+            {
+                foreach (var name in SheetDefaults.CategoryNames)
+                {
+                    SheetTemplate adopted = null;
+                    foreach (var template in Templates)
+                        if (template.Name == name) { adopted = template; break; }
+                    if (adopted == null)
+                    {
+                        adopted = SheetDefaults.TemplateFor(name);
+                        Templates.Add(adopted);
+                    }
+                    SheetCategories.Add(new SheetCategory
+                    {
+                        Name = name,
+                        TemplateId = adopted.Id
+                    });
+                }
+                foreach (var template in Templates)
+                {
+                    var owned = false;
+                    foreach (var category in SheetCategories)
+                        if (category.TemplateId == template.Id) { owned = true; break; }
+                    if (!owned)
+                        SheetCategories.Add(new SheetCategory
+                        {
+                            Name = template.Name,
+                            TemplateId = template.Id
+                        });
+                }
+            }
+            foreach (var item in AllItems())
+            {
+                if (item.Kind != ItemKind.Sheet) continue;
+                if (FindSheetCategory(item.CategoryId) != null) continue;
+                var home = SheetCategoryOf(item);
+                item.CategoryId = home != null ? home.Id
+                    : SheetCategories.Count > 0 ? SheetCategories[0].Id : null;
+            }
+        }
+
         /// <summary>First item whose title matches (case- and accent-insensitive),
         /// for [[wiki link]] navigation. Sheets win over other kinds.</summary>
         public BinderItem FindByTitle(string title)
@@ -129,6 +204,7 @@ namespace UniversSale.Model
         public static Project CreateNew()
         {
             var project = new Project();
+            SheetDefaults.Seed(project.Templates, project.SheetCategories);
             project.Roots.Add(MakeCategory("Écrits", KeyWritings));
             project.Roots.Add(MakeCategory("Recherche", KeyResearch));
             project.Roots.Add(MakeCategory("Fiches", KeySheets));

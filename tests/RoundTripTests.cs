@@ -278,6 +278,15 @@ namespace UniversSale.Tests
             template.Fields.Add(new SheetField { Name = "Biographie", Kind = "long" });
             project.Templates.Add(template);
 
+            // — Catégorie de fiches (batch 31, v11) : la fiche héroïne vit
+            // dans une catégorie personnalisée dont le modèle est « Créature ».
+            var bestiaire = new SheetCategory
+            {
+                Name = "Bestiaire",
+                TemplateId = template.Id
+            };
+            project.SheetCategories.Add(bestiaire);
+
             var writings = project.Category(Project.KeyWritings);
             var research = project.Category(Project.KeyResearch);
             var sheets = project.Category(Project.KeySheets);
@@ -371,6 +380,7 @@ namespace UniversSale.Tests
                 Kind = ItemKind.Sheet,
                 Title = "Fiche héroïne",
                 TemplateId = template.Id,
+                CategoryId = bestiaire.Id, // catégorie de fiches (batch 31)
                 Notes = "Fiche importante."
             };
             sheet.FieldValues[template.Fields[0].Id] = "Marabout cendré";
@@ -405,6 +415,7 @@ namespace UniversSale.Tests
             FixtureFiller.Fill(project.Styles.Find("special"), "KeepWithPrevious");
             FixtureFiller.Fill(template);
             FixtureFiller.Fill(template.Fields[0]);
+            FixtureFiller.Fill(bestiaire);
             FixtureFiller.Fill(chapter);
             FixtureFiller.Fill(chapter.Page);
             FixtureFiller.Fill(chapter.Header, "Italic");
