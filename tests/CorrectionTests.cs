@@ -31,8 +31,84 @@ namespace UniversSale.Tests
             AggregationAndOrder(t);
             TotalOrder(t);
             ParagraphCache(t);
+            ContentAddressedCache(t);
+            WarmParagraphPrimes(t);
+            DuplicateParagraphsCloned(t);
             DeferredPipeline(t);
             FiftyThousandWords(t);
+        }
+
+        // ---------------------------------------- batch 30 : cache par contenu
+
+        /// <summary>Le cache des vérificateurs locaux est adressé par CONTENU
+        /// (batch 30) : changer d'écrit puis revenir ne revérifie RIEN — le
+        /// coût du clic sur un chapitre déjà vu tombe à la lecture du cache.
+        /// Un paragraphe déplacé garde aussi son entrée (l'intention du
+        /// batch 27, enfin tenue à la lettre).</summary>
+        private static void ContentAddressedCache(Harness t)
+        {
+            var chapterOne = Document("Une faute ici.", "Un texte propre.");
+            var chapterTwo = Document("Un autre écrit.", "Encore une faute.");
+            var checker = new CountingLocalChecker();
+            var host = Host(checker);
+
+            host.Run(chapterOne, null);
+            t.Equal(2, checker.Calls, "chapitre 1 : deux paragraphes vérifiés");
+            host.Run(chapterTwo, null);
+            t.Equal(4, checker.Calls, "chapitre 2 : deux de plus");
+            var back = host.Run(chapterOne, null);
+            t.Equal(4, checker.Calls,
+                "RETOUR au chapitre 1 : zéro revérification (clé par contenu)");
+            t.Equal(1, back.Count, "la faute du chapitre 1 est toujours là");
+            t.Equal(0, back[0].ParagraphIndex, "à sa position");
+
+            // Un paragraphe déplacé en tête garde son entrée : seul le
+            // NOUVEAU contenu (aucun ici — échange de places) se vérifie.
+            var moved = chapterOne.Paragraphs[0];
+            chapterOne.Paragraphs.RemoveAt(0);
+            chapterOne.Paragraphs.Add(moved);
+            var swapped = host.Run(chapterOne, null);
+            t.Equal(4, checker.Calls, "échange de paragraphes : cache intact");
+            t.Equal(1, swapped[0].ParagraphIndex, "l'index suit le déplacement");
+        }
+
+        /// <summary>WarmParagraph (batch 30) — la pompe de l'ouverture :
+        /// préchauffer chaque paragraphe remplit le cache, la passe complète
+        /// qui suit ne vérifie plus rien, et seuls les signalements FRAIS
+        /// sont rendus (matière du préchauffage des suggestions).</summary>
+        private static void WarmParagraphPrimes(Harness t)
+        {
+            var document = Document("Une faute au début.", "Un texte propre.");
+            var checker = new CountingLocalChecker();
+            var host = Host(checker);
+
+            var fresh = host.WarmParagraph(document, 0, null);
+            t.Equal(1, fresh.Count, "le préchauffage rend le signalement frais");
+            t.Equal("faute", fresh[0].Word, "le mot signalé");
+            t.Equal(0, host.WarmParagraph(document, 0, null).Count,
+                "déjà au cache : rien de frais");
+            host.WarmParagraph(document, 1, null);
+            t.Equal(2, checker.Calls, "deux paragraphes, deux vérifications");
+
+            host.Run(document, null);
+            t.Equal(2, checker.Calls,
+                "la passe complète après préchauffage : ZÉRO vérification");
+            t.Equal(0, host.WarmParagraph(document, 99, null).Count,
+                "index hors bornes : silence (l'utilisateur édite déjà)");
+        }
+
+        /// <summary>Deux paragraphes au MÊME contenu partagent une entrée de
+        /// cache : chaque consommateur reçoit SA copie (CloneForParagraph) —
+        /// sans elle, le ParagraphIndex reposé du second écraserait celui du
+        /// premier et les deux ondulés tomberaient sur la même ligne.</summary>
+        private static void DuplicateParagraphsCloned(Harness t)
+        {
+            var document = Document("Une faute jumelle.", "Une faute jumelle.");
+            var host = Host(new CountingLocalChecker());
+            var findings = host.Run(document, null);
+            t.Equal(2, findings.Count, "deux signalements, un par jumeau");
+            t.Equal(0, findings[0].ParagraphIndex, "le premier au paragraphe 0");
+            t.Equal(1, findings[1].ParagraphIndex, "le second au paragraphe 1");
         }
 
         // ---------------------------------------- lot A (batch 29) : différé

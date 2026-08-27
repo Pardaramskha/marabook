@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.27.0-alpha";
+        public const string AppVersion = "0.28.0-alpha";
 
         private Project _project;
         private string _path;
@@ -63,6 +63,7 @@ namespace UniversSale
         private bool _loadingInspector;
 
         private TextBlock _statusLeft, _statusRight, _statusPages, _zoomLabel;
+        private TextBlock _statusWarmup; // préchauffage de l'ouverture (b30)
         private DispatcherTimer _statsTimer, _autosaveTimer;
 
         private MenuItem _undoMenu, _redoMenu, _darkMenu, _binderMenu, _inspectorMenu, _recentMenu, _rulersMenu;
@@ -727,6 +728,21 @@ namespace UniversSale
             DockPanel.SetDock(_statusPages, Dock.Right);
             dock.Children.Add(_statusPages);
 
+            // Le préchauffage de l'ouverture (batch 30), VISIBLE MAIS
+            // DISCRET — même doctrine que le différé : une ligne d'état,
+            // jamais un modal, jamais un sablier.
+            _statusWarmup = new TextBlock
+            {
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                FontStyle = FontStyles.Italic,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(14, 0, 0, 0),
+                Visibility = Visibility.Collapsed
+            };
+            DockPanel.SetDock(_statusWarmup, Dock.Right);
+            dock.Children.Add(_statusWarmup);
+
             _statusLeft = new TextBlock
             {
                 Foreground = Chrome.SoftText,
@@ -806,6 +822,9 @@ namespace UniversSale
             UpdateTitle();
             UpdateStats();
             UpdateInspector();
+            // Batch 30 : les textes se préparent dès l'ouverture, par
+            // tranches oisives — le premier clic sur un chapitre est chaud.
+            StartTextWarmup();
         }
 
         public void OpenFile(string path)
@@ -1753,6 +1772,113 @@ namespace UniversSale
             catch { pages = 1; }
             _pageCountCache[text.Id] = pages;
             return pages;
+        }
+
+        // ============================================================= préchauffage (b30)
+        // À l'ouverture d'un projet, les textes se préparent EN AVANCE, par
+        // tranches à priorité oisive (jamais un gel de la saisie) : nombre de
+        // pages de chaque écrit (folios, table des matières), passe locale de
+        // correction paragraphe par paragraphe (cache par contenu du pilote),
+        // suggestions d'orthographe en file d'arrière-plan. Le premier clic
+        // sur un chapitre trouve tout prêt — mesuré : 6,6 s → ~50 ms sur un
+        // chapitre de 18 000 caractères fautif.
+
+        private List<BinderItem> _warmupItems;
+        private int _warmupIndex;
+        private int _warmupParagraph; // -1 = étape « nombre de pages » de l'écrit
+        private int _warmupGeneration; // ouvrir un autre projet retire la pompe
+        private DispatcherTimer _warmupTailTimer; // fin de la file de suggestions
+
+        private void StartTextWarmup()
+        {
+            _warmupGeneration++;
+            if (_warmupTailTimer != null) _warmupTailTimer.Stop();
+            _warmupItems = new List<BinderItem>();
+            foreach (var item in _project.AllItems())
+                if (item.Kind == ItemKind.Text) _warmupItems.Add(item);
+            _warmupIndex = 0;
+            _warmupParagraph = -1;
+            if (_warmupItems.Count == 0)
+            {
+                _statusWarmup.Visibility = Visibility.Collapsed;
+                return;
+            }
+            UpdateWarmupStatus();
+            ScheduleWarmupStep();
+        }
+
+        private void ScheduleWarmupStep()
+        {
+            var generation = _warmupGeneration;
+            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle,
+                new Action(delegate { WarmupStep(generation); }));
+        }
+
+        /// <summary>UNE tranche de préchauffage (quelques ms), puis la main
+        /// revient au Dispatcher — la frappe et les clics passent toujours
+        /// avant. Les bornes sont relues à CHAQUE tranche : l'utilisateur
+        /// édite peut-être déjà pendant que la pompe tourne.</summary>
+        private void WarmupStep(int generation)
+        {
+            if (generation != _warmupGeneration) return; // autre projet
+            if (_warmupIndex >= _warmupItems.Count) { FinishWarmup(); return; }
+            var item = _warmupItems[_warmupIndex];
+            if (_warmupParagraph < 0)
+            {
+                PageCountOf(item); // folios, table des matières, tri « Pages »
+                _warmupParagraph = 0;
+            }
+            else if (_warmupParagraph < item.Document.Paragraphs.Count)
+            {
+                // Vérification coupée (bouton « Vérifier ») : le comptage de
+                // pages reste utile, la passe de correction n'a pas de sens.
+                if (AppSettings.ProofEnabled)
+                    _editor.WarmParagraph(item.Document, _warmupParagraph);
+                _warmupParagraph++;
+            }
+            else
+            {
+                _warmupIndex++;
+                _warmupParagraph = -1;
+                UpdateWarmupStatus();
+            }
+            if (_warmupIndex >= _warmupItems.Count) FinishWarmup();
+            else ScheduleWarmupStep();
+        }
+
+        private void UpdateWarmupStatus()
+        {
+            _statusWarmup.Text = "Préparation des textes… "
+                + Math.Min(_warmupIndex + 1, _warmupItems.Count)
+                + "/" + _warmupItems.Count;
+            _statusWarmup.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>La pompe a fini ses tranches ; la file de suggestions
+        /// d'arrière-plan peut encore tourner — l'indicateur le dit, puis
+        /// s'éteint de lui-même.</summary>
+        private void FinishWarmup()
+        {
+            if (_editor.PendingSuggestions == 0)
+            {
+                _statusWarmup.Visibility = Visibility.Collapsed;
+                return;
+            }
+            _statusWarmup.Text = "Préparation des suggestions…";
+            if (_warmupTailTimer == null)
+            {
+                _warmupTailTimer = new DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(500)
+                };
+                _warmupTailTimer.Tick += delegate
+                {
+                    if (_editor.PendingSuggestions > 0) return;
+                    _warmupTailTimer.Stop();
+                    _statusWarmup.Visibility = Visibility.Collapsed;
+                };
+            }
+            _warmupTailTimer.Start();
         }
 
         /// <summary>Total pages of a book (recto starts included) — feeds the

@@ -156,6 +156,23 @@ namespace UniversSale.Correction
             return suggestions;
         }
 
+        /// <summary>Les suggestions SI ELLES SONT PRÊTES, null sinon —
+        /// jamais de calcul Suggest ici (batch 30) : le panneau Correction
+        /// se construit sans payer Hunspell, la file d'arrière-plan chauffe
+        /// le mémo du moteur, et la reconstruction suivante trouve tout.
+        /// L'insertion des mots appris, marginale, se fait au passage.</summary>
+        public List<string> CachedSuggestions(string word)
+        {
+            List<string> suggestions;
+            if (_suggestionCache.TryGetValue(word, out suggestions))
+                return suggestions;
+            if (_engine == null || !_engine.HasSuggestMemo(word)) return null;
+            suggestions = _engine.Suggest(word); // mémo : copie immédiate
+            InsertLearnedMatches(word, suggestions);
+            _suggestionCache[word] = suggestions;
+            return suggestions;
+        }
+
         /// <summary>Les mots appris à distance d'édition ≤ 2 du mot fautif
         /// (clés pliées : « kaladinn » trouve « Kaladin »), insérés en tête
         /// dans leur casse d'origine. Les listes sont petites (centaines au

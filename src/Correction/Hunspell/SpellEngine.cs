@@ -377,12 +377,49 @@ namespace UniversSale.Correction.Hunspell
 
         // ========================================================== suggestions
 
+        // Mémo des suggestions (batch 30) : Suggest est LE coût dominant de
+        // la correction (dizaines de ms par mot inconnu — mesuré 6,5 s pour
+        // un panneau de 150 signalements à froid). Le moteur est immuable et
+        // partagé ; le mémo est sous verrou pour que le préchauffage
+        // d'arrière-plan et le fil UI cohabitent. Les listes rendues sont des
+        // COPIES : l'appelant peut les remanier (insertion des mots appris)
+        // sans corrompre le mémo.
+        private readonly Dictionary<string, List<string>> _suggestMemo
+            = new Dictionary<string, List<string>>();
+        private readonly object _suggestGate = new object();
+
         /// <summary>Suggestions plafonnées à 10, dans l'ordre de confiance :
         /// REP (les confusions typiques du français), MAP (les variantes
         /// accentuées), Damerau-Levenshtein 1 sur l'alphabet TRY, puis une
         /// distance 2 bornée si la moisson est maigre. La casse du mot
-        /// d'origine est rétablie. PAS de n-grammes (doctrine : backlog).</summary>
+        /// d'origine est rétablie. PAS de n-grammes (doctrine : backlog).
+        /// Mémoïsé et sûr entre fils (batch 30).</summary>
         public List<string> Suggest(string word)
+        {
+            if (string.IsNullOrEmpty(word)) return new List<string>();
+            lock (_suggestGate)
+            {
+                List<string> memo;
+                if (_suggestMemo.TryGetValue(word, out memo))
+                    return new List<string>(memo);
+            }
+            // Calcul HORS verrou (pur, sur structures immuables) : deux fils
+            // peuvent calculer le même mot en même temps, le second dépôt
+            // gagne — même résultat, aucune corruption.
+            var computed = SuggestUncached(word);
+            lock (_suggestGate) _suggestMemo[word] = computed;
+            return new List<string>(computed);
+        }
+
+        /// <summary>Vrai si le mot est déjà au mémo — le panneau Correction
+        /// n'affiche au clic que ce qui est prêt, le reste arrive par la file
+        /// d'arrière-plan (batch 30).</summary>
+        public bool HasSuggestMemo(string word)
+        {
+            lock (_suggestGate) return _suggestMemo.ContainsKey(word);
+        }
+
+        private List<string> SuggestUncached(string word)
         {
             var results = new List<string>();
             if (string.IsNullOrEmpty(word)) return results;

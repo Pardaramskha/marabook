@@ -44,19 +44,21 @@ namespace UniversSale.Correction
             _checkers.Add(checker);
         }
 
-        // Cache des vérificateurs LOCAUX (batch 27, lot B) : par
-        // (vérificateur, index de paragraphe), l'empreinte du texte plat et
-        // les signalements produits — un paragraphe inchangé n'est jamais
-        // revérifié. Les vérificateurs globaux (répétitions) repassent
-        // entiers à chaque cycle, par nature.
-        private sealed class CacheEntry
-        {
-            public long Fingerprint;
-            public List<Finding> Findings;
-        }
-        private readonly Dictionary<string, CacheEntry> _cache
-            = new Dictionary<string, CacheEntry>();
+        // Cache des vérificateurs LOCAUX (batch 27, lot B ; re-clé batch 30) :
+        // par (vérificateur, EMPREINTE du texte plat), les signalements
+        // produits — un paragraphe inchangé n'est jamais revérifié. La clé
+        // par CONTENU (et non par index) fait survivre le cache au
+        // déplacement d'un paragraphe ET au changement d'écrit : revenir sur
+        // un chapitre déjà vu ne revérifie rien. Les vérificateurs globaux
+        // (répétitions) repassent entiers à chaque cycle, par nature.
+        private readonly Dictionary<string, List<Finding>> _cache
+            = new Dictionary<string, List<Finding>>();
         private int _cachedParagraphCount;
+
+        // Soupape : le cache par contenu ne périme jamais de lui-même (chaque
+        // frappe crée une entrée, l'ancienne reste). Bien au-delà de tout
+        // projet réel — au plafond, on repart de zéro, simplement.
+        private const int CacheCap = 50000;
 
         // ---- le versant DIFFÉRÉ (batch 29, lot A) --------------------------
         // Les continuations arrivent sur un thread du pool pendant que le fil
@@ -154,20 +156,12 @@ namespace UniversSale.Correction
         {
             lock (_gate)
             {
-                // Le document a rétréci : les entrées au-delà meurent.
+                // Le document a rétréci : les demandes différées au-delà
+                // meurent (leur clé de position n'a plus de sens). Le cache,
+                // lui, est par contenu — rien à faire, la soupape veille.
                 if (document.Paragraphs.Count < _cachedParagraphCount)
                 {
                     var stale = new List<string>();
-                    foreach (var key in _cache.Keys)
-                    {
-                        var separator = key.LastIndexOf('|');
-                        int index;
-                        if (int.TryParse(key.Substring(separator + 1), out index)
-                            && index >= document.Paragraphs.Count)
-                            stale.Add(key);
-                    }
-                    foreach (var key in stale) _cache.Remove(key);
-                    stale.Clear();
                     foreach (var key in _latestRequest.Keys)
                     {
                         var separator = key.LastIndexOf('|');
@@ -187,12 +181,11 @@ namespace UniversSale.Correction
             {
                 var paragraph = document.Paragraphs[p];
                 var fingerprint = FingerprintOf(paragraph);
-                var key = checker.Id + "|" + p;
-                CacheEntry entry;
+                var key = checker.Id + "|" + fingerprint;
+                List<Finding> entry;
                 bool hit;
                 lock (_gate)
-                    hit = _cache.TryGetValue(key, out entry)
-                        && entry.Fingerprint == fingerprint;
+                    hit = _cache.TryGetValue(key, out entry);
                 if (!hit)
                 {
                     if (deferred != null)
@@ -204,21 +197,55 @@ namespace UniversSale.Correction
                             styles);
                         continue;
                     }
-                    entry = new CacheEntry
-                    {
-                        Fingerprint = fingerprint,
-                        Findings = checker.CheckParagraph(paragraph, styles)
-                            ?? new List<Finding>()
-                    };
-                    lock (_gate) _cache[key] = entry;
+                    entry = checker.CheckParagraph(paragraph, styles)
+                        ?? new List<Finding>();
+                    lock (_gate) StoreEntry(key, entry);
                 }
-                foreach (var finding in entry.Findings)
-                {
-                    finding.ParagraphIndex = p;
-                    results.Add(finding);
-                }
+                // Copies : l'entrée est partagée par tous les paragraphes de
+                // même contenu (voir Finding.CloneForParagraph).
+                foreach (var finding in entry)
+                    results.Add(finding.CloneForParagraph(p));
             }
             return results;
+        }
+
+        /// <summary>Dépose une entrée au cache par contenu, soupape comprise.
+        /// À appeler SOUS _gate.</summary>
+        private void StoreEntry(string key, List<Finding> findings)
+        {
+            if (_cache.Count >= CacheCap) _cache.Clear();
+            _cache[key] = findings;
+        }
+
+        /// <summary>Préchauffe le cache d'UN paragraphe pour tous les
+        /// vérificateurs locaux SYNCHRONES (batch 30) — la pompe de
+        /// l'ouverture avance paragraphe par paragraphe, à priorité oisive,
+        /// pour que le premier clic sur un chapitre trouve tout prêt. Les
+        /// différés (grammaire) ne sont PAS sollicités : pas de rafale
+        /// Grammalecte à l'ouverture. Rend les signalements FRAIS (calculés
+        /// ici même) : c'est la matière du préchauffage des suggestions ;
+        /// un paragraphe déjà en cache rend une liste vide.</summary>
+        public List<Finding> WarmParagraph(TextDocument document, int index,
+            StyleSheet styles)
+        {
+            var fresh = new List<Finding>();
+            if (index < 0 || index >= document.Paragraphs.Count) return fresh;
+            var paragraph = document.Paragraphs[index];
+            var fingerprint = FingerprintOf(paragraph);
+            foreach (var checker in _checkers)
+            {
+                if (checker.Scope != CheckerScope.ParagraphLocal) continue;
+                if (checker is IDeferredChecker) continue;
+                var key = checker.Id + "|" + fingerprint;
+                bool hit;
+                lock (_gate) hit = _cache.ContainsKey(key);
+                if (hit) continue;
+                var findings = checker.CheckParagraph(paragraph, styles)
+                    ?? new List<Finding>();
+                lock (_gate) StoreEntry(key, findings);
+                fresh.AddRange(findings);
+            }
+            return fresh;
         }
 
         /// <summary>Lance une vérification différée d'UN paragraphe. Déduplication
@@ -268,11 +295,9 @@ namespace UniversSale.Correction
                         && _latestRequest.TryGetValue(key, out latest)
                         && latest == fingerprint)
                     {
-                        _cache[key] = new CacheEntry
-                        {
-                            Fingerprint = fingerprint,
-                            Findings = done.Result
-                        };
+                        // Admis au cache PAR CONTENU (batch 30) : la clé de
+                        // position ne servait qu'à la péremption, ci-dessus.
+                        StoreEntry(checker.Id + "|" + fingerprint, done.Result);
                         admitted = true;
                     }
                 }

@@ -46,7 +46,38 @@ namespace UniversSale.Tests
             CaseRules(t, engine);
             CheckerBehavior(t, engine);
             Batch29Fixes(t, engine);
+            Batch30SuggestMemo(t, engine);
             Measures(t, engine);
+        }
+
+        // ------------------------------------- 8. batch 30 : mémo de Suggest
+
+        /// <summary>Suggest est mémoïsé dans le MOTEUR (partagé, sous verrou)
+        /// et rend des COPIES : l'insertion des mots appris par le
+        /// vérificateur ne doit jamais corrompre le mémo. CachedSuggestions
+        /// ne calcule RIEN — null tant que le mémo n'a pas le mot, servi
+        /// dès qu'il l'a (c'est le contrat du panneau, batch 30).</summary>
+        private static void Batch30SuggestMemo(Harness t, SpellEngine engine)
+        {
+            var word = "chatau-memo"; // inconnu à coup sûr, segments vérifiés
+            t.Check(!engine.HasSuggestMemo(word), "mémo vide avant le calcul");
+            var first = engine.Suggest(word);
+            t.Check(engine.HasSuggestMemo(word), "mémo garni après");
+            first.Insert(0, "POLLUTION"); // l'appelant remanie SA copie
+            var second = engine.Suggest(word);
+            t.Check(!second.Contains("POLLUTION"),
+                "le mémo rend des copies : la mutation de l'appelant reste chez lui");
+
+            var checker = new SpellChecker(engine);
+            t.Check(checker.CachedSuggestions("inconnu-froid") == null,
+                "CachedSuggestions : null tant que rien n'est prêt (aucun calcul)");
+            t.Check(!engine.HasSuggestMemo("inconnu-froid"),
+                "et il n'a RIEN calculé en douce");
+            engine.Suggest("chateu"); // l'ouvrier de fond passe par là
+            var served = checker.CachedSuggestions("chateu");
+            t.Check(served != null, "prêt au mémo : servi");
+            t.Check(served.Contains("château"),
+                "avec les vraies suggestions (chateu → château)");
         }
 
         // ------------------------------------- 7. rattrapages du batch 29

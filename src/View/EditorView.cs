@@ -125,6 +125,20 @@ namespace UniversSale.View
         private List<Correction.Finding> _findings = new List<Correction.Finding>();
         private DispatcherTimer _checkTimer;
         private bool _deferredRepaintQueued; // coalescence des lots différés
+
+        // ---- suggestions en arrière-plan (batch 30) : Suggest() est LE coût
+        // dominant du clic sur un chapitre (mesuré : 6,5 s de panneau pour
+        // 150 signalements à froid). Plus JAMAIS pendant la construction du
+        // panneau — une file, un seul ouvrier de fond qui chauffe le mémo du
+        // moteur (immuable, sûr entre fils), une repeinture coalescée.
+        // Tête de file = mots du panneau affiché ; queue = préchauffage de
+        // l'ouverture. _suggestSeen ne se vide jamais : traité = au mémo.
+        private readonly object _suggestGate = new object();
+        private readonly List<string> _suggestQueue = new List<string>();
+        private readonly HashSet<string> _suggestSeen = new HashSet<string>();
+        private bool _suggestWorkerRunning;
+        private bool _suggestRepaintQueued;
+        private Correction.Hunspell.SpellEngine _spellEngine; // null sans dico
         private Border _corrBar;
         private StackPanel _corrList;
         private readonly Dictionary<Correction.FindingCategory, ToggleButton> _corrFilters
@@ -151,6 +165,7 @@ namespace UniversSale.View
             // dictionnaire embarqué — absent du disque, le vérificateur se
             // retire sans bruit. Les suggestions sont servies À LA DEMANDE.
             var spellEngine = Correction.SpellDictionary.Default;
+            _spellEngine = spellEngine;
             if (spellEngine != null)
             {
                 _spellChecker = new Correction.SpellChecker(spellEngine);
@@ -2003,21 +2018,26 @@ namespace UniversSale.View
         /// lisible sans boîte d'erreur. Nul quand il n'y a rien à dire.</summary>
         private UIElement BuildGrammarStatusLine()
         {
-            if (!Settings.AppSettings.ProofEnabled || !ComposedActive
-                || !Settings.AppSettings.GrammarEnabled
-                || _grammarBridge == null)
+            if (!Settings.AppSettings.ProofEnabled || !ComposedActive)
                 return null;
             string text = null;
-            var state = _grammarBridge.State;
-            if (state == Correction.Grammalecte.BridgeState.Starting)
-                text = "Grammaire : Grammalecte s'initialise (une seconde, "
-                    + "au premier besoin seulement)…";
-            else if (_checkHost.PendingDeferred > 0)
-                text = "Grammaire : analyse en cours…";
-            else if (state == Correction.Grammalecte.BridgeState.Unavailable)
-                text = "Grammaire indisponible ("
-                    + _grammarBridge.StateDetail
-                    + ") — l'orthographe et les répétitions continuent.";
+            if (Settings.AppSettings.GrammarEnabled && _grammarBridge != null)
+            {
+                var state = _grammarBridge.State;
+                if (state == Correction.Grammalecte.BridgeState.Starting)
+                    text = "Grammaire : Grammalecte s'initialise (une seconde, "
+                        + "au premier besoin seulement)…";
+                else if (_checkHost.PendingDeferred > 0)
+                    text = "Grammaire : analyse en cours…";
+                else if (state == Correction.Grammalecte.BridgeState.Unavailable)
+                    text = "Grammaire indisponible ("
+                        + _grammarBridge.StateDetail
+                        + ") — l'orthographe et les répétitions continuent.";
+            }
+            // Les suggestions d'orthographe se préparent en fond (batch 30) —
+            // même registre que le différé : visible mais discret.
+            if (text == null && PendingSuggestions > 0)
+                text = "Orthographe : suggestions en préparation…";
             if (text == null) return null;
             return new TextBlock
             {
@@ -2028,6 +2048,92 @@ namespace UniversSale.View
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 2, 0, 4)
             };
+        }
+
+        /// <summary>Met un mot en file pour le calcul de ses suggestions en
+        /// arrière-plan (batch 30). front : les mots du panneau AFFICHÉ
+        /// passent devant le préchauffage de l'ouverture — l'utilisateur
+        /// regarde ce chapitre-là.</summary>
+        private void QueueSuggestion(string word, bool front)
+        {
+            if (_spellEngine == null || string.IsNullOrEmpty(word)) return;
+            var start = false;
+            lock (_suggestGate)
+            {
+                if (_suggestSeen.Add(word))
+                {
+                    if (front) _suggestQueue.Insert(0, word);
+                    else _suggestQueue.Add(word);
+                }
+                else if (front)
+                {
+                    // Déjà en file (préchauffage) : la demande d'affichage
+                    // le fait passer en tête. Déjà traité : Remove est nul.
+                    if (_suggestQueue.Remove(word)) _suggestQueue.Insert(0, word);
+                }
+                if (!_suggestWorkerRunning && _suggestQueue.Count > 0)
+                    start = _suggestWorkerRunning = true;
+            }
+            if (start)
+                System.Threading.Tasks.Task.Factory.StartNew(SuggestWorker);
+        }
+
+        /// <summary>L'ouvrier de fond : dépile et chauffe le mémo du moteur
+        /// (immuable, verrouillé côté mémo). Une repeinture coalescée par
+        /// mot prêt — dix mots rapprochés, une reconstruction.</summary>
+        private void SuggestWorker()
+        {
+            while (true)
+            {
+                string word;
+                lock (_suggestGate)
+                {
+                    if (_suggestQueue.Count == 0)
+                    {
+                        _suggestWorkerRunning = false;
+                        return;
+                    }
+                    word = _suggestQueue[0];
+                    _suggestQueue.RemoveAt(0);
+                }
+                try { _spellEngine.Suggest(word); }
+                catch { } // un mot pathologique se tait, la file continue
+                lock (_suggestGate)
+                {
+                    if (_suggestRepaintQueued) continue;
+                    _suggestRepaintQueued = true;
+                }
+                Dispatcher.BeginInvoke(DispatcherPriority.Background,
+                    new Action(delegate
+                    {
+                        lock (_suggestGate) _suggestRepaintQueued = false;
+                        // Les signalements n'ont pas bougé : seule la rangée
+                        // de boutons se remplit — reconstruction directe.
+                        RebuildCorrectionPanel();
+                    }));
+            }
+        }
+
+        /// <summary>Mots encore en attente de suggestions — l'état « en
+        /// préparation » du panneau et de l'indicateur d'ouverture.</summary>
+        public int PendingSuggestions
+        {
+            get
+            {
+                lock (_suggestGate)
+                    return _suggestQueue.Count + (_suggestWorkerRunning ? 1 : 0);
+            }
+        }
+
+        /// <summary>Préchauffage d'ouverture (batch 30), UN paragraphe : la
+        /// passe locale synchrone remplit le cache du pilote (clés par
+        /// contenu — le clic sur le chapitre trouvera tout prêt), et les
+        /// mots signalés partent en QUEUE de file de suggestions.</summary>
+        public void WarmParagraph(TextDocument document, int index)
+        {
+            foreach (var finding in _checkHost.WarmParagraph(document, index, _styles))
+                if (finding.CheckerId == "spelling" && finding.Word.Length > 0)
+                    QueueSuggestion(finding.Word, false);
         }
 
         private void RebuildCorrectionPanel()
@@ -2135,11 +2241,21 @@ namespace UniversSale.View
             });
 
             var buttons = new WrapPanel { Margin = new Thickness(14, 0, 0, 0) };
-            // Suggestions à la demande (jamais pendant la passe) — le cache
-            // du vérificateur rend la reconstruction du panneau indolore.
-            var suggestions = _spellChecker != null && finding.CheckerId == "spelling"
-                ? _spellChecker.Suggestions(finding.Word)
-                : finding.Suggestions;
+            // Suggestions PRÊTES seulement (batch 30) : Suggest() coûte des
+            // dizaines de ms par mot — 150 lignes en payaient jusqu'à 6,5 s
+            // au clic. Un mot pas encore prêt part en TÊTE de file, ses
+            // boutons apparaîtront à la repeinture coalescée de l'ouvrier.
+            List<string> suggestions;
+            if (_spellChecker != null && finding.CheckerId == "spelling")
+            {
+                suggestions = _spellChecker.CachedSuggestions(finding.Word);
+                if (suggestions == null)
+                {
+                    QueueSuggestion(finding.Word, true);
+                    suggestions = new List<string>();
+                }
+            }
+            else suggestions = finding.Suggestions;
             for (var i = 0; i < suggestions.Count && i < 3; i++)
             {
                 var suggestion = suggestions[i];

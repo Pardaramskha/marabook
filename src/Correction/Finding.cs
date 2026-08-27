@@ -35,5 +35,28 @@ namespace UniversSale.Correction
                                      // d'origine) — clé des listes d'ignorés
 
         public int End { get { return Start + Length; } }
+
+        /// <summary>Copie de surface (batch 30) : le cache par CONTENU du
+        /// pilote sert la même entrée à deux paragraphes identiques — chaque
+        /// consommateur reçoit SA copie, sinon le ParagraphIndex reposé du
+        /// second écraserait celui du premier. La liste de suggestions est
+        /// partagée (jamais mutée après production).</summary>
+        public Finding CloneForParagraph(int paragraphIndex)
+        {
+            return new Finding
+            {
+                ParagraphIndex = paragraphIndex,
+                Start = Start,
+                Length = Length,
+                Category = Category,
+                Severity = Severity,
+                Message = Message,
+                Detail = Detail,
+                Suggestions = Suggestions,
+                RuleId = RuleId,
+                CheckerId = CheckerId,
+                Word = Word
+            };
+        }
     }
 }
