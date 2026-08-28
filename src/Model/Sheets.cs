@@ -58,6 +58,9 @@ namespace UniversSale.Model
     /// d'avant les catégories (PlotFile).</summary>
     public static class SheetDefaults
     {
+        /// <summary>Le groupe de champs rendu dans le paper « Apparence ».</summary>
+        public const string GroupLooks = "Physique";
+
         public static readonly string[] CategoryNames =
         {
             "Personnage", "Lieu", "Magie", "Objet",
@@ -165,5 +168,17 @@ namespace UniversSale.Model
         public string Id = Guid.NewGuid().ToString("N");
         public string Title = "";
         public string Value = "";
+        public string Group = ""; // "" = Informations, "Physique" = Apparence (batch 34)
+    }
+
+    /// <summary>Une relation d'une fiche vers une autre (batch 34) : sa
+    /// nature (« frère », « mentor »…) et sa cible — une fiche du projet
+    /// (TargetId) ou un simple nom (Name) quand la fiche n'existe pas.</summary>
+    public class SheetRelation
+    {
+        public string Id = Guid.NewGuid().ToString("N");
+        public string Kind = "";
+        public string TargetId;   // null = cible libre
+        public string Name = "";
     }
 }

@@ -130,19 +130,12 @@ namespace UniversSale.Tests.Ui
             Check(body.Text.StartsWith("# Chef de pont"),
                 "le corps montre la source markdown");
 
-            // — Le modèle Personnage groupé : les intertitres Infos/Physique.
-            var fields = (StackPanel)GetField(sheetView, "_fieldsPanel");
-            var infos = false;
-            var physique = false;
-            foreach (var child in fields.Children)
-            {
-                var text = child as TextBlock;
-                if (text == null) continue;
-                if (text.Text == "Infos") infos = true;
-                if (text.Text == "Physique") physique = true;
-            }
-            Check(infos && physique,
-                "les groupes Infos et Physique s'affichent en intertitres");
+            // — Le modèle Personnage groupé : Infos et Physique se répartissent
+            // entre les papers Informations et Apparence (refonte batch 34).
+            var infoFields = (StackPanel)GetField(sheetView, "_infoFields");
+            var looksFields = (StackPanel)GetField(sheetView, "_looksFields");
+            Check(infoFields.Children.Count > 1 && looksFields.Children.Count > 1,
+                "les groupes Infos et Physique remplissent Informations et Apparence");
 
             // — L'aperçu wiki rend le markdown (le bouton réel).
             var toggle = (ToggleButton)GetField(sheetView, "_previewToggle");

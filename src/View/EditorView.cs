@@ -92,6 +92,12 @@ namespace UniversSale.View
 
         /// <summary>Clic sur le bouton « Mode calme » du ruban.</summary>
         public event Action CalmRequested;
+        public event Action LinkRequested;           // « Lien vers une fiche… » (onglet Insertion, b33)
+        public event Action<bool> LexiconChanged;    // dictionnaire personnel modifié (portée projet = vrai)
+        public event Action<BinderItem> PlanRequested; // « Plan » du ruban : ouvrir le plan de l'écrit (b35)
+        /// <summary>Le plan dont une colonne est reliée à l'écrit, ou null — posé par la coquille.</summary>
+        public Func<BinderItem, BinderItem> PlanLocator;
+        private Button _planBtn;
 
         private Border _searchBar;
         private TextBox _searchBox, _replaceBox;
@@ -110,6 +116,7 @@ namespace UniversSale.View
         // ---- correction (batch 26) : le pilote, ses signalements, son panneau
         private readonly Correction.CheckerHost _checkHost = new Correction.CheckerHost();
         private Correction.SpellChecker _spellChecker; // null sans dictionnaire
+        private readonly Correction.RepetitionChecker _repetitionChecker = new Correction.RepetitionChecker();
         // La grammaire (batch 29) : le pont Grammalecte, PARESSEUX — le
         // processus Python ne démarre qu'au premier paragraphe vérifié, un
         // utilisateur qui n'active jamais la grammaire ne paie rien.
@@ -160,7 +167,9 @@ namespace UniversSale.View
             // les ignorés globaux, et la cadence — un debounce de 600 ms,
             // jamais à chaque touche. La passe complète coûte 46 ms sur
             // 50 000 mots (mesure C5) : le fil UI suffit largement.
-            _checkHost.Add(new Correction.RepetitionChecker());
+            // Options du correcteur (batch 33) : le style (répétitions) ne
+            // s'allume plus qu'à la demande.
+            if (Settings.AppSettings.StyleEnabled) _checkHost.Add(_repetitionChecker);
             // L'orthographe (batch 27) : moteur Hunspell maison sur le
             // dictionnaire embarqué — absent du disque, le vérificateur se
             // retire sans bruit. Les suggestions sont servies À LA DEMANDE.
@@ -169,8 +178,8 @@ namespace UniversSale.View
             if (spellEngine != null)
             {
                 _spellChecker = new Correction.SpellChecker(spellEngine);
-                _spellChecker.GlobalWords = Settings.AppSettings.LearnedWords;
-                _checkHost.Add(_spellChecker);
+                _spellChecker.GlobalWords = Settings.AppSettings.Lexicon;
+                if (Settings.AppSettings.SpellEnabled) _checkHost.Add(_spellChecker);
                 // Le critère composé lexical / grappe enclitique du
                 // tokeniseur (batch 29, 0.1) : la MÊME connaissance que
                 // l'orthographe — moteur ET mots appris (amendement A1 :
@@ -188,7 +197,9 @@ namespace UniversSale.View
             _grammarBridge = new Correction.Grammalecte.GrammalecteBridge();
             _grammarChecker = new Correction.Grammalecte.GrammarChecker(_grammarBridge);
             _grammarChecker.UserOptions = Settings.AppSettings.GrammarOptions;
-            if (Settings.AppSettings.GrammarEnabled)
+            _grammarChecker.GrammarEnabled = Settings.AppSettings.GrammarEnabled;
+            _grammarChecker.TypographyEnabled = Settings.AppSettings.TypographyEnabled;
+            if (Settings.AppSettings.GrammarEnabled || Settings.AppSettings.TypographyEnabled)
                 _checkHost.Add(_grammarChecker);
             _grammarBridge.StateChanged += delegate
             {
@@ -198,11 +209,19 @@ namespace UniversSale.View
             _composed.FindingLearn += delegate(Correction.Finding finding, bool projectScope)
             {
                 if (_spellChecker == null || finding.Word.Length == 0) return;
+                // Batch 33 : le mot entre avec sa NATURE (dialogue à la manière
+                // d'Antidote) — le correcteur acceptera ses formes.
+                var entry = LexiconEntryDialog.AskForWord(Window.GetWindow(this), finding.Word, projectScope);
+                if (entry == null) return;
                 var list = projectScope
                     ? _spellChecker.ProjectWords : _spellChecker.GlobalWords;
-                if (!list.Contains(finding.Word)) list.Add(finding.Word);
+                var existing = Model.LexiconEntry.Find(list, entry.Word);
+                if (existing != null) list.Remove(existing);
+                list.Add(entry);
                 if (projectScope) NotifyEdited(); // la liste vit dans le .plot
                 else Settings.AppSettings.Save();
+                var lexiconHandler = LexiconChanged;
+                if (lexiconHandler != null) lexiconHandler(projectScope);
                 // La connaissance a changé, pas le texte : le cache des
                 // vérificateurs locaux doit oublier ses verdicts — et les
                 // clés pliées des appris aussi (batch 29, 0.3).
@@ -567,13 +586,19 @@ namespace UniversSale.View
             {
                 Background = Brushes.Transparent,
                 BorderThickness = new Thickness(0),
-                Padding = new Thickness(0)
+                Padding = new Thickness(0),
+                // Réserve à droite pour l'axe d'affichage (Pages/Brouillon/
+                // Calme) : huit onglets ne passent plus dessous (batch 34).
+                Margin = new Thickness(0, 0, 236, 0)
             };
             tabs.Items.Add(new TabItem { Header = "Texte", Content = panel });
+            tabs.Items.Add(new TabItem { Header = "Insertion", Content = BuildInsertTab() });
+            tabs.Items.Add(new TabItem { Header = "Formatage", Content = BuildFormatTab() });
             tabs.Items.Add(new TabItem { Header = "Mise en page", Content = BuildPageSetupTab() });
             tabs.Items.Add(new TabItem { Header = "Gabarit", Content = BuildDecorTab() });
             tabs.Items.Add(new TabItem { Header = "Composition", Content = BuildCompositionTab() });
             tabs.Items.Add(new TabItem { Header = "Révision", Content = BuildRevisionTab() });
+            tabs.Items.Add(new TabItem { Header = "Correction", Content = BuildCorrectionTab() });
 
             // L'AXE D'AFFICHAGE (batch 26), collé au bord droit des onglets :
             // comment on VOIT la page — Pages (marges, folios, gabarits),
@@ -586,6 +611,25 @@ namespace UniversSale.View
                 VerticalAlignment = VerticalAlignment.Top,
                 Margin = new Thickness(0, 4, 6, 0)
             };
+            // « Plan » (batch 35) : visible quand une colonne d'un plan est
+            // reliée à l'écrit — renvoie au plan.
+            _planBtn = new Button
+            {
+                Content = "⇱ Plan",
+                Padding = new Thickness(8, 1, 8, 1),
+                Margin = new Thickness(0, 0, 10, 0),
+                FontSize = 11,
+                Focusable = false,
+                Visibility = Visibility.Collapsed,
+                ToolTip = "Ouvrir le plan dont une colonne raconte cet écrit"
+            };
+            _planBtn.Click += delegate
+            {
+                var plan = _item == null || PlanLocator == null ? null : PlanLocator(_item);
+                var handler = PlanRequested;
+                if (plan != null && handler != null) handler(plan);
+            };
+            views.Children.Add(_planBtn);
             _pagesViewBtn = ViewToggle("Pages",
                 "La page réelle : marges, folios, gabarits");
             _pagesViewBtn.Click += delegate { SetDraftView(false); };
@@ -658,14 +702,15 @@ namespace UniversSale.View
 
         /// <summary>Le réglage de page du BROUILLON : même moteur, même pivot —
         /// colonne continue à mesure confortable, sans marges apparentes,
-        /// numéros de ligne ni folio. Les « pages » font 600 mm : la couture
-        /// entre deux tranches reste rare. Ce n'est PAS un troisième chemin
-        /// de composition, juste un PageSetup dérivé (doctrine du lot B.2).</summary>
+        /// numéros de ligne ni folio. Les « pages » gardent le RATIO A4
+        /// (1 : √2) quel que soit le format du document (batch 34) — une
+        /// tranche de 165 × 233 mm. Ce n'est PAS un troisième chemin de
+        /// composition, juste un PageSetup dérivé (doctrine du lot B.2).</summary>
         private static PageSetup DraftSetup(PageSetup source)
         {
             var draft = source.Clone();
             draft.PageWidthMm = 165;
-            draft.PageHeightMm = 600;
+            draft.PageHeightMm = Math.Round(165 * 297.0 / 210.0, 1); // 233,4 : ratio A4
             draft.MarginTopMm = 10;
             draft.MarginBottomMm = 10;
             draft.MarginLeftMm = 18;
@@ -1158,8 +1203,10 @@ namespace UniversSale.View
                     _draftView ? DraftSetup(_pageSetup) : _pageSetup, _project);
                 _composed.Visibility = Visibility.Visible;
                 _scroller.Visibility = Visibility.Collapsed;
+                _composed.SetFormattingMarks(_showMarks); // l'état du ¶ suit la surface
                 _composed.Focus();
                 RebuildAnnotationsPanel();
+                RebuildNotesPanel(); // le panneau du bas se retire en pages composées (b33)
                 RunCheck(); // la surface composée s'ouvre vérifiée
             }
             catch (Exception error)
@@ -1243,6 +1290,9 @@ namespace UniversSale.View
         {
             _showMarks = visible;
             if (_marksBtn != null) _marksBtn.IsChecked = visible;
+            // Les pages composées dessinent leurs propres marques (batch 35 —
+            // le classique replié ne les montrait plus à personne).
+            if (_composed != null) _composed.SetFormattingMarks(visible);
             RefreshOverlay();
         }
 
@@ -1758,6 +1808,144 @@ namespace UniversSale.View
             Children.Add(_notesBar);
         }
 
+        // ============================================================= insertion
+
+        private string _lastNoteId; // dernière note visitée (précédent/suivant)
+
+        /// <summary>Onglet « Insertion » (batch 33) : la note de bas de page et
+        /// le lien vers une fiche, séparés d'un filet ; puis la navigation
+        /// entre les notes — chacune s'ouvre EN PLACE au bas de sa page (le
+        /// panneau du bas a disparu des pages composées).</summary>
+        private UIElement BuildInsertTab()
+        {
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(8, 3, 8, 3),
+                MinHeight = 52
+            };
+
+            var footnote = TallButton("Note de bas de page",
+                "Insère un appel de note au curseur (Ctrl+Maj+N) — la note "
+                + "s'édite en place, au bas de la page : cliquez-la, ou son appel");
+            footnote.Click += delegate { InsertFootnote(); };
+            panel.Children.Add(footnote);
+
+            var link = TallButton("Lien vers une fiche",
+                "Insère un [[lien]] vers une fiche ou un écrit (Ctrl+K) — "
+                + "Ctrl+clic sur le lien pour l'ouvrir");
+            link.Click += delegate
+            {
+                var handler = LinkRequested;
+                if (handler != null) handler();
+            };
+            panel.Children.Add(link);
+
+            panel.Children.Add(VerticalRuleTall());
+
+            var previous = new Button
+            {
+                Content = NavContent("previous", "Note"),
+                ToolTip = "Ouvrir la note de bas de page précédente",
+                Padding = new Thickness(8, 1, 8, 1),
+                Focusable = false
+            };
+            previous.Click += delegate { NavigateNote(-1); };
+            var next = new Button
+            {
+                Content = NavContent("next", "Note"),
+                ToolTip = "Ouvrir la note de bas de page suivante",
+                Padding = new Thickness(8, 1, 8, 1),
+                Focusable = false
+            };
+            next.Click += delegate { NavigateNote(1); };
+            // Le groupe « notes » : le bouton d'insertion ET la navigation,
+            // puis le filet, puis le lien (batch 34).
+            panel.Children.Insert(1, StackedPair(previous, next));
+            panel.Children.Insert(2, VerticalRuleTall());
+            return panel;
+        }
+
+        /// <summary>Précédent/suivant entre les notes, dans l'ordre des
+        /// appels ; la note atteinte s'ouvre en place. Repart de la note
+        /// ouverte ou de la dernière visitée ; boucle aux extrémités.</summary>
+        public void NavigateNote(int direction)
+        {
+            if (_item == null) return;
+            var order = PivotFootnoteOrder();
+            if (order.Count == 0) return;
+            var current = ComposedActive && _composed.EditingNoteId != null
+                ? _composed.EditingNoteId : _lastNoteId;
+            var index = current == null ? -1 : order.IndexOf(current);
+            int target;
+            if (index < 0) target = direction > 0 ? 0 : order.Count - 1;
+            else target = (index + direction + order.Count) % order.Count;
+            OpenNote(order[target]);
+        }
+
+        /// <summary>Ouvre une note pour édition : en place dans les pages
+        /// composées, dans le panneau du bas en compatibilité classique.</summary>
+        private void OpenNote(string id)
+        {
+            _lastNoteId = id;
+            if (ComposedActive) _composed.EditNote(id);
+            else FocusNote(id);
+        }
+
+        // ============================================================= formatage
+
+        /// <summary>Onglet « Formatage » (batch 34) : la PASSE TYPOGRAPHIQUE —
+        /// les règles de Typonanny sur tout l'écrit ouvert, une fenêtre
+        /// comparative avant/après en miroir, puis « Appliquer » (annulable) ;
+        /// et ses options.</summary>
+        private UIElement BuildFormatTab()
+        {
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(8, 3, 8, 3),
+                MinHeight = 52
+            };
+            var typography = TallButton("Typographie",
+                "Repasse typographique de tout l'écrit (apostrophes, « », insécables, …, tirets, "
+                + "ligatures, ordinaux…) — comparatif avant/après, puis application");
+            typography.Click += delegate { RunTypography(); };
+            panel.Children.Add(typography);
+            var options = TallButton("Options",
+                "Préréglage (Imprimerie nationale, souple, minimal) et règles de la passe typographique");
+            options.Click += delegate { TypographyOptionsDialog.Ask(Window.GetWindow(this)); };
+            panel.Children.Add(options);
+            return panel;
+        }
+
+        /// <summary>La passe : sur le pivot entier (jamais une sélection),
+        /// comparatif, application en un cran d'annulation.</summary>
+        public void RunTypography()
+        {
+            if (_item == null) return;
+            if (!ComposedActive)
+            {
+                MessageBox.Show(Window.GetWindow(this),
+                    "La passe typographique s'applique dans les pages composées.",
+                    "Formatage", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            var result = Correction.TypographyPass.Run(_item.Document, Settings.AppSettings.Typography);
+            if (result.Changes.Count == 0)
+            {
+                var message = "Rien à corriger : la typographie de cet écrit est déjà en règle.";
+                if (result.Summary.Warnings.Count > 0)
+                    message += "\n\nSignalements :\n• " + string.Join("\n• ", result.Summary.Warnings.ToArray());
+                MessageBox.Show(Window.GetWindow(this), message, "Formatage",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (!TypographyCompareWindow.Ask(Window.GetWindow(this), result, _item.Title)) return;
+            _composed.ReplaceParagraphs(result.Paragraphs);
+            RebuildNotesPanel();
+            RunCheck();
+        }
+
         // ============================================================= révision
 
         /// <summary>Onglet « Révision » : annoter la sélection, naviguer entre
@@ -1811,13 +1999,28 @@ namespace UniversSale.View
                 ApplyAnnotationVisibility();
             };
             panel.Children.Add(_annVisibleBtn);
+            return panel;
+        }
 
-            panel.Children.Add(VerticalRuleTall());
+        // ============================================================= correction (onglet)
 
-            // ---- Révision OrthoTypo -----------------------------------------
+        /// <summary>Onglet « Correction » (batch 33) : ce qui vivait dans la
+        /// seconde section de Révision — vérifier, naviguer entre les
+        /// signalements, le panneau des détails, « ne pas corriger » — plus
+        /// les OPTIONS DU CORRECTEUR (orthographe / grammaire / typographie /
+        /// style ; seules les deux premières actives par défaut).</summary>
+        private UIElement BuildCorrectionTab()
+        {
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(8, 3, 8, 3),
+                MinHeight = 52
+            };
+
             var proofToggle = TallToggle("Vérifier",
-                "Vérification continue du texte — répétitions et orthographe "
-                + "aujourd'hui, grammaire au prochain batch");
+                "Vérification continue du texte — orthographe, grammaire, "
+                + "typographie et style selon les Options du correcteur");
             proofToggle.IsChecked = Settings.AppSettings.ProofEnabled;
             proofToggle.Click += delegate
             {
@@ -1875,6 +2078,17 @@ namespace UniversSale.View
                         "Révision", MessageBoxButton.OK, MessageBoxImage.Information);
             };
             panel.Children.Add(noProof);
+
+            panel.Children.Add(VerticalRuleTall());
+
+            var options = TallButton("Options du correcteur",
+                "Ce que le correcteur relève : orthographe, grammaire, "
+                + "typographie, style — cochez, décochez");
+            options.Click += delegate
+            {
+                if (ProofOptionsDialog.Ask(Window.GetWindow(this))) RefreshProofing();
+            };
+            panel.Children.Add(options);
             return panel;
         }
 
@@ -1964,11 +2178,17 @@ namespace UniversSale.View
         public void RefreshProofing()
         {
             if (_spellChecker != null) _spellChecker.InvalidateLearned();
-            // L'interrupteur maître de la grammaire (Préférences, batch 29) :
-            // le vérificateur entre ou sort du pilote, le vol est annulé.
+            // Les interrupteurs des Options du correcteur (batch 33) : chaque
+            // vérificateur entre ou sort du pilote ; la grammaire et la
+            // typographie partagent Grammalecte (le vol est annulé quand il sort).
+            if (_spellChecker != null)
+                SetCheckerPresent(_spellChecker, Settings.AppSettings.SpellEnabled);
+            SetCheckerPresent(_repetitionChecker, Settings.AppSettings.StyleEnabled);
             if (_grammarChecker != null)
             {
-                var wanted = Settings.AppSettings.GrammarEnabled;
+                _grammarChecker.GrammarEnabled = Settings.AppSettings.GrammarEnabled;
+                _grammarChecker.TypographyEnabled = Settings.AppSettings.TypographyEnabled;
+                var wanted = Settings.AppSettings.GrammarEnabled || Settings.AppSettings.TypographyEnabled;
                 var present = _checkHost.Checkers.Contains(_grammarChecker);
                 if (wanted && !present) _checkHost.Add(_grammarChecker);
                 else if (!wanted && present)
@@ -1976,9 +2196,17 @@ namespace UniversSale.View
                     _checkHost.Checkers.Remove(_grammarChecker);
                     _checkHost.CancelDeferred();
                 }
+                else if (present) _checkHost.CancelDeferred(); // le jeu d'options a pu changer
             }
             _checkHost.InvalidateCache();
             RunCheck();
+        }
+
+        private void SetCheckerPresent(Correction.IChecker checker, bool wanted)
+        {
+            var present = _checkHost.Checkers.Contains(checker);
+            if (wanted && !present) _checkHost.Add(checker);
+            else if (!wanted && present) _checkHost.Checkers.Remove(checker);
         }
 
         private void ScheduleCheck()
@@ -2991,6 +3219,7 @@ namespace UniversSale.View
             _composed = new ComposedView { Visibility = Visibility.Collapsed };
             _composed.ExitRequested += delegate { SetComposition(false); };
             _composed.Edited += delegate { NotifyEdited(); };
+            _composed.NoteEditingStarted += delegate(string id) { _lastNoteId = id; };
             _composed.FindingIgnoreHere += delegate(Correction.Finding finding)
             {
                 _checkHost.IgnoreHere(finding);
@@ -3066,9 +3295,19 @@ namespace UniversSale.View
         public void SetZoom(double factor)
         {
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(UpdateRulers));
+            var oldZoom = _zoom;
             _zoom = Math.Max(0.5, Math.Min(3.0, factor));
             _page.LayoutTransform = Math.Abs(_zoom - 1.0) < 0.001
                 ? null : new ScaleTransform(_zoom, _zoom);
+            // Miroir classique : même ancrage au centre de la vue (b34).
+            if (_scroller != null && !ComposedActive && _scroller.ViewportHeight > 0
+                && Math.Abs(oldZoom - _zoom) > 0.0001)
+            {
+                var anchorY = _scroller.ViewportHeight / 2;
+                var contentY = (_scroller.VerticalOffset + anchorY) / oldZoom;
+                _scroller.UpdateLayout();
+                _scroller.ScrollToVerticalOffset(Math.Max(0, contentY * _zoom - anchorY));
+            }
             if (_composed != null) _composed.SetZoom(_zoom);
             ScheduleOverlay(); // marks & line numbers follow the new viewport
         }
@@ -3873,10 +4112,19 @@ namespace UniversSale.View
             if (_spellChecker != null)
             {
                 _spellChecker.ProjectWords = project != null
-                    ? project.LearnedWords : new List<string>();
+                    ? project.Lexicon : new List<Model.LexiconEntry>();
                 _spellChecker.InvalidateLearned();
             }
             _checkHost.InvalidateCache();
+        }
+
+        /// <summary>Le bouton « Plan » suit l'écrit ouvert (batch 35).</summary>
+        public void RefreshPlanButton()
+        {
+            if (_planBtn == null) return;
+            var plan = _item == null || PlanLocator == null ? null : PlanLocator(_item);
+            _planBtn.Visibility = plan != null ? Visibility.Visible : Visibility.Collapsed;
+            if (plan != null) _planBtn.ToolTip = "Ouvrir le plan « " + plan.Title + " » (une colonne raconte cet écrit)";
         }
 
         public void LoadItem(BinderItem item)
@@ -4704,7 +4952,7 @@ namespace UniversSale.View
                 _composed.InsertFootnoteAtCaret();
                 RebuildNotesPanel();
                 if (_item.Document.Footnotes.Count > 0)
-                    FocusNote(_item.Document.Footnotes[_item.Document.Footnotes.Count - 1].Id);
+                    OpenNote(_item.Document.Footnotes[_item.Document.Footnotes.Count - 1].Id);
                 return;
             }
             var note = new Footnote();
@@ -4746,7 +4994,9 @@ namespace UniversSale.View
 
             var ordered = ComposedActive ? PivotFootnoteOrder()
                 : FlowConverter.RenumberFootnotes(_box.Document);
-            _notesBar.Visibility = ordered.Count == 0 || _calm
+            // Pages composées (batch 33) : les notes s'éditent EN PLACE au bas
+            // de leur page — le panneau du bas ne sert plus qu'au classique.
+            _notesBar.Visibility = ordered.Count == 0 || _calm || ComposedActive
                 ? Visibility.Collapsed : Visibility.Visible;
 
             var number = 0;

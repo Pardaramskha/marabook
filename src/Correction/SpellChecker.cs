@@ -53,11 +53,18 @@ namespace UniversSale.Correction
         private readonly Dictionary<string, List<string>> _suggestionCache
             = new Dictionary<string, List<string>>();
 
-        /// <summary>Dictionnaire personnel du PROJET (Project.LearnedWords).</summary>
-        public List<string> ProjectWords = new List<string>();
+        /// <summary>Dictionnaire personnel du PROJET (Project.Lexicon) — des
+        /// entrées à nature grammaticale : toutes leurs FORMES sont acceptées.</summary>
+        public List<LexiconEntry> ProjectWords = new List<LexiconEntry>();
 
-        /// <summary>Dictionnaire personnel GLOBAL (AppSettings.LearnedWords).</summary>
-        public List<string> GlobalWords = new List<string>();
+        /// <summary>Dictionnaire personnel GLOBAL (AppSettings.Lexicon).</summary>
+        public List<LexiconEntry> GlobalWords = new List<LexiconEntry>();
+
+        /// <summary>Enseigne un mot nu (entrée « autre ») dans la liste donnée.</summary>
+        public static void Teach(List<LexiconEntry> list, string word)
+        {
+            if (LexiconEntry.Find(list, word) == null) list.Add(LexiconEntry.Simple(word));
+        }
 
         public SpellChecker(SpellEngine engine)
         {
@@ -184,12 +191,16 @@ namespace UniversSale.Correction
             for (var source = 0; source < 2 && inserted < 3; source++)
                 foreach (var entry in source == 0 ? ProjectWords : GlobalWords)
                 {
-                    var entryKey = FrenchTokenizer.Fold(entry);
-                    if (entryKey == key) continue; // déjà accepté par Learned
-                    if (Math.Abs(entryKey.Length - key.Length) > 2) continue;
-                    if (EditDistanceAtMost2(key, entryKey) > 2) continue;
-                    if (!suggestions.Contains(entry))
-                        suggestions.Insert(inserted++, entry);
+                    foreach (var form in entry.Forms())
+                    {
+                        var entryKey = FrenchTokenizer.Fold(form);
+                        if (entryKey == key) continue; // déjà accepté par Learned
+                        if (Math.Abs(entryKey.Length - key.Length) > 2) continue;
+                        if (EditDistanceAtMost2(key, entryKey) > 2) continue;
+                        if (!suggestions.Contains(form))
+                            suggestions.Insert(inserted++, form);
+                        if (inserted >= 3) break;
+                    }
                     if (inserted >= 3) break;
                 }
         }
@@ -260,10 +271,14 @@ namespace UniversSale.Correction
             if (_learnedKeys == null)
             {
                 _learnedKeys = new HashSet<string>(StringComparer.Ordinal);
+                // Batch 33 : toutes les FORMES d'une entrée (pluriel,
+                // féminin, conjugaison) — pas seulement le mot.
                 foreach (var entry in ProjectWords)
-                    _learnedKeys.Add(FrenchTokenizer.Fold(entry));
+                    foreach (var form in entry.Forms())
+                        _learnedKeys.Add(FrenchTokenizer.Fold(form));
                 foreach (var entry in GlobalWords)
-                    _learnedKeys.Add(FrenchTokenizer.Fold(entry));
+                    foreach (var form in entry.Forms())
+                        _learnedKeys.Add(FrenchTokenizer.Fold(form));
             }
             return _learnedKeys.Contains(FrenchTokenizer.Fold(word));
         }

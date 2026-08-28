@@ -28,6 +28,12 @@ namespace UniversSale.View
                                               // peuplées par EditorView (B.4)
         private readonly System.Windows.Shapes.Rectangle _caretBar;
         private readonly DispatcherTimer _blink;
+
+        // Notes de bas de page éditées EN PLACE (batch 33) : un TextBox posé
+        // sur la note, au bas de sa page — plus de panneau du bas.
+        private readonly Canvas _noteLayer;
+        private TextBox _noteEditor;
+        private string _editingNoteId;
         private double _zoom = 1.0;
 
         private BinderItem _item;
@@ -57,6 +63,7 @@ namespace UniversSale.View
         public event Action<int, int> PageInfoChanged;
         public event Action ExitRequested; // Échap : retour à l'éditeur classique
         public event Action SelectionStateChanged; // caret/sélection ont bougé
+        public event Action<string> NoteEditingStarted; // id de la note ouverte en place
 
         /// <summary>Pages du livre précédant ce document (0 hors livre) —
         /// folio affiché, parité des marges miroir. Pris en compte à l'Attach
@@ -94,9 +101,15 @@ namespace UniversSale.View
                 Margin = new Thickness(24, 20, 24, 20),
                 HorizontalAlignment = HorizontalAlignment.Center
             };
+            _noteLayer = new Canvas
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top
+            };
             _column.Children.Add(_pages);
             _column.Children.Add(_overlay);
             _column.Children.Add(_bubbleLayer); // bulles portées (batch 26)
+            _column.Children.Add(_noteLayer);   // éditeur de note en place (b33)
             Content = _column;
 
             _blink = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(530) };
@@ -169,6 +182,7 @@ namespace UniversSale.View
             _engine.FolioOffset = FolioOffset;
             _engine.DefaultDecor = Decor;
             _engine.ComposeAll();
+            CloseNoteEditor(false);
             _undo.Clear();
             _redo.Clear();
             _caretParagraph = 0;
@@ -182,6 +196,7 @@ namespace UniversSale.View
 
         public void Detach()
         {
+            CloseNoteEditor(false);
             _item = null;
             _engine = null;
             _blink.Stop();
@@ -192,9 +207,26 @@ namespace UniversSale.View
 
         public void SetZoom(double factor)
         {
-            _zoom = Math.Max(0.5, Math.Min(3.0, factor));
+            var next = Math.Max(0.5, Math.Min(3.0, factor));
+            if (Math.Abs(next - _zoom) < 0.0001 && _column.LayoutTransform != null == (Math.Abs(next - 1.0) >= 0.001))
+                return;
+            // Ancrage (batch 34) : le point de contenu au CENTRE de la vue
+            // reste au centre après le changement d'échelle — sinon le
+            // défilement, exprimé en pixels, glissait vers une autre page.
+            // La marge de la colonne n'est pas mise à l'échelle par un
+            // LayoutTransform : elle est retranchée avant, rajoutée après.
+            var oldZoom = _zoom;
+            var anchorY = ViewportHeight / 2;
+            var anchorX = ViewportWidth / 2;
+            var contentY = (VerticalOffset + anchorY - _column.Margin.Top) / oldZoom;
+            var contentX = (HorizontalOffset + anchorX - _column.Margin.Left) / oldZoom;
+            _zoom = next;
             _column.LayoutTransform = Math.Abs(_zoom - 1.0) < 0.001
                 ? null : new ScaleTransform(_zoom, _zoom);
+            if (_item == null || ViewportHeight <= 0) return;
+            UpdateLayout();
+            ScrollToVerticalOffset(Math.Max(0, contentY * _zoom + _column.Margin.Top - anchorY));
+            ScrollToHorizontalOffset(Math.Max(0, contentX * _zoom + _column.Margin.Left - anchorX));
         }
 
         /// <summary>A footnote's text changed outside the engine (the notes
@@ -230,12 +262,195 @@ namespace UniversSale.View
             while (_pages.Children.Count > composition.Pages.Count)
                 _pages.Children.RemoveAt(_pages.Children.Count - 1);
             while (_pages.Children.Count < composition.Pages.Count)
+                _pages.Children.Add(new PageElement(this, _pages.Children.Count));
+            // PIÈGE (batch 33) : les éléments de page survivants sont RÉUTILISÉS
+            // (Attach ne détache pas) — InvalidateVisual seul redessinait la
+            // nouvelle géométrie (Brouillon : 600 mm) dans une boîte MESURÉE à
+            // l'ancienne (A4) : pages superposées, étendue de défilement
+            // fausse. La mesure est invalidée à chaque reconstruction, et la
+            // marge (l'écart entre pages) réaffirmée d'après l'index.
+            for (var k = 0; k < _pages.Children.Count; k++)
             {
-                var element = new PageElement(this, _pages.Children.Count);
-                element.Margin = new Thickness(0, _pages.Children.Count == 0 ? 0 : PageGapPx, 0, 0);
-                _pages.Children.Add(element);
+                var element = (PageElement)_pages.Children[k];
+                element.Margin = new Thickness(0, k == 0 ? 0 : PageGapPx, 0, 0);
+                element.InvalidateMeasure();
+                element.InvalidateVisual();
             }
-            foreach (PageElement element in _pages.Children) element.InvalidateVisual();
+            PositionNoteEditor();
+        }
+
+        // ============================================================ notes en place (b33)
+
+        /// <summary>Les identifiants de notes dans l'ordre des APPELS (l'ordre
+        /// de la liste Footnotes peut différer après couper/coller) — c'est
+        /// l'index des NoteParagraphs de la composition.</summary>
+        public List<string> MarkerOrder()
+        {
+            var order = new List<string>();
+            if (_item == null) return order;
+            foreach (var paragraph in _item.Document.Paragraphs)
+                foreach (var run in paragraph.Runs)
+                    if (run.FootnoteId != null) order.Add(run.FootnoteId);
+            return order;
+        }
+
+        /// <summary>La note ouverte en place, ou null.</summary>
+        public string EditingNoteId { get { return _editingNoteId; } }
+
+        /// <summary>La note dont le texte est sous ce point (zone des notes au
+        /// bas d'une page), ou null.</summary>
+        private string NoteAtPoint(Point point)
+        {
+            var composition = _engine == null ? null : _engine.Current;
+            if (composition == null || composition.Pages.Count == 0) return null;
+            var stride = composition.PageHeightPx + PageGapPx;
+            var pageIndex = Math.Max(0, Math.Min(composition.Pages.Count - 1, (int)(point.Y / stride)));
+            var yInPage = point.Y - pageIndex * stride;
+            var page = composition.Pages[pageIndex];
+            foreach (var placed in page.NoteLines)
+            {
+                if (placed.ParagraphIndex < 0 || placed.ParagraphIndex >= composition.NoteParagraphs.Count) continue;
+                var line = composition.NoteParagraphs[placed.ParagraphIndex].Lines[placed.LineIndex];
+                if (yInPage < placed.Y - 1 || yInPage > placed.Y + line.Height + 1) continue;
+                var order = MarkerOrder();
+                return placed.ParagraphIndex < order.Count ? order[placed.ParagraphIndex] : null;
+            }
+            return null;
+        }
+
+        /// <summary>L'appel de note (exposant) sous le clic : le curseur est
+        /// tombé sur l'une des deux bornes de la marque ET le point est dans
+        /// l'empreinte horizontale de la marque.</summary>
+        private string MarkerAt(int paragraphIndex, int offset, Point point)
+        {
+            if (_item == null || paragraphIndex < 0 || paragraphIndex >= _item.Document.Paragraphs.Count)
+                return null;
+            var paragraph = _item.Document.Paragraphs[paragraphIndex];
+            var pos = 0;
+            foreach (var run in paragraph.Runs)
+            {
+                var length = PivotEdit.IsElement(run) ? 1 : run.Text.Length;
+                if (run.FootnoteId != null && (offset == pos || offset == pos + 1))
+                {
+                    // Empreinte horizontale de la marque sur sa ligne.
+                    int pageIndex; double lineY;
+                    var line = LineOf(paragraphIndex, pos, out pageIndex, out lineY);
+                    if (line == null) return null;
+                    var left = _engine.Current.LeftPxFor(pageIndex);
+                    var x0 = CaretX(line, pos, left);
+                    var x1 = CaretX(line, pos + 1, left);
+                    if (x1 < x0) { var t = x0; x0 = x1; x1 = t; }
+                    return point.X >= x0 - 2 && point.X <= x1 + 2 ? run.FootnoteId : null;
+                }
+                pos += length;
+            }
+            return null;
+        }
+
+        /// <summary>Ouvre la note en place : un champ posé exactement sur son
+        /// texte au bas de sa page ; la frappe recompose les notes ; Entrée,
+        /// Échap ou un clic ailleurs referment.</summary>
+        public void EditNote(string id)
+        {
+            if (_item == null || _engine == null || id == null) return;
+            var note = _item.Document.FindFootnote(id);
+            if (note == null) return;
+            if (_editingNoteId == id && _noteEditor != null) { _noteEditor.Focus(); return; }
+            CloseNoteEditor(false);
+            _editingNoteId = id;
+            var body = _styles.Body;
+            _noteEditor = new TextBox
+            {
+                Text = note.Text,
+                FontFamily = new FontFamily(body.FontFamily),
+                FontSize = Math.Max(9, body.FontSize * 0.85),
+                TextWrapping = TextWrapping.Wrap,
+                AcceptsReturn = false,
+                Padding = new Thickness(2, 0, 2, 0),
+                BorderBrush = Chrome.Accent,
+                BorderThickness = new Thickness(1),
+                Background = Brushes.White,
+                Foreground = Brushes.Black,
+                ToolTip = "Note de bas de page — Entrée ou Échap pour fermer"
+            };
+            var noteRef = note;
+            _noteEditor.TextChanged += delegate
+            {
+                if (_noteEditor == null || noteRef.Text == _noteEditor.Text) return;
+                noteRef.Text = _noteEditor.Text;
+                RefreshNotes();
+                PositionNoteEditor();
+                var handler = Edited;
+                if (handler != null) handler();
+            };
+            _noteEditor.LostKeyboardFocus += delegate
+            {
+                // Fermé par un clic ailleurs (le focus part) — pas par nous.
+                if (_noteEditor != null && !_noteEditor.IsKeyboardFocusWithin) CloseNoteEditor(false);
+            };
+            _noteLayer.Children.Add(_noteEditor);
+            if (!PositionNoteEditor()) { CloseNoteEditor(false); return; }
+            _noteEditor.CaretIndex = _noteEditor.Text.Length;
+            _noteEditor.Focus();
+            var started = NoteEditingStarted;
+            if (started != null) started(id);
+        }
+
+        /// <summary>Pose (ou repose) l'éditeur de note sur la géométrie
+        /// courante de la note. Faux quand la note n'est placée nulle part.</summary>
+        private bool PositionNoteEditor()
+        {
+            if (_noteEditor == null || _engine == null) return false;
+            var composition = _engine.Current;
+            var index = MarkerOrder().IndexOf(_editingNoteId);
+            if (index < 0) return false;
+            for (var k = 0; k < composition.Pages.Count; k++)
+            {
+                var top = double.MaxValue;
+                var bottom = double.MinValue;
+                foreach (var placed in composition.Pages[k].NoteLines)
+                {
+                    if (placed.ParagraphIndex != index) continue;
+                    var line = composition.NoteParagraphs[index].Lines[placed.LineIndex];
+                    top = Math.Min(top, placed.Y);
+                    bottom = Math.Max(bottom, placed.Y + line.Height);
+                }
+                if (top == double.MaxValue) continue;
+                var left = composition.LeftPxFor(k);
+                // Le numéro « n. » reste visible à gauche : le champ commence après.
+                var numberWidth = Math.Max(14, _noteEditor.FontSize * 1.3);
+                Canvas.SetLeft(_noteEditor, left + numberWidth);
+                Canvas.SetTop(_noteEditor, PageTop(k) + top - 2);
+                _noteEditor.Width = Math.Max(60, composition.Setup.ContentWidthPx - numberWidth);
+                _noteEditor.MinHeight = Math.Max(16, bottom - top + 4);
+                EnsureCaretVisible(PageTop(k) + top, bottom - top);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Referme l'éditeur de note (le texte est déjà dans le
+        /// modèle, frappe par frappe).</summary>
+        public void CloseNoteEditor(bool refocus)
+        {
+            if (_noteEditor == null) { _editingNoteId = null; return; }
+            var editor = _noteEditor;
+            _noteEditor = null;
+            _editingNoteId = null;
+            _noteLayer.Children.Remove(editor);
+            if (refocus) Focus();
+        }
+
+        private static bool IsInside(DependencyObject source, DependencyObject ancestor)
+        {
+            while (source != null)
+            {
+                if (source == ancestor) return true;
+                source = source is System.Windows.Media.Visual
+                    ? System.Windows.Media.VisualTreeHelper.GetParent(source)
+                    : LogicalTreeHelper.GetParent(source);
+            }
+            return false;
         }
 
         private void RefreshPages(int firstChanged)
@@ -478,10 +693,25 @@ namespace UniversSale.View
                     ? System.Windows.Media.VisualTreeHelper.GetParent(source)
                     : LogicalTreeHelper.GetParent(source);
             }
+            if (_noteEditor != null && IsInside(e.OriginalSource as DependencyObject, _noteEditor))
+                return; // le clic est pour l'éditeur de note
+            // Les bulles d'annotation vivent dans la même colonne (batch 26) :
+            // leurs clics ne sont pas à nous non plus (batch 34 — la bulle
+            // se refermait avant d'avoir reçu le focus).
+            if (IsInside(e.OriginalSource as DependencyObject, _bubbleLayer)) return;
             Focus();
             if (ToggleWidowMarkAt(e)) { e.Handled = true; return; }
+            // Clic sur une note au bas de la page : on l'édite en place.
+            var noteId = NoteAtPoint(e.GetPosition(_pages));
+            if (noteId != null) { EditNote(noteId); e.Handled = true; return; }
             int paragraph, offset;
             if (!HitTestPosition(e, out paragraph, out offset)) return;
+            // Clic sur l'appel de note (l'exposant) : même chose.
+            if (e.ClickCount == 1 && (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
+            {
+                var marker = MarkerAt(paragraph, offset, e.GetPosition(_pages));
+                if (marker != null) { EditNote(marker); e.Handled = true; return; }
+            }
 
             if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
             {
@@ -827,6 +1057,8 @@ namespace UniversSale.View
 
         private void OnTextInput(object sender, TextCompositionEventArgs e)
         {
+            if (_noteEditor != null && _noteEditor.IsKeyboardFocusWithin) return; // la note tape pour elle
+            if (_bubbleLayer.IsKeyboardFocusWithin) return; // une bulle d'annotation tape pour elle (b34)
             if (_item == null || string.IsNullOrEmpty(e.Text)) return;
             var text = e.Text;
             if (text == "\r" || text == "\n" || text == "\t" || text == "\b"
@@ -849,6 +1081,16 @@ namespace UniversSale.View
 
         private void OnKeyDown(object sender, KeyEventArgs e)
         {
+            if (_noteEditor != null && _noteEditor.IsKeyboardFocusWithin)
+            {
+                if (e.Key == Key.Escape || e.Key == Key.Enter || e.Key == Key.Return)
+                {
+                    CloseNoteEditor(true);
+                    e.Handled = true;
+                }
+                return; // les autres touches vont au TextBox de la note
+            }
+            if (_bubbleLayer.IsKeyboardFocusWithin) return; // le clavier est à la bulle (b34)
             if (_item == null) return;
             var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
             var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
@@ -1742,6 +1984,30 @@ namespace UniversSale.View
             ClearSelection();
             AfterEdit(0);
             return count;
+        }
+
+        /// <summary>Caractères d'impression (batch 35) : le drapeau du
+        /// dessinateur, puis chaque page se redessine.</summary>
+        public void SetFormattingMarks(bool visible)
+        {
+            ComposedRenderer.ShowMarks = visible;
+            foreach (UIElement page in _pages.Children) page.InvalidateVisual();
+        }
+
+        /// <summary>Remplace tous les paragraphes (la passe typographique,
+        /// batch 34) : un cran d'annulation, recomposition intégrale.</summary>
+        public void ReplaceParagraphs(List<TextParagraph> paragraphs)
+        {
+            if (_item == null || paragraphs == null) return;
+            PushUndo(false);
+            _item.Document.Paragraphs.Clear();
+            _item.Document.Paragraphs.AddRange(paragraphs);
+            if (_item.Document.Paragraphs.Count == 0) _item.Document.Paragraphs.Add(new TextParagraph());
+            _engine.ComposeAll();
+            RebuildPages();
+            ClampCaret();
+            ClearSelection();
+            AfterEdit(0);
         }
 
         /// <summary>Les signalements sous un offset donné (menu contextuel).</summary>

@@ -18,6 +18,8 @@ namespace UniversSale.Model
         public const string KeyWritings = "writings";
         public const string KeyResearch = "research";
         public const string KeySheets = "sheets";
+        public const string KeyDictionary = "dictionary"; // batch 33 : le dictionnaire personnel
+        public const string KeyPlans = "plans";           // batch 35 : les plans
         public const string KeyTrash = "trash";
 
         public string Name = "Sans titre";
@@ -49,7 +51,10 @@ namespace UniversSale.Model
         // (noms propres du roman, néologismes) — « ajouter au dictionnaire »
         // ≠ « ignorer » : ignorer TAIT un signalement, enseigner APPREND un
         // mot. Le pendant global vit dans les réglages.
-        public List<string> LearnedWords = new List<string>();
+        // Depuis le batch 33 : des ENTRÉES avec nature grammaticale (le
+        // correcteur accepte leurs formes) — les anciennes listes de chaînes
+        // (v9) sont migrées en entrées « autre ».
+        public List<LexiconEntry> Lexicon = new List<LexiconEntry>();
         // Règles de correction ignorées dans CE projet (« ignorer cette
         // règle » du menu d'un signalement grammatical — batch 29) : des
         // sRuleId de Grammalecte, filtrés par le pilote après cache.
@@ -208,6 +213,8 @@ namespace UniversSale.Model
             project.Roots.Add(MakeCategory("Écrits", KeyWritings));
             project.Roots.Add(MakeCategory("Recherche", KeyResearch));
             project.Roots.Add(MakeCategory("Fiches", KeySheets));
+            project.Roots.Add(MakeCategory("Plans", KeyPlans));
+            project.Roots.Add(MakeCategory("Dictionnaire", KeyDictionary));
             project.Roots.Add(MakeCategory("Corbeille", KeyTrash));
 
             var first = new BinderItem();
@@ -241,6 +248,28 @@ namespace UniversSale.Model
         }
 
         public BinderItem Trash { get { return Category(KeyTrash); } }
+
+        /// <summary>Le plan dont une colonne est reliée à cet écrit (batch 35), ou null.</summary>
+        public BinderItem PlanForText(string textId)
+        {
+            if (textId == null) return null;
+            foreach (var item in AllItems())
+                if (item.Kind == ItemKind.Plan && item.Plan != null && item.Plan.ColumnOf(textId) != null
+                    && item.RootCategory().CategoryKey != KeyTrash)
+                    return item;
+            return null;
+        }
+
+        /// <summary>Le plan relié à ce livre ou dossier (batch 35), ou null.</summary>
+        public BinderItem PlanForContainer(string itemId)
+        {
+            if (itemId == null) return null;
+            foreach (var item in AllItems())
+                if (item.Kind == ItemKind.Plan && item.Plan != null && item.Plan.LinkedItemId == itemId
+                    && item.RootCategory().CategoryKey != KeyTrash)
+                    return item;
+            return null;
+        }
 
         public BinderItem FindById(string id)
         {

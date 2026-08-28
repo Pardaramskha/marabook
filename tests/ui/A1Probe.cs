@@ -64,6 +64,10 @@ namespace UniversSale.Tests.Ui
             _failures += CorrectionProbe.Run();
             Console.WriteLine();
             _failures += SheetProbe.Run();
+            Console.WriteLine();
+            _failures += BookProbe.Run();
+            Console.WriteLine();
+            _failures += EditorProbe.Run();
             if (Application.Current != null)
             {
                 Application.Current.Shutdown();

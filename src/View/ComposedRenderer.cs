@@ -17,6 +17,27 @@ namespace UniversSale.View
         /// transparent — shared with the classic mirror so both surfaces match.</summary>
         public static readonly Pen MarginPen = BuildMarginPen();
 
+        /// <summary>Caractères d'impression (batch 35) : la fonction n'avait
+        /// jamais été portée sur la surface composée — le bouton ¶ repeignait
+        /// un calque du classique replié. Écran seulement, jamais au papier.</summary>
+        public static bool ShowMarks;
+        private static readonly Typeface MarksTypeface = new Typeface("Segoe UI");
+        private static readonly Brush MarksBrush = FrozenBrush(Color.FromRgb(0x5B, 0x67, 0xD8));
+
+        private static Brush FrozenBrush(Color color)
+        {
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();
+            return brush;
+        }
+
+        private static void DrawMark(DrawingContext dc, string glyph, double x, double baseline, double size)
+        {
+            var text = new FormattedText(glyph, System.Globalization.CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight, MarksTypeface, Math.Max(7, size), MarksBrush);
+            dc.DrawText(text, new Point(x, baseline - text.Baseline));
+        }
+
         private static Pen BuildMarginPen()
         {
             var brush = new SolidColorBrush(Color.FromArgb(110, 60, 195, 230));
@@ -374,10 +395,21 @@ namespace UniversSale.View
                     w, size * 1.05));
             }
 
+            var lastSize = 14.0;
+            var lineEnd = 0.0;
             foreach (var piece in line.Pieces)
             {
                 DrawDecorations(dc, piece, left, baseline);
-                if (piece.IsSpace) continue;
+                if (piece.FontSizePx > 0) lastSize = piece.FontSizePx;
+                lineEnd = Math.Max(lineEnd, piece.Origin.X + piece.VisualWidth());
+                if (piece.IsSpace)
+                {
+                    // « · » au milieu de l'espace (marques d'impression, écran).
+                    if (screenExtras && ShowMarks && piece.SpaceWidth > 1)
+                        DrawMark(dc, "·", left + piece.Origin.X + piece.SpaceWidth / 2 - 1.5,
+                            baseline + piece.Origin.Y, lastSize * 0.9);
+                    continue;
+                }
                 if (piece.IsRule)
                 {
                     dc.DrawRectangle(Brushes.Black, null, new Rect(
@@ -404,6 +436,10 @@ namespace UniversSale.View
                 if (scaled) dc.Pop();
                 dc.Pop();
             }
+            // Fin de paragraphe « ¶ », saut de ligne forcé « ↵ ».
+            if (screenExtras && ShowMarks && (line.EndsParagraph || line.ForcedBreak))
+                DrawMark(dc, line.ForcedBreak && !line.EndsParagraph ? "↵" : "¶",
+                    left + lineEnd + 2, baseline, lastSize * 0.85);
         }
 
         /// <summary>Underline and strikethrough, spaces included so the line

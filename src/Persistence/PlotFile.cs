@@ -42,7 +42,21 @@ namespace UniversSale.Persistence
         //      de modèle ("group") ; catégorie d'une fiche ("sheetCategory").
         //      Un .plot d'avant est migré au chargement par
         //      Project.EnsureSheetCategories (défauts + adoption par nom).
-        private const int FormatVersion = 11;
+        // v12: objectif de chapitres d'un livre (book.chapterGoal, 0 = aucun —
+        //      la barre de progression de l'inspecteur).
+        // v13: dictionnaire personnel à ENTRÉES (manifeste "lexicon" : {word,
+        //      class, gender, plural, feminine, note}) — l'ancienne liste
+        //      "learnedWords" est lue et migrée en entrées « autre » ; racine
+        //      « Dictionnaire » de la Pile (category "dictionary", créée au
+        //      chargement avant la Corbeille par EnsureCategory).
+        // v14: fiches — groupe d'un champ libre ("group" d'une entrée "info",
+        //      "" = Informations, "Physique" = Apparence) et RELATIONS
+        //      ("relations" : {id, kind, target, name}).
+        // v15: les PLANS (batch 35) — racine « Plans » (category "plans",
+        //      créée au chargement après Fiches), items kind "plan" avec
+        //      "plan" : {link, columnWord, columns:[{id, title, text,
+        //      entries:[{id, kind, text, color, intensity}]}]}.
+        private const int FormatVersion = 15;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -127,8 +141,8 @@ namespace UniversSale.Persistence
                 manifest["hyphenExceptions"] = new List<object>(project.HyphenExceptions.ToArray());
             if (project.ProofIgnored.Count > 0)
                 manifest["proofIgnored"] = new List<object>(project.ProofIgnored.ToArray());
-            if (project.LearnedWords.Count > 0)
-                manifest["learnedWords"] = new List<object>(project.LearnedWords.ToArray());
+            if (project.Lexicon.Count > 0)
+                manifest["lexicon"] = LexiconEntry.ToJsonList(project.Lexicon);
             if (project.IgnoredRules.Count > 0)
                 manifest["ignoredRules"] = new List<object>(project.IgnoredRules.ToArray());
             manifest["createdAt"] = project.CreatedAt;
@@ -195,6 +209,7 @@ namespace UniversSale.Persistence
                          : item.Kind == ItemKind.Sheet ? "sheet"
                          : item.Kind == ItemKind.Media ? "media"
                          : item.Kind == ItemKind.Book ? "book"
+                         : item.Kind == ItemKind.Plan ? "plan"
                          : item.Kind == ItemKind.PageTemplate ? "pagetpl" : "text";
             if (item.CategoryKey != null) node["category"] = item.CategoryKey;
             if (item.Page != null) node["page"] = BuildPageSetup(item.Page);
@@ -215,6 +230,35 @@ namespace UniversSale.Persistence
                 if (item.HeaderHideFirst) node["headerHideFirst"] = true;
                 if (item.FooterHideFirst) node["footerHideFirst"] = true;
             }
+            if (item.Kind == ItemKind.Plan && item.Plan != null)
+            {
+                var plan = new Dictionary<string, object>();
+                if (item.Plan.LinkedItemId != null) plan["link"] = item.Plan.LinkedItemId;
+                if (item.Plan.ColumnWord != PlanInfo.DefaultColumnWord) plan["columnWord"] = item.Plan.ColumnWord;
+                var columns = new List<object>();
+                foreach (var column in item.Plan.Columns)
+                {
+                    var c = new Dictionary<string, object>();
+                    c["id"] = column.Id;
+                    c["title"] = column.Title;
+                    if (column.LinkedTextId != null) c["text"] = column.LinkedTextId;
+                    var entries = new List<object>();
+                    foreach (var entry in column.Entries)
+                    {
+                        var e = new Dictionary<string, object>();
+                        e["id"] = entry.Id;
+                        e["kind"] = entry.Kind;
+                        e["text"] = entry.Text;
+                        if (entry.Color != null) e["color"] = entry.Color;
+                        e["intensity"] = entry.Intensity;
+                        entries.Add(e);
+                    }
+                    c["entries"] = entries;
+                    columns.Add(c);
+                }
+                plan["columns"] = columns;
+                node["plan"] = plan;
+            }
             if (item.Kind == ItemKind.Book && item.Book != null)
             {
                 var book = new Dictionary<string, object>();
@@ -225,6 +269,7 @@ namespace UniversSale.Persistence
                 if (item.Book.Isbn.Length > 0) book["isbn"] = item.Book.Isbn;
                 if (item.Book.Year.Length > 0) book["year"] = item.Book.Year;
                 book["bleedMm"] = item.Book.BleedMm;
+                if (item.Book.ChapterGoal > 0) book["chapterGoal"] = item.Book.ChapterGoal;
                 book["template"] = BuildPageSetup(item.Book.Template);
                 node["book"] = book;
             }
@@ -254,9 +299,24 @@ namespace UniversSale.Persistence
                         e["id"] = entry.Id;
                         e["title"] = entry.Title;
                         e["value"] = entry.Value;
+                        if (entry.Group.Length > 0) e["group"] = entry.Group;
                         info.Add(e);
                     }
                     node["info"] = info;
+                }
+                if (item.Relations.Count > 0)
+                {
+                    var relations = new List<object>();
+                    foreach (var relation in item.Relations)
+                    {
+                        var r = new Dictionary<string, object>();
+                        r["id"] = relation.Id;
+                        r["kind"] = relation.Kind;
+                        if (relation.TargetId != null) r["target"] = relation.TargetId;
+                        if (relation.Name.Length > 0) r["name"] = relation.Name;
+                        relations.Add(r);
+                    }
+                    node["relations"] = relations;
                 }
             }
             if (item.Kind == ItemKind.Media && item.MediaExtension != null)
@@ -473,10 +533,15 @@ namespace UniversSale.Persistence
                 if (proofIgnored != null)
                     foreach (var entry in proofIgnored)
                         if (entry is string) project.ProofIgnored.Add((string)entry);
+                project.Lexicon = LexiconEntry.FromJsonList(Json.AsList(Json.Field(manifest, "lexicon")));
                 var learnedWords = Json.AsList(Json.Field(manifest, "learnedWords"));
-                if (learnedWords != null)
+                if (learnedWords != null) // v9-v12 : mots nus → entrées « autre »
+                {
+                    var words = new List<string>();
                     foreach (var entry in learnedWords)
-                        if (entry is string) project.LearnedWords.Add((string)entry);
+                        if (entry is string) words.Add((string)entry);
+                    LexiconEntry.MergeWords(project.Lexicon, words);
+                }
                 var ignoredRules = Json.AsList(Json.Field(manifest, "ignoredRules"));
                 if (ignoredRules != null)
                     foreach (var entry in ignoredRules)
@@ -564,6 +629,8 @@ namespace UniversSale.Persistence
                 EnsureCategory(project, "Écrits", Project.KeyWritings);
                 EnsureCategory(project, "Recherche", Project.KeyResearch);
                 EnsureCategory(project, "Fiches", Project.KeySheets);
+                EnsureCategory(project, "Plans", Project.KeyPlans, Project.KeyDictionary); // b35, après Fiches
+                EnsureCategory(project, "Dictionnaire", Project.KeyDictionary); // b33, avant la Corbeille
                 EnsureCategory(project, "Corbeille", Project.KeyTrash);
 
                 // A5 — deux items de même id : GetEntry n'aurait relu qu'un
@@ -751,6 +818,7 @@ namespace UniversSale.Persistence
                       : kind == "sheet" ? ItemKind.Sheet
                       : kind == "media" ? ItemKind.Media
                       : kind == "book" ? ItemKind.Book
+                      : kind == "plan" ? ItemKind.Plan
                       : kind == "pagetpl" ? ItemKind.PageTemplate : ItemKind.Text;
 
             var ownPage = Json.AsObject(Json.Field(obj, "page"));
@@ -773,6 +841,45 @@ namespace UniversSale.Persistence
                 item.FooterHideFirst = Json.AsBool(Json.Field(obj, "footerHideFirst"), false);
             }
 
+            if (item.Kind == ItemKind.Plan)
+            {
+                item.Plan = new PlanInfo();
+                var plan = Json.AsObject(Json.Field(obj, "plan"));
+                if (plan != null)
+                {
+                    item.Plan.LinkedItemId = Json.AsString(Json.Field(plan, "link"));
+                    item.Plan.ColumnWord = Json.AsString(Json.Field(plan, "columnWord")) ?? PlanInfo.DefaultColumnWord;
+                    var columns = Json.AsList(Json.Field(plan, "columns"));
+                    if (columns != null)
+                        foreach (var columnNode in columns)
+                        {
+                            var c = Json.AsObject(columnNode);
+                            if (c == null) continue;
+                            var column = new PlanColumn();
+                            var columnId = Json.AsString(Json.Field(c, "id"));
+                            if (!string.IsNullOrEmpty(columnId)) column.Id = columnId;
+                            column.Title = Json.AsString(Json.Field(c, "title")) ?? "";
+                            column.LinkedTextId = Json.AsString(Json.Field(c, "text"));
+                            var entries = Json.AsList(Json.Field(c, "entries"));
+                            if (entries != null)
+                                foreach (var entryNode in entries)
+                                {
+                                    var e = Json.AsObject(entryNode);
+                                    if (e == null) continue;
+                                    var entry = new PlanEntry();
+                                    var entryId = Json.AsString(Json.Field(e, "id"));
+                                    if (!string.IsNullOrEmpty(entryId)) entry.Id = entryId;
+                                    entry.Kind = Json.AsString(Json.Field(e, "kind")) == PlanEntry.KindNote
+                                        ? PlanEntry.KindNote : PlanEntry.KindElement;
+                                    entry.Text = Json.AsString(Json.Field(e, "text")) ?? "";
+                                    entry.Color = Json.AsString(Json.Field(e, "color"));
+                                    entry.Intensity = PlanIntensity.Clamp(Json.AsInt(Json.Field(e, "intensity"), 1));
+                                    column.Entries.Add(entry);
+                                }
+                            item.Plan.Columns.Add(column);
+                        }
+                }
+            }
             if (item.Kind == ItemKind.Book)
             {
                 item.Book = new BookInfo();
@@ -786,6 +893,7 @@ namespace UniversSale.Persistence
                     item.Book.Isbn = Json.AsString(Json.Field(book, "isbn")) ?? "";
                     item.Book.Year = Json.AsString(Json.Field(book, "year")) ?? "";
                     item.Book.BleedMm = Json.AsDouble(Json.Field(book, "bleedMm"), 3);
+                    item.Book.ChapterGoal = Math.Max(0, Json.AsInt(Json.Field(book, "chapterGoal"), 0));
                     var template = Json.AsObject(Json.Field(book, "template"));
                     if (template != null) item.Book.Template = ReadPageSetup(template);
                 }
@@ -813,7 +921,22 @@ namespace UniversSale.Persistence
                         if (!string.IsNullOrEmpty(entryId)) entry.Id = entryId;
                         entry.Title = Json.AsString(Json.Field(e, "title")) ?? "";
                         entry.Value = Json.AsString(Json.Field(e, "value")) ?? "";
+                        entry.Group = Json.AsString(Json.Field(e, "group")) ?? "";
                         item.FreeInfo.Add(entry);
+                    }
+                var relations = Json.AsList(Json.Field(obj, "relations"));
+                if (relations != null)
+                    foreach (var relationNode in relations)
+                    {
+                        var r = Json.AsObject(relationNode);
+                        if (r == null) continue;
+                        var relation = new SheetRelation();
+                        var relationId = Json.AsString(Json.Field(r, "id"));
+                        if (!string.IsNullOrEmpty(relationId)) relation.Id = relationId;
+                        relation.Kind = Json.AsString(Json.Field(r, "kind")) ?? "";
+                        relation.TargetId = Json.AsString(Json.Field(r, "target"));
+                        relation.Name = Json.AsString(Json.Field(r, "name")) ?? "";
+                        item.Relations.Add(relation);
                     }
             }
 
@@ -980,17 +1103,26 @@ namespace UniversSale.Persistence
 
         private static void EnsureCategory(Project project, string title, string key)
         {
+            EnsureCategory(project, title, key, null);
+        }
+
+        /// <summary>beforeKey : la racine devant laquelle s'insérer (si elle
+        /// existe), sinon avant la Corbeille.</summary>
+        private static void EnsureCategory(Project project, string title, string key, string beforeKey)
+        {
             if (project.Category(key) != null) return;
             var category = new BinderItem();
             category.Kind = ItemKind.Category;
             category.Title = title;
             category.CategoryKey = key;
             category.Id = key;
+            var before = beforeKey == null ? null : project.Category(beforeKey);
+            if (before == null) before = project.Trash;
             // Keep the canonical order: insert trash last, others before it.
-            if (key == Project.KeyTrash || project.Trash == null)
+            if (key == Project.KeyTrash || before == null)
                 project.Roots.Add(category);
             else
-                project.Roots.Insert(project.Roots.IndexOf(project.Trash), category);
+                project.Roots.Insert(project.Roots.IndexOf(before), category);
         }
     }
 }

@@ -37,6 +37,33 @@ namespace UniversSale.View
             }
         }
 
+        /// <summary>Parse à blanc d'une palette (batch 34) : null si le XAML
+        /// passe, sinon le message — Switch avale les erreurs, le test C12 non.</summary>
+        public static string SelfCheck(bool dark)
+        {
+            return SelfCheck(dark, null);
+        }
+
+        public static string SelfCheck(bool dark, string accent)
+        {
+            var saved = Settings.AppSettings.AccentColor;
+            try
+            {
+                Settings.AppSettings.AccentColor = accent;
+                var palette = ApplyAccent(dark ? DarkPalette : LightPalette, dark);
+                var dictionary = XamlReader.Parse(Header + palette + Templates) as ResourceDictionary;
+                return dictionary == null ? "le dictionnaire de ressources est nul" : null;
+            }
+            catch (Exception error)
+            {
+                return error.Message;
+            }
+            finally
+            {
+                Settings.AppSettings.AccentColor = saved;
+            }
+        }
+
         /// <summary>Substitutes the customized accent into the palette string
         /// before parsing. Soft and hover steps are re-derived from the accent
         /// with the same blends that produced the stock indigo steps (≈ 0.82 and
@@ -115,6 +142,7 @@ namespace UniversSale.View
   <Style TargetType=""Button"">
     <Setter Property=""Foreground"" Value=""{StaticResource Ink}""/>
     <Setter Property=""Padding"" Value=""7,3""/>
+    <Setter Property=""Cursor"" Value=""Hand""/>
     <Setter Property=""Template"">
       <Setter.Value>
         <ControlTemplate TargetType=""Button"">
@@ -146,11 +174,14 @@ namespace UniversSale.View
   <Style TargetType=""ToggleButton"">
     <Setter Property=""Foreground"" Value=""{StaticResource Ink}""/>
     <Setter Property=""Padding"" Value=""7,3""/>
+    <Setter Property=""Cursor"" Value=""Hand""/>
     <Setter Property=""Template"">
       <Setter.Value>
         <ControlTemplate TargetType=""ToggleButton"">
-          <Border x:Name=""Bg"" CornerRadius=""5"" Background=""Transparent""
-                  BorderBrush=""Transparent"" BorderThickness=""1""
+          <!-- Au repos : papier + bordure fine (batch 34 — un bouton se
+               distingue d'un simple texte) ; enfoncé : accent doux. -->
+          <Border x:Name=""Bg"" CornerRadius=""5"" Background=""{StaticResource Paper}""
+                  BorderBrush=""{StaticResource Border}"" BorderThickness=""1""
                   Padding=""{TemplateBinding Padding}"">
             <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
           </Border>
@@ -206,13 +237,15 @@ namespace UniversSale.View
     <Setter Property=""Foreground"" Value=""{StaticResource Ink}""/>
     <Setter Property=""CaretBrush"" Value=""{StaticResource Ink}""/>
     <Setter Property=""Padding"" Value=""5,2""/>
+    <Setter Property=""VerticalContentAlignment"" Value=""Center""/>
     <Setter Property=""Template"">
       <Setter.Value>
         <ControlTemplate TargetType=""TextBox"">
           <Border x:Name=""Bg"" CornerRadius=""5"" Background=""{StaticResource Paper}""
                   BorderBrush=""{StaticResource Border}"" BorderThickness=""1""
                   Padding=""{TemplateBinding Padding}"">
-            <ScrollViewer x:Name=""PART_ContentHost"" VerticalAlignment=""Center""/>
+            <ScrollViewer x:Name=""PART_ContentHost""
+                          VerticalAlignment=""{TemplateBinding VerticalContentAlignment}""/>
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property=""IsMouseOver"" Value=""True"">
@@ -230,6 +263,13 @@ namespace UniversSale.View
         </ControlTemplate>
       </Setter.Value>
     </Setter>
+    <Style.Triggers>
+      <!-- Zones multilignes (batch 34) : le curseur en HAUT, toute la zone
+           est vivante — plus de caret centré dans un cadre de 90 px. -->
+      <Trigger Property=""AcceptsReturn"" Value=""True"">
+        <Setter Property=""VerticalContentAlignment"" Value=""Top""/>
+      </Trigger>
+    </Style.Triggers>
   </Style>
 
   <!-- ============================== Check boxes ============================== -->
@@ -520,13 +560,16 @@ namespace UniversSale.View
     <Setter Property=""Padding"" Value=""4""/>
   </Style>
 
+  <!-- Onglets en CHIP (batch 34) : l'actif est une pastille arrondie à la
+       couleur d'accent, texte papier ; les autres sont nus, survol grisé. -->
   <Style TargetType=""TabItem"">
     <Setter Property=""Foreground"" Value=""{StaticResource InkSoft}""/>
+    <Setter Property=""Cursor"" Value=""Hand""/>
     <Setter Property=""Template"">
       <Setter.Value>
         <ControlTemplate TargetType=""TabItem"">
-          <Border x:Name=""Bg"" Background=""Transparent"" Padding=""12,6"" Margin=""2,2,0,0""
-                  BorderThickness=""0,0,0,2"" BorderBrush=""Transparent"">
+          <Border x:Name=""Bg"" Background=""Transparent"" Padding=""12,4"" Margin=""3,4,0,4""
+                  CornerRadius=""12"" BorderThickness=""1"" BorderBrush=""Transparent"">
             <ContentPresenter ContentSource=""Header"" VerticalAlignment=""Center""/>
           </Border>
           <ControlTemplate.Triggers>
@@ -534,11 +577,56 @@ namespace UniversSale.View
               <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource Hover}""/>
             </Trigger>
             <Trigger Property=""IsSelected"" Value=""True"">
+              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource Accent}""/>
               <Setter TargetName=""Bg"" Property=""BorderBrush"" Value=""{StaticResource Accent}""/>
-              <Setter Property=""Foreground"" Value=""{StaticResource Ink}""/>
+              <Setter Property=""Foreground"" Value=""{StaticResource Paper}""/>
               <Setter Property=""FontWeight"" Value=""SemiBold""/>
             </Trigger>
           </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- ============================== Slider ============================== -->
+  <Style TargetType=""Slider"">
+    <Setter Property=""Cursor"" Value=""Hand""/>
+    <Setter Property=""Template"">
+      <Setter.Value>
+        <ControlTemplate TargetType=""Slider"">
+          <Grid MinHeight=""18"" VerticalAlignment=""Center"">
+            <Border Height=""4"" CornerRadius=""2"" Margin=""7,0"" VerticalAlignment=""Center""
+                    Background=""{StaticResource Border}""/>
+            <Track x:Name=""PART_Track"">
+              <Track.DecreaseRepeatButton>
+                <RepeatButton Command=""{x:Static Slider.DecreaseLarge}"" Focusable=""False"">
+                  <RepeatButton.Template>
+                    <ControlTemplate TargetType=""RepeatButton"">
+                      <Border Background=""Transparent"" Height=""18""/>
+                    </ControlTemplate>
+                  </RepeatButton.Template>
+                </RepeatButton>
+              </Track.DecreaseRepeatButton>
+              <Track.IncreaseRepeatButton>
+                <RepeatButton Command=""{x:Static Slider.IncreaseLarge}"" Focusable=""False"">
+                  <RepeatButton.Template>
+                    <ControlTemplate TargetType=""RepeatButton"">
+                      <Border Background=""Transparent"" Height=""18""/>
+                    </ControlTemplate>
+                  </RepeatButton.Template>
+                </RepeatButton>
+              </Track.IncreaseRepeatButton>
+              <Track.Thumb>
+                <Thumb Width=""14"" Height=""14"" Focusable=""False"">
+                  <Thumb.Template>
+                    <ControlTemplate TargetType=""Thumb"">
+                      <Ellipse Fill=""{StaticResource Accent}"" Stroke=""{StaticResource Paper}"" StrokeThickness=""2""/>
+                    </ControlTemplate>
+                  </Thumb.Template>
+                </Thumb>
+              </Track.Thumb>
+            </Track>
+          </Grid>
         </ControlTemplate>
       </Setter.Value>
     </Setter>

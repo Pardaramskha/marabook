@@ -90,7 +90,11 @@ namespace UniversSale.Tests
                 TokenizerTests.Run,      // C7 — le tokeniseur français unique
                 SpellTests.Run,          // C8 — l'orthographe (Hunspell maison)
                 GrammarBridgeTests.Run,  // C9 — pont Grammalecte (offsets, trames)
-                MarkdownTests.Run        // C10 — markdown des fiches, catégories
+                MarkdownTests.Run,       // C10 — markdown des fiches, catégories
+                LexiconTests.Run,        // C11 — dictionnaire personnel à natures (b33)
+                ThemeTests.Run,          // C12 — les palettes se parsent (b34)
+                TypographyTests.Run,     // C13 — passe typographique (b34)
+                PlanTests.Run            // C14 — plans (b35)
             };
             foreach (var suite in suites)
             {

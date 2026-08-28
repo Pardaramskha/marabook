@@ -159,6 +159,27 @@ namespace UniversSale.Tests
             var errors = GrammalecteBridge.ParseErrors(
                 UniversSale.Json.Parse(fixture));
             var findings = GrammarChecker.ToFindings(errors, mapper);
+            // Batch 33 — une règle TYPOGRAPHIQUE (sType « typo », « nbsp »…)
+            // signale en Typographie, les autres en Grammaire ; et le jeu
+            // d'options suit les deux interrupteurs des Options du correcteur.
+            var typoErrors = new List<BridgeError>
+            {
+                new BridgeError { Start = 0, End = 2, Option = "nbsp", Message = "espace" },
+                new BridgeError { Start = 0, End = 2, Option = "conj", Message = "accord" }
+            };
+            var tagged = GrammarChecker.ToFindings(typoErrors, mapper);
+            t.Equal(2, tagged.Count, "deux erreurs converties");
+            t.Equal(FindingCategory.Typography, tagged[0].Category, "sType nbsp → Typographie");
+            t.Equal(FindingCategory.Grammar, tagged[1].Category, "sType conj → Grammaire");
+            var both = GrammalecteOptions.Effective(null, true, true);
+            t.Check((bool)both["nbsp"] && (bool)both["conj"], "typographie ON rallume nbsp, la grammaire reste");
+            var typoOff = GrammalecteOptions.Effective(null, true, false);
+            t.Check(!(bool)typoOff["nbsp"] && (bool)typoOff["conj"], "typographie OFF : nbsp éteint, conj actif");
+            var grammarOff = GrammalecteOptions.Effective(null, false, true);
+            t.Check((bool)grammarOff["nbsp"] && !(bool)grammarOff["conj"], "grammaire OFF : conj éteint, nbsp actif");
+            var forced = new Dictionary<string, bool> { { "conj", false } };
+            t.Check(!(bool)GrammalecteOptions.Effective(forced, true, true)["conj"],
+                "le choix explicite de l'utilisateur garde le dernier mot");
             t.Equal(2, findings.Count, "deux signalements");
             t.Equal("blanc", original.Substring(findings[0].Start,
                 findings[0].Length), "l'ondulé couvre exactement « blanc »");

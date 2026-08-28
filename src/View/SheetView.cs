@@ -1,32 +1,36 @@
 using System;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Effects;
 using UniversSale.Model;
 
 namespace UniversSale.View
 {
-    /// <summary>La fiche (refonte batch 31) : les champs typés du modèle,
-    /// GROUPÉS (« Infos », « Physique »…), la liste clé/valeur libre, le
-    /// portrait avec ses options DESSOUS dans un cadre séparé — et un corps
-    /// en MARKDOWN (dialecte Markdown We Go + [[liens]]), édité en source,
-    /// rendu par l'« Aperçu wiki » (bouton proéminent, seul à gauche).
-    /// L'éditeur riche à ruban n'existe plus dans les fiches.</summary>
+    /// <summary>La fiche (refonte batch 34) — des « papers » (cadres arrondis
+    /// à ombre légère) : en haut à gauche l'image et ses options, dessous
+    /// les informations (+ un champ), à côté l'apparence (+ un champ),
+    /// dessous les relations (nature + fiche liée ou nom libre) ; toute la
+    /// moitié droite pour l'éditeur markdown, dans la police du wiki, avec
+    /// la barre de formatage de Markdown We Go ; en bandeau : retour, nom,
+    /// mode wiki, généalogie (à venir).</summary>
     public class SheetView : DockPanel
     {
-        private readonly StackPanel _fieldsPanel;
-        private readonly StackPanel _infoPanel;
-        private readonly TextBlock _templateLabel;
-        private readonly ScrollViewer _topScroll;
+        private const double BodyFontSize = 14.5; // Georgia, comme l'aperçu wiki
+
+        private readonly TextBlock _titleLabel, _categoryLabel;
+        private readonly ToggleButton _previewToggle;
+        private readonly Grid _body;
+        private readonly ScrollViewer _preview;
+        private readonly StackPanel _infoFields, _looksFields, _relationsPanel;
         private readonly Image _portrait;
-        private readonly Border _portraitFrame;
         private readonly TextBlock _portraitPlaceholder;
         private readonly Button _removePortrait;
-        private readonly ToggleButton _previewToggle;
-        private readonly ScrollViewer _preview;
         private readonly TextBox _bodyBox;
-        private readonly Border _bodyChrome;
         private readonly DockPanel _findBar;
         private readonly TextBox _findBox;
 
@@ -40,153 +44,165 @@ namespace UniversSale.View
         public event Action Edited;
         public event Action<string> LinkClicked;
         public event Action<int> ZoomStepRequested;
+        public event Action BackRequested;                 // ← retour (b34)
+        public event Action<BinderItem> NavigateRequested; // ouvrir une fiche liée (b34)
 
         public SheetView()
         {
-            var top = new Border
+            Background = Chrome.WindowBg;
+
+            // ================================================== le bandeau
+            var banner = new Border
             {
                 Background = Chrome.BarBgLight,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(24, 12, 24, 12)
+                Padding = new Thickness(16, 8, 16, 8)
             };
-            SetDock(top, Dock.Top);
+            SetDock(banner, Dock.Top);
+            var bannerRow = new DockPanel();
+            var back = new Button
+            {
+                Content = "←  Retour",
+                Padding = new Thickness(10, 4, 12, 4),
+                ToolTip = "Revenir au tableau (corkboard) de la fiche",
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            back.Click += delegate { var h = BackRequested; if (h != null) h(); };
+            DockPanel.SetDock(back, Dock.Left);
+            bannerRow.Children.Add(back);
 
-            var stack = new StackPanel();
-
-            // — L'en-tête : « Aperçu wiki » PROÉMINENT, seul à gauche (séparé
-            // de tout groupe de boutons — batch 31), le libellé à sa droite.
-            var headerRow = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
+            var rightTools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             _previewToggle = new ToggleButton
             {
-                Content = "📖  Aperçu wiki",
-                FontSize = 13,
+                Content = "📖  Mode wiki",
                 FontWeight = FontWeights.SemiBold,
-                Padding = new Thickness(14, 5, 14, 5),
-                ToolTip = "Voir la fiche en lecture, comme une page de wiki "
-                    + "(le corps markdown est mis en forme)"
+                Padding = new Thickness(12, 4, 12, 4),
+                ToolTip = "Voir la fiche en lecture, comme une page de wiki"
             };
             _previewToggle.Checked += delegate { ShowPreview(); };
             _previewToggle.Unchecked += delegate { HidePreview(); };
-            DockPanel.SetDock(_previewToggle, Dock.Left);
-            headerRow.Children.Add(_previewToggle);
-
-            _templateLabel = new TextBlock
+            rightTools.Children.Add(_previewToggle);
+            rightTools.Children.Add(new Button
             {
-                Foreground = Chrome.SoftText,
-                FontSize = 11,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(14, 0, 0, 0),
+                Content = "Généalogie",
+                Padding = new Thickness(12, 4, 12, 4),
+                Margin = new Thickness(8, 0, 0, 0),
+                IsEnabled = false,
+                ToolTip = "Arbre des relations — à venir"
+            });
+            DockPanel.SetDock(rightTools, Dock.Right);
+            bannerRow.Children.Add(rightTools);
+
+            var titles = new StackPanel { Margin = new Thickness(16, 0, 16, 0), VerticalAlignment = VerticalAlignment.Center };
+            _titleLabel = new TextBlock
+            {
+                Foreground = Chrome.Ink,
+                FontSize = 17,
+                FontWeight = FontWeights.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
-            headerRow.Children.Add(_templateLabel);
-            stack.Children.Add(headerRow);
+            _categoryLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 11 };
+            titles.Children.Add(_titleLabel);
+            titles.Children.Add(_categoryLabel);
+            bannerRow.Children.Add(titles);
+            banner.Child = bannerRow;
+            Children.Add(banner);
 
-            _fieldsPanel = new StackPanel();
-            stack.Children.Add(_fieldsPanel);
+            // ================================================== le corps
+            _body = new Grid();
+            _body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(5, GridUnitType.Star), MinWidth = 320 });
+            _body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6, GridUnitType.Star), MinWidth = 320 });
 
-            stack.Children.Add(new TextBlock
-            {
-                Text = "Informations libres",
-                Foreground = Chrome.SoftText,
-                FontSize = 11,
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 10, 0, 4)
-            });
-            _infoPanel = new StackPanel();
-            stack.Children.Add(_infoPanel);
+            // — Moitié gauche : les papers.
+            var papers = new Grid { Margin = new Thickness(10, 10, 4, 10) };
+            papers.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            papers.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            papers.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            papers.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            papers.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            var addInfo = new Button
-            {
-                Content = "+ Ajouter une information",
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Margin = new Thickness(0, 4, 0, 0)
-            };
-            addInfo.Click += delegate { AddInfoEntry(); };
-            stack.Children.Add(addInfo);
-
-            _topScroll = new ScrollViewer
-            {
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                MaxHeight = 320,
-                Content = stack
-            };
-
-            // — La colonne portrait : l'image (ou son emplacement) EN HAUT,
-            // ses options EN DESSOUS dans un cadre séparé (batch 31).
-            var portraitColumn = new StackPanel
-            {
-                Width = 170,
-                Margin = new Thickness(16, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Top
-            };
-            _portrait = new Image
-            {
-                MaxWidth = 160,
-                MaxHeight = 190,
-                Stretch = System.Windows.Media.Stretch.Uniform,
-                Visibility = Visibility.Collapsed
-            };
+            // Image + options.
+            _portrait = new Image { MaxHeight = 220, Stretch = Stretch.Uniform, Visibility = Visibility.Collapsed };
             _portraitPlaceholder = new TextBlock
             {
                 Text = "🖼\nAucune image",
                 TextAlignment = TextAlignment.Center,
                 Foreground = Chrome.SoftText,
                 FontSize = 13,
-                Margin = new Thickness(0, 28, 0, 28)
+                Margin = new Thickness(0, 26, 0, 26)
             };
             var portraitStack = new StackPanel();
             portraitStack.Children.Add(_portrait);
             portraitStack.Children.Add(_portraitPlaceholder);
-            _portraitFrame = new Border
-            {
-                Background = Chrome.PaperBg,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(4),
-                Child = portraitStack
-            };
-            portraitColumn.Children.Add(_portraitFrame);
-
-            var portraitOptions = new StackPanel();
-            var setPortrait = new Button
-            {
-                Content = "Image principale…",
-                Padding = new Thickness(8, 3, 8, 3),
-                ToolTip = "Portrait affiché sur la fiche et sur sa carte"
-            };
+            var portraitOptions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            var setPortrait = new Button { Content = "Image principale…", Padding = new Thickness(8, 3, 8, 3), ToolTip = "Portrait affiché sur la fiche et sur sa carte" };
             setPortrait.Click += delegate { ChoosePortrait(); };
             portraitOptions.Children.Add(setPortrait);
-            _removePortrait = new Button
-            {
-                Content = "Retirer l'image",
-                Padding = new Thickness(8, 3, 8, 3),
-                Margin = new Thickness(0, 4, 0, 0),
-                Visibility = Visibility.Collapsed
-            };
+            _removePortrait = new Button { Content = "Retirer", Padding = new Thickness(8, 3, 8, 3), Margin = new Thickness(6, 0, 0, 0), Visibility = Visibility.Collapsed };
             _removePortrait.Click += delegate { SetPortrait(null); };
             portraitOptions.Children.Add(_removePortrait);
-            portraitColumn.Children.Add(new Border
+            var imageContent = new StackPanel();
+            imageContent.Children.Add(portraitStack);
+            imageContent.Children.Add(portraitOptions);
+            var imagePaper = Paper("Image", imageContent, null);
+            Grid.SetColumn(imagePaper, 0); Grid.SetRow(imagePaper, 0);
+            papers.Children.Add(imagePaper);
+
+            // Informations.
+            _infoFields = new StackPanel();
+            var addInfo = new Button { Content = "+ Ajouter un champ", Padding = new Thickness(8, 2, 8, 2), FontSize = 11, HorizontalAlignment = HorizontalAlignment.Left };
+            addInfo.Click += delegate { AddFreeField(""); };
+            var infoPaper = Paper("Informations", _infoFields, addInfo);
+            Grid.SetColumn(infoPaper, 0); Grid.SetRow(infoPaper, 1);
+            papers.Children.Add(infoPaper);
+
+            // Apparence.
+            _looksFields = new StackPanel();
+            var addLooks = new Button { Content = "+ Ajouter un champ", Padding = new Thickness(8, 2, 8, 2), FontSize = 11, HorizontalAlignment = HorizontalAlignment.Left };
+            addLooks.Click += delegate { AddFreeField(SheetDefaults.GroupLooks); };
+            var looksPaper = Paper("Apparence", _looksFields, addLooks);
+            Grid.SetColumn(looksPaper, 1); Grid.SetRow(looksPaper, 0); Grid.SetRowSpan(looksPaper, 2);
+            papers.Children.Add(looksPaper);
+
+            // Relations.
+            _relationsPanel = new StackPanel();
+            var addRelation = new Button { Content = "+ Ajouter une relation", Padding = new Thickness(8, 2, 8, 2), FontSize = 11, HorizontalAlignment = HorizontalAlignment.Left };
+            addRelation.Click += delegate { AddRelation(); };
+            var relationsPaper = Paper("Relations", _relationsPanel, addRelation);
+            Grid.SetColumn(relationsPaper, 0); Grid.SetRow(relationsPaper, 2); Grid.SetColumnSpan(relationsPaper, 2);
+            papers.Children.Add(relationsPaper);
+
+            // Étroit (moins de 540 px) : une seule colonne, les papers empilés
+            // — deux colonnes de 150 px ne montraient plus rien.
+            var narrow = false;
+            papers.SizeChanged += delegate
             {
-                Background = Chrome.PaperBg,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(8),
-                Margin = new Thickness(0, 6, 0, 0),
-                Child = portraitOptions
-            });
+                var wantNarrow = papers.ActualWidth < 540;
+                if (wantNarrow == narrow && papers.RowDefinitions.Count == 4) return;
+                narrow = wantNarrow;
+                while (papers.RowDefinitions.Count < 4) papers.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                papers.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+                if (narrow)
+                {
+                    Grid.SetColumn(imagePaper, 0); Grid.SetRow(imagePaper, 0);
+                    Grid.SetColumn(infoPaper, 0); Grid.SetRow(infoPaper, 1);
+                    Grid.SetColumn(looksPaper, 0); Grid.SetRow(looksPaper, 2); Grid.SetRowSpan(looksPaper, 1);
+                    Grid.SetColumn(relationsPaper, 0); Grid.SetRow(relationsPaper, 3); Grid.SetColumnSpan(relationsPaper, 1);
+                }
+                else
+                {
+                    Grid.SetColumn(imagePaper, 0); Grid.SetRow(imagePaper, 0);
+                    Grid.SetColumn(infoPaper, 0); Grid.SetRow(infoPaper, 1);
+                    Grid.SetColumn(looksPaper, 1); Grid.SetRow(looksPaper, 0); Grid.SetRowSpan(looksPaper, 2);
+                    Grid.SetColumn(relationsPaper, 0); Grid.SetRow(relationsPaper, 2); Grid.SetColumnSpan(relationsPaper, 2);
+                }
+            };
+            var leftScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = papers };
+            Grid.SetColumn(leftScroll, 0);
+            _body.Children.Add(leftScroll);
 
-            var topRow = new DockPanel();
-            DockPanel.SetDock(portraitColumn, Dock.Right);
-            topRow.Children.Add(portraitColumn);
-            topRow.Children.Add(_topScroll);
-            top.Child = topRow;
-            Children.Add(top);
-
-            // — Le corps : la SOURCE markdown, dans un simple champ de texte
-            // (batch 31 — l'éditeur riche des fiches est retiré).
+            // — Moitié droite : l'éditeur markdown.
             _bodyBox = new TextBox
             {
                 AcceptsReturn = true,
@@ -194,11 +210,12 @@ namespace UniversSale.View
                 TextWrapping = TextWrapping.Wrap,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 BorderThickness = new Thickness(0),
-                Padding = new Thickness(20, 14, 20, 14),
-                FontFamily = new System.Windows.Media.FontFamily("Consolas"),
-                FontSize = 13,
+                Padding = new Thickness(18, 12, 18, 14),
+                FontFamily = new FontFamily("Georgia"),
+                FontSize = BodyFontSize,
                 Background = Chrome.PaperBg,
-                Foreground = Chrome.PaperInk
+                Foreground = Chrome.PaperInk,
+                VerticalContentAlignment = VerticalAlignment.Top
             };
             _bodyBox.TextChanged += delegate
             {
@@ -213,80 +230,544 @@ namespace UniversSale.View
                 var handler = ZoomStepRequested;
                 if (handler != null) handler(e.Delta > 0 ? 10 : -10);
             };
+            _bodyBox.PreviewKeyDown += OnBodyKeyDown;
 
-            // Barre de recherche minimale du corps (Ctrl+F) : suivant au fil
-            // de l'eau, Échap referme.
-            _findBox = new TextBox { Width = 220, Margin = new Thickness(6, 0, 0, 0) };
+            _findBox = new TextBox { Width = 200, Margin = new Thickness(6, 0, 0, 0) };
             _findBox.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key == Key.Enter) { FindNext(); e.Handled = true; }
                 else if (e.Key == Key.Escape) { HideSearch(); e.Handled = true; }
             };
-            var findNext = new Button
-            {
-                Content = "Suivant",
-                Margin = new Thickness(6, 0, 0, 0),
-                Padding = new Thickness(8, 2, 8, 2)
-            };
+            var findNext = new Button { Content = "Suivant", Margin = new Thickness(6, 0, 0, 0), Padding = new Thickness(8, 2, 8, 2) };
             findNext.Click += delegate { FindNext(); };
-            var findClose = new Button
-            {
-                Content = "✕",
-                Width = 24,
-                Margin = new Thickness(6, 0, 0, 0)
-            };
+            var findClose = new Button { Content = "✕", Width = 24, Margin = new Thickness(6, 0, 0, 0) };
             findClose.Click += delegate { HideSearch(); };
-            _findBar = new DockPanel
-            {
-                Margin = new Thickness(20, 6, 20, 6),
-                Visibility = Visibility.Collapsed,
-                LastChildFill = false
-            };
-            _findBar.Children.Add(new TextBlock
-            {
-                Text = "Rechercher :",
-                Foreground = Chrome.SoftText,
-                VerticalAlignment = VerticalAlignment.Center
-            });
+            _findBar = new DockPanel { Margin = new Thickness(14, 6, 14, 2), Visibility = Visibility.Collapsed, LastChildFill = false };
+            _findBar.Children.Add(new TextBlock { Text = "Rechercher :", Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center });
             _findBar.Children.Add(_findBox);
             _findBar.Children.Add(findNext);
             _findBar.Children.Add(findClose);
 
-            var bodyStack = new DockPanel();
+            var editorStack = new DockPanel();
+            var toolbar = BuildMarkdownToolbar();
+            DockPanel.SetDock(toolbar, Dock.Top);
+            editorStack.Children.Add(toolbar);
             DockPanel.SetDock(_findBar, Dock.Top);
-            bodyStack.Children.Add(_findBar);
-            bodyStack.Children.Add(_bodyBox);
-            _bodyChrome = new Border
+            editorStack.Children.Add(_findBar);
+            editorStack.Children.Add(_bodyBox);
+            var editorPaper = new Border
             {
                 Background = Chrome.PaperBg,
-                Child = bodyStack
+                CornerRadius = new CornerRadius(8),
+                Margin = new Thickness(6, 18, 18, 18),
+                Effect = Shadow(),
+                Child = editorStack,
+                ClipToBounds = false
             };
+            Grid.SetColumn(editorPaper, 1);
+            _body.Children.Add(editorPaper);
 
-            _preview = new ScrollViewer
-            {
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Visibility = Visibility.Collapsed
-            };
+            _preview = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Visibility = Visibility.Collapsed };
 
             var center = new Grid();
-            center.Children.Add(_bodyChrome);
+            center.Children.Add(_body);
             center.Children.Add(_preview);
-            Children.Add(center); // fills the remaining space
+            Children.Add(center);
         }
+
+        // ================================================== papers
+
+        private static DropShadowEffect Shadow()
+        {
+            return new DropShadowEffect { BlurRadius = 10, ShadowDepth = 1, Opacity = 0.14, Color = Colors.Black };
+        }
+
+        private static Border Paper(string caption, UIElement content, UIElement action)
+        {
+            var stack = new StackPanel();
+            var head = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var title = new TextBlock
+            {
+                Text = caption,
+                Foreground = Chrome.Ink,
+                FontWeight = FontWeights.SemiBold,
+                FontSize = 13,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            Grid.SetColumn(title, 0);
+            head.Children.Add(title);
+            if (action != null)
+            {
+                Grid.SetColumn(action, 1);
+                head.Children.Add(action);
+            }
+            stack.Children.Add(head);
+            stack.Children.Add(content);
+            return new Border
+            {
+                Background = Chrome.CardBg,
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14, 12, 14, 12),
+                Margin = new Thickness(6, 8, 6, 8),
+                Effect = Shadow(),
+                Child = stack,
+                VerticalAlignment = VerticalAlignment.Top
+            };
+        }
+
+        // ================================================== champs
+
+        private static bool IsLooks(string group)
+        {
+            return string.Equals(group, SheetDefaults.GroupLooks, StringComparison.CurrentCultureIgnoreCase);
+        }
+
+        private void RebuildFields()
+        {
+            _infoFields.Children.Clear();
+            _looksFields.Children.Clear();
+            if (_item == null) return;
+            if (_template != null)
+                foreach (var field in _template.Fields)
+                {
+                    string value;
+                    _item.FieldValues.TryGetValue(field.Id, out value);
+                    var fieldRef = field;
+                    var row = FieldRow(field.Name, value ?? "", field.Kind == "multiline", delegate(string text)
+                    {
+                        _item.FieldValues[fieldRef.Id] = text;
+                    }, null);
+                    (IsLooks(field.Group) ? _looksFields : _infoFields).Children.Add(row);
+                }
+            foreach (var entry in _item.FreeInfo)
+                (IsLooks(entry.Group) ? _looksFields : _infoFields).Children.Add(FreeFieldRow(entry));
+            if (_infoFields.Children.Count == 0) _infoFields.Children.Add(Hint("Aucune information — ajoutez un champ."));
+            if (_looksFields.Children.Count == 0) _looksFields.Children.Add(Hint("Aucun trait d'apparence — ajoutez un champ."));
+        }
+
+        private static TextBlock Hint(string text)
+        {
+            return new TextBlock { Text = text, Foreground = Chrome.SoftText, FontSize = 11, TextWrapping = TextWrapping.Wrap };
+        }
+
+        /// <summary>Une rangée libellé / valeur ; remove = bouton ✕ optionnel.</summary>
+        private UIElement FieldRow(string label, string value, bool multiline, Action<string> onChanged, Button remove)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+            if (remove != null) { DockPanel.SetDock(remove, Dock.Right); row.Children.Add(remove); }
+            var caption = new TextBlock
+            {
+                Text = label,
+                Width = 92,
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 4, 8, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            DockPanel.SetDock(caption, Dock.Left);
+            row.Children.Add(caption);
+            var box = new TextBox { Text = value };
+            if (multiline)
+            {
+                box.AcceptsReturn = true;
+                box.TextWrapping = TextWrapping.Wrap;
+                box.MinHeight = 52;
+                box.VerticalContentAlignment = VerticalAlignment.Top;
+            }
+            box.TextChanged += delegate
+            {
+                if (_loading || _item == null) return;
+                onChanged(box.Text);
+                NotifyEdited();
+            };
+            row.Children.Add(box);
+            return row;
+        }
+
+        private UIElement FreeFieldRow(InfoEntry entry)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+            var remove = new Button { Content = "✕", Width = 26, Margin = new Thickness(6, 0, 0, 0), ToolTip = "Supprimer ce champ" };
+            remove.Click += delegate
+            {
+                _item.FreeInfo.Remove(entry);
+                RebuildFields();
+                NotifyEdited();
+            };
+            DockPanel.SetDock(remove, Dock.Right);
+            row.Children.Add(remove);
+            var titleBox = new TextBox { Text = entry.Title, Width = 92, Margin = new Thickness(0, 0, 8, 0), ToolTip = "Nom du champ" };
+            titleBox.TextChanged += delegate
+            {
+                if (_loading) return;
+                entry.Title = titleBox.Text;
+                NotifyEdited();
+            };
+            DockPanel.SetDock(titleBox, Dock.Left);
+            row.Children.Add(titleBox);
+            var valueBox = new TextBox { Text = entry.Value };
+            valueBox.TextChanged += delegate
+            {
+                if (_loading) return;
+                entry.Value = valueBox.Text;
+                NotifyEdited();
+            };
+            row.Children.Add(valueBox);
+            return row;
+        }
+
+        private void AddFreeField(string group)
+        {
+            if (_item == null) return;
+            var entry = new InfoEntry { Title = "Champ", Group = group ?? "" };
+            _item.FreeInfo.Add(entry);
+            RebuildFields();
+            NotifyEdited();
+        }
+
+        // ================================================== relations
+
+        private List<BinderItem> OtherSheets()
+        {
+            var sheets = new List<BinderItem>();
+            if (_project == null) return sheets;
+            foreach (var item in _project.AllItems())
+                if (item.Kind == ItemKind.Sheet && item != _item
+                    && item.RootCategory().CategoryKey != Project.KeyTrash)
+                    sheets.Add(item);
+            sheets.Sort(delegate(BinderItem a, BinderItem b)
+            { return string.Compare(a.Title, b.Title, StringComparison.CurrentCultureIgnoreCase); });
+            return sheets;
+        }
+
+        private void RebuildRelations()
+        {
+            _relationsPanel.Children.Clear();
+            if (_item == null) return;
+            var sheets = OtherSheets();
+            foreach (var relation in _item.Relations)
+                _relationsPanel.Children.Add(RelationRow(relation, sheets));
+            if (_item.Relations.Count == 0)
+                _relationsPanel.Children.Add(Hint("Aucune relation — « frère », « mentor », « rivale »… vers une fiche ou un nom."));
+        }
+
+        private UIElement RelationRow(SheetRelation relation, List<BinderItem> sheets)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+            var remove = new Button { Content = "✕", Width = 26, Margin = new Thickness(6, 0, 0, 0), ToolTip = "Supprimer cette relation" };
+            remove.Click += delegate
+            {
+                _item.Relations.Remove(relation);
+                RebuildRelations();
+                NotifyEdited();
+            };
+            DockPanel.SetDock(remove, Dock.Right);
+            row.Children.Add(remove);
+
+            var kindBox = new TextBox { Text = relation.Kind, Width = 92, Margin = new Thickness(0, 0, 6, 0), ToolTip = "Nature de la relation (frère, mentor, ennemie…)" };
+            kindBox.TextChanged += delegate
+            {
+                if (_loading) return;
+                relation.Kind = kindBox.Text;
+                NotifyEdited();
+            };
+            DockPanel.SetDock(kindBox, Dock.Left);
+            row.Children.Add(kindBox);
+            var arrow = new TextBlock { Text = "→", Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+            DockPanel.SetDock(arrow, Dock.Left);
+            row.Children.Add(arrow);
+
+            // Ouvrir la fiche liée (quand la cible en est une).
+            var target = _project == null || relation.TargetId == null ? null : _project.FindById(relation.TargetId);
+            var open = new Button
+            {
+                Content = "Ouvrir",
+                Padding = new Thickness(8, 2, 8, 2),
+                FontSize = 11,
+                Margin = new Thickness(6, 0, 0, 0),
+                Visibility = target != null ? Visibility.Visible : Visibility.Collapsed,
+                ToolTip = "Ouvrir la fiche liée"
+            };
+            open.Click += delegate
+            {
+                var linked = _project == null || relation.TargetId == null ? null : _project.FindById(relation.TargetId);
+                var handler = NavigateRequested;
+                if (linked != null && handler != null) handler(linked);
+            };
+            DockPanel.SetDock(open, Dock.Right);
+            row.Children.Add(open);
+
+            // La cible : une fiche existante (liste) ou un nom libre (saisie).
+            var combo = new ComboBox { IsEditable = true, ToolTip = "Une fiche du projet, ou un nom libre" };
+            foreach (var sheet in sheets) combo.Items.Add(sheet.Title);
+            combo.Text = target != null ? target.Title : relation.Name;
+            combo.LostKeyboardFocus += delegate { CommitRelationTarget(relation, combo, sheets, open); };
+            combo.SelectionChanged += delegate
+            {
+                if (_loading || combo.SelectedIndex < 0) return;
+                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
+                    new Action(delegate { CommitRelationTarget(relation, combo, sheets, open); }));
+            };
+            row.Children.Add(combo);
+            return row;
+        }
+
+        private void CommitRelationTarget(SheetRelation relation, ComboBox combo, List<BinderItem> sheets, Button open)
+        {
+            if (_loading || _item == null) return;
+            var text = (combo.Text ?? "").Trim();
+            BinderItem match = null;
+            foreach (var sheet in sheets)
+                if (string.Equals(sheet.Title, text, StringComparison.CurrentCultureIgnoreCase)) { match = sheet; break; }
+            var newId = match != null ? match.Id : null;
+            var newName = match != null ? "" : text;
+            if (newId == relation.TargetId && newName == relation.Name) return;
+            relation.TargetId = newId;
+            relation.Name = newName;
+            open.Visibility = match != null ? Visibility.Visible : Visibility.Collapsed;
+            NotifyEdited();
+        }
+
+        private void AddRelation()
+        {
+            if (_item == null) return;
+            _item.Relations.Add(new SheetRelation { Kind = "" });
+            RebuildRelations();
+            NotifyEdited();
+        }
+
+        // ================================================== barre markdown
+
+        private UIElement BuildMarkdownToolbar()
+        {
+            var bar = new WrapPanel { Margin = new Thickness(10, 8, 10, 4) };
+            bar.Children.Add(Tool("G", "Gras (Ctrl+B)", FontWeights.Bold, FontStyles.Normal, delegate { Wrap("**", "**"); }));
+            bar.Children.Add(Tool("I", "Italique (Ctrl+I)", FontWeights.Normal, FontStyles.Italic, delegate { Wrap("*", "*"); }));
+            bar.Children.Add(Tool("S", "Souligné (Ctrl+U)", FontWeights.Normal, FontStyles.Normal, delegate { Wrap("<u>", "</u>"); }, TextDecorations.Underline));
+            bar.Children.Add(Tool("B", "Barré", FontWeights.Normal, FontStyles.Normal, delegate { Wrap("~~", "~~"); }, TextDecorations.Strikethrough));
+            bar.Children.Add(Gap());
+            bar.Children.Add(Tool("H1", "Titre de niveau 1", FontWeights.SemiBold, FontStyles.Normal, delegate { ApplyHeading(1); }));
+            bar.Children.Add(Tool("H2", "Titre de niveau 2", FontWeights.SemiBold, FontStyles.Normal, delegate { ApplyHeading(2); }));
+            bar.Children.Add(Tool("H3", "Titre de niveau 3", FontWeights.SemiBold, FontStyles.Normal, delegate { ApplyHeading(3); }));
+            bar.Children.Add(Gap());
+            bar.Children.Add(Tool("•", "Liste à puces", FontWeights.Normal, FontStyles.Normal, delegate { ApplyList("puce"); }));
+            bar.Children.Add(Tool("1.", "Liste numérotée", FontWeights.Normal, FontStyles.Normal, delegate { ApplyList("num"); }));
+            bar.Children.Add(Tool("–", "Liste à tirets", FontWeights.Normal, FontStyles.Normal, delegate { ApplyList("tiret"); }));
+            bar.Children.Add(Tool("☑", "Liste de tâches (cases à cocher)", FontWeights.Normal, FontStyles.Normal, delegate { ApplyList("case"); }));
+            bar.Children.Add(Tool("❝", "Citation", FontWeights.Normal, FontStyles.Normal, delegate { ApplyQuote(); }));
+            bar.Children.Add(Gap());
+            bar.Children.Add(Tool("⊞", "Insérer un tableau", FontWeights.Normal, FontStyles.Normal, delegate { InsertTable(); }));
+            bar.Children.Add(Tool("―", "Filet horizontal", FontWeights.Normal, FontStyles.Normal, delegate { InsertRule(); }));
+            bar.Children.Add(Tool("🔗", "Lien hypertexte", FontWeights.Normal, FontStyles.Normal, delegate { InsertLink(); }));
+            bar.Children.Add(Tool("🖼", "Image", FontWeights.Normal, FontStyles.Normal, delegate { InsertImage(); }));
+            bar.Children.Add(Tool("[[ ]]", "Lien vers une fiche (Ctrl+K)", FontWeights.Normal, FontStyles.Normal, delegate { Wrap("[[", "]]"); }));
+            return bar;
+        }
+
+        private static UIElement Gap()
+        {
+            return new Border { Width = 1, Height = 18, Background = Chrome.Border, Margin = new Thickness(6, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+        }
+
+        private Button Tool(string label, string tooltip, FontWeight weight, FontStyle style, Action action)
+        {
+            return Tool(label, tooltip, weight, style, action, null);
+        }
+
+        private Button Tool(string label, string tooltip, FontWeight weight, FontStyle style, Action action, TextDecorationCollection decorations)
+        {
+            var text = new TextBlock { Text = label, FontWeight = weight, FontStyle = style, FontSize = 12 };
+            if (decorations != null) text.TextDecorations = decorations;
+            var button = new Button
+            {
+                Content = text,
+                MinWidth = 28,
+                Padding = new Thickness(6, 2, 6, 2),
+                Margin = new Thickness(0, 0, 3, 3),
+                ToolTip = tooltip,
+                Focusable = false
+            };
+            button.Click += delegate { if (_item != null) action(); };
+            return button;
+        }
+
+        private void OnBodyKeyDown(object sender, KeyEventArgs e)
+        {
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
+            if (e.Key == Key.B) { Wrap("**", "**"); e.Handled = true; }
+            else if (e.Key == Key.I) { Wrap("*", "*"); e.Handled = true; }
+            else if (e.Key == Key.U) { Wrap("<u>", "</u>"); e.Handled = true; }
+        }
+
+        /// <summary>Entoure la sélection de marqueurs — ou les retire s'ils
+        /// sont déjà là, dedans ou juste autour (port de MWG).</summary>
+        private void Wrap(string before, string after)
+        {
+            LeavePreview();
+            var start = _bodyBox.SelectionStart;
+            var length = _bodyBox.SelectionLength;
+            var text = _bodyBox.Text;
+            if (length > 0)
+            {
+                var selected = _bodyBox.SelectedText;
+                if (selected.Length >= before.Length + after.Length
+                    && selected.StartsWith(before, StringComparison.Ordinal) && selected.EndsWith(after, StringComparison.Ordinal))
+                {
+                    _bodyBox.SelectedText = selected.Substring(before.Length, selected.Length - before.Length - after.Length);
+                    _bodyBox.Select(start, length - before.Length - after.Length);
+                }
+                else if (start >= before.Length && start + length + after.Length <= text.Length
+                    && text.Substring(start - before.Length, before.Length) == before
+                    && text.Substring(start + length, after.Length) == after)
+                {
+                    _bodyBox.Select(start - before.Length, length + before.Length + after.Length);
+                    _bodyBox.SelectedText = selected;
+                    _bodyBox.Select(start - before.Length, length);
+                }
+                else
+                {
+                    _bodyBox.SelectedText = before + selected + after;
+                    _bodyBox.Select(start + before.Length, length);
+                }
+            }
+            else
+            {
+                _bodyBox.SelectedText = before + after;
+                _bodyBox.Select(start + before.Length, 0);
+            }
+            _bodyBox.Focus();
+        }
+
+        private int[] LineBlock()
+        {
+            var text = _bodyBox.Text;
+            var start = _bodyBox.SelectionStart;
+            var length = _bodyBox.SelectionLength;
+            var blockStart = LineStart(text, start);
+            var end = start + length;
+            if (length > 0 && end > blockStart && LineStart(text, end) == end) end--;
+            return new[] { blockStart, LineEnd(text, end) };
+        }
+
+        private static int LineStart(string text, int position)
+        {
+            var i = Math.Min(position, text.Length);
+            while (i > 0 && text[i - 1] != '\n') i--;
+            return i;
+        }
+
+        private static int LineEnd(string text, int position)
+        {
+            var i = Math.Max(0, Math.Min(position, text.Length));
+            while (i < text.Length && text[i] != '\n' && text[i] != '\r') i++;
+            return i;
+        }
+
+        private void TransformLines(Func<string, string> transform)
+        {
+            LeavePreview();
+            var block = LineBlock();
+            var text = _bodyBox.Text;
+            var length = _bodyBox.SelectionLength;
+            var lines = text.Substring(block[0], block[1] - block[0]).Split('\n');
+            for (var i = 0; i < lines.Length; i++) lines[i] = transform(lines[i].TrimEnd('\r'));
+            var replaced = string.Join("\n", lines);
+            _bodyBox.Select(block[0], block[1] - block[0]);
+            _bodyBox.SelectedText = replaced;
+            if (length > 0) _bodyBox.Select(block[0], replaced.Length);
+            else _bodyBox.Select(block[0] + replaced.Length, 0);
+            _bodyBox.Focus();
+        }
+
+        private void ApplyHeading(int level)
+        {
+            var prefix = new string('#', level) + " ";
+            TransformLines(delegate(string line)
+            {
+                var m = Regex.Match(line, @"^(#{1,6})\s+(.*)$");
+                var rest = m.Success ? m.Groups[2].Value : line;
+                if (m.Success && m.Groups[1].Value.Length == level) return rest;
+                return prefix + rest;
+            });
+        }
+
+        private void ApplyList(string type)
+        {
+            var n = 0;
+            TransformLines(delegate(string line)
+            {
+                var m = Regex.Match(line, @"^(\s*)(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.*)$");
+                var indent = m.Success ? m.Groups[1].Value : Regex.Match(line, @"^\s*").Value;
+                var rest = m.Success ? m.Groups[2].Value : line.TrimStart();
+                n++;
+                if (type == "num") return indent + n + ". " + rest;
+                if (type == "tiret") return indent + "- " + rest;
+                if (type == "case") return indent + "- [ ] " + rest;
+                return indent + "* " + rest;
+            });
+        }
+
+        private void ApplyQuote()
+        {
+            TransformLines(delegate(string line)
+            {
+                return line.StartsWith("> ", StringComparison.Ordinal) ? line.Substring(2) : "> " + line;
+            });
+        }
+
+        private void InsertTable()
+        {
+            var values = NumbersDialog.Ask(Window.GetWindow(this), "Tableau", new[] { "Colonnes", "Lignes" }, new[] { 3.0, 2.0 }, 1, 12);
+            if (values == null) return;
+            var columns = (int)Math.Round(values[0]);
+            var rows = (int)Math.Round(values[1]);
+            var sb = new System.Text.StringBuilder();
+            sb.Append('\n');
+            for (var c = 1; c <= columns; c++) sb.Append("| Colonne " + c + " ");
+            sb.Append("|\n");
+            for (var c = 1; c <= columns; c++) sb.Append("| --- ");
+            sb.Append("|\n");
+            for (var r = 0; r < rows; r++)
+            {
+                for (var c = 1; c <= columns; c++) sb.Append("|   ");
+                sb.Append("|\n");
+            }
+            InsertAtCaret(sb.ToString());
+        }
+
+        private void InsertLink()
+        {
+            LeavePreview();
+            var start = _bodyBox.SelectionStart;
+            var selected = _bodyBox.SelectedText;
+            if (selected.Length > 0)
+            {
+                _bodyBox.SelectedText = "[" + selected + "]()";
+                _bodyBox.Select(start + selected.Length + 3, 0);
+            }
+            else
+            {
+                _bodyBox.SelectedText = "[]()";
+                _bodyBox.Select(start + 1, 0);
+            }
+            _bodyBox.Focus();
+        }
+
+        private void LeavePreview()
+        {
+            if (_previewToggle.IsChecked == true) _previewToggle.IsChecked = false;
+        }
+
+        // ================================================== API de la coquille
 
         public bool HasItem { get { return _item != null; } }
-
         public bool ShowsItem(BinderItem item) { return _item == item; }
-
-        public void SetStyleSheet(StyleSheet styles)
-        {
-            _styles = styles;
-        }
-
-        public void SetProject(Model.Project project)
-        {
-            _project = project;
-        }
+        public void SetStyleSheet(StyleSheet styles) { _styles = styles; }
+        public void SetProject(Model.Project project) { _project = project; }
 
         public void LoadItem(BinderItem item, SheetTemplate template)
         {
@@ -294,12 +775,11 @@ namespace UniversSale.View
             _template = template;
             _loading = true;
             var category = _project == null ? null : _project.SheetCategoryOf(item);
-            _templateLabel.Text =
-                (category != null ? "Fiche " + category.Name : "Fiche")
-                + (template != null ? " — modèle " + template.Name
-                    : " (modèle introuvable — champs libres uniquement)");
+            _titleLabel.Text = item.Title;
+            _categoryLabel.Text = (category != null ? "Fiche " + category.Name : "Fiche")
+                + (template != null ? " — modèle " + template.Name : " (modèle introuvable — champs libres uniquement)");
             RebuildFields();
-            RebuildInfo();
+            RebuildRelations();
             RefreshPortrait();
             _bodyBox.Text = item.Document.ToPlainText();
             _loading = false;
@@ -309,9 +789,6 @@ namespace UniversSale.View
         public void Commit()
         {
             if (_item == null) return;
-            // Les champs et la source markdown écrivent dans l'élément au fil
-            // de la frappe — rien à pousser, mais l'appel reste le point de
-            // rendez-vous (la coquille commite avant sauvegarde/bascule).
             _item.Document = TextDocument.FromPlainText(_bodyBox.Text);
         }
 
@@ -328,7 +805,7 @@ namespace UniversSale.View
             _preview.Content = null;
         }
 
-        // ------------------------------------------------------- main image
+        // ------------------------------------------------------- image
 
         private void ChoosePortrait()
         {
@@ -348,8 +825,7 @@ namespace UniversSale.View
             }
             catch (Exception error)
             {
-                MessageBox.Show(Window.GetWindow(this),
-                    "Impossible de charger l'image :\n" + error.Message,
+                MessageBox.Show(Window.GetWindow(this), "Image refusée : " + error.Message,
                     "Marabook", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
@@ -357,7 +833,7 @@ namespace UniversSale.View
         private void SetPortrait(string imageId)
         {
             if (_item == null) return;
-            _item.ImageId = imageId; // dropped bytes are purged at save time
+            _item.ImageId = imageId; // les octets abandonnés sont purgés à l'enregistrement
             RefreshPortrait();
             NotifyEdited();
             if (_previewToggle.IsChecked == true) ShowPreview();
@@ -373,25 +849,25 @@ namespace UniversSale.View
             _removePortrait.Visibility = _portrait.Visibility;
         }
 
-        // ------------------------------------------------------- wiki preview
+        // ------------------------------------------------------- mode wiki
 
         private void ShowPreview()
         {
             if (_item == null) return;
             _preview.Content = BuildPreviewContent();
             _preview.Visibility = Visibility.Visible;
-            _bodyChrome.Visibility = Visibility.Collapsed;
+            _body.Visibility = Visibility.Collapsed;
         }
 
         private void HidePreview()
         {
             _preview.Visibility = Visibility.Collapsed;
             _preview.Content = null;
-            _bodyChrome.Visibility = Visibility.Visible;
+            _body.Visibility = Visibility.Visible;
         }
 
-        /// <summary>Wiki-like rendering: big title, an infobox on the right
-        /// (portrait + filled fields + free info), the MARKDOWN body below.</summary>
+        /// <summary>Rendu wiki : grand titre, infobox à droite (portrait,
+        /// champs remplis groupés, champs libres, relations), corps markdown.</summary>
         private UIElement BuildPreviewContent()
         {
             var page = new Border
@@ -406,18 +882,11 @@ namespace UniversSale.View
             };
             var layout = new DockPanel { LastChildFill = true };
 
-            // --- infobox ---
             var infobox = new StackPanel();
             var image = _project == null ? null : _project.FindImage(_item.ImageId);
             var source = image == null ? null : MediaView.TryImage(image.Bytes, 480);
             if (source != null)
-                infobox.Children.Add(new Image
-                {
-                    Source = source,
-                    Stretch = System.Windows.Media.Stretch.Uniform,
-                    MaxHeight = 240,
-                    Margin = new Thickness(0, 0, 0, 10)
-                });
+                infobox.Children.Add(new Image { Source = source, Stretch = Stretch.Uniform, MaxHeight = 240, Margin = new Thickness(0, 0, 0, 10) });
             if (_template != null)
             {
                 string lastGroup = null;
@@ -427,14 +896,7 @@ namespace UniversSale.View
                     _item.FieldValues.TryGetValue(field.Id, out value);
                     if (string.IsNullOrEmpty(value)) continue;
                     if (field.Group.Length > 0 && field.Group != lastGroup)
-                        infobox.Children.Add(new TextBlock
-                        {
-                            Text = field.Group,
-                            FontSize = 11,
-                            FontWeight = FontWeights.Bold,
-                            Foreground = Chrome.Accent,
-                            Margin = new Thickness(0, 8, 0, 0)
-                        });
+                        infobox.Children.Add(GroupCaption(field.Group));
                     lastGroup = field.Group.Length > 0 ? field.Group : lastGroup;
                     AddInfoboxRow(infobox, field.Name, value);
                 }
@@ -442,7 +904,27 @@ namespace UniversSale.View
             foreach (var entry in _item.FreeInfo)
                 if (!string.IsNullOrEmpty(entry.Value))
                     AddInfoboxRow(infobox, entry.Title, entry.Value);
-
+            if (_item.Relations.Count > 0)
+            {
+                infobox.Children.Add(GroupCaption("Relations"));
+                foreach (var relation in _item.Relations)
+                {
+                    var target = _project == null || relation.TargetId == null ? null : _project.FindById(relation.TargetId);
+                    var label = target != null ? target.Title : relation.Name;
+                    if (label.Length == 0 && relation.Kind.Length == 0) continue;
+                    if (target != null)
+                    {
+                        var link = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+                        link.Inlines.Add(new System.Windows.Documents.Run(relation.Kind + " → ") { Foreground = Chrome.Ink });
+                        var anchor = new System.Windows.Documents.Run(label) { Foreground = Chrome.Accent, Cursor = Cursors.Hand };
+                        var targetRef = target;
+                        anchor.MouseLeftButtonDown += delegate { var h = NavigateRequested; if (h != null) h(targetRef); };
+                        link.Inlines.Add(anchor);
+                        infobox.Children.Add(link);
+                    }
+                    else AddInfoboxRow(infobox, relation.Kind, label);
+                }
+            }
             if (infobox.Children.Count > 0)
             {
                 var infoboxFrame = new Border
@@ -461,38 +943,19 @@ namespace UniversSale.View
                 layout.Children.Add(infoboxFrame);
             }
 
-            // --- title + markdown body ---
             var main = new StackPanel();
-            main.Children.Add(new TextBlock
-            {
-                Text = _item.Title,
-                FontSize = 26,
-                FontWeight = FontWeights.Bold,
-                Foreground = Chrome.PaperInk,
-                TextWrapping = TextWrapping.Wrap
-            });
+            main.Children.Add(new TextBlock { Text = _item.Title, FontSize = 26, FontWeight = FontWeights.Bold, Foreground = Chrome.PaperInk, TextWrapping = TextWrapping.Wrap });
             var category = _project == null ? null : _project.SheetCategoryOf(_item);
             main.Children.Add(new TextBlock
             {
-                Text = category != null ? category.Name
-                    : _template != null ? _template.Name : "Fiche",
+                Text = category != null ? category.Name : _template != null ? _template.Name : "Fiche",
                 FontSize = 12,
                 Foreground = Chrome.PaperSoftInk,
                 Margin = new Thickness(0, 2, 0, 8)
             });
-            main.Children.Add(new Border
-            {
-                Height = 1,
-                Background = Chrome.Border,
-                Margin = new Thickness(0, 0, 0, 12)
-            });
-
+            main.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 0, 0, 12) });
             var flow = MarkdownRender.Build(_bodyBox.Text,
-                delegate(string target)
-                {
-                    var handler = LinkClicked;
-                    if (handler != null) handler(target);
-                },
+                delegate(string target) { var handler = LinkClicked; if (handler != null) handler(target); },
                 ToggleTask);
             main.Children.Add(new FlowDocumentScrollViewer
             {
@@ -501,49 +964,33 @@ namespace UniversSale.View
                 IsToolBarVisible = false,
                 Focusable = false
             });
-
             layout.Children.Add(main);
             page.Child = layout;
             return page;
         }
 
-        /// <summary>Clic sur une case à cocher de l'aperçu : bascule le
-        /// caractère d'état dans la SOURCE markdown, puis re-rend.</summary>
+        private static TextBlock GroupCaption(string text)
+        {
+            return new TextBlock { Text = text, FontSize = 11, FontWeight = FontWeights.Bold, Foreground = Chrome.Accent, Margin = new Thickness(0, 8, 0, 0) };
+        }
+
         private void ToggleTask(int index)
         {
             var position = MarkdownDialect.FindTask(_bodyBox.Text, index);
             if (position < 0 || position >= _bodyBox.Text.Length) return;
             var text = _bodyBox.Text;
             var current = text[position];
-            _bodyBox.Text = text.Substring(0, position)
-                + (current == ' ' ? 'x' : ' ')
-                + text.Substring(position + 1);
+            _bodyBox.Text = text.Substring(0, position) + (current == ' ' ? 'x' : ' ') + text.Substring(position + 1);
             if (_previewToggle.IsChecked == true) ShowPreview();
         }
 
         private static void AddInfoboxRow(StackPanel infobox, string label, string value)
         {
-            infobox.Children.Add(new TextBlock
-            {
-                Text = label,
-                FontSize = 11,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = Chrome.SoftText,
-                Margin = new Thickness(0, 4, 0, 0)
-            });
-            infobox.Children.Add(new TextBlock
-            {
-                Text = value,
-                FontSize = 12,
-                Foreground = Chrome.Ink,
-                TextWrapping = TextWrapping.Wrap
-            });
+            infobox.Children.Add(new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Chrome.SoftText, Margin = new Thickness(0, 4, 0, 0) });
+            infobox.Children.Add(new TextBlock { Text = value, FontSize = 12, Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap });
         }
 
-        // ---------------------------------------------- surface de la coquille
-        // L'ancien corps (EditorView) portait pages, styles, impression… Une
-        // fiche markdown n'en a plus : la surface reste pour la coquille,
-        // réduite à ce qui a du sens.
+        // ------------------------------------------------------- surface
 
         public void ReloadBody()
         {
@@ -555,7 +1002,7 @@ namespace UniversSale.View
         public void SetZoom(double factor)
         {
             _zoom = Math.Max(0.5, Math.Min(3.0, factor));
-            _bodyBox.FontSize = 13 * _zoom;
+            _bodyBox.FontSize = BodyFontSize * _zoom;
         }
 
         public bool TryUndo()
@@ -579,6 +1026,7 @@ namespace UniversSale.View
 
         public void ShowSearch()
         {
+            LeavePreview();
             _findBar.Visibility = Visibility.Visible;
             _findBox.Focus();
             _findBox.SelectAll();
@@ -595,41 +1043,28 @@ namespace UniversSale.View
             var needle = _findBox.Text;
             if (needle.Length == 0) return;
             var from = _bodyBox.SelectionStart + _bodyBox.SelectionLength;
-            var index = _bodyBox.Text.IndexOf(needle, from,
-                StringComparison.CurrentCultureIgnoreCase);
-            if (index < 0) // reboucle en tête
-                index = _bodyBox.Text.IndexOf(needle, 0,
-                    StringComparison.CurrentCultureIgnoreCase);
+            var index = _bodyBox.Text.IndexOf(needle, from, StringComparison.CurrentCultureIgnoreCase);
+            if (index < 0) index = _bodyBox.Text.IndexOf(needle, 0, StringComparison.CurrentCultureIgnoreCase);
             if (index < 0) return;
             _bodyBox.Focus();
             _bodyBox.Select(index, needle.Length);
             var line = _bodyBox.GetLineIndexFromCharacterIndex(index);
             _bodyBox.ScrollToLine(Math.Max(0, line));
-            _findBox.Focus(); // la main reste à la recherche (Enter enchaîne)
+            _findBox.Focus();
         }
 
-        public void InsertFootnote() { } // les fiches n'ont plus de notes de bas de page
-
-        public void InsertWikiLink(string title)
-        {
-            InsertAtCaret("[[" + title + "]]");
-        }
-
-        public void InsertImage()
-        {
-            InsertAtCaret("![description](adresse)");
-        }
-
+        public void InsertFootnote() { } // les fiches n'ont pas de notes de bas de page
+        public void InsertWikiLink(string title) { InsertAtCaret("[[" + title + "]]"); }
+        public void InsertImage() { InsertAtCaret("![description](adresse)"); }
         public void InsertRule() { InsertAtCaret("\n---\n"); }
         public void InsertSeparator() { InsertAtCaret("\n***\n"); }
 
         private void InsertAtCaret(string text)
         {
             if (_item == null) return;
-            if (_previewToggle.IsChecked == true) _previewToggle.IsChecked = false;
+            LeavePreview();
             var at = _bodyBox.SelectionStart;
-            _bodyBox.Text = _bodyBox.Text.Substring(0, at) + text
-                + _bodyBox.Text.Substring(at + _bodyBox.SelectionLength);
+            _bodyBox.Text = _bodyBox.Text.Substring(0, at) + text + _bodyBox.Text.Substring(at + _bodyBox.SelectionLength);
             _bodyBox.SelectionStart = at + text.Length;
             _bodyBox.Focus();
         }
@@ -639,123 +1074,6 @@ namespace UniversSale.View
             if (_loading) return;
             var handler = Edited;
             if (handler != null) handler();
-        }
-
-        // ------------------------------------------------------- fields
-
-        private void RebuildFields()
-        {
-            _fieldsPanel.Children.Clear();
-            if (_template == null || _item == null) return;
-            string lastGroup = null;
-            foreach (var field in _template.Fields)
-            {
-                // Intertitre de groupe (batch 31) : « Infos », « Physique »…
-                // Les champs sans groupe restent en tête, sans intertitre.
-                if (field.Group.Length > 0 && field.Group != lastGroup)
-                    _fieldsPanel.Children.Add(new TextBlock
-                    {
-                        Text = field.Group,
-                        Foreground = Chrome.Accent,
-                        FontSize = 11,
-                        FontWeight = FontWeights.Bold,
-                        Margin = new Thickness(0, lastGroup == null
-                            && _fieldsPanel.Children.Count == 0 ? 0 : 8, 0, 4)
-                    });
-                if (field.Group.Length > 0) lastGroup = field.Group;
-
-                var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
-                var label = new TextBlock
-                {
-                    Text = field.Name,
-                    Width = 110,
-                    Foreground = Chrome.SoftText,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(0, 4, 8, 0)
-                };
-                DockPanel.SetDock(label, Dock.Left);
-                row.Children.Add(label);
-
-                string value;
-                _item.FieldValues.TryGetValue(field.Id, out value);
-                var box = new TextBox { Text = value ?? "" };
-                if (field.Kind == "multiline")
-                {
-                    box.AcceptsReturn = true;
-                    box.TextWrapping = TextWrapping.Wrap;
-                    box.MinHeight = 52;
-                    box.VerticalContentAlignment = VerticalAlignment.Top;
-                }
-                var fieldRef = field;
-                box.TextChanged += delegate
-                {
-                    if (_loading || _item == null) return;
-                    _item.FieldValues[fieldRef.Id] = box.Text;
-                    NotifyEdited();
-                };
-                row.Children.Add(box);
-                _fieldsPanel.Children.Add(row);
-            }
-        }
-
-        // ------------------------------------------------------- free info
-
-        private void RebuildInfo()
-        {
-            _infoPanel.Children.Clear();
-            if (_item == null) return;
-            foreach (var entry in _item.FreeInfo)
-                _infoPanel.Children.Add(BuildInfoRow(entry));
-        }
-
-        private UIElement BuildInfoRow(InfoEntry entry)
-        {
-            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
-
-            var remove = new Button
-            {
-                Content = "✕",
-                Width = 28,
-                Margin = new Thickness(6, 0, 0, 0),
-                ToolTip = "Supprimer cette information"
-            };
-            DockPanel.SetDock(remove, Dock.Right);
-            remove.Click += delegate
-            {
-                _item.FreeInfo.Remove(entry);
-                RebuildInfo();
-                NotifyEdited();
-            };
-            row.Children.Add(remove);
-
-            var titleBox = new TextBox { Text = entry.Title, Width = 130, Margin = new Thickness(0, 0, 6, 0) };
-            DockPanel.SetDock(titleBox, Dock.Left);
-            titleBox.TextChanged += delegate
-            {
-                if (_loading) return;
-                entry.Title = titleBox.Text;
-                NotifyEdited();
-            };
-            row.Children.Add(titleBox);
-
-            var valueBox = new TextBox { Text = entry.Value };
-            valueBox.TextChanged += delegate
-            {
-                if (_loading) return;
-                entry.Value = valueBox.Text;
-                NotifyEdited();
-            };
-            row.Children.Add(valueBox);
-            return row;
-        }
-
-        private void AddInfoEntry()
-        {
-            if (_item == null) return;
-            var entry = new InfoEntry { Title = "Clé" };
-            _item.FreeInfo.Add(entry);
-            RebuildInfo();
-            NotifyEdited();
         }
     }
 }

@@ -52,14 +52,19 @@ namespace UniversSale.View
         {
             if (item.IsCategory)
             {
-                if (item.CategoryKey == Project.KeyWritings) return "ecrits";
-                if (item.CategoryKey == Project.KeyResearch) return "tableau-recherche";
-                if (item.CategoryKey == Project.KeySheets) return "fiches-menu";
-                if (item.CategoryKey == Project.KeyTrash) return "trash";
+                // Les icônes des grandes catégories de la Pile : le jeu livré
+                // par l'utilisateur (batch 35, assets/icons/pile-*.svg).
+                if (item.CategoryKey == Project.KeyWritings) return "pile-ecrits";
+                if (item.CategoryKey == Project.KeyResearch) return "pile-recherche";
+                if (item.CategoryKey == Project.KeySheets) return "pile-fiches";
+                if (item.CategoryKey == Project.KeyPlans) return "pile-plans";
+                if (item.CategoryKey == Project.KeyDictionary) return "pile-dictionnaire";
+                if (item.CategoryKey == Project.KeyTrash) return "pile-corbeille";
             }
             if (item.Kind == ItemKind.Folder) return "folder-open";
             if (item.Kind == ItemKind.Book) return "book-bold";
             if (item.Kind == ItemKind.PageTemplate) return "article-bold";
+            if (item.Kind == ItemKind.Plan) return "text-columns-bold";
             if (item.Kind == ItemKind.Sheet) return "fiche-individual";
             if (item.Kind == ItemKind.Media)
                 return MediaView.IsImage(item.MediaExtension) ? "image-square-bold" : null;

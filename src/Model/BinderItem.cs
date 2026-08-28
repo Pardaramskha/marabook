@@ -11,8 +11,9 @@ namespace UniversSale.Model
         Sheet,    // a template-based wiki card (fiche)
         Media,    // an imported file (research material)
         Book,     // Écrits only: metadata + gabarit + « Publier »
-        PageTemplate // gabarit de pages d'un livre : deux pages vis-à-vis,
-                     // en-têtes/pieds recto-verso, pastille de couleur
+        PageTemplate, // gabarit de pages d'un livre : deux pages vis-à-vis,
+                      // en-têtes/pieds recto-verso, pastille de couleur
+        Plan          // racine Plans : colonnes, éléments d'intensité, notes (batch 35)
     }
 
     /// <summary>Les états d'avancement d'un texte : clés stables persistées,
@@ -80,6 +81,7 @@ namespace UniversSale.Model
         public string CategoryId; // catégorie de fiches (batch 31), null = sans
         public Dictionary<string, string> FieldValues = new Dictionary<string, string>();
         public List<InfoEntry> FreeInfo = new List<InfoEntry>();
+        public List<SheetRelation> Relations = new List<SheetRelation>(); // fiches (batch 34)
 
         // Media items only: raw bytes, written to the zip on save.
         public byte[] MediaBytes;
@@ -87,6 +89,9 @@ namespace UniversSale.Model
 
         // Books only: metadata + gabarit.
         public BookInfo Book;
+
+        // Plans only (batch 35): colonnes, briques, liens.
+        public PlanInfo Plan;
 
         // Texts only: the document's own page setup. Null = project default.
         // Documents created inside a book copy the book's gabarit here.

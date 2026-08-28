@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.29.0-alpha";
+        public const string AppVersion = "0.33.0-alpha";
 
         private Project _project;
         private string _path;
@@ -37,6 +37,11 @@ namespace UniversSale
         private View.SheetLibraryView _sheetLibrary; // catégorie « Fiches » (b31)
         private CorkboardView _corkboard;
         private View.BookView _bookView;
+        private View.DictionaryView _dictionaryView; // racine « Dictionnaire » (b33)
+        private View.PlanView _planView;             // un plan (b35)
+        private TextBlock _inspPlanLink;             // « Plan : … » d'un livre/dossier (b35)
+        private StackPanel _planSection;             // options d'un plan (b35)
+        private TextBox _planColumnWord;
         private View.TemplateView _templateView;
         private bool _navigating; // garde anti-sélection-fantôme (voir OnBinderSelection)
         private MediaView _mediaView;
@@ -52,6 +57,18 @@ namespace UniversSale
         private Border _inspector;
         private Border _correctionHost; // le panneau de correction (batch 28)
         private TextBlock _inspTitle, _inspKind, _inspStats, _inspDates;
+        // Livre (batch 32) : objectif de chapitres au-dessus des statistiques,
+        // panneaux Métadonnées / Publication dépliés sous les dates.
+        private StackPanel _progressSection;
+        private TextBlock _progressLabel;
+        private ColumnDefinition _progPresent, _progRest, _progDone, _progUndone;
+        private StackPanel _bookSection;
+        private System.Windows.Controls.Primitives.ToggleButton _metaToggle, _pubToggle;
+        private Border _bookPanelHost;
+        private BookMetadataPanel _bookMeta;
+        private BookPublicationPanel _bookPub;
+        private BinderItem _bookPanelsItem;   // livre chargé dans les panneaux
+        private string _bookPanelOpen;        // "meta" | "pub" | null, survit à la navigation
         private StackPanel _statsSection;
         private System.Windows.Shapes.Path _statsChevron;
         private StackPanel _statusSection;   // état du texte + couleur de carte
@@ -64,6 +81,8 @@ namespace UniversSale
         private bool _loadingInspector;
 
         private TextBlock _statusLeft, _statusRight, _statusPages, _zoomLabel;
+        private Slider _zoomSlider;   // 50–300 %, pas de 10 (batch 34)
+        private bool _syncingZoom;
         private TextBlock _statusWarmup; // préchauffage de l'ouverture (b30)
         private DispatcherTimer _statsTimer, _autosaveTimer;
 
@@ -305,6 +324,13 @@ namespace UniversSale
             grid.ColumnDefinitions.Add(_inspectorCol);
 
             _binder = new BinderView();
+            _binder.DictionaryEntryRequested += delegate
+            {
+                // Depuis la Pile : on ouvre l'écran, puis le dialogue.
+                var root = _project.Category(Project.KeyDictionary);
+                if (root != null) _binder.SelectItem(root.Id);
+                _dictionaryView.NewEntry(true);
+            };
             _binder.SelectionChanged += OnBinderSelection;
             _binder.JournalRequested += ShowJournal;
             _binder.StructureChanged += delegate
@@ -369,6 +395,15 @@ namespace UniversSale
             _sheetView = new SheetView { Visibility = Visibility.Collapsed };
             _sheetView.Edited += OnEditorEdited;
             _sheetView.LinkClicked += NavigateToTitle;
+            // Batch 34 : « ← Retour » remonte au tableau du parent (la
+            // bibliothèque si la fiche vit à la racine), une relation ouvre
+            // la fiche liée.
+            _sheetView.BackRequested += delegate
+            {
+                if (_current == null || _current.Parent == null) return;
+                _binder.SelectItem(_current.Parent.Id);
+            };
+            _sheetView.NavigateRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _sheetView.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
             center.Children.Add(_sheetView);
 
@@ -377,8 +412,12 @@ namespace UniversSale
             _corkboard.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _corkboard.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             _corkboard.ExportRequested += ExportItem;
-            _corkboard.DeleteRequested += delegate(BinderItem item) { _binder.Delete(item); };
+            // Supprimer depuis le tableau : la Pile suit par l'historique, le
+            // tableau lui-même doit être redessiné (batch 33 — la carte restait).
+            _corkboard.DeleteRequested += delegate(BinderItem item)
+            { _binder.Delete(item); RefreshOpenCorkboards(); UpdateInspector(); UpdateStats(); };
             _corkboard.ApplyTemplateRequested += ApplyPageTemplateTo;
+            _corkboard.NewDocumentRequested += NewBookDocument; // « + Nouveau plan » de la racine Plans (b35)
             center.Children.Add(_corkboard);
 
             // La bibliothèque de fiches (batch 31) : la vue de la catégorie
@@ -388,13 +427,53 @@ namespace UniversSale
             _sheetLibrary.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             center.Children.Add(_sheetLibrary);
 
+            _editor.LinkRequested += InsertLinkInActive; // onglet Insertion (b33)
+            _editor.PlanLocator = delegate(BinderItem text) { return _project == null ? null : _project.PlanForText(text.Id); };
+            _editor.PlanRequested += delegate(BinderItem plan) { _binder.SelectItem(plan.Id); };
+
+            // Le dictionnaire personnel (batch 33) : la vue de la racine
+            // « Dictionnaire » de la Pile ; toute modification prévient le
+            // correcteur (clés pliées à reconstruire) et, pour le projet, le .plot.
+            _dictionaryView = new View.DictionaryView { Visibility = Visibility.Collapsed };
+            _dictionaryView.Changed += delegate(bool projectScope)
+            {
+                if (projectScope) MarkDirty(); else AppSettings.Save();
+                _editor.RefreshProofing();
+            };
+            _editor.LexiconChanged += delegate
+            {
+                if (_dictionaryView.Visibility == Visibility.Visible) _dictionaryView.Refresh();
+            };
+            center.Children.Add(_dictionaryView);
+
+            // Les plans (batch 35) : l'écran d'un plan ; ses liens vers les
+            // écrits, livres et dossiers passent par la Pile.
+            _planView = new View.PlanView { Visibility = Visibility.Collapsed };
+            _planView.Edited += delegate
+            {
+                MarkDirty();
+                _editor.RefreshPlanButton();
+                _binder.Rebuild();
+            };
+            _planView.NavigateRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _planView.BackRequested += delegate
+            {
+                var root = _project == null ? null : _project.Category(Project.KeyPlans);
+                if (root != null) _binder.SelectItem(root.Id);
+            };
+            center.Children.Add(_planView);
+
             _bookView = new BookView { Visibility = Visibility.Collapsed };
             _bookView.PageCounter = PageCountOf; // filtres du corkboard du livre
             _bookView.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
-            _bookView.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
-            _bookView.PublishRequested += PublishBook;
+            _bookView.Changed += delegate
+            {
+                MarkDirty(); UpdateInspector(); _binder.Rebuild();
+                _bookPub.Sync(); // alerte de divergence à jour
+            };
             _bookView.ExportRequested += ExportItem;
-            _bookView.DeleteRequested += delegate(BinderItem item) { _binder.Delete(item); };
+            _bookView.DeleteRequested += delegate(BinderItem item)
+            { _binder.Delete(item); RefreshOpenCorkboards(); UpdateInspector(); UpdateStats(); };
             _bookView.ApplyTemplateRequested += ApplyPageTemplateTo;
             _bookView.NewTemplateRequested += NewPageTemplate;
             _bookView.ExportTemplateRequested += ExportPageTemplate;
@@ -477,6 +556,12 @@ namespace UniversSale
             _inspector = BuildInspector();
             Grid.SetColumn(_inspector, 4);
             grid.Children.Add(_inspector);
+            // Les panneaux du livre (batch 32) : une frappe modifie le modèle
+            // sans repasser par UpdateInspector (qui les resynchroniserait
+            // sous le curseur) ; la Pile suit (puce de divergence, cartes).
+            _bookMeta.Changed += delegate { MarkDirty(); _binder.Rebuild(); };
+            _bookPub.Changed += delegate { MarkDirty(); _binder.Rebuild(); RefreshOpenCorkboards(); };
+            _bookPub.PublishRequested += PublishBook;
 
             // Le panneau de CORRECTION (batch 28) partage la colonne de
             // droite : ouvert, il REMPLACE l'inspecteur (bascule « Détails
@@ -510,6 +595,22 @@ namespace UniversSale
                 Margin = new Thickness(0, 2, 0, 12)
             };
             panel.Children.Add(_inspKind);
+            // Livre ou dossier relié à un plan (batch 35) : le lien, cliquable.
+            _inspPlanLink = new TextBlock
+            {
+                Foreground = Chrome.Accent,
+                FontSize = 12,
+                Margin = new Thickness(0, -8, 0, 12),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Visibility = Visibility.Collapsed
+            };
+            _inspPlanLink.MouseLeftButtonDown += delegate
+            {
+                var plan = _inspPlanLink.Tag as BinderItem;
+                if (plan != null) _binder.SelectItem(plan.Id);
+            };
+            panel.Children.Add(_inspPlanLink);
 
             // État d'avancement + couleur de carte, au-dessus du Synopsis.
             _statusSection = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
@@ -547,6 +648,27 @@ namespace UniversSale
             _colorSwatches = new WrapPanel();
             _statusSection.Children.Add(_colorSwatches);
             panel.Children.Add(_statusSection);
+
+            // Options d'un plan (batch 35) : le mot des nouvelles colonnes.
+            _planSection = new StackPanel { Margin = new Thickness(0, 0, 0, 10), Visibility = Visibility.Collapsed };
+            _planSection.Children.Add(new TextBlock
+            {
+                Text = "Nom des colonnes",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 4),
+                ToolTip = "Le mot des nouvelles colonnes : « chapitre » donne « chapitre 1 », « chapitre 2 »…"
+            });
+            _planColumnWord = new TextBox();
+            _planColumnWord.TextChanged += delegate
+            {
+                if (_loadingInspector || _current == null || _current.Kind != ItemKind.Plan || _current.Plan == null) return;
+                var word = _planColumnWord.Text.Trim();
+                _current.Plan.ColumnWord = word.Length == 0 ? PlanInfo.DefaultColumnWord : word;
+                MarkDirty();
+            };
+            _planSection.Children.Add(_planColumnWord);
+            panel.Children.Add(_planSection);
 
             _synopsisLabel = new TextBlock
             {
@@ -592,6 +714,63 @@ namespace UniversSale
             // Les stats vivent repliées dans un accordion pour ne pas
             // surcharger le panneau ; l'état ouvert/fermé est un réglage de
             // l'application (persistant).
+            // Objectif du livre (batch 32) : la barre de progression — orange
+            // pour les chapitres présents, vert pour ceux marqués Terminé —
+            // juste au-dessus des statistiques. Clic : Options du livre.
+            _progressSection = new StackPanel
+            {
+                Margin = new Thickness(0, 14, 0, 0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = "Objectif du livre — clic : Options du livre…",
+                Background = Brushes.Transparent
+            };
+            _progressLabel = new TextBlock
+            {
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap
+            };
+            _progressSection.Children.Add(_progressLabel);
+            var track = new Grid { Height = 8, Margin = new Thickness(0, 5, 0, 0) };
+            _progPresent = new ColumnDefinition { Width = new GridLength(0, GridUnitType.Star) };
+            _progRest = new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) };
+            track.ColumnDefinitions.Add(_progPresent);
+            track.ColumnDefinitions.Add(_progRest);
+            var trackBg = new Border
+            {
+                Background = Chrome.Border,
+                CornerRadius = new CornerRadius(4)
+            };
+            Grid.SetColumnSpan(trackBg, 2);
+            track.Children.Add(trackBg);
+            var presentGrid = new Grid();
+            _progDone = new ColumnDefinition { Width = new GridLength(0, GridUnitType.Star) };
+            _progUndone = new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) };
+            presentGrid.ColumnDefinitions.Add(_progDone);
+            presentGrid.ColumnDefinitions.Add(_progUndone);
+            var presentBar = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0xE6, 0x7E, 0x22)), // orange : présents
+                CornerRadius = new CornerRadius(4),
+                Child = presentGrid
+            };
+            var doneBar = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x27, 0xAE, 0x60)), // vert : terminés
+                CornerRadius = new CornerRadius(4)
+            };
+            Grid.SetColumn(doneBar, 0);
+            presentGrid.Children.Add(doneBar);
+            Grid.SetColumn(presentBar, 0);
+            track.Children.Add(presentBar);
+            _progressSection.Children.Add(track);
+            _progressSection.MouseLeftButtonUp += delegate
+            {
+                if (_current != null && _current.Kind == ItemKind.Book) _binder.BookOptions(_current);
+            };
+            _progressSection.Visibility = Visibility.Collapsed;
+            panel.Children.Add(_progressSection);
+
             _statsSection = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
             _statsChevron = new System.Windows.Shapes.Path
             {
@@ -653,6 +832,43 @@ namespace UniversSale
             };
             panel.Children.Add(_inspDates);
 
+            // Livre (batch 32) : sous les dates, deux boutons — Métadonnées,
+            // Publication — chacun déplie son panneau ; recliquer replie.
+            _bookSection = new StackPanel
+            {
+                Margin = new Thickness(0, 12, 0, 0),
+                Visibility = Visibility.Collapsed
+            };
+            var toggles = new Grid();
+            toggles.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            toggles.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _metaToggle = new System.Windows.Controls.Primitives.ToggleButton
+            {
+                Content = "Métadonnées",
+                Margin = new Thickness(0, 0, 3, 0),
+                Padding = new Thickness(6, 4, 6, 4),
+                ToolTip = "Sous-titre, auteur, éditeur, collection, ISBN, année"
+            };
+            _pubToggle = new System.Windows.Controls.Primitives.ToggleButton
+            {
+                Content = "Publication",
+                Margin = new Thickness(3, 0, 0, 0),
+                Padding = new Thickness(6, 4, 6, 4),
+                ToolTip = "Gabarit (format, marges, fond perdu) et « Publier… »"
+            };
+            _metaToggle.Click += delegate { ShowBookPanel(_metaToggle.IsChecked == true ? "meta" : null); };
+            _pubToggle.Click += delegate { ShowBookPanel(_pubToggle.IsChecked == true ? "pub" : null); };
+            Grid.SetColumn(_metaToggle, 0);
+            Grid.SetColumn(_pubToggle, 1);
+            toggles.Children.Add(_metaToggle);
+            toggles.Children.Add(_pubToggle);
+            _bookSection.Children.Add(toggles);
+            _bookMeta = new BookMetadataPanel();
+            _bookPub = new BookPublicationPanel();
+            _bookPanelHost = new Border { Margin = new Thickness(0, 6, 0, 0) };
+            _bookSection.Children.Add(_bookPanelHost);
+            panel.Children.Add(_bookSection);
+
             return new Border
             {
                 Background = Chrome.BarBgLight,
@@ -685,7 +901,48 @@ namespace UniversSale
                 Orientation = Orientation.Horizontal,
                 Margin = new Thickness(14, 0, 0, 0)
             };
-            var zoomOut = SmallZoomButton("−", -10);
+            // Réinitialiser (flèche qui tourne) + curseur 50–300 % (batch 34).
+            var reset = new Button
+            {
+                Width = 22,
+                Height = 20,
+                Padding = new Thickness(0),
+                Focusable = false,
+                ToolTip = "Revenir à 100 %",
+                Content = new System.Windows.Shapes.Path
+                {
+                    Data = Geometry.Parse("M 10.5,3.5 A 4.5,4.5 0 1 1 3.9,5.4 M 3.4,2.2 L 3.9,5.6 L 7.2,5.0"),
+                    Stroke = Chrome.Ink,
+                    StrokeThickness = 1.4,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Width = 14,
+                    Height = 14,
+                    Stretch = Stretch.Uniform
+                }
+            };
+            reset.Click += delegate { ApplyZoom(100); };
+            _zoomSlider = new Slider
+            {
+                Minimum = 50,
+                Maximum = 300,
+                Value = AppSettings.Zoom,
+                TickFrequency = 10,
+                IsSnapToTickEnabled = true,
+                LargeChange = 10,
+                SmallChange = 10,
+                Width = 120,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 4, 0),
+                ToolTip = "Zoom de la page (Ctrl+molette aussi)",
+                Focusable = false
+            };
+            _zoomSlider.ValueChanged += delegate
+            {
+                if (_syncingZoom) return;
+                ApplyZoom(_zoomSlider.Value);
+            };
             _zoomLabel = new TextBlock
             {
                 Foreground = Chrome.SoftText,
@@ -700,10 +957,9 @@ namespace UniversSale
             {
                 if (e.ClickCount == 2) ApplyZoom(100);
             };
-            var zoomIn = SmallZoomButton("+", 10);
-            zoomPanel.Children.Add(zoomOut);
+            zoomPanel.Children.Add(reset);
+            zoomPanel.Children.Add(_zoomSlider);
             zoomPanel.Children.Add(_zoomLabel);
-            zoomPanel.Children.Add(zoomIn);
             DockPanel.SetDock(zoomPanel, Dock.Right);
             dock.Children.Add(zoomPanel);
 
@@ -753,19 +1009,6 @@ namespace UniversSale
             return bar;
         }
 
-        private Button SmallZoomButton(string label, int step)
-        {
-            var button = new Button
-            {
-                Content = label,
-                Width = 22,
-                Padding = new Thickness(0),
-                Focusable = false
-            };
-            button.Click += delegate { ApplyZoom(AppSettings.Zoom + step); };
-            return button;
-        }
-
         private void OnMarksToggled(bool visible)
         {
             AppSettings.ShowFormattingMarks = visible;
@@ -782,6 +1025,11 @@ namespace UniversSale
             _editor.SetZoom(percent / 100.0);
             _sheetView.SetZoom(percent / 100.0);
             _zoomLabel.Text = percent.ToString("0") + " %";
+            if (_zoomSlider != null && Math.Abs(_zoomSlider.Value - percent) > 0.01)
+            {
+                _syncingZoom = true;
+                try { _zoomSlider.Value = percent; } finally { _syncingZoom = false; }
+            }
             AppSettings.Save();
         }
 
@@ -1124,6 +1372,10 @@ namespace UniversSale
                 return _templateView.Visibility == Visibility.Visible && _templateView.ShowsItem(item);
             if (item.IsCategory && item.CategoryKey == Project.KeySheets)
                 return _sheetLibrary.Visibility == Visibility.Visible;
+            if (item.IsCategory && item.CategoryKey == Project.KeyDictionary)
+                return _dictionaryView.Visibility == Visibility.Visible;
+            if (item.Kind == ItemKind.Plan)
+                return _planView.Visibility == Visibility.Visible && _planView.ShowsItem(item);
             return _corkboard.Visibility == Visibility.Visible && _corkboard.ShowsItem(item);
         }
 
@@ -1141,6 +1393,9 @@ namespace UniversSale
             _editor.Visibility = Visibility.Collapsed;
             _sheetView.Visibility = Visibility.Collapsed;
             _sheetLibrary.Visibility = Visibility.Collapsed;
+            _dictionaryView.Visibility = Visibility.Collapsed;
+            _planView.Visibility = Visibility.Collapsed;
+            _planView.Clear();
             _corkboard.Visibility = Visibility.Collapsed;
             _bookView.Visibility = Visibility.Collapsed;
             _bookView.Clear();
@@ -1168,6 +1423,7 @@ namespace UniversSale
                 _editor.Decor = PageDecor.For(item, _project);
                 _editor.ApplyPageSetup(item.Page ?? _project.Page);
                 _editor.LoadItem(item);
+                _editor.RefreshPlanButton(); // « Plan » si une colonne le raconte (b35)
                 _editor.Visibility = Visibility.Visible;
                 _editor.FocusEditor();
                 return;
@@ -1188,6 +1444,15 @@ namespace UniversSale
                 _bookView.Load(item, _history, _project);
                 _bookView.Visibility = Visibility.Visible;
                 _bookView.Focus(); // le focus logique quitte la Pile
+                return;
+            }
+            if (item != null && item.Kind == ItemKind.Plan)
+            {
+                _editor.Clear();
+                _sheetView.Clear();
+                _planView.Load(item, _project);
+                _planView.Visibility = Visibility.Visible;
+                _planView.Focus();
                 return;
             }
             if (item != null && item.Kind == ItemKind.Sheet)
@@ -1215,6 +1480,18 @@ namespace UniversSale
                 _sheetLibrary.Load(_project, _history);
                 _sheetLibrary.Visibility = Visibility.Visible;
                 _sheetLibrary.Focus();
+                return;
+            }
+            // La racine « Dictionnaire » (batch 33) ouvre l'écran du
+            // dictionnaire personnel : entrées, natures, formes acceptées.
+            if (item != null && item.IsCategory
+                && item.CategoryKey == Project.KeyDictionary)
+            {
+                _editor.Clear();
+                _sheetView.Clear();
+                _dictionaryView.Load(_project);
+                _dictionaryView.Visibility = Visibility.Visible;
+                _dictionaryView.Focus();
                 return;
             }
             // Corkboard: true containers only (folders, categories). A text
@@ -1922,6 +2199,7 @@ namespace UniversSale
         /// and marked IsExtraPage (no folio).</summary>
         private void NewBookDocument(BinderItem book, string kind)
         {
+            if (kind == "plan") { _binder.NewPlan(book); return; } // racine Plans (b35)
             if (book == null || book.Book == null) return;
             BinderItem item;
             if (kind == null)
@@ -2442,6 +2720,7 @@ namespace UniversSale
                 _notesBox.Text = "";
                 _notesBox.IsEnabled = false;
                 _statusSection.Visibility = Visibility.Collapsed;
+                _planSection.Visibility = Visibility.Collapsed;
                 SetInspectorFieldVisibility(true, false);
             }
             else
@@ -2457,6 +2736,7 @@ namespace UniversSale
                                     ? "Document" + (_current.MediaExtension ?? "")
                                : _current.Kind == ItemKind.Book ? "Livre"
                                : _current.Kind == ItemKind.PageTemplate ? "Gabarit de pages"
+                               : _current.Kind == ItemKind.Plan ? "Plan"
                                : "Écrit";
                 _synopsisBox.Text = _current.Synopsis ?? "";
                 _synopsisBox.IsEnabled = !_current.IsCategory;
@@ -2469,6 +2749,7 @@ namespace UniversSale
                 SetInspectorFieldVisibility(
                     _current.Kind != ItemKind.Sheet
                         && _current.Kind != ItemKind.PageTemplate
+                        && _current.Kind != ItemKind.Plan // un plan : la couleur, rien d'autre (b35)
                         && !_current.IsCategory,
                     _current.Kind == ItemKind.Text || _current.Kind == ItemKind.Sheet);
 
@@ -2478,7 +2759,8 @@ namespace UniversSale
                 var showColor = _current.Kind == ItemKind.Text
                     || _current.Kind == ItemKind.Sheet
                     || _current.Kind == ItemKind.Media
-                    || _current.Kind == ItemKind.Folder;
+                    || _current.Kind == ItemKind.Folder
+                    || _current.Kind == ItemKind.Plan;
                 _statusSection.Visibility = showStatus || showColor
                     ? Visibility.Visible : Visibility.Collapsed;
                 _statusLabel.Visibility = showStatus ? Visibility.Visible : Visibility.Collapsed;
@@ -2491,8 +2773,18 @@ namespace UniversSale
                     _statusCombo.SelectedIndex = index < 0 ? 0 : index + 1;
                 }
                 if (showColor) RebuildColorSwatches();
+                var isPlan = _current.Kind == ItemKind.Plan;
+                _planSection.Visibility = isPlan ? Visibility.Visible : Visibility.Collapsed;
+                if (isPlan && _current.Plan != null) _planColumnWord.Text = _current.Plan.ColumnWord;
             }
             _loadingInspector = false;
+
+            // Le plan d'un livre ou d'un dossier (batch 35).
+            var linkedPlan = _current != null && (_current.Kind == ItemKind.Book || _current.Kind == ItemKind.Folder)
+                ? _project.PlanForContainer(_current.Id) : null;
+            _inspPlanLink.Tag = linkedPlan;
+            _inspPlanLink.Text = linkedPlan == null ? "" : "⇱ Plan : " + linkedPlan.Title;
+            _inspPlanLink.Visibility = linkedPlan != null ? Visibility.Visible : Visibility.Collapsed;
 
             // La visibilité de la barre de droite dépend du niveau courant
             // (projet = masquée) : resynchronisée à chaque navigation.
@@ -2502,6 +2794,78 @@ namespace UniversSale
 
             _inspDates.Text = string.IsNullOrEmpty(_project.CreatedAt) ? ""
                 : "Créé le " + _project.CreatedAt + "\nModifié le " + _project.ModifiedAt;
+
+            UpdateBookSection();
+            UpdateBookProgress();
+        }
+
+        /// <summary>Les panneaux Métadonnées / Publication d'un livre (batch
+        /// 32) : chargés au changement de livre seulement — jamais
+        /// resynchronisés pendant la frappe.</summary>
+        private void UpdateBookSection()
+        {
+            var book = _current != null && _current.Kind == ItemKind.Book ? _current : null;
+            _bookSection.Visibility = book != null ? Visibility.Visible : Visibility.Collapsed;
+            if (book == null)
+            {
+                if (_bookPanelsItem != null)
+                {
+                    _bookMeta.Clear();
+                    _bookPub.Clear();
+                    _bookPanelsItem = null;
+                }
+                return;
+            }
+            if (_bookPanelsItem != book)
+            {
+                _bookMeta.Load(book);
+                _bookPub.Load(book, _project);
+                _bookPanelsItem = book;
+            }
+            ShowBookPanel(_bookPanelOpen);
+        }
+
+        private void ShowBookPanel(string which)
+        {
+            _bookPanelOpen = which;
+            _metaToggle.IsChecked = which == "meta";
+            _pubToggle.IsChecked = which == "pub";
+            _bookPanelHost.Child = which == "meta" ? (UIElement)_bookMeta
+                                 : which == "pub" ? _bookPub : null;
+            _bookPanelHost.Visibility = which == null ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        /// <summary>La barre d'objectif du livre : orange = chapitres présents,
+        /// vert = présents ET terminés, sur le nombre visé.</summary>
+        private void UpdateBookProgress()
+        {
+            if (_current == null || _current.Kind != ItemKind.Book)
+            {
+                _progressSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+            _progressSection.Visibility = Visibility.Visible;
+            var progress = BookProgress.Of(_current);
+            var culture = CultureInfo.CurrentCulture;
+            if (!progress.HasGoal)
+            {
+                _progressLabel.Text = "Objectif : aucun — définir dans les Options du livre…";
+                _progPresent.Width = new GridLength(0, GridUnitType.Star);
+                _progRest.Width = new GridLength(1, GridUnitType.Star);
+                return;
+            }
+            _progressLabel.Text = "Objectif : " + progress.Present.ToString("N0", culture)
+                + " / " + progress.Goal.ToString("N0", culture) + " chapitres"
+                + " — " + progress.Done.ToString("N0", culture)
+                + (progress.Done > 1 ? " terminés" : " terminé")
+                + (progress.Done >= progress.Goal ? " — atteint !" : "");
+            var present = progress.PresentRatio;
+            var done = progress.DoneRatio;
+            _progPresent.Width = new GridLength(present, GridUnitType.Star);
+            _progRest.Width = new GridLength(1 - present, GridUnitType.Star);
+            var doneShare = present <= 0 ? 0 : done / present; // part verte de l'orange
+            _progDone.Width = new GridLength(doneShare, GridUnitType.Star);
+            _progUndone.Width = new GridLength(1 - doneShare, GridUnitType.Star);
         }
 
         /// <summary>Reconstruit la rangée de pastilles de couleur pour
@@ -2660,6 +3024,7 @@ namespace UniversSale
             {
                 _statusRight.Text = "";
                 _inspStats.Text = BookStatsLabel(_current);
+                UpdateBookProgress();
             }
             else
             {

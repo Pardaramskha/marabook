@@ -23,6 +23,12 @@ namespace UniversSale.Correction.Grammalecte
         /// par-dessus la politique du lot C — brancher les réglages.</summary>
         public Dictionary<string, bool> UserOptions;
 
+        /// <summary>Les deux interrupteurs des Options du correcteur (batch
+        /// 33) : la grammaire proprement dite, et la typographie servie par
+        /// les règles typographiques de Grammalecte.</summary>
+        public bool GrammarEnabled = true;
+        public bool TypographyEnabled;
+
         public GrammarChecker(GrammalecteBridge bridge)
         {
             _bridge = bridge;
@@ -51,9 +57,16 @@ namespace UniversSale.Correction.Grammalecte
             if (flat.Trim().Length == 0) return new List<Finding>();
             var mapper = OffsetMapper.Build(flat);
             var errors = await _bridge.CheckAsync(mapper.Sent,
-                GrammalecteOptions.Effective(UserOptions), token)
+                GrammalecteOptions.Effective(UserOptions, GrammarEnabled, TypographyEnabled), token)
                 .ConfigureAwait(false);
-            return ToFindings(errors, mapper);
+            var findings = ToFindings(errors, mapper);
+            // Les interrupteurs filtrent aussi la sortie (une option rallumée
+            // à la main dans les Préférences ne passe pas outre).
+            findings.RemoveAll(delegate(Finding f)
+            {
+                return f.Category == FindingCategory.Typography ? !TypographyEnabled : !GrammarEnabled;
+            });
+            return findings;
         }
 
         /// <summary>Les erreurs du pont → des signalements aux offsets du
@@ -74,7 +87,10 @@ namespace UniversSale.Correction.Grammalecte
                 {
                     Start = start,
                     Length = length,
-                    Category = FindingCategory.Grammar,
+                    // Une règle typographique de Grammalecte (sType) signale
+                    // en TYPOGRAPHIE — filtre du panneau, couleur d'ondulé.
+                    Category = GrammalecteOptions.IsTypography(error.Option)
+                        ? FindingCategory.Typography : FindingCategory.Grammar,
                     Severity = FindingSeverity.Warning,
                     Message = error.Message,
                     RuleId = error.RuleId,

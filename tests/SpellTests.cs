@@ -99,7 +99,7 @@ namespace UniversSale.Tests
             // 0.5 bis — le cas d'usage réel : un nom de personnage APPRIS,
             // mal tapé, est proposé en tête par le vérificateur.
             var checker = new SpellChecker(engine);
-            checker.ProjectWords.Add("Kaladin");
+            SpellChecker.Teach(checker.ProjectWords, "Kaladin");
             var suggestions = checker.Suggestions("Kaladinn");
             t.Check(suggestions.Count > 0 && suggestions[0] == "Kaladin",
                 "un nom appris proche passe en tête des suggestions");
@@ -462,11 +462,29 @@ namespace UniversSale.Tests
             t.Equal("citterne", part[0].Word, "LE segment, pas le composé entier");
 
             var learned = new SpellChecker(engine);
-            learned.ProjectWords.Add("Batiatus");
+            SpellChecker.Teach(learned.ProjectWords, "Batiatus");
             var host2 = new CheckerHost();
             host2.Add(learned);
             t.Equal(0, host2.Run(Document("Batiatus regarde batiatus."), null).Count,
                 "un mot enseigné couvre toutes ses casses (clé pliée)");
+
+            // Batch 33 — une entrée À NATURE couvre ses FORMES : le peuple
+            // « Alethi » (nom, pluriel -s), l'adjectif « kholinar » (féminin
+            // dérivé), le verbe « ravir » ne rougissent sous aucune forme.
+            var natured = new SpellChecker(engine);
+            natured.ProjectWords.Add(new LexiconEntry { Word = "Alethi", Class = LexiconEntry.ClassProper });
+            natured.ProjectWords.Add(new LexiconEntry { Word = "shardique", Class = LexiconEntry.ClassAdjective });
+            natured.ProjectWords.Add(new LexiconEntry { Word = "sprenir", Class = LexiconEntry.ClassVerb });
+            var hostNatured = new CheckerHost();
+            hostNatured.Add(natured);
+            t.Equal(0, hostNatured.Run(Document("Les Alethis shardiques sprenissent, une lame shardique sprenira."), null).Count,
+                "pluriel, féminin et conjugaison d'entrées à nature acceptés");
+            var bare = new SpellChecker(engine);
+            SpellChecker.Teach(bare.ProjectWords, "Alethi");
+            var host5 = new CheckerHost();
+            host5.Add(bare);
+            t.Equal(1, host5.Run(Document("Les Alethis arrivent."), null).Count,
+                "une entrée « autre » n'accepte que le mot tel quel");
 
             // Lot D — enseigner un mot exige d'INVALIDER le cache local :
             // l'empreinte du paragraphe n'a pas changé, la connaissance si.
@@ -476,7 +494,7 @@ namespace UniversSale.Tests
             var invented = Document("Batiatus sourit.");
             t.Equal(1, host4.Run(invented, null).Count,
                 "le nom inventé rougit d'abord");
-            teach.ProjectWords.Add("Batiatus");
+            SpellChecker.Teach(teach.ProjectWords, "Batiatus");
             t.Equal(1, host4.Run(invented, null).Count,
                 "sans invalidation, le cache ressert son vieux verdict");
             // Depuis le batch 29 (0.3), les clés pliées des appris sont en

@@ -19,6 +19,7 @@ namespace UniversSale.View
     public class CorkboardView : Border
     {
         private readonly WrapPanel _cards;
+        private StackPanel _planActions; // racine Plans : « + Nouveau plan » (b35)
         private BinderItem _folder;
         private HistoryManager _history;
         private Project _project; // image store lookups
@@ -94,11 +95,21 @@ namespace UniversSale.View
                 Visibility = Visibility.Collapsed
             };
             BuildDocumentActions();
+            _planActions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(24, 8, 24, 0),
+                Visibility = Visibility.Collapsed
+            };
+            var newPlan = new Button { Content = "+ Nouveau plan", Padding = new Thickness(10, 4, 10, 4) };
+            newPlan.Click += delegate { RequestNewDocument("plan"); };
+            _planActions.Children.Add(newPlan);
             _cards = new WrapPanel { Margin = new Thickness(16, 8, 16, 16) };
             var layout = new StackPanel();
             layout.Children.Add(_templateCards);
             layout.Children.Add(_templateSeparator);
             layout.Children.Add(_documentActions);
+            layout.Children.Add(_planActions);
             layout.Children.Add(BuildFilterHeader());
             layout.Children.Add(BuildFilterBar());
             layout.Children.Add(_cards);
@@ -448,13 +459,27 @@ namespace UniversSale.View
                 if (item == null) continue;
                 var selected = _selected.Contains(item.Id);
                 // Le liseré orange de divergence de gabarit garde la priorité.
-                var divergent = card.BorderBrush is SolidColorBrush
-                    && ((SolidColorBrush)card.BorderBrush).Color == Color.FromRgb(230, 126, 34);
-                if (!divergent)
+                // PIÈGE (batch 33) : la divergence se RECALCULE depuis le
+                // modèle — la sonder à la couleur de la bordure confondait
+                // l'accent « Orange » des préférences avec le liseré, et la
+                // carte précédente gardait son contour pour toujours.
+                if (!IsDivergent(item))
                     card.BorderBrush = selected ? (Brush)Chrome.Accent : Chrome.Border;
                 card.BorderThickness = new Thickness(selected ? 2 : 1);
                 card.Margin = new Thickness(selected ? 7 : 8);
             }
+        }
+
+        /// <summary>Vrai quand un texte du livre ne suit pas le gabarit du
+        /// livre (liseré orange, menu « Appliquer le gabarit »).</summary>
+        private bool IsDivergent(BinderItem item)
+        {
+            if (item == null || item.Kind != ItemKind.Text || _project == null || _folder == null)
+                return false;
+            var book = _folder.EnclosingBook();
+            if (book == null || book.Book == null) return false;
+            var effective = item.Page ?? _project.Page;
+            return !effective.SameLayout(book.Book.Template);
         }
 
         /// <summary>The ⋮ options menu, top right of every card.</summary>
@@ -557,7 +582,14 @@ namespace UniversSale.View
         /// l'inspecteur pendant que le tableau est affiché).</summary>
         public void Refresh()
         {
-            if (_folder != null) Rebuild();
+            if (_folder == null) return;
+            // Une carte supprimée (corbeille) ne reste pas « sélectionnée ».
+            _selected.RemoveWhere(delegate(string id)
+            {
+                var item = _project == null ? null : _project.FindById(id);
+                return item == null || !item.IsDescendantOf(_folder);
+            });
+            Rebuild();
         }
 
         /// <summary>The page gabarit applied to a document, when any.</summary>
@@ -576,6 +608,8 @@ namespace UniversSale.View
             _templateSeparator.Visibility = Visibility.Collapsed;
             _documentActions.Visibility = Visibility.Collapsed;
             if (_folder == null) return;
+            _planActions.Visibility = _folder.IsCategory && _folder.CategoryKey == Project.KeyPlans
+                ? Visibility.Visible : Visibility.Collapsed;
 
             // Livres : la section GABARITS vit au-dessus des documents,
             // séparée par un filet — autre niveau hiérarchique.
@@ -614,7 +648,10 @@ namespace UniversSale.View
                     Text = FiltersActive
                         ? "(aucun texte ne passe les filtres)"
                         : _folder.Kind == ItemKind.Book
-                            ? "(livre sans document)" : "(dossier vide)",
+                            ? "(livre sans document)"
+                        : _folder.IsCategory && _folder.CategoryKey == Project.KeyPlans
+                            ? "(aucun plan — clic droit sur « Plans » dans la Pile, ou « + Nouveau plan »)"
+                            : "(dossier vide)",
                     Foreground = Chrome.SoftText,
                     Margin = new Thickness(12)
                 });
@@ -677,23 +714,36 @@ namespace UniversSale.View
                 Child = inner
             };
             var folderRef = folder;
+            // Les LISIÈRES de la boîte (bande haute, bande basse) déposent
+            // AVANT ou APRÈS la partie dans le livre — une carte peut donc
+            // passer devant une partie (batch 35) ; le fond de la boîte,
+            // lui, fait entrer la carte dans la partie.
             box.DragOver += delegate(object sender, DragEventArgs e)
             {
                 e.Effects = e.Data.GetDataPresent("UniversSaleCard")
                     ? DragDropEffects.Move : DragDropEffects.None;
                 e.Handled = true;
+                if (e.Effects != DragDropEffects.Move) return;
+                var edge = BoxEdge(box, e.GetPosition(box));
+                if (edge == 0) HideDropBar();
+                else ShowDropBar(box, edge > 0);
             };
             box.Drop += delegate(object sender, DragEventArgs e)
             {
-                // Dépôt sur le fond de la boîte : la carte rejoint la partie.
                 HideDropBar();
                 var dragged = FindChild((string)e.Data.GetData("UniversSaleCard"));
                 if (dragged == null || dragged == folderRef
                     || folderRef.IsDescendantOf(dragged)) return;
-                _history.Run(new MoveItemAction(dragged, folderRef, -1));
-                Rebuild();
-                var handler = Changed;
-                if (handler != null) handler();
+                var edge = BoxEdge(box, e.GetPosition(box));
+                if (edge != 0) MoveBeside(dragged, folderRef, edge > 0);
+                else
+                {
+                    // Dépôt sur le fond de la boîte : la carte rejoint la partie.
+                    _history.Run(new MoveItemAction(dragged, folderRef, -1));
+                    Rebuild();
+                    var handler = Changed;
+                    if (handler != null) handler();
+                }
                 e.Handled = true;
             };
 
@@ -723,11 +773,53 @@ namespace UniversSale.View
                 var handler = Navigate;
                 if (handler != null) handler(folderRef);
             };
+            // La légende (le nom de la partie) dépose AVANT la partie.
+            legend.AllowDrop = true;
+            legend.DragOver += delegate(object sender, DragEventArgs e)
+            {
+                e.Effects = e.Data.GetDataPresent("UniversSaleCard") ? DragDropEffects.Move : DragDropEffects.None;
+                if (e.Effects == DragDropEffects.Move) ShowDropBar(box, false);
+                e.Handled = true;
+            };
+            legend.Drop += delegate(object sender, DragEventArgs e)
+            {
+                HideDropBar();
+                var dragged = FindChild((string)e.Data.GetData("UniversSaleCard"));
+                if (dragged == null || dragged == folderRef || folderRef.IsDescendantOf(dragged)) return;
+                MoveBeside(dragged, folderRef, false);
+                e.Handled = true;
+            };
 
             var host = new Grid { Margin = new Thickness(8, 4, 8, 6), Tag = folder };
             host.Children.Add(box);
             host.Children.Add(legend);
             return host;
+        }
+
+        /// <summary>-1 = bande haute (avant la partie), +1 = bande basse
+        /// (après), 0 = le fond (dans la partie).</summary>
+        private static int BoxEdge(Border box, Point position)
+        {
+            const double band = 16;
+            if (position.Y < band) return -1;
+            if (position.Y > box.ActualHeight - band) return 1;
+            return 0;
+        }
+
+        /// <summary>Place la carte juste avant ou juste après la partie, dans
+        /// le parent de celle-ci (public par réflexion : la sonde s'en sert).</summary>
+        private void MoveBeside(BinderItem dragged, BinderItem folder, bool after)
+        {
+            var parent = folder.Parent;
+            if (parent == null || dragged == null || dragged == folder || folder.IsDescendantOf(dragged)) return;
+            var index = parent.Children.IndexOf(folder) + (after ? 1 : 0);
+            var oldIndex = dragged.Parent == parent ? parent.Children.IndexOf(dragged) : -1;
+            if (oldIndex >= 0 && oldIndex < index) index--;
+            if (oldIndex == index && dragged.Parent == parent) return;
+            _history.Run(new MoveItemAction(dragged, parent, index));
+            Rebuild();
+            var handler = Changed;
+            if (handler != null) handler();
         }
 
         /// <summary>A gabarit card: blueprint tinted with its color, name,
@@ -779,6 +871,7 @@ namespace UniversSale.View
                 var handler = Navigate;
                 if (handler != null) handler(gabaritRef);
             };
+            CardLift.Attach(card); // soulèvement au survol (b35)
             return card;
         }
 
@@ -1019,6 +1112,15 @@ namespace UniversSale.View
             // Card text, read-only: notes first; else the beginning of the text
             // for written documents; sheets without notes stay blank.
             var text = (item.Notes ?? "").Trim();
+            if (item.Kind == ItemKind.Plan)
+            {
+                // Une carte de plan (batch 35) : sa couleur et son étendue.
+                var columns = item.Plan == null ? 0 : item.Plan.Columns.Count;
+                var bricks = 0;
+                if (item.Plan != null) foreach (var column in item.Plan.Columns) bricks += column.Entries.Count;
+                text = columns == 0 ? "Plan vide"
+                    : columns + (columns > 1 ? " colonnes" : " colonne") + " · " + bricks + (bricks > 1 ? " briques" : " brique");
+            }
             if (text.Length == 0 && item.Kind == ItemKind.Text)
             {
                 text = item.Document.ToPlainText().Trim();
@@ -1150,8 +1252,7 @@ namespace UniversSale.View
             if (book != null && book.Book != null && item.Kind == ItemKind.Text
                 && _project != null)
             {
-                var effective = item.Page ?? _project.Page;
-                if (!effective.SameLayout(book.Book.Template))
+                if (IsDivergent(item))
                 {
                     card.BorderBrush = new SolidColorBrush(Color.FromRgb(230, 126, 34));
                     card.ToolTip = "Ce document ne suit pas le gabarit du livre.";
@@ -1171,6 +1272,7 @@ namespace UniversSale.View
                     card.ContextMenu = menu;
                 }
             }
+            CardLift.Attach(card); // soulèvement au survol (b35)
             return card;
         }
 

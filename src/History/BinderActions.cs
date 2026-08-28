@@ -96,6 +96,44 @@ namespace UniversSale.History
         public void Undo() { _item.Icon = _oldIcon; }
     }
 
+    /// <summary>« Options du livre » (batch 32) : nom, icône et objectif de
+    /// chapitres appliqués d'un bloc, annulables d'un bloc.</summary>
+    public class BookOptionsAction : IUndoableAction
+    {
+        private readonly BinderItem _book;
+        private readonly string _oldTitle, _newTitle;
+        private readonly string _oldIcon, _newIcon;
+        private readonly int _oldGoal, _newGoal;
+
+        public BookOptionsAction(BinderItem book, string title, string icon, int chapterGoal)
+        {
+            _book = book;
+            if (book.Book == null) book.Book = new BookInfo();
+            _oldTitle = book.Title; _newTitle = title;
+            _oldIcon = book.Icon; _newIcon = icon;
+            _oldGoal = book.Book.ChapterGoal; _newGoal = Math.Max(0, chapterGoal);
+        }
+
+        public bool IsNoOp
+        {
+            get { return _oldTitle == _newTitle && _oldIcon == _newIcon && _oldGoal == _newGoal; }
+        }
+
+        public void Do()
+        {
+            _book.Title = _newTitle;
+            _book.Icon = _newIcon;
+            _book.Book.ChapterGoal = _newGoal;
+        }
+
+        public void Undo()
+        {
+            _book.Title = _oldTitle;
+            _book.Icon = _oldIcon;
+            _book.Book.ChapterGoal = _oldGoal;
+        }
+    }
+
     /// <summary>Moves an item to another parent (drag and drop, restore from trash).</summary>
     public class MoveItemAction : IUndoableAction
     {

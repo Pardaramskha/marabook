@@ -115,14 +115,40 @@ namespace UniversSale.Correction.Grammalecte
         public static Dictionary<string, object> Effective(
             Dictionary<string, bool> userChoices)
         {
+            return Effective(userChoices, true, false);
+        }
+
+        /// <summary>Les options TYPOGRAPHIQUES de Grammalecte — celles que la
+        /// politique du lot C éteint (territoire de Typonanny) : « Options du
+        /// correcteur → Typographie » (batch 33) les rallume d'un bloc, et
+        /// leurs signalements portent la catégorie Typographie.</summary>
+        public static readonly HashSet<string> TypographyOptions = new HashSet<string>
+        { "typo", "apos", "esp", "tab", "nbsp", "unit", "num", "nf", "chim", "poncfin", "mapos" };
+
+        public static bool IsTypography(string optionName)
+        {
+            return optionName != null && TypographyOptions.Contains(optionName);
+        }
+
+        /// <summary>Le jeu effectif selon les deux interrupteurs des Options
+        /// du correcteur : grammaire (tout sauf la typographie) et
+        /// typographie (le jeu ci-dessus, par-dessus la politique) — les
+        /// choix explicites de l'utilisateur gardent le dernier mot.</summary>
+        public static Dictionary<string, object> Effective(
+            Dictionary<string, bool> userChoices, bool grammar, bool typography)
+        {
             var options = new Dictionary<string, object>();
             foreach (var option in Catalog)
             {
+                var isTypo = IsTypography(option.Name);
                 var value = option.MarabookDefault;
+                if (isTypo && typography) value = true;
                 bool chosen;
                 if (userChoices != null
                     && userChoices.TryGetValue(option.Name, out chosen))
                     value = chosen;
+                if (isTypo && !typography) value = false;
+                if (!isTypo && !grammar) value = false;
                 options[option.Name] = value;
             }
             options["html"] = false;

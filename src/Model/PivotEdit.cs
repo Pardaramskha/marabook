@@ -58,7 +58,35 @@ namespace UniversSale.Model
         /// RÈGLE : tout nouveau champ de format de TextRun doit être ajouté
         /// ici ET dans TextRun.HasSameFormat — sinon il meurt au premier
         /// split de run (SliceRun, Split, ApplyFormat passent tous par là).</summary>
-        private static TextRun CloneFormat(TextRun source)
+        /// <summary>Copie intégrale d'un run (format, texte, élément).</summary>
+        public static TextRun CloneRun(TextRun run)
+        {
+            var r = CloneFormat(run);
+            r.Text = run.Text;
+            r.FootnoteId = run.FootnoteId;
+            r.ImageId = run.ImageId;
+            r.IsRule = run.IsRule;
+            r.IsLineBreak = run.IsLineBreak;
+            return r;
+        }
+
+        /// <summary>Le paragraphe SANS ses runs (style, alignement, liste,
+        /// sauts…) — la coquille qu'une redistribution remplit.</summary>
+        public static TextParagraph CloneParagraphShell(TextParagraph paragraph)
+        {
+            return new TextParagraph
+            {
+                StyleId = paragraph.StyleId,
+                AlignOverride = paragraph.AlignOverride,
+                ListKind = paragraph.ListKind,
+                PageBreakBefore = paragraph.PageBreakBefore,
+                AllowWidows = paragraph.AllowWidows,
+                StartOnRecto = paragraph.StartOnRecto,
+                Decor = paragraph.Decor
+            };
+        }
+
+        public static TextRun CloneFormat(TextRun source)
         {
             return new TextRun
             {

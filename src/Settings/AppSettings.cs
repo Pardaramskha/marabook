@@ -95,6 +95,13 @@ namespace UniversSale.Settings
         // recouvrement du lot C (clé = nom d'option Grammalecte). Une entrée
         // absente = le défaut Marabook s'applique.
         public static bool GrammarEnabled = true;
+        // Options du correcteur (batch 33) : ce qu'il RELÈVE — orthographe et
+        // grammaire actives par défaut, typographie et style à la demande.
+        public static bool SpellEnabled = true;
+        public static bool TypographyEnabled;
+        public static bool StyleEnabled;
+        // La passe typographique (batch 34, port de Typonanny) : préréglage et règles.
+        public static Correction.TypographyOptions Typography = new Correction.TypographyOptions();
         public static Dictionary<string, bool> GrammarOptions
             = new Dictionary<string, bool>();
         // Mots ignorés par les correcteurs sur TOUS les projets (« ignorer
@@ -102,7 +109,7 @@ namespace UniversSale.Settings
         public static List<string> ProofIgnored = new List<string>();
         // Dictionnaire personnel GLOBAL : mots enseignés pour tous les
         // projets — le pendant de Project.LearnedWords.
-        public static List<string> LearnedWords = new List<string>();
+        public static List<Model.LexiconEntry> Lexicon = new List<Model.LexiconEntry>();
         public static List<string> RecentFiles = new List<string>(); // last 5 .plot files
 
         public static void AddRecentFile(string path)
@@ -197,6 +204,10 @@ namespace UniversSale.Settings
                 ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
                 CorrectionPanelVisible = Json.AsBool(Json.Field(root, "correctionPanel"), false);
                 GrammarEnabled = Json.AsBool(Json.Field(root, "grammarEnabled"), true);
+                SpellEnabled = Json.AsBool(Json.Field(root, "spellEnabled"), true);
+                TypographyEnabled = Json.AsBool(Json.Field(root, "typographyEnabled"), false);
+                StyleEnabled = Json.AsBool(Json.Field(root, "styleEnabled"), false);
+                Typography = Correction.TypographyOptions.FromJson(Json.AsObject(Json.Field(root, "typography")));
                 var grammarOptions = Json.AsObject(Json.Field(root, "grammarOptions"));
                 if (grammarOptions != null)
                 {
@@ -212,12 +223,14 @@ namespace UniversSale.Settings
                     foreach (var entry in proofIgnored)
                         if (entry is string) ProofIgnored.Add((string)entry);
                 }
+                Lexicon = Model.LexiconEntry.FromJsonList(Json.AsList(Json.Field(root, "lexicon")));
                 var learnedWords = Json.AsList(Json.Field(root, "learnedWords"));
-                if (learnedWords != null)
+                if (learnedWords != null) // réglages d'avant le batch 33
                 {
-                    LearnedWords = new List<string>();
+                    var words = new List<string>();
                     foreach (var entry in learnedWords)
-                        if (entry is string) LearnedWords.Add((string)entry);
+                        if (entry is string) words.Add((string)entry);
+                    Model.LexiconEntry.MergeWords(Lexicon, words);
                 }
                 var recents = Json.AsList(Json.Field(root, "recentFiles"));
                 if (recents != null)
@@ -253,6 +266,10 @@ namespace UniversSale.Settings
                 root["proofEnabled"] = ProofEnabled;
                 root["correctionPanel"] = CorrectionPanelVisible;
                 root["grammarEnabled"] = GrammarEnabled;
+                root["spellEnabled"] = SpellEnabled;
+                root["typographyEnabled"] = TypographyEnabled;
+                root["styleEnabled"] = StyleEnabled;
+                root["typography"] = Typography.ToJson();
                 if (GrammarOptions.Count > 0)
                 {
                     var grammarOptions = new Dictionary<string, object>();
@@ -262,8 +279,8 @@ namespace UniversSale.Settings
                 }
                 if (ProofIgnored.Count > 0)
                     root["proofIgnored"] = new List<object>(ProofIgnored.ToArray());
-                if (LearnedWords.Count > 0)
-                    root["learnedWords"] = new List<object>(LearnedWords.ToArray());
+                if (Lexicon.Count > 0)
+                    root["lexicon"] = Model.LexiconEntry.ToJsonList(Lexicon);
                 root["recentFiles"] = new List<object>(RecentFiles.ToArray());
                 File.WriteAllText(SettingsPath(), Json.Write(root), new UTF8Encoding(false));
             }

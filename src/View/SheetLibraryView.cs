@@ -340,6 +340,7 @@ namespace UniversSale.View
             card.MouseRightButtonUp += delegate { ShowCardMenu(card, sheetRef); };
             card.MouseEnter += delegate { card.BorderBrush = Chrome.Accent; };
             card.MouseLeave += delegate { card.BorderBrush = Chrome.Border; };
+            CardLift.Attach(card); // soulèvement au survol (b35)
             return card;
         }
 

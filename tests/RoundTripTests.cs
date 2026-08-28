@@ -23,12 +23,52 @@ namespace UniversSale.Tests
             "TextParagraph.Decor"           //   dans le .plot
         };
 
+        /// <summary>Batch 32 — l'objectif de chapitres : les textes du récit
+        /// comptent (dossiers traversés), liminaires et TdM non ; « done »
+        /// seul vaut terminé ; les parts sont bornées à 1 ; sans objectif,
+        /// rien ne se dessine.</summary>
+        private static void BookProgressCounts(Harness t)
+        {
+            var book = new BinderItem { Kind = ItemKind.Book, Title = "L", Book = new BookInfo { ChapterGoal = 4 } };
+            var part = new BinderItem { Kind = ItemKind.Folder, Title = "Partie" };
+            book.Children.Add(new BinderItem { Kind = ItemKind.Text, Title = "1", Status = "done" });
+            book.Children.Add(new BinderItem { Kind = ItemKind.Text, Title = "2", Status = "revise" });
+            book.Children.Add(new BinderItem { Kind = ItemKind.Text, Title = "Faux-titre", IsExtraPage = true, Status = "done" });
+            book.Children.Add(new BinderItem { Kind = ItemKind.Text, Title = "TdM", IsExtraPage = true, IsToc = true });
+            book.Children.Add(new BinderItem { Kind = ItemKind.PageTemplate, Title = "Gabarit" });
+            part.Children.Add(new BinderItem { Kind = ItemKind.Text, Title = "3", Status = "done" });
+            book.Children.Add(part);
+            book.RelinkChildren();
+
+            var progress = BookProgress.Of(book);
+            t.Equal(4, progress.Goal, "objectif lu");
+            t.Equal(3, progress.Present, "chapitres présents (extras, TdM, gabarit exclus ; dossier traversé)");
+            t.Equal(2, progress.Done, "chapitres terminés (l'extra « done » ne compte pas)");
+            t.Check(progress.HasGoal, "objectif présent");
+            t.Equal(0.75, progress.PresentRatio, "part présente");
+            t.Equal(0.5, progress.DoneRatio, "part terminée");
+
+            book.Book.ChapterGoal = 2;
+            progress = BookProgress.Of(book);
+            t.Equal(1.0, progress.PresentRatio, "part présente bornée à 1 (objectif dépassé)");
+            t.Equal(1.0, progress.DoneRatio, "part terminée bornée à 1");
+
+            book.Book.ChapterGoal = 0;
+            progress = BookProgress.Of(book);
+            t.Check(!progress.HasGoal, "0 = aucun objectif");
+            t.Equal(0.0, progress.PresentRatio, "sans objectif, rien à dessiner");
+            t.Equal(3, progress.Present, "le compte reste disponible sans objectif");
+
+            t.Equal(0, BookProgress.Of(null).Present, "livre nul : vide");
+        }
+
         public static void Run(Harness t)
         {
             t.Suite("C1 — aller-retour .plot");
             var dir = TestDir();
 
             FullRoundTrip(t, dir);
+            BookProgressCounts(t);
             PageBreakRoundTrip(t, dir);
             HyphenSentinel(t, dir);
             FutureVersionReadOnly(t, dir);
@@ -243,6 +283,16 @@ namespace UniversSale.Tests
             project.CustomColors.Add("#004488");
             project.HyphenExceptions.Add("Marabout");
             project.HyphenExceptions.Add("wisteria");
+            // — Dictionnaire personnel à entrées (batch 33, v13).
+            project.Lexicon.Add(new LexiconEntry
+            {
+                Word = "Kaladin", Class = LexiconEntry.ClassProper, Gender = "m",
+                Plural = LexiconEntry.PluralS, Note = "chef de pont"
+            });
+            project.Lexicon.Add(new LexiconEntry
+            {
+                Word = "shardique", Class = LexiconEntry.ClassAdjective, Feminine = "shardique"
+            });
             project.Journal.DailyGoal = 500;
             project.Journal.LastCelebrated = "2026-08-07";
             project.Journal.Days.Add(new JournalDay { Date = "2026-08-06", Words = 812 });
@@ -386,9 +436,23 @@ namespace UniversSale.Tests
             sheet.FieldValues[template.Fields[0].Id] = "Marabout cendré";
             sheet.FieldValues[template.Fields[1].Id] = "Longue biographie.";
             sheet.FreeInfo.Add(new InfoEntry { Title = "Devise", Value = "Toujours plumer" });
+            sheet.FreeInfo.Add(new InfoEntry { Title = "Plumage", Value = "cendré", Group = SheetDefaults.GroupLooks });
+            // — Relations (batch 34, v14) : une fiche liée, un nom libre.
+            sheet.Relations.Add(new SheetRelation { Kind = "mentor", TargetId = chapter.Id });
+            sheet.Relations.Add(new SheetRelation { Kind = "rivale", Name = "La Pie" });
             sheet.Document = SimpleDocument("Corps wiki de la fiche.");
             sheet.ImageId = project.AddImage(new byte[] { 137, 80, 78, 71, 1, 2, 3, 4 }, ".png");
             sheets.Children.Add(sheet);
+
+            // — Un plan (batch 35, v15) : relié au livre, une colonne reliée au
+            // chapitre, un élément coloré et une note.
+            var plan = new BinderItem { Kind = ItemKind.Plan, Title = "Plan du livre", CardColor = "#5B67D8", Plan = new PlanInfo { LinkedItemId = book.Id } };
+            var planColumn = new PlanColumn { Title = "Acte I", LinkedTextId = chapter.Id };
+            planColumn.Entries.Add(new PlanEntry { Text = "L'incendie", Color = "#C0392B", Intensity = 4 });
+            planColumn.Entries.Add(new PlanEntry { Kind = PlanEntry.KindNote, Text = "revoir le rythme" });
+            plan.Plan.Columns.Add(planColumn);
+            plan.Plan.Columns.Add(new PlanColumn { Title = "Acte II" });
+            project.Category(Project.KeyPlans).Children.Add(plan);
 
             // — Média brut.
             var media = new BinderItem
@@ -407,6 +471,7 @@ namespace UniversSale.Tests
             // de CHAQUE type persisté passe au filler ; les sous-objets et
             // les ids croisés restent exercés à la main (voir FixtureFiller).
             FixtureFiller.Fill(project);
+            FixtureFiller.Fill(project.Lexicon[0]);
             FixtureFiller.Fill(project.Page);
             FixtureFiller.Fill(project.Journal);
             FixtureFiller.Fill(project.Journal.Days[0]);
@@ -427,6 +492,13 @@ namespace UniversSale.Tests
             FixtureFiller.Fill(part);
             FixtureFiller.Fill(sheet);
             FixtureFiller.Fill(sheet.FreeInfo[0]);
+            FixtureFiller.Fill(sheet.Relations[1]);
+            FixtureFiller.Fill(plan);
+            FixtureFiller.Fill(plan.Plan);
+            FixtureFiller.Fill(plan.Plan.Columns[1]);
+            // Kind est une clé fermée (element|note) : le lecteur normalise toute
+            // autre valeur — exclue du filler, exercée par la note de la fixture.
+            FixtureFiller.Fill(plan.Plan.Columns[0].Entries[0], "Kind");
             FixtureFiller.Fill(media);
 
             project.RelinkParents();

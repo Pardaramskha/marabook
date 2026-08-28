@@ -43,6 +43,7 @@ namespace UniversSale.View
         // Fourni par MainWindow (cache de composition) : total de pages d'un
         // livre, pour le garde-fou « page finale impaire ». Null = pas d'icône.
         public Func<BinderItem, int> BookPageTotal;
+        public event Action DictionaryEntryRequested; // « Nouvelle entrée… » de la racine Dictionnaire (b33)
 
         private TextBox _searchBox;
         private ComboBox _searchFilter;
@@ -606,6 +607,23 @@ namespace UniversSale.View
                 AddMenu(menu, "Vider la corbeille", delegate { EmptyTrash(); });
                 return menu;
             }
+            // La racine Dictionnaire (batch 33) n'a pas d'enfants dans la
+            // Pile : ses entrées vivent dans son écran.
+            if (item.IsCategory && item.CategoryKey == Project.KeyDictionary)
+            {
+                AddMenu(menu, "Nouvelle entrée…", delegate
+                {
+                    var handler = DictionaryEntryRequested;
+                    if (handler != null) handler();
+                });
+                return menu;
+            }
+            // La racine Plans (batch 35) ne reçoit que des plans.
+            if (item.IsCategory && item.CategoryKey == Project.KeyPlans)
+            {
+                AddMenu(menu, "Nouveau plan", delegate { NewPlan(item); });
+                return menu;
+            }
 
             if (item.CanHaveChildren)
             {
@@ -637,6 +655,8 @@ namespace UniversSale.View
             if (!item.IsCategory)
             {
                 menu.Items.Add(new Separator());
+                if (item.Kind == ItemKind.Book)
+                    AddMenu(menu, "Options du livre…", delegate { BookOptions(item); });
                 AddMenu(menu, "Renommer…", delegate { Rename(item); });
                 AddMenu(menu, "Changer l'icône…", delegate { ChangeIcon(item); });
                 AddMenu(menu, "Supprimer", delegate { Delete(item); });
@@ -659,9 +679,28 @@ namespace UniversSale.View
         private BinderItem TargetParent()
         {
             var selected = SelectedItem;
-            if (selected == null || selected.RootCategory().CategoryKey == Project.KeyTrash)
+            if (selected == null || IsSpecialRoot(selected))
                 return _project.Category(Project.KeyWritings);
             return selected.IsContainer ? selected : selected.Parent;
+        }
+
+        /// <summary>Corbeille et Dictionnaire : des racines qui ne reçoivent
+        /// rien par création, import ou dépôt.</summary>
+        private static bool IsSpecialRoot(BinderItem item)
+        {
+            var key = item.RootCategory().CategoryKey;
+            return key == Project.KeyTrash || key == Project.KeyDictionary || key == Project.KeyPlans;
+        }
+
+        /// <summary>Un nouveau plan (batch 35), toujours dans la racine Plans.</summary>
+        public void NewPlan(BinderItem parent)
+        {
+            var root = _project.Category(Project.KeyPlans);
+            if (root == null) return;
+            var title = InputDialog.Ask(Window.GetWindow(this), "Nouveau plan", "Nom du plan :", "Nouveau plan");
+            if (title == null) return;
+            var item = new BinderItem { Kind = ItemKind.Plan, Title = title, Plan = new PlanInfo() };
+            RunAndSelect(new AddItemAction(root, item, -1), item.Id, root.Id);
         }
 
         public void NewText(BinderItem parent)
@@ -755,6 +794,19 @@ namespace UniversSale.View
             var answer = InputDialog.Ask(Window.GetWindow(this), "Renommer", "Nouveau titre :", item.Title);
             if (answer == null || answer == item.Title) return;
             RunAndSelect(new RenameItemAction(item, answer), item.Id, null);
+        }
+
+        /// <summary>« Options du livre » (batch 32) : nom, icône, objectif de
+        /// chapitres — un dialogue, une action annulable.</summary>
+        public void BookOptions(BinderItem item)
+        {
+            if (item == null) item = SelectedItem;
+            if (item == null || item.Kind != ItemKind.Book) return;
+            var result = BookOptionsDialog.Ask(Window.GetWindow(this), item);
+            if (result == null) return;
+            var action = new BookOptionsAction(item, result.Title, result.Icon, result.ChapterGoal);
+            if (action.IsNoOp) return;
+            RunAndSelect(action, item.Id, null);
         }
 
         public void ChangeIcon(BinderItem item)
@@ -908,6 +960,10 @@ namespace UniversSale.View
             if (target == dragged.Parent && target.CanHaveChildren) return null; // no-op move
             if (target.IsDescendantOf(dragged)) return null;
             if (target.RootCategory().CategoryKey == Project.KeyTrash) return null; // deletion has its own path
+            if (target.RootCategory().CategoryKey == Project.KeyDictionary) return null; // pas un conteneur (b33)
+            // La racine Plans n'accepte que des plans, et un plan ne sort pas de sa racine (b35).
+            if ((target.RootCategory().CategoryKey == Project.KeyPlans) != (dragged.Kind == ItemKind.Plan)) return null;
+            if (dragged.Kind == ItemKind.Plan && !target.IsCategory) return null;
             if (!target.CanHaveChildren && target.Parent == null) return null;
             return target;
         }
@@ -1003,7 +1059,7 @@ namespace UniversSale.View
         public BinderItem CurrentContainer()
         {
             var selected = SelectedItem;
-            if (selected == null || selected.RootCategory().CategoryKey == Project.KeyTrash)
+            if (selected == null || IsSpecialRoot(selected))
                 return _project.Category(Project.KeyWritings);
             return selected.IsContainer ? selected : selected.Parent;
         }
@@ -1014,7 +1070,7 @@ namespace UniversSale.View
             {
                 var selected = SelectedItem;
                 parent = selected != null && selected.IsContainer
-                    && selected.RootCategory().CategoryKey != Project.KeyTrash
+                    && !IsSpecialRoot(selected)
                     ? selected : _project.Category(Project.KeySheets);
             }
             string title, categoryId;
@@ -1048,8 +1104,7 @@ namespace UniversSale.View
         /// Recherche category.</summary>
         public void ImportMediaFiles(BinderItem parent, string[] paths)
         {
-            if (parent == null || !parent.CanHaveChildren
-                || parent.RootCategory().CategoryKey == Project.KeyTrash)
+            if (parent == null || !parent.CanHaveChildren || IsSpecialRoot(parent))
                 parent = _project.Category(Project.KeyResearch);
 
             var items = new List<BinderItem>();
