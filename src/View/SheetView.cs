@@ -344,10 +344,67 @@ namespace UniversSale.View
             return string.Equals(group, SheetDefaults.GroupLooks, StringComparison.CurrentCultureIgnoreCase);
         }
 
+        // Les zones de saisie par identifiant (champ de modèle, info libre,
+        // relation) — la navigation d'une occurrence les retrouve (b37).
+        private readonly Dictionary<string, Control> _fieldBoxes = new Dictionary<string, Control>();
+        private readonly Dictionary<string, Control> _relationBoxes = new Dictionary<string, Control>();
+
+        /// <summary>Va à une occurrence de la recherche projet : un paragraphe
+        /// du corps (onglet Texte libre, sélection exacte), ou un champ
+        /// (onglet Général, zone amenée à l'écran et sélectionnée).</summary>
+        public void GoTo(SearchField field, int start, int length)
+        {
+            if (_item == null || field == null) return;
+            if (_previewToggle.IsChecked == true) _previewToggle.IsChecked = false;
+            if (field.IsParagraph)
+            {
+                _tabs.SelectedIndex = 1;
+                UpdateLayout();
+                var index = Math.Min(PlainOffset(field.ParagraphIndex) + start, _bodyBox.Text.Length);
+                _bodyBox.Focus();
+                _bodyBox.Select(index, Math.Max(0, Math.Min(length, _bodyBox.Text.Length - index)));
+                _bodyBox.ScrollToLine(Math.Max(0, _bodyBox.GetLineIndexFromCharacterIndex(index)));
+                return;
+            }
+            _tabs.SelectedIndex = 0;
+            UpdateLayout();
+            Control box = null;
+            if (field.RefId != null && !_fieldBoxes.TryGetValue(field.RefId, out box)) _relationBoxes.TryGetValue(field.RefId, out box);
+            if (box == null) return;
+            box.BringIntoView();
+            box.Focus();
+            var textBox = box as TextBox;
+            if (textBox != null)
+            {
+                var max = textBox.Text.Length;
+                var at = Math.Min(start, max);
+                textBox.Select(at, Math.Max(0, Math.Min(length, max - at)));
+            }
+        }
+
+        /// <summary>L'offset, dans le texte plein du corps, du début d'un
+        /// paragraphe (les mêmes règles que TextDocument.ToPlainText).</summary>
+        private int PlainOffset(int paragraphIndex)
+        {
+            var offset = 0;
+            var paragraphs = _item.Document.Paragraphs;
+            for (var i = 0; i < paragraphIndex && i < paragraphs.Count; i++)
+            {
+                foreach (var run in paragraphs[i].Runs)
+                {
+                    if (run.FootnoteId != null || run.ImageId != null || run.IsRule) continue;
+                    offset += run.IsLineBreak ? 1 : run.Text.Length;
+                }
+                offset++; // le saut de ligne entre paragraphes
+            }
+            return offset;
+        }
+
         private void RebuildFields()
         {
             _infoFields.Children.Clear();
             _looksFields.Children.Clear();
+            _fieldBoxes.Clear();
             if (_item == null) return;
             if (_template != null)
                 foreach (var field in _template.Fields)
@@ -358,7 +415,7 @@ namespace UniversSale.View
                     var row = FieldRow(field.Name, value ?? "", field.Kind == "multiline", delegate(string text)
                     {
                         _item.FieldValues[fieldRef.Id] = text;
-                    }, null);
+                    }, null, field.Id);
                     (IsLooks(field.Group) ? _looksFields : _infoFields).Children.Add(row);
                 }
             foreach (var entry in _item.FreeInfo)
@@ -373,7 +430,7 @@ namespace UniversSale.View
         }
 
         /// <summary>Une rangée libellé / valeur ; remove = bouton ✕ optionnel.</summary>
-        private UIElement FieldRow(string label, string value, bool multiline, Action<string> onChanged, Button remove)
+        private UIElement FieldRow(string label, string value, bool multiline, Action<string> onChanged, Button remove, string refId)
         {
             var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
             if (remove != null) { DockPanel.SetDock(remove, Dock.Right); row.Children.Add(remove); }
@@ -390,6 +447,7 @@ namespace UniversSale.View
             DockPanel.SetDock(caption, Dock.Left);
             row.Children.Add(caption);
             var box = new TextBox { Text = value };
+            if (refId != null) _fieldBoxes[refId] = box;
             if (multiline)
             {
                 box.AcceptsReturn = true;
@@ -429,6 +487,7 @@ namespace UniversSale.View
             DockPanel.SetDock(titleBox, Dock.Left);
             row.Children.Add(titleBox);
             var valueBox = new TextBox { Text = entry.Value };
+            _fieldBoxes[entry.Id] = valueBox;
             valueBox.TextChanged += delegate
             {
                 if (_loading) return;
@@ -466,6 +525,7 @@ namespace UniversSale.View
         private void RebuildRelations()
         {
             _relationsPanel.Children.Clear();
+            _relationBoxes.Clear();
             if (_item == null) return;
             var sheets = OtherSheets();
             foreach (var relation in _item.Relations)
@@ -552,6 +612,7 @@ namespace UniversSale.View
 
             // La cible : une fiche existante (liste) ou un nom libre (saisie).
             var combo = new ComboBox { IsEditable = true, ToolTip = "Une fiche du projet, ou un nom libre" };
+            _relationBoxes[relation.Id] = combo;
             foreach (var sheet in sheets) combo.Items.Add(sheet.Title);
             combo.Text = target != null ? target.Title : relation.Name;
             combo.LostKeyboardFocus += delegate { CommitRelationTarget(relation, combo, sheets, open); };

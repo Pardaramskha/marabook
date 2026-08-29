@@ -56,6 +56,8 @@ namespace UniversSale
 
         private Border _inspector;
         private Border _correctionHost; // le panneau de correction (batch 28)
+        private Border _searchHost;     // le panneau de recherche du projet (batch 37)
+        private View.SearchPanel _searchPanel;
         private TextBlock _inspTitle, _inspKind, _inspStats, _inspDates;
         // Livre (batch 32) : objectif de chapitres au-dessus des statistiques,
         // panneaux Métadonnées / Publication dépliés sous les dates.
@@ -223,7 +225,17 @@ namespace UniversSale
             edit.Items.Add(_redoMenu);
             edit.Items.Add(new Separator());
             edit.Items.Add(Entry("find", "Rechercher dans l'écrit…", ShowSearchInActive));
-            edit.Items.Add(Entry("project-search", "Rechercher dans le projet", delegate { _binder.FocusSearch(); }));
+            edit.Items.Add(Entry("project-search", "Rechercher dans le projet…", OpenSearchPanel));
+            edit.Items.Add(Entry("search-next", "Occurrence suivante", delegate
+            {
+                if (!AppSettings.SearchPanelVisible) { OpenSearchPanel(); return; }
+                _searchPanel.Next();
+            }));
+            edit.Items.Add(Entry("search-previous", "Occurrence précédente", delegate
+            {
+                if (!AppSettings.SearchPanelVisible) { OpenSearchPanel(); return; }
+                _searchPanel.Previous();
+            }));
             edit.Items.Add(Entry("session-goal", "Objectif de session…", SetSessionGoal));
             edit.Items.Add(new Separator());
             edit.Items.Add(Entry("new-text", "Nouvel écrit", delegate { _binder.NewText(null); }));
@@ -571,8 +583,72 @@ namespace UniversSale
             grid.Children.Add(_correctionHost);
             _editor.CorrectionPanelToggled += ApplyPanelVisibility;
 
+            // Le panneau de RECHERCHE du projet (batch 37) : même colonne,
+            // même famille ; ouvert, il passe devant Correction et l'inspecteur.
+            _searchPanel = new View.SearchPanel();
+            _searchPanel.NavigateRequested += GoToHit;
+            _searchPanel.CloseRequested += delegate
+            {
+                AppSettings.SearchPanelVisible = false;
+                AppSettings.Save();
+                ApplyPanelVisibility();
+            };
+            _searchHost = new Border { Child = _searchPanel };
+            Grid.SetColumn(_searchHost, 4);
+            grid.Children.Add(_searchHost);
+
             ApplyPanelVisibility();
             return grid;
+        }
+
+        /// <summary>Ouvre (ou ramène) le panneau de recherche du projet, la
+        /// requête prête à taper — Ctrl+Maj+F, menu Édition.</summary>
+        private void OpenSearchPanel()
+        {
+            if (!AppSettings.SearchPanelVisible)
+            {
+                AppSettings.SearchPanelVisible = true;
+                AppSettings.Save();
+                ApplyPanelVisibility();
+            }
+            _searchPanel.FocusQuery();
+        }
+
+        /// <summary>Navigation à une occurrence (batch 37) : ouvrir l'item s'il
+        /// ne l'est pas, puis — une fois la vue en place — sélectionner
+        /// l'empan exact dans la surface composée, le champ de la fiche, la
+        /// colonne ou la brique du plan, l'entrée du dictionnaire.</summary>
+        private void GoToHit(SearchHit hit)
+        {
+            if (hit == null || _project == null || hit.Item == null) return;
+            if (_project.FindById(hit.Item.Id) == null) return; // item disparu depuis la recherche
+            if (_current != hit.Item || !IsItemViewVisible(hit.Item)) _binder.SelectItem(hit.Item.Id);
+            var target = hit;
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate
+            {
+                if (_current == target.Item) PositionOnHit(target);
+            }));
+        }
+
+        private void PositionOnHit(SearchHit hit)
+        {
+            var item = hit.Item;
+            var field = hit.Field;
+            if (field == null) return;
+            if (item.IsCategory)
+            {
+                int index;
+                if (item.CategoryKey == Project.KeyDictionary && field.RefId != null && int.TryParse(field.RefId, out index))
+                    _dictionaryView.GoTo(index);
+                return;
+            }
+            if (item.Kind == ItemKind.Text)
+            {
+                if (field.IsParagraph) _editor.GoToRange(field.ParagraphIndex, hit.Start, hit.Start + hit.Length);
+                else if (field.Kind == SearchField.KindAnnotation && field.RefId != null) _editor.GoToAnnotation(field.RefId);
+            }
+            else if (item.Kind == ItemKind.Sheet) _sheetView.GoTo(field, hit.Start, hit.Length);
+            else if (item.Kind == ItemKind.Plan) _planView.GoTo(field, hit.Start, hit.Length);
         }
 
         private Border BuildInspector()
@@ -1055,6 +1131,7 @@ namespace UniversSale
             _sheetView.SetProject(project);
             _sheetView.ApplyPageSetup(project.Page);
             _sheetView.Clear();
+            _searchPanel.SetProject(project);
             _mediaView.Clear();
             _corkboard.Clear();
             _journalView.Clear();
@@ -1352,6 +1429,7 @@ namespace UniversSale
             if (item != null) _binder.SelectItem(item.Id, false);
             UpdateInspector();
             UpdateStats();
+            _searchPanel.SetCurrent(item);
         }
 
         /// <summary>True when the center already displays THIS item's view —
@@ -2617,13 +2695,18 @@ namespace UniversSale
             // Le panneau de CORRECTION, ouvert, remplace l'inspecteur dans la
             // même colonne.
             var columnOn = !_journalOpen && !_calmMode && _current != null;
-            var correctionOn = columnOn && AppSettings.CorrectionPanelVisible;
-            var inspectorOn = columnOn && AppSettings.InspectorVisible && !correctionOn;
+            // Le panneau de RECHERCHE (b37) vit même sans item courant : on
+            // cherche avant d'avoir cliqué.
+            var searchOn = !_journalOpen && !_calmMode && AppSettings.SearchPanelVisible && _project != null;
+            var correctionOn = columnOn && AppSettings.CorrectionPanelVisible && !searchOn;
+            var inspectorOn = columnOn && AppSettings.InspectorVisible && !correctionOn && !searchOn;
             _inspector.Visibility = inspectorOn ? Visibility.Visible : Visibility.Collapsed;
             if (_correctionHost != null)
                 _correctionHost.Visibility = correctionOn
                     ? Visibility.Visible : Visibility.Collapsed;
-            var anyRight = inspectorOn || correctionOn;
+            if (_searchHost != null)
+                _searchHost.Visibility = searchOn ? Visibility.Visible : Visibility.Collapsed;
+            var anyRight = inspectorOn || correctionOn || searchOn;
             _inspectorSplit.Visibility = anyRight ? Visibility.Visible : Visibility.Collapsed;
             _inspectorCol.Width = anyRight
                 ? new GridLength(AppSettings.InspectorWidth) : new GridLength(0);

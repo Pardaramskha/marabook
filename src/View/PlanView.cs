@@ -204,9 +204,53 @@ namespace UniversSale.View
 
         // ================================================== colonnes
 
+        // Registres pour la navigation d'une occurrence (b37).
+        private readonly Dictionary<string, TextBox> _columnBoxes = new Dictionary<string, TextBox>();
+        private readonly Dictionary<string, Border> _bricks = new Dictionary<string, Border>();
+
+        /// <summary>Va à une colonne (titre sélectionné) ou à une brique
+        /// (amenée à l'écran, contour d'accent un instant) — recherche projet.</summary>
+        public void GoTo(SearchField field, int start, int length)
+        {
+            if (_item == null || field == null || field.RefId == null) return;
+            if (field.Kind == SearchField.KindColumn)
+            {
+                TextBox box;
+                if (!_columnBoxes.TryGetValue(field.RefId, out box)) return;
+                box.BringIntoView();
+                box.Focus();
+                var max = box.Text.Length;
+                var at = Math.Min(start, max);
+                box.Select(at, Math.Max(0, Math.Min(length, max - at)));
+                return;
+            }
+            Border brick;
+            if (!_bricks.TryGetValue(field.RefId, out brick)) return;
+            brick.BringIntoView();
+            Flash(brick);
+        }
+
+        private static void Flash(Border element)
+        {
+            var previous = element.BorderBrush;
+            var thickness = element.BorderThickness;
+            element.BorderBrush = Chrome.Accent;
+            element.BorderThickness = new Thickness(2);
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+            timer.Tick += delegate
+            {
+                timer.Stop();
+                element.BorderBrush = previous;
+                element.BorderThickness = thickness;
+            };
+            timer.Start();
+        }
+
         private void Rebuild()
         {
             _columns.Children.Clear();
+            _columnBoxes.Clear();
+            _bricks.Clear();
             if (_item == null) return;
             var index = 0;
             foreach (var column in _item.Plan.Columns)
@@ -241,6 +285,7 @@ namespace UniversSale.View
                 FontWeight = FontWeights.SemiBold,
                 ToolTip = "Titre de la colonne"
             };
+            _columnBoxes[column.Id] = titleBox;
             titleBox.TextChanged += delegate
             {
                 if (_loading) return;
@@ -435,6 +480,7 @@ namespace UniversSale.View
                 ToolTip = entry.IsNote ? "Note — clic : modifier, glisser : réordonner"
                     : "Élément — clic : modifier, glisser : réordonner"
             };
+            _bricks[entry.Id] = brick;
             if (entry.IsNote)
             {
                 brick.Background = NoteBg;

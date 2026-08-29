@@ -2691,6 +2691,17 @@ namespace UniversSale.View
         }
 
         /// <summary>Sélectionne le passage d'une annotation et l'amène à l'écran.</summary>
+        /// <summary>Sélectionne une plage plate du pivot dans la surface
+        /// composée (une occurrence de la recherche projet, b37) — le composé
+        /// est réveillé s'il dormait (sauf compatibilité classique).</summary>
+        public void GoToRange(int paragraph, int start, int end)
+        {
+            if (_item == null) return;
+            if (!ComposedActive && !Settings.AppSettings.ClassicCompatibility) SetComposition(true);
+            if (!ComposedActive) return;
+            _composed.SelectRange(paragraph, start, end);
+        }
+
         public void GoToAnnotation(string id)
         {
             if (ComposedActive)

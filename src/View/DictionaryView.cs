@@ -113,8 +113,27 @@ namespace UniversSale.View
 
         // ---------------------------------------------------------- rendu
 
+        // Rangées du projet par entrée, pour la navigation d'une occurrence (b37).
+        private readonly Dictionary<LexiconEntry, Border> _entryRows = new Dictionary<LexiconEntry, Border>();
+
+        /// <summary>Amène l'entrée n° index du lexique du projet à l'écran,
+        /// contour d'accent un instant — recherche projet.</summary>
+        public void GoTo(int index)
+        {
+            if (_project == null || index < 0 || index >= _project.Lexicon.Count) return;
+            Border row;
+            if (!_entryRows.TryGetValue(_project.Lexicon[index], out row)) return;
+            row.BringIntoView();
+            var previous = row.BorderBrush;
+            row.BorderBrush = Chrome.Accent;
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+            timer.Tick += delegate { timer.Stop(); row.BorderBrush = previous; };
+            timer.Start();
+        }
+
         private void Rebuild()
         {
+            _entryRows.Clear();
             _sections.Children.Clear();
             _sections.Children.Add(new TextBlock
             {
@@ -203,6 +222,7 @@ namespace UniversSale.View
                 Padding = new Thickness(10, 6, 10, 6),
                 Margin = new Thickness(0, 0, 0, 4)
             };
+            if (projectScope) _entryRows[entry] = row;
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });

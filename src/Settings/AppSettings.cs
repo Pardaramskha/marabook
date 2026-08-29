@@ -42,6 +42,8 @@ namespace UniversSale.Settings
             new ActionDefinition("empty-trash", "Pile", "Vider la corbeille", null),
             new ActionDefinition("find", "Édition", "Rechercher dans l'écrit", "Ctrl+F"),
             new ActionDefinition("project-search", "Édition", "Rechercher dans le projet", "Ctrl+Shift+F"),
+            new ActionDefinition("search-next", "Édition", "Occurrence suivante", "F3"),
+            new ActionDefinition("search-previous", "Édition", "Occurrence précédente", "Shift+F3"),
             new ActionDefinition("new-sheet", "Pile", "Nouvelle fiche", "Ctrl+Shift+K"),
             new ActionDefinition("import-media", "Pile", "Importer dans Recherche", null),
             new ActionDefinition("insert-link", "Format", "Lien vers une fiche", "Ctrl+K"),
@@ -90,6 +92,7 @@ namespace UniversSale.Settings
         public static bool ShowAnnotations = true; // teintes + bulles de révision
         public static bool ProofEnabled = true; // vérification continue (Révision)
         public static bool CorrectionPanelVisible; // « Détails de correction » à droite (b28)
+        public static bool SearchPanelVisible;     // le panneau de recherche du projet (b37)
         // La grammaire (batch 29) : interrupteur maître de Grammalecte, et
         // les choix d'options de l'utilisateur PAR-DESSUS la politique de
         // recouvrement du lot C (clé = nom d'option Grammalecte). Une entrée
@@ -203,6 +206,7 @@ namespace UniversSale.Settings
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
                 ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
                 CorrectionPanelVisible = Json.AsBool(Json.Field(root, "correctionPanel"), false);
+                SearchPanelVisible = Json.AsBool(Json.Field(root, "searchPanel"), false);
                 GrammarEnabled = Json.AsBool(Json.Field(root, "grammarEnabled"), true);
                 SpellEnabled = Json.AsBool(Json.Field(root, "spellEnabled"), true);
                 TypographyEnabled = Json.AsBool(Json.Field(root, "typographyEnabled"), false);
@@ -265,6 +269,7 @@ namespace UniversSale.Settings
                 root["showAnnotations"] = ShowAnnotations;
                 root["proofEnabled"] = ProofEnabled;
                 root["correctionPanel"] = CorrectionPanelVisible;
+                root["searchPanel"] = SearchPanelVisible;
                 root["grammarEnabled"] = GrammarEnabled;
                 root["spellEnabled"] = SpellEnabled;
                 root["typographyEnabled"] = TypographyEnabled;
