@@ -70,6 +70,8 @@ namespace UniversSale.Tests.Ui
             _failures += EditorProbe.Run();
             Console.WriteLine();
             _failures += SearchProbe.Run();
+            Console.WriteLine();
+            _failures += VersionsProbe.Run();
             if (Application.Current != null)
             {
                 Application.Current.Shutdown();

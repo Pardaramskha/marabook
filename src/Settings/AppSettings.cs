@@ -44,6 +44,7 @@ namespace UniversSale.Settings
             new ActionDefinition("project-search", "Édition", "Rechercher dans le projet", "Ctrl+Shift+F"),
             new ActionDefinition("search-next", "Édition", "Occurrence suivante", "F3"),
             new ActionDefinition("search-previous", "Édition", "Occurrence précédente", "Shift+F3"),
+            new ActionDefinition("versions-panel", "Édition", "Versions de l'écrit", "Ctrl+Shift+H"),
             new ActionDefinition("new-sheet", "Pile", "Nouvelle fiche", "Ctrl+Shift+K"),
             new ActionDefinition("import-media", "Pile", "Importer dans Recherche", null),
             new ActionDefinition("insert-link", "Format", "Lien vers une fiche", "Ctrl+K"),

@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.35.0-alpha";
+        public const string AppVersion = "0.36.0-alpha";
 
         private Project _project;
         private string _path;
@@ -58,6 +58,9 @@ namespace UniversSale
         private Border _correctionHost; // le panneau de correction (batch 28)
         private Border _searchHost;     // le panneau de recherche du projet (batch 37)
         private View.SearchPanel _searchPanel;
+        private Border _versionsHost;   // le panneau Versions (batch 38)
+        private View.VersionsPanel _versionsPanel;
+        private View.CompareWindow _compareWindow; // le paper flottant de comparaison (batch 38)
         private TextBlock _inspTitle, _inspKind, _inspStats, _inspDates;
         // Livre (batch 32) : objectif de chapitres au-dessus des statistiques,
         // panneaux Métadonnées / Publication dépliés sous les dates.
@@ -237,6 +240,7 @@ namespace UniversSale
                 if (!AppSettings.SearchPanelVisible) { OpenSearchPanel(); return; }
                 _searchPanel.Previous();
             }));
+            edit.Items.Add(Entry("versions-panel", "Versions de l'écrit…", OpenVersionsPanel));
             edit.Items.Add(Entry("session-goal", "Objectif de session…", SetSessionGoal));
             edit.Items.Add(new Separator());
             edit.Items.Add(Entry("new-text", "Nouvel écrit", delegate { _binder.NewText(null); }));
@@ -601,6 +605,22 @@ namespace UniversSale
             Grid.SetColumn(_searchHost, 4);
             grid.Children.Add(_searchHost);
 
+            // Le panneau VERSIONS (batch 38) : quatrième de la famille, même
+            // colonne ; ouvert, il passe devant Recherche, Correction et l'inspecteur.
+            _versionsPanel = new View.VersionsPanel();
+            _versionsPanel.CompareRequested += CompareSnapshots;
+            _versionsPanel.RestoreRequested += delegate(Snapshot snapshot) { RestoreSnapshot(snapshot, true); };
+            _versionsPanel.SnapshotsChanged += delegate { MarkDirty(); };
+            _versionsPanel.CloseRequested += delegate
+            {
+                AppSettings.VersionsPanelVisible = false;
+                AppSettings.Save();
+                ApplyPanelVisibility();
+            };
+            _versionsHost = new Border { Child = _versionsPanel };
+            Grid.SetColumn(_versionsHost, 4);
+            grid.Children.Add(_versionsHost);
+
             ApplyPanelVisibility();
             return grid;
         }
@@ -609,13 +629,82 @@ namespace UniversSale
         /// requête prête à taper — Ctrl+Maj+F, menu Édition.</summary>
         private void OpenSearchPanel()
         {
-            if (!AppSettings.SearchPanelVisible)
+            if (!AppSettings.SearchPanelVisible || AppSettings.VersionsPanelVisible)
             {
                 AppSettings.SearchPanelVisible = true;
+                AppSettings.VersionsPanelVisible = false; // un seul panneau à la fois
                 AppSettings.Save();
                 ApplyPanelVisibility();
             }
             _searchPanel.FocusQuery();
+        }
+
+        // ------------------------------------------------ versions (b38, lots D et E)
+
+        /// <summary>Ouvre (ou ramène) le panneau Versions — Ctrl+Maj+H, menu Édition.</summary>
+        private void OpenVersionsPanel()
+        {
+            if (!AppSettings.VersionsPanelVisible)
+            {
+                AppSettings.VersionsPanelVisible = true;
+                AppSettings.Save();
+                ApplyPanelVisibility();
+            }
+            _versionsPanel.SetCurrent(_current);
+        }
+
+        /// <summary>La comparaison dans son paper flottant — un seul, rechargé.</summary>
+        private void CompareSnapshots(Snapshot from, Snapshot to)
+        {
+            if (_project == null || from == null) return;
+            var item = _project.FindById(from.ItemId);
+            if (item == null) return;
+            CommitActive();
+            if (_compareWindow == null)
+            {
+                _compareWindow = new View.CompareWindow(this);
+                _compareWindow.RestoreParagraphRequested += RestoreParagraph;
+                _compareWindow.Closed += delegate { _compareWindow = null; };
+            }
+            _compareWindow.Load(_project, item, from, to);
+            if (!_compareWindow.IsVisible) _compareWindow.Show();
+            else _compareWindow.Activate();
+        }
+
+        /// <summary>Ce que le dialogue de restauration dit : l'état actuel est
+        /// d'abord figé, le remplacement s'annule en un Ctrl+Z, et — si le
+        /// document est ouvert — son historique d'annulation est réinitialisé.</summary>
+        private string RestoreWarning(BinderItem item, Snapshot snapshot)
+        {
+            var text = "Remettre « " + item.Title + " » dans l'état de la version « " + snapshot.DisplayLabel + " » ("
+                + View.VersionsPanel.FormatDate(snapshot.Date) + ") ?\n\nL'état actuel est d'abord figé dans un instantané « avant restauration » ; "
+                + "la restauration s'annule ensuite en un seul Ctrl+Z.";
+            if (item == _current && (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet))
+                text += "\n\nLe document est ouvert : son historique d'annulation sera réinitialisé.";
+            return text;
+        }
+
+        /// <summary>Restaure un instantané : instantané automatique de l'état
+        /// courant d'abord, puis UNE action d'historique (RestoreSnapshotAction) ;
+        /// la vue du document ouvert est rechargée par OnHistoryApplied.</summary>
+        private void RestoreSnapshot(Snapshot snapshot, bool confirm)
+        {
+            if (_project == null || snapshot == null) return;
+            var item = _project.FindById(snapshot.ItemId);
+            if (item == null) { _versionsPanel.SetNotice("Cet écrit n'existe plus."); return; }
+            if (confirm && MessageBox.Show(this, RestoreWarning(item, snapshot), "Restaurer une version",
+                MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            CommitActive();
+            SnapshotStore.GuardBeforeRestore(_project, item, snapshot.DisplayLabel, AppSettings.SnapshotCap);
+            _history.Run(new History.RestoreSnapshotAction(item, snapshot.Document, snapshot.DisplayLabel));
+        }
+
+        /// <summary>Restaure UN paragraphe depuis la comparaison (annulable).</summary>
+        private void RestoreParagraph(BinderItem item, ParagraphDelta delta)
+        {
+            if (_project == null || item == null || delta == null || !History.RestoreParagraphAction.CanRestore(delta)) return;
+            CommitActive();
+            _history.Run(new History.RestoreParagraphAction(item, delta));
         }
 
         /// <summary>Navigation à une occurrence (batch 37) : ouvrir l'item s'il
@@ -701,6 +790,7 @@ namespace UniversSale
         private void OnSnapshotsChanged()
         {
             MarkDirty();
+            _versionsPanel.Refresh();
         }
 
         /// <summary>Une action d'historique vient d'être posée, défaite ou
@@ -710,6 +800,24 @@ namespace UniversSale
         /// recherche et dit ce qui s'est passé.</summary>
         private void OnHistoryApplied(History.IUndoableAction action, bool undone)
         {
+            // Les restaurations (b38) : même règle du document ouvert.
+            var restore = action as History.RestoreSnapshotAction;
+            var restoreParagraph = action as History.RestoreParagraphAction;
+            if (restore != null || restoreParagraph != null)
+            {
+                var touched = restore != null ? restore.Item : restoreParagraph.Item;
+                var conflict = restore != null ? restore.Conflict : restoreParagraph.Conflict;
+                if (_current == touched) ReloadCurrentView();
+                MarkDirty();
+                _versionsPanel.Refresh();
+                if (_compareWindow != null && _compareWindow.Shows(touched)) _compareWindow.Refresh();
+                _versionsPanel.SetNotice(conflict
+                    ? "Rien n'a été écrit : le texte avait changé entre-temps."
+                    : restore != null
+                        ? (undone ? "Restauration annulée." : "Version « " + restore.SnapshotLabel + " » restaurée — Ctrl+Z pour annuler.")
+                        : (undone ? "Restauration du paragraphe annulée." : "Paragraphe restauré — Ctrl+Z pour annuler."));
+                return;
+            }
             var replace = action as History.ReplaceInProjectAction;
             if (replace == null) return;
             if (_current != null && replace.Touches(_current)) ReloadCurrentView();
@@ -1239,6 +1347,8 @@ namespace UniversSale
             _sheetView.ApplyPageSetup(project.Page);
             _sheetView.Clear();
             _searchPanel.SetProject(project);
+            _versionsPanel.SetProject(project);
+            if (_compareWindow != null) _compareWindow.Close();
             _mediaView.Clear();
             _corkboard.Clear();
             _journalView.Clear();
@@ -1537,6 +1647,7 @@ namespace UniversSale
             UpdateInspector();
             UpdateStats();
             _searchPanel.SetCurrent(item);
+            _versionsPanel.SetCurrent(item);
         }
 
         /// <summary>True when the center already displays THIS item's view —
@@ -2812,16 +2923,19 @@ namespace UniversSale
             var columnOn = !_journalOpen && !_calmMode && _current != null;
             // Le panneau de RECHERCHE (b37) vit même sans item courant : on
             // cherche avant d'avoir cliqué.
-            var searchOn = !_journalOpen && !_calmMode && AppSettings.SearchPanelVisible && _project != null;
-            var correctionOn = columnOn && AppSettings.CorrectionPanelVisible && !searchOn;
-            var inspectorOn = columnOn && AppSettings.InspectorVisible && !correctionOn && !searchOn;
+            var versionsOn = !_journalOpen && !_calmMode && AppSettings.VersionsPanelVisible && _project != null;
+            var searchOn = !_journalOpen && !_calmMode && AppSettings.SearchPanelVisible && _project != null && !versionsOn;
+            var correctionOn = columnOn && AppSettings.CorrectionPanelVisible && !searchOn && !versionsOn;
+            var inspectorOn = columnOn && AppSettings.InspectorVisible && !correctionOn && !searchOn && !versionsOn;
             _inspector.Visibility = inspectorOn ? Visibility.Visible : Visibility.Collapsed;
             if (_correctionHost != null)
                 _correctionHost.Visibility = correctionOn
                     ? Visibility.Visible : Visibility.Collapsed;
             if (_searchHost != null)
                 _searchHost.Visibility = searchOn ? Visibility.Visible : Visibility.Collapsed;
-            var anyRight = inspectorOn || correctionOn || searchOn;
+            if (_versionsHost != null)
+                _versionsHost.Visibility = versionsOn ? Visibility.Visible : Visibility.Collapsed;
+            var anyRight = inspectorOn || correctionOn || searchOn || versionsOn;
             _inspectorSplit.Visibility = anyRight ? Visibility.Visible : Visibility.Collapsed;
             _inspectorCol.Width = anyRight
                 ? new GridLength(AppSettings.InspectorWidth) : new GridLength(0);

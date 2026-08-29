@@ -138,6 +138,27 @@ namespace UniversSale.View
 
         public bool HasItem { get { return _item != null; } }
 
+        // Lecture seule (batch 38) : l'ERGONOMIE de la vue de comparaison —
+        // frappe, touches d'édition, menu contextuel, annulation ignorés. La
+        // SÛRETÉ, elle, est structurelle : le document comparé est synthétique
+        // et son porteur n'appartient à aucun projet (CompareWindow).
+        public bool ReadOnly;
+
+        private static bool IsNavigationKey(KeyEventArgs e)
+        {
+            switch (e.Key)
+            {
+                case Key.Left: case Key.Right: case Key.Up: case Key.Down:
+                case Key.Home: case Key.End: case Key.PageUp: case Key.PageDown:
+                case Key.Escape: case Key.Tab:
+                    return true;
+                case Key.A: case Key.C:
+                    return (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+                default:
+                    return false;
+            }
+        }
+
         /// <summary>On-screen page rectangles (zoom applied), for the rulers.</summary>
         public List<Rect> PageRects(UIElement reference)
         {
@@ -787,6 +808,7 @@ namespace UniversSale.View
         /// autorise de nouveau.</summary>
         private void OnMouseRightDown(object sender, MouseButtonEventArgs e)
         {
+            if (ReadOnly) { e.Handled = true; return; }
             if (_item == null || _project == null) return;
             var source = e.OriginalSource as DependencyObject;
             while (source != null)
@@ -1057,6 +1079,7 @@ namespace UniversSale.View
 
         private void OnTextInput(object sender, TextCompositionEventArgs e)
         {
+            if (ReadOnly) { e.Handled = true; return; }
             if (_noteEditor != null && _noteEditor.IsKeyboardFocusWithin) return; // la note tape pour elle
             if (_bubbleLayer.IsKeyboardFocusWithin) return; // une bulle d'annotation tape pour elle (b34)
             if (_item == null || string.IsNullOrEmpty(e.Text)) return;
@@ -1081,6 +1104,7 @@ namespace UniversSale.View
 
         private void OnKeyDown(object sender, KeyEventArgs e)
         {
+            if (ReadOnly && !IsNavigationKey(e)) { e.Handled = true; return; }
             if (_noteEditor != null && _noteEditor.IsKeyboardFocusWithin)
             {
                 if (e.Key == Key.Escape || e.Key == Key.Enter || e.Key == Key.Return)
@@ -1348,7 +1372,7 @@ namespace UniversSale.View
 
         public bool Undo()
         {
-            if (_undo.Count == 0) return false;
+            if (ReadOnly || _undo.Count == 0) return false;
             var snapshot = _undo[_undo.Count - 1];
             _undo.RemoveAt(_undo.Count - 1);
             _redo.Add(new Snapshot
@@ -1364,7 +1388,7 @@ namespace UniversSale.View
 
         public bool Redo()
         {
-            if (_redo.Count == 0) return false;
+            if (ReadOnly || _redo.Count == 0) return false;
             var snapshot = _redo[_redo.Count - 1];
             _redo.RemoveAt(_redo.Count - 1);
             _undo.Add(new Snapshot
@@ -1934,7 +1958,7 @@ namespace UniversSale.View
         /// recherche pivot passe par là.</summary>
         public void ReplaceRange(int paragraphIndex, int start, int length, string text)
         {
-            if (_item == null
+            if (ReadOnly || _item == null
                 || paragraphIndex >= _item.Document.Paragraphs.Count) return;
             var paragraph = _item.Document.Paragraphs[paragraphIndex];
             if (start + length > PivotEdit.FlatLength(paragraph)) return; // périmé
@@ -2001,7 +2025,7 @@ namespace UniversSale.View
         /// batch 34) : un cran d'annulation, recomposition intégrale.</summary>
         public void ReplaceParagraphs(List<TextParagraph> paragraphs)
         {
-            if (_item == null || paragraphs == null) return;
+            if (ReadOnly || _item == null || paragraphs == null) return;
             PushUndo(false);
             _item.Document.Paragraphs.Clear();
             _item.Document.Paragraphs.AddRange(paragraphs);

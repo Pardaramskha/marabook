@@ -26,6 +26,79 @@ namespace UniversSale.Tests
             CapAndPurge(t);
             PlotRoundTrip(t);
             Guards(t);
+            Restoration(t);
+        }
+
+        private static void Restoration(Harness t)
+        {
+            BinderItem chapter;
+            var project = Cast(out chapter);
+            var history = new History.HistoryManager();
+            var departure = SnapshotStore.Capture(project, chapter, "Départ", SnapshotOrigin.Manual, 20);
+            chapter.Document.Paragraphs[0].Runs[0].Text = "Le marabout s'envole.";
+            chapter.Document.Paragraphs.Add(new TextParagraph());
+            chapter.Document.Paragraphs[2].Runs.Add(new TextRun { Text = "Un troisième paragraphe." });
+
+            // — La ceinture, puis UNE action annulable.
+            var guard = SnapshotStore.GuardBeforeRestore(project, chapter, departure.DisplayLabel, 20);
+            t.Check(guard != null && guard.Origin == SnapshotOrigin.Restore, "restaurer fige d'abord l'état courant (« avant restauration »)");
+            var action = new History.RestoreSnapshotAction(chapter, departure.Document, departure.DisplayLabel);
+            history.Run(action);
+            t.Check(!action.Conflict && chapter.Document.Paragraphs.Count == 2 && PivotEdit.FlatText(chapter.Document.Paragraphs[0]) == "Le marabout dort.",
+                "la restauration remet le document dans l'état de l'instantané, en place");
+            t.Check(!ReferenceEquals(chapter.Document.Paragraphs[0], departure.Document.Paragraphs[0]), "…par des clones (l'instantané reste intact)");
+            history.Undo();
+            t.Check(!action.Conflict && chapter.Document.Paragraphs.Count == 3 && PivotEdit.FlatText(chapter.Document.Paragraphs[0]) == "Le marabout s'envole.",
+                "un Undo rend l'état d'avant, troisième paragraphe compris");
+            history.Redo();
+            t.Check(chapter.Document.Paragraphs.Count == 2, "Redo rejoue");
+            history.Undo();
+            t.Check(PivotEdit.FlatText(guard.Document.Paragraphs[0]) == "Le marabout s'envole.", "l'instantané « avant restauration » permet de revenir même après fermeture");
+
+            // — Conflit : l'item a changé entre la construction et l'application.
+            var stale = new History.RestoreSnapshotAction(chapter, departure.Document, "Départ");
+            chapter.Document.Paragraphs[1].Runs[0].Text = "Quelqu'un a tapé ici.";
+            stale.Do();
+            t.Check(stale.Conflict && PivotEdit.FlatText(chapter.Document.Paragraphs[1]) == "Quelqu'un a tapé ici.", "un item modifié entre-temps n'est pas écrasé : conflit, rien d'écrit");
+            var applied = new History.RestoreSnapshotAction(chapter, departure.Document, "Départ");
+            applied.Do();
+            chapter.Document.Paragraphs[0].Runs[0].Text = "Modifié après restauration.";
+            applied.Undo();
+            t.Check(applied.Conflict && PivotEdit.FlatText(chapter.Document.Paragraphs[0]) == "Modifié après restauration.", "…et l'annulation aussi refuse d'écraser une frappe postérieure");
+
+            // — Restauration partielle : un paragraphe, dans chaque sort.
+            var older = TextDocument.FromPlainText("Un.\nDeux.\nTrois.\nQuatre.");
+            var live = new BinderItem { Kind = ItemKind.Text, Title = "Partiel" };
+            live.Document = TextDocument.FromPlainText("Un.\nDeux bis.\nQuatre.\nCinq.");
+            var delta = DocumentDiff.Compare(older, live.Document);
+            ParagraphDelta modified = null, removed = null, added = null;
+            foreach (var p in delta.Paragraphs)
+            {
+                if (p.Kind == ParagraphChange.Modified) modified = p;
+                if (p.Kind == ParagraphChange.Removed) removed = p;
+                if (p.Kind == ParagraphChange.Added) added = p;
+            }
+            t.Check(modified != null && removed != null && added != null, "la fixture partielle : un modifié, un supprimé, un ajouté");
+            t.Check(History.RestoreParagraphAction.CanRestore(modified) && !History.RestoreParagraphAction.CanRestore(delta.Paragraphs[0]), "restaurable : un changement, pas un inchangé");
+            var partial = new History.RestoreParagraphAction(live, modified);
+            history.Run(partial);
+            t.Check(!partial.Conflict && PivotEdit.FlatText(live.Document.Paragraphs[1]) == "Deux." && live.Document.Paragraphs.Count == 4, "restaurer un paragraphe modifié le remet, seul");
+            history.Undo();
+            t.Check(PivotEdit.FlatText(live.Document.Paragraphs[1]) == "Deux bis.", "…annulable");
+            var reinsert = new History.RestoreParagraphAction(live, removed);
+            history.Run(reinsert);
+            t.Check(!reinsert.Conflict && live.Document.Paragraphs.Count == 5 && PivotEdit.FlatText(live.Document.Paragraphs[2]) == "Trois.", "restaurer un supprimé le réinsère à sa place");
+            history.Undo();
+            t.Check(live.Document.Paragraphs.Count == 4 && PivotEdit.FlatText(live.Document.Paragraphs[2]) == "Quatre.", "…annulable");
+            var drop = new History.RestoreParagraphAction(live, added);
+            history.Run(drop);
+            t.Check(!drop.Conflict && live.Document.Paragraphs.Count == 3, "restaurer un ajouté le retire");
+            history.Undo();
+            t.Check(live.Document.Paragraphs.Count == 4 && PivotEdit.FlatText(live.Document.Paragraphs[3]) == "Cinq.", "…annulable");
+            var conflict = new History.RestoreParagraphAction(live, modified);
+            live.Document.Paragraphs[1].Runs[0].Text = "Deux ter.";
+            conflict.Do();
+            t.Check(conflict.Conflict && PivotEdit.FlatText(live.Document.Paragraphs[1]) == "Deux ter.", "un paragraphe changé entre-temps n'est pas écrasé");
         }
 
         private static void Guards(Harness t)

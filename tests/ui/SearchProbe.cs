@@ -299,7 +299,8 @@ namespace UniversSale.Tests.Ui
             Invoke(window, "RunReplace", new object[] { ReplacePlan.Build(opened, chosen, query, "ibis"), "marabout" });
             DoEvents();
             Check(history.Count == before + 1, "une seule action d'historique pour tout le projet");
-            Check(SnapshotStore.Count(opened, null) >= 38 && SnapshotStore.Latest(opened, chapter7.Id).Origin == SnapshotOrigin.Replace
+            // 30 chapitres + 6 fiches ont un document ; le plan et le dictionnaire, non ; le livre (sous-titre) non plus.
+            Check(SnapshotStore.Count(opened, null) == 36 && SnapshotStore.Latest(opened, chapter7.Id).Origin == SnapshotOrigin.Replace
                 && SnapshotStore.Latest(opened, chapter7.Id).Label == "Avant remplacement de « marabout »",
                 "un instantané automatique « avant remplacement » par écrit et fiche touchés (b38 ; obtenu : " + SnapshotStore.Count(opened, null) + ")");
             var remaining = ProjectSearch.Run(ProjectSearch.Collect(opened, SearchScope.Project, null, SearchKind.All, false), query, int.MaxValue, TimeSpan.FromSeconds(30), System.Threading.CancellationToken.None);
