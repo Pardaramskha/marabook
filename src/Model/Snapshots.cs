@@ -190,27 +190,86 @@ namespace UniversSale.Model
         /// plafond. Rend l'instantané créé, ou null.</summary>
         public static Snapshot Capture(Project project, BinderItem item, string label, string origin, int cap)
         {
-            if (project == null || item == null) return null;
+            return CaptureDocument(project, item, item == null ? null : item.Document, label, origin, cap);
+        }
+
+        /// <summary>Capture un document DONNÉ au nom de l'item (la capture
+        /// quotidienne fige l'état d'avant la première frappe, pas celui
+        /// d'après) — mêmes règles : dédoublonnée, plafonnée.</summary>
+        public static Snapshot CaptureDocument(Project project, BinderItem item, TextDocument document, string label, string origin, int cap)
+        {
+            if (project == null || item == null || document == null) return null;
             if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet) return null;
             var latest = Latest(project, item.Id);
-            var fingerprint = DocumentFingerprint(item.Document);
+            var fingerprint = DocumentFingerprint(document);
             if (latest != null && latest.Fingerprint == fingerprint) return null;
-            var snapshot = Snapshot.Capture(item, label, origin);
-            snapshot.Fingerprint = fingerprint;
+            var snapshot = new Snapshot
+            {
+                ItemId = item.Id,
+                Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                Label = label ?? "",
+                Origin = origin ?? SnapshotOrigin.Manual,
+                Words = Correction.TextStats.Compute(document.ToPlainText()).Words,
+                Fingerprint = fingerprint,
+                Data = Encoding.UTF8.GetBytes(Persistence.PlotFile.SerializeDocument(document))
+            };
             project.Snapshots.Add(snapshot);
             Trim(project, item.Id, cap);
             return snapshot;
         }
 
-        /// <summary>Vrai si un instantané de cette origine existe déjà
-        /// aujourd'hui pour l'item (la capture quotidienne).</summary>
+        /// <summary>Vrai si un instantané existe déjà aujourd'hui pour l'item
+        /// — de cette origine, ou de n'importe laquelle si origin est null
+        /// (la capture quotidienne s'efface devant toute capture du jour).</summary>
         public static bool HasToday(Project project, string itemId, string origin)
         {
             var today = DateTime.Now.ToString("yyyy-MM-dd");
             foreach (var snapshot in project.Snapshots)
-                if (snapshot.ItemId == itemId && snapshot.Origin == origin && snapshot.Date.StartsWith(today, StringComparison.Ordinal))
+                if (snapshot.ItemId == itemId && (origin == null || snapshot.Origin == origin)
+                    && snapshot.Date.StartsWith(today, StringComparison.Ordinal))
                     return true;
             return false;
+        }
+
+        // ------------------------------------------------ les automatiques (lot C)
+
+        /// <summary>La ceinture avant la passe typographique : un instantané
+        /// automatique de l'écrit (rien s'il est déjà capturé tel quel).</summary>
+        public static Snapshot GuardBeforeTypography(Project project, BinderItem item, int cap)
+        {
+            return Capture(project, item, "", SnapshotOrigin.Typography, cap);
+        }
+
+        /// <summary>La ceinture avant un remplacement projet : un instantané
+        /// automatique de CHAQUE item touché (écrits et fiches), libellé
+        /// « Avant remplacement de « X » ». Rend le nombre pris.</summary>
+        public static int GuardBeforeReplace(Project project, IEnumerable<BinderItem> items, string pattern, int cap)
+        {
+            var taken = 0;
+            if (project == null || items == null) return 0;
+            var label = "Avant remplacement de « " + (pattern ?? "") + " »";
+            foreach (var item in items)
+                if (Capture(project, item, label, SnapshotOrigin.Replace, cap) != null) taken++;
+            return taken;
+        }
+
+        /// <summary>La ceinture avant une restauration : l'état courant, pour
+        /// que restaurer ne soit jamais destructeur — même après fermeture.</summary>
+        public static Snapshot GuardBeforeRestore(Project project, BinderItem item, string restoredLabel, int cap)
+        {
+            return Capture(project, item, "Avant restauration de « " + (restoredLabel ?? "") + " »", SnapshotOrigin.Restore, cap);
+        }
+
+        /// <summary>La capture quotidienne : à la première modification du
+        /// jour, l'état d'AVANT la frappe (documentAtOpen si la vue le
+        /// connaît, sinon le document courant) — une fois par jour et par
+        /// item, jamais si une capture du jour existe déjà, débrayable.</summary>
+        public static Snapshot GuardDaily(Project project, BinderItem item, TextDocument documentAtOpen, bool enabled, int cap)
+        {
+            if (!enabled || project == null || item == null) return null;
+            if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet) return null;
+            if (HasToday(project, item.Id, null)) return null;
+            return CaptureDocument(project, item, documentAtOpen ?? item.Document, "", SnapshotOrigin.Daily, cap);
         }
 
         /// <summary>Ramène l'item sous le plafond : évince les automatiques du

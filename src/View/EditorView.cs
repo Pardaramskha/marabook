@@ -1941,9 +1941,28 @@ namespace UniversSale.View
                 return;
             }
             if (!TypographyCompareWindow.Ask(Window.GetWindow(this), result, _item.Title)) return;
+            // La ceinture (b38, lot C) : un instantané automatique AVANT de
+            // réécrire le document entier — l'annulation est de session,
+            // l'instantané survit à la fermeture.
+            if (_project != null && SnapshotStore.GuardBeforeTypography(_project, _item, Settings.AppSettings.SnapshotCap) != null)
+            {
+                var taken = SnapshotsChanged;
+                if (taken != null) taken();
+            }
             _composed.ReplaceParagraphs(result.Paragraphs);
             RebuildNotesPanel();
             RunCheck();
+        }
+
+        /// <summary>Un instantané automatique vient d'être pris ici (le
+        /// projet a changé, le panneau Versions doit suivre).</summary>
+        public event Action SnapshotsChanged;
+
+        /// <summary>L'état du document tel qu'il a été ouvert, si la surface
+        /// composée s'en souvient encore (sa pile locale) — sinon null.</summary>
+        public TextDocument DocumentAtOpen()
+        {
+            return ComposedActive && _composed != null ? _composed.OldestUndoDocument() : null;
         }
 
         // ============================================================= révision

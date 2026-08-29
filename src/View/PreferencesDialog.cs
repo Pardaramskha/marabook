@@ -135,6 +135,46 @@ namespace UniversSale.View
             // Les dictionnaires personnels ont quitté ce volet (batch 34) :
             // l'écran « Dictionnaire » de la Pile tient ce rôle, avec les
             // natures grammaticales et les formes acceptées.
+
+            // — Les versions d'écrits (batch 38).
+            var versions = Caption("Versions d'écrits");
+            versions.Margin = new Thickness(0, 18, 0, 0);
+            panel.Children.Add(versions);
+            var daily = new CheckBox
+            {
+                Content = "Instantané automatique à la première modification du jour",
+                IsChecked = AppSettings.DailySnapshot,
+                Margin = new Thickness(0, 6, 0, 0),
+                ToolTip = "L'état de l'écrit tel qu'ouvert, figé une fois par jour et par écrit — il compte dans le plafond"
+            };
+            daily.Click += delegate
+            {
+                AppSettings.DailySnapshot = daily.IsChecked == true;
+                AppSettings.Save();
+            };
+            panel.Children.Add(daily);
+            var capRow = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
+            var capBox = new TextBox { Width = 56, Text = AppSettings.SnapshotCap.ToString(), ToolTip = "Entre " + Model.SnapshotStore.MinCap + " et " + Model.SnapshotStore.MaxCap };
+            DockPanel.SetDock(capBox, Dock.Right);
+            capBox.LostKeyboardFocus += delegate
+            {
+                int value;
+                if (!int.TryParse(capBox.Text.Trim(), out value)) value = AppSettings.SnapshotCap;
+                value = Math.Max(Model.SnapshotStore.MinCap, Math.Min(Model.SnapshotStore.MaxCap, value));
+                capBox.Text = value.ToString();
+                if (value == AppSettings.SnapshotCap) return;
+                AppSettings.SnapshotCap = value;
+                AppSettings.Save();
+            };
+            capRow.Children.Add(capBox);
+            capRow.Children.Add(new TextBlock
+            {
+                Text = "Instantanés gardés par écrit (les automatiques sont évincés d'abord)",
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 8, 0)
+            });
+            panel.Children.Add(capRow);
             return panel;
         }
 

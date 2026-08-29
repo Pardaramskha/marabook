@@ -25,6 +25,59 @@ namespace UniversSale.Tests
             Capture(t);
             CapAndPurge(t);
             PlotRoundTrip(t);
+            Guards(t);
+        }
+
+        private static void Guards(Harness t)
+        {
+            BinderItem chapter;
+            var project = Cast(out chapter);
+
+            // — Avant passe typographique : un instantané, et pas deux.
+            var typo = SnapshotStore.GuardBeforeTypography(project, chapter, 20);
+            t.Check(typo != null && typo.Origin == SnapshotOrigin.Typography && typo.DisplayLabel == "Avant passe typographique", "un instantané automatique avant la passe typographique");
+            t.Check(SnapshotStore.GuardBeforeTypography(project, chapter, 20) == null && project.Snapshots.Count == 1, "…aucun en double si rien n'a changé");
+
+            // — Avant remplacement projet : un par item touché (écrits et fiches), libellé.
+            var other = new BinderItem { Kind = ItemKind.Text, Title = "Autre" };
+            other.Document = TextDocument.FromPlainText("Un marabout ailleurs.");
+            project.Category(Project.KeyWritings).Children.Add(other);
+            var sheet = new BinderItem { Kind = ItemKind.Sheet, Title = "Fiche" };
+            sheet.Document = TextDocument.FromPlainText("Un marabout de fiche.");
+            project.Category(Project.KeySheets).Children.Add(sheet);
+            var plan = new BinderItem { Kind = ItemKind.Plan, Title = "Plan", Plan = new PlanInfo() };
+            project.Category(Project.KeyPlans).Children.Add(plan);
+            project.RelinkParents();
+            var taken = SnapshotStore.GuardBeforeReplace(project, new List<BinderItem> { chapter, other, sheet, plan }, "marabout", 20);
+            t.Equal(2, taken, "avant remplacement : un instantané par écrit ou fiche touché non encore capturé tel quel (le chapitre l'était, le plan n'a pas de document)");
+            var replaceLabel = SnapshotStore.Latest(project, other.Id);
+            t.Check(replaceLabel != null && replaceLabel.Origin == SnapshotOrigin.Replace && replaceLabel.Label == "Avant remplacement de « marabout »", "…libellé par le motif remplacé");
+            t.Equal(0, SnapshotStore.GuardBeforeReplace(project, new List<BinderItem> { chapter, other, sheet }, "marabout", 20), "rejouer sans changement : aucun en double");
+            chapter.Document.Paragraphs[0].Runs[0].Text = "Le marabout s'est envolé.";
+            t.Equal(1, SnapshotStore.GuardBeforeReplace(project, new List<BinderItem> { chapter, other }, "envolé", 20), "un item changé : un nouvel instantané pour lui seul");
+
+            // — Avant restauration : l'état courant, libellé par la version restaurée.
+            chapter.Document.Paragraphs[0].Runs[0].Text = "Encore autre chose.";
+            var restore = SnapshotStore.GuardBeforeRestore(project, chapter, "Départ", 20);
+            t.Check(restore != null && restore.Origin == SnapshotOrigin.Restore && restore.Label == "Avant restauration de « Départ »", "avant restauration : l'état courant est figé");
+
+            // — La capture quotidienne : l'état d'avant la frappe, une fois par jour, débrayable.
+            var fresh = Project.CreateNew();
+            var text = fresh.Category(Project.KeyWritings).Children[0];
+            text.Document = TextDocument.FromPlainText("Avant la frappe.");
+            var atOpen = PivotEdit.Clone(text.Document);
+            text.Document.Paragraphs[0].Runs[0].Text = "Avant la frappeX";
+            t.Check(SnapshotStore.GuardDaily(fresh, text, atOpen, false, 20) == null && fresh.Snapshots.Count == 0, "débrayée : rien");
+            var daily = SnapshotStore.GuardDaily(fresh, text, atOpen, true, 20);
+            t.Check(daily != null && daily.Origin == SnapshotOrigin.Daily && PivotEdit.FlatText(daily.Document.Paragraphs[0]) == "Avant la frappe.", "la capture quotidienne fige l'état d'AVANT la première frappe");
+            text.Document.Paragraphs[0].Runs[0].Text = "Avant la frappeXY";
+            t.Check(SnapshotStore.GuardDaily(fresh, text, null, true, 20) == null && fresh.Snapshots.Count == 1, "…une seule par jour et par item");
+            var second = new BinderItem { Kind = ItemKind.Text, Title = "Second" };
+            second.Document = TextDocument.FromPlainText("Second texte.");
+            fresh.Category(Project.KeyWritings).Children.Add(second);
+            t.Check(SnapshotStore.GuardDaily(fresh, second, null, true, 20) != null, "…un autre item a la sienne (sur le document courant faute de mieux)");
+            SnapshotStore.Capture(fresh, text, "manuel du jour", SnapshotOrigin.Manual, 20);
+            t.Check(SnapshotStore.HasToday(fresh, text.Id, null) && SnapshotStore.GuardDaily(fresh, text, null, true, 20) == null, "toute capture du jour dispense de la quotidienne");
         }
 
         private static Project Cast(out BinderItem chapter)

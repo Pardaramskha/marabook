@@ -407,6 +407,7 @@ namespace UniversSale
             // l'édition, la navigation [[wiki]] et le zoom.
             _sheetView = new SheetView { Visibility = Visibility.Collapsed };
             _sheetView.Edited += OnEditorEdited;
+            _editor.SnapshotsChanged += OnSnapshotsChanged;
             _sheetView.LinkClicked += NavigateToTitle;
             // Batch 34 : « ← Retour » remonte au tableau du parent (la
             // bibliothèque si la fiche vit à la racine), une relation ouvre
@@ -661,7 +662,7 @@ namespace UniversSale
                     return;
                 }
             }
-            RunReplace(ReplacePlan.Build(_project, new List<SearchHit> { hit }, query, replacement));
+            RunReplace(ReplacePlan.Build(_project, new List<SearchHit> { hit }, query, replacement), query.Pattern);
         }
 
         /// <summary>« Tout remplacer… » : la recherche complète de la portée
@@ -678,17 +679,28 @@ namespace UniversSale
             if (result.Total == 0) { _searchPanel.SetNotice("Aucune occurrence à remplacer."); return; }
             var chosen = View.ReplacePreviewDialog.Ask(this, result, query, replacement, _current);
             if (chosen == null) return;
-            RunReplace(ReplacePlan.Build(_project, chosen, query, replacement));
+            RunReplace(ReplacePlan.Build(_project, chosen, query, replacement), query.Pattern);
         }
 
-        private void RunReplace(ReplacePlan plan)
+        private void RunReplace(ReplacePlan plan, string pattern)
         {
             if (plan.Edits.Count == 0)
             {
                 _searchPanel.SetNotice("Rien à remplacer" + (plan.SkippedNoProof + plan.SkippedInexact > 0 ? " (occurrences écartées)." : "."));
                 return;
             }
+            // La ceinture (b38, lot C) : un instantané automatique de chaque
+            // écrit et fiche touchés, AVANT l'action — l'annulation est de
+            // session, l'instantané survit à la fermeture.
+            if (SnapshotStore.GuardBeforeReplace(_project, plan.Items, pattern, AppSettings.SnapshotCap) > 0) OnSnapshotsChanged();
             _history.Run(new History.ReplaceInProjectAction(_project, plan));
+        }
+
+        /// <summary>Des instantanés viennent d'être pris ou retirés : le
+        /// projet a changé, le panneau Versions (lot D) suit.</summary>
+        private void OnSnapshotsChanged()
+        {
+            MarkDirty();
         }
 
         /// <summary>Une action d'historique vient d'être posée, défaite ou
@@ -1778,6 +1790,14 @@ namespace UniversSale
         private void OnEditorEdited()
         {
             MarkDirty();
+            // La capture quotidienne (b38, lot C) : à la première modification
+            // du jour, l'état d'AVANT la frappe (la pile locale du composé s'en
+            // souvient) — une par jour et par item, débrayable (Préférences).
+            if (_current != null && _project != null && AppSettings.DailySnapshot
+                && SnapshotStore.GuardDaily(_project, _current,
+                    _current.Kind == ItemKind.Text ? _editor.DocumentAtOpen() : null,
+                    true, AppSettings.SnapshotCap) != null)
+                OnSnapshotsChanged();
             // The edited document's page count is stale (book folio offsets).
             if (_current != null) _pageCountCache.Remove(_current.Id);
             _statsTimer.Stop();

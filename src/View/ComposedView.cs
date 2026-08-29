@@ -1338,6 +1338,14 @@ namespace UniversSale.View
             _redo.Clear();
         }
 
+        /// <summary>Le plus ancien instantané local — l'état du document tel
+        /// qu'ouvert, tant que la pile n'a pas débordé (la capture quotidienne
+        /// fige l'état d'AVANT la première frappe, b38). Null sans frappe.</summary>
+        public TextDocument OldestUndoDocument()
+        {
+            return _undo.Count > 0 ? _undo[0].Document : null;
+        }
+
         public bool Undo()
         {
             if (_undo.Count == 0) return false;
