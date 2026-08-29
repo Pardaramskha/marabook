@@ -96,7 +96,8 @@ namespace UniversSale.Tests
                 TypographyTests.Run,     // C13 — passe typographique (b34)
                 PlanTests.Run,           // C14 — plans (b35)
                 GenealogyTests.Run,      // C15 — généalogie (b36)
-                ProjectSearchTests.Run   // C16 — recherche projet (b37)
+                ProjectSearchTests.Run,  // C16 — recherche projet (b37)
+                DocumentDiffTests.Run    // C17 — versions d'écrits (b38)
             };
             foreach (var suite in suites)
             {
