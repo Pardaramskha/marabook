@@ -38,7 +38,7 @@ namespace UniversSale.View
             var barRow = new DockPanel();
             var newEntry = new Button
             {
-                Content = "+ Nouvelle entrée…",
+                Content = Icons.Label("plus-bold", "Nouvelle entrée…", 11, Chrome.Ink),
                 Padding = new Thickness(10, 3, 10, 3),
                 ToolTip = "Ajouter un mot au dictionnaire personnel avec sa nature grammaticale"
             };
@@ -142,7 +142,7 @@ namespace UniversSale.View
             var header = new DockPanel { Margin = new Thickness(0, 10, 0, 4) };
             var add = new Button
             {
-                Content = "+ Entrée",
+                Content = Icons.Label("plus-bold", "Entrée", 10, Chrome.Ink),
                 Padding = new Thickness(8, 2, 8, 2),
                 FontSize = 11,
                 ToolTip = "Nouvelle entrée dans « " + caption + " »"

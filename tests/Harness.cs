@@ -94,7 +94,8 @@ namespace UniversSale.Tests
                 LexiconTests.Run,        // C11 — dictionnaire personnel à natures (b33)
                 ThemeTests.Run,          // C12 — les palettes se parsent (b34)
                 TypographyTests.Run,     // C13 — passe typographique (b34)
-                PlanTests.Run            // C14 — plans (b35)
+                PlanTests.Run,           // C14 — plans (b35)
+                GenealogyTests.Run       // C15 — généalogie (b36)
             };
             foreach (var suite in suites)
             {

@@ -338,7 +338,7 @@ namespace UniversSale.Tests.Ui
             var backToPlans = false;
             planView.BackRequested += delegate { backToPlans = true; };
             foreach (var child in FindButtons(planView))
-                if (child.Content as string == "←") { child.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); break; }
+                if (child.ToolTip as string == "Revenir à la carte des plans") { child.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); break; } // icône arrow-left (b36)
             DoEvents();
             Check(backToPlans && rootBoard.Visibility == Visibility.Visible && rootBoard.ShowsItem(plansRoot),
                 "« ← » ramène à la carte des plans");
@@ -468,7 +468,7 @@ namespace UniversSale.Tests.Ui
             sheetView.NavigateRequested += delegate(BinderItem item) { navigated = item; };
             Button openLink = null;
             foreach (var child in LogicalTreeHelper.GetChildren((DependencyObject)relations.Children[0]))
-                if (child is Button && ((Button)child).Content as string == "Ouvrir") openLink = (Button)child;
+                if (child is Button && ((Button)child).ToolTip as string == "Ouvrir la fiche liée") openLink = (Button)child; // icône arrow-up-right (b36)
             Check(openLink != null && openLink.Visibility == Visibility.Visible, "une relation vers une fiche offre « Ouvrir »");
             if (openLink != null) openLink.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
             Check(navigated != null && navigated.Title == "Syl", "« Ouvrir » demande la fiche liée");
@@ -494,7 +494,7 @@ namespace UniversSale.Tests.Ui
             sheetView.BackRequested += delegate { backFired = true; };
             var raised = false;
             foreach (var child in FindButtons(sheetView))
-                if (child.Content as string == "←  Retour") { child.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); raised = true; break; }
+                if (child.ToolTip as string == "Revenir au tableau (corkboard) de la fiche") { child.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); raised = true; break; } // icône + libellé (b36)
             Check(raised && backFired, "« Retour » est câblé");
             DoEvents();
             Check(sheetView.Visibility == Visibility.Collapsed, "…et ramène au tableau des fiches");

@@ -440,6 +440,8 @@ namespace UniversSale.Tests
             // — Relations (batch 34, v14) : une fiche liée, un nom libre.
             sheet.Relations.Add(new SheetRelation { Kind = "mentor", TargetId = chapter.Id });
             sheet.Relations.Add(new SheetRelation { Kind = "rivale", Name = "La Pie" });
+            // — Natures de relation personnalisées du projet (batch 36, v16).
+            project.RelationKinds.Add("Mentor");
             sheet.Document = SimpleDocument("Corps wiki de la fiche.");
             sheet.ImageId = project.AddImage(new byte[] { 137, 80, 78, 71, 1, 2, 3, 4 }, ".png");
             sheets.Children.Add(sheet);

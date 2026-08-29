@@ -137,6 +137,71 @@ namespace UniversSale.Tests.Ui
             Check(infoFields.Children.Count > 1 && looksFields.Children.Count > 1,
                 "les groupes Infos et Physique remplissent Informations et Apparence");
 
+            // — Batch 36 : deux onglets, Général (les papers) et Texte libre
+            // (l'éditeur) ; la fiche s'ouvre sur Général.
+            var tabs = (TabControl)GetField(sheetView, "_tabs");
+            Check(tabs.Items.Count == 2
+                && (string)((TabItem)tabs.Items[0]).Header == "Général"
+                && (string)((TabItem)tabs.Items[1]).Header == "Texte libre",
+                "deux onglets : Général, Texte libre");
+            Check(tabs.SelectedIndex == 0, "la fiche s'ouvre sur l'onglet Général");
+            Check(looksFields.Children.Count == SheetDefaults.CharacterLooks.Length,
+                "l'apparence par défaut du personnage : " + SheetDefaults.CharacterLooks.Length
+                + " champs (obtenu : " + looksFields.Children.Count + ")");
+
+            // — Une relation vers une autre fiche se reflète sur celle-ci :
+            // Kaladin (genre non renseigné) déclare Kholinar comme Père →
+            // Kholinar reçoit « Enfant ». Le sélecteur de nature réel commet.
+            BinderItem linked = null;
+            foreach (var item in opened.AllItems())
+                if (item.Title == "Kholinar") linked = item;
+            var relation = new SheetRelation { Kind = "", TargetId = linked.Id };
+            sheet.Relations.Add(relation);
+            Invoke(sheetView, "RebuildRelations", null);
+            DoEvents();
+            var relationsPanel = (StackPanel)GetField(sheetView, "_relationsPanel");
+            ComboBox kindBox = null;
+            foreach (var child in ((DockPanel)relationsPanel.Children[0]).Children)
+            {
+                var combo = child as ComboBox;
+                if (combo != null && combo.Items.Contains("Père")) { kindBox = combo; break; }
+            }
+            Check(kindBox != null && kindBox.Items.Contains("Adelphe")
+                && (string)kindBox.Items[kindBox.Items.Count - 1] == "＋  Nouvelle nature…",
+                "le sélecteur propose les natures livrées puis « Nouvelle nature… »");
+            kindBox.Text = "père";
+            Invoke(sheetView, "CommitRelationKind", new object[] { relation, kindBox });
+            DoEvents();
+            Check(relation.Kind == "Père", "la nature saisie est canonisée (père → Père)");
+            Check(linked.Relations.Count == 1 && linked.Relations[0].Kind == "Enfant"
+                && linked.Relations[0].TargetId == sheet.Id,
+                "la fiche liée reçoit le reflet « Enfant » (genre inconnu)");
+
+            // — Le paper flottant de généalogie : le bouton réel, une fenêtre,
+            // des boîtes dessinées (Kaladin + Kholinar), rafraîchie à la frappe.
+            var genealogyButton = (Button)GetField(sheetView, "_genealogyButton");
+            Check(genealogyButton.IsEnabled, "le bouton Généalogie est actif");
+            genealogyButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            DoEvents();
+            var genealogy = (GenealogyWindow)GetField(sheetView, "_genealogy");
+            Check(genealogy != null && genealogy.IsVisible && genealogy.Shows(sheet),
+                "le paper flottant de généalogie s'ouvre sur la fiche");
+            var canvas = (Canvas)GetField(genealogy, "_canvas");
+            Check(CountBoxes(canvas) == 2, "deux boîtes dessinées : le personnage et son père (obtenu : " + CountBoxes(canvas) + ")");
+            sheet.Relations.Add(new SheetRelation { Kind = "Sœur", Name = "Syl" });
+            sheet.Relations.Add(new SheetRelation { Kind = "Femme", Name = "Shallan" });
+            sheet.Relations.Add(new SheetRelation { Kind = "Grand-mère", Name = "Hesina" });
+            sheet.Relations.Add(new SheetRelation { Kind = "Fils", Name = "Oroden" });
+            sheet.Relations.Add(new SheetRelation { Kind = "Mentor", Name = "Tukks" });
+            Invoke(sheetView, "NotifyEdited", null);
+            DoEvents();
+            Check(CountBoxes(canvas) == 7, "cinq relations de plus : l'arbre se rafraîchit (obtenu : " + CountBoxes(canvas) + ")");
+            Snapshot(canvas, Path.Combine(Path.GetTempPath(), "marabook-b36-genealogie.png"));
+            Snapshot(sheetView, Path.Combine(Path.GetTempPath(), "marabook-b36-fiche.png"));
+            genealogy.Close();
+            DoEvents();
+            Check(GetField(sheetView, "_genealogy") == null, "fermée, la fenêtre est oubliée");
+
             // — L'aperçu wiki rend le markdown (le bouton réel).
             var toggle = (ToggleButton)GetField(sheetView, "_previewToggle");
             toggle.IsChecked = true;
@@ -180,6 +245,43 @@ namespace UniversSale.Tests.Ui
                 foreach (var card in wrap.Children)
                     if (card is Border) count++;
             }
+            return count;
+        }
+
+        /// <summary>Rendu PNG d'un élément (VisualBrush à l'origine — piège
+        /// b32 : Render(élément) garde son décalage dans la fenêtre).</summary>
+        private static void Snapshot(FrameworkElement element, string path)
+        {
+            try
+            {
+                var width = (int)Math.Ceiling(element.ActualWidth);
+                var height = (int)Math.Ceiling(element.ActualHeight);
+                if (width <= 0 || height <= 0) return;
+                var visual = new System.Windows.Media.DrawingVisual();
+                using (var dc = visual.RenderOpen())
+                {
+                    dc.DrawRectangle(System.Windows.Media.Brushes.White, null, new Rect(0, 0, width, height));
+                    dc.DrawRectangle(new System.Windows.Media.VisualBrush(element), null, new Rect(0, 0, width, height));
+                }
+                var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(width, height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                bitmap.Render(visual);
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+                using (var stream = File.Create(path)) encoder.Save(stream);
+                Console.WriteLine("  (rendu : " + path + ")");
+            }
+            catch (Exception error)
+            {
+                Console.WriteLine("  (rendu PNG impossible : " + error.Message + ")");
+            }
+        }
+
+        /// <summary>Compte les boîtes de l'arbre (les Border du canevas).</summary>
+        private static int CountBoxes(Canvas canvas)
+        {
+            var count = 0;
+            foreach (var child in canvas.Children)
+                if (child is Border) count++;
             return count;
         }
 

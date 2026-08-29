@@ -64,7 +64,7 @@ namespace UniversSale.View
             if (item.Kind == ItemKind.Folder) return "folder-open";
             if (item.Kind == ItemKind.Book) return "book-bold";
             if (item.Kind == ItemKind.PageTemplate) return "article-bold";
-            if (item.Kind == ItemKind.Plan) return "text-columns-bold";
+            if (item.Kind == ItemKind.Plan) return "plan"; // plan.svg livré (b36)
             if (item.Kind == ItemKind.Sheet) return "fiche-individual";
             if (item.Kind == ItemKind.Media)
                 return MediaView.IsImage(item.MediaExtension) ? "image-square-bold" : null;
@@ -225,7 +225,7 @@ namespace UniversSale.View
 
             var addCustom = new Button
             {
-                Content = "+ Ajouter une image d'icône…",
+                Content = Icons.Label("plus-bold", "Ajouter une image d'icône…", 11, Chrome.Ink),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 Margin = new Thickness(0, 8, 0, 0),
                 ToolTip = "Une image (PNG, JPG…) copiée dans le dossier d'icônes de l'application"

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using UniversSale.History;
 using UniversSale.Model;
 
@@ -45,7 +46,7 @@ namespace UniversSale.View
 
             var newCategory = new Button
             {
-                Content = "+ Nouvelle catégorie",
+                Content = Icons.Label("plus-bold", "Nouvelle catégorie", 11, Chrome.Ink),
                 Padding = new Thickness(10, 3, 10, 3)
             };
             newCategory.Click += delegate { NewCategory(); };
@@ -175,7 +176,7 @@ namespace UniversSale.View
                 var buttons = new StackPanel { Orientation = Orientation.Horizontal };
                 var newSheet = new Button
                 {
-                    Content = "+ Nouvelle fiche",
+                    Content = Icons.Label("plus-bold", "Nouvelle fiche", 10, Chrome.Ink),
                     Padding = new Thickness(8, 2, 8, 2),
                     ToolTip = "Créer une fiche « " + name + " » (modèle de base "
                         + "de la catégorie)"
@@ -256,17 +257,26 @@ namespace UniversSale.View
         {
             var layout = new StackPanel { Width = 132 };
 
-            // — la photo, ou son emplacement réservé
+            // — la photo, ou son emplacement réservé. Batch 36 : l'image est
+            // CENTRÉE dans son cadre (l'équivalent de background-position:
+            // center center — un Image UniformToFill s'alignait en haut à
+            // gauche), et le cadre est découpé selon ses coins arrondis :
+            // ClipToBounds ne coupe qu'au rectangle, l'image mordait les
+            // arrondis de la carte.
             UIElement pictureContent = null;
             var image = _project.FindImage(sheet.ImageId);
             if (image != null)
             {
                 var source = MediaView.TryImage(image.Bytes, 260);
                 if (source != null)
-                    pictureContent = new Image
+                    pictureContent = new Rectangle
                     {
-                        Source = source,
-                        Stretch = Stretch.UniformToFill
+                        Fill = new ImageBrush(source)
+                        {
+                            Stretch = Stretch.UniformToFill,
+                            AlignmentX = AlignmentX.Center,
+                            AlignmentY = AlignmentY.Center
+                        }
                     };
             }
             if (pictureContent == null)
@@ -282,11 +292,10 @@ namespace UniversSale.View
             {
                 Height = 108,
                 Background = Chrome.BarBgLight,
-                CornerRadius = new CornerRadius(4, 4, 0, 0),
+                CornerRadius = new CornerRadius(3, 3, 0, 0),
                 Child = pictureContent
             };
-            // L'image déborderait des coins arrondis : un clip doux.
-            picture.ClipToBounds = true;
+            picture.SizeChanged += delegate { picture.Clip = TopRoundedClip(picture.ActualWidth, picture.ActualHeight, 3); };
 
             var grid = new Grid();
             grid.Children.Add(picture);
@@ -342,6 +351,17 @@ namespace UniversSale.View
             card.MouseLeave += delegate { card.BorderBrush = Chrome.Border; };
             CardLift.Attach(card); // soulèvement au survol (b35)
             return card;
+        }
+
+        /// <summary>Un clip aux coins HAUTS arrondis : le rectangle déborde
+        /// du bas de « radius » pour y garder des coins droits (le bas de la
+        /// photo touche le nom, pas le bord de la carte).</summary>
+        public static Geometry TopRoundedClip(double width, double height, double radius)
+        {
+            if (width <= 0 || height <= 0) return null;
+            var geometry = new RectangleGeometry(new Rect(0, 0, width, height + radius), radius, radius);
+            geometry.Freeze();
+            return geometry;
         }
 
         private void ShowCardMenu(UIElement anchor, BinderItem sheet)

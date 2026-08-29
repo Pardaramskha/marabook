@@ -615,7 +615,7 @@ namespace UniversSale.View
             // reliée à l'écrit — renvoie au plan.
             _planBtn = new Button
             {
-                Content = "⇱ Plan",
+                Content = Icons.Label("arrow-up-right-bold", "Plan", 10, Chrome.Ink),
                 Padding = new Thickness(8, 1, 8, 1),
                 Margin = new Thickness(0, 0, 10, 0),
                 FontSize = 11,

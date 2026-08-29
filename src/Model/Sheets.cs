@@ -96,30 +96,137 @@ namespace UniversSale.Model
             }
         }
 
+        /// <summary>Le groupe des champs d'état civil du personnage.</summary>
+        public const string GroupInfos = "Infos";
+
+        // IMPORTANT (batch 36) : « Âge », sous la date de naissance. Champ
+        // texte libre pour l'instant — on y revient vite (calcul depuis la
+        // date de naissance et la date du récit, âge à chaque scène…). Tout
+        // ce qui touche l'âge doit passer par ce nom : FieldAge.
+        public const string FieldAge = "Âge";
+        public const string FieldBirthDate = "Date de naissance";
+
+        /// <summary>Les champs d'apparence par défaut du personnage (batch 36),
+        /// dans l'ordre : Taille, Poids, Peau, Yeux, Traits, Particularités
+        /// (multiligne). Sert au modèle neuf ET à la migration v16.</summary>
+        public static readonly string[] CharacterLooks =
+            { "Taille", "Poids", "Peau", "Yeux", "Traits", "Particularités" };
+
         /// <summary>Le modèle Personnage, en deux groupes : « Infos » (l'état
-        /// civil déjà en place, plus le genre) et « Physique » (batch 31).</summary>
+        /// civil, le genre, l'âge) et « Physique » (batch 31, refondu b36).</summary>
         private static SheetTemplate Character()
         {
             var t = new SheetTemplate { Name = "Personnage" };
-            t.Fields.Add(G("Nom", "Infos"));
-            t.Fields.Add(G("Prénom", "Infos"));
-            t.Fields.Add(G("Alias", "Infos"));
-            t.Fields.Add(G("Genre", "Infos"));
-            t.Fields.Add(G("Date de naissance", "Infos"));
-            t.Fields.Add(G("Lieu de naissance", "Infos"));
-            t.Fields.Add(G("Affiliation", "Infos"));
-            t.Fields.Add(G("Religion", "Infos"));
-            t.Fields.Add(G("Magie", "Infos"));
-            t.Fields.Add(G("Taille", "Physique"));
-            t.Fields.Add(G("Poids", "Physique"));
-            t.Fields.Add(G("Yeux", "Physique"));
-            t.Fields.Add(G("Cheveux", "Physique"));
-            t.Fields.Add(G("Couleur de peau", "Physique"));
-            t.Fields.Add(G("Sexe de naissance", "Physique"));
-            var marks = G("Particularités", "Physique");
-            marks.Kind = "multiline";
-            t.Fields.Add(marks);
+            t.Fields.Add(G("Nom", GroupInfos));
+            t.Fields.Add(G("Prénom", GroupInfos));
+            t.Fields.Add(G("Alias", GroupInfos));
+            t.Fields.Add(G("Genre", GroupInfos));
+            t.Fields.Add(G(FieldBirthDate, GroupInfos));
+            t.Fields.Add(G(FieldAge, GroupInfos)); // IMPORTANT : voir FieldAge
+            t.Fields.Add(G("Lieu de naissance", GroupInfos));
+            t.Fields.Add(G("Affiliation", GroupInfos));
+            t.Fields.Add(G("Religion", GroupInfos));
+            t.Fields.Add(G("Magie", GroupInfos));
+            foreach (var name in CharacterLooks)
+            {
+                var field = G(name, GroupLooks);
+                if (name == "Particularités") field.Kind = "multiline";
+                t.Fields.Add(field);
+            }
             return t;
+        }
+
+        /// <summary>Migration v16 du modèle Personnage d'un projet existant :
+        /// « Âge » sous la date de naissance, l'apparence alignée sur
+        /// CharacterLooks (« Couleur de peau » renommée « Peau » — même id, les
+        /// valeurs suivent ; « Cheveux » et « Sexe de naissance » ne sont
+        /// retirés que si AUCUNE fiche ne les a remplis, sinon ils restent en
+        /// queue d'apparence). Idempotente. Rend vrai si le modèle a changé.</summary>
+        public static bool UpgradeCharacterTemplate(SheetTemplate template, IEnumerable<BinderItem> sheets)
+        {
+            if (template == null) return false;
+            var changed = false;
+            var fields = template.Fields;
+
+            // — Âge, juste sous la date de naissance.
+            if (FindField(fields, FieldAge) == null)
+            {
+                var birth = FindField(fields, FieldBirthDate);
+                var age = G(FieldAge, birth != null && birth.Group.Length > 0 ? birth.Group : GroupInfos);
+                fields.Insert(birth != null ? fields.IndexOf(birth) + 1 : fields.Count, age);
+                changed = true;
+            }
+
+            // — Apparence : renommage, complément, ordre.
+            var skin = FindField(fields, "Couleur de peau");
+            if (skin != null && FindField(fields, "Peau") == null) { skin.Name = "Peau"; changed = true; }
+            var looks = new List<SheetField>();
+            foreach (var name in CharacterLooks)
+            {
+                var field = FindField(fields, name);
+                if (field == null)
+                {
+                    field = G(name, GroupLooks);
+                    if (name == "Particularités") field.Kind = "multiline";
+                    changed = true;
+                }
+                else if (!string.Equals(field.Group, GroupLooks, StringComparison.CurrentCultureIgnoreCase))
+                {
+                    field.Group = GroupLooks; // « transféré » vers l'apparence
+                    changed = true;
+                }
+                looks.Add(field);
+            }
+            var rest = new List<SheetField>();
+            foreach (var field in fields)
+            {
+                if (looks.Contains(field)) continue;
+                var stale = string.Equals(field.Group, GroupLooks, StringComparison.CurrentCultureIgnoreCase)
+                    && (FieldIs(field, "Cheveux") || FieldIs(field, "Sexe de naissance"))
+                    && !AnyValue(field, sheets);
+                if (stale) { changed = true; continue; }
+                rest.Add(field);
+            }
+            // L'apparence en bloc, à la place du premier champ d'apparence.
+            var firstLooks = rest.FindIndex(delegate(SheetField f)
+            { return string.Equals(f.Group, GroupLooks, StringComparison.CurrentCultureIgnoreCase); });
+            var rebuilt = new List<SheetField>();
+            for (var i = 0; i < rest.Count; i++)
+            {
+                if (i == firstLooks) rebuilt.AddRange(looks);
+                rebuilt.Add(rest[i]);
+            }
+            if (firstLooks < 0) rebuilt.AddRange(looks);
+            for (var i = 0; i < rebuilt.Count; i++)
+                if (i >= fields.Count || !ReferenceEquals(fields[i], rebuilt[i])) { changed = true; break; }
+            if (changed)
+            {
+                fields.Clear();
+                fields.AddRange(rebuilt);
+            }
+            return changed;
+        }
+
+        private static SheetField FindField(List<SheetField> fields, string name)
+        {
+            foreach (var field in fields) if (FieldIs(field, name)) return field;
+            return null;
+        }
+
+        private static bool FieldIs(SheetField field, string name)
+        {
+            return string.Equals(field.Name.Trim(), name, StringComparison.CurrentCultureIgnoreCase);
+        }
+
+        private static bool AnyValue(SheetField field, IEnumerable<BinderItem> sheets)
+        {
+            if (sheets == null) return false;
+            foreach (var sheet in sheets)
+            {
+                string value;
+                if (sheet.FieldValues.TryGetValue(field.Id, out value) && !string.IsNullOrEmpty(value)) return true;
+            }
+            return false;
         }
 
         private static SheetTemplate Simple(string name, params SheetField[] fields)

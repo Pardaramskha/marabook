@@ -56,7 +56,13 @@ namespace UniversSale.Persistence
         //      créée au chargement après Fiches), items kind "plan" avec
         //      "plan" : {link, columnWord, columns:[{id, title, text,
         //      entries:[{id, kind, text, color, intensity}]}]}.
-        private const int FormatVersion = 15;
+        // v16: généalogie (batch 36) — natures de relation personnalisées du
+        //      projet (manifeste "relationKinds" : [string]) ; le modèle de
+        //      base Personnage d'un .plot d'avant est migré au chargement
+        //      (Project.UpgradeCharacterTemplate : « Âge » sous la date de
+        //      naissance, apparence Taille/Poids/Peau/Yeux/Traits/
+        //      Particularités) — une seule fois, gardé par la version lue.
+        private const int FormatVersion = 16;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -145,6 +151,8 @@ namespace UniversSale.Persistence
                 manifest["lexicon"] = LexiconEntry.ToJsonList(project.Lexicon);
             if (project.IgnoredRules.Count > 0)
                 manifest["ignoredRules"] = new List<object>(project.IgnoredRules.ToArray());
+            if (project.RelationKinds.Count > 0)
+                manifest["relationKinds"] = new List<object>(project.RelationKinds.ToArray());
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
             manifest["page"] = BuildPageSetup(project.Page);
@@ -546,6 +554,10 @@ namespace UniversSale.Persistence
                 if (ignoredRules != null)
                     foreach (var entry in ignoredRules)
                         if (entry is string) project.IgnoredRules.Add((string)entry);
+                var relationKinds = Json.AsList(Json.Field(manifest, "relationKinds"));
+                if (relationKinds != null)
+                    foreach (var entry in relationKinds)
+                        if (entry is string) project.AddRelationKind((string)entry);
                 project.CreatedAt = Json.AsString(Json.Field(manifest, "createdAt")) ?? "";
                 project.ModifiedAt = Json.AsString(Json.Field(manifest, "modifiedAt")) ?? "";
 
@@ -653,6 +665,9 @@ namespace UniversSale.Persistence
                 // migré ici (défauts + adoption des modèles par nom), et les
                 // fiches orphelines rejoignent la catégorie de leur modèle.
                 project.EnsureSheetCategories();
+                // Batch 36 : le modèle Personnage d'un .plot d'avant la v16
+                // reçoit « Âge » et l'apparence par défaut — une fois.
+                if (project.LoadedFormatVersion < 16) project.UpgradeCharacterTemplate();
                 return project;
             }
         }

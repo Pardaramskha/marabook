@@ -62,7 +62,7 @@ namespace UniversSale.View
             var row = new DockPanel();
 
             var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            var addColumn = new Button { Content = "+ Nouvelle colonne", Padding = new Thickness(10, 4, 10, 4) };
+            var addColumn = new Button { Content = Icons.Label("plus-bold", "Nouvelle colonne", 11, Chrome.Ink), Padding = new Thickness(10, 4, 10, 4) };
             addColumn.Click += delegate { AddColumn(); };
             right.Children.Add(addColumn);
             DockPanel.SetDock(right, Dock.Right);
@@ -71,8 +71,8 @@ namespace UniversSale.View
             var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             var back = new Button
             {
-                Content = "←",
-                Padding = new Thickness(8, 2, 8, 2),
+                Content = Icons.Make("arrow-left-bold", 12, Chrome.Ink),
+                Padding = new Thickness(8, 3, 8, 3),
                 Margin = new Thickness(0, 0, 12, 0),
                 ToolTip = "Revenir à la carte des plans",
                 VerticalAlignment = VerticalAlignment.Center
@@ -118,7 +118,7 @@ namespace UniversSale.View
             left.Children.Add(_linkCombo);
             _openLinked = new Button
             {
-                Content = "↗ Ouvrir",
+                Content = Icons.Label("arrow-up-right-bold", "Ouvrir", 11, Chrome.Ink),
                 Padding = new Thickness(8, 3, 8, 3),
                 Margin = new Thickness(6, 0, 0, 0),
                 Visibility = Visibility.Collapsed,
@@ -253,7 +253,7 @@ namespace UniversSale.View
             var linkRow = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
             var open = new Button
             {
-                Content = "↗",
+                Content = Icons.Make("arrow-up-right-bold", 11, Chrome.Ink),
                 Width = 26,
                 Margin = new Thickness(4, 0, 0, 0),
                 ToolTip = "Ouvrir l'écrit relié",
@@ -290,10 +290,10 @@ namespace UniversSale.View
 
             // — Ajouts.
             var adds = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
-            var addElement = new Button { Content = "+ Élément", Padding = new Thickness(8, 2, 8, 2), FontSize = 11 };
+            var addElement = new Button { Content = Icons.Label("plus-bold", "Élément", 10, Chrome.Ink), Padding = new Thickness(8, 2, 8, 2), FontSize = 11 };
             addElement.Click += delegate { AddEntry(columnRef, PlanEntry.KindElement); };
             adds.Children.Add(addElement);
-            var addNote = new Button { Content = "+ Note", Padding = new Thickness(8, 2, 8, 2), FontSize = 11, Margin = new Thickness(6, 0, 0, 0) };
+            var addNote = new Button { Content = Icons.Label("plus-bold", "Note", 10, Chrome.Ink), Padding = new Thickness(8, 2, 8, 2), FontSize = 11, Margin = new Thickness(6, 0, 0, 0) };
             addNote.Click += delegate { AddEntry(columnRef, PlanEntry.KindNote); };
             adds.Children.Add(addNote);
             body.Children.Add(adds);

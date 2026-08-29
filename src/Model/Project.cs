@@ -69,6 +69,32 @@ namespace UniversSale.Model
         // les projets d'avant les catégories.
         public List<SheetTemplate> Templates = new List<SheetTemplate>();
         public List<SheetCategory> SheetCategories = new List<SheetCategory>();
+
+        // Natures de relation PERSONNALISÉES du projet (batch 36, v16) —
+        // « Mentor », « Rivale »… créées depuis le sélecteur d'une fiche,
+        // proposées ensuite sur toutes les fiches. Les natures livrées
+        // (RelationKinds.Defaults) ne sont pas stockées ici.
+        public List<string> RelationKinds = new List<string>();
+
+        /// <summary>Toutes les natures proposées au sélecteur : les livrées,
+        /// puis les personnalisées du projet.</summary>
+        public IEnumerable<string> AllRelationKinds()
+        {
+            foreach (var kind in Model.RelationKinds.Defaults) yield return kind;
+            foreach (var kind in RelationKinds) yield return kind;
+        }
+
+        /// <summary>Enregistre une nature personnalisée (sans doublon avec les
+        /// livrées ni les existantes) ; rend la forme retenue.</summary>
+        public string AddRelationKind(string kind)
+        {
+            var trimmed = (kind ?? "").Trim();
+            if (trimmed.Length == 0) return "";
+            foreach (var known in AllRelationKinds())
+                if (Model.RelationKinds.Same(known, trimmed)) return known;
+            RelationKinds.Add(trimmed);
+            return trimmed;
+        }
         public PageSetup Page = new PageSetup();
         public Dictionary<string, ProjectImage> Images = new Dictionary<string, ProjectImage>();
         public List<BinderItem> Roots = new List<BinderItem>();
@@ -186,6 +212,34 @@ namespace UniversSale.Model
                 item.CategoryId = home != null ? home.Id
                     : SheetCategories.Count > 0 ? SheetCategories[0].Id : null;
             }
+        }
+
+        /// <summary>Le modèle de base de la catégorie « Personnage » (ou, à
+        /// défaut, le modèle qui porte ce nom) — null s'il n'y en a pas.</summary>
+        public SheetTemplate CharacterTemplate()
+        {
+            foreach (var category in SheetCategories)
+                if (category.Name == "Personnage")
+                {
+                    var template = FindTemplate(category.TemplateId);
+                    if (template != null) return template;
+                }
+            foreach (var template in Templates)
+                if (template.Name == "Personnage") return template;
+            return null;
+        }
+
+        /// <summary>Migration v16 (batch 36) : « Âge » et l'apparence par
+        /// défaut sur le modèle Personnage — voir
+        /// SheetDefaults.UpgradeCharacterTemplate. Rend vrai si changé.</summary>
+        public bool UpgradeCharacterTemplate()
+        {
+            var template = CharacterTemplate();
+            if (template == null) return false;
+            var sheets = new List<BinderItem>();
+            foreach (var item in AllItems())
+                if (item.Kind == ItemKind.Sheet && item.TemplateId == template.Id) sheets.Add(item);
+            return SheetDefaults.UpgradeCharacterTemplate(template, sheets);
         }
 
         /// <summary>First item whose title matches (case- and accent-insensitive),

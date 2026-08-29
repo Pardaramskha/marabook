@@ -101,7 +101,7 @@ namespace UniversSale.View
                 Margin = new Thickness(24, 8, 24, 0),
                 Visibility = Visibility.Collapsed
             };
-            var newPlan = new Button { Content = "+ Nouveau plan", Padding = new Thickness(10, 4, 10, 4) };
+            var newPlan = new Button { Content = Icons.Label("plus-bold", "Nouveau plan", 11, Chrome.Ink), Padding = new Thickness(10, 4, 10, 4) };
             newPlan.Click += delegate { RequestNewDocument("plan"); };
             _planActions.Children.Add(newPlan);
             _cards = new WrapPanel { Margin = new Thickness(16, 8, 16, 16) };

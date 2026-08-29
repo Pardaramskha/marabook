@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.33.0-alpha";
+        public const string AppVersion = "0.34.0-alpha";
 
         private Project _project;
         private string _path;
@@ -2959,7 +2959,7 @@ namespace UniversSale
                 cursor = close + 2;
             }
             foreach (var title in outgoing)
-                _linksPanel.Children.Add(LinkRow("→ " + title, title, _project.FindByTitle(title) != null));
+                _linksPanel.Children.Add(LinkRow("arrow-right-bold", title, title, _project.FindByTitle(title) != null));
 
             // Incoming: items whose text contains [[this title]].
             var marker = "[[" + _current.Title + "]]";
@@ -2968,7 +2968,7 @@ namespace UniversSale
                 if (item == _current || item.IsCategory) continue;
                 if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet) continue;
                 if (item.SearchText().IndexOf(marker, StringComparison.CurrentCultureIgnoreCase) < 0) continue;
-                _linksPanel.Children.Add(LinkRow("← " + item.Title, item.Title, true));
+                _linksPanel.Children.Add(LinkRow("arrow-up-left-bold", item.Title, item.Title, true));
             }
 
             if (_linksPanel.Children.Count == 0)
@@ -2980,17 +2980,33 @@ namespace UniversSale
                 });
         }
 
-        private UIElement LinkRow(string label, string targetTitle, bool resolved)
+        /// <summary>Une ligne du panneau des liens : la flèche livrée (b36 —
+        /// sortant → / entrant ↖) puis le titre.</summary>
+        private UIElement LinkRow(string icon, string label, string targetTitle, bool resolved)
         {
-            var row = new TextBlock
+            var brush = resolved ? (System.Windows.Media.Brush)Chrome.Accent : Chrome.SoftText;
+            var row = new DockPanel
+            {
+                Margin = new Thickness(0, 1, 0, 1),
+                ToolTip = resolved ? "Ouvrir" : "Cible inexistante (Ctrl+clic dans le texte pour la créer)",
+                Background = System.Windows.Media.Brushes.Transparent
+            };
+            var arrow = Icons.Make(icon, 10, brush) as FrameworkElement;
+            if (arrow != null)
+            {
+                arrow.VerticalAlignment = VerticalAlignment.Center;
+                arrow.Margin = new Thickness(0, 0, 5, 0);
+                DockPanel.SetDock(arrow, Dock.Left);
+                row.Children.Add(arrow);
+            }
+            row.Children.Add(new TextBlock
             {
                 Text = label,
                 FontSize = 12,
-                Foreground = resolved ? (System.Windows.Media.Brush)Chrome.Accent : Chrome.SoftText,
+                Foreground = brush,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                Margin = new Thickness(0, 1, 0, 1),
-                ToolTip = resolved ? "Ouvrir" : "Cible inexistante (Ctrl+clic dans le texte pour la créer)"
-            };
+                VerticalAlignment = VerticalAlignment.Center
+            });
             if (resolved)
             {
                 row.Cursor = System.Windows.Input.Cursors.Hand;

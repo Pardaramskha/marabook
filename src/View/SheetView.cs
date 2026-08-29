@@ -11,13 +11,14 @@ using UniversSale.Model;
 
 namespace UniversSale.View
 {
-    /// <summary>La fiche (refonte batch 34) — des « papers » (cadres arrondis
-    /// à ombre légère) : en haut à gauche l'image et ses options, dessous
-    /// les informations (+ un champ), à côté l'apparence (+ un champ),
-    /// dessous les relations (nature + fiche liée ou nom libre) ; toute la
-    /// moitié droite pour l'éditeur markdown, dans la police du wiki, avec
-    /// la barre de formatage de Markdown We Go ; en bandeau : retour, nom,
-    /// mode wiki, généalogie (à venir).</summary>
+    /// <summary>La fiche (refonte batch 34, onglets batch 36) — des « papers »
+    /// (cadres arrondis à ombre légère) répartis sur deux onglets : « Général »
+    /// = trois colonnes, l'image et les informations, l'apparence et les
+    /// relations (nature choisie dans un sélecteur, reflétée sur la fiche
+    /// liée), la troisième vide pour l'instant ; « Texte libre » = l'éditeur
+    /// markdown pleine largeur, dans la police du wiki, avec la barre de
+    /// formatage de Markdown We Go. En bandeau : retour, nom, mode wiki,
+    /// généalogie (le paper flottant GenealogyWindow).</summary>
     public class SheetView : DockPanel
     {
         private const double BodyFontSize = 14.5; // Georgia, comme l'aperçu wiki
@@ -25,6 +26,9 @@ namespace UniversSale.View
         private readonly TextBlock _titleLabel, _categoryLabel;
         private readonly ToggleButton _previewToggle;
         private readonly Grid _body;
+        private readonly TabControl _tabs;         // Général | Texte libre (b36)
+        private readonly Button _genealogyButton;
+        private GenealogyWindow _genealogy;        // le paper flottant (b36)
         private readonly ScrollViewer _preview;
         private readonly StackPanel _infoFields, _looksFields, _relationsPanel;
         private readonly Image _portrait;
@@ -63,7 +67,7 @@ namespace UniversSale.View
             var bannerRow = new DockPanel();
             var back = new Button
             {
-                Content = "←  Retour",
+                Content = Icons.Label("arrow-left-bold", "Retour", 12, Chrome.Ink),
                 Padding = new Thickness(10, 4, 12, 4),
                 ToolTip = "Revenir au tableau (corkboard) de la fiche",
                 VerticalAlignment = VerticalAlignment.Center
@@ -83,14 +87,15 @@ namespace UniversSale.View
             _previewToggle.Checked += delegate { ShowPreview(); };
             _previewToggle.Unchecked += delegate { HidePreview(); };
             rightTools.Children.Add(_previewToggle);
-            rightTools.Children.Add(new Button
+            _genealogyButton = new Button
             {
-                Content = "Généalogie",
+                Content = Icons.Label("tree-bold", "Généalogie", 13, Chrome.Ink),
                 Padding = new Thickness(12, 4, 12, 4),
                 Margin = new Thickness(8, 0, 0, 0),
-                IsEnabled = false,
-                ToolTip = "Arbre des relations — à venir"
-            });
+                ToolTip = "L'arbre généalogique de la fiche, d'après ses relations (paper flottant)"
+            };
+            _genealogyButton.Click += delegate { ShowGenealogy(); };
+            rightTools.Children.Add(_genealogyButton);
             DockPanel.SetDock(rightTools, Dock.Right);
             bannerRow.Children.Add(rightTools);
 
@@ -110,20 +115,27 @@ namespace UniversSale.View
             Children.Add(banner);
 
             // ================================================== le corps
-            _body = new Grid();
-            _body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(5, GridUnitType.Star), MinWidth = 320 });
-            _body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6, GridUnitType.Star), MinWidth = 320 });
+            // Batch 36 : deux onglets. « Général » = tout ce qui n'est PAS
+            // l'éditeur — l'image et les informations (1re colonne), l'apparence
+            // et les relations (2e), une 3e colonne vide, réservée ; « Texte
+            // libre » = l'éditeur markdown pleine largeur.
+            _tabs = new TabControl { Margin = new Thickness(8, 4, 8, 0) };
 
-            // — Moitié gauche : les papers.
-            var papers = new Grid { Margin = new Thickness(10, 10, 4, 10) };
-            papers.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            papers.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            papers.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            papers.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            papers.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            // Chaque colonne est une pile indépendante (un Grid à rangées
+            // partagées laissait un vide sous un paper court quand son voisin
+            // était haut).
+            var papers = new Grid { Margin = new Thickness(2, 4, 2, 10) };
+            var columns = new StackPanel[3];
+            for (var i = 0; i < 3; i++)
+            {
+                papers.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                columns[i] = new StackPanel();
+                Grid.SetColumn(columns[i], i);
+                papers.Children.Add(columns[i]);
+            }
 
             // Image + options.
-            _portrait = new Image { MaxHeight = 220, Stretch = Stretch.Uniform, Visibility = Visibility.Collapsed };
+            _portrait = new Image { MaxHeight = 260, Stretch = Stretch.Uniform, Visibility = Visibility.Collapsed };
             _portraitPlaceholder = new TextBlock
             {
                 Text = "🖼\nAucune image",
@@ -146,63 +158,49 @@ namespace UniversSale.View
             imageContent.Children.Add(portraitStack);
             imageContent.Children.Add(portraitOptions);
             var imagePaper = Paper("Image", imageContent, null);
-            Grid.SetColumn(imagePaper, 0); Grid.SetRow(imagePaper, 0);
-            papers.Children.Add(imagePaper);
 
             // Informations.
             _infoFields = new StackPanel();
-            var addInfo = new Button { Content = "+ Ajouter un champ", Padding = new Thickness(8, 2, 8, 2), FontSize = 11, HorizontalAlignment = HorizontalAlignment.Left };
+            var addInfo = AddButton("Ajouter un champ");
             addInfo.Click += delegate { AddFreeField(""); };
             var infoPaper = Paper("Informations", _infoFields, addInfo);
-            Grid.SetColumn(infoPaper, 0); Grid.SetRow(infoPaper, 1);
-            papers.Children.Add(infoPaper);
 
             // Apparence.
             _looksFields = new StackPanel();
-            var addLooks = new Button { Content = "+ Ajouter un champ", Padding = new Thickness(8, 2, 8, 2), FontSize = 11, HorizontalAlignment = HorizontalAlignment.Left };
+            var addLooks = AddButton("Ajouter un champ");
             addLooks.Click += delegate { AddFreeField(SheetDefaults.GroupLooks); };
             var looksPaper = Paper("Apparence", _looksFields, addLooks);
-            Grid.SetColumn(looksPaper, 1); Grid.SetRow(looksPaper, 0); Grid.SetRowSpan(looksPaper, 2);
-            papers.Children.Add(looksPaper);
 
             // Relations.
             _relationsPanel = new StackPanel();
-            var addRelation = new Button { Content = "+ Ajouter une relation", Padding = new Thickness(8, 2, 8, 2), FontSize = 11, HorizontalAlignment = HorizontalAlignment.Left };
+            var addRelation = AddButton("Ajouter une relation");
             addRelation.Click += delegate { AddRelation(); };
             var relationsPaper = Paper("Relations", _relationsPanel, addRelation);
-            Grid.SetColumn(relationsPaper, 0); Grid.SetRow(relationsPaper, 2); Grid.SetColumnSpan(relationsPaper, 2);
-            papers.Children.Add(relationsPaper);
 
-            // Étroit (moins de 540 px) : une seule colonne, les papers empilés
-            // — deux colonnes de 150 px ne montraient plus rien.
-            var narrow = false;
+            // Trois modes selon la largeur des papers : large (≥ 900 px) =
+            // les trois colonnes ; moyen (≥ 560 px) = deux colonnes (image +
+            // informations | apparence + relations, la colonne vide cède) ;
+            // étroit = une colonne, les papers empilés — trois colonnes de
+            // 200 px ne montreraient plus rien.
+            var mode = -1;
             papers.SizeChanged += delegate
             {
-                var wantNarrow = papers.ActualWidth < 540;
-                if (wantNarrow == narrow && papers.RowDefinitions.Count == 4) return;
-                narrow = wantNarrow;
-                while (papers.RowDefinitions.Count < 4) papers.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                papers.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
-                if (narrow)
-                {
-                    Grid.SetColumn(imagePaper, 0); Grid.SetRow(imagePaper, 0);
-                    Grid.SetColumn(infoPaper, 0); Grid.SetRow(infoPaper, 1);
-                    Grid.SetColumn(looksPaper, 0); Grid.SetRow(looksPaper, 2); Grid.SetRowSpan(looksPaper, 1);
-                    Grid.SetColumn(relationsPaper, 0); Grid.SetRow(relationsPaper, 3); Grid.SetColumnSpan(relationsPaper, 1);
-                }
-                else
-                {
-                    Grid.SetColumn(imagePaper, 0); Grid.SetRow(imagePaper, 0);
-                    Grid.SetColumn(infoPaper, 0); Grid.SetRow(infoPaper, 1);
-                    Grid.SetColumn(looksPaper, 1); Grid.SetRow(looksPaper, 0); Grid.SetRowSpan(looksPaper, 2);
-                    Grid.SetColumn(relationsPaper, 0); Grid.SetRow(relationsPaper, 2); Grid.SetColumnSpan(relationsPaper, 2);
-                }
+                var wantMode = papers.ActualWidth >= 900 ? 3 : papers.ActualWidth >= 560 ? 2 : 1;
+                if (wantMode == mode) return;
+                mode = wantMode;
+                papers.ColumnDefinitions[1].Width = mode >= 2 ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+                papers.ColumnDefinitions[2].Width = mode >= 3 ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+                foreach (var column in columns) column.Children.Clear();
+                columns[0].Children.Add(imagePaper);
+                columns[0].Children.Add(infoPaper);
+                var second = mode == 1 ? columns[0] : columns[1];
+                second.Children.Add(looksPaper);
+                second.Children.Add(relationsPaper);
             };
-            var leftScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = papers };
-            Grid.SetColumn(leftScroll, 0);
-            _body.Children.Add(leftScroll);
+            var generalScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = papers };
+            _tabs.Items.Add(new TabItem { Header = "Général", Content = generalScroll });
 
-            // — Moitié droite : l'éditeur markdown.
+            // — Texte libre : l'éditeur markdown.
             _bodyBox = new TextBox
             {
                 AcceptsReturn = true,
@@ -259,13 +257,15 @@ namespace UniversSale.View
             {
                 Background = Chrome.PaperBg,
                 CornerRadius = new CornerRadius(8),
-                Margin = new Thickness(6, 18, 18, 18),
+                Margin = new Thickness(8, 12, 8, 14),
                 Effect = Shadow(),
                 Child = editorStack,
                 ClipToBounds = false
             };
-            Grid.SetColumn(editorPaper, 1);
-            _body.Children.Add(editorPaper);
+            _tabs.Items.Add(new TabItem { Header = "Texte libre", Content = editorPaper });
+
+            _body = new Grid();
+            _body.Children.Add(_tabs);
 
             _preview = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Visibility = Visibility.Collapsed };
 
@@ -273,6 +273,25 @@ namespace UniversSale.View
             center.Children.Add(_body);
             center.Children.Add(_preview);
             Children.Add(center);
+        }
+
+        /// <summary>Le bouton « + … » d'un paper (icône plus livrée, b36).</summary>
+        private static Button AddButton(string label)
+        {
+            return new Button
+            {
+                Content = Icons.Label("plus-bold", label, 10, Chrome.Ink),
+                Padding = new Thickness(8, 2, 8, 2),
+                FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+        }
+
+        /// <summary>Montre l'onglet « Texte libre » (une action d'édition du
+        /// markdown y ramène toujours : barre, Ctrl+F, insertions).</summary>
+        private void ShowTextTab()
+        {
+            if (_tabs.SelectedIndex != 1) _tabs.SelectedIndex = 1;
         }
 
         // ================================================== papers
@@ -455,12 +474,19 @@ namespace UniversSale.View
                 _relationsPanel.Children.Add(Hint("Aucune relation — « frère », « mentor », « rivale »… vers une fiche ou un nom."));
         }
 
+        private const string NewKindEntry = "＋  Nouvelle nature…";
+
+        /// <summary>Une rangée de relation (b36) : nature (sélecteur éditable —
+        /// natures livrées, personnalisées du projet, « Nouvelle nature… »),
+        /// flèche, cible (fiche du projet ou nom libre), ouvrir, supprimer.
+        /// Une cible-fiche reçoit la relation réciproque (RelationSync).</summary>
         private UIElement RelationRow(SheetRelation relation, List<BinderItem> sheets)
         {
             var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
-            var remove = new Button { Content = "✕", Width = 26, Margin = new Thickness(6, 0, 0, 0), ToolTip = "Supprimer cette relation" };
+            var remove = new Button { Content = "✕", Width = 26, Margin = new Thickness(6, 0, 0, 0), ToolTip = "Supprimer cette relation (et son reflet sur la fiche liée)" };
             remove.Click += delegate
             {
+                RelationSync.Unmirror(_project, _item, relation.TargetId, relation.Kind);
                 _item.Relations.Remove(relation);
                 RebuildRelations();
                 NotifyEdited();
@@ -468,26 +494,49 @@ namespace UniversSale.View
             DockPanel.SetDock(remove, Dock.Right);
             row.Children.Add(remove);
 
-            var kindBox = new TextBox { Text = relation.Kind, Width = 92, Margin = new Thickness(0, 0, 6, 0), ToolTip = "Nature de la relation (frère, mentor, ennemie…)" };
-            kindBox.TextChanged += delegate
+            var kindBox = new ComboBox
             {
-                if (_loading) return;
-                relation.Kind = kindBox.Text;
-                NotifyEdited();
+                IsEditable = true,
+                Width = 124,
+                Margin = new Thickness(0, 0, 6, 0),
+                ToolTip = "Nature de la relation — une nature livrée, une nature du projet, ou « Nouvelle nature… » pour en créer une"
+            };
+            if (_project != null) foreach (var kind in _project.AllRelationKinds()) kindBox.Items.Add(kind);
+            else foreach (var kind in RelationKinds.Defaults) kindBox.Items.Add(kind);
+            kindBox.Items.Add(NewKindEntry);
+            kindBox.Text = relation.Kind;
+            kindBox.SelectionChanged += delegate
+            {
+                if (_loading || kindBox.SelectedIndex < 0) return;
+                var chosen = kindBox.SelectedItem as string;
+                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
+                    new Action(delegate
+                    {
+                        if (chosen == NewKindEntry) PromptNewKind(relation, kindBox);
+                        else CommitRelationKind(relation, kindBox);
+                    }));
+            };
+            kindBox.LostKeyboardFocus += delegate
+            {
+                if ((kindBox.Text ?? "") != NewKindEntry) CommitRelationKind(relation, kindBox);
             };
             DockPanel.SetDock(kindBox, Dock.Left);
             row.Children.Add(kindBox);
-            var arrow = new TextBlock { Text = "→", Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
-            DockPanel.SetDock(arrow, Dock.Left);
-            row.Children.Add(arrow);
+            var arrow = Icons.Make("arrow-right-bold", 11, Chrome.SoftText) as FrameworkElement;
+            if (arrow != null)
+            {
+                arrow.VerticalAlignment = VerticalAlignment.Center;
+                arrow.Margin = new Thickness(0, 0, 6, 0);
+                DockPanel.SetDock(arrow, Dock.Left);
+                row.Children.Add(arrow);
+            }
 
             // Ouvrir la fiche liée (quand la cible en est une).
             var target = _project == null || relation.TargetId == null ? null : _project.FindById(relation.TargetId);
             var open = new Button
             {
-                Content = "Ouvrir",
-                Padding = new Thickness(8, 2, 8, 2),
-                FontSize = 11,
+                Content = Icons.Make("arrow-up-right-bold", 11, Chrome.Ink),
+                Padding = new Thickness(6, 2, 6, 2),
                 Margin = new Thickness(6, 0, 0, 0),
                 Visibility = target != null ? Visibility.Visible : Visibility.Collapsed,
                 ToolTip = "Ouvrir la fiche liée"
@@ -516,6 +565,38 @@ namespace UniversSale.View
             return row;
         }
 
+        private void CommitRelationKind(SheetRelation relation, ComboBox kindBox)
+        {
+            if (_loading || _item == null) return;
+            var text = RelationKinds.Canonical(kindBox.Text ?? "");
+            if (text == NewKindEntry) return;
+            if (text == relation.Kind) return;
+            var previous = relation.Kind;
+            relation.Kind = text;
+            if (kindBox.Text != text) kindBox.Text = text;
+            if (relation.TargetId != null) RelationSync.Mirror(_project, _item, relation, previous);
+            NotifyEdited();
+        }
+
+        /// <summary>« Nouvelle nature… » : demande un nom, l'enregistre dans
+        /// le projet (disponible sur toutes les fiches) et l'applique.</summary>
+        private void PromptNewKind(SheetRelation relation, ComboBox kindBox)
+        {
+            var name = _project == null ? null : InputDialog.Ask(Window.GetWindow(this),
+                "Nouvelle nature de relation", "Nom de la nature (ex. « Mentor », « Rivale ») :", "");
+            if (name == null || name.Trim().Length == 0)
+            {
+                kindBox.Text = relation.Kind;
+                return;
+            }
+            var kind = _project.AddRelationKind(name);
+            var previous = relation.Kind;
+            relation.Kind = kind;
+            if (relation.TargetId != null) RelationSync.Mirror(_project, _item, relation, previous);
+            RebuildRelations(); // tous les sélecteurs proposent la nature neuve
+            NotifyEdited();
+        }
+
         private void CommitRelationTarget(SheetRelation relation, ComboBox combo, List<BinderItem> sheets, Button open)
         {
             if (_loading || _item == null) return;
@@ -526,8 +607,11 @@ namespace UniversSale.View
             var newId = match != null ? match.Id : null;
             var newName = match != null ? "" : text;
             if (newId == relation.TargetId && newName == relation.Name) return;
+            if (relation.TargetId != null && relation.TargetId != newId)
+                RelationSync.Unmirror(_project, _item, relation.TargetId, relation.Kind);
             relation.TargetId = newId;
             relation.Name = newName;
+            if (newId != null) RelationSync.Mirror(_project, _item, relation, null);
             open.Visibility = match != null ? Visibility.Visible : Visibility.Collapsed;
             NotifyEdited();
         }
@@ -538,6 +622,36 @@ namespace UniversSale.View
             _item.Relations.Add(new SheetRelation { Kind = "" });
             RebuildRelations();
             NotifyEdited();
+        }
+
+        // ================================================== généalogie
+
+        /// <summary>Le paper flottant de l'arbre (b36) — une seule fenêtre,
+        /// rechargée à chaque fiche, rafraîchie à chaque relation modifiée.</summary>
+        private void ShowGenealogy()
+        {
+            if (_item == null) return;
+            if (_genealogy == null)
+            {
+                _genealogy = new GenealogyWindow(Window.GetWindow(this));
+                _genealogy.NavigateRequested += delegate(BinderItem target)
+                {
+                    var handler = NavigateRequested;
+                    if (handler != null) handler(target);
+                };
+                _genealogy.Closed += delegate { _genealogy = null; };
+            }
+            _genealogy.Load(_project, _item);
+            if (!_genealogy.IsVisible) _genealogy.Show();
+            else _genealogy.Activate();
+        }
+
+        private void SyncGenealogy()
+        {
+            if (_genealogy == null) return;
+            if (_item == null) { _genealogy.Close(); return; }
+            if (_genealogy.Shows(_item)) _genealogy.Refresh();
+            else _genealogy.Load(_project, _item);
         }
 
         // ================================================== barre markdown
@@ -760,6 +874,7 @@ namespace UniversSale.View
         private void LeavePreview()
         {
             if (_previewToggle.IsChecked == true) _previewToggle.IsChecked = false;
+            ShowTextTab();
         }
 
         // ================================================== API de la coquille
@@ -784,6 +899,7 @@ namespace UniversSale.View
             _bodyBox.Text = item.Document.ToPlainText();
             _loading = false;
             if (_previewToggle.IsChecked == true) ShowPreview();
+            SyncGenealogy();
         }
 
         public void Commit()
@@ -803,6 +919,7 @@ namespace UniversSale.View
             _portraitPlaceholder.Visibility = Visibility.Visible;
             _removePortrait.Visibility = Visibility.Collapsed;
             _preview.Content = null;
+            SyncGenealogy();
         }
 
         // ------------------------------------------------------- image
@@ -906,23 +1023,27 @@ namespace UniversSale.View
                     AddInfoboxRow(infobox, entry.Title, entry.Value);
             if (_item.Relations.Count > 0)
             {
+                // Format wiki (b36) : NOM (NATURE) — le nom cliquable quand
+                // c'est une fiche.
                 infobox.Children.Add(GroupCaption("Relations"));
                 foreach (var relation in _item.Relations)
                 {
                     var target = _project == null || relation.TargetId == null ? null : _project.FindById(relation.TargetId);
                     var label = target != null ? target.Title : relation.Name;
-                    if (label.Length == 0 && relation.Kind.Length == 0) continue;
+                    var kind = RelationKinds.Canonical(relation.Kind);
+                    if (label.Length == 0 && kind.Length == 0) continue;
+                    var line = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
                     if (target != null)
                     {
-                        var link = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
-                        link.Inlines.Add(new System.Windows.Documents.Run(relation.Kind + " → ") { Foreground = Chrome.Ink });
                         var anchor = new System.Windows.Documents.Run(label) { Foreground = Chrome.Accent, Cursor = Cursors.Hand };
                         var targetRef = target;
                         anchor.MouseLeftButtonDown += delegate { var h = NavigateRequested; if (h != null) h(targetRef); };
-                        link.Inlines.Add(anchor);
-                        infobox.Children.Add(link);
+                        line.Inlines.Add(anchor);
                     }
-                    else AddInfoboxRow(infobox, relation.Kind, label);
+                    else line.Inlines.Add(new System.Windows.Documents.Run(label) { Foreground = Chrome.Ink });
+                    if (kind.Length > 0)
+                        line.Inlines.Add(new System.Windows.Documents.Run((label.Length > 0 ? " (" : "(") + kind + ")") { Foreground = Chrome.SoftText });
+                    infobox.Children.Add(line);
                 }
             }
             if (infobox.Children.Count > 0)
@@ -1074,6 +1195,7 @@ namespace UniversSale.View
             if (_loading) return;
             var handler = Edited;
             if (handler != null) handler();
+            if (_genealogy != null && _item != null && _genealogy.Shows(_item)) _genealogy.Refresh();
         }
     }
 }

@@ -75,7 +75,7 @@ namespace UniversSale.View
 
             var addField = new Button
             {
-                Content = "+ Ajouter un champ",
+                Content = Icons.Label("plus-bold", "Ajouter un champ", 11, Chrome.Ink),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 Margin = new Thickness(0, 8, 0, 0)
             };
