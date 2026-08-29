@@ -2691,6 +2691,16 @@ namespace UniversSale.View
         }
 
         /// <summary>Sélectionne le passage d'une annotation et l'amène à l'écran.</summary>
+        /// <summary>Remplace une plage plate dans la surface composée (une
+        /// occurrence du document ouvert, b37) — un cran d'annulation LOCAL,
+        /// comme une frappe. Rend faux si le composé n'est pas la surface.</summary>
+        public bool ReplaceRange(int paragraph, int start, int length, string text)
+        {
+            if (_item == null || !ComposedActive) return false;
+            _composed.ReplaceRange(paragraph, start, length, text);
+            return true;
+        }
+
         /// <summary>Sélectionne une plage plate du pivot dans la surface
         /// composée (une occurrence de la recherche projet, b37) — le composé
         /// est réveillé s'il dormait (sauf compatibilité classique).</summary>

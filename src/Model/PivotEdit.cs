@@ -159,6 +159,29 @@ namespace UniversSale.Model
             paragraph.Runs.Insert(Math.Min(runIndex, paragraph.Runs.Count), element);
         }
 
+        /// <summary>Remplace [start, end) par un texte qui GARDE le format du
+        /// premier caractère remplacé (batch 37) : effacer puis insérer
+        /// perdait le gras d'un mot entièrement recouvert (le run mourait, le
+        /// texte neuf prenait le format du voisin).</summary>
+        public static void ReplaceText(TextParagraph paragraph, int start, int end, string text)
+        {
+            int runIndex, inner;
+            Locate(paragraph, start, out runIndex, out inner);
+            TextRun format = null;
+            if (runIndex < paragraph.Runs.Count && !IsElement(paragraph.Runs[runIndex]))
+                format = CloneFormat(paragraph.Runs[runIndex]);
+            DeleteInParagraph(paragraph, start, end);
+            if (string.IsNullOrEmpty(text)) return;
+            if (format == null)
+            {
+                InsertText(paragraph, start, text);
+                return;
+            }
+            format.Text = text;
+            InsertElement(paragraph, start, format); // insère (en coupant au besoin) n'importe quel run
+            MergeAdjacent(paragraph);
+        }
+
         /// <summary>Deletes [start, end) inside one paragraph.</summary>
         public static void DeleteInParagraph(TextParagraph paragraph, int start, int end)
         {

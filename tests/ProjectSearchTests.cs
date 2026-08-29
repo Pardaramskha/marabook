@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using UniversSale.History;
 using UniversSale.Model;
 
 namespace UniversSale.Tests
@@ -25,6 +26,183 @@ namespace UniversSale.Tests
             Scopes(t);
             Excerpts(t);
             Cap(t);
+            Replacement(t);
+            ReplacementAcrossProject(t);
+            ReplacementGuards(t);
+        }
+
+        private static SearchResult SearchAll(Project project, string pattern, bool regex, bool accents)
+        {
+            var targets = ProjectSearch.Collect(project, SearchScope.Project, null, SearchKind.All, false);
+            return ProjectSearch.Run(targets, SearchQuery.Create(pattern, false, false, accents, regex), int.MaxValue, ProjectSearch.DefaultBudget, CancellationToken.None);
+        }
+
+        private static string Flat(BinderItem item, int paragraph)
+        {
+            return PivotEdit.FlatText(item.Document.Paragraphs[paragraph]);
+        }
+
+        private static void Replacement(Harness t)
+        {
+            // — Un document : deux occurrences dans un paragraphe, une dans
+            // un autre, un remplacement plus long, puis plus court.
+            var project = Project.CreateNew();
+            var text = project.Category(Project.KeyWritings).Children[0];
+            text.Document = Doc("Le marabout et le marabout.", "Un marabout.");
+            text.Document.Paragraphs[0].Runs[0].Text = "Le ";
+            text.Document.Paragraphs[0].Runs.Add(new TextRun { Text = "marabout", Bold = true });
+            text.Document.Paragraphs[0].Runs.Add(new TextRun { Text = " et le marabout." });
+            var query = SearchQuery.Create("marabout", false, false, true, false);
+            var result = SearchAll(project, "marabout", false, true);
+            var plan = ReplacePlan.Build(project, result.Hits, query, "héron cendré");
+            t.Equal(3, plan.Edits.Count, "trois éditions ponctuelles (une par occurrence de paragraphe)");
+            t.Equal(3, plan.Occurrences, "…trois occurrences");
+            t.Check(plan.Items.Count == 1 && plan.Items[0] == text, "un item touché");
+            t.Check(plan.Edits[0].Before == "marabout" && plan.Edits[0].After == "héron cendré" && plan.Edits[0].Start == 3, "l'édition porte l'empan et son remplacement, pas un instantané");
+            t.Equal(0, plan.Apply(project, true), "appliquée sans conflit");
+            t.Equal("Le héron cendré et le héron cendré.", Flat(text, 0), "les deux occurrences du paragraphe (posées à rebours : offsets vrais)");
+            t.Equal("Un héron cendré.", Flat(text, 1), "…et celle de l'autre paragraphe");
+            t.Check(text.Document.Paragraphs[0].Runs[1].Bold == true && text.Document.Paragraphs[0].Runs[1].Text.Contains("héron"), "le remplacement hérite du format du run (gras conservé)");
+            t.Equal(0, plan.Apply(project, false), "défaite sans conflit");
+            t.Equal("Le marabout et le marabout.", Flat(text, 0), "annulée : le paragraphe est revenu à l'identique");
+            t.Equal("Un marabout.", Flat(text, 1), "…l'autre aussi");
+            t.Equal(0, plan.Apply(project, true), "refaite");
+            t.Equal("Le héron cendré et le héron cendré.", Flat(text, 0), "…le texte remplacé revient");
+            plan.Apply(project, false);
+
+            // — Plus court que l'original, et vide (suppression).
+            var shorter = ReplacePlan.Build(project, SearchAll(project, "marabout", false, true).Hits, query, "ibis");
+            shorter.Apply(project, true);
+            t.Equal("Le ibis et le ibis.", Flat(text, 0), "un remplacement plus court");
+            shorter.Apply(project, false);
+            var empty = ReplacePlan.Build(project, SearchAll(project, " marabout", false, true).Hits, SearchQuery.Create(" marabout", false, false, true, false), "");
+            empty.Apply(project, true);
+            t.Equal("Le et le.", Flat(text, 0), "un remplacement vide supprime l'empan");
+            empty.Apply(project, false);
+            t.Equal("Le marabout et le marabout.", Flat(text, 0), "…et s'annule");
+
+            // — Regex avec groupes de capture.
+            var regexQuery = SearchQuery.Create(@"(mara)(bout)", false, false, false, true);
+            var regexPlan = ReplacePlan.Build(project, SearchAll(project, @"(mara)(bout)", true, false).Hits, regexQuery, "$2-$1");
+            regexPlan.Apply(project, true);
+            t.Equal("Le bout-mara et le bout-mara.", Flat(text, 0), "les groupes $1 $2 sont résolus par occurrence");
+            regexPlan.Apply(project, false);
+            t.Equal("$1", SearchQuery.Create("marabout", false, false, false, false).ReplacementFor("marabout", "$1"), "hors regex, « $1 » est littéral");
+            var accentRegex = SearchQuery.Create(@"(él)(ève)", false, false, true, true);
+            t.Equal("ève-él", accentRegex.ReplacementFor("élève", "${2}-$1"), "groupes sur l'empan d'origine, accents compris");
+            t.Equal("x", SearchQuery.Create("a(b)?", false, false, false, true).ReplacementFor("zzz", "x"), "sans correspondance : le remplacement tel quel");
+        }
+
+        private static void ReplacementAcrossProject(Harness t)
+        {
+            BinderItem chapter1, chapter2, loose, sheet, plan, trashed;
+            var project = Fixture(out chapter1, out chapter2, out loose, out sheet, out plan, out trashed);
+            var before = new Dictionary<BinderItem, string>();
+            foreach (var item in ProjectSearch.PileOrder(project)) before[item] = item.SearchText();
+            var lexiconBefore = project.Lexicon[0].Word + "|" + project.Lexicon[0].Note;
+            var query = SearchQuery.Create("marabout", false, false, true, false);
+            var result = SearchAll(project, "marabout", false, true);
+            t.Equal(19, result.Total, "dix-neuf occurrences dans la fixture");
+            var replacePlan = ReplacePlan.Build(project, result.Hits, query, "ibis");
+            t.Equal(1, replacePlan.SkippedNoProof, "l'occurrence « ne pas corriger » est écartée et comptée");
+            t.Equal(18, replacePlan.Occurrences, "dix-huit remplacées");
+            t.Equal(8, replacePlan.Items.Count, "huit items touchés (livre, chapitres, idée, fiche, plan, dictionnaire, média)");
+            var paragraphEdits = 0;
+            foreach (var edit in replacePlan.Edits) if (edit.IsParagraph) paragraphEdits++;
+            // 14 champs : synopsis + note + annotation, sous-titre, titre + champ + info + relation, colonne + 2 briques, mot + note, titre du média.
+            t.Check(paragraphEdits == 4 && replacePlan.Edits.Count == 4 + 14, "quatre éditions de paragraphe, une par champ pour le reste (obtenu : " + paragraphEdits + " / " + replacePlan.Edits.Count + ")");
+
+            t.Equal(0, replacePlan.Apply(project, true), "appliqué sur tout le projet sans conflit");
+            t.Equal("Un marabout cendré se pose.", Flat(chapter1, 0), "le passage « ne pas corriger » est intact");
+            t.Equal("Le ibis, encore, et le ibis.", Flat(chapter1, 2), "les paragraphes du chapitre un");
+            t.Equal("Le ibis arrive.", chapter1.Synopsis, "le synopsis");
+            t.Equal("Note : ibis africain.", chapter1.Document.Footnotes[0].Text, "la note de bas de page");
+            t.Equal("Revoir le ibis du début.", chapter1.Document.Annotations[0].Text, "l'annotation");
+            t.Equal("Le marais sans ibis.", Flat(chapter2, 0), "le chapitre deux");
+            t.Equal("Un ibis de plus.", Flat(loose, 0), "le texte du dossier");
+            t.Equal("Le ibis des marais", project.Category(Project.KeyWritings).Children[0].Book.Subtitle, "la métadonnée du livre");
+            t.Equal("ibis", sheet.Title, "le titre de la fiche (la Pile changera)");
+            t.Equal("ibis cendré", sheet.FieldValues[project.CharacterTemplate().Fields[0].Id], "le champ de modèle");
+            t.Equal("Toujours plumer le ibis", sheet.FreeInfo[0].Value, "l'info libre");
+            t.Equal("Le ibis noir", sheet.Relations[0].Name, "le nom libre de la relation");
+            t.Equal("Acte du ibis", plan.Plan.Columns[0].Title, "la colonne du plan");
+            t.Equal("Le ibis s'envole", plan.Plan.Columns[0].Entries[0].Text, "la brique");
+            t.Equal("revoir le ibis", plan.Plan.Columns[0].Entries[1].Text, "la note du plan");
+            t.Equal("ibiser", project.Lexicon[0].Word, "le mot du dictionnaire");
+            t.Equal("verbe du ibis", project.Lexicon[0].Note, "sa note");
+            t.Equal("Photo de ibis", project.Category(Project.KeyResearch).Children[0].Title, "le titre du média");
+            t.Equal("Vieux marabout", trashed.Title, "la corbeille, exclue, n'a pas bougé");
+            t.Check(!SearchAll(project, "marabout", false, true).Hits.Exists(delegate(SearchHit h) { return !h.NoProof; }), "il ne reste que l'occurrence protégée");
+
+            // — L'annulation intégrale : tout revient à l'identique.
+            t.Equal(0, replacePlan.Apply(project, false), "annulé sans conflit");
+            var same = true;
+            foreach (var pair in before) if (pair.Key.SearchText() != pair.Value) { same = false; t.Check(false, "revenu à l'identique : " + (pair.Key.IsCategory ? "Dictionnaire" : pair.Key.Title)); }
+            t.Check(same, "tous les items sont revenus à l'identique");
+            t.Equal(lexiconBefore, project.Lexicon[0].Word + "|" + project.Lexicon[0].Note, "le dictionnaire aussi");
+            t.Equal(19, SearchAll(project, "marabout", false, true).Total, "…les dix-neuf occurrences sont de retour");
+
+            // — Une prévisualisation qui épargne des items : le plan ne porte que les retenus.
+            var partial = new List<SearchHit>();
+            foreach (var hit in result.Hits) if (hit.Item == chapter2 || hit.Item == plan) partial.Add(hit);
+            var partialPlan = ReplacePlan.Build(project, partial, query, "ibis");
+            t.Check(partialPlan.Items.Count == 2 && partialPlan.Occurrences == 4, "deux items retenus, quatre occurrences");
+            partialPlan.Apply(project, true);
+            t.Check(Flat(chapter2, 0) == "Le marais sans ibis." && Flat(loose, 0) == "Un marabout de plus.", "seuls les retenus changent");
+            partialPlan.Apply(project, false);
+        }
+
+        private static void ReplacementGuards(Harness t)
+        {
+            // — Un texte modifié entre la recherche et le remplacement : l'édition
+            // est sautée et comptée, jamais un texte corrompu.
+            var project = Project.CreateNew();
+            var text = project.Category(Project.KeyWritings).Children[0];
+            text.Document = Doc("Le marabout dort.", "Un marabout veille.");
+            var query = SearchQuery.Create("marabout", false, false, true, false);
+            var stale = ReplacePlan.Build(project, SearchAll(project, "marabout", false, true).Hits, query, "ibis");
+            text.Document.Paragraphs[0].Runs[0].Text = "Le vieux marabout dort.";
+            t.Equal(1, stale.Apply(project, true), "une édition périmée est sautée (conflit compté)");
+            t.Equal("Le vieux marabout dort.", Flat(text, 0), "…le paragraphe modifié est intact");
+            t.Equal("Un ibis veille.", Flat(text, 1), "…l'autre est remplacé");
+            t.Equal(1, stale.Apply(project, false), "l'annulation saute la même édition");
+            t.Equal("Un marabout veille.", Flat(text, 1), "…et défait l'autre");
+
+            // — Un champ disparu (note supprimée) : sauté.
+            text.Document.Paragraphs[0].Runs[0].Text = "Le marabout dort.";
+            text.Document.Footnotes.Add(new Footnote { Text = "marabout" });
+            var withNote = ReplacePlan.Build(project, SearchAll(project, "marabout", false, true).Hits, query, "ibis");
+            text.Document.Footnotes.Clear();
+            t.Equal(1, withNote.Apply(project, true), "une note disparue : édition sautée");
+            withNote.Apply(project, false);
+
+            // — Ligature : « o » sur « œ » n'est jamais remplacé ; « œ » entier l'est.
+            text.Title = "Ligature"; // sans « o » : seules les ligatures comptent
+            text.Document = Doc("Le cœur de l'œuvre.");
+            var partialLigature = ReplacePlan.Build(project, SearchAll(project, "o", false, true).Hits, SearchQuery.Create("o", false, false, true, false), "X");
+            t.Equal(2, partialLigature.SkippedInexact, "les deux « o » de ligature sont écartés");
+            t.Equal(0, partialLigature.Occurrences, "…rien d'autre à remplacer");
+            var wholeLigature = ReplacePlan.Build(project, SearchAll(project, "oeuvre", false, true).Hits, SearchQuery.Create("oeuvre", false, false, true, false), "ouvrage");
+            wholeLigature.Apply(project, true);
+            t.Equal("Le cœur de l'ouvrage.", Flat(text, 0), "« oeuvre » couvre « œuvre » entier : remplacé");
+            wholeLigature.Apply(project, false);
+            t.Equal("Le cœur de l'œuvre.", Flat(text, 0), "…et la ligature revient à l'annulation");
+
+            // — L'action d'historique : un cran, plafond de la pile.
+            var history = new History.HistoryManager();
+            text.Document = Doc("marabout marabout");
+            var action = new History.ReplaceInProjectAction(project, ReplacePlan.Build(project, SearchAll(project, "marabout", false, true).Hits, query, "ibis"));
+            history.Run(action);
+            t.Equal("ibis ibis", Flat(text, 0), "l'action applique");
+            t.Check(history.CanUndo && action.Touches(text) && action.Occurrences == 2, "…annulable, et elle connaît ses items");
+            history.Undo();
+            t.Equal("marabout marabout", Flat(text, 0), "un seul Undo défait tout");
+            history.Redo();
+            t.Equal("ibis ibis", Flat(text, 0), "Redo rejoue");
+            history.Undo();
+            for (var i = 0; i < History.HistoryManager.Capacity + 20; i++)
+                history.Push(new History.ReplaceInProjectAction(project, new ReplacePlan()));
+            t.Equal(History.HistoryManager.Capacity, history.Count, "la pile d'historique est plafonnée (dette du batch 24)");
         }
 
         private static List<SearchQuery.Span> Find(string text, string pattern, bool matchCase, bool wholeWord, bool accents, bool regex)

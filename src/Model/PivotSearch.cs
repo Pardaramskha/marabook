@@ -196,6 +196,37 @@ namespace UniversSale.Model
         public bool IsEmpty { get { return Pattern.Length == 0; } }
         public bool IsValid { get { return Error == null && Pattern.Length > 0; } }
 
+        private Regex _anchored, _anchoredFolded;
+
+        /// <summary>Le texte de remplacement d'UN empan : littéral tel quel ;
+        /// en regex, les groupes de capture ($1, ${nom}) sont résolus en
+        /// rejouant le motif sur l'empan D'ORIGINE (ancré) — et, sans accents,
+        /// sur l'empan plié si l'original ne se laisse pas relire (les groupes
+        /// rendent alors du texte plié). Sans correspondance : le remplacement
+        /// tel quel.</summary>
+        public string ReplacementFor(string matched, string replacement)
+        {
+            replacement = replacement ?? "";
+            if (!UseRegex || _regex == null || matched == null) return replacement;
+            var options = RegexOptions.CultureInvariant | (MatchCase ? RegexOptions.None : RegexOptions.IgnoreCase);
+            try
+            {
+                if (_anchored == null) _anchored = new Regex("^(?:" + Pattern + ")$", options, RegexTimeout);
+                var match = _anchored.Match(matched);
+                if (match.Success) return match.Result(replacement);
+                if (IgnoreAccents)
+                {
+                    if (_anchoredFolded == null)
+                        _anchoredFolded = new Regex("^(?:" + Correction.FrenchTokenizer.Fold(Pattern, false) + ")$", options, RegexTimeout);
+                    var folded = _anchoredFolded.Match(Correction.FrenchTokenizer.Fold(matched, !MatchCase));
+                    if (folded.Success) return folded.Result(replacement);
+                }
+            }
+            catch (ArgumentException) { }
+            catch (RegexMatchTimeoutException) { }
+            return replacement;
+        }
+
         public static SearchQuery Create(string pattern, bool matchCase, bool wholeWord, bool ignoreAccents, bool useRegex)
         {
             pattern = pattern ?? "";

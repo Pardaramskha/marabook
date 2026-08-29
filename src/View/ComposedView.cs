@@ -1931,9 +1931,7 @@ namespace UniversSale.View
             var paragraph = _item.Document.Paragraphs[paragraphIndex];
             if (start + length > PivotEdit.FlatLength(paragraph)) return; // périmé
             PushUndo(false);
-            PivotEdit.DeleteInParagraph(paragraph, start, start + length);
-            if (!string.IsNullOrEmpty(text))
-                PivotEdit.InsertText(paragraph, start, text);
+            PivotEdit.ReplaceText(paragraph, start, start + length, text); // garde le format (b37)
             _engine.RecomposeParagraph(paragraphIndex);
             _caretParagraph = paragraphIndex;
             _caretOffset = start + (text == null ? 0 : text.Length);
@@ -1971,10 +1969,7 @@ namespace UniversSale.View
                 if (match.ParagraphIndex >= _item.Document.Paragraphs.Count) continue;
                 var paragraph = _item.Document.Paragraphs[match.ParagraphIndex];
                 if (match.Start + match.Length > PivotEdit.FlatLength(paragraph)) continue;
-                PivotEdit.DeleteInParagraph(paragraph, match.Start,
-                    match.Start + match.Length);
-                if (!string.IsNullOrEmpty(text))
-                    PivotEdit.InsertText(paragraph, match.Start, text);
+                PivotEdit.ReplaceText(paragraph, match.Start, match.Start + match.Length, text); // garde le format (b37)
                 touched.Add(match.ParagraphIndex);
                 count++;
             }

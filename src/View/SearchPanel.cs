@@ -31,7 +31,9 @@ namespace UniversSale.View
         private readonly ToggleButton _caseButton, _wordButton, _accentButton, _regexButton;
         private readonly ComboBox _scopeCombo, _kindCombo;
         private readonly CheckBox _trashCheck;
-        private readonly TextBlock _summary, _error;
+        private readonly TextBlock _summary, _error, _notice;
+        private readonly TextBox _replaceBox;
+        private readonly Button _replaceOne, _replaceAll;
         private readonly Border _errorFrame;
         private readonly StackPanel _list;
         private readonly ScrollViewer _scroll;
@@ -49,6 +51,23 @@ namespace UniversSale.View
         public event Action<SearchHit> NavigateRequested;
         public event Action CloseRequested;
         public event Action ResultsChanged;
+        public event Action<SearchHit, string> ReplaceRequested;   // l'occurrence courante (lot C)
+        public event Action<string> ReplaceAllRequested;           // toutes, après prévisualisation
+
+        public string ReplaceText
+        {
+            get { return _replaceBox.Text; }
+            set { _replaceBox.Text = value ?? ""; }
+        }
+
+        /// <summary>Une ligne d'information sous le récapitulatif (« 12
+        /// occurrences remplacées dans 4 items », conflits…) — effacée à la
+        /// recherche suivante.</summary>
+        public void SetNotice(string text)
+        {
+            _notice.Text = text ?? "";
+            _notice.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        }
 
         public SearchPanel()
         {
@@ -81,7 +100,7 @@ namespace UniversSale.View
 
             _errorFrame = new Border { BorderThickness = new Thickness(1), BorderBrush = Brushes.Transparent, CornerRadius = new CornerRadius(3), Margin = new Thickness(0, 6, 0, 0) };
             _queryBox = new TextBox { ToolTip = "Le texte (ou l'expression régulière) à chercher — Entrée relance, Échap efface" };
-            _queryBox.TextChanged += delegate { Schedule(); };
+            _queryBox.TextChanged += delegate { SetNotice(null); Schedule(); };
             _queryBox.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key == Key.Enter) { RunNow(); if (_result != null && _result.Hits.Count > 0 && _currentIndex < 0) Next(); e.Handled = true; }
@@ -125,8 +144,50 @@ namespace UniversSale.View
             scopeRow.Children.Add(_trashCheck);
             head.Children.Add(scopeRow);
 
+            // — Remplacer (lot C) : le texte, l'occurrence courante, tout (prévisualisé).
+            var replaceRow = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
+            var replaceLabel = new TextBlock { Text = "Remplacer par", Foreground = Chrome.SoftText, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+            DockPanel.SetDock(replaceLabel, Dock.Left);
+            replaceRow.Children.Add(replaceLabel);
+            _replaceBox = new TextBox { ToolTip = "Le texte de remplacement — en expression régulière, $1 ou ${nom} insèrent les groupes capturés" };
+            replaceRow.Children.Add(_replaceBox);
+            head.Children.Add(replaceRow);
+            var replaceButtons = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+            _replaceOne = new Button
+            {
+                Content = new TextBlock { Text = "Remplacer", FontSize = 11 },
+                Padding = new Thickness(8, 1, 8, 1),
+                Margin = new Thickness(0, 0, 4, 3),
+                ToolTip = "Remplacer l'occurrence courante (F3 pour avancer)",
+                Focusable = false
+            };
+            _replaceOne.Click += delegate
+            {
+                if (CurrentHit == null && !Next()) return;
+                var handler = ReplaceRequested;
+                if (handler != null) handler(CurrentHit, _replaceBox.Text);
+            };
+            replaceButtons.Children.Add(_replaceOne);
+            _replaceAll = new Button
+            {
+                Content = new TextBlock { Text = "Tout remplacer…", FontSize = 11 },
+                Padding = new Thickness(8, 1, 8, 1),
+                Margin = new Thickness(0, 0, 4, 3),
+                ToolTip = "Prévisualiser puis remplacer toutes les occurrences de la portée — annulable en un Ctrl+Z",
+                Focusable = false
+            };
+            _replaceAll.Click += delegate
+            {
+                var handler = ReplaceAllRequested;
+                if (handler != null) handler(_replaceBox.Text);
+            };
+            replaceButtons.Children.Add(_replaceAll);
+            head.Children.Add(replaceButtons);
+
             _summary = new TextBlock { Foreground = Chrome.SoftText, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
             head.Children.Add(_summary);
+            _notice = new TextBlock { Foreground = Chrome.Ink, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0), Visibility = Visibility.Collapsed };
+            head.Children.Add(_notice);
             panel.Children.Add(head);
 
             // ---------------------------------------------------- la liste

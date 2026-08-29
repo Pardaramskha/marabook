@@ -178,6 +178,184 @@ namespace UniversSale.Model
             return ranges;
         }
 
+        // ------------------------------------------------- lire / écrire un champ
+
+        /// <summary>Le texte actuel d'un champ non-paragraphe (Kind + RefId),
+        /// ou null s'il n'existe plus — le remplacement vérifie avant d'écrire.</summary>
+        public static string GetFieldText(Project project, BinderItem item, string kind, string refId)
+        {
+            if (item == null) return null;
+            switch (kind)
+            {
+                case SearchField.KindTitle: return item.Title;
+                case SearchField.KindSynopsis: return item.Synopsis;
+                case SearchField.KindNotes: return item.Notes;
+                case SearchField.KindFootnote:
+                {
+                    var note = item.Document == null ? null : item.Document.FindFootnote(refId);
+                    return note == null ? null : note.Text;
+                }
+                case SearchField.KindAnnotation:
+                {
+                    var annotation = item.Document == null ? null : item.Document.FindAnnotation(refId);
+                    return annotation == null ? null : annotation.Text;
+                }
+                case SearchField.KindField:
+                {
+                    string value;
+                    return refId != null && item.FieldValues.TryGetValue(refId, out value) ? value : null;
+                }
+                case SearchField.KindInfo:
+                {
+                    var entry = FindInfo(item, refId);
+                    return entry == null ? null : entry.Value;
+                }
+                case SearchField.KindRelation:
+                {
+                    var relation = FindRelation(item, refId);
+                    return relation == null ? null : relation.Name;
+                }
+                case SearchField.KindBook:
+                    if (item.Book == null) return null;
+                    switch (refId)
+                    {
+                        case "Subtitle": return item.Book.Subtitle;
+                        case "AuthorOverride": return item.Book.AuthorOverride;
+                        case "Publisher": return item.Book.Publisher;
+                        case "Collection": return item.Book.Collection;
+                        case "Isbn": return item.Book.Isbn;
+                        case "Year": return item.Book.Year;
+                        default: return null;
+                    }
+                case SearchField.KindColumn:
+                {
+                    var column = item.Plan == null ? null : item.Plan.FindColumn(refId);
+                    return column == null ? null : column.Title;
+                }
+                case SearchField.KindEntry:
+                {
+                    var entry = FindEntry(item, refId);
+                    return entry == null ? null : entry.Text;
+                }
+                case SearchField.KindLexicon:
+                case SearchField.KindLexiconNote:
+                {
+                    var lexical = FindLexicon(project, refId);
+                    return lexical == null ? null : kind == SearchField.KindLexicon ? lexical.Word : lexical.Note;
+                }
+                default: return null;
+            }
+        }
+
+        /// <summary>Écrit le texte d'un champ non-paragraphe ; faux si la cible
+        /// n'existe plus.</summary>
+        public static bool SetFieldText(Project project, BinderItem item, string kind, string refId, string text)
+        {
+            if (item == null) return false;
+            text = text ?? "";
+            switch (kind)
+            {
+                case SearchField.KindTitle: item.Title = text; return true;
+                case SearchField.KindSynopsis: item.Synopsis = text; return true;
+                case SearchField.KindNotes: item.Notes = text; return true;
+                case SearchField.KindFootnote:
+                {
+                    var note = item.Document == null ? null : item.Document.FindFootnote(refId);
+                    if (note == null) return false;
+                    note.Text = text;
+                    return true;
+                }
+                case SearchField.KindAnnotation:
+                {
+                    var annotation = item.Document == null ? null : item.Document.FindAnnotation(refId);
+                    if (annotation == null) return false;
+                    annotation.Text = text;
+                    return true;
+                }
+                case SearchField.KindField:
+                    if (refId == null || !item.FieldValues.ContainsKey(refId)) return false;
+                    item.FieldValues[refId] = text;
+                    return true;
+                case SearchField.KindInfo:
+                {
+                    var entry = FindInfo(item, refId);
+                    if (entry == null) return false;
+                    entry.Value = text;
+                    return true;
+                }
+                case SearchField.KindRelation:
+                {
+                    var relation = FindRelation(item, refId);
+                    if (relation == null) return false;
+                    relation.Name = text;
+                    return true;
+                }
+                case SearchField.KindBook:
+                    if (item.Book == null) return false;
+                    switch (refId)
+                    {
+                        case "Subtitle": item.Book.Subtitle = text; return true;
+                        case "AuthorOverride": item.Book.AuthorOverride = text; return true;
+                        case "Publisher": item.Book.Publisher = text; return true;
+                        case "Collection": item.Book.Collection = text; return true;
+                        case "Isbn": item.Book.Isbn = text; return true;
+                        case "Year": item.Book.Year = text; return true;
+                        default: return false;
+                    }
+                case SearchField.KindColumn:
+                {
+                    var column = item.Plan == null ? null : item.Plan.FindColumn(refId);
+                    if (column == null) return false;
+                    column.Title = text;
+                    return true;
+                }
+                case SearchField.KindEntry:
+                {
+                    var entry = FindEntry(item, refId);
+                    if (entry == null) return false;
+                    entry.Text = text;
+                    return true;
+                }
+                case SearchField.KindLexicon:
+                case SearchField.KindLexiconNote:
+                {
+                    var lexical = FindLexicon(project, refId);
+                    if (lexical == null) return false;
+                    if (kind == SearchField.KindLexicon) lexical.Word = text; else lexical.Note = text;
+                    return true;
+                }
+                default: return false;
+            }
+        }
+
+        private static InfoEntry FindInfo(BinderItem item, string id)
+        {
+            foreach (var entry in item.FreeInfo) if (entry.Id == id) return entry;
+            return null;
+        }
+
+        private static SheetRelation FindRelation(BinderItem item, string id)
+        {
+            foreach (var relation in item.Relations) if (relation.Id == id) return relation;
+            return null;
+        }
+
+        private static PlanEntry FindEntry(BinderItem item, string id)
+        {
+            if (item.Plan == null) return null;
+            foreach (var column in item.Plan.Columns)
+                foreach (var entry in column.Entries)
+                    if (entry.Id == id) return entry;
+            return null;
+        }
+
+        private static LexiconEntry FindLexicon(Project project, string refId)
+        {
+            int index;
+            if (project == null || refId == null || !int.TryParse(refId, out index)) return null;
+            return index >= 0 && index < project.Lexicon.Count ? project.Lexicon[index] : null;
+        }
+
         // ------------------------------------------------------ empreinte
 
         /// <summary>FNV-1a 64 bits de tout le contenu cherchable, calculée

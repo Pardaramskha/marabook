@@ -958,6 +958,11 @@ namespace UniversSale.View
             RebuildRelations();
             RefreshPortrait();
             _bodyBox.Text = item.Document.ToPlainText();
+            // La pile d'annulation du TextBox repart de zéro avec le texte
+            // chargé (un remplacement projet recharge la fiche : jamais un
+            // Ctrl+Z local qui ressusciterait l'état d'avant, b37).
+            _bodyBox.IsUndoEnabled = false;
+            _bodyBox.IsUndoEnabled = true;
             _loading = false;
             if (_previewToggle.IsChecked == true) ShowPreview();
             SyncGenealogy();

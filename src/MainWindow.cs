@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.34.0-alpha";
+        public const string AppVersion = "0.35.0-alpha";
 
         private Project _project;
         private string _path;
@@ -132,6 +132,7 @@ namespace UniversSale
             _sheetView.SetFormattingMarks(AppSettings.ShowFormattingMarks);
 
             _history.Changed += OnHistoryChanged;
+            _history.Applied += OnHistoryApplied;
 
             _statsTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
             _statsTimer.Tick += delegate
@@ -587,6 +588,8 @@ namespace UniversSale
             // même famille ; ouvert, il passe devant Correction et l'inspecteur.
             _searchPanel = new View.SearchPanel();
             _searchPanel.NavigateRequested += GoToHit;
+            _searchPanel.ReplaceRequested += ReplaceOne;
+            _searchPanel.ReplaceAllRequested += ReplaceAll;
             _searchPanel.CloseRequested += delegate
             {
                 AppSettings.SearchPanelVisible = false;
@@ -628,6 +631,98 @@ namespace UniversSale
             {
                 if (_current == target.Item) PositionOnHit(target);
             }));
+        }
+
+        // ------------------------------------------------ remplacement (b37, lot C)
+
+        /// <summary>Remplace UNE occurrence : dans le document ouvert (surface
+        /// composée), un cran d'annulation local — comme une frappe ; ailleurs,
+        /// une action d'historique d'une seule édition.</summary>
+        private void ReplaceOne(SearchHit hit, string replacement)
+        {
+            if (hit == null || _project == null || hit.Field == null) return;
+            if (!hit.Replaceable)
+            {
+                _searchPanel.SetNotice(hit.NoProof
+                    ? "Cette occurrence est dans un passage « ne pas corriger » : non remplacée."
+                    : "Cette occurrence coupe une ligature : non remplaçable.");
+                return;
+            }
+            if (_project.FindById(hit.Item.Id) == null) return;
+            CommitActive();
+            var query = _searchPanel.Query();
+            var matched = hit.Start + hit.Length <= hit.Field.Text.Length ? hit.Field.Text.Substring(hit.Start, hit.Length) : "";
+            if (hit.Item == _current && hit.Item.Kind == ItemKind.Text && hit.Field.IsParagraph && _editor.ComposedActive)
+            {
+                if (_editor.ReplaceRange(hit.Field.ParagraphIndex, hit.Start, hit.Length, query.ReplacementFor(matched, replacement)))
+                {
+                    MarkDirty();
+                    _searchPanel.Refresh();
+                    return;
+                }
+            }
+            RunReplace(ReplacePlan.Build(_project, new List<SearchHit> { hit }, query, replacement));
+        }
+
+        /// <summary>« Tout remplacer… » : la recherche complète de la portée
+        /// (sans plafond), la PRÉVISUALISATION obligatoire, puis l'action.</summary>
+        private void ReplaceAll(string replacement)
+        {
+            if (_project == null) return;
+            var query = _searchPanel.Query();
+            if (!query.IsValid) { _searchPanel.SetNotice(query.Error ?? "Rien à chercher."); return; }
+            CommitActive();
+            var targets = ProjectSearch.Collect(_project, _searchPanel.Scope, _current, _searchPanel.Kind, _searchPanel.IncludeTrash);
+            var result = ProjectSearch.Run(targets, query, int.MaxValue, TimeSpan.FromSeconds(30), System.Threading.CancellationToken.None);
+            if (result.Interrupted) { _searchPanel.SetNotice(result.Message); return; }
+            if (result.Total == 0) { _searchPanel.SetNotice("Aucune occurrence à remplacer."); return; }
+            var chosen = View.ReplacePreviewDialog.Ask(this, result, query, replacement, _current);
+            if (chosen == null) return;
+            RunReplace(ReplacePlan.Build(_project, chosen, query, replacement));
+        }
+
+        private void RunReplace(ReplacePlan plan)
+        {
+            if (plan.Edits.Count == 0)
+            {
+                _searchPanel.SetNotice("Rien à remplacer" + (plan.SkippedNoProof + plan.SkippedInexact > 0 ? " (occurrences écartées)." : "."));
+                return;
+            }
+            _history.Run(new History.ReplaceInProjectAction(_project, plan));
+        }
+
+        /// <summary>Une action d'historique vient d'être posée, défaite ou
+        /// refaite : un remplacement projet touchant le document ouvert
+        /// RECHARGE sa vue (pile locale vidée — jamais un Ctrl+Z local qui
+        /// contredirait le reste), rebâtit la Pile (titres), relance la
+        /// recherche et dit ce qui s'est passé.</summary>
+        private void OnHistoryApplied(History.IUndoableAction action, bool undone)
+        {
+            var replace = action as History.ReplaceInProjectAction;
+            if (replace == null) return;
+            if (_current != null && replace.Touches(_current)) ReloadCurrentView();
+            _binder.Rebuild();
+            MarkDirty();
+            var items = replace.Items.Count == 1 ? "1 item" : replace.Items.Count + " items";
+            var occurrences = replace.Occurrences == 1 ? "1 occurrence" : replace.Occurrences + " occurrences";
+            var notice = (undone ? "Remplacement annulé : " : "Remplacement : ") + occurrences + " dans " + items + ".";
+            if (replace.Conflicts > 0)
+                notice += " " + replace.Conflicts + (replace.Conflicts == 1 ? " édition sautée" : " éditions sautées")
+                    + " (le texte avait changé entre-temps).";
+            _searchPanel.Refresh();
+            _searchPanel.SetNotice(notice);
+        }
+
+        /// <summary>Recharge la vue de l'item courant depuis le pivot, sans
+        /// commit (le modèle vient d'être écrit par une action).</summary>
+        private void ReloadCurrentView()
+        {
+            if (_current == null) return;
+            _navigating = true;
+            try { ShowItem(_current); }
+            finally { _navigating = false; }
+            UpdateInspector();
+            UpdateStats();
         }
 
         private void PositionOnHit(SearchHit hit)
