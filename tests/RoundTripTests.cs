@@ -442,6 +442,10 @@ namespace UniversSale.Tests
             sheet.Relations.Add(new SheetRelation { Kind = "rivale", Name = "La Pie" });
             // — Natures de relation personnalisées du projet (batch 36, v16).
             project.RelationKinds.Add("Mentor");
+            // — Un instantané du chapitre (batch 38, v17) : son document figé,
+            // libellé, origine, compte de mots.
+            var snapshot = Snapshot.Capture(chapter, "Avant la nuit", SnapshotOrigin.Manual);
+            project.Snapshots.Add(snapshot);
             sheet.Document = SimpleDocument("Corps wiki de la fiche.");
             sheet.ImageId = project.AddImage(new byte[] { 137, 80, 78, 71, 1, 2, 3, 4 }, ".png");
             sheets.Children.Add(sheet);
@@ -502,6 +506,10 @@ namespace UniversSale.Tests
             // autre valeur — exclue du filler, exercée par la note de la fixture.
             FixtureFiller.Fill(plan.Plan.Columns[0].Entries[0], "Kind");
             FixtureFiller.Fill(media);
+            // Json est le document sérialisé (exercé par la capture) ; ItemId
+            // référence le chapitre (exercé) — le reste (date, libellé,
+            // origine, mots, empreinte) passe au filler.
+            FixtureFiller.Fill(snapshot, "Json", "ItemId");
 
             project.RelinkParents();
             return project;

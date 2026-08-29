@@ -112,6 +112,13 @@ namespace UniversSale.Tests
                 {
                     if (Equals(current, initial)) field.SetValue(target, (int)initial + 7);
                 }
+                else if (fieldType == typeof(long))
+                {
+                    // Une empreinte 64 bits (Snapshot.Fingerprint, b38) : une
+                    // sentinelle hors de portée d'un int, pour attraper un
+                    // sérialiseur qui la tronquerait.
+                    if (Equals(current, initial)) field.SetValue(target, (long)initial + 7L + (1L << 40));
+                }
                 else if (fieldType == typeof(double))
                 {
                     if (Equals(current, initial)) field.SetValue(target, (double)initial + 3.25);

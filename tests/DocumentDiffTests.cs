@@ -22,6 +22,154 @@ namespace UniversSale.Tests
             Sides(t);
             Edges(t);
             Rendering(t);
+            Capture(t);
+            CapAndPurge(t);
+            PlotRoundTrip(t);
+        }
+
+        private static Project Cast(out BinderItem chapter)
+        {
+            var project = Project.CreateNew();
+            chapter = project.Category(Project.KeyWritings).Children[0];
+            chapter.Document = TextDocument.FromPlainText("Le marabout dort.\nUn marabout veille.");
+            return project;
+        }
+
+        private static void Capture(Harness t)
+        {
+            BinderItem chapter;
+            var project = Cast(out chapter);
+            var first = SnapshotStore.Capture(project, chapter, "Départ", SnapshotOrigin.Manual, 20);
+            t.Check(first != null && project.Snapshots.Count == 1, "une capture manuelle entre dans le projet");
+            t.Check(first.ItemId == chapter.Id && first.Label == "Départ" && first.Origin == SnapshotOrigin.Manual && !first.IsAutomatic, "…avec item, libellé, origine");
+            t.Equal(6, first.Words, "le compte de mots est FIGÉ à la capture");
+            t.Check(first.Date.Length == 19 && first.Json.Length > 0 && first.Bytes > 0, "date, JSON produit une fois, poids connu");
+            t.Equal("Départ", first.DisplayLabel, "le libellé affiché est celui de l'auteur");
+            t.Check(SnapshotStore.Capture(project, chapter, "", SnapshotOrigin.Manual, 20) == null && project.Snapshots.Count == 1, "même contenu : pas de doublon");
+            chapter.Document.Paragraphs[0].Runs[0].Text = "Le marabout dort profondément.";
+            var second = SnapshotStore.Capture(project, chapter, "", SnapshotOrigin.Typography, 20);
+            t.Check(second != null && second.IsAutomatic && second.DisplayLabel == "Avant passe typographique", "un contenu changé : nouvelle capture, automatique, libellée par son origine");
+            t.Equal(7, second.Words, "…son propre compte de mots");
+            var restored = second.Document;
+            t.Check(!ReferenceEquals(restored, chapter.Document) && PivotEdit.FlatText(restored.Paragraphs[0]) == "Le marabout dort profondément.", "le document décodé paresseusement est une copie fidèle et indépendante");
+            t.Check(ReferenceEquals(restored, second.Document), "…décodée une fois");
+            t.Check(PivotEdit.FlatText(first.Document.Paragraphs[0]) == "Le marabout dort.", "le premier instantané n'a pas bougé");
+            var listed = SnapshotStore.Of(project, chapter.Id);
+            t.Check(listed.Count == 2 && listed[0] == second && listed[1] == first, "les instantanés d'un item, du plus récent au plus ancien");
+            t.Check(SnapshotStore.Latest(project, chapter.Id) == second, "le dernier");
+            var sheet = new BinderItem { Kind = ItemKind.Sheet, Title = "Fiche" };
+            sheet.Document = TextDocument.FromPlainText("Corps.");
+            project.Category(Project.KeySheets).Children.Add(sheet);
+            t.Check(SnapshotStore.Capture(project, sheet, "", SnapshotOrigin.Manual, 20) != null, "une fiche se capture aussi");
+            var plan = new BinderItem { Kind = ItemKind.Plan, Title = "Plan", Plan = new PlanInfo() };
+            t.Check(SnapshotStore.Capture(project, plan, "", SnapshotOrigin.Manual, 20) == null, "un plan n'a pas de document : rien (limite assumée)");
+            t.Check(SnapshotStore.HasToday(project, chapter.Id, SnapshotOrigin.Typography) && !SnapshotStore.HasToday(project, chapter.Id, SnapshotOrigin.Daily), "HasToday sait quelle origine a déjà été prise aujourd'hui");
+            t.Equal("Avant remplacement", SnapshotOrigin.Label(SnapshotOrigin.Replace), "les origines ont un libellé");
+            var stats = SnapshotStore.Weight(project, null);
+            t.Check(stats.StartsWith("3 versions · ") && stats.EndsWith(" o") || stats.EndsWith(" Ko"), "le poids se dit (« " + stats + " »)");
+        }
+
+        private static void CapAndPurge(Harness t)
+        {
+            BinderItem chapter;
+            var project = Cast(out chapter);
+            // Alternance : manuel, auto, manuel, auto… sur des contenus distincts.
+            for (var i = 0; i < 8; i++)
+            {
+                chapter.Document.Paragraphs[0].Runs[0].Text = "Version " + i;
+                SnapshotStore.Capture(project, chapter, "v" + i, i % 2 == 0 ? SnapshotOrigin.Manual : SnapshotOrigin.Daily, 100);
+            }
+            t.Equal(8, project.Snapshots.Count, "huit captures distinctes");
+            t.Equal(3, SnapshotStore.Trim(project, chapter.Id, 5), "plafond 5 : trois évincés");
+            var labels = new List<string>();
+            foreach (var s in project.Snapshots) labels.Add(s.Label + (s.IsAutomatic ? "a" : "m"));
+            t.Equal("v0m v2m v4m v6m v7a", string.Join(" ", labels.ToArray()), "les automatiques partent d'abord, du plus ancien au plus récent ; un manuel reste tant qu'il reste un automatique");
+            t.Equal(2, SnapshotStore.Trim(project, chapter.Id, 3), "plafond 3 : encore deux");
+            labels.Clear();
+            foreach (var s in project.Snapshots) labels.Add(s.Label);
+            t.Equal("v4 v6 v7", string.Join(" ", labels.ToArray()), "…v7 est le plus récent (jamais évincé), donc les manuels les plus anciens partent (v0, v2)");
+            chapter.Document.Paragraphs[0].Runs[0].Text = "Version neuve";
+            SnapshotStore.Capture(project, chapter, "", SnapshotOrigin.Replace, 3);
+            labels.Clear();
+            foreach (var s in project.Snapshots) labels.Add(s.Label.Length > 0 ? s.Label : "auto");
+            t.Equal("v4 v6 auto", string.Join(" ", labels.ToArray()), "une capture au plafond entre et évince le manuel le plus ancien — jamais elle-même");
+            t.Check(SnapshotStore.Latest(project, chapter.Id).Origin == SnapshotOrigin.Replace, "…c'est la dernière");
+            t.Equal(1, SnapshotStore.PurgeAutomatic(project, chapter.Id), "purge des automatiques de l'item");
+            t.Equal(2, SnapshotStore.Count(project, chapter.Id), "…les manuels restent");
+            var other = new BinderItem { Kind = ItemKind.Text, Title = "Autre" };
+            other.Document = TextDocument.FromPlainText("Autre texte.");
+            project.Category(Project.KeyWritings).Children.Add(other);
+            SnapshotStore.Capture(project, other, "", SnapshotOrigin.Daily, 20);
+            project.Snapshots[project.Snapshots.Count - 1].Date = "2020-01-01 10:00:00";
+            t.Equal(1, SnapshotStore.PurgeOlderThan(project, 30), "purge de ce qui a plus de 30 jours");
+            t.Equal(2, SnapshotStore.PurgeItem(project, chapter.Id), "purge de tout un item");
+            t.Equal(0, project.Snapshots.Count, "…plus rien");
+            t.Equal(0, SnapshotStore.PurgeAutomatic(project, null), "purge globale à vide : zéro");
+        }
+
+        private static void PlotRoundTrip(Harness t)
+        {
+            BinderItem chapter;
+            var project = Cast(out chapter);
+            SnapshotStore.Capture(project, chapter, "Départ", SnapshotOrigin.Manual, 20);
+            chapter.Document.Paragraphs[1].Runs[0].Text = "Un marabout veille encore.";
+            var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-c17-" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(dir);
+            try
+            {
+                var path = System.IO.Path.Combine(dir, "v17.plot");
+                Persistence.PlotFile.Save(project, path);
+                using (var archive = System.IO.Compression.ZipFile.OpenRead(path))
+                {
+                    var found = 0;
+                    foreach (var entry in archive.Entries) if (entry.FullName.StartsWith("snapshots/" + chapter.Id + "/")) found++;
+                    t.Equal(1, found, "l'instantané est sa propre entrée snapshots/<item>/<id>.json");
+                    var manifest = new System.IO.StreamReader(archive.GetEntry("manifest.json").Open()).ReadToEnd();
+                    t.Check(!manifest.Contains("snapshot"), "…et rien dans le manifeste");
+                }
+                var reloaded = Persistence.PlotFile.Load(path);
+                t.Equal(1, reloaded.Snapshots.Count, "relu : un instantané");
+                var back = reloaded.Snapshots[0];
+                t.Check(back.Label == "Départ" && back.Words == 6 && back.Fingerprint == project.Snapshots[0].Fingerprint && back.Json == project.Snapshots[0].Json
+                    && back.Bytes == project.Snapshots[0].Bytes,
+                    "…libellé, mots, empreinte et JSON tel quel, octet pour octet (immuable)");
+                t.Equal("Un marabout veille.", PivotEdit.FlatText(back.Document.Paragraphs[1]), "…et son document se décode");
+                t.Equal("Un marabout veille encore.", PivotEdit.FlatText(reloaded.FindById(chapter.Id).Document.Paragraphs[1]), "le document vivant est celui d'après");
+
+                // — La corbeille (A1) : vider la corbeille, ENREGISTRER, Ctrl+Z → les
+                // versions sont toujours là, en mémoire comme dans le fichier.
+                var history = new History.HistoryManager();
+                var trash = project.Trash;
+                var writings = project.Category(Project.KeyWritings);
+                writings.Children.Remove(chapter);
+                trash.Children.Add(chapter);
+                chapter.Parent = trash;
+                history.Run(new History.EmptyTrashAction(trash));
+                t.Check(project.FindById(chapter.Id) == null, "le chapitre est purgé de la corbeille");
+                Persistence.PlotFile.Save(project, path);
+                t.Equal(1, project.Snapshots.Count, "enregistrer ne purge PAS les instantanés orphelins");
+                history.Undo();
+                t.Check(project.FindById(chapter.Id) == chapter && SnapshotStore.Count(project, chapter.Id) == 1, "Ctrl+Z ressuscite le chapitre AVEC ses versions");
+                Persistence.PlotFile.Save(project, path);
+                t.Equal(1, Persistence.PlotFile.Load(path).Snapshots.Count, "…et le fichier les a toujours");
+
+                // — Un orphelin à l'OUVERTURE (l'item n'existe plus) est abandonné.
+                history.Run(new History.EmptyTrashAction(trash));
+                Persistence.PlotFile.Save(project, path);
+                var warnings = new List<string>();
+                var orphaned = Persistence.PlotFile.Load(path, warnings);
+                t.Check(orphaned.Snapshots.Count == 0 && warnings.Count == 1 && warnings[0].Contains("instantané"), "à l'ouverture, un instantané sans item est abandonné, et dit");
+
+                // — Un .plot d'avant s'ouvre sans instantané.
+                var old = Project.CreateNew();
+                var oldPath = System.IO.Path.Combine(dir, "v16.plot");
+                Persistence.PlotFile.Save(old, oldPath);
+                t.Equal(0, Persistence.PlotFile.Load(oldPath).Snapshots.Count, "un projet sans entrée snapshots/ : aucun instantané");
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(dir, true); } catch (System.IO.IOException) { }
+            }
         }
 
         private static TextDocument Doc(params string[] paragraphs)

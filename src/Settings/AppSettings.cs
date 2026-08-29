@@ -93,6 +93,9 @@ namespace UniversSale.Settings
         public static bool ProofEnabled = true; // vérification continue (Révision)
         public static bool CorrectionPanelVisible; // « Détails de correction » à droite (b28)
         public static bool SearchPanelVisible;     // le panneau de recherche du projet (b37)
+        public static bool VersionsPanelVisible;   // le panneau Versions (b38)
+        public static int SnapshotCap = 20;        // instantanés gardés par item (b38, 5–100)
+        public static bool DailySnapshot = true;   // capture à la première modification du jour (b38)
         // La grammaire (batch 29) : interrupteur maître de Grammalecte, et
         // les choix d'options de l'utilisateur PAR-DESSUS la politique de
         // recouvrement du lot C (clé = nom d'option Grammalecte). Une entrée
@@ -207,6 +210,11 @@ namespace UniversSale.Settings
                 ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
                 CorrectionPanelVisible = Json.AsBool(Json.Field(root, "correctionPanel"), false);
                 SearchPanelVisible = Json.AsBool(Json.Field(root, "searchPanel"), false);
+                VersionsPanelVisible = Json.AsBool(Json.Field(root, "versionsPanel"), false);
+                SnapshotCap = (int)Json.AsDouble(Json.Field(root, "snapshotCap"), 20);
+                if (SnapshotCap < 5) SnapshotCap = 5;
+                if (SnapshotCap > 100) SnapshotCap = 100;
+                DailySnapshot = Json.AsBool(Json.Field(root, "dailySnapshot"), true);
                 GrammarEnabled = Json.AsBool(Json.Field(root, "grammarEnabled"), true);
                 SpellEnabled = Json.AsBool(Json.Field(root, "spellEnabled"), true);
                 TypographyEnabled = Json.AsBool(Json.Field(root, "typographyEnabled"), false);
@@ -270,6 +278,9 @@ namespace UniversSale.Settings
                 root["proofEnabled"] = ProofEnabled;
                 root["correctionPanel"] = CorrectionPanelVisible;
                 root["searchPanel"] = SearchPanelVisible;
+                root["versionsPanel"] = VersionsPanelVisible;
+                root["snapshotCap"] = SnapshotCap;
+                root["dailySnapshot"] = DailySnapshot;
                 root["grammarEnabled"] = GrammarEnabled;
                 root["spellEnabled"] = SpellEnabled;
                 root["typographyEnabled"] = TypographyEnabled;

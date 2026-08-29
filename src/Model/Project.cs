@@ -76,6 +76,10 @@ namespace UniversSale.Model
         // (RelationKinds.Defaults) ne sont pas stockées ici.
         public List<string> RelationKinds = new List<string>();
 
+        // Les instantanés (batch 38, v17) — tous les items confondus, dans
+        // l'ordre chronologique ; chacun est sa propre entrée du .plot.
+        public List<Snapshot> Snapshots = new List<Snapshot>();
+
         /// <summary>Toutes les natures proposées au sélecteur : les livrées,
         /// puis les personnalisées du projet.</summary>
         public IEnumerable<string> AllRelationKinds()

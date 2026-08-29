@@ -62,7 +62,16 @@ namespace UniversSale.Persistence
         //      (Project.UpgradeCharacterTemplate : « Âge » sous la date de
         //      naissance, apparence Taille/Poids/Peau/Yeux/Traits/
         //      Particularités) — une seule fois, gardé par la version lue.
-        private const int FormatVersion = 16;
+        // v17: INSTANTANÉS (batch 38) — chaque instantané est SA PROPRE ENTRÉE
+        //      snapshots/<itemId>/<id>.json : une ligne de métadonnées JSON
+        //      {id, item, date, label, origin, words, fingerprint}, un saut de
+        //      ligne, puis le document sérialisé (même forme que texts/) —
+        //      jamais dans le manifeste (sinon chaque autosauvegarde
+        //      réécrirait l'historique entier). Immuable : le JSON du document
+        //      est écrit tel quel. Un .plot d'avant s'ouvre sans instantané ;
+        //      un instantané dont l'item n'existe plus à l'ouverture est
+        //      abandonné (jamais purgé à la sauvegarde — A1 du batch 38).
+        private const int FormatVersion = 17;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -117,12 +126,109 @@ namespace UniversSale.Persistence
                             mediaStream.Write(item.MediaBytes, 0, item.MediaBytes.Length);
                     }
                 }
+                // Les instantanés (v17) : une entrée chacun, JSON du document
+                // écrit tel quel — jamais resérialisé, jamais purgé ici.
+                foreach (var snapshot in project.Snapshots)
+                {
+                    // Compression rapide : un instantané se relit rarement, et
+                    // c'est le deflate qui coûte à chaque sauvegarde (A3).
+                    var entry = archive.CreateEntry("snapshots/" + snapshot.ItemId + "/" + snapshot.Id + ".json",
+                        System.IO.Compression.CompressionLevel.Fastest);
+                    using (var entryStream = entry.Open())
+                    {
+                        var head = new UTF8Encoding(false).GetBytes(Json.Write(BuildSnapshotMeta(snapshot)) + "\n");
+                        entryStream.Write(head, 0, head.Length);
+                        if (snapshot.Data != null) entryStream.Write(snapshot.Data, 0, snapshot.Data.Length);
+                    }
+                }
             }
 
             if (File.Exists(path))
                 File.Replace(tempPath, path, path + ".bak");
             else
                 File.Move(tempPath, path);
+        }
+
+        private static Dictionary<string, object> BuildSnapshotMeta(Snapshot snapshot)
+        {
+            var meta = new Dictionary<string, object>();
+            meta["id"] = snapshot.Id;
+            meta["item"] = snapshot.ItemId;
+            meta["date"] = snapshot.Date;
+            if (snapshot.Label.Length > 0) meta["label"] = snapshot.Label;
+            meta["origin"] = snapshot.Origin;
+            meta["words"] = snapshot.Words;
+            meta["fingerprint"] = snapshot.Fingerprint.ToString();
+            return meta;
+        }
+
+        /// <summary>Le document d'un item sous sa forme .plot (texts/) — LA
+        /// sérialisation, aussi celle des instantanés (produite une fois).</summary>
+        public static string SerializeDocument(TextDocument document)
+        {
+            return Json.Write(BuildDocument(document ?? new TextDocument()));
+        }
+
+        /// <summary>L'inverse : un document depuis son JSON (instantané décodé
+        /// paresseusement).</summary>
+        public static TextDocument DeserializeDocument(string json)
+        {
+            return ParseDocument(json ?? "");
+        }
+
+        /// <summary>Lit les entrées snapshots/ d'une archive (v17). Un
+        /// instantané dont l'item n'existe pas dans le projet est abandonné.</summary>
+        private static void ReadSnapshots(ZipArchive archive, Project project, List<string> warnings)
+        {
+            var known = new HashSet<string>();
+            foreach (var item in project.AllItems()) known.Add(item.Id);
+            var loaded = new List<Snapshot>();
+            foreach (var entry in archive.Entries)
+            {
+                if (!entry.FullName.StartsWith("snapshots/", StringComparison.Ordinal)) continue;
+                try
+                {
+                    byte[] bytes;
+                    using (var stream = entry.Open())
+                    using (var buffer = new MemoryStream())
+                    {
+                        stream.CopyTo(buffer);
+                        bytes = buffer.ToArray();
+                    }
+                    var cut = Array.IndexOf(bytes, (byte)'\n');
+                    if (cut < 0) continue;
+                    var meta = Json.AsObject(Json.Parse(Encoding.UTF8.GetString(bytes, 0, cut)));
+                    if (meta == null) continue;
+                    var data = new byte[bytes.Length - cut - 1];
+                    Array.Copy(bytes, cut + 1, data, 0, data.Length);
+                    var snapshot = new Snapshot
+                    {
+                        ItemId = Json.AsString(Json.Field(meta, "item")) ?? "",
+                        Date = Json.AsString(Json.Field(meta, "date")) ?? "",
+                        Label = Json.AsString(Json.Field(meta, "label")) ?? "",
+                        Origin = Json.AsString(Json.Field(meta, "origin")) ?? SnapshotOrigin.Manual,
+                        Words = (int)Json.AsDouble(Json.Field(meta, "words"), 0),
+                        Data = data
+                    };
+                    var id = Json.AsString(Json.Field(meta, "id"));
+                    if (!string.IsNullOrEmpty(id)) snapshot.Id = id;
+                    long fingerprint;
+                    if (long.TryParse(Json.AsString(Json.Field(meta, "fingerprint")) ?? "", out fingerprint)) snapshot.Fingerprint = fingerprint;
+                    if (!known.Contains(snapshot.ItemId))
+                    {
+                        Warn(warnings, "Un instantané (" + snapshot.Date + ") appartient à un élément qui n'existe plus : abandonné.");
+                        continue;
+                    }
+                    loaded.Add(snapshot);
+                }
+                catch (Exception error)
+                {
+                    Warn(warnings, "Instantané « " + entry.FullName + " » illisible : " + error.Message);
+                }
+            }
+            // L'ordre chronologique (l'ordre des entrées du zip n'en garantit aucun).
+            loaded.Sort(delegate(Snapshot a, Snapshot b) { return string.CompareOrdinal(a.Date, b.Date); });
+            project.Snapshots.AddRange(loaded);
         }
 
         private static void WriteEntry(ZipArchive archive, string name, string content)
@@ -661,6 +767,7 @@ namespace UniversSale.Persistence
                     }
 
                 project.RelinkParents();
+                ReadSnapshots(archive, project, warnings); // v17 ; rien dans un .plot d'avant
                 // Batch 31 : un projet d'avant les catégories de fiches est
                 // migré ici (défauts + adoption des modèles par nom), et les
                 // fiches orphelines rejoignent la catégorie de leur modèle.
