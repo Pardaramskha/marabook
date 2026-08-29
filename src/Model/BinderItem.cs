@@ -161,24 +161,32 @@ namespace UniversSale.Model
             return null;
         }
 
-        /// <summary>Everything searchable about this item, for the project-wide
-        /// search and the reference scanner: title, synopsis, body, fields,
-        /// free info, footnotes.</summary>
+        // Cache des champs cherchables (batch 37), clé = empreinte du contenu
+        // (motif CheckerHost) : un item inchangé ne reconstruit rien.
+        private List<SearchField> _searchFields;
+        private long _searchFingerprint;
+        private bool _searchCached;
+
+        /// <summary>LES champs cherchables de l'item — la seule définition
+        /// (Searchable.Build) — servis depuis le cache tant que l'empreinte
+        /// du contenu n'a pas bougé. La liste rendue est PARTAGÉE : ne pas la
+        /// modifier (la recherche de fond la lit hors du fil UI).</summary>
+        public List<SearchField> SearchFields(Project project)
+        {
+            var fingerprint = Searchable.Fingerprint(this, project);
+            if (_searchCached && fingerprint == _searchFingerprint && _searchFields != null) return _searchFields;
+            _searchFields = Searchable.Build(this, project);
+            _searchFingerprint = fingerprint;
+            _searchCached = true;
+            return _searchFields;
+        }
+
+        /// <summary>Everything searchable about this item as one string (the
+        /// reference scanner): the concatenation of SearchFields.</summary>
         public string SearchText()
         {
             var sb = new System.Text.StringBuilder();
-            sb.Append(Title).Append('\n').Append(Synopsis).Append('\n').Append(Notes).Append('\n');
-            if (Kind == ItemKind.Text || Kind == ItemKind.Sheet)
-            {
-                sb.Append(Document.ToPlainText()).Append('\n');
-                foreach (var note in Document.Footnotes) sb.Append(note.Text).Append('\n');
-            }
-            if (Kind == ItemKind.Sheet)
-            {
-                foreach (var value in FieldValues.Values) sb.Append(value).Append('\n');
-                foreach (var entry in FreeInfo)
-                    sb.Append(entry.Title).Append('\n').Append(entry.Value).Append('\n');
-            }
+            foreach (var field in SearchFields(null)) sb.Append(field.Text).Append('\n');
             return sb.ToString();
         }
 

@@ -227,14 +227,16 @@ namespace UniversSale.View
             _searchFilter.Items.Add("Tout");
             _searchFilter.Items.Add("Écrits");
             _searchFilter.Items.Add("Fiches");
+            _searchFilter.Items.Add("Plans");
+            _searchFilter.Items.Add("Dictionnaire");
             _searchFilter.Items.Add("Médias");
             _searchFilter.SelectedIndex = 0;
             _searchFilter.SelectionChanged += delegate { RunSearch(); };
             DockPanel.SetDock(_searchFilter, Dock.Right);
             row.Children.Add(_searchFilter);
 
-            _searchBox = new TextBox { ToolTip = "Recherche dans tout le projet (titres, textes, fiches, synopsis)" };
-            _searchBox.TextChanged += delegate { RunSearch(); };
+            _searchBox = new TextBox { ToolTip = "Recherche dans tout le projet (titres, textes, fiches, plans, dictionnaire — sans casse ni accents)" };
+            _searchBox.TextChanged += delegate { ScheduleSearch(); };
             _searchBox.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key == Key.Escape) { _searchBox.Text = ""; e.Handled = true; }
@@ -980,9 +982,46 @@ namespace UniversSale.View
                 | System.Globalization.CompareOptions.IgnoreNonSpace) >= 0;
         }
 
+        // Recherche de la Pile (batch 37) : anti-rebond de 200 ms sur la
+        // frappe, moteur ProjectSearch (champs en cache, sans casse ni
+        // accents) sur un FIL DE FOND annulable — une nouvelle frappe annule
+        // la précédente, un résultat périmé (génération) est jeté (motif du
+        // pipeline différé b29).
+        private System.Windows.Threading.DispatcherTimer _searchDebounce;
+        private System.Threading.CancellationTokenSource _searchCancel;
+        private int _searchGeneration;
+
+        private void ScheduleSearch()
+        {
+            if (_searchDebounce == null)
+            {
+                _searchDebounce = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(200)
+                };
+                _searchDebounce.Tick += delegate { _searchDebounce.Stop(); RunSearch(); };
+            }
+            _searchDebounce.Stop();
+            _searchDebounce.Start();
+        }
+
+        private static SearchKind KindOfFilter(int index)
+        {
+            switch (index)
+            {
+                case 1: return SearchKind.Texts;
+                case 2: return SearchKind.Sheets;
+                case 3: return SearchKind.Plans;
+                case 4: return SearchKind.Dictionary;
+                case 5: return SearchKind.Media;
+                default: return SearchKind.All;
+            }
+        }
+
         private void RunSearch()
         {
             if (_project == null || _results == null) return;
+            if (_searchCancel != null) { _searchCancel.Cancel(); _searchCancel = null; }
             var query = _searchBox.Text.Trim();
             if (query.Length == 0)
             {
@@ -992,28 +1031,50 @@ namespace UniversSale.View
             }
             _tree.Visibility = Visibility.Collapsed;
             _results.Visibility = Visibility.Visible;
-            _results.Items.Clear();
 
-            var filter = _searchFilter.SelectedIndex;
-            foreach (var item in _project.AllItems())
+            var targets = ProjectSearch.Collect(_project, SearchScope.Project, SelectedItem,
+                KindOfFilter(_searchFilter.SelectedIndex), false);
+            var compiled = SearchQuery.Create(query, false, false, true, false);
+            var cancel = new System.Threading.CancellationTokenSource();
+            _searchCancel = cancel;
+            var generation = ++_searchGeneration;
+            var dispatcher = Dispatcher;
+            System.Threading.Tasks.Task.Factory.StartNew<SearchResult>(delegate
             {
-                if (item.IsCategory) continue;
-                if (filter == 1 && item.Kind != ItemKind.Text) continue;
-                if (filter == 2 && item.Kind != ItemKind.Sheet) continue;
-                if (filter == 3 && item.Kind != ItemKind.Media) continue;
-                if (!ContainsLoose(item.SearchText(), query)) continue;
-                _results.Items.Add(BuildResultRow(item));
-                if (_results.Items.Count >= 200) break;
-            }
-            if (_results.Items.Count == 0)
-                _results.Items.Add(new ListBoxItem
+                return ProjectSearch.Run(targets, compiled, ProjectSearch.DefaultCap, ProjectSearch.DefaultBudget, cancel.Token);
+            }, cancel.Token).ContinueWith(delegate(System.Threading.Tasks.Task<SearchResult> done)
+            {
+                var ignored = done.Exception; // observée : une recherche en faute se tait
+                if (done.Status != System.Threading.Tasks.TaskStatus.RanToCompletion || done.Result.Cancelled) return;
+                dispatcher.BeginInvoke(new Action(delegate
                 {
-                    Content = new TextBlock { Text = "Aucun résultat", Foreground = Chrome.SoftText },
-                    IsEnabled = false
-                });
+                    if (generation != _searchGeneration) return; // périmé
+                    ShowSearchResult(done.Result);
+                }));
+            });
         }
 
-        private ListBoxItem BuildResultRow(BinderItem item)
+        private void ShowSearchResult(SearchResult result)
+        {
+            _results.Items.Clear();
+            var counts = new Dictionary<string, int>();
+            var order = new List<BinderItem>();
+            foreach (var hit in result.Hits)
+            {
+                if (!counts.ContainsKey(hit.Item.Id)) { counts[hit.Item.Id] = 0; order.Add(hit.Item); }
+                counts[hit.Item.Id]++;
+            }
+            foreach (var item in order) _results.Items.Add(BuildResultRow(item, counts[item.Id]));
+            var summary = result.Total == 0 ? "Aucun résultat" : result.Summary();
+            if (!string.IsNullOrEmpty(result.Message)) summary += "\n" + result.Message;
+            _results.Items.Add(new ListBoxItem
+            {
+                Content = new TextBlock { Text = summary, Foreground = Chrome.SoftText, FontSize = 11, TextWrapping = TextWrapping.Wrap },
+                IsEnabled = false
+            });
+        }
+
+        private ListBoxItem BuildResultRow(BinderItem item, int count)
         {
             var panel = new StackPanel();
             var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
@@ -1033,9 +1094,10 @@ namespace UniversSale.View
                 path = parent.Title + (path.Length > 0 ? " › " + path : "");
                 parent = parent.Parent;
             }
+            var occurrences = count == 1 ? "1 occurrence" : count + " occurrences";
             panel.Children.Add(new TextBlock
             {
-                Text = path,
+                Text = path.Length > 0 ? path + " · " + occurrences : occurrences,
                 Foreground = Chrome.SoftText,
                 FontSize = 10,
                 TextTrimming = TextTrimming.CharacterEllipsis

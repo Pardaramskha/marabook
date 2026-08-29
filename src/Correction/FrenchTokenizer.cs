@@ -146,13 +146,23 @@ namespace UniversSale.Correction
         /// cette langue-là.</summary>
         public static string Fold(string word)
         {
+            return Fold(word, true);
+        }
+
+        /// <summary>LE pli du mot français — une seule définition, paramétrée
+        /// (batch 37) : lowerCase = false plie accents, ligatures, apostrophes
+        /// et tirets mais GARDE la casse (recherche « respecter la casse »
+        /// insensible aux accents). Jamais une seconde fonction de pliage.</summary>
+        public static string Fold(string word, bool lowerCase)
+        {
             if (string.IsNullOrEmpty(word)) return "";
             // U+2010 (trait d'union) et U+2011 (insécable) se plient en «-» :
             // IsJoiner les accepte, la clé et les découpes doivent les voir
             // comme le tiret ordinaire (batch 29, 0.7 — « grand‑père » en
             // insécable restait un bloc jamais décomposé).
-            var lowered = word.ToLowerInvariant()
-                .Replace("œ", "oe").Replace("æ", "ae").Replace("’", "'")
+            var lowered = (lowerCase ? word.ToLowerInvariant() : word)
+                .Replace("œ", "oe").Replace("æ", "ae")
+                .Replace("Œ", "OE").Replace("Æ", "AE").Replace("’", "'")
                 .Replace('‐', '-').Replace('‑', '-');
             var decomposed = lowered.Normalize(NormalizationForm.FormD);
             var sb = new StringBuilder(decomposed.Length);
