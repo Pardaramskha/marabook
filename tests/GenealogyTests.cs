@@ -238,9 +238,9 @@ namespace UniversSale.Tests
             foreach (var field in old.Fields) if (field.Name == "Couleur de peau") skin = field;
             var skinId = skin.Id;
             t.Check(SheetDefaults.UpgradeCharacterTemplate(old, new List<BinderItem>()), "un modèle d'avant est migré");
-            infos = Names(old, "Infos");
+            infos = Names(old, SheetDefaults.GroupInfos);
             t.Equal(SheetDefaults.FieldAge, infos[infos.IndexOf("Date de naissance") + 1], "Âge inséré sous la date de naissance");
-            t.Equal(string.Join("|", SheetDefaults.CharacterLooks), string.Join("|", Names(old, "Physique").ToArray()), "l'apparence est alignée (Cheveux et Sexe de naissance vides retirés)");
+            t.Equal(string.Join("|", SheetDefaults.CharacterLooks), string.Join("|", Names(old, SheetDefaults.GroupLooks).ToArray()), "l'apparence est alignée (Cheveux et Sexe de naissance vides retirés)");
             t.Equal(skinId, skin.Id, "« Couleur de peau » → « Peau » garde son id (les valeurs suivent)");
             t.Equal("Peau", skin.Name, "…renommée");
             t.Check(!SheetDefaults.UpgradeCharacterTemplate(old, new List<BinderItem>()), "idempotente");
@@ -252,7 +252,7 @@ namespace UniversSale.Tests
             var sheet = new BinderItem { Kind = ItemKind.Sheet, TemplateId = kept.Id };
             sheet.FieldValues[hair.Id] = "roux";
             SheetDefaults.UpgradeCharacterTemplate(kept, new List<BinderItem> { sheet });
-            var looks = Names(kept, "Physique");
+            var looks = Names(kept, SheetDefaults.GroupLooks);
             t.Equal("Cheveux", looks[looks.Count - 1], "un champ rempli n'est jamais retiré (en queue d'apparence)");
             t.Equal(7, looks.Count, "…les six par défaut, puis lui");
 

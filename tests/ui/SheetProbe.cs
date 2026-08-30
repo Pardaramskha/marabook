@@ -132,8 +132,9 @@ namespace UniversSale.Tests.Ui
 
             // — Le modèle Personnage groupé : Infos et Physique se répartissent
             // entre les papers Informations et Apparence (refonte batch 34).
-            var infoFields = (StackPanel)GetField(sheetView, "_infoFields");
-            var looksFields = (StackPanel)GetField(sheetView, "_looksFields");
+            var sections = (System.Collections.Generic.Dictionary<string, StackPanel>)GetField(sheetView, "_sectionPanels"); // papers par section (b42)
+            var infoFields = sections[""];
+            var looksFields = sections[SheetDefaults.GroupLooks];
             Check(infoFields.Children.Count > 1 && looksFields.Children.Count > 1,
                 "les groupes Infos et Physique remplissent Informations et Apparence");
 

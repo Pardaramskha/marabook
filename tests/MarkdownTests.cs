@@ -24,6 +24,67 @@ namespace UniversSale.Tests
             CategoriesSeed(t);
             CategoriesMigration(t);
             CategoryOfSheet(t);
+            SectionsMigration(t);
+        }
+
+        /// <summary>Batch 42, v19 : les sections des modèles. Un projet d'avant
+        /// — groupes « Infos » et « Physique » sur le Personnage, un groupe
+        /// maison sur un autre modèle — reçoit ses sections, « Apparence » à
+        /// la place de « Physique », Informations à la place d'« Infos »,
+        /// et le paper Relations au seul Personnage ; les infos libres des
+        /// fiches suivent ; l'aller-retour .plot garde sections et Relations.</summary>
+        private static void SectionsMigration(Harness t)
+        {
+            var project = Project.CreateNew();
+            var character = project.CharacterTemplate();
+            var place = project.FindTemplate(project.SheetCategories[1].TemplateId);
+            // — L'état d'avant : pas de section, groupes hérités, Relations partout implicite.
+            character.Sections.Clear();
+            character.Relations = false;
+            foreach (var field in character.Fields)
+                field.Group = field.Group.Length == 0 ? SheetDefaults.LegacyGroupInfos : SheetDefaults.LegacyGroupLooks;
+            place.Fields.Add(new SheetField { Name = "Légende", Group = "Folklore" });
+            var sheet = new BinderItem { Kind = ItemKind.Sheet, Title = "Héros", CategoryId = project.SheetCategories[0].Id, TemplateId = character.Id };
+            sheet.FreeInfo.Add(new InfoEntry { Title = "Cicatrice", Value = "front", Group = SheetDefaults.LegacyGroupLooks });
+            sheet.FreeInfo.Add(new InfoEntry { Title = "Devise", Value = "…", Group = SheetDefaults.LegacyGroupInfos });
+            project.Category(Project.KeySheets).Children.Add(sheet);
+            project.RelinkParents();
+
+            SheetDefaults.UpgradeSections(project);
+            t.Check(character.HasSection(SheetDefaults.GroupLooks) && character.Sections.Count == 1,
+                "le Personnage reçoit sa section Apparence, et elle seule");
+            var infos = 0; var looks = 0;
+            foreach (var field in character.Fields)
+                if (field.Group.Length == 0) infos++; else if (field.Group == SheetDefaults.GroupLooks) looks++;
+            t.Check(infos == 10 && looks == SheetDefaults.CharacterLooks.Length,
+                "« Infos » a rejoint Informations, « Physique » est devenu « Apparence » (" + infos + " / " + looks + ")");
+            t.Check(character.Relations, "le paper Relations reste au Personnage");
+            t.Check(!place.Relations, "…et pas aux autres modèles livrés");
+            t.Check(place.Sections.Count == 1 && place.Sections[0] == "Folklore",
+                "un groupe maison devient une section du modèle");
+            t.Check(sheet.FreeInfo[0].Group == SheetDefaults.GroupLooks && sheet.FreeInfo[1].Group == "",
+                "les infos libres des fiches suivent la même migration");
+            SheetDefaults.UpgradeSections(project);
+            t.Check(character.Sections.Count == 1 && place.Sections.Count == 1, "idempotente");
+
+            // — Persistance v19.
+            var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-tests-c10-sections");
+            System.IO.Directory.CreateDirectory(dir);
+            var path = System.IO.Path.Combine(dir, "sections.plot");
+            try
+            {
+                Persistence.PlotFile.Save(project, path);
+                var loaded = Persistence.PlotFile.Load(path);
+                var back = loaded.CharacterTemplate();
+                var backPlace = loaded.FindTemplate(loaded.SheetCategories[1].TemplateId);
+                t.Check(back.Relations && back.HasSection(SheetDefaults.GroupLooks) && !backPlace.Relations
+                    && backPlace.Sections.Count == 1 && backPlace.Sections[0] == "Folklore",
+                    "sections et Relations font l'aller-retour .plot v19");
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(dir, true); } catch (System.IO.IOException) { }
+            }
         }
 
         // ------------------------------------------------------------ blocs
@@ -156,8 +217,8 @@ namespace UniversSale.Tests
                 project.SheetCategories[0].TemplateId);
             var groups = new HashSet<string>();
             foreach (var field in character.Fields) groups.Add(field.Group);
-            t.Check(groups.Contains("Infos") && groups.Contains("Physique"),
-                "le modèle Personnage porte les groupes Infos et Physique");
+            t.Check(groups.Contains("") && groups.Contains(SheetDefaults.GroupLooks) && character.HasSection(SheetDefaults.GroupLooks) && character.Relations,
+                "le modèle Personnage : Informations + section Apparence, et le paper Relations (b42)");
         }
 
         private static void CategoriesMigration(Harness t)

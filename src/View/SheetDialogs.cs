@@ -6,16 +6,22 @@ using UniversSale.Model;
 
 namespace UniversSale.View
 {
-    /// <summary>Sheet template editor: templates on the left, fields (name +
-    /// kind, editable in place) on the right. Works on clones; returns the new
-    /// list on OK, null on cancel. Field ids are stable, so renames keep every
-    /// instance's values and deletions leave them dormant.</summary>
+    /// <summary>L'éditeur de modèles de fiches : les modèles à gauche ; à
+    /// droite, le nom puis deux onglets (batch 42) — « Sections » (Informations
+    /// toujours là, les sections nommées du modèle, le paper Relations en case
+    /// à cocher) et « Champs » (nom, nature, et la section de chaque champ par
+    /// un menu déroulant). Travaille sur des clones ; rend la liste neuve à
+    /// Valider, null à Annuler. Les ids de champ sont stables : renommer garde
+    /// les valeurs des fiches, supprimer les laisse dormantes.</summary>
     public class TemplatesDialog : Window
     {
+        private const string DefaultSectionLabel = "Informations";
+
         private readonly List<SheetTemplate> _templates;
         private readonly ListBox _list;
         private readonly TextBox _nameBox;
-        private readonly StackPanel _fieldsPanel;
+        private readonly StackPanel _sectionsPanel, _fieldsPanel;
+        private readonly CheckBox _relationsCheck;
         private SheetTemplate _current;
         private ListBoxItem _currentEntry; // list row of _current — NOT SelectedItem,
                                            // which already points to the next row
@@ -30,21 +36,23 @@ namespace UniversSale.View
             Title = "Modèles de fiches";
             Owner = owner;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            Width = 640;
-            Height = 480;
-            ResizeMode = ResizeMode.NoResize;
+            Width = 920;
+            Height = 600;
+            MinWidth = 720;
+            MinHeight = 440;
+            ResizeMode = ResizeMode.CanResize;
             ShowInTaskbar = false;
             Background = Chrome.RaisedBg;
 
             var root = new Grid { Margin = new Thickness(14) };
-            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
             root.ColumnDefinitions.Add(new ColumnDefinition());
             root.RowDefinitions.Add(new RowDefinition());
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             // --- left: template list ---
-            var left = new DockPanel { Margin = new Thickness(0, 0, 12, 0) };
-            var listButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            var left = new DockPanel { Margin = new Thickness(0, 0, 14, 0) };
+            var listButtons = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
             listButtons.Children.Add(SmallButton("Nouveau", NewTemplate));
             listButtons.Children.Add(SmallButton("Dupliquer", DuplicateTemplate));
             listButtons.Children.Add(SmallButton("Supprimer", DeleteTemplate));
@@ -56,13 +64,13 @@ namespace UniversSale.View
             Grid.SetColumn(left, 0);
             root.Children.Add(left);
 
-            // --- right: name + fields ---
+            // --- right: name + tabs ---
             var right = new DockPanel();
             var nameRow = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
             var nameLabel = new TextBlock
             {
-                Text = "Nom",
-                Width = 60,
+                Text = "Nom du modèle",
+                Width = 110,
                 Foreground = Chrome.SoftText,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -73,22 +81,59 @@ namespace UniversSale.View
             DockPanel.SetDock(nameRow, Dock.Top);
             right.Children.Add(nameRow);
 
-            var addField = new Button
+            var tabs = new TabControl();
+
+            // — Sections : Informations (fixe), les sections nommées, Relations.
+            var sectionsDock = new DockPanel();
+            var sectionsFoot = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+            var addSection = Buttons.IconText("plus-bold", "Ajouter une section", null, Buttons.Bar, Buttons.Look.Outline);
+            addSection.HorizontalAlignment = HorizontalAlignment.Left;
+            addSection.Click += delegate { AddSection(); };
+            sectionsFoot.Children.Add(addSection);
+            _relationsCheck = new CheckBox
             {
-                Content = Icons.Label("plus-bold", "Ajouter un champ", 11, Chrome.Ink),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Margin = new Thickness(0, 8, 0, 0)
+                Content = "Relations — le paper des liens entre fiches (frère, mentor, rivale…)",
+                Margin = new Thickness(0, 12, 0, 0)
             };
+            _relationsCheck.Checked += delegate { if (_current != null && !_syncing) _current.Relations = true; };
+            _relationsCheck.Unchecked += delegate { if (_current != null && !_syncing) _current.Relations = false; };
+            sectionsFoot.Children.Add(_relationsCheck);
+            DockPanel.SetDock(sectionsFoot, Dock.Bottom);
+            sectionsDock.Children.Add(sectionsFoot);
+            _sectionsPanel = new StackPanel();
+            sectionsDock.Children.Add(new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = _sectionsPanel
+            });
+            tabs.Items.Add(new TabItem { Header = "Sections", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = sectionsDock } });
+
+            // — Champs : nom, nature, section.
+            var fieldsDock = new DockPanel();
+            var addField = Buttons.IconText("plus-bold", "Ajouter un champ", null, Buttons.Bar, Buttons.Look.Outline);
+            addField.HorizontalAlignment = HorizontalAlignment.Left;
+            addField.Margin = new Thickness(0, 8, 0, 0);
             addField.Click += delegate { AddField(); };
             DockPanel.SetDock(addField, Dock.Bottom);
-            right.Children.Add(addField);
-
+            fieldsDock.Children.Add(addField);
+            var fieldsHead = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+            fieldsHead.ColumnDefinitions.Add(new ColumnDefinition());
+            fieldsHead.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(126) });
+            fieldsHead.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(166) });
+            fieldsHead.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+            fieldsHead.Children.Add(HeadLabel("Nom du champ", 0));
+            fieldsHead.Children.Add(HeadLabel("Nature", 1));
+            fieldsHead.Children.Add(HeadLabel("Section", 2));
+            DockPanel.SetDock(fieldsHead, Dock.Top);
+            fieldsDock.Children.Add(fieldsHead);
             _fieldsPanel = new StackPanel();
-            right.Children.Add(new ScrollViewer
+            fieldsDock.Children.Add(new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 Content = _fieldsPanel
             });
+            tabs.Items.Add(new TabItem { Header = "Champs", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = fieldsDock } });
+            right.Children.Add(tabs);
             Grid.SetColumn(right, 1);
             root.Children.Add(right);
 
@@ -119,9 +164,17 @@ namespace UniversSale.View
             return dialog._accepted ? dialog._templates : null;
         }
 
+        private static TextBlock HeadLabel(string text, int column)
+        {
+            var label = new TextBlock { Text = text, Foreground = Chrome.FaintText, FontSize = 11, Margin = new Thickness(2, 0, 0, 0) };
+            Grid.SetColumn(label, column);
+            return label;
+        }
+
         private Button SmallButton(string label, Action onClick)
         {
-            var button = new Button { Content = label, Margin = new Thickness(0, 0, 6, 0) };
+            var button = Buttons.Text(label, null, Buttons.Compact, Buttons.Look.Outline);
+            button.Margin = new Thickness(0, 0, 6, 0);
             button.Click += delegate { onClick(); };
             return button;
         }
@@ -153,7 +206,10 @@ namespace UniversSale.View
             _currentEntry = _list.SelectedItem as ListBoxItem;
             _syncing = true;
             _nameBox.Text = template == null ? "" : template.Name;
+            _relationsCheck.IsChecked = template != null && template.Relations;
+            _relationsCheck.IsEnabled = template != null;
             _syncing = false;
+            RebuildSections();
             RebuildFields();
         }
 
@@ -165,6 +221,81 @@ namespace UniversSale.View
             if (_currentEntry != null) _currentEntry.Content = _current.Name;
         }
 
+        // ------------------------------------------------------------ sections
+
+        private void RebuildSections()
+        {
+            _sectionsPanel.Children.Clear();
+            if (_current == null) return;
+            var fixedRow = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+            fixedRow.Children.Add(new TextBlock
+            {
+                Text = DefaultSectionLabel + "  —  la section par défaut, toujours présente",
+                Foreground = Chrome.SoftText,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(4, 4, 0, 4)
+            });
+            _sectionsPanel.Children.Add(fixedRow);
+            foreach (var section in _current.Sections)
+                _sectionsPanel.Children.Add(BuildSectionRow(section));
+        }
+
+        private UIElement BuildSectionRow(string section)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+            var remove = Buttons.Icon("trash", "Retirer cette section (ses champs rejoignent Informations)", Buttons.Compact, Buttons.Look.Calm);
+            remove.Margin = new Thickness(6, 0, 0, 0);
+            remove.Click += delegate
+            {
+                var index = IndexOfSection(section);
+                if (index < 0) return;
+                var name = _current.Sections[index];
+                _current.Sections.RemoveAt(index);
+                foreach (var field in _current.Fields)
+                    if (string.Equals(field.Group, name, StringComparison.CurrentCultureIgnoreCase)) field.Group = "";
+                RebuildSections();
+                RebuildFields();
+            };
+            DockPanel.SetDock(remove, Dock.Right);
+            row.Children.Add(remove);
+            var nameBox = new TextBox { Text = section, MaxWidth = 320, HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 220 };
+            var previous = section;
+            nameBox.TextChanged += delegate
+            {
+                var next = nameBox.Text.Trim();
+                if (next.Length == 0 || string.Equals(next, DefaultSectionLabel, StringComparison.CurrentCultureIgnoreCase)) return;
+                var index = IndexOfSection(previous);
+                if (index < 0) return;
+                _current.Sections[index] = next;
+                foreach (var field in _current.Fields)
+                    if (string.Equals(field.Group, previous, StringComparison.CurrentCultureIgnoreCase)) field.Group = next;
+                previous = next;
+            };
+            nameBox.LostFocus += delegate { RebuildFields(); }; // les menus déroulants des champs suivent
+            row.Children.Add(nameBox);
+            return row;
+        }
+
+        private int IndexOfSection(string name)
+        {
+            for (var i = 0; i < _current.Sections.Count; i++)
+                if (string.Equals(_current.Sections[i], name, StringComparison.CurrentCultureIgnoreCase)) return i;
+            return -1;
+        }
+
+        private void AddSection()
+        {
+            if (_current == null) return;
+            var name = "Nouvelle section";
+            var n = 2;
+            while (_current.HasSection(name)) name = "Nouvelle section " + n++;
+            _current.Sections.Add(name);
+            RebuildSections();
+            RebuildFields();
+        }
+
+        // ------------------------------------------------------------ champs
+
         private void RebuildFields()
         {
             _fieldsPanel.Children.Clear();
@@ -175,18 +306,18 @@ namespace UniversSale.View
 
         private UIElement BuildFieldRow(SheetField field)
         {
-            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(126) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(166) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
 
-            var remove = new Button { Content = "✕", Width = 28, Margin = new Thickness(6, 0, 0, 0) };
-            DockPanel.SetDock(remove, Dock.Right);
-            remove.Click += delegate
-            {
-                _current.Fields.Remove(field);
-                RebuildFields();
-            };
-            row.Children.Add(remove);
+            var nameBox = new TextBox { Text = field.Name, Margin = new Thickness(0, 0, 6, 0) };
+            nameBox.TextChanged += delegate { field.Name = nameBox.Text; };
+            Grid.SetColumn(nameBox, 0);
+            row.Children.Add(nameBox);
 
-            var kindCombo = new ComboBox { Width = 110, Margin = new Thickness(6, 0, 0, 0) };
+            var kindCombo = new ComboBox { Margin = new Thickness(0, 0, 6, 0) };
             kindCombo.Items.Add("Texte court");
             kindCombo.Items.Add("Texte long");
             kindCombo.SelectedIndex = field.Kind == "multiline" ? 1 : 0;
@@ -194,25 +325,30 @@ namespace UniversSale.View
             {
                 field.Kind = kindCombo.SelectedIndex == 1 ? "multiline" : "text";
             };
-            DockPanel.SetDock(kindCombo, Dock.Right);
+            Grid.SetColumn(kindCombo, 1);
             row.Children.Add(kindCombo);
 
-            // Groupe d'affichage (batch 31) : les champs d'un même groupe
-            // s'affichent sous un intertitre (« Infos », « Physique »…).
-            var groupBox = new TextBox
+            // La section du champ : Informations, ou l'une des sections du modèle.
+            var sectionCombo = new ComboBox { Margin = new Thickness(0, 0, 6, 0), ToolTip = "La section (le paper) où ce champ s'affiche sur la fiche" };
+            sectionCombo.Items.Add(DefaultSectionLabel);
+            foreach (var section in _current.Sections) sectionCombo.Items.Add(section);
+            var index = field.Group.Length == 0 ? -1 : IndexOfSection(field.Group);
+            sectionCombo.SelectedIndex = index < 0 ? 0 : index + 1;
+            sectionCombo.SelectionChanged += delegate
             {
-                Text = field.Group,
-                Width = 90,
-                Margin = new Thickness(6, 0, 0, 0),
-                ToolTip = "Groupe d'affichage (ex. Infos, Physique) — vide : aucun"
+                field.Group = sectionCombo.SelectedIndex <= 0 ? "" : _current.Sections[sectionCombo.SelectedIndex - 1];
             };
-            groupBox.TextChanged += delegate { field.Group = groupBox.Text.Trim(); };
-            DockPanel.SetDock(groupBox, Dock.Right);
-            row.Children.Add(groupBox);
+            Grid.SetColumn(sectionCombo, 2);
+            row.Children.Add(sectionCombo);
 
-            var nameBox = new TextBox { Text = field.Name };
-            nameBox.TextChanged += delegate { field.Name = nameBox.Text; };
-            row.Children.Add(nameBox);
+            var remove = Buttons.Icon("trash", "Supprimer ce champ (les fiches gardent leur valeur, dormante)", Buttons.Compact, Buttons.Look.Calm);
+            remove.Click += delegate
+            {
+                _current.Fields.Remove(field);
+                RebuildFields();
+            };
+            Grid.SetColumn(remove, 3);
+            row.Children.Add(remove);
             return row;
         }
 
@@ -222,6 +358,8 @@ namespace UniversSale.View
             _current.Fields.Add(new SheetField { Name = "Champ" });
             RebuildFields();
         }
+
+        // ------------------------------------------------------------ modèles
 
         private void NewTemplate()
         {

@@ -458,8 +458,9 @@ namespace UniversSale.Tests.Ui
             DoEvents();
             var sheetView = (SheetView)GetField(window, "_sheetView");
             Check(sheetView.Visibility == Visibility.Visible, "la fiche s'ouvre");
-            var looks = (StackPanel)GetField(sheetView, "_looksFields");
-            var infos = (StackPanel)GetField(sheetView, "_infoFields");
+            var sectionPanels = (System.Collections.Generic.Dictionary<string, StackPanel>)GetField(sheetView, "_sectionPanels"); // papers par section (b42)
+            var looks = sectionPanels[SheetDefaults.GroupLooks];
+            var infos = sectionPanels[""];
             Check(looks.Children.Count > 1 && infos.Children.Count > 1,
                 "les champs se répartissent entre Informations et Apparence (Physique + champ libre)");
             var relations = (StackPanel)GetField(sheetView, "_relationsPanel");

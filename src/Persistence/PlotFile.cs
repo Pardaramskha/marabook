@@ -79,7 +79,15 @@ namespace UniversSale.Persistence
         //      Racine « Accueil » (category "home"), créée au chargement en
         //      premier, avant Écrits. Un .plot d'avant s'ouvre sans épingle
         //      ni récent.
-        private const int FormatVersion = 18;
+        // v19: SECTIONS DE FICHE (batch 42) — un modèle porte ses sections
+        //      nommées ("sections" : [string], « Informations » = groupe vide
+        //      implicite) et son paper Relations ("relations": true, omis
+        //      faux). Les groupes « Physique » deviennent « Apparence » et
+        //      « Infos » rejoint Informations, sur les champs de modèle comme
+        //      sur les infos libres des fiches ; les sections sont dérivées
+        //      des groupes présents, Relations n'est gardé que par le
+        //      Personnage (SheetDefaults.UpgradeSections, au chargement).
+        private const int FormatVersion = 19;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -532,6 +540,9 @@ namespace UniversSale.Persistence
                     fields.Add(f);
                 }
                 t["fields"] = fields;
+                if (template.Sections.Count > 0) // v19
+                    t["sections"] = new List<object>(template.Sections.ToArray());
+                if (template.Relations) t["relations"] = true; // v19 — omis faux
                 list.Add(t);
             }
             root["templates"] = list;
@@ -813,6 +824,10 @@ namespace UniversSale.Persistence
                 project.EnsureSheetCategories();
                 // Batch 36 : le modèle Personnage d'un .plot d'avant la v16
                 // reçoit « Âge » et l'apparence par défaut — une fois.
+                // Batch 42 : sections de fiche — « Physique » → « Apparence »,
+                // « Infos » → Informations, sections dérivées, Relations au
+                // seul Personnage — une fois, gardé par la version lue.
+                if (project.LoadedFormatVersion < 19) SheetDefaults.UpgradeSections(project);
                 if (project.LoadedFormatVersion < 16) project.UpgradeCharacterTemplate();
                 return project;
             }
@@ -933,6 +948,12 @@ namespace UniversSale.Persistence
                             field.Group = Json.AsString(Json.Field(f, "group")) ?? "";
                             template.Fields.Add(field);
                         }
+                    var sections = Json.AsList(Json.Field(t, "sections")); // v19
+                    if (sections != null)
+                        foreach (var section in sections)
+                            if (section is string && ((string)section).Length > 0 && !template.HasSection((string)section))
+                                template.Sections.Add((string)section);
+                    template.Relations = Json.AsBool(Json.Field(t, "relations"), false); // v19
                     templates.Add(template);
                 }
             // an empty list is legitimate (user deleted them all)

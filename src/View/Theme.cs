@@ -672,14 +672,16 @@ namespace UniversSale.View
 
   <!-- Onglets en CHIP (batch 34) : l'actif est une pastille arrondie à la
        couleur d'accent, texte papier ; les autres sont nus, survol grisé. -->
+  <!-- Curseur, encre et graisse sont posés sur l'EN-TÊTE (Bg), jamais sur
+       le TabItem : son contenu en hériterait (« Texte libre » en gras,
+       curseur main sur les papers — b42). -->
   <Style TargetType=""TabItem"">
     <Setter Property=""Foreground"" Value=""{StaticResource InkSoft}""/>
-    <Setter Property=""Cursor"" Value=""Hand""/>
     <Setter Property=""Template"">
       <Setter.Value>
         <ControlTemplate TargetType=""TabItem"">
           <Border x:Name=""Bg"" Background=""Transparent"" Padding=""12,4"" Margin=""3,4,0,4""
-                  CornerRadius=""12"" BorderThickness=""1"" BorderBrush=""Transparent"">
+                  CornerRadius=""12"" BorderThickness=""1"" BorderBrush=""Transparent"" Cursor=""Hand"">
             <ContentPresenter ContentSource=""Header"" VerticalAlignment=""Center""/>
           </Border>
           <ControlTemplate.Triggers>
@@ -689,8 +691,8 @@ namespace UniversSale.View
             <Trigger Property=""IsSelected"" Value=""True"">
               <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource Accent}""/>
               <Setter TargetName=""Bg"" Property=""BorderBrush"" Value=""{StaticResource Accent}""/>
-              <Setter Property=""Foreground"" Value=""{StaticResource Paper}""/>
-              <Setter Property=""FontWeight"" Value=""SemiBold""/>
+              <Setter TargetName=""Bg"" Property=""TextElement.Foreground"" Value=""{StaticResource Paper}""/>
+              <Setter TargetName=""Bg"" Property=""TextElement.FontWeight"" Value=""SemiBold""/>
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>

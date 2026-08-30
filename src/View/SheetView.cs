@@ -30,7 +30,16 @@ namespace UniversSale.View
         private readonly Button _genealogyButton;
         private GenealogyWindow _genealogy;        // le paper flottant (b36)
         private readonly ScrollViewer _preview;
-        private readonly StackPanel _infoFields, _looksFields, _relationsPanel;
+        private readonly StackPanel _relationsPanel;
+        // Les papers de l'onglet Général (batch 42) : l'image, une section
+        // par nom (« » = Informations), les relations si le modèle les veut.
+        private readonly Border _imagePaper, _relationsPaper;
+        private readonly Grid _papersGrid;
+        private readonly StackPanel[] _columns;
+        private readonly Dictionary<string, StackPanel> _sectionPanels = new Dictionary<string, StackPanel>();
+        private readonly List<Border> _sectionPapers = new List<Border>();
+        private bool _showRelations;
+        private int _layoutMode = -1;
         private readonly Image _portrait;
         private readonly TextBlock _portraitPlaceholder;
         private readonly Button _removePortrait;
@@ -157,47 +166,28 @@ namespace UniversSale.View
             var imageContent = new StackPanel();
             imageContent.Children.Add(portraitStack);
             imageContent.Children.Add(portraitOptions);
-            var imagePaper = Paper("Image", imageContent, null);
 
-            // Informations.
-            _infoFields = new StackPanel();
-            var addInfo = AddButton("Ajouter un champ");
-            addInfo.Click += delegate { AddFreeField(""); };
-            var infoPaper = Paper("Informations", _infoFields, addInfo);
+            _imagePaper = Paper("Image", imageContent, null);
+            _papersGrid = papers;
+            _columns = columns;
 
-            // Apparence.
-            _looksFields = new StackPanel();
-            var addLooks = AddButton("Ajouter un champ");
-            addLooks.Click += delegate { AddFreeField(SheetDefaults.GroupLooks); };
-            var looksPaper = Paper("Apparence", _looksFields, addLooks);
+            // Les sections (Informations, puis celles du modèle — batch 42)
+            // sont des papers bâtis par RebuildPapers à chaque fiche chargée.
 
-            // Relations.
+            // Relations — le paper n'est là que si le modèle le demande (ou
+            // si la fiche en porte déjà).
             _relationsPanel = new StackPanel();
             var addRelation = AddButton("Ajouter une relation");
             addRelation.Click += delegate { AddRelation(); };
-            var relationsPaper = Paper("Relations", _relationsPanel, addRelation);
+            _relationsPaper = Paper("Relations", _relationsPanel, addRelation);
 
             // Trois modes selon la largeur des papers : large (≥ 900 px) =
             // les trois colonnes ; moyen (≥ 560 px) = deux colonnes (image +
-            // informations | apparence + relations, la colonne vide cède) ;
-            // étroit = une colonne, les papers empilés — trois colonnes de
-            // 200 px ne montreraient plus rien.
-            var mode = -1;
-            papers.SizeChanged += delegate
-            {
-                var wantMode = papers.ActualWidth >= 900 ? 3 : papers.ActualWidth >= 560 ? 2 : 1;
-                if (wantMode == mode) return;
-                mode = wantMode;
-                papers.ColumnDefinitions[1].Width = mode >= 2 ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-                papers.ColumnDefinitions[2].Width = mode >= 3 ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-                foreach (var column in columns) column.Children.Clear();
-                columns[0].Children.Add(imagePaper);
-                columns[0].Children.Add(infoPaper);
-                var second = mode == 1 ? columns[0] : columns[1];
-                second.Children.Add(looksPaper);
-                second.Children.Add(relationsPaper);
-            };
-            var generalScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = papers };
+            // informations | autres sections + relations, la colonne vide
+            // cède) ; étroit = une colonne, les papers empilés.
+            papers.SizeChanged += delegate { LayoutPapers(false); };
+            // Un paper n'est pas cliquable : pas de curseur main hérité (b42).
+            var generalScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = papers, Cursor = Cursors.Arrow };
             _tabs.Items.Add(new TabItem { Header = "Général", Content = generalScroll });
 
             // — Texte libre : l'éditeur markdown.
@@ -261,7 +251,8 @@ namespace UniversSale.View
                 Margin = new Thickness(8, 12, 8, 14),
                 Effect = Shadow(),
                 Child = editorStack,
-                ClipToBounds = false
+                ClipToBounds = false,
+                Cursor = Cursors.Arrow // pas de curseur main hérité de l'onglet (b42)
             };
             _tabs.Items.Add(new TabItem { Header = "Texte libre", Content = editorPaper });
 
@@ -338,12 +329,69 @@ namespace UniversSale.View
             };
         }
 
-        // ================================================== champs
+        // ================================================== sections
 
-        private static bool IsLooks(string group)
+        /// <summary>Les papers de la fiche chargée : Informations, puis les
+        /// sections du modèle (plus toute section qu'une info libre nomme
+        /// encore — rien n'est caché), puis Relations si le modèle le veut
+        /// ou si la fiche en porte déjà.</summary>
+        private void RebuildPapers()
         {
-            return string.Equals(group, SheetDefaults.GroupLooks, StringComparison.CurrentCultureIgnoreCase);
+            _sectionPanels.Clear();
+            _sectionPapers.Clear();
+            var names = new List<string> { "" };
+            if (_template != null)
+                foreach (var section in _template.Sections)
+                    if (SectionKey(names, section) == null) names.Add(section);
+            if (_item != null)
+                foreach (var entry in _item.FreeInfo)
+                    if (SectionKey(names, entry.Group) == null) names.Add(entry.Group ?? "");
+            foreach (var name in names)
+            {
+                var panel = new StackPanel();
+                _sectionPanels[name] = panel;
+                var add = AddButton("Ajouter un champ");
+                var nameRef = name;
+                add.Click += delegate { AddFreeField(nameRef); };
+                _sectionPapers.Add(Paper(name.Length == 0 ? "Informations" : name, panel, add));
+            }
+            _showRelations = (_template != null && _template.Relations)
+                || (_item != null && _item.Relations.Count > 0);
+            LayoutPapers(true);
         }
+
+        /// <summary>Le nom de section déjà connu qui correspond (sans casse), ou null.</summary>
+        private static string SectionKey(List<string> names, string group)
+        {
+            var wanted = group ?? "";
+            foreach (var name in names)
+                if (string.Equals(name, wanted, StringComparison.CurrentCultureIgnoreCase)) return name;
+            return null;
+        }
+
+        private StackPanel PanelFor(string group)
+        {
+            var key = SectionKey(new List<string>(_sectionPanels.Keys), group);
+            return _sectionPanels[key ?? ""];
+        }
+
+        private void LayoutPapers(bool force)
+        {
+            var width = _papersGrid.ActualWidth;
+            var wantMode = width >= 900 ? 3 : width >= 560 ? 2 : 1;
+            if (wantMode == _layoutMode && !force) return;
+            _layoutMode = wantMode;
+            _papersGrid.ColumnDefinitions[1].Width = wantMode >= 2 ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            _papersGrid.ColumnDefinitions[2].Width = wantMode >= 3 ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            foreach (var column in _columns) column.Children.Clear();
+            _columns[0].Children.Add(_imagePaper);
+            if (_sectionPapers.Count > 0) _columns[0].Children.Add(_sectionPapers[0]);
+            var second = wantMode == 1 ? _columns[0] : _columns[1];
+            for (var i = 1; i < _sectionPapers.Count; i++) second.Children.Add(_sectionPapers[i]);
+            if (_showRelations) second.Children.Add(_relationsPaper);
+        }
+
+        // ================================================== champs
 
         // Les zones de saisie par identifiant (champ de modèle, info libre,
         // relation) — la navigation d'une occurrence les retrouve (b37).
@@ -403,8 +451,7 @@ namespace UniversSale.View
 
         private void RebuildFields()
         {
-            _infoFields.Children.Clear();
-            _looksFields.Children.Clear();
+            foreach (var panel in _sectionPanels.Values) panel.Children.Clear();
             _fieldBoxes.Clear();
             if (_item == null) return;
             if (_template != null)
@@ -417,12 +464,15 @@ namespace UniversSale.View
                     {
                         _item.FieldValues[fieldRef.Id] = text;
                     }, null, field.Id);
-                    (IsLooks(field.Group) ? _looksFields : _infoFields).Children.Add(row);
+                    PanelFor(field.Group).Children.Add(row);
                 }
             foreach (var entry in _item.FreeInfo)
-                (IsLooks(entry.Group) ? _looksFields : _infoFields).Children.Add(FreeFieldRow(entry));
-            if (_infoFields.Children.Count == 0) _infoFields.Children.Add(Hint("Aucune information — ajoutez un champ."));
-            if (_looksFields.Children.Count == 0) _looksFields.Children.Add(Hint("Aucun trait d'apparence — ajoutez un champ."));
+                PanelFor(entry.Group).Children.Add(FreeFieldRow(entry));
+            foreach (var pair in _sectionPanels)
+                if (pair.Value.Children.Count == 0)
+                    pair.Value.Children.Add(Hint(pair.Key.Length == 0
+                        ? "Aucune information — ajoutez un champ."
+                        : "Aucun champ dans cette section — ajoutez-en un."));
         }
 
         private static TextBlock Hint(string text)
@@ -430,23 +480,28 @@ namespace UniversSale.View
             return new TextBlock { Text = text, Foreground = Chrome.SoftText, FontSize = 11, TextWrapping = TextWrapping.Wrap };
         }
 
-        /// <summary>Une rangée libellé / valeur ; remove = bouton ✕ optionnel.</summary>
+        /// <summary>Une rangée d'un paper (batch 42) : le nom du champ en haut,
+        /// petit, la valeur sur la ligne du dessous. remove = bouton ✕ optionnel.</summary>
         private UIElement FieldRow(string label, string value, bool multiline, Action<string> onChanged, Button remove, string refId)
         {
-            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
-            if (remove != null) { DockPanel.SetDock(remove, Dock.Right); row.Children.Add(remove); }
-            var caption = new TextBlock
+            var row = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
+            var head = new DockPanel { Margin = new Thickness(0, 0, 0, 2) };
+            if (remove != null) { DockPanel.SetDock(remove, Dock.Right); head.Children.Add(remove); }
+            head.Children.Add(new TextBlock
             {
                 Text = label,
-                Width = 92,
-                Foreground = Chrome.SoftText,
-                FontSize = 12,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 4, 8, 0),
+                Foreground = Chrome.FaintText,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis
-            };
-            DockPanel.SetDock(caption, Dock.Left);
-            row.Children.Add(caption);
+            });
+            row.Children.Add(head);
+            row.Children.Add(ValueBox(value, multiline, onChanged, refId));
+            return row;
+        }
+
+        private TextBox ValueBox(string value, bool multiline, Action<string> onChanged, string refId)
+        {
             var box = new TextBox { Text = value };
             if (refId != null) _fieldBoxes[refId] = box;
             if (multiline)
@@ -462,14 +517,17 @@ namespace UniversSale.View
                 onChanged(box.Text);
                 NotifyEdited();
             };
-            row.Children.Add(box);
-            return row;
+            return box;
         }
 
+        /// <summary>Un champ propre à la fiche : son nom, une fois renseigné,
+        /// s'affiche en texte simple avec un « + » à côté qui rouvre la zone
+        /// de saisie pour le changer ; la valeur dessous (batch 42).</summary>
         private UIElement FreeFieldRow(InfoEntry entry)
         {
-            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
-            var remove = new Button { Content = "✕", Width = 26, Margin = new Thickness(6, 0, 0, 0), ToolTip = "Supprimer ce champ" };
+            var row = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
+            var head = new DockPanel { Margin = new Thickness(0, 0, 0, 2) };
+            var remove = Buttons.Icon("trash", "Supprimer ce champ", Buttons.Compact, Buttons.Look.Calm);
             remove.Click += delegate
             {
                 _item.FreeInfo.Remove(entry);
@@ -477,25 +535,60 @@ namespace UniversSale.View
                 NotifyEdited();
             };
             DockPanel.SetDock(remove, Dock.Right);
-            row.Children.Add(remove);
-            var titleBox = new TextBox { Text = entry.Title, Width = 92, Margin = new Thickness(0, 0, 8, 0), ToolTip = "Nom du champ" };
+            head.Children.Add(remove);
+
+            var titleText = new TextBlock
+            {
+                Foreground = Chrome.FaintText,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            var titleBox = new TextBox { ToolTip = "Nom du champ — Entrée pour valider", MaxWidth = 240, HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 120 };
+            var rename = Buttons.Icon("plus-bold", "Changer le nom du champ", Buttons.Compact, Buttons.Look.Calm);
+            var editing = string.IsNullOrEmpty(entry.Title) || entry.Title == "Champ";
+            Action sync = delegate
+            {
+                titleText.Text = entry.Title;
+                titleText.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
+                rename.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
+                titleBox.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
+            };
+            titleBox.Text = entry.Title;
             titleBox.TextChanged += delegate
             {
                 if (_loading) return;
                 entry.Title = titleBox.Text;
                 NotifyEdited();
             };
-            DockPanel.SetDock(titleBox, Dock.Left);
-            row.Children.Add(titleBox);
-            var valueBox = new TextBox { Text = entry.Value };
-            _fieldBoxes[entry.Id] = valueBox;
-            valueBox.TextChanged += delegate
+            Action close = delegate
             {
-                if (_loading) return;
-                entry.Value = valueBox.Text;
-                NotifyEdited();
+                if (string.IsNullOrEmpty(entry.Title.Trim())) return; // sans nom : la saisie reste
+                editing = false;
+                sync();
             };
-            row.Children.Add(valueBox);
+            titleBox.LostFocus += delegate { close(); };
+            titleBox.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key == Key.Enter || e.Key == Key.Escape) { close(); e.Handled = true; }
+            };
+            rename.Click += delegate
+            {
+                editing = true;
+                sync();
+                titleBox.Focus();
+                titleBox.SelectAll();
+            };
+            var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+            titleRow.Children.Add(titleText);
+            titleRow.Children.Add(titleBox);
+            rename.Margin = new Thickness(4, 0, 0, 0);
+            titleRow.Children.Add(rename);
+            head.Children.Add(titleRow);
+            sync();
+            row.Children.Add(head);
+            row.Children.Add(ValueBox(entry.Value, false, delegate(string text) { entry.Value = text; }, entry.Id));
+            if (editing) row.Loaded += delegate { if (titleBox.IsVisible && titleBox.Text == "Champ") { titleBox.Focus(); titleBox.SelectAll(); } };
             return row;
         }
 
@@ -720,27 +813,29 @@ namespace UniversSale.View
 
         private UIElement BuildMarkdownToolbar()
         {
+            // Les icônes de l'éditeur de texte, en boutons CARRÉS (batch 42) ;
+            // ce qui n'a pas d'icône dans le jeu reste en lettres, carré aussi.
             var bar = new WrapPanel { Margin = new Thickness(10, 8, 10, 4) };
-            bar.Children.Add(Tool("G", "Gras (Ctrl+B)", FontWeights.Bold, FontStyles.Normal, delegate { Wrap("**", "**"); }));
-            bar.Children.Add(Tool("I", "Italique (Ctrl+I)", FontWeights.Normal, FontStyles.Italic, delegate { Wrap("*", "*"); }));
-            bar.Children.Add(Tool("S", "Souligné (Ctrl+U)", FontWeights.Normal, FontStyles.Normal, delegate { Wrap("<u>", "</u>"); }, TextDecorations.Underline));
-            bar.Children.Add(Tool("B", "Barré", FontWeights.Normal, FontStyles.Normal, delegate { Wrap("~~", "~~"); }, TextDecorations.Strikethrough));
+            bar.Children.Add(IconTool("bold", "Gras (Ctrl+B)", delegate { Wrap("**", "**"); }));
+            bar.Children.Add(IconTool("italic", "Italique (Ctrl+I)", delegate { Wrap("*", "*"); }));
+            bar.Children.Add(IconTool("underline", "Souligné (Ctrl+U)", delegate { Wrap("<u>", "</u>"); }));
+            bar.Children.Add(IconTool("strikethrough", "Barré", delegate { Wrap("~~", "~~"); }));
             bar.Children.Add(Gap());
-            bar.Children.Add(Tool("H1", "Titre de niveau 1", FontWeights.SemiBold, FontStyles.Normal, delegate { ApplyHeading(1); }));
-            bar.Children.Add(Tool("H2", "Titre de niveau 2", FontWeights.SemiBold, FontStyles.Normal, delegate { ApplyHeading(2); }));
-            bar.Children.Add(Tool("H3", "Titre de niveau 3", FontWeights.SemiBold, FontStyles.Normal, delegate { ApplyHeading(3); }));
+            bar.Children.Add(TextTool("H1", "Titre de niveau 1", delegate { ApplyHeading(1); }));
+            bar.Children.Add(TextTool("H2", "Titre de niveau 2", delegate { ApplyHeading(2); }));
+            bar.Children.Add(TextTool("H3", "Titre de niveau 3", delegate { ApplyHeading(3); }));
             bar.Children.Add(Gap());
-            bar.Children.Add(Tool("•", "Liste à puces", FontWeights.Normal, FontStyles.Normal, delegate { ApplyList("puce"); }));
-            bar.Children.Add(Tool("1.", "Liste numérotée", FontWeights.Normal, FontStyles.Normal, delegate { ApplyList("num"); }));
-            bar.Children.Add(Tool("–", "Liste à tirets", FontWeights.Normal, FontStyles.Normal, delegate { ApplyList("tiret"); }));
-            bar.Children.Add(Tool("☑", "Liste de tâches (cases à cocher)", FontWeights.Normal, FontStyles.Normal, delegate { ApplyList("case"); }));
-            bar.Children.Add(Tool("❝", "Citation", FontWeights.Normal, FontStyles.Normal, delegate { ApplyQuote(); }));
+            bar.Children.Add(IconTool("list", "Liste à puces", delegate { ApplyList("puce"); }));
+            bar.Children.Add(IconTool("list-numbers-bold", "Liste numérotée", delegate { ApplyList("num"); }));
+            bar.Children.Add(IconTool("list-dashes-bold", "Liste à tirets", delegate { ApplyList("tiret"); }));
+            bar.Children.Add(IconTool("list-check", "Liste de tâches (cases à cocher)", delegate { ApplyList("case"); }));
+            bar.Children.Add(TextTool("❝", "Citation", delegate { ApplyQuote(); }));
             bar.Children.Add(Gap());
-            bar.Children.Add(Tool("⊞", "Insérer un tableau", FontWeights.Normal, FontStyles.Normal, delegate { InsertTable(); }));
-            bar.Children.Add(Tool("―", "Filet horizontal", FontWeights.Normal, FontStyles.Normal, delegate { InsertRule(); }));
-            bar.Children.Add(Tool("🔗", "Lien hypertexte", FontWeights.Normal, FontStyles.Normal, delegate { InsertLink(); }));
-            bar.Children.Add(Tool("🖼", "Image", FontWeights.Normal, FontStyles.Normal, delegate { InsertImage(); }));
-            bar.Children.Add(Tool("[[ ]]", "Lien vers une fiche (Ctrl+K)", FontWeights.Normal, FontStyles.Normal, delegate { Wrap("[[", "]]"); }));
+            bar.Children.Add(IconTool("tableau-recherche", "Insérer un tableau", delegate { InsertTable(); }));
+            bar.Children.Add(IconTool("horizontal-rule", "Filet horizontal", delegate { InsertRule(); }));
+            bar.Children.Add(TextTool("🔗", "Lien hypertexte", delegate { InsertLink(); }));
+            bar.Children.Add(IconTool("image-square-bold", "Image", delegate { InsertImage(); }));
+            bar.Children.Add(IconTool("fiche-individual", "Lien vers une fiche (Ctrl+K)", delegate { Wrap("[[", "]]"); }));
             return bar;
         }
 
@@ -749,24 +844,20 @@ namespace UniversSale.View
             return new Border { Width = 1, Height = 18, Background = Chrome.Border, Margin = new Thickness(6, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
         }
 
-        private Button Tool(string label, string tooltip, FontWeight weight, FontStyle style, Action action)
+        private Button IconTool(string icon, string tooltip, Action action)
         {
-            return Tool(label, tooltip, weight, style, action, null);
+            var button = Buttons.Icon(icon, tooltip, Buttons.Compact, Buttons.Look.Calm);
+            button.Margin = new Thickness(0, 0, 2, 3);
+            button.Click += delegate { if (_item != null) action(); };
+            return button;
         }
 
-        private Button Tool(string label, string tooltip, FontWeight weight, FontStyle style, Action action, TextDecorationCollection decorations)
+        private Button TextTool(string label, string tooltip, Action action)
         {
-            var text = new TextBlock { Text = label, FontWeight = weight, FontStyle = style, FontSize = 12 };
-            if (decorations != null) text.TextDecorations = decorations;
-            var button = new Button
-            {
-                Content = text,
-                MinWidth = 28,
-                Padding = new Thickness(6, 2, 6, 2),
-                Margin = new Thickness(0, 0, 3, 3),
-                ToolTip = tooltip,
-                Focusable = false
-            };
+            var button = Buttons.Text(label, tooltip, Buttons.Compact, Buttons.Look.Calm);
+            button.Width = Buttons.Compact; // carré, comme les icônes
+            button.Padding = new Thickness(0);
+            button.Margin = new Thickness(0, 0, 2, 3);
             button.Click += delegate { if (_item != null) action(); };
             return button;
         }
@@ -955,6 +1046,7 @@ namespace UniversSale.View
             _titleLabel.Text = item.Title;
             _categoryLabel.Text = (category != null ? "Fiche " + category.Name : "Fiche")
                 + (template != null ? " — modèle " + template.Name : " (modèle introuvable — champs libres uniquement)");
+            RebuildPapers();
             RebuildFields();
             RebuildRelations();
             RefreshPortrait();
@@ -986,6 +1078,7 @@ namespace UniversSale.View
             _portraitPlaceholder.Visibility = Visibility.Visible;
             _removePortrait.Visibility = Visibility.Collapsed;
             _preview.Content = null;
+            RebuildPapers();
             SyncGenealogy();
         }
 

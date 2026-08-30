@@ -167,6 +167,17 @@ namespace UniversSale.View
             });
         }
 
+        /// <summary>L'éditeur de modèles (sections, champs, natures) ; les
+        /// modèles édités remplacent ceux du projet, la bibliothèque se redessine.</summary>
+        private void EditTemplates()
+        {
+            var edited = TemplatesDialog.Show(Window.GetWindow(this), _project.Templates);
+            if (edited == null) return;
+            _project.Templates = edited;
+            NotifyChanged();
+            RebuildRows();
+        }
+
         private void AddHeader(string name, SheetCategory category, int count)
         {
             var header = new DockPanel { Margin = new Thickness(0, 14, 0, 8) };
@@ -184,6 +195,18 @@ namespace UniversSale.View
                 var categoryRef = category;
                 newSheet.Click += delegate { NewSheet(categoryRef); };
                 buttons.Children.Add(newSheet);
+
+                // L'éditeur de modèles à portée de main (batch 42), à côté de
+                // « Nouvelle fiche » — le même que « Modifier ▾ → Modifier les modèles… ».
+                var templates = new Button
+                {
+                    Content = "Éditeur de modèles…",
+                    Padding = new Thickness(8, 2, 8, 2),
+                    Margin = new Thickness(6, 0, 0, 0),
+                    ToolTip = "Sections, champs et natures des modèles de fiches"
+                };
+                templates.Click += delegate { EditTemplates(); };
+                buttons.Children.Add(templates);
 
                 var edit = new Button
                 {
@@ -465,15 +488,7 @@ namespace UniversSale.View
                 Header = "Modifier les modèles…",
                 ToolTip = "Champs, groupes et types — l'éditeur de modèles"
             };
-            editTemplates.Click += delegate
-            {
-                var edited = TemplatesDialog.Show(Window.GetWindow(this),
-                    _project.Templates);
-                if (edited == null) return;
-                _project.Templates = edited;
-                NotifyChanged();
-                RebuildRows();
-            };
+            editTemplates.Click += delegate { EditTemplates(); };
             menu.Items.Add(editTemplates);
 
             menu.Items.Add(new Separator());

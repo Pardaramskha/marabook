@@ -32,12 +32,29 @@ namespace UniversSale.Model
         public string Id = Guid.NewGuid().ToString("N");
         public string Name = "Modèle";
         public List<SheetField> Fields = new List<SheetField>();
+        // Les SECTIONS du modèle (batch 42, v19) : « Informations » (groupe
+        // vide) existe toujours ; ici les sections nommées en plus, dans
+        // l'ordre des papers (« Apparence » pour le Personnage). Un champ
+        // (SheetField.Group) ou une info libre (InfoEntry.Group) s'y range
+        // par son nom.
+        public List<string> Sections = new List<string>();
+        // Le paper « Relations » (liens entre fiches) — vrai pour le
+        // Personnage, faux pour les autres modèles livrés (batch 42).
+        public bool Relations;
 
         public SheetTemplate Clone()
         {
-            var copy = new SheetTemplate { Id = Id, Name = Name };
+            var copy = new SheetTemplate { Id = Id, Name = Name, Relations = Relations };
             foreach (var field in Fields) copy.Fields.Add(field.Clone());
+            copy.Sections.AddRange(Sections);
             return copy;
+        }
+
+        public bool HasSection(string name)
+        {
+            foreach (var section in Sections)
+                if (string.Equals(section, name, StringComparison.CurrentCultureIgnoreCase)) return true;
+            return false;
         }
     }
 
@@ -58,8 +75,11 @@ namespace UniversSale.Model
     /// d'avant les catégories (PlotFile).</summary>
     public static class SheetDefaults
     {
-        /// <summary>Le groupe de champs rendu dans le paper « Apparence ».</summary>
-        public const string GroupLooks = "Physique";
+        /// <summary>La section « Apparence » (batch 42 : elle porte son nom —
+        /// « Physique » était la clé d'avant, migrée au chargement).</summary>
+        public const string GroupLooks = "Apparence";
+        public const string LegacyGroupLooks = "Physique";
+        public const string LegacyGroupInfos = "Infos";
 
         public static readonly string[] CategoryNames =
         {
@@ -96,8 +116,9 @@ namespace UniversSale.Model
             }
         }
 
-        /// <summary>Le groupe des champs d'état civil du personnage.</summary>
-        public const string GroupInfos = "Infos";
+        /// <summary>Le groupe des champs d'état civil du personnage : depuis le
+        /// batch 42, la section par défaut « Informations » (groupe vide).</summary>
+        public const string GroupInfos = "";
 
         // IMPORTANT (batch 36) : « Âge », sous la date de naissance. Champ
         // texte libre pour l'instant — on y revient vite (calcul depuis la
@@ -116,7 +137,8 @@ namespace UniversSale.Model
         /// civil, le genre, l'âge) et « Physique » (batch 31, refondu b36).</summary>
         private static SheetTemplate Character()
         {
-            var t = new SheetTemplate { Name = "Personnage" };
+            var t = new SheetTemplate { Name = "Personnage", Relations = true };
+            t.Sections.Add(GroupLooks); // Informations (implicite) + Apparence
             t.Fields.Add(G("Nom", GroupInfos));
             t.Fields.Add(G("Prénom", GroupInfos));
             t.Fields.Add(G("Alias", GroupInfos));
@@ -147,6 +169,15 @@ namespace UniversSale.Model
             if (template == null) return false;
             var changed = false;
             var fields = template.Fields;
+
+            // — Les groupes d'avant les sections (b42) : « Physique » →
+            //   « Apparence », « Infos » → Informations — même appelée seule.
+            foreach (var field in fields)
+            {
+                var migrated = MigrateGroup(field.Group);
+                if (migrated != field.Group) { field.Group = migrated; changed = true; }
+            }
+            if (!template.HasSection(GroupLooks)) { template.Sections.Add(GroupLooks); changed = true; }
 
             // — Âge, juste sous la date de naissance.
             if (FindField(fields, FieldAge) == null)
@@ -249,6 +280,42 @@ namespace UniversSale.Model
         private static SheetField G(string name, string group)
         {
             return new SheetField { Name = name, Group = group };
+        }
+
+        /// <summary>Migration v19 (batch 42) des modèles et des fiches d'un
+        /// projet d'avant les sections : « Physique » devient « Apparence »,
+        /// « Infos » rejoint Informations (groupe vide) ; chaque modèle reçoit
+        /// ses sections (les groupes nommés encore présents) et le paper
+        /// Relations n'est gardé que par le Personnage (modèle de base de la
+        /// catégorie de ce nom, ou modèle ainsi nommé). Idempotente.</summary>
+        public static void UpgradeSections(Project project)
+        {
+            var characterTemplates = new HashSet<string>();
+            foreach (var category in project.SheetCategories)
+                if (string.Equals(category.Name, "Personnage", StringComparison.CurrentCultureIgnoreCase)
+                    && category.TemplateId != null)
+                    characterTemplates.Add(category.TemplateId);
+            foreach (var template in project.Templates)
+            {
+                foreach (var field in template.Fields) field.Group = MigrateGroup(field.Group);
+                foreach (var field in template.Fields)
+                    if (field.Group.Length > 0 && !template.HasSection(field.Group))
+                        template.Sections.Add(field.Group);
+                if (characterTemplates.Contains(template.Id)
+                    || string.Equals(template.Name, "Personnage", StringComparison.CurrentCultureIgnoreCase))
+                    template.Relations = true;
+            }
+            foreach (var item in project.AllItems())
+                foreach (var entry in item.FreeInfo)
+                    entry.Group = MigrateGroup(entry.Group);
+        }
+
+        public static string MigrateGroup(string group)
+        {
+            if (group == null) return "";
+            if (string.Equals(group, LegacyGroupLooks, StringComparison.CurrentCultureIgnoreCase)) return GroupLooks;
+            if (string.Equals(group, LegacyGroupInfos, StringComparison.CurrentCultureIgnoreCase)) return GroupInfos;
+            return group.Trim();
         }
 
         /// <summary>Peuple un projet NEUF : sept modèles, sept catégories.</summary>
