@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.36.0-alpha";
+        public const string AppVersion = "0.37.0-alpha";
 
         private Project _project;
         private string _path;
@@ -100,6 +100,7 @@ namespace UniversSale
         private DispatcherTimer _statsTimer, _autosaveTimer;
 
         private MenuItem _undoMenu, _redoMenu, _darkMenu, _binderMenu, _inspectorMenu, _recentMenu, _rulersMenu;
+        private MenuItem _searchMenu, _versionsMenu; // cases à cocher du panneau actif (b39)
 
         // Bandeau « lecture seule » : projet écrit par un format plus récent
         // que celui que cette version sait réécrire sans perte (A2, batch 24).
@@ -237,7 +238,9 @@ namespace UniversSale
             edit.Items.Add(_redoMenu);
             edit.Items.Add(new Separator());
             edit.Items.Add(Entry("find", "Rechercher dans l'écrit…", ShowSearchInActive));
-            edit.Items.Add(Entry("project-search", "Rechercher dans le projet…", OpenSearchPanel));
+            _searchMenu = Entry("project-search", "Rechercher dans le projet…", OpenSearchPanel);
+            _searchMenu.IsCheckable = true;
+            edit.Items.Add(_searchMenu);
             edit.Items.Add(Entry("search-next", "Occurrence suivante", delegate
             {
                 if (AppSettings.RightPanel != RightPanel.Search) { OpenSearchPanel(); return; }
@@ -248,7 +251,9 @@ namespace UniversSale
                 if (AppSettings.RightPanel != RightPanel.Search) { OpenSearchPanel(); return; }
                 _searchPanel.Previous();
             }));
-            edit.Items.Add(Entry("versions-panel", "Versions de l'écrit…", OpenVersionsPanel));
+            _versionsMenu = Entry("versions-panel", "Versions de l'écrit…", OpenVersionsPanel);
+            _versionsMenu.IsCheckable = true;
+            edit.Items.Add(_versionsMenu);
             edit.Items.Add(Entry("session-goal", "Objectif de session…", SetSessionGoal));
             edit.Items.Add(new Separator());
             edit.Items.Add(Entry("new-text", "Nouvel écrit", delegate { _binder.NewText(null); }));
@@ -2927,6 +2932,8 @@ namespace UniversSale
             _inspectorCol.Width = anyRight
                 ? new GridLength(AppSettings.InspectorWidth) : new GridLength(0);
             _inspectorMenu.IsChecked = shown == RightPanel.Inspector;
+            _searchMenu.IsChecked = shown == RightPanel.Search;
+            _versionsMenu.IsChecked = shown == RightPanel.Versions;
             if (_editor != null) _editor.CorrectionPanelChecked = shown == RightPanel.Correction;
             UpdateRail();
         }
