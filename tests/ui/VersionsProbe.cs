@@ -53,8 +53,7 @@ namespace UniversSale.Tests.Ui
 
             AppSettings.Load();
             AppSettings.ClassicCompatibility = false;
-            AppSettings.VersionsPanelVisible = false;
-            AppSettings.SearchPanelVisible = false;
+            AppSettings.RightPanel = RightPanel.Inspector;
             AppSettings.DailySnapshot = false; // la quotidienne est testée en console ; ici, des comptes exacts
             Chrome.Toggle(false);
             var application = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -84,7 +83,7 @@ namespace UniversSale.Tests.Ui
             DoEvents();
             var host = (Border)GetField(window, "_versionsHost");
             var inspector = (Border)GetField(window, "_inspector");
-            Check(host.Visibility == Visibility.Visible && inspector.Visibility != Visibility.Visible && AppSettings.VersionsPanelVisible,
+            Check(host.Visibility == Visibility.Visible && inspector.Visibility != Visibility.Visible && AppSettings.RightPanel == RightPanel.Versions,
                 "le panneau Versions s'ouvre à droite, devant l'inspecteur, et le réglage s'en souvient");
             var panel = (VersionsPanel)GetField(window, "_versionsPanel");
             var hint = (TextBlock)GetField(panel, "_hint");

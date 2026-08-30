@@ -74,7 +74,12 @@ namespace UniversSale.Settings
         public static Dictionary<string, string> Shortcuts = new Dictionary<string, string>();
         public static bool DarkTheme;
         public static bool BinderVisible = true;
-        public static bool InspectorVisible = true;
+        // La colonne de droite (batch 39) : UN champ, quatre panneaux qui
+        // s'excluent — voir RightPanel.cs. L'inspecteur est le défaut d'un
+        // settings.json neuf ; les anciennes clés inspectorVisible,
+        // correctionPanel, searchPanel, versionsPanel sont migrées à la
+        // lecture et ne sont plus écrites.
+        public static RightPanel RightPanel = RightPanel.Inspector;
         public static double BinderWidth = 260;
         public static double InspectorWidth = 280;
         public static double Zoom = 100; // page zoom, percent (50–300)
@@ -92,9 +97,6 @@ namespace UniversSale.Settings
         public static bool StatsExpanded;    // « Statistiques » accordion of the inspector
         public static bool ShowAnnotations = true; // teintes + bulles de révision
         public static bool ProofEnabled = true; // vérification continue (Révision)
-        public static bool CorrectionPanelVisible; // « Détails de correction » à droite (b28)
-        public static bool SearchPanelVisible;     // le panneau de recherche du projet (b37)
-        public static bool VersionsPanelVisible;   // le panneau Versions (b38)
         public static int SnapshotCap = 20;        // instantanés gardés par item (b38, 5–100)
         public static bool DailySnapshot = true;   // capture à la première modification du jour (b38)
         // La grammaire (batch 29) : interrupteur maître de Grammalecte, et
@@ -194,7 +196,14 @@ namespace UniversSale.Settings
                 }
                 DarkTheme = Json.AsBool(Json.Field(root, "darkTheme"), false);
                 BinderVisible = Json.AsBool(Json.Field(root, "binderVisible"), true);
-                InspectorVisible = Json.AsBool(Json.Field(root, "inspectorVisible"), true);
+                var rightPanel = Json.AsString(Json.Field(root, "rightPanel"));
+                RightPanel = rightPanel != null
+                    ? RightPanels.Parse(rightPanel)
+                    : RightPanels.Migrate(
+                        Json.AsBool(Json.Field(root, "inspectorVisible"), true),
+                        Json.AsBool(Json.Field(root, "correctionPanel"), false),
+                        Json.AsBool(Json.Field(root, "searchPanel"), false),
+                        Json.AsBool(Json.Field(root, "versionsPanel"), false));
                 BinderWidth = Json.AsDouble(Json.Field(root, "binderWidth"), 260);
                 InspectorWidth = Json.AsDouble(Json.Field(root, "inspectorWidth"), 280);
                 Zoom = Json.AsDouble(Json.Field(root, "zoom"), 100);
@@ -209,9 +218,6 @@ namespace UniversSale.Settings
                 StatsExpanded = Json.AsBool(Json.Field(root, "statsExpanded"), false);
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
                 ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
-                CorrectionPanelVisible = Json.AsBool(Json.Field(root, "correctionPanel"), false);
-                SearchPanelVisible = Json.AsBool(Json.Field(root, "searchPanel"), false);
-                VersionsPanelVisible = Json.AsBool(Json.Field(root, "versionsPanel"), false);
                 SnapshotCap = (int)Json.AsDouble(Json.Field(root, "snapshotCap"), 20);
                 if (SnapshotCap < 5) SnapshotCap = 5;
                 if (SnapshotCap > 100) SnapshotCap = 100;
@@ -264,7 +270,7 @@ namespace UniversSale.Settings
                 root["shortcuts"] = new Dictionary<string, object>(ToObjectDict(Shortcuts));
                 root["darkTheme"] = DarkTheme;
                 root["binderVisible"] = BinderVisible;
-                root["inspectorVisible"] = InspectorVisible;
+                root["rightPanel"] = RightPanels.Name(RightPanel);
                 root["binderWidth"] = BinderWidth;
                 root["inspectorWidth"] = InspectorWidth;
                 root["zoom"] = Zoom;
@@ -277,9 +283,6 @@ namespace UniversSale.Settings
                 root["statsExpanded"] = StatsExpanded;
                 root["showAnnotations"] = ShowAnnotations;
                 root["proofEnabled"] = ProofEnabled;
-                root["correctionPanel"] = CorrectionPanelVisible;
-                root["searchPanel"] = SearchPanelVisible;
-                root["versionsPanel"] = VersionsPanelVisible;
                 root["snapshotCap"] = SnapshotCap;
                 root["dailySnapshot"] = DailySnapshot;
                 root["grammarEnabled"] = GrammarEnabled;

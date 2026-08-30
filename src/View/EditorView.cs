@@ -127,8 +127,14 @@ namespace UniversSale.View
         /// <summary>Le panneau des signalements vit À DROITE depuis le batch
         /// 28 (il remplace l'inspecteur quand il est ouvert) — la coquille
         /// l'héberge et écoute cette bascule.</summary>
-        public event Action CorrectionPanelToggled;
+        public event Action<bool> CorrectionPanelToggled; // vrai = demandé, faux = rendu
         public UIElement CorrectionPanel { get { return _corrBar; } }
+        /// <summary>La case « Détails de correction » suit le panneau actif
+        /// (batch 39) — posée par la coquille, jamais décidée ici.</summary>
+        public bool CorrectionPanelChecked
+        {
+            set { if (_corrDetailsBtn != null) _corrDetailsBtn.IsChecked = value; }
+        }
         private List<Correction.Finding> _findings = new List<Correction.Finding>();
         private DispatcherTimer _checkTimer;
         private bool _deferredRepaintQueued; // coalescence des lots différés
@@ -2070,14 +2076,12 @@ namespace UniversSale.View
             _corrDetailsBtn = TallToggle("Détails de correction",
                 "Le panneau des signalements, à droite — il remplace les "
                 + "détails du chapitre tant qu'il est ouvert");
-            _corrDetailsBtn.IsChecked = Settings.AppSettings.CorrectionPanelVisible;
+            _corrDetailsBtn.IsChecked = Settings.AppSettings.RightPanel == Settings.RightPanel.Correction;
             _corrDetailsBtn.Click += delegate
             {
-                Settings.AppSettings.CorrectionPanelVisible =
-                    _corrDetailsBtn.IsChecked == true;
-                Settings.AppSettings.Save();
+                // La coquille décide (batch 39) ; elle resynchronise la case.
                 var handler = CorrectionPanelToggled;
-                if (handler != null) handler();
+                if (handler != null) handler(_corrDetailsBtn.IsChecked == true);
             };
             panel.Children.Add(_corrDetailsBtn);
 

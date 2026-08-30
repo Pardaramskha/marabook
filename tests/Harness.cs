@@ -97,7 +97,8 @@ namespace UniversSale.Tests
                 PlanTests.Run,           // C14 — plans (b35)
                 GenealogyTests.Run,      // C15 — généalogie (b36)
                 ProjectSearchTests.Run,  // C16 — recherche projet (b37)
-                DocumentDiffTests.Run    // C17 — versions d'écrits (b38)
+                DocumentDiffTests.Run,   // C17 — versions d'écrits (b38)
+                RightPanelTests.Run      // C18 — la colonne de droite (b39)
             };
             foreach (var suite in suites)
             {

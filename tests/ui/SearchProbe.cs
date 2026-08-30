@@ -67,7 +67,7 @@ namespace UniversSale.Tests.Ui
 
             AppSettings.Load();
             AppSettings.ClassicCompatibility = false;
-            AppSettings.SearchPanelVisible = false;
+            AppSettings.RightPanel = RightPanel.Inspector;
             Chrome.Toggle(false);
             var application = Application.Current ?? new Application
             {
@@ -116,7 +116,7 @@ namespace UniversSale.Tests.Ui
             var inspector = (Border)GetField(window, "_inspector");
             Check(host.Visibility == Visibility.Visible && inspector.Visibility != Visibility.Visible,
                 "le panneau de recherche s'ouvre à droite, devant l'inspecteur");
-            Check(AppSettings.SearchPanelVisible, "…et le réglage s'en souvient");
+            Check(AppSettings.RightPanel == RightPanel.Search, "…et le réglage s'en souvient");
 
             // — La requête : six occurrences dans trois items, groupées.
             var panel = (SearchPanel)GetField(window, "_searchPanel");
@@ -184,7 +184,7 @@ namespace UniversSale.Tests.Ui
             // — Fermer le panneau rend l'inspecteur.
             Invoke(panel, "OnCloseRequested", null);
             DoEvents();
-            Check(host.Visibility != Visibility.Visible && inspector.Visibility == Visibility.Visible && !AppSettings.SearchPanelVisible,
+            Check(host.Visibility != Visibility.Visible && inspector.Visibility == Visibility.Visible && AppSettings.RightPanel != RightPanel.Search,
                 "fermer le panneau rend l'inspecteur et oublie le réglage");
 
             window.Close();

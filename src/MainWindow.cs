@@ -232,12 +232,12 @@ namespace UniversSale
             edit.Items.Add(Entry("project-search", "Rechercher dans le projet…", OpenSearchPanel));
             edit.Items.Add(Entry("search-next", "Occurrence suivante", delegate
             {
-                if (!AppSettings.SearchPanelVisible) { OpenSearchPanel(); return; }
+                if (AppSettings.RightPanel != RightPanel.Search) { OpenSearchPanel(); return; }
                 _searchPanel.Next();
             }));
             edit.Items.Add(Entry("search-previous", "Occurrence précédente", delegate
             {
-                if (!AppSettings.SearchPanelVisible) { OpenSearchPanel(); return; }
+                if (AppSettings.RightPanel != RightPanel.Search) { OpenSearchPanel(); return; }
                 _searchPanel.Previous();
             }));
             edit.Items.Add(Entry("versions-panel", "Versions de l'écrit…", OpenVersionsPanel));
@@ -587,7 +587,10 @@ namespace UniversSale
             _correctionHost = new Border { Child = _editor.CorrectionPanel };
             Grid.SetColumn(_correctionHost, 4);
             grid.Children.Add(_correctionHost);
-            _editor.CorrectionPanelToggled += ApplyPanelVisibility;
+            _editor.CorrectionPanelToggled += delegate(bool wanted)
+            {
+                SetRightPanel(wanted ? RightPanel.Correction : RightPanel.Inspector);
+            };
 
             // Le panneau de RECHERCHE du projet (batch 37) : même colonne,
             // même famille ; ouvert, il passe devant Correction et l'inspecteur.
@@ -595,12 +598,8 @@ namespace UniversSale
             _searchPanel.NavigateRequested += GoToHit;
             _searchPanel.ReplaceRequested += ReplaceOne;
             _searchPanel.ReplaceAllRequested += ReplaceAll;
-            _searchPanel.CloseRequested += delegate
-            {
-                AppSettings.SearchPanelVisible = false;
-                AppSettings.Save();
-                ApplyPanelVisibility();
-            };
+            // La croix d'un outil rend l'inspecteur (l'état de repos).
+            _searchPanel.CloseRequested += delegate { SetRightPanel(RightPanel.Inspector); };
             _searchHost = new Border { Child = _searchPanel };
             Grid.SetColumn(_searchHost, 4);
             grid.Children.Add(_searchHost);
@@ -611,12 +610,7 @@ namespace UniversSale
             _versionsPanel.CompareRequested += CompareSnapshots;
             _versionsPanel.RestoreRequested += delegate(Snapshot snapshot) { RestoreSnapshot(snapshot, true); };
             _versionsPanel.SnapshotsChanged += delegate { MarkDirty(); };
-            _versionsPanel.CloseRequested += delegate
-            {
-                AppSettings.VersionsPanelVisible = false;
-                AppSettings.Save();
-                ApplyPanelVisibility();
-            };
+            _versionsPanel.CloseRequested += delegate { SetRightPanel(RightPanel.Inspector); };
             _versionsHost = new Border { Child = _versionsPanel };
             Grid.SetColumn(_versionsHost, 4);
             grid.Children.Add(_versionsHost);
@@ -629,13 +623,7 @@ namespace UniversSale
         /// requête prête à taper — Ctrl+Maj+F, menu Édition.</summary>
         private void OpenSearchPanel()
         {
-            if (!AppSettings.SearchPanelVisible || AppSettings.VersionsPanelVisible)
-            {
-                AppSettings.SearchPanelVisible = true;
-                AppSettings.VersionsPanelVisible = false; // un seul panneau à la fois
-                AppSettings.Save();
-                ApplyPanelVisibility();
-            }
+            SetRightPanel(RightPanel.Search);
             _searchPanel.FocusQuery();
         }
 
@@ -644,12 +632,7 @@ namespace UniversSale
         /// <summary>Ouvre (ou ramène) le panneau Versions — Ctrl+Maj+H, menu Édition.</summary>
         private void OpenVersionsPanel()
         {
-            if (!AppSettings.VersionsPanelVisible)
-            {
-                AppSettings.VersionsPanelVisible = true;
-                AppSettings.Save();
-                ApplyPanelVisibility();
-            }
+            SetRightPanel(RightPanel.Versions);
             _versionsPanel.SetCurrent(_current);
         }
 
@@ -2872,11 +2855,7 @@ namespace UniversSale
 
         private void ToggleInspector()
         {
-            AppSettings.InspectorVisible = !AppSettings.InspectorVisible;
-            if (!AppSettings.InspectorVisible && _inspectorCol.Width.Value > 0)
-                AppSettings.InspectorWidth = _inspectorCol.Width.Value;
-            ApplyPanelVisibility();
-            AppSettings.Save();
+            SetRightPanel(RightPanels.Toggle(AppSettings.RightPanel, RightPanel.Inspector));
         }
 
         // ============================================================= mode calme
@@ -2915,31 +2894,49 @@ namespace UniversSale
             _binderCol.Width = binderOn ? new GridLength(AppSettings.BinderWidth) : new GridLength(0);
             _binderMenu.IsChecked = binderOn;
 
-            // Le Journal perso vit sans inspecteur (pas de synopsis à
-            // montrer) — et le niveau PROJET non plus (batch 28) : avant le
-            // premier clic dans la Pile, la barre de droite n'a rien à dire.
-            // Le panneau de CORRECTION, ouvert, remplace l'inspecteur dans la
-            // même colonne.
-            var columnOn = !_journalOpen && !_calmMode && _current != null;
-            // Le panneau de RECHERCHE (b37) vit même sans item courant : on
-            // cherche avant d'avoir cliqué.
-            var versionsOn = !_journalOpen && !_calmMode && AppSettings.VersionsPanelVisible && _project != null;
-            var searchOn = !_journalOpen && !_calmMode && AppSettings.SearchPanelVisible && _project != null && !versionsOn;
-            var correctionOn = columnOn && AppSettings.CorrectionPanelVisible && !searchOn && !versionsOn;
-            var inspectorOn = columnOn && AppSettings.InspectorVisible && !correctionOn && !searchOn && !versionsOn;
-            _inspector.Visibility = inspectorOn ? Visibility.Visible : Visibility.Collapsed;
+            // La colonne de droite (batch 39) : le panneau actif est-il
+            // disponible dans le contexte courant ? Sinon, rien — les règles
+            // sont dans RightPanels.Available, pas ici.
+            var shown = ShownRightPanel();
+            _inspector.Visibility = shown == RightPanel.Inspector ? Visibility.Visible : Visibility.Collapsed;
             if (_correctionHost != null)
-                _correctionHost.Visibility = correctionOn
-                    ? Visibility.Visible : Visibility.Collapsed;
+                _correctionHost.Visibility = shown == RightPanel.Correction ? Visibility.Visible : Visibility.Collapsed;
             if (_searchHost != null)
-                _searchHost.Visibility = searchOn ? Visibility.Visible : Visibility.Collapsed;
+                _searchHost.Visibility = shown == RightPanel.Search ? Visibility.Visible : Visibility.Collapsed;
             if (_versionsHost != null)
-                _versionsHost.Visibility = versionsOn ? Visibility.Visible : Visibility.Collapsed;
-            var anyRight = inspectorOn || correctionOn || searchOn || versionsOn;
+                _versionsHost.Visibility = shown == RightPanel.Versions ? Visibility.Visible : Visibility.Collapsed;
+            var anyRight = shown != RightPanel.None;
             _inspectorSplit.Visibility = anyRight ? Visibility.Visible : Visibility.Collapsed;
             _inspectorCol.Width = anyRight
                 ? new GridLength(AppSettings.InspectorWidth) : new GridLength(0);
-            _inspectorMenu.IsChecked = inspectorOn;
+            _inspectorMenu.IsChecked = shown == RightPanel.Inspector;
+            if (_editor != null) _editor.CorrectionPanelChecked = shown == RightPanel.Correction;
+        }
+
+        // ============================================================= colonne de droite (b39)
+
+        /// <summary>Le panneau à montrer : l'actif s'il est disponible, sinon rien.</summary>
+        private RightPanel ShownRightPanel()
+        {
+            return IsPanelAvailable(AppSettings.RightPanel) ? AppSettings.RightPanel : RightPanel.None;
+        }
+
+        private bool IsPanelAvailable(RightPanel panel)
+        {
+            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, _current != null);
+        }
+
+        /// <summary>LE seul endroit qui change le panneau actif — rail,
+        /// raccourcis, menus, bouton du ruban, croix des panneaux y passent.
+        /// Un panneau indisponible dans le contexte ne devient jamais actif.</summary>
+        private void SetRightPanel(RightPanel panel)
+        {
+            if (panel != RightPanel.None && !IsPanelAvailable(panel)) return;
+            if (panel == RightPanel.None && _inspectorCol.Width.Value > 0)
+                AppSettings.InspectorWidth = _inspectorCol.Width.Value;
+            AppSettings.RightPanel = panel;
+            AppSettings.Save();
+            ApplyPanelVisibility();
         }
 
         private void ToggleRulers()
