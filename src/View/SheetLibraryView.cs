@@ -306,7 +306,7 @@ namespace UniversSale.View
                     Width = 10,
                     Height = 10,
                     CornerRadius = new CornerRadius(5),
-                    Background = Chrome.Accent,
+                    Background = Chrome.AccentSoft, // pastille calme (b40)
                     BorderBrush = Chrome.PaperBg,
                     BorderThickness = new Thickness(1.5),
                     HorizontalAlignment = HorizontalAlignment.Right,

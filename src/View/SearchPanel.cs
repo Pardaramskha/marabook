@@ -500,7 +500,7 @@ namespace UniversSale.View
             _currentIndex = index;
             if (index < _rows.Count)
             {
-                _rows[index].Background = Chrome.BarBg;
+                _rows[index].Background = Chrome.AccentTint; // ligne sélectionnée : accent-tint (b40)
                 _rows[index].BringIntoView();
             }
             if (!navigate) return;

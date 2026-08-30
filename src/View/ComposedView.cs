@@ -76,7 +76,7 @@ namespace UniversSale.View
 
         public ComposedView()
         {
-            Background = Brushes.Transparent;
+            Background = Chrome.WindowBg; // ground : le fond derrière les pages (b40)
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
             Focusable = true;
@@ -390,8 +390,8 @@ namespace UniversSale.View
                 Padding = new Thickness(2, 0, 2, 0),
                 BorderBrush = Chrome.Accent,
                 BorderThickness = new Thickness(1),
-                Background = Brushes.White,
-                Foreground = Brushes.Black,
+                Background = Chrome.PaperBg,
+                Foreground = Chrome.PaperInk,
                 ToolTip = "Note de bas de page — Entrée ou Échap pour fermer"
             };
             var noteRef = note;
@@ -495,8 +495,16 @@ namespace UniversSale.View
 
         private sealed class PageElement : FrameworkElement
         {
+            private static readonly Brush PageShadow = FrozenShadow();
             private readonly ComposedView _owner;
             private readonly int _index;
+
+            private static Brush FrozenShadow()
+            {
+                var brush = new SolidColorBrush(Color.FromArgb(0x2A, 0x10, 0x12, 0x1A));
+                brush.Freeze();
+                return brush;
+            }
 
             public PageElement(ComposedView owner, int index)
             {
@@ -517,8 +525,14 @@ namespace UniversSale.View
             {
                 var composition = _owner.CurrentComposition;
                 if (composition == null || _index >= composition.Pages.Count) return;
-                dc.DrawRectangle(Brushes.White, new Pen(Chrome.Border, 1),
-                    new Rect(0.5, 0.5, composition.PageWidthPx - 1, composition.PageHeightPx - 1));
+                // La page est la surface « paper » (batch 40) : elle suit le
+                // thème et l'option « papier blanc en mode sombre », et une
+                // ombre portée légère la décolle du fond (ground).
+                var w = composition.PageWidthPx;
+                var h = composition.PageHeightPx;
+                dc.DrawRectangle(PageShadow, null, new Rect(2, 4, w, h));
+                dc.DrawRectangle(Chrome.PaperBg, new Pen(Chrome.Border, 1),
+                    new Rect(0.5, 0.5, w - 1, h - 1));
                 ComposedRenderer.DrawPage(dc, composition, _index, true);
             }
         }

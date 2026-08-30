@@ -47,9 +47,15 @@ namespace UniversSale.View
             return pen;
         }
 
+        /// <summary>L'encre par défaut du tracé en cours : sur l'écran, l'encre
+        /// du papier (elle suit le thème et « papier blanc en mode sombre »,
+        /// batch 40) ; au papier, le noir — l'impression ne change pas.</summary>
+        private static Brush DefaultInk = Brushes.Black;
+
         public static void DrawPage(DrawingContext dc, Composition composition, int index,
             bool screenExtras)
         {
+            DefaultInk = screenExtras ? (Brush)Chrome.PaperInk : Brushes.Black;
             var setup = composition.Setup;
             var page = composition.Pages[index];
             var width = composition.PageWidthPx;
@@ -74,7 +80,7 @@ namespace UniversSale.View
             if (page.NoteLines.Count > 0)
             {
                 if (page.NotesRuleY >= 0)
-                    dc.DrawRectangle(Brushes.Black, null, new Rect(
+                    dc.DrawRectangle(DefaultInk, null, new Rect(
                         left, page.NotesRuleY,
                         Math.Min(160, Math.Max(40, contentWidth / 3)), 0.8));
                 foreach (var placed in page.NoteLines)
@@ -137,7 +143,7 @@ namespace UniversSale.View
                         System.Globalization.CultureInfo.CurrentCulture,
                         FlowDirection.LeftToRight,
                         new Typeface(setup.FooterFont ?? "Times New Roman"),
-                        Math.Max(6, setup.FooterSizePt * 4.0 / 3.0), Brushes.Black, 1.0);
+                        Math.Max(6, setup.FooterSizePt * 4.0 / 3.0), DefaultInk, 1.0);
                     dc.DrawText(folio, new Point((width - folio.Width) / 2,
                         height - bottom / 2 - folio.Height / 2));
                 }
@@ -234,7 +240,7 @@ namespace UniversSale.View
                         FontStretches.Normal);
                     var brush = run.Color != null
                         ? (Brush)new SolidColorBrush(FlowConverter.ParseColor(run.Color))
-                        : Brushes.Black;
+                        : DefaultInk;
                     pieces.Add(new FormattedText(text,
                         System.Globalization.CultureInfo.CurrentCulture,
                         FlowDirection.LeftToRight, typeface,
@@ -253,7 +259,7 @@ namespace UniversSale.View
                 pieces.Add(new FormattedText(text,
                     System.Globalization.CultureInfo.CurrentCulture,
                     FlowDirection.LeftToRight, typeface,
-                    Math.Max(6, decor.SizePt * 4.0 / 3.0), Brushes.Black, 1.0));
+                    Math.Max(6, decor.SizePt * 4.0 / 3.0), DefaultInk, 1.0));
             }
             if (pieces.Count == 0) return;
 
@@ -412,7 +418,7 @@ namespace UniversSale.View
                 }
                 if (piece.IsRule)
                 {
-                    dc.DrawRectangle(Brushes.Black, null, new Rect(
+                    dc.DrawRectangle(DefaultInk, null, new Rect(
                         left + piece.Rect.X, top + line.Height / 2,
                         piece.Rect.Width, piece.Rect.Height));
                     continue;
@@ -430,7 +436,7 @@ namespace UniversSale.View
                 dc.PushTransform(new TranslateTransform(x, y));
                 if (scaled) dc.PushTransform(new ScaleTransform(piece.ScaleX, 1.0));
                 if (piece.Glyphs != null)
-                    dc.DrawGlyphRun(piece.Ink ?? Brushes.Black, piece.Glyphs);
+                    dc.DrawGlyphRun(piece.Ink ?? DefaultInk, piece.Glyphs);
                 else if (piece.Fallback != null)
                     dc.DrawText(piece.Fallback, new Point(0, -piece.Fallback.Baseline));
                 if (scaled) dc.Pop();
@@ -453,7 +459,7 @@ namespace UniversSale.View
             if (w < 0.1) return;
             var size = piece.FontSizePx > 0 ? piece.FontSizePx : 16;
             var typeface = piece.Glyphs != null ? piece.Glyphs.GlyphTypeface : null;
-            var ink = piece.Ink ?? Brushes.Black;
+            var ink = piece.Ink ?? DefaultInk;
             var x = left + piece.Origin.X;
             var y = baseline + piece.Origin.Y;
             if (piece.Underline)
