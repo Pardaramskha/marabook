@@ -180,7 +180,7 @@ namespace UniversSale
         {
             _readOnlyBanner = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(0xB4, 0x5B, 0x00)),
+                Background = Chrome.Warn, // couleur de sens « warn » (batch 40)
                 Padding = new Thickness(12, 6, 12, 6),
                 Visibility = Visibility.Collapsed,
                 Child = new TextBlock
@@ -1058,13 +1058,13 @@ namespace UniversSale
             presentGrid.ColumnDefinitions.Add(_progUndone);
             var presentBar = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(0xE6, 0x7E, 0x22)), // orange : présents
+                Background = Chrome.Warn, // warn : présents
                 CornerRadius = new CornerRadius(4),
                 Child = presentGrid
             };
             var doneBar = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(0x27, 0xAE, 0x60)), // vert : terminés
+                Background = Chrome.Ok, // ok : terminés
                 CornerRadius = new CornerRadius(4)
             };
             Grid.SetColumn(doneBar, 0);

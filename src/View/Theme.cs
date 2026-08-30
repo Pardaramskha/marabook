@@ -24,9 +24,8 @@ namespace UniversSale.View
         {
             try
             {
-                var palette = ApplyAccent(dark ? DarkPalette : LightPalette, dark);
                 var next = (ResourceDictionary)XamlReader.Parse(
-                    Header + palette + Templates);
+                    Header + Palette() + Templates);
                 if (_current != null) application.Resources.MergedDictionaries.Remove(_current);
                 application.Resources.MergedDictionaries.Add(next);
                 _current = next;
@@ -50,8 +49,8 @@ namespace UniversSale.View
             try
             {
                 Settings.AppSettings.AccentColor = accent;
-                var palette = ApplyAccent(dark ? DarkPalette : LightPalette, dark);
-                var dictionary = XamlReader.Parse(Header + palette + Templates) as ResourceDictionary;
+                Chrome.Toggle(dark);
+                var dictionary = XamlReader.Parse(Header + Palette() + Templates) as ResourceDictionary;
                 return dictionary == null ? "le dictionnaire de ressources est nul" : null;
             }
             catch (Exception error)
@@ -61,74 +60,97 @@ namespace UniversSale.View
             finally
             {
                 Settings.AppSettings.AccentColor = saved;
+                Chrome.Toggle(Settings.AppSettings.DarkTheme);
             }
         }
 
-        /// <summary>Substitutes the customized accent into the palette string
-        /// before parsing. Soft and hover steps are re-derived from the accent
-        /// with the same blends that produced the stock indigo steps (≈ 0.82 and
-        /// 0.90 toward the theme's ground), so any hue keeps the house look.</summary>
-        private static string ApplyAccent(string palette, bool dark)
+        /// <summary>Le garde-fou contre la bouillie (batch 40) : dans un
+        /// thème, les quatre surfaces sont ordonnées (ground < chrome <
+        /// raised ≤ paper — le papier sombre partage la marche raised) et
+        /// séparées d'au moins huit unités de clarté, et l'encre garde un
+        /// contraste suffisant sur chacune. Null si tout va, sinon la faute.</summary>
+        public static string SurfaceCheck(bool dark)
         {
-            var custom = Chrome.ParseAccent();
-            if (custom == null) return palette;
-
-            var ground = dark
-                ? System.Windows.Media.Color.FromRgb(0x1B, 0x1E, 0x23)
-                : System.Windows.Media.Colors.White;
-            var accent = dark ? Chrome.Lighten(custom.Value, 0.22) : custom.Value;
-            var soft = Chrome.Blend(accent, ground, 0.82);
-            var hover = Chrome.Blend(accent, ground, 0.90);
-
-            if (dark)
-                return palette
-                    .Replace("#7B86E8", Hex(accent))
-                    .Replace("#2C3352", Hex(soft))
-                    .Replace("#262B3C", Hex(hover));
-            return palette
-                .Replace("#5B67D8", Hex(accent))
-                .Replace("#E2E5F9", Hex(soft))
-                .Replace("#EEF0FB", Hex(hover));
+            var saved = Settings.AppSettings.AccentColor;
+            try
+            {
+                Settings.AppSettings.AccentColor = null;
+                Chrome.Toggle(dark);
+                var ground = Chrome.Luma(Chrome.WindowBg.Color);
+                var chrome = Chrome.Luma(Chrome.BarBg.Color);
+                var raised = Chrome.Luma(Chrome.BarBgLight.Color);
+                var paper = Chrome.Luma(Chrome.PaperBg.Color);
+                // Dans les deux thèmes les surfaces s'ÉCLAIRCISSENT du plus
+                // enfoncé au plus haut ; seules les encres s'inversent.
+                var sign = dark ? -1 : 1;
+                const double step = 8;
+                if (chrome - ground < step)
+                    return "chrome et ground ne sont pas séparés (" + Chrome.Hex(Chrome.BarBg.Color) + " / " + Chrome.Hex(Chrome.WindowBg.Color) + ")";
+                if (raised - chrome < step)
+                    return "raised et chrome ne sont pas séparés (" + Chrome.Hex(Chrome.BarBgLight.Color) + " / " + Chrome.Hex(Chrome.BarBg.Color) + ")";
+                if (paper - raised < 0)
+                    return "le papier est plus enfoncé que raised";
+                if (!dark && paper - raised < step)
+                    return "papier et raised ne sont pas séparés (" + Chrome.Hex(Chrome.PaperBg.Color) + " / " + Chrome.Hex(Chrome.BarBgLight.Color) + ")";
+                if (Chrome.RaisedBg.Color != Chrome.BarBgLight.Color || Chrome.CardBg.Color != Chrome.BarBgLight.Color)
+                    return "RaisedBg, CardBg et BarBgLight divergent (une seule marche raised)";
+                var ink = Chrome.Luma(Chrome.Ink.Color);
+                var paperInk = Chrome.Luma(Chrome.PaperInk.Color);
+                foreach (var surface in new[] { ground, chrome, raised })
+                    if (Math.Abs(ink - surface) < 120) return "l'encre manque de contraste sur une surface (" + Math.Abs(ink - surface) + ")";
+                if (Math.Abs(paperInk - paper) < 120) return "l'encre du papier manque de contraste";
+                var soft = Chrome.Luma(Chrome.SoftText.Color);
+                var faint = Chrome.Luma(Chrome.FaintText.Color);
+                if (sign * (soft - ink) <= 0 || sign * (faint - soft) <= 0)
+                    return "les trois encres ne sont pas ordonnées (ink, ink-soft, ink-faint)";
+                if (Math.Abs(faint - raised) < 60) return "ink-faint manque de contraste sur raised";
+                return null;
+            }
+            finally
+            {
+                Settings.AppSettings.AccentColor = saved;
+                Chrome.Toggle(Settings.AppSettings.DarkTheme);
+            }
         }
 
-        private static string Hex(System.Windows.Media.Color color)
+        /// <summary>La palette XAML, ENGENDRÉE depuis les brosses de Chrome
+        /// (une seule déclaration de chaque couleur dans le dépôt). Les clés
+        /// historiques des gabarits sont conservées : Paper et Veil = raised
+        /// (surface des contrôles et des dialogues), Border = line-strong,
+        /// Line = line, Hover = accent-tint, Press = accent-soft, Thumb =
+        /// line-strong. Chrome.Toggle doit avoir tourné AVANT.</summary>
+        private static string Palette()
         {
-            return "#" + color.R.ToString("X2") + color.G.ToString("X2") + color.B.ToString("X2");
+            var b = new System.Text.StringBuilder();
+            Key(b, "Ink", Chrome.Ink);
+            Key(b, "InkSoft", Chrome.SoftText);
+            Key(b, "InkFaint", Chrome.FaintText);
+            Key(b, "Paper", Chrome.RaisedBg);
+            Key(b, "Veil", Chrome.RaisedBg);
+            Key(b, "Border", Chrome.BorderStrong);
+            Key(b, "Line", Chrome.Border);
+            Key(b, "Hover", Chrome.AccentTint);
+            Key(b, "Press", Chrome.AccentSoft);
+            Key(b, "Accent", Chrome.Accent);
+            Key(b, "AccentTint", Chrome.AccentTint);
+            Key(b, "AccentSoft", Chrome.AccentSoft);
+            Key(b, "AccentStrong", Chrome.AccentStrong);
+            Key(b, "Thumb", Chrome.BorderStrong);
+            Key(b, "Ok", Chrome.Ok);
+            Key(b, "Warn", Chrome.Warn);
+            Key(b, "Danger", Chrome.Danger);
+            return b.ToString();
+        }
+
+        private static void Key(System.Text.StringBuilder b, string key, System.Windows.Media.SolidColorBrush brush)
+        {
+            b.Append("  <SolidColorBrush x:Key=\"").Append(key).Append("\" Color=\"")
+             .Append(Chrome.Hex(brush.Color)).Append("\"/>\n");
         }
 
         private const string Header = @"
 <ResourceDictionary xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
                     xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml"">
-";
-
-        private const string LightPalette = @"
-  <SolidColorBrush x:Key=""Ink"" Color=""#23262A""/>
-  <SolidColorBrush x:Key=""InkSoft"" Color=""#6B7280""/>
-  <SolidColorBrush x:Key=""Paper"" Color=""#FFFFFF""/>
-  <SolidColorBrush x:Key=""Veil"" Color=""#F4F5F7""/>
-  <SolidColorBrush x:Key=""Border"" Color=""#D7DAE0""/>
-  <SolidColorBrush x:Key=""Hover"" Color=""#EAECEF""/>
-  <SolidColorBrush x:Key=""Press"" Color=""#DFE2E8""/>
-  <SolidColorBrush x:Key=""Accent"" Color=""#5B67D8""/>
-  <SolidColorBrush x:Key=""AccentSoft"" Color=""#E2E5F9""/>
-  <SolidColorBrush x:Key=""AccentHover"" Color=""#EEF0FB""/>
-  <SolidColorBrush x:Key=""Line"" Color=""#E7E9ED""/>
-  <SolidColorBrush x:Key=""Thumb"" Color=""#C6CAD2""/>
-";
-
-        private const string DarkPalette = @"
-  <SolidColorBrush x:Key=""Ink"" Color=""#E6E8EC""/>
-  <SolidColorBrush x:Key=""InkSoft"" Color=""#9AA1AC""/>
-  <SolidColorBrush x:Key=""Paper"" Color=""#23262C""/>
-  <SolidColorBrush x:Key=""Veil"" Color=""#1B1E23""/>
-  <SolidColorBrush x:Key=""Border"" Color=""#383D46""/>
-  <SolidColorBrush x:Key=""Hover"" Color=""#2C3038""/>
-  <SolidColorBrush x:Key=""Press"" Color=""#343943""/>
-  <SolidColorBrush x:Key=""Accent"" Color=""#7B86E8""/>
-  <SolidColorBrush x:Key=""AccentSoft"" Color=""#2C3352""/>
-  <SolidColorBrush x:Key=""AccentHover"" Color=""#262B3C""/>
-  <SolidColorBrush x:Key=""Line"" Color=""#31353E""/>
-  <SolidColorBrush x:Key=""Thumb"" Color=""#454B56""/>
 ";
 
         private const string Templates = @"
@@ -189,9 +211,12 @@ namespace UniversSale.View
             <Trigger Property=""IsMouseOver"" Value=""True"">
               <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource Hover}""/>
             </Trigger>
+            <!-- Bascule active (batch 40) : accent-tint, bordure accent-soft,
+                 texte accent-strong — l'accent plein reste à l'action. -->
             <Trigger Property=""IsChecked"" Value=""True"">
-              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentSoft}""/>
-              <Setter TargetName=""Bg"" Property=""BorderBrush"" Value=""{StaticResource Accent}""/>
+              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentTint}""/>
+              <Setter TargetName=""Bg"" Property=""BorderBrush"" Value=""{StaticResource AccentSoft}""/>
+              <Setter Property=""Foreground"" Value=""{StaticResource AccentStrong}""/>
             </Trigger>
             <Trigger Property=""IsEnabled"" Value=""False"">
               <Setter Property=""Opacity"" Value=""0.45""/>
@@ -315,10 +340,11 @@ namespace UniversSale.View
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property=""IsHighlighted"" Value=""True"">
-              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentHover}""/>
+              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentTint}""/>
             </Trigger>
             <Trigger Property=""IsSelected"" Value=""True"">
-              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentSoft}""/>
+              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentTint}""/>
+              <Setter Property=""Foreground"" Value=""{StaticResource AccentStrong}""/>
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -476,7 +502,7 @@ namespace UniversSale.View
         <Setter TargetName=""Check"" Property=""Visibility"" Value=""Visible""/>
       </Trigger>
       <Trigger Property=""IsHighlighted"" Value=""True"">
-        <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentHover}""/>
+        <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentTint}""/>
       </Trigger>
       <Trigger Property=""IsEnabled"" Value=""False"">
         <Setter Property=""Opacity"" Value=""0.45""/>
@@ -517,7 +543,7 @@ namespace UniversSale.View
     </Grid>
     <ControlTemplate.Triggers>
       <Trigger Property=""IsHighlighted"" Value=""True"">
-        <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentHover}""/>
+        <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentTint}""/>
       </Trigger>
       <Trigger Property=""IsEnabled"" Value=""False"">
         <Setter Property=""Opacity"" Value=""0.45""/>
@@ -649,10 +675,11 @@ namespace UniversSale.View
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property=""IsMouseOver"" Value=""True"">
-              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentHover}""/>
+              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentTint}""/>
             </Trigger>
             <Trigger Property=""IsSelected"" Value=""True"">
-              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentSoft}""/>
+              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentTint}""/>
+              <Setter Property=""Foreground"" Value=""{StaticResource AccentStrong}""/>
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -673,7 +700,10 @@ namespace UniversSale.View
       <Setter.Value>
         <ControlTemplate TargetType=""TreeViewItem"">
           <StackPanel>
-            <Border x:Name=""Bg"" CornerRadius=""5"" Padding=""2,3"" Background=""Transparent"">
+            <!-- Ligne sélectionnée (batch 40) : accent-tint, liseré d'accent
+                 à gauche, encre normale — l'aplat saturé est rendu à l'action. -->
+            <Border x:Name=""Bg"" CornerRadius=""5"" Padding=""2,3"" Background=""Transparent""
+                    BorderThickness=""3,0,0,0"" BorderBrush=""Transparent"">
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width=""16""/>
@@ -708,10 +738,11 @@ namespace UniversSale.View
               <Setter TargetName=""Expander"" Property=""Visibility"" Value=""Hidden""/>
             </Trigger>
             <Trigger SourceName=""Bg"" Property=""IsMouseOver"" Value=""True"">
-              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource Hover}""/>
+              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentTint}""/>
             </Trigger>
             <Trigger Property=""IsSelected"" Value=""True"">
-              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentSoft}""/>
+              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentTint}""/>
+              <Setter TargetName=""Bg"" Property=""BorderBrush"" Value=""{StaticResource Accent}""/>
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>

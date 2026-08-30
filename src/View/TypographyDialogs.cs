@@ -26,7 +26,7 @@ namespace UniversSale.View
             SizeToContent = SizeToContent.WidthAndHeight;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
-            Background = Chrome.WindowBg;
+            Background = Chrome.RaisedBg;
 
             var panel = new StackPanel { Margin = new Thickness(16), Width = 440 };
             panel.Children.Add(new TextBlock
@@ -153,7 +153,7 @@ namespace UniversSale.View
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Width = Math.Max(760, Math.Min(1280, owner == null ? 1000 : owner.ActualWidth - 120));
             Height = Math.Max(480, Math.Min(900, owner == null ? 700 : owner.ActualHeight - 120));
-            Background = Chrome.WindowBg;
+            Background = Chrome.RaisedBg;
 
             var root = new DockPanel { Margin = new Thickness(14) };
 

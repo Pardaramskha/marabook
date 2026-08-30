@@ -51,7 +51,7 @@ namespace UniversSale.View
 
         public BinderView()
         {
-            Background = Chrome.BarBgLight;
+            Background = Chrome.BarBg; // la Pile est du chrome (batch 40)
             BorderBrush = Chrome.Border;
             BorderThickness = new Thickness(0, 0, 1, 0);
 
@@ -71,8 +71,7 @@ namespace UniversSale.View
                 var header = node.Header as System.Windows.Controls.Panel;
                 if (header == null) return;
                 _menuTarget = header;
-                header.Background = new SolidColorBrush(
-                    Chrome.Blend(Chrome.Accent.Color, Chrome.PanelBg.Color, 0.75));
+                header.Background = Chrome.AccentTint;
                 var menu = node.ContextMenu;
                 if (menu != null)
                 {

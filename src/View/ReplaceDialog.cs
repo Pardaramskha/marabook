@@ -35,7 +35,7 @@ namespace UniversSale.View
             MinHeight = 320;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             ShowInTaskbar = false;
-            Background = Chrome.WindowBg;
+            Background = Chrome.RaisedBg;
             _hits = result.Hits;
             replacement = replacement ?? "";
 

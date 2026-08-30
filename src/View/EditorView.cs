@@ -1615,15 +1615,13 @@ namespace UniversSale.View
 
         private Button PaletteButton(string tooltip, bool isForeground)
         {
-            var accent = new SolidColorBrush(Color.FromRgb(0x5B, 0x67, 0xD8));
-            accent.Freeze();
             var button = new Button
             {
                 ToolTip = tooltip,
                 Width = 34,
                 Margin = new Thickness(1, 0, 1, 0),
                 Focusable = false,
-                Content = Icons.Make(isForeground ? "palette" : "highlighter-line", 14, accent)
+                Content = Icons.Make(isForeground ? "palette" : "highlighter-line", 14, Chrome.Accent)
             };
             var menu = new ContextMenu { Placement = PlacementMode.Bottom, PlacementTarget = button };
             button.ContextMenu = menu;

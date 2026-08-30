@@ -34,7 +34,7 @@ namespace UniversSale.View
             Height = 480;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
-            Background = Chrome.WindowBg;
+            Background = Chrome.RaisedBg;
 
             var root = new Grid { Margin = new Thickness(14) };
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
@@ -277,7 +277,7 @@ namespace UniversSale.View
             SizeToContent = SizeToContent.WidthAndHeight;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
-            Background = Chrome.WindowBg;
+            Background = Chrome.RaisedBg;
 
             var panel = new StackPanel { Margin = new Thickness(16), MinWidth = 320 };
             panel.Children.Add(new TextBlock { Text = "Titre :", Foreground = Chrome.Ink, Margin = new Thickness(0, 0, 0, 4) });
@@ -351,7 +351,7 @@ namespace UniversSale.View
             SizeToContent = SizeToContent.WidthAndHeight;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
-            Background = Chrome.WindowBg;
+            Background = Chrome.RaisedBg;
 
             var panel = new StackPanel { Margin = new Thickness(16), MinWidth = 320 };
             panel.Children.Add(new TextBlock

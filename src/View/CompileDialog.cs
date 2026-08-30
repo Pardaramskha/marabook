@@ -33,7 +33,7 @@ namespace UniversSale.View
             SizeToContent = SizeToContent.WidthAndHeight;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
-            Background = Chrome.WindowBg;
+            Background = Chrome.RaisedBg;
 
             var panel = new StackPanel { Margin = new Thickness(16), MinWidth = 360 };
 

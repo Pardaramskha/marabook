@@ -54,7 +54,7 @@ namespace UniversSale.View
             Height = 540;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
-            Background = Chrome.WindowBg;
+            Background = Chrome.RaisedBg;
 
             var root = new Grid { Margin = new Thickness(14) };
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });

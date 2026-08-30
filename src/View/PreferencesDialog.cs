@@ -56,7 +56,7 @@ namespace UniversSale.View
             SizeToContent = SizeToContent.WidthAndHeight;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
-            Background = Chrome.WindowBg;
+            Background = Chrome.RaisedBg;
 
             var tabs = new TabControl { Margin = new Thickness(10) };
             _swatches = new WrapPanel { MaxWidth = 330 };

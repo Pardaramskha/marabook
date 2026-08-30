@@ -21,7 +21,7 @@ namespace UniversSale.View
             SizeToContent = SizeToContent.WidthAndHeight;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
-            Background = Chrome.WindowBg;
+            Background = Chrome.RaisedBg;
 
             // Label ABOVE its field: the PAO margin names (« Petit fond (côté
             // reliure) »…) are long — side-by-side they overlapped the boxes.
