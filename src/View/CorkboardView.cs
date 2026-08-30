@@ -182,17 +182,13 @@ namespace UniversSale.View
         /// cartes — visible dès que le dossier contient des textes.</summary>
         private UIElement BuildFilterHeader()
         {
-            _filterToggle = new ToggleButton
-            {
-                Content = "Filtres",
-                ToolTip = "Trier et filtrer les textes de ce tableau "
-                    + "(affichage seulement — l'ordre réel ne bouge pas)",
-                Padding = new Thickness(10, 2, 10, 2),
-                Focusable = false,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(24, 8, 24, 0),
-                Visibility = Visibility.Collapsed
-            };
+            // Icône + libellé (batch 40) : le tri seul ne dit pas « filtrer ».
+            _filterToggle = Buttons.IconTextToggle("sort-descending-bold", "Filtres",
+                "Trier et filtrer les textes de ce tableau "
+                    + "(affichage seulement — l'ordre réel ne bouge pas)", Buttons.Bar);
+            _filterToggle.HorizontalAlignment = HorizontalAlignment.Right;
+            _filterToggle.Margin = new Thickness(24, 8, 24, 0);
+            _filterToggle.Visibility = Visibility.Collapsed;
             _filterToggle.Click += delegate
             {
                 _filterBar.Visibility = _filterToggle.IsChecked == true
@@ -485,20 +481,9 @@ namespace UniversSale.View
         /// <summary>The ⋮ options menu, top right of every card.</summary>
         private UIElement BuildCardMenu(BinderItem item)
         {
-            var button = new Button
-            {
-                Content = "⋮",
-                FontSize = 14,
-                Width = 24,
-                Height = 22,
-                Padding = new Thickness(0),
-                Margin = new Thickness(4, 0, 0, 0),
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Foreground = Chrome.SoftText,
-                Focusable = false,
-                ToolTip = "Options"
-            };
+            var button = Buttons.Icon("dots-three-vertical-bold", "Options de la carte", Buttons.Compact, Buttons.Look.Calm);
+            button.Margin = new Thickness(4, 0, 0, 0);
+            button.Foreground = Chrome.SoftText;
             DockPanel.SetDock(button, Dock.Right);
             var itemRef = item;
             button.Click += delegate

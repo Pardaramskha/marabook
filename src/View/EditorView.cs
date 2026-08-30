@@ -1533,37 +1533,16 @@ namespace UniversSale.View
             return button;
         }
 
-        /// <summary>Icône + libellé des petits boutons de navigation.</summary>
-        private static UIElement NavContent(string icon, string label)
+        /// <summary>Précédent / suivant côte à côte : deux boutons à icône
+        /// seule (batch 40 — plus d'empilement de deux lignes).</summary>
+        private static StackPanel SideBySide(Button previous, Button next)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal };
-            var glyph = Icons.Make(icon, 9, Chrome.Ink) as FrameworkElement;
-            if (glyph != null)
-            {
-                glyph.VerticalAlignment = VerticalAlignment.Center;
-                glyph.Margin = new Thickness(0, 0, 4, 0);
-                row.Children.Add(glyph);
-            }
-            row.Children.Add(new TextBlock
-            {
-                Text = label,
-                FontSize = 11,
-                VerticalAlignment = VerticalAlignment.Center
-            });
+            previous.Margin = new Thickness(0, 0, 1, 0);
+            next.Margin = new Thickness(0, 0, 4, 0);
+            var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            row.Children.Add(previous);
+            row.Children.Add(next);
             return row;
-        }
-
-        /// <summary>Deux petits boutons empilés (Précédente/Suivante…).</summary>
-        private static StackPanel StackedPair(Button top, Button bottom)
-        {
-            top.Margin = new Thickness(0, 0, 6, 1);
-            bottom.Margin = new Thickness(0, 1, 6, 0);
-            top.HorizontalAlignment = HorizontalAlignment.Stretch;
-            bottom.HorizontalAlignment = HorizontalAlignment.Stretch;
-            var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            stack.Children.Add(top);
-            stack.Children.Add(bottom);
-            return stack;
         }
 
         private Button PaletteButton(string tooltip, bool isForeground)
@@ -1701,7 +1680,10 @@ namespace UniversSale.View
             };
             panel.Children.Add(_wholeWordCheck);
 
-            panel.Children.Add(SmallButton("Suivant", FindNext));
+            var findNext = Buttons.Icon("next", "Occurrence suivante (Entrée)", Buttons.Compact, Buttons.Look.Outline);
+            findNext.Margin = new Thickness(0, 0, 6, 0);
+            findNext.Click += delegate { FindNext(); };
+            panel.Children.Add(findNext);
             panel.Children.Add(SmallButton("Remplacer", ReplaceCurrent));
             panel.Children.Add(SmallButton("Tout remplacer", ReplaceAll));
 
@@ -1807,25 +1789,13 @@ namespace UniversSale.View
 
             panel.Children.Add(VerticalRuleTall());
 
-            var previous = new Button
-            {
-                Content = NavContent("previous", "Note"),
-                ToolTip = "Ouvrir la note de bas de page précédente",
-                Padding = new Thickness(8, 1, 8, 1),
-                Focusable = false
-            };
+            var previous = Buttons.Icon("previous", "Note de bas de page précédente", Buttons.Bar, Buttons.Look.Calm);
             previous.Click += delegate { NavigateNote(-1); };
-            var next = new Button
-            {
-                Content = NavContent("next", "Note"),
-                ToolTip = "Ouvrir la note de bas de page suivante",
-                Padding = new Thickness(8, 1, 8, 1),
-                Focusable = false
-            };
+            var next = Buttons.Icon("next", "Note de bas de page suivante", Buttons.Bar, Buttons.Look.Calm);
             next.Click += delegate { NavigateNote(1); };
             // Le groupe « notes » : le bouton d'insertion ET la navigation,
             // puis le filet, puis le lien (batch 34).
-            panel.Children.Insert(1, StackedPair(previous, next));
+            panel.Children.Insert(1, SideBySide(previous, next));
             panel.Children.Insert(2, VerticalRuleTall());
             return panel;
         }
@@ -1953,23 +1923,11 @@ namespace UniversSale.View
             annotate.Click += delegate { CreateAnnotation(); };
             panel.Children.Add(annotate);
 
-            var previous = new Button
-            {
-                Content = NavContent("previous", "Précédente"),
-                ToolTip = "Aller à l'annotation précédente",
-                Padding = new Thickness(8, 1, 8, 1),
-                Focusable = false
-            };
+            var previous = Buttons.Icon("previous", "Annotation précédente", Buttons.Bar, Buttons.Look.Calm);
             previous.Click += delegate { NavigateAnnotation(-1); };
-            var next = new Button
-            {
-                Content = NavContent("next", "Suivante"),
-                ToolTip = "Aller à l'annotation suivante",
-                Padding = new Thickness(8, 1, 8, 1),
-                Focusable = false
-            };
+            var next = Buttons.Icon("next", "Annotation suivante", Buttons.Bar, Buttons.Look.Calm);
             next.Click += delegate { NavigateAnnotation(1); };
-            panel.Children.Add(StackedPair(previous, next));
+            panel.Children.Add(SideBySide(previous, next));
 
             _annVisibleBtn = TallToggle("Afficher les notes",
                 "Affiche ou masque les annotations (teintes et bulles) — "
@@ -2013,23 +1971,11 @@ namespace UniversSale.View
             };
             panel.Children.Add(proofToggle);
 
-            var previousFinding = new Button
-            {
-                Content = NavContent("previous", "Signalement"),
-                ToolTip = "Aller au signalement de correction précédent",
-                Padding = new Thickness(8, 1, 8, 1),
-                Focusable = false
-            };
+            var previousFinding = Buttons.Icon("previous", "Signalement de correction précédent", Buttons.Bar, Buttons.Look.Calm);
             previousFinding.Click += delegate { NavigateFinding(-1); };
-            var nextFinding = new Button
-            {
-                Content = NavContent("next", "Signalement"),
-                ToolTip = "Aller au signalement de correction suivant",
-                Padding = new Thickness(8, 1, 8, 1),
-                Focusable = false
-            };
+            var nextFinding = Buttons.Icon("next", "Signalement de correction suivant", Buttons.Bar, Buttons.Look.Calm);
             nextFinding.Click += delegate { NavigateFinding(1); };
-            panel.Children.Add(StackedPair(previousFinding, nextFinding));
+            panel.Children.Add(SideBySide(previousFinding, nextFinding));
 
             _corrDetailsBtn = TallToggle("Détails de correction",
                 "Le panneau des signalements, à droite — il remplace les "

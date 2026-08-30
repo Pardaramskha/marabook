@@ -236,7 +236,8 @@ namespace UniversSale.View
                 if (e.Key == Key.Enter) { FindNext(); e.Handled = true; }
                 else if (e.Key == Key.Escape) { HideSearch(); e.Handled = true; }
             };
-            var findNext = new Button { Content = "Suivant", Margin = new Thickness(6, 0, 0, 0), Padding = new Thickness(8, 2, 8, 2) };
+            var findNext = Buttons.Icon("next", "Occurrence suivante (Entrée)", Buttons.Compact, Buttons.Look.Outline);
+            findNext.Margin = new Thickness(6, 0, 0, 0);
             findNext.Click += delegate { FindNext(); };
             var findClose = new Button { Content = "✕", Width = 24, Margin = new Thickness(6, 0, 0, 0) };
             findClose.Click += delegate { HideSearch(); };

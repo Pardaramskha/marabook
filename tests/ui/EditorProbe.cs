@@ -264,7 +264,7 @@ namespace UniversSale.Tests.Ui
                 && shadowHost != null && shadowHost.Effect is System.Windows.Media.Effects.DropShadowEffect,
                 "au survol, la carte se soulève (transformation) et son hôte sans texte projette l'ombre (texte net)");
             Button dots = null;
-            foreach (var b in FindButtons(hovered)) if (b.Content as string == "⋮") dots = b;
+            foreach (var b in FindButtons(hovered)) if (b.ToolTip as string == "Options de la carte") dots = b; // icône seule depuis le b40, repéré par l'infobulle
             var hitOk = false;
             if (dots != null)
             {

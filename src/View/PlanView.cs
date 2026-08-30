@@ -274,7 +274,7 @@ namespace UniversSale.View
 
             // — Tête de colonne : titre, lien vers un écrit, menu.
             var titleRow = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
-            var menu = new Button { Content = "⋮", Width = 24, Padding = new Thickness(0, 1, 0, 1), ToolTip = "Déplacer, supprimer" };
+            var menu = Buttons.Icon("dots-three-vertical-bold", "Déplacer, supprimer la colonne", Buttons.Compact, Buttons.Look.Calm);
             var columnRef = column;
             menu.Click += delegate { ColumnMenu(columnRef).IsOpen = true; };
             DockPanel.SetDock(menu, Dock.Right);
