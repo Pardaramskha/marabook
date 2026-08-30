@@ -173,10 +173,73 @@ namespace UniversSale.View
             if (!any) _pinnedList.Children.Add(Prompt("Clic droit sur un élément → Épingler."));
         }
 
+        /// <summary>Rien de neuf : les mots du jour et l'objectif journalier
+        /// (WritingJournal), l'objectif de session en cours (la coquille),
+        /// une barre par livre (BookProgress, le dessin du batch 32).</summary>
         private void FillProgress()
         {
             _progressList.Children.Clear();
-            _progressList.Children.Add(Prompt("Définis un objectif pour suivre ta progression."));
+            var any = false;
+            var culture = System.Globalization.CultureInfo.CurrentCulture;
+
+            var journal = _project.Journal;
+            var today = journal.WordsOn(WritingJournal.Today());
+            if (journal.DailyGoal > 0)
+            {
+                var bar = new BookProgressBar { Margin = new Thickness(0, 0, 0, 10) };
+                var ratio = (double)today / journal.DailyGoal;
+                bar.ShowRatio("Aujourd'hui : " + today.ToString("N0", culture) + " / "
+                    + journal.DailyGoal.ToString("N0", culture) + " mots"
+                    + (today >= journal.DailyGoal ? " — objectif atteint !" : ""),
+                    ratio, today >= journal.DailyGoal ? 1 : 0);
+                _progressList.Children.Add(bar);
+                any = true;
+            }
+            else if (today > 0)
+            {
+                _progressList.Children.Add(Line("Aujourd'hui : " + today.ToString("N0", culture)
+                    + (today > 1 ? " mots écrits" : " mot écrit")));
+                any = true;
+            }
+
+            var sessionGoal = SessionGoal == null ? 0 : SessionGoal();
+            if (sessionGoal > 0 && SessionBaseWords != null && ProjectWords != null)
+            {
+                var written = System.Math.Max(0, ProjectWords() - SessionBaseWords());
+                var bar = new BookProgressBar { Margin = new Thickness(0, 0, 0, 10) };
+                bar.ShowRatio("Session : " + written.ToString("N0", culture) + " / "
+                    + sessionGoal.ToString("N0", culture) + " mots"
+                    + (written >= sessionGoal ? " — objectif atteint !" : ""),
+                    (double)written / sessionGoal, written >= sessionGoal ? 1 : 0);
+                _progressList.Children.Add(bar);
+                any = true;
+            }
+
+            foreach (var item in _project.AllItems())
+            {
+                if (item.Kind != ItemKind.Book || Recents.InTrash(item)) continue;
+                var progress = BookProgress.Of(item);
+                var bar = new BookProgressBar { Margin = new Thickness(0, 0, 0, 10) };
+                var title = string.IsNullOrEmpty(item.Title) ? "Livre" : item.Title;
+                bar.Show(progress, title + " — pas d'objectif de chapitres");
+                if (progress.HasGoal) bar.Label.Text = title + " — " + BookProgressBar.Describe(progress);
+                _progressList.Children.Add(bar);
+                any = true;
+            }
+
+            if (!any) _progressList.Children.Add(Prompt("Définis un objectif pour suivre ta progression."));
+        }
+
+        private static TextBlock Line(string text)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 6)
+            };
         }
 
         private void FillStart()
@@ -275,9 +338,49 @@ namespace UniversSale.View
             if (handler != null) handler();
         }
 
-        // Pour les sondes : les lignes cliquables d'un bloc.
+        // Pour les tests et les sondes : les lignes cliquables d'un bloc,
+        // les invites d'état vide affichées, les boutons de Commencer.
         public List<BinderItem> ResumeItems { get { return ItemsOf(_resumeList); } }
         public List<BinderItem> PinnedItems { get { return ItemsOf(_pinnedList); } }
+        public int ProgressBars { get { return CountOf(_progressList, typeof(BookProgressBar)); } }
+
+        public List<string> Prompts
+        {
+            get
+            {
+                var prompts = new List<string>();
+                foreach (var list in new[] { _resumeList, _pinnedList, _progressList, _startList })
+                    foreach (UIElement child in list.Children)
+                    {
+                        var text = child as TextBlock;
+                        if (text != null && text.FontStyle == FontStyles.Italic) prompts.Add(text.Text);
+                    }
+                return prompts;
+            }
+        }
+
+        public List<Button> StartButtons
+        {
+            get
+            {
+                var buttons = new List<Button>();
+                foreach (UIElement child in _startList.Children)
+                {
+                    var row = child as Panel;
+                    if (row == null) continue;
+                    foreach (UIElement element in row.Children)
+                        if (element is Button) buttons.Add((Button)element);
+                }
+                return buttons;
+            }
+        }
+
+        private static int CountOf(Panel list, Type type)
+        {
+            var count = 0;
+            foreach (UIElement child in list.Children) if (child.GetType() == type) count++;
+            return count;
+        }
 
         private static List<BinderItem> ItemsOf(Panel list)
         {

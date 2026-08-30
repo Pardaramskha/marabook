@@ -24,6 +24,48 @@ namespace UniversSale.Tests
             Elapsed(t);
             PinPersistence(t);
             HomeRoot(t);
+            EmptyBlocks(t);
+        }
+
+        /// <summary>Un projet neuf n'a ni récent, ni épingle, ni objectif, ni
+        /// livre : chaque bloc montre son invite, Commencer reste utile.</summary>
+        private static void EmptyBlocks(Harness t)
+        {
+            var project = Project.CreateNew();
+            project.Category(Project.KeyWritings).Children.Clear(); // même pas l'écrit d'amorce
+            var view = new UniversSale.View.HomeView();
+            view.Load(project);
+            var prompts = view.Prompts;
+            t.Equal(3, prompts.Count, "trois invites d'état vide sur un projet neuf");
+            t.Check(prompts.Contains("Les écrits ouverts récemment apparaîtront ici."), "l'invite de Reprendre");
+            t.Check(prompts.Contains("Clic droit sur un élément → Épingler."), "l'invite d'Épinglés");
+            t.Check(prompts.Contains("Définis un objectif pour suivre ta progression."), "l'invite d'Où j'en suis");
+            t.Check(view.ResumeItems.Count == 0 && view.PinnedItems.Count == 0 && view.ProgressBars == 0, "aucune ligne, aucune barre");
+            t.Equal(5, view.StartButtons.Count, "Commencer offre ses cinq commandes, même sur un projet vide");
+
+            // — Un livre avec objectif, un objectif journalier, un épinglé et
+            //   un récent : les invites cèdent la place au contenu.
+            var book = new BinderItem { Kind = ItemKind.Book, Title = "Roman", Book = new BookInfo { ChapterGoal = 4 } };
+            var chapter = new BinderItem { Kind = ItemKind.Text, Title = "Un", Status = "done" };
+            book.Children.Add(chapter);
+            project.Category(Project.KeyWritings).Children.Add(book);
+            project.RelinkParents();
+            project.Journal.DailyGoal = 500;
+            chapter.Pinned = true;
+            Recents.Touch(project.Recents, chapter.Id, Recents.Now());
+            view.Refresh();
+            t.Equal(0, view.Prompts.Count, "avec du contenu, plus aucune invite");
+            t.Check(view.ResumeItems.Count == 1 && view.ResumeItems[0] == chapter, "Reprendre montre le chapitre récent");
+            t.Check(view.PinnedItems.Count == 1 && view.PinnedItems[0] == chapter, "Épinglés montre le chapitre épinglé");
+            t.Equal(2, view.ProgressBars, "Où j'en suis : la barre du jour et celle du livre");
+
+            // — Le filtre Corbeille (A3) vaut pour Reprendre ET Épinglés.
+            book.Children.Remove(chapter);
+            project.Trash.Children.Add(chapter);
+            project.RelinkParents();
+            view.Refresh();
+            t.Check(view.ResumeItems.Count == 0 && view.PinnedItems.Count == 0 && chapter.Pinned,
+                "un item jeté disparaît des deux blocs, son épingle voyage avec lui");
         }
 
         private static void HomeRoot(Harness t)

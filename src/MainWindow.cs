@@ -77,6 +77,7 @@ namespace UniversSale
         // Livre (batch 32) : objectif de chapitres au-dessus des statistiques,
         // panneaux Métadonnées / Publication dépliés sous les dates.
         private StackPanel _progressSection;
+        private BookProgressBar _bookBar; // la barre (b32), partagée avec l'Accueil (b41)
         private TextBlock _progressLabel;
         private ColumnDefinition _progPresent, _progRest, _progDone, _progUndone;
         // Métadonnées / Publication d'un livre (batch 32) : depuis le batch
@@ -1048,46 +1049,15 @@ namespace UniversSale
                 ToolTip = "Objectif du livre — clic : Options du livre…",
                 Background = Brushes.Transparent
             };
-            _progressLabel = new TextBlock
-            {
-                Foreground = Chrome.SoftText,
-                FontSize = 12,
-                TextWrapping = TextWrapping.Wrap
-            };
-            _progressSection.Children.Add(_progressLabel);
-            var track = new Grid { Height = 8, Margin = new Thickness(0, 5, 0, 0) };
-            _progPresent = new ColumnDefinition { Width = new GridLength(0, GridUnitType.Star) };
-            _progRest = new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) };
-            track.ColumnDefinitions.Add(_progPresent);
-            track.ColumnDefinitions.Add(_progRest);
-            var trackBg = new Border
-            {
-                Background = Chrome.Border,
-                CornerRadius = new CornerRadius(4)
-            };
-            Grid.SetColumnSpan(trackBg, 2);
-            track.Children.Add(trackBg);
-            var presentGrid = new Grid();
-            _progDone = new ColumnDefinition { Width = new GridLength(0, GridUnitType.Star) };
-            _progUndone = new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) };
-            presentGrid.ColumnDefinitions.Add(_progDone);
-            presentGrid.ColumnDefinitions.Add(_progUndone);
-            var presentBar = new Border
-            {
-                Background = Chrome.Warn, // warn : présents
-                CornerRadius = new CornerRadius(4),
-                Child = presentGrid
-            };
-            var doneBar = new Border
-            {
-                Background = Chrome.Ok, // ok : terminés
-                CornerRadius = new CornerRadius(4)
-            };
-            Grid.SetColumn(doneBar, 0);
-            presentGrid.Children.Add(doneBar);
-            Grid.SetColumn(presentBar, 0);
-            track.Children.Add(presentBar);
-            _progressSection.Children.Add(track);
+            // Le dessin de la barre vit dans BookProgressBar (b41, partagé
+            // avec l'Accueil) ; les colonnes restent exposées aux sondes.
+            _bookBar = new BookProgressBar();
+            _progressLabel = _bookBar.Label;
+            _progPresent = _bookBar.Present;
+            _progRest = _bookBar.Rest;
+            _progDone = _bookBar.Done;
+            _progUndone = _bookBar.Undone;
+            _progressSection.Children.Add(_bookBar);
             _progressSection.MouseLeftButtonUp += delegate
             {
                 if (_current != null && _current.Kind == ItemKind.Book) _binder.BookOptions(_current);
@@ -3415,27 +3385,7 @@ namespace UniversSale
                 return;
             }
             _progressSection.Visibility = Visibility.Visible;
-            var progress = BookProgress.Of(_current);
-            var culture = CultureInfo.CurrentCulture;
-            if (!progress.HasGoal)
-            {
-                _progressLabel.Text = "Objectif : aucun — définir dans les Options du livre…";
-                _progPresent.Width = new GridLength(0, GridUnitType.Star);
-                _progRest.Width = new GridLength(1, GridUnitType.Star);
-                return;
-            }
-            _progressLabel.Text = "Objectif : " + progress.Present.ToString("N0", culture)
-                + " / " + progress.Goal.ToString("N0", culture) + " chapitres"
-                + " — " + progress.Done.ToString("N0", culture)
-                + (progress.Done > 1 ? " terminés" : " terminé")
-                + (progress.Done >= progress.Goal ? " — atteint !" : "");
-            var present = progress.PresentRatio;
-            var done = progress.DoneRatio;
-            _progPresent.Width = new GridLength(present, GridUnitType.Star);
-            _progRest.Width = new GridLength(1 - present, GridUnitType.Star);
-            var doneShare = present <= 0 ? 0 : done / present; // part verte de l'orange
-            _progDone.Width = new GridLength(doneShare, GridUnitType.Star);
-            _progUndone.Width = new GridLength(1 - doneShare, GridUnitType.Star);
+            _bookBar.Show(BookProgress.Of(_current), "Objectif : aucun — définir dans les Options du livre…");
         }
 
         /// <summary>Reconstruit la rangée de pastilles de couleur pour
