@@ -168,7 +168,7 @@ namespace UniversSale.View
     <Setter Property=""Template"">
       <Setter.Value>
         <ControlTemplate TargetType=""Button"">
-          <Border x:Name=""Bg"" CornerRadius=""5"" Background=""{StaticResource Paper}""
+          <Border x:Name=""Bg"" CornerRadius=""6"" Background=""{StaticResource Paper}""
                   BorderBrush=""{StaticResource Border}"" BorderThickness=""1""
                   Padding=""{TemplateBinding Padding}"">
             <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
@@ -202,7 +202,7 @@ namespace UniversSale.View
         <ControlTemplate TargetType=""ToggleButton"">
           <!-- Au repos : papier + bordure fine (batch 34 — un bouton se
                distingue d'un simple texte) ; enfoncé : accent doux. -->
-          <Border x:Name=""Bg"" CornerRadius=""5"" Background=""{StaticResource Paper}""
+          <Border x:Name=""Bg"" CornerRadius=""6"" Background=""{StaticResource Paper}""
                   BorderBrush=""{StaticResource Border}"" BorderThickness=""1""
                   Padding=""{TemplateBinding Padding}"">
             <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
@@ -213,6 +213,90 @@ namespace UniversSale.View
             </Trigger>
             <!-- Bascule active (batch 40) : accent-tint, bordure accent-soft,
                  texte accent-strong — l'accent plein reste à l'action. -->
+            <Trigger Property=""IsChecked"" Value=""True"">
+              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentTint}""/>
+              <Setter TargetName=""Bg"" Property=""BorderBrush"" Value=""{StaticResource AccentSoft}""/>
+              <Setter Property=""Foreground"" Value=""{StaticResource AccentStrong}""/>
+            </Trigger>
+            <Trigger Property=""IsEnabled"" Value=""False"">
+              <Setter Property=""Opacity"" Value=""0.45""/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Les trois apparences de Buttons.cs (batch 40). Le style implicite
+       ci-dessus est le CONTOUR (raised + line-strong) ; calme = transparent
+       au repos, accent-tint au survol, accent-soft enfoncé ; principal =
+       accent plein, accent-strong enfoncé ; la bascule calme cochée est
+       l'état ACTIF (accent-tint, bordure accent-soft, texte accent-strong). -->
+  <Style x:Key=""CalmButton"" TargetType=""Button"" BasedOn=""{StaticResource {x:Type Button}}"">
+    <Setter Property=""Template"">
+      <Setter.Value>
+        <ControlTemplate TargetType=""Button"">
+          <Border x:Name=""Bg"" CornerRadius=""6"" Background=""Transparent""
+                  BorderBrush=""Transparent"" BorderThickness=""1""
+                  Padding=""{TemplateBinding Padding}"">
+            <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property=""IsMouseOver"" Value=""True"">
+              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentTint}""/>
+            </Trigger>
+            <Trigger Property=""IsPressed"" Value=""True"">
+              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentSoft}""/>
+            </Trigger>
+            <Trigger Property=""IsEnabled"" Value=""False"">
+              <Setter Property=""Opacity"" Value=""0.45""/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key=""PrimaryButton"" TargetType=""Button"" BasedOn=""{StaticResource {x:Type Button}}"">
+    <Setter Property=""Foreground"" Value=""{StaticResource Paper}""/>
+    <Setter Property=""FontWeight"" Value=""SemiBold""/>
+    <Setter Property=""Template"">
+      <Setter.Value>
+        <ControlTemplate TargetType=""Button"">
+          <Border x:Name=""Bg"" CornerRadius=""6"" Background=""{StaticResource Accent}""
+                  BorderBrush=""{StaticResource Accent}"" BorderThickness=""1""
+                  Padding=""{TemplateBinding Padding}"">
+            <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property=""IsMouseOver"" Value=""True"">
+              <Setter TargetName=""Bg"" Property=""BorderBrush"" Value=""{StaticResource AccentStrong}""/>
+            </Trigger>
+            <Trigger Property=""IsPressed"" Value=""True"">
+              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentStrong}""/>
+            </Trigger>
+            <Trigger Property=""IsEnabled"" Value=""False"">
+              <Setter Property=""Opacity"" Value=""0.45""/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key=""CalmToggle"" TargetType=""ToggleButton"" BasedOn=""{StaticResource {x:Type ToggleButton}}"">
+    <Setter Property=""Template"">
+      <Setter.Value>
+        <ControlTemplate TargetType=""ToggleButton"">
+          <Border x:Name=""Bg"" CornerRadius=""6"" Background=""Transparent""
+                  BorderBrush=""Transparent"" BorderThickness=""1""
+                  Padding=""{TemplateBinding Padding}"">
+            <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property=""IsMouseOver"" Value=""True"">
+              <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentTint}""/>
+            </Trigger>
             <Trigger Property=""IsChecked"" Value=""True"">
               <Setter TargetName=""Bg"" Property=""Background"" Value=""{StaticResource AccentTint}""/>
               <Setter TargetName=""Bg"" Property=""BorderBrush"" Value=""{StaticResource AccentSoft}""/>
@@ -266,7 +350,7 @@ namespace UniversSale.View
     <Setter Property=""Template"">
       <Setter.Value>
         <ControlTemplate TargetType=""TextBox"">
-          <Border x:Name=""Bg"" CornerRadius=""5"" Background=""{StaticResource Paper}""
+          <Border x:Name=""Bg"" CornerRadius=""6"" Background=""{StaticResource Paper}""
                   BorderBrush=""{StaticResource Border}"" BorderThickness=""1""
                   Padding=""{TemplateBinding Padding}"">
             <ScrollViewer x:Name=""PART_ContentHost""
@@ -362,7 +446,7 @@ namespace UniversSale.View
                           IsChecked=""{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"">
               <ToggleButton.Template>
                 <ControlTemplate TargetType=""ToggleButton"">
-                  <Border x:Name=""Bg"" CornerRadius=""5"" Background=""{StaticResource Paper}""
+                  <Border x:Name=""Bg"" CornerRadius=""6"" Background=""{StaticResource Paper}""
                           BorderBrush=""{StaticResource Border}"" BorderThickness=""1"">
                     <Path Data=""M0,0 L4,4 8,0"" Stroke=""{StaticResource InkSoft}"" StrokeThickness=""1.6""
                           HorizontalAlignment=""Right"" VerticalAlignment=""Center"" Margin=""0,1,8,0""/>
@@ -441,7 +525,7 @@ namespace UniversSale.View
   </Style>
 
   <ControlTemplate x:Key=""MenuTop"" TargetType=""MenuItem"">
-    <Border x:Name=""Bg"" CornerRadius=""5"" Padding=""9,4"" Background=""Transparent"">
+    <Border x:Name=""Bg"" CornerRadius=""6"" Padding=""9,4"" Background=""Transparent"">
       <ContentPresenter ContentSource=""Header"" RecognizesAccessKey=""True"" VerticalAlignment=""Center""/>
     </Border>
     <ControlTemplate.Triggers>
@@ -453,7 +537,7 @@ namespace UniversSale.View
 
   <ControlTemplate x:Key=""MenuTopParent"" TargetType=""MenuItem"">
     <Grid>
-      <Border x:Name=""Bg"" CornerRadius=""5"" Padding=""9,4"" Background=""Transparent"">
+      <Border x:Name=""Bg"" CornerRadius=""6"" Padding=""9,4"" Background=""Transparent"">
         <ContentPresenter ContentSource=""Header"" RecognizesAccessKey=""True"" VerticalAlignment=""Center""/>
       </Border>
       <Popup IsOpen=""{TemplateBinding IsSubmenuOpen}"" Placement=""Bottom""
@@ -702,7 +786,7 @@ namespace UniversSale.View
           <StackPanel>
             <!-- Ligne sélectionnée (batch 40) : accent-tint, liseré d'accent
                  à gauche, encre normale — l'aplat saturé est rendu à l'action. -->
-            <Border x:Name=""Bg"" CornerRadius=""5"" Padding=""2,3"" Background=""Transparent""
+            <Border x:Name=""Bg"" CornerRadius=""6"" Padding=""2,3"" Background=""Transparent""
                     BorderThickness=""3,0,0,0"" BorderBrush=""Transparent"">
               <Grid>
                 <Grid.ColumnDefinitions>

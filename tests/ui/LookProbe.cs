@@ -126,16 +126,17 @@ namespace UniversSale.Tests.Ui
                 DoEvents();
 
                 var content = (FrameworkElement)window.Content;
+                Settle();
                 RenderPng(content, Path.Combine(Path.GetTempPath(), "marabook-b40-" + label + "-clair.png"));
 
                 AppSettings.DarkTheme = true;
                 Invoke(window, "ApplyAppearance", null);
-                DoEvents();
+                Settle();
                 RenderPng(content, Path.Combine(Path.GetTempPath(), "marabook-b40-" + label + "-sombre.png"));
 
                 AppSettings.WhitePaperInDark = true;
                 Invoke(window, "ApplyAppearance", null);
-                DoEvents();
+                Settle();
                 RenderPng(content, Path.Combine(Path.GetTempPath(), "marabook-b40-" + label + "-sombre-papier-blanc.png"));
             }
             finally
@@ -156,14 +157,19 @@ namespace UniversSale.Tests.Ui
                 var width = (int)Math.Ceiling(element.ActualWidth);
                 var height = (int)Math.Ceiling(element.ActualHeight);
                 if (width <= 0 || height <= 0) return;
-                var visual = new DrawingVisual();
-                using (var dc = visual.RenderOpen())
-                {
-                    dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, width, height));
-                    dc.DrawRectangle(new VisualBrush(element), null, new Rect(0, 0, width, height));
-                }
+                // La racine de la fenêtre est à l'origine : rendu direct (un
+                // VisualBrush perd le tracé des pages composées).
+                element.UpdateLayout();
                 var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
-                bitmap.Render(visual);
+                if (element.Parent == null || element.Parent is Window) bitmap.Render(element);
+                else
+                {
+                    // Un élément posé ailleurs qu'à l'origine : par un VisualBrush.
+                    var visual = new DrawingVisual();
+                    using (var dc = visual.RenderOpen())
+                        dc.DrawRectangle(new VisualBrush(element), null, new Rect(0, 0, width, height));
+                    bitmap.Render(visual);
+                }
                 var encoder = new PngBitmapEncoder();
                 encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 using (var stream = File.Create(path)) encoder.Save(stream);
@@ -187,6 +193,17 @@ namespace UniversSale.Tests.Ui
             var method = target.GetType().GetMethod(name, BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
             if (method == null) throw new InvalidOperationException(target.GetType().Name + "." + name + " introuvable (sonde à réaligner)");
             method.Invoke(target, args);
+        }
+
+        /// <summary>Laisse passer les minuteries différées (composition,
+        /// correction) : quelques tours de pompe espacés.</summary>
+        private static void Settle()
+        {
+            for (var i = 0; i < 12; i++)
+            {
+                System.Threading.Thread.Sleep(60);
+                DoEvents();
+            }
         }
 
         private static void DoEvents()

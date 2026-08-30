@@ -3145,9 +3145,11 @@ namespace UniversSale
             var count = _editor != null ? _editor.FindingCount : 0;
             _railBadge.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
             _railBadgeText.Text = count > 99 ? "99+" : count.ToString(CultureInfo.InvariantCulture);
+            // Une pastille de compteur est en DANGER, pas en accent (b40) :
+            // elle signale ce qui attend, elle ne se confond pas avec l'actif.
             var correctionActive = shown == RightPanel.Correction;
-            _railBadge.Background = correctionActive ? Chrome.PaperBg : Chrome.Accent;
-            _railBadgeText.Foreground = correctionActive ? Chrome.Accent : Chrome.PaperBg;
+            _railBadge.Background = correctionActive ? Chrome.PaperBg : Chrome.Danger;
+            _railBadgeText.Foreground = correctionActive ? Chrome.Danger : Chrome.PaperBg;
         }
 
         private void ToggleRulers()

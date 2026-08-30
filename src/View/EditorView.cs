@@ -669,15 +669,9 @@ namespace UniversSale.View
 
         private ToggleButton ViewToggle(string label, string tooltip)
         {
-            return new ToggleButton
-            {
-                Content = label,
-                ToolTip = tooltip,
-                Padding = new Thickness(8, 1, 8, 1),
-                Margin = new Thickness(4, 0, 0, 0),
-                FontSize = 11,
-                Focusable = false
-            };
+            var button = Buttons.TextToggle(label, tooltip, Buttons.Compact);
+            button.Margin = new Thickness(4, 0, 0, 0);
+            return button;
         }
 
         /// <summary>L'état du sélecteur d'affichage — une seule position
@@ -910,34 +904,32 @@ namespace UniversSale.View
 
             // Le bouton « Composition » a disparu avec le gel du classique
             // (batch 26) : l'onglet ne porte plus que les sorties.
-            panel.Children.Add(CompositionAction("Aperçu des pages",
+            // Icône + libellé quand l'icône existe ; texte seul sinon
+            // (« Aperçu », « PDF prêt à imprimer » n'ont pas d'icône — b40).
+            panel.Children.Add(CompositionAction(null, "Aperçu des pages",
                 "Les pages exactes, prêtes à relire (Ctrl+Alt+P)",
                 delegate { var handler = PreviewRequested; if (handler != null) handler(); }));
-            panel.Children.Add(CompositionAction("Imprimer / PDF…",
+            panel.Children.Add(CompositionAction("file-text-bold", "Imprimer / PDF…",
                 "Impression ou PDF via « Microsoft Print to PDF » (Ctrl+P)",
                 delegate { var handler = PrintRequested; if (handler != null) handler(); }));
-            panel.Children.Add(CompositionAction("PDF prêt à imprimer…",
+            panel.Children.Add(CompositionAction(null, "PDF prêt à imprimer…",
                 "PDF maison : polices incorporées, fond perdu, traits de coupe",
                 delegate { var handler = PdfRequested; if (handler != null) handler(); }));
-            panel.Children.Add(CompositionAction("Exporter l'écrit…",
+            panel.Children.Add(CompositionAction("file-arrow-down-bold", "Exporter l'écrit…",
                 "docx, odt, RTF, Markdown, texte (Ctrl+E)",
                 delegate { var handler = ExportRequested; if (handler != null) handler(); }));
-            panel.Children.Add(CompositionAction("Compiler le manuscrit…",
+            panel.Children.Add(CompositionAction("files-bold", "Compiler le manuscrit…",
                 "Assembler les écrits en un manuscrit exportable (Ctrl+Maj+E)",
                 delegate { var handler = CompileRequested; if (handler != null) handler(); }));
             return panel;
         }
 
-        private Button CompositionAction(string label, string tooltip, Action onClick)
+        private Button CompositionAction(string icon, string label, string tooltip, Action onClick)
         {
-            var button = new Button
-            {
-                Content = label,
-                ToolTip = tooltip,
-                Margin = new Thickness(0, 0, 6, 0),
-                Padding = new Thickness(8, 2, 8, 2),
-                Focusable = false
-            };
+            var button = icon == null
+                ? Buttons.Text(label, tooltip, Buttons.Bar, Buttons.Look.Calm)
+                : Buttons.IconText(icon, label, tooltip, Buttons.Bar, Buttons.Look.Calm);
+            button.Margin = new Thickness(0, 0, 4, 0);
             button.Click += delegate { onClick(); };
             return button;
         }
@@ -1018,8 +1010,7 @@ namespace UniversSale.View
             breakBtn.Click += delegate { InsertPageBreak(); };
             panel.Children.Add(breakBtn);
 
-            _guidesBtn = PageToggle("Marges", "Cadres de marges sur chaque page");
-            _guidesBtn.Content = TabButtonContent("margins", "Marges");
+            _guidesBtn = PageToggle("margins", "Marges", "Cadres de marges sur chaque page");
             _guidesBtn.Click += delegate
             {
                 if (_project == null) return;
@@ -1028,8 +1019,7 @@ namespace UniversSale.View
             };
             panel.Children.Add(_guidesBtn);
 
-            _lineNumbersBtn = PageToggle("N° de ligne", "Numéros de ligne à l'export Word et à l'impression");
-            _lineNumbersBtn.Content = TabButtonContent("list-numbers-bold", "N° de ligne");
+            _lineNumbersBtn = PageToggle("list-numbers-bold", "Numéros de ligne", "à l'export Word et à l'impression");
             _lineNumbersBtn.Click += delegate
             {
                 if (_project == null) return;
@@ -1038,7 +1028,7 @@ namespace UniversSale.View
             };
             panel.Children.Add(_lineNumbersBtn);
 
-            _hyphenBtn = PageToggle("Césure", "Coupure des mots en fin de ligne");
+            _hyphenBtn = PageToggle("kerning", "Césure", "Coupure des mots en fin de ligne");
             _hyphenBtn.Click += delegate
             {
                 if (_project == null) return;
@@ -1047,7 +1037,7 @@ namespace UniversSale.View
             };
             panel.Children.Add(_hyphenBtn);
 
-            _folioBtn = PageToggle("Folio", "Numéro de page centré en pied de page (aperçu, impression, export Word)");
+            _folioBtn = PageToggle("symbol", "Folio", "Numéro de page centré en pied de page (aperçu, impression, export Word)");
             _folioBtn.Click += delegate
             {
                 if (_project == null) return;
@@ -1070,16 +1060,13 @@ namespace UniversSale.View
             };
         }
 
-        private ToggleButton PageToggle(string label, string tooltip)
+        /// <summary>Une bascule de la barre « Mise en page » : icône seule,
+        /// le libellé passe dans l'infobulle (batch 40).</summary>
+        private ToggleButton PageToggle(string icon, string label, string tooltip)
         {
-            return new ToggleButton
-            {
-                Content = label,
-                ToolTip = tooltip,
-                Margin = new Thickness(0, 0, 6, 0),
-                Padding = new Thickness(8, 2, 8, 2),
-                Focusable = false
-            };
+            var button = Buttons.IconToggle(icon, label + " — " + tooltip, Buttons.Bar);
+            button.Margin = new Thickness(0, 0, 4, 0);
+            return button;
         }
 
         private void OnMarginsComboChanged(object sender, SelectionChangedEventArgs e)
@@ -1521,63 +1508,29 @@ namespace UniversSale.View
             };
         }
 
-        /// <summary>Un bouton « sur deux lignes » du ruban : libellé enroulé,
-        /// pleine hauteur — la monnaie courante d'Office.</summary>
-        private static TextBlock TallLabel(string label)
-        {
-            return new TextBlock
-            {
-                Text = label,
-                TextWrapping = TextWrapping.Wrap,
-                TextAlignment = TextAlignment.Center,
-                MaxWidth = 76,
-                FontSize = 11
-            };
-        }
-
+        /// <summary>Un bouton texte du ruban — 32 px, calme (batch 40 : les
+        /// « grands » boutons Office à 44 px n'existent plus, deux hauteurs
+        /// seulement).</summary>
         private Button TallButton(string label, string tooltip)
         {
-            return new Button
-            {
-                Content = TallLabel(label),
-                ToolTip = tooltip,
-                MinHeight = 44,
-                Padding = new Thickness(8, 2, 8, 2),
-                Margin = new Thickness(0, 0, 6, 0),
-                Focusable = false,
-                VerticalAlignment = VerticalAlignment.Center
-            };
+            var button = Buttons.Text(label, tooltip, Buttons.Bar, Buttons.Look.Calm);
+            button.Margin = new Thickness(0, 0, 4, 0);
+            return button;
         }
 
-        /// <summary>Variante à ICÔNE au-dessus du libellé (façon Office).</summary>
+        /// <summary>Variante icône + libellé.</summary>
         private Button TallButton(string icon, string label, string tooltip)
         {
-            var content = new StackPanel();
-            var glyph = Icons.Make(icon, 16, Chrome.Ink) as FrameworkElement;
-            if (glyph != null)
-            {
-                glyph.HorizontalAlignment = HorizontalAlignment.Center;
-                glyph.Margin = new Thickness(0, 0, 0, 2);
-                content.Children.Add(glyph);
-            }
-            content.Children.Add(TallLabel(label));
-            var button = TallButton(label, tooltip);
-            button.Content = content;
+            var button = Buttons.IconText(icon, label, tooltip, Buttons.Bar, Buttons.Look.Calm);
+            button.Margin = new Thickness(0, 0, 4, 0);
             return button;
         }
 
         private ToggleButton TallToggle(string label, string tooltip)
         {
-            return new ToggleButton
-            {
-                Content = TallLabel(label),
-                ToolTip = tooltip,
-                MinHeight = 44,
-                Padding = new Thickness(8, 2, 8, 2),
-                Margin = new Thickness(0, 0, 6, 0),
-                Focusable = false,
-                VerticalAlignment = VerticalAlignment.Center
-            };
+            var button = Buttons.TextToggle(label, tooltip, Buttons.Bar);
+            button.Margin = new Thickness(0, 0, 4, 0);
+            return button;
         }
 
         /// <summary>Icône + libellé des petits boutons de navigation.</summary>
@@ -1780,7 +1733,10 @@ namespace UniversSale.View
 
         private Button SmallButton(string label, Action onClick)
         {
-            var button = new Button { Content = label, Margin = new Thickness(0, 0, 6, 0) };
+            // Compact, contour : dans un panneau, une suggestion doit se
+            // lire comme cliquable (batch 40).
+            var button = Buttons.Text(label, null, Buttons.Compact, Buttons.Look.Outline);
+            button.Margin = new Thickness(0, 0, 6, 0);
             button.Click += delegate { onClick(); };
             return button;
         }

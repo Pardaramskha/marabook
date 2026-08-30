@@ -166,8 +166,8 @@ namespace UniversSale.Tests.Ui
             Check(origin.X >= 0 && origin.Y >= 0 && origin.X + badge.ActualWidth <= tab.ActualWidth + 0.5
                 && origin.Y + badge.ActualHeight <= tab.ActualHeight + 0.5 && badge.ActualHeight >= 16,
                 "…entière dans l'onglet, jamais rognée (" + badge.ActualWidth + "×" + badge.ActualHeight + " à " + origin.X + "," + origin.Y + ")");
-            Check(ReferenceEquals(badge.Background, Chrome.PaperBg) && ReferenceEquals(badgeText.Foreground, Chrome.Accent),
-                "…en couleurs inversées sur l'onglet actif");
+            Check(ReferenceEquals(badge.Background, Chrome.PaperBg) && ReferenceEquals(badgeText.Foreground, Chrome.Danger),
+                "…en danger (pas en accent), couleurs inversées sur l'onglet actif");
 
             RenderPng(rail, Path.Combine(Path.GetTempPath(), "marabook-b39-rail.png"), "rail");
             RenderPng((FrameworkElement)window.Content, Path.Combine(Path.GetTempPath(), "marabook-b39-fenetre.png"), "fenêtre");
