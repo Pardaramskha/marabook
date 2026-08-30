@@ -135,6 +135,10 @@ namespace UniversSale.View
         {
             set { if (_corrDetailsBtn != null) _corrDetailsBtn.IsChecked = value; }
         }
+        /// <summary>Le nombre de signalements du pilote — la pastille du rail
+        /// (batch 39) ; levé à chaque reconstruction de la liste.</summary>
+        public event Action FindingsChanged;
+        public int FindingCount { get { return _findings.Count; } }
         private List<Correction.Finding> _findings = new List<Correction.Finding>();
         private DispatcherTimer _checkTimer;
         private bool _deferredRepaintQueued; // coalescence des lots différés
@@ -2389,6 +2393,8 @@ namespace UniversSale.View
 
         private void RebuildCorrectionPanel()
         {
+            var changed = FindingsChanged;
+            if (changed != null) changed();
             if (_corrList == null) return;
             _corrList.Children.Clear();
             var status = BuildGrammarStatusLine();

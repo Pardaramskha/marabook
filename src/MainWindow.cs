@@ -59,6 +59,14 @@ namespace UniversSale
         private Border _searchHost;     // le panneau de recherche du projet (batch 37)
         private View.SearchPanel _searchPanel;
         private Border _versionsHost;   // le panneau Versions (batch 38)
+        // Le rail (batch 39) : quatre onglets à bascule, un par panneau de
+        // droite, à droite de tout. Connus à la compilation — pas de registre.
+        private const double RailWidth = 40;
+        private Border _rail;
+        private ColumnDefinition _railCol;
+        private readonly Dictionary<RightPanel, Border> _railTabs = new Dictionary<RightPanel, Border>();
+        private Border _railBadge;      // pastille du nombre de signalements (Correction)
+        private TextBlock _railBadgeText;
         private View.VersionsPanel _versionsPanel;
         private View.CompareWindow _compareWindow; // le paper flottant de comparaison (batch 38)
         private TextBlock _inspTitle, _inspKind, _inspStats, _inspDates;
@@ -334,11 +342,15 @@ namespace UniversSale
             var centerCol = new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 300 };
             var inspectorSplitCol = new ColumnDefinition { Width = GridLength.Auto };
             _inspectorCol = new ColumnDefinition { Width = new GridLength(AppSettings.InspectorWidth), MinWidth = 0 };
+            // Le rail (batch 39) : à droite de tout, séparateur compris —
+            // redimensionner le panneau ne le déplace pas.
+            _railCol = new ColumnDefinition { Width = new GridLength(RailWidth) };
             grid.ColumnDefinitions.Add(_binderCol);
             grid.ColumnDefinitions.Add(binderSplitCol);
             grid.ColumnDefinitions.Add(centerCol);
             grid.ColumnDefinitions.Add(inspectorSplitCol);
             grid.ColumnDefinitions.Add(_inspectorCol);
+            grid.ColumnDefinitions.Add(_railCol);
 
             _binder = new BinderView();
             _binder.DictionaryEntryRequested += delegate
@@ -614,6 +626,11 @@ namespace UniversSale
             _versionsHost = new Border { Child = _versionsPanel };
             Grid.SetColumn(_versionsHost, 4);
             grid.Children.Add(_versionsHost);
+
+            _rail = BuildRail();
+            Grid.SetColumn(_rail, 5);
+            grid.Children.Add(_rail);
+            _editor.FindingsChanged += UpdateRail;
 
             ApplyPanelVisibility();
             return grid;
@@ -2911,6 +2928,7 @@ namespace UniversSale
                 ? new GridLength(AppSettings.InspectorWidth) : new GridLength(0);
             _inspectorMenu.IsChecked = shown == RightPanel.Inspector;
             if (_editor != null) _editor.CorrectionPanelChecked = shown == RightPanel.Correction;
+            UpdateRail();
         }
 
         // ============================================================= colonne de droite (b39)
@@ -2937,6 +2955,131 @@ namespace UniversSale
             AppSettings.RightPanel = panel;
             AppSettings.Save();
             ApplyPanelVisibility();
+        }
+
+        // ============================================================= le rail (b39)
+
+        /// <summary>Le rail : fond de barre, filet à gauche, quatre onglets de
+        /// 32 px — l'inspecteur (il décrit l'élément courant), un filet, puis
+        /// les trois outils. Il ne se masque pas ; il suit seulement le mode
+        /// calme et le journal, comme le reste de la colonne.</summary>
+        private Border BuildRail()
+        {
+            var stack = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+            stack.Children.Add(RailTab(RightPanel.Inspector, "article-bold", "Inspecteur",
+                AppSettings.Gesture("toggle-inspector")));
+            stack.Children.Add(new Border
+            {
+                Height = 1,
+                Background = Chrome.Border,
+                Margin = new Thickness(9, 2, 9, 6)
+            });
+            stack.Children.Add(RailTab(RightPanel.Correction, "check-square-bold", "Détails de correction", null));
+            stack.Children.Add(RailTab(RightPanel.Search, "magnifying-glass-bold", "Recherche dans le projet",
+                AppSettings.Gesture("project-search")));
+            stack.Children.Add(RailTab(RightPanel.Versions, "arrow-up-left-bold", "Versions de l'écrit",
+                AppSettings.Gesture("versions-panel")));
+            return new Border
+            {
+                Background = Chrome.BarBg,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1, 0, 0, 0),
+                Child = stack
+            };
+        }
+
+        /// <summary>Un onglet du rail : l'icône, l'infobulle « nom — raccourci »
+        /// (c'est ainsi qu'on apprend un raccourci sans manuel), et pour
+        /// Correction la pastille du nombre de signalements.</summary>
+        private Border RailTab(RightPanel panel, string icon, string name, string gesture)
+        {
+            var glyph = (FrameworkElement)Icons.Make(icon, 16, Chrome.Ink);
+            glyph.HorizontalAlignment = HorizontalAlignment.Center;
+            glyph.VerticalAlignment = VerticalAlignment.Center;
+            var content = new Grid();
+            content.Children.Add(glyph);
+            if (panel == RightPanel.Correction)
+            {
+                _railBadgeText = new TextBlock
+                {
+                    FontSize = 9,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = Chrome.PaperBg,
+                    Margin = new Thickness(3, 0, 3, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                _railBadge = new Border
+                {
+                    Background = Chrome.Accent,
+                    BorderBrush = Chrome.BarBg,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(7),
+                    MinWidth = 14,
+                    Height = 14,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, -3, -3, 0),
+                    Child = _railBadgeText,
+                    Visibility = Visibility.Collapsed
+                };
+                content.Children.Add(_railBadge);
+            }
+            var tab = new Border
+            {
+                Width = 32,
+                Height = 32,
+                CornerRadius = new CornerRadius(6),
+                Margin = new Thickness(4, 0, 4, 4),
+                Background = Brushes.Transparent,
+                ToolTip = string.IsNullOrEmpty(gesture)
+                    ? name : name + " — " + AppSettings.DisplayGesture(gesture),
+                Child = content
+            };
+            tab.MouseLeftButtonUp += delegate { ClickRailTab(panel); };
+            tab.MouseEnter += delegate
+            {
+                if (ShownRightPanel() != panel && IsPanelAvailable(panel)) tab.Background = Chrome.Border;
+            };
+            tab.MouseLeave += delegate { UpdateRail(); };
+            _railTabs[panel] = tab;
+            return tab;
+        }
+
+        /// <summary>Un clic : l'onglet actif replie la colonne, tout autre
+        /// devient le panneau actif ; un onglet grisé ne réagit pas.</summary>
+        private void ClickRailTab(RightPanel panel)
+        {
+            if (!IsPanelAvailable(panel)) return;
+            SetRightPanel(RightPanels.Toggle(AppSettings.RightPanel, panel));
+            if (AppSettings.RightPanel != panel) return;
+            if (panel == RightPanel.Search) _searchPanel.FocusQuery();
+            if (panel == RightPanel.Versions) _versionsPanel.SetCurrent(_current);
+        }
+
+        /// <summary>L'onglet actif porte l'accent (comme les onglets du ruban,
+        /// b34), un onglet indisponible est grisé sans disparaître — le rail
+        /// ne change jamais de taille, on garde le repère.</summary>
+        private void UpdateRail()
+        {
+            if (_rail == null) return;
+            var railOn = !_journalOpen && !_calmMode;
+            _rail.Visibility = railOn ? Visibility.Visible : Visibility.Collapsed;
+            _railCol.Width = new GridLength(railOn ? RailWidth : 0);
+            var shown = ShownRightPanel();
+            foreach (var pair in _railTabs)
+            {
+                var available = IsPanelAvailable(pair.Key);
+                var active = shown == pair.Key;
+                var tab = pair.Value;
+                tab.Background = active ? Chrome.Accent : Brushes.Transparent;
+                tab.Opacity = available ? 1.0 : 0.35;
+                tab.Cursor = available ? Cursors.Hand : Cursors.Arrow;
+                var glyph = ((Grid)tab.Child).Children[0] as System.Windows.Shapes.Path;
+                if (glyph != null) glyph.Fill = active ? Chrome.PaperBg : Chrome.Ink;
+            }
+            var count = _editor != null ? _editor.FindingCount : 0;
+            _railBadge.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            _railBadgeText.Text = count > 99 ? "99+" : count.ToString(CultureInfo.InvariantCulture);
         }
 
         private void ToggleRulers()
