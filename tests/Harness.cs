@@ -98,7 +98,8 @@ namespace UniversSale.Tests
                 GenealogyTests.Run,      // C15 — généalogie (b36)
                 ProjectSearchTests.Run,  // C16 — recherche projet (b37)
                 DocumentDiffTests.Run,   // C17 — versions d'écrits (b38)
-                RightPanelTests.Run      // C18 — la colonne de droite (b39)
+                RightPanelTests.Run,     // C18 — la colonne de droite (b39)
+                HomeTests.Run            // C19 — l'Accueil : récents, épingle, racine (b41)
             };
             foreach (var suite in suites)
             {

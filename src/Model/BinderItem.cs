@@ -71,6 +71,9 @@ namespace UniversSale.Model
         // teinte sa boîte (bordure + fond éclairci).
         public string Status;
         public string CardColor;
+        // Épinglé sur l'Accueil (batch 41, v18) : persisté seulement quand
+        // vrai ; voyage avec l'item (un épinglé jeté puis restauré revient).
+        public bool Pinned;
         public TextDocument Document = new TextDocument(); // text items and sheet bodies
 
         // Sheets only: main image (wiki portrait), stored in the project image store.

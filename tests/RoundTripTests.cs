@@ -442,6 +442,11 @@ namespace UniversSale.Tests
             sheet.Relations.Add(new SheetRelation { Kind = "rivale", Name = "La Pie" });
             // — Natures de relation personnalisées du projet (batch 36, v16).
             project.RelationKinds.Add("Mentor");
+            // — Les récents (batch 41, v18) : deux items ouverts, le plus
+            // récent en tête ; l'épingle du chapitre est remplie par le
+            // filler réflexif (bool scalaire) et relue depuis "pinned".
+            project.Recents.Add(new RecentEntry { ItemId = chapter.Id, Date = "2026-08-30 10:15:00" });
+            project.Recents.Add(new RecentEntry { ItemId = sheet.Id, Date = "2026-08-29 22:40:00" });
             // — Un instantané du chapitre (batch 38, v17) : son document figé,
             // libellé, origine, compte de mots.
             var snapshot = Snapshot.Capture(chapter, "Avant la nuit", SnapshotOrigin.Manual);

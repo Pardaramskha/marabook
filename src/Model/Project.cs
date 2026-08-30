@@ -15,6 +15,7 @@ namespace UniversSale.Model
     /// roots are the categories Écrits / Recherche / Fiches / Corbeille.</summary>
     public class Project
     {
+        public const string KeyHome = "home";             // batch 41 : l'Accueil, créé en premier
         public const string KeyWritings = "writings";
         public const string KeyResearch = "research";
         public const string KeySheets = "sheets";
@@ -75,6 +76,9 @@ namespace UniversSale.Model
         // proposées ensuite sur toutes les fiches. Les natures livrées
         // (RelationKinds.Defaults) ne sont pas stockées ici.
         public List<string> RelationKinds = new List<string>();
+        // Les récents (batch 41, v18) : au plus dix items OUVERTS, le plus
+        // récent en tête — voir Recents. Purgés au chargement seulement.
+        public List<RecentEntry> Recents = new List<RecentEntry>();
 
         // Les instantanés (batch 38, v17) — tous les items confondus, dans
         // l'ordre chronologique ; chacun est sa propre entrée du .plot.

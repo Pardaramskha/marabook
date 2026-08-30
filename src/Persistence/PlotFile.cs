@@ -71,7 +71,15 @@ namespace UniversSale.Persistence
         //      est écrit tel quel. Un .plot d'avant s'ouvre sans instantané ;
         //      un instantané dont l'item n'existe plus à l'ouverture est
         //      abandonné (jamais purgé à la sauvegarde — A1 du batch 38).
-        private const int FormatVersion = 17;
+        // v18: L'ACCUEIL (batch 41) — "pinned": true sur un item épinglé (clé
+        //      omise au défaut, comme "wo") ; manifeste "recents" : au plus
+        //      dix {id, date}, le plus récent en tête, alimenté à l'OUVERTURE
+        //      d'un item ; une entrée dont l'item n'existe plus est ignorée à
+        //      l'affichage et purgée au chargement seulement (doctrine b38).
+        //      Racine « Accueil » (category "home"), créée au chargement en
+        //      premier, avant Écrits. Un .plot d'avant s'ouvre sans épingle
+        //      ni récent.
+        private const int FormatVersion = 18;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -259,6 +267,18 @@ namespace UniversSale.Persistence
                 manifest["ignoredRules"] = new List<object>(project.IgnoredRules.ToArray());
             if (project.RelationKinds.Count > 0)
                 manifest["relationKinds"] = new List<object>(project.RelationKinds.ToArray());
+            if (project.Recents.Count > 0) // v18 — tels quels, morts compris (purge au chargement)
+            {
+                var recents = new List<object>();
+                foreach (var recent in project.Recents)
+                {
+                    var r = new Dictionary<string, object>();
+                    r["id"] = recent.ItemId;
+                    r["date"] = recent.Date;
+                    recents.Add(r);
+                }
+                manifest["recents"] = recents;
+            }
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
             manifest["page"] = BuildPageSetup(project.Page);
@@ -392,6 +412,7 @@ namespace UniversSale.Persistence
             if (item.Icon != null) node["icon"] = item.Icon;
             if (item.Status != null) node["status"] = item.Status;
             if (item.CardColor != null) node["cardColor"] = item.CardColor;
+            if (item.Pinned) node["pinned"] = true; // v18 — omis au défaut
             if (item.ImageId != null) node["image"] = item.ImageId;
             if (item.Kind == ItemKind.Sheet)
             {
@@ -656,6 +677,20 @@ namespace UniversSale.Persistence
                         if (entry is string) words.Add((string)entry);
                     LexiconEntry.MergeWords(project.Lexicon, words);
                 }
+                var recents = Json.AsList(Json.Field(manifest, "recents")); // v18
+                if (recents != null)
+                    foreach (var entry in recents)
+                    {
+                        var r = Json.AsObject(entry);
+                        if (r == null) continue;
+                        var id = Json.AsString(Json.Field(r, "id"));
+                        if (string.IsNullOrEmpty(id)) continue;
+                        project.Recents.Add(new RecentEntry
+                        {
+                            ItemId = id,
+                            Date = Json.AsString(Json.Field(r, "date")) ?? ""
+                        });
+                    }
                 var ignoredRules = Json.AsList(Json.Field(manifest, "ignoredRules"));
                 if (ignoredRules != null)
                     foreach (var entry in ignoredRules)
@@ -767,6 +802,9 @@ namespace UniversSale.Persistence
                     }
 
                 project.RelinkParents();
+                // v18 : les récents dont l'item n'existe plus sont purgés ICI,
+                // au chargement — jamais à la sauvegarde (doctrine b38).
+                Recents.Purge(project);
                 ReadSnapshots(archive, project, warnings); // v17 ; rien dans un .plot d'avant
                 // Batch 31 : un projet d'avant les catégories de fiches est
                 // migré ici (défauts + adoption des modèles par nom), et les
@@ -931,6 +969,7 @@ namespace UniversSale.Persistence
             item.Icon = Json.AsString(Json.Field(obj, "icon"));
             item.Status = Json.AsString(Json.Field(obj, "status"));
             item.CardColor = Json.AsString(Json.Field(obj, "cardColor"));
+            item.Pinned = Json.AsBool(Json.Field(obj, "pinned"), false); // v18
             item.ImageId = Json.AsString(Json.Field(obj, "image"));
             item.CategoryKey = Json.AsString(Json.Field(obj, "category"));
 
