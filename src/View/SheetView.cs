@@ -244,13 +244,17 @@ namespace UniversSale.View
             DockPanel.SetDock(_findBar, Dock.Top);
             editorStack.Children.Add(_findBar);
             editorStack.Children.Add(_bodyBox);
+            // L'ombre sur un cadre vide dessous, le contenu net par-dessus
+            // (voir Lifted) — l'éditeur s'étire, lui.
+            var editorShadow = new Border { Background = Chrome.PaperBg, CornerRadius = new CornerRadius(8), Effect = Shadow() };
+            var editorContent = new Border { Background = Chrome.PaperBg, CornerRadius = new CornerRadius(8), Child = editorStack };
+            var editorHost = new Grid();
+            editorHost.Children.Add(editorShadow);
+            editorHost.Children.Add(editorContent);
             var editorPaper = new Border
             {
-                Background = Chrome.PaperBg,
-                CornerRadius = new CornerRadius(8),
                 Margin = new Thickness(8, 12, 8, 14),
-                Effect = Shadow(),
-                Child = editorStack,
+                Child = editorHost,
                 ClipToBounds = false,
                 Cursor = Cursors.Arrow // pas de curseur main hérité de l'onglet (b42)
             };
@@ -317,15 +321,38 @@ namespace UniversSale.View
             }
             stack.Children.Add(head);
             stack.Children.Add(content);
-            return new Border
+            return Lifted(new Border
             {
                 Background = Chrome.CardBg,
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(14, 12, 14, 12),
-                Margin = new Thickness(6, 8, 6, 8),
-                Effect = Shadow(),
-                Child = stack,
-                VerticalAlignment = VerticalAlignment.Top
+                Child = stack
+            }, Chrome.CardBg, new Thickness(6, 8, 6, 8));
+        }
+
+        /// <summary>Un paper à ombre portée SANS flou de texte (b42 bis) : un
+        /// DropShadowEffect posé sur le paper lui-même rend tout son contenu
+        /// dans une surface intermédiaire — plus de ClearType, texte brouillé
+        /// (le paper Relations, avec ses sélecteurs, le montrait le plus).
+        /// L'ombre est donc portée par un cadre vide DESSOUS ; le contenu se
+        /// dessine par-dessus, net.</summary>
+        private static Border Lifted(Border content, Brush background, Thickness margin)
+        {
+            var shadow = new Border
+            {
+                Background = background,
+                CornerRadius = content.CornerRadius,
+                Effect = Shadow()
+            };
+            var host = new Grid();
+            host.Children.Add(shadow);
+            host.Children.Add(content);
+            return new Border
+            {
+                Margin = margin,
+                Child = host,
+                VerticalAlignment = VerticalAlignment.Top,
+                ClipToBounds = false
             };
         }
 
@@ -521,7 +548,7 @@ namespace UniversSale.View
         }
 
         /// <summary>Un champ propre à la fiche : son nom, une fois renseigné,
-        /// s'affiche en texte simple avec un « + » à côté qui rouvre la zone
+        /// s'affiche en texte simple avec un crayon à côté qui rouvre la zone
         /// de saisie pour le changer ; la valeur dessous (batch 42).</summary>
         private UIElement FreeFieldRow(InfoEntry entry)
         {
@@ -545,7 +572,7 @@ namespace UniversSale.View
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
             var titleBox = new TextBox { ToolTip = "Nom du champ — Entrée pour valider", MaxWidth = 240, HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 120 };
-            var rename = Buttons.Icon("plus-bold", "Changer le nom du champ", Buttons.Compact, Buttons.Look.Calm);
+            var rename = Buttons.Icon("pencil-simple-line", "Changer le nom du champ", Buttons.Compact, Buttons.Look.Calm);
             var editing = string.IsNullOrEmpty(entry.Title) || entry.Title == "Champ";
             Action sync = delegate
             {

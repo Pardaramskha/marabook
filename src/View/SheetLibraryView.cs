@@ -52,6 +52,18 @@ namespace UniversSale.View
             newCategory.Click += delegate { NewCategory(); };
             DockPanel.SetDock(newCategory, Dock.Right);
             barRow.Children.Add(newCategory);
+            // L'éditeur de modèles, tout en haut, à côté de « Nouvelle
+            // catégorie » (b42 bis) — le même que « Modifier les modèles… ».
+            var templates = new Button
+            {
+                Content = Icons.Label("pencil-simple-line", "Éditeur de modèles", 11, Chrome.Ink),
+                Padding = new Thickness(10, 3, 10, 3),
+                Margin = new Thickness(0, 0, 8, 0),
+                ToolTip = "Sections, champs et natures des modèles de fiches"
+            };
+            templates.Click += delegate { EditTemplates(); };
+            DockPanel.SetDock(templates, Dock.Right);
+            barRow.Children.Add(templates);
 
             var searchRow = new DockPanel { Margin = new Thickness(0, 0, 12, 0) };
             var glass = new TextBlock
@@ -196,24 +208,9 @@ namespace UniversSale.View
                 newSheet.Click += delegate { NewSheet(categoryRef); };
                 buttons.Children.Add(newSheet);
 
-                // L'éditeur de modèles à portée de main (batch 42), à côté de
-                // « Nouvelle fiche » — le même que « Modifier ▾ → Modifier les modèles… ».
-                var templates = new Button
-                {
-                    Content = "Éditeur de modèles…",
-                    Padding = new Thickness(8, 2, 8, 2),
-                    Margin = new Thickness(6, 0, 0, 0),
-                    ToolTip = "Sections, champs et natures des modèles de fiches"
-                };
-                templates.Click += delegate { EditTemplates(); };
-                buttons.Children.Add(templates);
-
-                var edit = new Button
-                {
-                    Content = "Modifier ▾",
-                    Padding = new Thickness(8, 2, 8, 2),
-                    Margin = new Thickness(6, 0, 0, 0)
-                };
+                // Le menu de la catégorie : un bouton à trois points, sans texte (b42 bis).
+                var edit = Buttons.Icon("dots-three-vertical-bold", "Modifier la catégorie…", Buttons.Compact, Buttons.Look.Calm);
+                edit.Margin = new Thickness(6, 0, 0, 0);
                 edit.Click += delegate { ShowCategoryMenu(edit, categoryRef); };
                 buttons.Children.Add(edit);
                 DockPanel.SetDock(buttons, Dock.Right);

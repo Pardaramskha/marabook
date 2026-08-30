@@ -46,16 +46,17 @@ namespace UniversSale.View
 
             var root = new Grid { Margin = new Thickness(14) };
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
+            root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // le filet vertical
             root.ColumnDefinitions.Add(new ColumnDefinition());
             root.RowDefinitions.Add(new RowDefinition());
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             // --- left: template list ---
-            var left = new DockPanel { Margin = new Thickness(0, 0, 14, 0) };
-            var listButtons = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
-            listButtons.Children.Add(SmallButton("Nouveau", NewTemplate));
-            listButtons.Children.Add(SmallButton("Dupliquer", DuplicateTemplate));
-            listButtons.Children.Add(SmallButton("Supprimer", DeleteTemplate));
+            var left = new DockPanel();
+            var listButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            listButtons.Children.Add(ListButton("plus-bold", "Nouveau modèle", NewTemplate));
+            listButtons.Children.Add(ListButton("copy-simple-bold", "Dupliquer le modèle", DuplicateTemplate));
+            listButtons.Children.Add(ListButton("trash", "Supprimer le modèle", DeleteTemplate));
             DockPanel.SetDock(listButtons, Dock.Bottom);
             left.Children.Add(listButtons);
             _list = new ListBox();
@@ -63,6 +64,13 @@ namespace UniversSale.View
             left.Children.Add(_list);
             Grid.SetColumn(left, 0);
             root.Children.Add(left);
+
+            // Un filet vertical sur les deux rangées : il sépare aussi le bas
+            // (boutons de la liste | Valider / Annuler).
+            var divider = new Border { Width = 1, Background = Chrome.Border, Margin = new Thickness(14, 0, 14, 0) };
+            Grid.SetColumn(divider, 1);
+            Grid.SetRowSpan(divider, 2);
+            root.Children.Add(divider);
 
             // --- right: name + tabs ---
             var right = new DockPanel();
@@ -134,7 +142,7 @@ namespace UniversSale.View
             });
             tabs.Items.Add(new TabItem { Header = "Champs", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = fieldsDock } });
             right.Children.Add(tabs);
-            Grid.SetColumn(right, 1);
+            Grid.SetColumn(right, 2);
             root.Children.Add(right);
 
             // --- bottom ---
@@ -149,7 +157,7 @@ namespace UniversSale.View
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 90, Margin = new Thickness(8, 0, 0, 0) };
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
-            Grid.SetColumn(buttons, 1);
+            Grid.SetColumn(buttons, 2);
             Grid.SetRow(buttons, 1);
             root.Children.Add(buttons);
 
@@ -171,9 +179,11 @@ namespace UniversSale.View
             return label;
         }
 
-        private Button SmallButton(string label, Action onClick)
+        /// <summary>Les boutons de la liste des modèles : icône seule
+        /// (nouveau, dupliquer, supprimer), infobulle obligatoire.</summary>
+        private Button ListButton(string icon, string tooltip, Action onClick)
         {
-            var button = Buttons.Text(label, null, Buttons.Compact, Buttons.Look.Outline);
+            var button = Buttons.Icon(icon, tooltip, Buttons.Bar, Buttons.Look.Outline);
             button.Margin = new Thickness(0, 0, 6, 0);
             button.Click += delegate { onClick(); };
             return button;
@@ -296,12 +306,62 @@ namespace UniversSale.View
 
         // ------------------------------------------------------------ champs
 
+        /// <summary>Les champs, regroupés par section (b42 bis) : un titre de
+        /// section et un filet devant chaque groupe — Informations d'abord,
+        /// puis les sections dans l'ordre du modèle. L'ordre des champs
+        /// dans une section reste celui du modèle.</summary>
         private void RebuildFields()
         {
             _fieldsPanel.Children.Clear();
             if (_current == null) return;
+            var sections = new List<string> { "" };
+            sections.AddRange(_current.Sections);
+            foreach (var section in sections)
+            {
+                var any = false;
+                foreach (var field in _current.Fields)
+                {
+                    if (!SameSection(field.Group, section)) continue;
+                    if (!any)
+                    {
+                        _fieldsPanel.Children.Add(SectionDivider(section.Length == 0 ? DefaultSectionLabel : section));
+                        any = true;
+                    }
+                    _fieldsPanel.Children.Add(BuildFieldRow(field));
+                }
+            }
+            // Un champ dont la section n'existe plus (modèle édité ailleurs) :
+            // montré quand même, sous Informations.
+            var orphans = false;
             foreach (var field in _current.Fields)
+            {
+                if (field.Group.Length == 0 || IndexOfSection(field.Group) >= 0) continue;
+                if (!orphans) { _fieldsPanel.Children.Add(SectionDivider("Section inconnue « " + field.Group + " »")); orphans = true; }
                 _fieldsPanel.Children.Add(BuildFieldRow(field));
+            }
+        }
+
+        private static bool SameSection(string group, string section)
+        {
+            return string.Equals(group ?? "", section, StringComparison.CurrentCultureIgnoreCase);
+        }
+
+        private static UIElement SectionDivider(string title)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 10, 0, 6) };
+            var label = new TextBlock
+            {
+                Text = title,
+                Foreground = Chrome.FaintText,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(2, 0, 10, 0)
+            };
+            DockPanel.SetDock(label, Dock.Left);
+            row.Children.Add(label);
+            row.Children.Add(new Border { Height = 1, Background = Chrome.Border, VerticalAlignment = VerticalAlignment.Center });
+            return row;
         }
 
         private UIElement BuildFieldRow(SheetField field)
