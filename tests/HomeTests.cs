@@ -25,6 +25,25 @@ namespace UniversSale.Tests
             PinPersistence(t);
             HomeRoot(t);
             EmptyBlocks(t);
+            PinUndo(t);
+        }
+
+        /// <summary>L'épingle passe par l'historique : bascule, Ctrl+Z, Ctrl+Y.</summary>
+        private static void PinUndo(Harness t)
+        {
+            var project = Project.CreateNew();
+            var chapter = project.Category(Project.KeyWritings).Children[0];
+            var history = new HistoryManager();
+            history.Run(new PinItemAction(chapter));
+            t.Check(chapter.Pinned, "épingler pose Pinned");
+            history.Undo();
+            t.Check(!chapter.Pinned, "Ctrl+Z le défait");
+            history.Redo();
+            t.Check(chapter.Pinned, "Ctrl+Y le refait");
+            history.Run(new PinItemAction(chapter));
+            t.Check(!chapter.Pinned, "« Ne plus épingler » bascule dans l'autre sens");
+            history.Undo();
+            t.Check(chapter.Pinned, "…et s'annule aussi");
         }
 
         /// <summary>Un projet neuf n'a ni récent, ni épingle, ni objectif, ni

@@ -4,6 +4,25 @@ using UniversSale.Model;
 
 namespace UniversSale.History
 {
+    /// <summary>Épingler / ne plus épingler sur l'Accueil (batch 41) : une
+    /// bascule, annulable comme le reste des mutations de la Pile.</summary>
+    public class PinItemAction : IUndoableAction
+    {
+        private readonly BinderItem _item;
+        private readonly bool _pinned;
+
+        public PinItemAction(BinderItem item)
+        {
+            _item = item;
+            _pinned = !item.Pinned;
+        }
+
+        public BinderItem Item { get { return _item; } }
+
+        public void Do() { _item.Pinned = _pinned; }
+        public void Undo() { _item.Pinned = !_pinned; }
+    }
+
     /// <summary>Adds an item under a parent (new text, new folder).</summary>
     public class AddItemAction : IUndoableAction
     {

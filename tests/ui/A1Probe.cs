@@ -76,6 +76,8 @@ namespace UniversSale.Tests.Ui
             _failures += RailProbe.Run();
             Console.WriteLine();
             _failures += LookProbe.Run();
+            Console.WriteLine();
+            _failures += HomeProbe.Run();
             if (Application.Current != null)
             {
                 Application.Current.Shutdown();

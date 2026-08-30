@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.38.0-alpha";
+        public const string AppVersion = "0.39.0-alpha";
 
         private Project _project;
         private string _path;
@@ -379,6 +379,8 @@ namespace UniversSale
                 // Chauffe le cache de mots : un document importé entre au cache
                 // à sa taille réelle, sans jamais créditer le journal.
                 ProjectWords();
+                // L'Accueil suit la Pile (épingle, corbeille, livre…) s'il est affiché (b41).
+                if (_homeView.Visibility == Visibility.Visible) _homeView.Refresh();
             };
             _binder.BookPageTotal = BookPageTotal;
             Grid.SetColumn(_binder, 0);
@@ -834,6 +836,12 @@ namespace UniversSale
         /// recherche et dit ce qui s'est passé.</summary>
         private void OnHistoryApplied(History.IUndoableAction action, bool undone)
         {
+            // Une épingle (b41) défaite ou refaite : l'Accueil suit s'il est affiché.
+            if (action is History.PinItemAction)
+            {
+                if (_homeView.Visibility == Visibility.Visible) _homeView.Refresh();
+                return;
+            }
             // Les restaurations (b38) : même règle du document ouvert.
             var restore = action as History.RestoreSnapshotAction;
             var restoreParagraph = action as History.RestoreParagraphAction;

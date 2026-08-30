@@ -676,6 +676,8 @@ namespace UniversSale.View
             if (!item.IsCategory)
             {
                 menu.Items.Add(new Separator());
+                // Épingler sur l'Accueil (batch 41) : une bascule annulable.
+                AddMenu(menu, item.Pinned ? "Ne plus épingler" : "Épingler", delegate { TogglePin(item); });
                 if (item.Kind == ItemKind.Book)
                     AddMenu(menu, "Options du livre…", delegate { BookOptions(item); });
                 AddMenu(menu, "Renommer…", delegate { Rename(item); });
@@ -792,6 +794,15 @@ namespace UniversSale.View
 
         /// <summary>Renames in place when the item's row is on screen (F2, menu,
         /// context menu); falls back to a dialog otherwise (search mode).</summary>
+        /// <summary>Épingler / ne plus épingler (batch 41) — par l'historique,
+        /// comme toute mutation de la Pile ; jamais une racine.</summary>
+        public void TogglePin(BinderItem item)
+        {
+            if (item == null) item = SelectedItem;
+            if (item == null || item.IsCategory) return;
+            RunAndSelect(new PinItemAction(item), null, null);
+        }
+
         public void Rename(BinderItem item)
         {
             if (item == null) item = SelectedItem;
