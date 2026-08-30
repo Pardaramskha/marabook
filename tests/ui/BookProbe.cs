@@ -129,23 +129,23 @@ namespace UniversSale.Tests.Ui
             Check(parent != null && parent.Children.IndexOf(progress) == parent.Children.IndexOf(stats) - 1,
                 "la barre d'objectif est juste au-dessus des statistiques");
 
-            // — Les deux boutons sous les dates ; rien de déplié au départ.
-            var section = (StackPanel)GetField(window, "_bookSection");
-            var dates = (TextBlock)GetField(window, "_inspDates");
-            Check(section.Visibility == Visibility.Visible
-                && parent.Children.IndexOf(section) == parent.Children.IndexOf(dates) + 1,
-                "les boutons Métadonnées / Publication sont sous les dates");
-            var host = (Border)GetField(window, "_bookPanelHost");
-            var metaToggle = (ToggleButton)GetField(window, "_metaToggle");
-            var pubToggle = (ToggleButton)GetField(window, "_pubToggle");
-            Check(host.Visibility == Visibility.Collapsed, "aucun panneau déplié au départ");
+            // — Métadonnées et Publication : deux onglets du rail (batch 39),
+            //   plus de boutons dans l'inspecteur ; rien d'ouvert au départ.
+            var tabs = (System.Collections.Generic.Dictionary<UniversSale.Settings.RightPanel, Border>)GetField(window, "_railTabs");
+            var metaHost = (Border)GetField(window, "_metadataHost");
+            var pubHost = (Border)GetField(window, "_publicationHost");
+            Check(tabs.ContainsKey(UniversSale.Settings.RightPanel.Metadata) && tabs.ContainsKey(UniversSale.Settings.RightPanel.Publication)
+                && !tabs.ContainsKey(UniversSale.Settings.RightPanel.Correction),
+                "sur un livre, le rail offre Métadonnées et Publication (et pas Correction)");
+            Check(metaHost.Visibility == Visibility.Collapsed && pubHost.Visibility == Visibility.Collapsed,
+                "aucun panneau de livre ouvert au départ");
 
-            // — Métadonnées : dépliage, frappe → modèle, sans resynchronisation.
-            Click(metaToggle, true);
+            // — Métadonnées : ouverture, frappe → modèle, sans resynchronisation.
+            Invoke(window, "ClickRailTab", new object[] { UniversSale.Settings.RightPanel.Metadata });
             DoEvents();
-            var meta = host.Child as BookMetadataPanel;
-            Check(host.Visibility == Visibility.Visible && meta != null,
-                "« Métadonnées » déplie le panneau des métadonnées");
+            var meta = (BookMetadataPanel)GetField(window, "_bookMeta");
+            Check(metaHost.Visibility == Visibility.Visible && UniversSale.Settings.AppSettings.RightPanel == UniversSale.Settings.RightPanel.Metadata,
+                "« Métadonnées » ouvre le panneau des métadonnées à droite");
             var subtitle = (TextBox)GetField(meta, "_subtitle");
             subtitle.Focus();
             subtitle.Text = "Tome";
@@ -161,32 +161,33 @@ namespace UniversSale.Tests.Ui
                 "le curseur n'a pas été déplacé par une resynchronisation");
             Check((bool)GetField(window, "_dirty"), "le projet est marqué modifié");
 
-            // — Publication remplace Métadonnées ; recliquer replie.
-            Click(pubToggle, true);
+            // — Publication remplace Métadonnées ; recliquer l'actif replie.
+            Invoke(window, "ClickRailTab", new object[] { UniversSale.Settings.RightPanel.Publication });
             DoEvents();
-            Check(host.Child is BookPublicationPanel && metaToggle.IsChecked == false,
-                "« Publication » déplie son panneau et replie l'autre");
-            var pub = (BookPublicationPanel)host.Child;
+            Check(pubHost.Visibility == Visibility.Visible && metaHost.Visibility == Visibility.Collapsed,
+                "« Publication » ouvre son panneau et remplace l'autre");
+            var pub = (BookPublicationPanel)GetField(window, "_bookPub");
             var bleed = (TextBox)GetField(pub, "_bleed");
             bleed.Text = "4";
             DoEvents();
             Check(Near(target.Book.BleedMm, 4), "le fond perdu tapé atteint le modèle");
-            Click(pubToggle, false);
+            Invoke(window, "ClickRailTab", new object[] { UniversSale.Settings.RightPanel.Publication });
             DoEvents();
-            Check(host.Visibility == Visibility.Collapsed && pubToggle.IsChecked == false,
-                "recliquer le bouton replie le panneau");
+            Check(pubHost.Visibility == Visibility.Collapsed && UniversSale.Settings.AppSettings.RightPanel == UniversSale.Settings.RightPanel.None,
+                "recliquer l'onglet actif replie la colonne");
 
-            // — Le choix déplié survit à la navigation entre éléments.
-            Click(metaToggle, true);
+            // — Sur un écrit, le rail change et un panneau de livre cède la place au Général.
+            Invoke(window, "ClickRailTab", new object[] { UniversSale.Settings.RightPanel.Metadata });
             DoEvents();
             Invoke(window, "OnBinderSelection", new object[] { target.Children[0] });
             DoEvents();
-            Check(section.Visibility == Visibility.Collapsed && progress.Visibility == Visibility.Collapsed,
-                "sur un écrit : ni boutons ni barre d'objectif");
+            Check(!tabs.ContainsKey(UniversSale.Settings.RightPanel.Metadata) && progress.Visibility == Visibility.Collapsed
+                && UniversSale.Settings.AppSettings.RightPanel == UniversSale.Settings.RightPanel.Inspector && metaHost.Visibility == Visibility.Collapsed,
+                "sur un écrit : ni onglets de livre ni barre d'objectif, Général reprend la colonne");
             Invoke(window, "OnBinderSelection", new object[] { target });
             DoEvents();
-            Check(host.Visibility == Visibility.Visible && host.Child is BookMetadataPanel,
-                "de retour sur le livre, Métadonnées est toujours déplié");
+            Check(tabs.ContainsKey(UniversSale.Settings.RightPanel.Metadata) && tabs.ContainsKey(UniversSale.Settings.RightPanel.Publication),
+                "de retour sur le livre, les onglets Métadonnées et Publication reviennent");
 
             // — « Options du livre » : une action, annulable ; la barre suit.
             var history = (HistoryManager)GetField(window, "_history");
@@ -225,11 +226,12 @@ namespace UniversSale.Tests.Ui
             Invoke(window, "OnBinderSelection", new object[] { target });
             DoEvents();
 
-            // — Contrôle visuel : l'inspecteur en PNG.
-            Click(pubToggle, true);
-            DoEvents();
+            // — Contrôle visuel : l'inspecteur puis le panneau Publication en PNG.
             Snapshot((FrameworkElement)GetField(window, "_inspector"),
                 Path.Combine(Path.GetTempPath(), "marabook-b32-inspector.png"));
+            Invoke(window, "ClickRailTab", new object[] { UniversSale.Settings.RightPanel.Publication });
+            DoEvents();
+            Snapshot(pubHost, Path.Combine(Path.GetTempPath(), "marabook-b39-publication.png"));
 
             // — Enregistrement : objectif, sous-titre, fond perdu sur le disque.
             Invoke(window, "DoSave", null);

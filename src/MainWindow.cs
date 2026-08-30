@@ -64,6 +64,8 @@ namespace UniversSale
         private const double RailWidth = 40;
         private Border _rail;
         private ColumnDefinition _railCol;
+        private StackPanel _railStack;
+        private RightPanel[] _railOffered; // les onglets bâtis (RightPanels.Offered)
         private readonly Dictionary<RightPanel, Border> _railTabs = new Dictionary<RightPanel, Border>();
         private Border _railBadge;      // pastille du nombre de signalements (Correction)
         private TextBlock _railBadgeText;
@@ -75,13 +77,13 @@ namespace UniversSale
         private StackPanel _progressSection;
         private TextBlock _progressLabel;
         private ColumnDefinition _progPresent, _progRest, _progDone, _progUndone;
-        private StackPanel _bookSection;
-        private System.Windows.Controls.Primitives.ToggleButton _metaToggle, _pubToggle;
-        private Border _bookPanelHost;
+        // Métadonnées / Publication d'un livre (batch 32) : depuis le batch
+        // 39, deux panneaux de la colonne de droite (onglets du rail), plus
+        // deux boutons dans l'inspecteur.
         private BookMetadataPanel _bookMeta;
         private BookPublicationPanel _bookPub;
+        private Border _metadataHost, _publicationHost;
         private BinderItem _bookPanelsItem;   // livre chargé dans les panneaux
-        private string _bookPanelOpen;        // "meta" | "pub" | null, survit à la navigation
         private StackPanel _statsSection;
         private System.Windows.Shapes.Path _statsChevron;
         private StackPanel _statusSection;   // état du texte + couleur de carte
@@ -287,7 +289,7 @@ namespace UniversSale
             var view = new MenuItem { Header = "_Affichage" };
             _binderMenu = Entry("toggle-binder", "Pile", ToggleBinder);
             _binderMenu.IsCheckable = true;
-            _inspectorMenu = Entry("toggle-inspector", "Inspecteur", ToggleInspector);
+            _inspectorMenu = Entry("toggle-inspector", "Général", ToggleInspector);
             _inspectorMenu.IsCheckable = true;
             _darkMenu = Entry("dark-theme", "Thème sombre", ToggleDarkTheme);
             _darkMenu.IsCheckable = true;
@@ -591,6 +593,16 @@ namespace UniversSale
             _inspector = BuildInspector();
             Grid.SetColumn(_inspector, 4);
             grid.Children.Add(_inspector);
+            // Métadonnées et Publication d'un livre (b32) : deux panneaux de
+            // la même colonne depuis le b39, offerts par le rail sur un livre.
+            _bookMeta = new BookMetadataPanel();
+            _bookPub = new BookPublicationPanel();
+            _metadataHost = ToolHost("Métadonnées", _bookMeta);
+            Grid.SetColumn(_metadataHost, 4);
+            grid.Children.Add(_metadataHost);
+            _publicationHost = ToolHost("Publication", _bookPub);
+            Grid.SetColumn(_publicationHost, 4);
+            grid.Children.Add(_publicationHost);
             // Les panneaux du livre (batch 32) : une frappe modifie le modèle
             // sans repasser par UpdateInspector (qui les resynchroniserait
             // sous le curseur) ; la Pile suit (puce de divergence, cartes).
@@ -1128,42 +1140,8 @@ namespace UniversSale
             };
             panel.Children.Add(_inspDates);
 
-            // Livre (batch 32) : sous les dates, deux boutons — Métadonnées,
-            // Publication — chacun déplie son panneau ; recliquer replie.
-            _bookSection = new StackPanel
-            {
-                Margin = new Thickness(0, 12, 0, 0),
-                Visibility = Visibility.Collapsed
-            };
-            var toggles = new Grid();
-            toggles.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            toggles.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            _metaToggle = new System.Windows.Controls.Primitives.ToggleButton
-            {
-                Content = "Métadonnées",
-                Margin = new Thickness(0, 0, 3, 0),
-                Padding = new Thickness(6, 4, 6, 4),
-                ToolTip = "Sous-titre, auteur, éditeur, collection, ISBN, année"
-            };
-            _pubToggle = new System.Windows.Controls.Primitives.ToggleButton
-            {
-                Content = "Publication",
-                Margin = new Thickness(3, 0, 0, 0),
-                Padding = new Thickness(6, 4, 6, 4),
-                ToolTip = "Gabarit (format, marges, fond perdu) et « Publier… »"
-            };
-            _metaToggle.Click += delegate { ShowBookPanel(_metaToggle.IsChecked == true ? "meta" : null); };
-            _pubToggle.Click += delegate { ShowBookPanel(_pubToggle.IsChecked == true ? "pub" : null); };
-            Grid.SetColumn(_metaToggle, 0);
-            Grid.SetColumn(_pubToggle, 1);
-            toggles.Children.Add(_metaToggle);
-            toggles.Children.Add(_pubToggle);
-            _bookSection.Children.Add(toggles);
-            _bookMeta = new BookMetadataPanel();
-            _bookPub = new BookPublicationPanel();
-            _bookPanelHost = new Border { Margin = new Thickness(0, 6, 0, 0) };
-            _bookSection.Children.Add(_bookPanelHost);
-            panel.Children.Add(_bookSection);
+            // Livre : Métadonnées et Publication (batch 32) ont quitté
+            // l'inspecteur pour deux onglets du rail (batch 39).
 
             return new Border
             {
@@ -2927,6 +2905,10 @@ namespace UniversSale
                 _searchHost.Visibility = shown == RightPanel.Search ? Visibility.Visible : Visibility.Collapsed;
             if (_versionsHost != null)
                 _versionsHost.Visibility = shown == RightPanel.Versions ? Visibility.Visible : Visibility.Collapsed;
+            if (_metadataHost != null)
+                _metadataHost.Visibility = shown == RightPanel.Metadata ? Visibility.Visible : Visibility.Collapsed;
+            if (_publicationHost != null)
+                _publicationHost.Visibility = shown == RightPanel.Publication ? Visibility.Visible : Visibility.Collapsed;
             var anyRight = shown != RightPanel.None;
             _inspectorSplit.Visibility = anyRight ? Visibility.Visible : Visibility.Collapsed;
             _inspectorCol.Width = anyRight
@@ -2948,7 +2930,14 @@ namespace UniversSale
 
         private bool IsPanelAvailable(RightPanel panel)
         {
-            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, _current != null);
+            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, CurrentKind());
+        }
+
+        /// <summary>La nature de l'élément courant, null sans sélection — ce
+        /// qui décide des onglets offerts par le rail.</summary>
+        private ItemKind? CurrentKind()
+        {
+            return _current == null ? (ItemKind?)null : _current.Kind;
         }
 
         /// <summary>LE seul endroit qui change le panneau actif — rail,
@@ -2972,34 +2961,97 @@ namespace UniversSale
         /// calme et le journal, comme le reste de la colonne.</summary>
         private Border BuildRail()
         {
-            var stack = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
-            stack.Children.Add(RailTab(RightPanel.Inspector, "article-bold", "Inspecteur",
-                AppSettings.Gesture("toggle-inspector")));
-            stack.Children.Add(new Border
-            {
-                Height = 1,
-                Background = Chrome.Border,
-                Margin = new Thickness(9, 2, 9, 6)
-            });
-            stack.Children.Add(RailTab(RightPanel.Correction, "check-square-bold", "Détails de correction", null));
-            stack.Children.Add(RailTab(RightPanel.Search, "magnifying-glass-bold", "Recherche dans le projet",
-                AppSettings.Gesture("project-search")));
-            stack.Children.Add(RailTab(RightPanel.Versions, "arrow-up-left-bold", "Versions de l'écrit",
-                AppSettings.Gesture("versions-panel")));
+            _railStack = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
             return new Border
             {
                 Background = Chrome.BarBg,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1, 0, 0, 0),
-                Child = stack
+                Child = _railStack
+            };
+        }
+
+        /// <summary>Les onglets suivent la nature de l'élément courant
+        /// (RightPanels.Offered) : un écrit a Correction et Versions, un livre
+        /// Métadonnées et Publication, le reste Général et Recherche. Ceux
+        /// qui décrivent l'élément d'abord, un filet, puis les outils.</summary>
+        private void RebuildRailTabs(RightPanel[] offered)
+        {
+            _railOffered = offered;
+            _railStack.Children.Clear();
+            _railTabs.Clear();
+            _railBadge = null;
+            _railBadgeText = null;
+            var separated = false;
+            foreach (var panel in offered)
+            {
+                if (!separated && !RightPanels.DescribesCurrent(panel))
+                {
+                    separated = true;
+                    _railStack.Children.Add(new Border
+                    {
+                        Height = 1,
+                        Background = Chrome.Border,
+                        Margin = new Thickness(9, 2, 9, 6)
+                    });
+                }
+                _railStack.Children.Add(RailTab(panel));
+            }
+        }
+
+        /// <summary>Un hôte de la colonne de droite pour un panneau-outil :
+        /// même habillage que le panneau de correction (fond de barre, filet
+        /// à gauche, titre, liste défilante).</summary>
+        private static Border ToolHost(string title, UIElement content)
+        {
+            var panel = new DockPanel();
+            var head = new TextBlock
+            {
+                Text = title,
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 6)
+            };
+            DockPanel.SetDock(head, Dock.Top);
+            panel.Children.Add(head);
+            panel.Children.Add(new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = content
+            });
+            return new Border
+            {
+                Background = Chrome.BarBgLight,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1, 0, 0, 0),
+                Padding = new Thickness(12, 10, 12, 10),
+                Child = panel
             };
         }
 
         /// <summary>Un onglet du rail : l'icône, l'infobulle « nom — raccourci »
-        /// (c'est ainsi qu'on apprend un raccourci sans manuel), et pour
-        /// Correction la pastille du nombre de signalements.</summary>
-        private Border RailTab(RightPanel panel, string icon, string name, string gesture)
+        /// posée à gauche, flèche vers l'onglet (c'est ainsi qu'on apprend un
+        /// raccourci sans manuel), et pour Correction la pastille du nombre
+        /// de signalements.</summary>
+        private Border RailTab(RightPanel panel)
         {
+            string icon, name, gesture = null;
+            switch (panel)
+            {
+                case RightPanel.Inspector:
+                    icon = "article-bold"; name = "Général"; gesture = AppSettings.Gesture("toggle-inspector"); break;
+                case RightPanel.Correction:
+                    icon = "check-square-bold"; name = "Détails de correction"; break;
+                case RightPanel.Search:
+                    icon = "magnifying-glass-bold"; name = "Recherche dans le projet"; gesture = AppSettings.Gesture("project-search"); break;
+                case RightPanel.Versions:
+                    icon = "arrow-up-left-bold"; name = "Versions de l'écrit"; gesture = AppSettings.Gesture("versions-panel"); break;
+                case RightPanel.Metadata:
+                    icon = "list-dashes-bold"; name = "Métadonnées du livre"; break;
+                default:
+                    icon = "book-open-text-bold"; name = "Publication du livre"; break;
+            }
             var glyph = (FrameworkElement)Icons.Make(icon, 16, Chrome.Ink);
             glyph.HorizontalAlignment = HorizontalAlignment.Center;
             glyph.VerticalAlignment = VerticalAlignment.Center;
@@ -3007,30 +3059,33 @@ namespace UniversSale
             content.Children.Add(glyph);
             if (panel == RightPanel.Correction)
             {
+                // La pastille vit DANS l'onglet (coin bas droit, jamais
+                // rognée), couleurs inversées selon que l'onglet est actif.
                 _railBadgeText = new TextBlock
                 {
-                    FontSize = 9,
-                    FontWeight = FontWeights.SemiBold,
-                    Foreground = Chrome.PaperBg,
-                    Margin = new Thickness(3, 0, 3, 0),
+                    FontSize = 10,
+                    FontWeight = FontWeights.Bold,
+                    Margin = new Thickness(4, 0, 4, 0),
                     VerticalAlignment = VerticalAlignment.Center
                 };
                 _railBadge = new Border
                 {
-                    Background = Chrome.Accent,
-                    BorderBrush = Chrome.BarBg,
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(7),
-                    MinWidth = 14,
-                    Height = 14,
+                    CornerRadius = new CornerRadius(8),
+                    MinWidth = 16,
+                    Height = 16,
                     HorizontalAlignment = HorizontalAlignment.Right,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(0, -3, -3, 0),
+                    VerticalAlignment = VerticalAlignment.Bottom,
                     Child = _railBadgeText,
                     Visibility = Visibility.Collapsed
                 };
                 content.Children.Add(_railBadge);
             }
+            var tip = new ToolTip
+            {
+                Content = string.IsNullOrEmpty(gesture)
+                    ? name : name + " — " + AppSettings.DisplayGesture(gesture),
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Left
+            };
             var tab = new Border
             {
                 Width = 32,
@@ -3038,10 +3093,10 @@ namespace UniversSale
                 CornerRadius = new CornerRadius(6),
                 Margin = new Thickness(4, 0, 4, 4),
                 Background = Brushes.Transparent,
-                ToolTip = string.IsNullOrEmpty(gesture)
-                    ? name : name + " — " + AppSettings.DisplayGesture(gesture),
+                ToolTip = tip,
                 Child = content
             };
+            ToolTipService.SetPlacement(tab, System.Windows.Controls.Primitives.PlacementMode.Left);
             tab.MouseLeftButtonUp += delegate { ClickRailTab(panel); };
             tab.MouseEnter += delegate
             {
@@ -3072,6 +3127,8 @@ namespace UniversSale
             var railOn = !_journalOpen && !_calmMode;
             _rail.Visibility = railOn ? Visibility.Visible : Visibility.Collapsed;
             _railCol.Width = new GridLength(railOn ? RailWidth : 0);
+            var offered = RightPanels.Offered(CurrentKind());
+            if (!ReferenceEquals(offered, _railOffered)) RebuildRailTabs(offered);
             var shown = ShownRightPanel();
             foreach (var pair in _railTabs)
             {
@@ -3084,9 +3141,13 @@ namespace UniversSale
                 var glyph = ((Grid)tab.Child).Children[0] as System.Windows.Shapes.Path;
                 if (glyph != null) glyph.Fill = active ? Chrome.PaperBg : Chrome.Ink;
             }
+            if (_railBadge == null) return;
             var count = _editor != null ? _editor.FindingCount : 0;
             _railBadge.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
             _railBadgeText.Text = count > 99 ? "99+" : count.ToString(CultureInfo.InvariantCulture);
+            var correctionActive = shown == RightPanel.Correction;
+            _railBadge.Background = correctionActive ? Chrome.PaperBg : Chrome.Accent;
+            _railBadgeText.Foreground = correctionActive ? Chrome.Accent : Chrome.PaperBg;
         }
 
         private void ToggleRulers()
@@ -3246,8 +3307,15 @@ namespace UniversSale
             _inspPlanLink.Visibility = linkedPlan != null ? Visibility.Visible : Visibility.Collapsed;
 
             // La visibilité de la barre de droite dépend du niveau courant
-            // (projet = masquée) : resynchronisée à chaque navigation.
-            ApplyPanelVisibility();
+            // (projet = masquée) : resynchronisée à chaque navigation. Un
+            // panneau que la nature du nouvel élément n'offre pas (Correction
+            // sur un livre, Métadonnées sur un écrit…) cède la place au
+            // Général — ce qu'on voit est l'état (batch 39).
+            if (AppSettings.RightPanel != RightPanel.None
+                && !IsPanelAvailable(AppSettings.RightPanel) && IsPanelAvailable(RightPanel.Inspector))
+                SetRightPanel(RightPanel.Inspector);
+            else
+                ApplyPanelVisibility();
 
             UpdateLinksPanel();
 
@@ -3264,7 +3332,6 @@ namespace UniversSale
         private void UpdateBookSection()
         {
             var book = _current != null && _current.Kind == ItemKind.Book ? _current : null;
-            _bookSection.Visibility = book != null ? Visibility.Visible : Visibility.Collapsed;
             if (book == null)
             {
                 if (_bookPanelsItem != null)
@@ -3281,17 +3348,6 @@ namespace UniversSale
                 _bookPub.Load(book, _project);
                 _bookPanelsItem = book;
             }
-            ShowBookPanel(_bookPanelOpen);
-        }
-
-        private void ShowBookPanel(string which)
-        {
-            _bookPanelOpen = which;
-            _metaToggle.IsChecked = which == "meta";
-            _pubToggle.IsChecked = which == "pub";
-            _bookPanelHost.Child = which == "meta" ? (UIElement)_bookMeta
-                                 : which == "pub" ? _bookPub : null;
-            _bookPanelHost.Visibility = which == null ? Visibility.Collapsed : Visibility.Visible;
         }
 
         /// <summary>La barre d'objectif du livre : orange = chapitres présents,

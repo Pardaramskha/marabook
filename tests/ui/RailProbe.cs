@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -15,11 +16,13 @@ using UniversSale.View;
 namespace UniversSale.Tests.Ui
 {
     /// <summary>Sonde du batch 39 — le rail de la colonne de droite, sur
-    /// vraie MainWindow hors écran : présent, quatre onglets, clic → panneau
-    /// ouvert, clic sur l'actif → colonne repliée, onglet grisé sans élément
-    /// courant, pastille de correction à jour, rail absent en mode calme.
-    /// Jamais de clic synthétique (règle du batch 3) : le gestionnaire du
-    /// clic (ClickRailTab) est appelé par réflexion. Règle du batch 11 :
+    /// vraie MainWindow hors écran : présent, onglets selon la nature de
+    /// l'élément courant, clic → panneau ouvert, clic sur l'actif → colonne
+    /// repliée, onglet grisé sans élément courant, pastille de correction à
+    /// jour et dans l'onglet, infobulle à gauche, repli vers Général quand
+    /// la nature change, rail absent en mode calme. Jamais de clic
+    /// synthétique (règle du batch 3) : le gestionnaire du clic
+    /// (ClickRailTab) est appelé par réflexion. Règle du batch 11 :
     /// settings.json est l'affaire de l'appelant (A1Probe).</summary>
     public static class RailProbe
     {
@@ -84,29 +87,31 @@ namespace UniversSale.Tests.Ui
             var correctionHost = (Border)GetField(window, "_correctionHost");
             var searchHost = (Border)GetField(window, "_searchHost");
             var versionsHost = (Border)GetField(window, "_versionsHost");
-            var badge = (Border)GetField(window, "_railBadge");
-            var badgeText = (TextBlock)GetField(window, "_railBadgeText");
 
-            // — Le rail est là, quatre onglets, à droite de tout.
+            // — Le rail est là, à droite de tout ; sans sélection, Général et Recherche.
             Check(rail.Visibility == Visibility.Visible && rail.ActualWidth == 40 && Grid.GetColumn(rail) == 5,
                 "le rail est présent, 40 px, dernière colonne de la grille");
-            Check(tabs.Count == 4 && tabs.ContainsKey(RightPanel.Inspector) && tabs.ContainsKey(RightPanel.Correction)
-                && tabs.ContainsKey(RightPanel.Search) && tabs.ContainsKey(RightPanel.Versions), "quatre onglets");
-            foreach (var pair in tabs)
-                Check(pair.Value.ToolTip is string && ((string)pair.Value.ToolTip).Length > 0,
-                    "l'onglet « " + RightPanels.Name(pair.Key) + " » a une infobulle (« " + pair.Value.ToolTip + " »)");
-            Check(((string)tabs[RightPanel.Search].ToolTip).Contains("Ctrl+Maj+F"), "…qui enseigne le raccourci");
+            Check(tabs.Count == 2 && tabs.ContainsKey(RightPanel.Inspector) && tabs.ContainsKey(RightPanel.Search),
+                "rien de sélectionné : deux onglets, Général et Recherche");
+            var searchTip = tabs[RightPanel.Search].ToolTip as ToolTip;
+            Check(searchTip != null && searchTip.Placement == PlacementMode.Left
+                && ToolTipService.GetPlacement(tabs[RightPanel.Search]) == PlacementMode.Left,
+                "l'infobulle d'un onglet se pose à GAUCHE de l'onglet");
+            Check(searchTip != null && ((string)searchTip.Content).Contains("Ctrl+Maj+F"),
+                "…et enseigne le raccourci (« " + (searchTip == null ? "" : searchTip.Content) + " »)");
 
-            // — Sans élément courant : Inspecteur et Correction grisés, les outils vifs.
-            Check(tabs[RightPanel.Inspector].Opacity < 1 && tabs[RightPanel.Correction].Opacity < 1,
-                "sans élément courant, Inspecteur et Correction sont grisés");
-            Check(tabs[RightPanel.Search].Opacity == 1 && tabs[RightPanel.Versions].Opacity == 1,
-                "…Recherche et Versions restent disponibles");
-            Check(inspectorCol.Width.Value == 0, "…et la colonne est repliée (l'inspecteur n'a rien à dire)");
+            // — Sans élément courant : Général grisé, Recherche vive.
+            Check(tabs[RightPanel.Inspector].Opacity < 1 && tabs[RightPanel.Search].Opacity == 1,
+                "sans élément courant, Général est grisé, Recherche disponible");
+            Check(inspectorCol.Width.Value == 0, "…et la colonne est repliée (Général n'a rien à dire)");
+            Invoke(window, "ClickRailTab", new object[] { RightPanel.Inspector });
+            DoEvents();
+            Check(AppSettings.RightPanel == RightPanel.Inspector && inspectorCol.Width.Value == 0,
+                "cliquer un onglet grisé ne fait rien");
             Invoke(window, "ClickRailTab", new object[] { RightPanel.Correction });
             DoEvents();
             Check(AppSettings.RightPanel == RightPanel.Inspector && inspectorCol.Width.Value == 0,
-                "cliquer un onglet grisé ne fait rien — un panneau indisponible ne devient jamais actif");
+                "un panneau que le contexte n'offre pas ne devient jamais actif");
 
             // — Cliquer Recherche : la colonne s'ouvre, l'onglet porte l'accent.
             Invoke(window, "ClickRailTab", new object[] { RightPanel.Search });
@@ -114,53 +119,70 @@ namespace UniversSale.Tests.Ui
             Check(AppSettings.RightPanel == RightPanel.Search && searchHost.Visibility == Visibility.Visible && inspectorCol.Width.Value > 0,
                 "cliquer Recherche ouvre la colonne sur le panneau de recherche");
             Check(ReferenceEquals(tabs[RightPanel.Search].Background, Chrome.Accent)
-                && !ReferenceEquals(tabs[RightPanel.Versions].Background, Chrome.Accent),
+                && !ReferenceEquals(tabs[RightPanel.Inspector].Background, Chrome.Accent),
                 "l'onglet actif porte l'accent, les autres non");
 
-            // — Cliquer Versions : on change de panneau, pas de colonne.
-            Invoke(window, "ClickRailTab", new object[] { RightPanel.Versions });
-            DoEvents();
-            Check(AppSettings.RightPanel == RightPanel.Versions && versionsHost.Visibility == Visibility.Visible && searchHost.Visibility != Visibility.Visible,
-                "cliquer Versions remplace Recherche dans la même colonne");
-
             // — Cliquer l'actif : la colonne se replie.
-            Invoke(window, "ClickRailTab", new object[] { RightPanel.Versions });
+            Invoke(window, "ClickRailTab", new object[] { RightPanel.Search });
             DoEvents();
-            Check(AppSettings.RightPanel == RightPanel.None && inspectorCol.Width.Value == 0 && versionsHost.Visibility != Visibility.Visible,
+            Check(AppSettings.RightPanel == RightPanel.None && inspectorCol.Width.Value == 0 && searchHost.Visibility != Visibility.Visible,
                 "cliquer l'onglet actif replie la colonne");
             var anyAccent = false;
             foreach (var pair in tabs) if (ReferenceEquals(pair.Value.Background, Chrome.Accent)) anyAccent = true;
             Check(!anyAccent, "…et plus aucun onglet ne porte l'accent");
 
-            // — Un élément courant : Inspecteur et Correction se réveillent.
+            // — Un écrit : quatre onglets, Général et Correction disponibles.
             var opened = (Project)GetField(window, "_project");
             BinderItem item = null;
             foreach (var candidate in opened.AllItems()) if (candidate.Title == "Chapitre du rail") item = candidate;
             Invoke(window, "OnBinderSelection", new object[] { item });
             DoEvents();
+            Check(tabs.Count == 4 && tabs.ContainsKey(RightPanel.Correction) && tabs.ContainsKey(RightPanel.Versions),
+                "sur un écrit : quatre onglets (Général, Correction, Recherche, Versions)");
             Check(tabs[RightPanel.Inspector].Opacity == 1 && tabs[RightPanel.Correction].Opacity == 1,
-                "avec un élément courant, Inspecteur et Correction sont disponibles");
+                "avec un élément courant, Général et Correction sont disponibles");
             Check(inspectorCol.Width.Value == 0, "…la colonne reste repliée tant qu'on n'a rien demandé");
 
+            // — Versions puis Correction : on change de panneau, pas de colonne.
+            Invoke(window, "ClickRailTab", new object[] { RightPanel.Versions });
+            DoEvents();
+            Check(AppSettings.RightPanel == RightPanel.Versions && versionsHost.Visibility == Visibility.Visible,
+                "cliquer Versions ouvre le panneau Versions");
             Invoke(window, "ClickRailTab", new object[] { RightPanel.Correction });
             DoEvents();
             var editor = (EditorView)GetField(window, "_editor");
             Invoke(editor, "RunCheck", null);
             DoEvents();
-            Check(AppSettings.RightPanel == RightPanel.Correction && correctionHost.Visibility == Visibility.Visible,
-                "cliquer Correction ouvre le panneau des signalements");
+            Check(AppSettings.RightPanel == RightPanel.Correction && correctionHost.Visibility == Visibility.Visible && versionsHost.Visibility != Visibility.Visible,
+                "cliquer Correction remplace Versions dans la même colonne");
+            var badge = (Border)GetField(window, "_railBadge");
+            var badgeText = (TextBlock)GetField(window, "_railBadgeText");
             var count = editor.FindingCount;
             Check(count > 0, "le pilote a des signalements (" + count + ")");
             Check(badge.Visibility == Visibility.Visible && badgeText.Text == count.ToString(),
                 "la pastille de Correction affiche le nombre de signalements (« " + badgeText.Text + " »)");
+            var tab = tabs[RightPanel.Correction];
+            var origin = badge.TransformToAncestor(tab).Transform(new Point(0, 0));
+            Check(origin.X >= 0 && origin.Y >= 0 && origin.X + badge.ActualWidth <= tab.ActualWidth + 0.5
+                && origin.Y + badge.ActualHeight <= tab.ActualHeight + 0.5 && badge.ActualHeight >= 16,
+                "…entière dans l'onglet, jamais rognée (" + badge.ActualWidth + "×" + badge.ActualHeight + " à " + origin.X + "," + origin.Y + ")");
+            Check(ReferenceEquals(badge.Background, Chrome.PaperBg) && ReferenceEquals(badgeText.Foreground, Chrome.Accent),
+                "…en couleurs inversées sur l'onglet actif");
 
             RenderPng(rail, Path.Combine(Path.GetTempPath(), "marabook-b39-rail.png"), "rail");
             RenderPng((FrameworkElement)window.Content, Path.Combine(Path.GetTempPath(), "marabook-b39-fenetre.png"), "fenêtre");
 
-            Invoke(window, "ClickRailTab", new object[] { RightPanel.Inspector });
+            // — Une racine de la Pile : le rail rétrécit et Correction cède la place au Général.
+            Invoke(window, "OnBinderSelection", new object[] { opened.Category(Project.KeyWritings) });
             DoEvents();
+            Check(tabs.Count == 2 && !tabs.ContainsKey(RightPanel.Correction),
+                "sur une racine : Général et Recherche seulement");
             Check(AppSettings.RightPanel == RightPanel.Inspector && inspector.Visibility == Visibility.Visible && correctionHost.Visibility != Visibility.Visible,
-                "cliquer Inspecteur rend l'inspecteur");
+                "Correction, plus offerte, cède la place au Général");
+            Invoke(window, "OnBinderSelection", new object[] { item });
+            DoEvents();
+            Check(tabs.Count == 4 && inspector.Visibility == Visibility.Visible,
+                "de retour sur l'écrit, les quatre onglets reviennent, Général reste");
 
             // — Le mode calme emporte le rail avec le reste ; en sortir le ramène.
             Invoke(window, "SetCalmMode", new object[] { true });

@@ -1,10 +1,12 @@
 using System;
+using UniversSale.Model;
 
 namespace UniversSale.Settings
 {
-    /// <summary>Qui occupe la colonne de droite (batch 39). Quatre panneaux
-    /// s'y excluent — l'inspecteur, Correction, Recherche, Versions — et
-    /// quatre booléens indépendants encodaient jadis cette seule information,
+    /// <summary>Qui occupe la colonne de droite (batch 39). Les panneaux
+    /// s'y excluent — Général (l'inspecteur), Correction, Recherche,
+    /// Versions, et pour un livre Métadonnées et Publication — et quatre
+    /// booléens indépendants encodaient jadis cette seule information,
     /// résolue par une cascade de priorité écrite à la main. Un seul champ
     /// désormais ; « aucun » est la colonne repliée.</summary>
     public enum RightPanel
@@ -13,13 +15,24 @@ namespace UniversSale.Settings
         Inspector,
         Correction,
         Search,
-        Versions
+        Versions,
+        Metadata,    // livre : sous-titre, auteur, éditeur, ISBN… (b32, sorti de l'inspecteur au b39)
+        Publication  // livre : gabarit et « Publier… » (idem)
     }
 
     /// <summary>Les règles pures autour du panneau de droite — sans WPF,
     /// donc testables en console (C18).</summary>
     public static class RightPanels
     {
+        private static readonly RightPanel[] ForText =
+            { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions };
+        private static readonly RightPanel[] ForBook =
+            { RightPanel.Inspector, RightPanel.Metadata, RightPanel.Publication, RightPanel.Search };
+        private static readonly RightPanel[] ForSheet =
+            { RightPanel.Inspector, RightPanel.Search, RightPanel.Versions };
+        private static readonly RightPanel[] ForOthers =
+            { RightPanel.Inspector, RightPanel.Search };
+
         /// <summary>Le nom persisté dans settings.json (« rightPanel »).</summary>
         public static string Name(RightPanel panel)
         {
@@ -29,6 +42,8 @@ namespace UniversSale.Settings
                 case RightPanel.Correction: return "correction";
                 case RightPanel.Search: return "search";
                 case RightPanel.Versions: return "versions";
+                case RightPanel.Metadata: return "metadata";
+                case RightPanel.Publication: return "publication";
                 default: return "none";
             }
         }
@@ -43,6 +58,8 @@ namespace UniversSale.Settings
                 case "correction": return RightPanel.Correction;
                 case "search": return RightPanel.Search;
                 case "versions": return RightPanel.Versions;
+                case "metadata": return RightPanel.Metadata;
+                case "publication": return RightPanel.Publication;
                 default: return RightPanel.Inspector;
             }
         }
@@ -60,25 +77,41 @@ namespace UniversSale.Settings
             return inspector ? RightPanel.Inspector : RightPanel.None;
         }
 
-        /// <summary>Le panneau est-il disponible dans le contexte ? Règles de
-        /// domaine, pas d'ordonnancement : l'inspecteur et Correction
-        /// décrivent l'élément courant, Recherche et Versions vivent sans
-        /// (« on cherche avant d'avoir cliqué », b37) mais demandent un
-        /// projet ; le mode calme et le journal masquent toute la colonne.</summary>
-        public static bool Available(RightPanel panel, bool columnHidden, bool hasProject, bool hasCurrent)
+        /// <summary>Les onglets du rail selon la nature de l'élément courant
+        /// (null = rien de sélectionné), dans l'ordre d'affichage : un écrit
+        /// a Correction et Versions ; un livre Métadonnées et Publication ;
+        /// une fiche Versions ; tout le reste (Recherche, Plans, Dictionnaire,
+        /// dossiers, niveau projet) n'a que Général et Recherche.</summary>
+        public static RightPanel[] Offered(ItemKind? kind)
         {
-            if (columnHidden) return false;
-            switch (panel)
-            {
-                case RightPanel.Inspector:
-                case RightPanel.Correction:
-                    return hasProject && hasCurrent;
-                case RightPanel.Search:
-                case RightPanel.Versions:
-                    return hasProject;
-                default:
-                    return false;
-            }
+            if (kind == ItemKind.Text) return ForText;
+            if (kind == ItemKind.Book) return ForBook;
+            if (kind == ItemKind.Sheet) return ForSheet;
+            return ForOthers;
+        }
+
+        public static bool Offers(ItemKind? kind, RightPanel panel)
+        {
+            return Array.IndexOf(Offered(kind), panel) >= 0;
+        }
+
+        /// <summary>Général, Métadonnées et Publication DÉCRIVENT l'élément
+        /// courant ; les autres sont des outils — le filet du rail les sépare.</summary>
+        public static bool DescribesCurrent(RightPanel panel)
+        {
+            return panel == RightPanel.Inspector || panel == RightPanel.Metadata || panel == RightPanel.Publication;
+        }
+
+        /// <summary>Le panneau est-il disponible dans le contexte ? Règles de
+        /// domaine, pas d'ordonnancement : il faut un projet ; le mode calme
+        /// et le journal masquent toute la colonne ; le panneau doit être
+        /// offert pour la nature de l'élément courant ; Recherche seule vit
+        /// sans élément courant (« on cherche avant d'avoir cliqué », b37).</summary>
+        public static bool Available(RightPanel panel, bool columnHidden, bool hasProject, ItemKind? kind)
+        {
+            if (columnHidden || !hasProject) return false;
+            if (!Offers(kind, panel)) return false;
+            return panel == RightPanel.Search || kind != null;
         }
 
         /// <summary>Un clic sur un onglet du rail : l'onglet actif replie la

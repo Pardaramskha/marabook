@@ -46,6 +46,14 @@ namespace UniversSale
             if (target == null) return;
             try
             {
+                // À GAUCHE de la cible (les onglets du rail, b39) : centrée
+                // verticalement, la flèche pointe vers la droite.
+                if (tip.Placement == System.Windows.Controls.Primitives.PlacementMode.Left)
+                {
+                    tip.VerticalOffset = (target.ActualHeight - tip.ActualHeight) / 2;
+                    tip.Tag = "beside";
+                    return;
+                }
                 tip.HorizontalOffset = (target.ActualWidth - tip.ActualWidth) / 2;
                 var tipTop = tip.PointToScreen(new Point(0, 0)).Y;
                 var targetTop = target.PointToScreen(new Point(0, 0)).Y;

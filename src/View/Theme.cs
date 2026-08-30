@@ -803,6 +803,10 @@ namespace UniversSale.View
       <Setter.Value>
         <ControlTemplate TargetType=""ToolTip"">
           <Grid Margin=""4,3,4,3"">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width=""Auto""/>
+              <ColumnDefinition Width=""Auto""/>
+            </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
               <RowDefinition Height=""Auto""/>
               <RowDefinition Height=""Auto""/>
@@ -821,11 +825,20 @@ namespace UniversSale.View
             <Path x:Name=""ArrowBottom"" Grid.Row=""2"" Data=""M0,0 L5,5 10,0 Z""
                   Fill=""#E8616161"" HorizontalAlignment=""Center""
                   Margin=""0,-0.5,0,0"" Visibility=""Collapsed""/>
+            <!-- Tag=beside (bulle posée à GAUCHE de sa cible — les onglets
+                 du rail, b39) : la flèche pointe vers la droite, centrée. -->
+            <Path x:Name=""ArrowRight"" Grid.Row=""1"" Grid.Column=""1"" Data=""M0,0 L5,5 0,10 Z""
+                  Fill=""#E8616161"" VerticalAlignment=""Center""
+                  Margin=""-0.5,0,0,0"" Visibility=""Collapsed""/>
           </Grid>
           <ControlTemplate.Triggers>
             <Trigger Property=""Tag"" Value=""above"">
               <Setter TargetName=""ArrowTop"" Property=""Visibility"" Value=""Collapsed""/>
               <Setter TargetName=""ArrowBottom"" Property=""Visibility"" Value=""Visible""/>
+            </Trigger>
+            <Trigger Property=""Tag"" Value=""beside"">
+              <Setter TargetName=""ArrowTop"" Property=""Visibility"" Value=""Collapsed""/>
+              <Setter TargetName=""ArrowRight"" Property=""Visibility"" Value=""Visible""/>
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
