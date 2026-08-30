@@ -23,6 +23,37 @@ namespace UniversSale.Tests
             RecentsPersistence(t);
             Elapsed(t);
             PinPersistence(t);
+            HomeRoot(t);
+        }
+
+        private static void HomeRoot(Harness t)
+        {
+            var project = Project.CreateNew();
+            var home = project.Category(Project.KeyHome);
+            t.Check(home != null && project.Roots.IndexOf(home) == 0 && project.Roots[1].CategoryKey == Project.KeyWritings,
+                "un projet neuf a l'Accueil en première racine, avant Écrits");
+            t.Check(home.IsHomeRoot && home.IsCategory && !home.CanHaveChildren && !home.IsContainer,
+                "l'Accueil est une racine qui n'est ni un conteneur ni un dossier (aucun enfant)");
+            t.Equal("Accueil", home.Title, "…titrée « Accueil »");
+
+            // — Un vieux .plot (sans racine Accueil) la reçoit au chargement, en premier.
+            var dir = Path.Combine(Path.GetTempPath(), "marabook-tests-c19-home");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, "vieux.plot");
+            try
+            {
+                project.Roots.Remove(home);
+                PlotFile.Save(project, path);
+                var loaded = PlotFile.Load(path);
+                var back = loaded.Category(Project.KeyHome);
+                t.Check(back != null && loaded.Roots.IndexOf(back) == 0 && loaded.Roots[1].CategoryKey == Project.KeyWritings,
+                    "un vieux .plot sans Accueil l'obtient au chargement, avant Écrits");
+                t.Equal(0, back.Children.Count, "…vide");
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch (IOException) { }
+            }
         }
 
         private static void RecentsRules(Harness t)

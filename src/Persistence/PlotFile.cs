@@ -780,6 +780,7 @@ namespace UniversSale.Persistence
 
                 // A valid project always has its four categories, whatever the file says.
                 EnsureCategory(project, "Écrits", Project.KeyWritings);
+                EnsureCategory(project, "Accueil", Project.KeyHome, Project.KeyWritings); // b41, en premier
                 EnsureCategory(project, "Recherche", Project.KeyResearch);
                 EnsureCategory(project, "Fiches", Project.KeySheets);
                 EnsureCategory(project, "Plans", Project.KeyPlans, Project.KeyDictionary); // b35, après Fiches

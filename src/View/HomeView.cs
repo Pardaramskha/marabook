@@ -1,0 +1,299 @@
+using System;
+using System.Collections.Generic;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using UniversSale.Model;
+
+namespace UniversSale.View
+{
+    /// <summary>L'Accueil (batch 41) : la vue de la racine « Accueil » de la
+    /// Pile — un point d'entrée qui rassemble ce qu'on reprend, ce qu'on
+    /// épingle, où l'on en est, et par quoi on commence. Rien de neuf : tout
+    /// ce qu'il affiche est déjà calculé ailleurs. Quatre blocs FIXES, dans
+    /// un ordre fixe, sur une grille de deux colonnes qui retombe en une
+    /// seule sous 720 px ; cartes raised sur le ground de la zone centrale.
+    /// Les états vides sont un livrable : chaque bloc a son invite.</summary>
+    public class HomeView : ScrollViewer
+    {
+        private const double TwoColumnsFrom = 720;
+
+        private Project _project;
+        private readonly Grid _grid;
+        private readonly StackPanel _resumeList, _pinnedList, _progressList, _startList;
+        private readonly TextBlock _title;
+
+        public event Action<BinderItem> OpenRequested;   // clic sur un récent ou un épinglé
+        public event Action NewTextRequested;
+        public event Action NewSheetRequested;
+        public event Action NewPlanRequested;
+        public event Action CompileRequested;
+        public event Action PdfRequested;
+
+        // Fournis par la coquille (déjà calculés là-bas) : l'objectif de
+        // session en cours et les mots du projet.
+        public Func<int> SessionGoal;
+        public Func<int> SessionBaseWords;
+        public Func<int> ProjectWords;
+
+        public HomeView()
+        {
+            Background = Chrome.WindowBg;
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            Focusable = true;
+
+            var column = new StackPanel { Margin = new Thickness(28, 22, 28, 28), MaxWidth = 1100 };
+            _title = new TextBlock
+            {
+                FontSize = 22,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Chrome.Ink,
+                Margin = new Thickness(4, 0, 0, 14)
+            };
+            column.Children.Add(_title);
+
+            _grid = new Grid();
+            _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            for (var i = 0; i < 4; i++) _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            _resumeList = new StackPanel();
+            _pinnedList = new StackPanel();
+            _progressList = new StackPanel();
+            _startList = new StackPanel();
+            _grid.Children.Add(Card("Reprendre", _resumeList, 0));
+            _grid.Children.Add(Card("Épinglés", _pinnedList, 1));
+            _grid.Children.Add(Card("Où j'en suis", _progressList, 2));
+            _grid.Children.Add(Card("Commencer", _startList, 3));
+            column.Children.Add(_grid);
+            Content = column;
+            SizeChanged += delegate { Reflow(); };
+        }
+
+        /// <summary>La carte d'un bloc : titre en ink-faint, contenu.</summary>
+        private static Border Card(string title, UIElement content, int index)
+        {
+            var body = new StackPanel();
+            body.Children.Add(new TextBlock
+            {
+                Text = title,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Chrome.FaintText,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+            body.Children.Add(content);
+            var card = new Border
+            {
+                Background = Chrome.BarBgLight,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(16, 12, 16, 14),
+                Margin = new Thickness(4),
+                Child = body,
+                Tag = index
+            };
+            return card;
+        }
+
+        /// <summary>Deux colonnes quand la place le permet, une seule sinon —
+        /// l'ordre des blocs ne change jamais.</summary>
+        private void Reflow()
+        {
+            var two = ActualWidth >= TwoColumnsFrom;
+            foreach (UIElement child in _grid.Children)
+            {
+                var index = (int)((FrameworkElement)child).Tag;
+                Grid.SetColumn(child, two ? index % 2 : 0);
+                Grid.SetRow(child, two ? index / 2 : index);
+                Grid.SetColumnSpan(child, two ? 1 : 2);
+            }
+        }
+
+        public void Load(Project project)
+        {
+            _project = project;
+            Refresh();
+        }
+
+        public void Clear()
+        {
+            _project = null;
+            _resumeList.Children.Clear();
+            _pinnedList.Children.Clear();
+            _progressList.Children.Clear();
+            _startList.Children.Clear();
+        }
+
+        /// <summary>Recalcule les quatre blocs depuis le projet — appelé à
+        /// l'affichage et après une épingle. Rien n'est gardé ici.</summary>
+        public void Refresh()
+        {
+            if (_project == null) return;
+            _title.Text = string.IsNullOrEmpty(_project.Name) ? "Accueil" : _project.Name;
+            FillResume();
+            FillPinned();
+            FillProgress();
+            FillStart();
+            Reflow();
+        }
+
+        // ------------------------------------------------------------ les blocs
+
+        private void FillResume()
+        {
+            _resumeList.Children.Clear();
+            var valid = Recents.Valid(_project);
+            if (valid.Count == 0)
+            {
+                _resumeList.Children.Add(Prompt("Les écrits ouverts récemment apparaîtront ici."));
+                return;
+            }
+            var now = DateTime.Now;
+            for (var i = 0; i < valid.Count && i < 6; i++)
+            {
+                var item = _project.FindById(valid[i].ItemId);
+                _resumeList.Children.Add(ItemRow(item, Recents.Elapsed(valid[i].Date, now)));
+            }
+        }
+
+        private void FillPinned()
+        {
+            _pinnedList.Children.Clear();
+            var any = false;
+            foreach (var item in _project.AllItems())
+            {
+                if (!item.Pinned || item.IsCategory || Recents.InTrash(item)) continue; // même filtre que Reprendre (A3)
+                _pinnedList.Children.Add(ItemRow(item, null));
+                any = true;
+            }
+            if (!any) _pinnedList.Children.Add(Prompt("Clic droit sur un élément → Épingler."));
+        }
+
+        private void FillProgress()
+        {
+            _progressList.Children.Clear();
+            _progressList.Children.Add(Prompt("Définis un objectif pour suivre ta progression."));
+        }
+
+        private void FillStart()
+        {
+            _startList.Children.Clear();
+            var row = new WrapPanel();
+            row.Children.Add(StartButton("Nouvel écrit", Buttons.Look.Primary, delegate { Raise(NewTextRequested); }));
+            row.Children.Add(StartButton("Nouvelle fiche", Buttons.Look.Outline, delegate { Raise(NewSheetRequested); }));
+            row.Children.Add(StartButton("Nouveau plan", Buttons.Look.Outline, delegate { Raise(NewPlanRequested); }));
+            _startList.Children.Add(row);
+            var outputs = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
+            outputs.Children.Add(StartButton("Compiler le manuscrit…", Buttons.Look.Outline, delegate { Raise(CompileRequested); }));
+            outputs.Children.Add(StartButton("Exporter le PDF…", Buttons.Look.Outline, delegate { Raise(PdfRequested); }));
+            _startList.Children.Add(outputs);
+        }
+
+        // ------------------------------------------------------------ pièces
+
+        private static TextBlock Prompt(string text)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                Foreground = Chrome.FaintText,
+                FontSize = 12,
+                FontStyle = FontStyles.Italic,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 2)
+            };
+        }
+
+        /// <summary>Une ligne d'item : icône, titre, mention à droite ; clic = ouvrir.</summary>
+        private Border ItemRow(BinderItem item, string mention)
+        {
+            var row = new DockPanel { LastChildFill = true };
+            var icon = ItemIcons.Render(item, 14, Chrome.SoftText) as FrameworkElement;
+            if (icon != null)
+            {
+                icon.VerticalAlignment = VerticalAlignment.Center;
+                icon.Margin = new Thickness(0, 0, 8, 0);
+                DockPanel.SetDock(icon, Dock.Left);
+                row.Children.Add(icon);
+            }
+            if (!string.IsNullOrEmpty(mention))
+            {
+                var when = new TextBlock
+                {
+                    Text = mention,
+                    Foreground = Chrome.FaintText,
+                    FontSize = 11,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(12, 0, 0, 0)
+                };
+                DockPanel.SetDock(when, Dock.Right);
+                row.Children.Add(when);
+            }
+            row.Children.Add(new TextBlock
+            {
+                Text = string.IsNullOrEmpty(item.Title) ? "Sans titre" : item.Title,
+                Foreground = Chrome.Ink,
+                FontSize = 13,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            var host = new Border
+            {
+                Padding = new Thickness(8, 5, 8, 5),
+                CornerRadius = new CornerRadius(6),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                Child = row,
+                Tag = item
+            };
+            host.MouseEnter += delegate { host.Background = Chrome.AccentTint; };
+            host.MouseLeave += delegate { host.Background = Brushes.Transparent; };
+            host.MouseLeftButtonUp += delegate { Open(item); };
+            return host;
+        }
+
+        private static Button StartButton(string label, Buttons.Look look, Action onClick)
+        {
+            var button = Buttons.Text(label, null, Buttons.Bar, look);
+            button.Margin = new Thickness(0, 0, 8, 0);
+            button.Click += delegate { onClick(); };
+            return button;
+        }
+
+        private void Open(BinderItem item)
+        {
+            var handler = OpenRequested;
+            if (handler != null) handler(item);
+        }
+
+        private static void Raise(Action handler)
+        {
+            if (handler != null) handler();
+        }
+
+        // Pour les sondes : les lignes cliquables d'un bloc.
+        public List<BinderItem> ResumeItems { get { return ItemsOf(_resumeList); } }
+        public List<BinderItem> PinnedItems { get { return ItemsOf(_pinnedList); } }
+
+        private static List<BinderItem> ItemsOf(Panel list)
+        {
+            var items = new List<BinderItem>();
+            foreach (UIElement child in list.Children)
+            {
+                var host = child as Border;
+                if (host != null && host.Tag is BinderItem) items.Add((BinderItem)host.Tag);
+            }
+            return items;
+        }
+
+        /// <summary>Le clic d'une ligne, pour les sondes (jamais de clic synthétique).</summary>
+        public void ClickRow(BinderItem item)
+        {
+            Open(item);
+        }
+    }
+}

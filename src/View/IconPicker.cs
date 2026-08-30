@@ -54,6 +54,7 @@ namespace UniversSale.View
             {
                 // Les icônes des grandes catégories de la Pile : le jeu livré
                 // par l'utilisateur (batch 35, assets/icons/pile-*.svg).
+                if (item.CategoryKey == Project.KeyHome) return "apercu-wiki"; // b41 — provisoire : pas d'icône « accueil » dans le jeu
                 if (item.CategoryKey == Project.KeyWritings) return "pile-ecrits";
                 if (item.CategoryKey == Project.KeyResearch) return "pile-recherche";
                 if (item.CategoryKey == Project.KeySheets) return "pile-fiches";

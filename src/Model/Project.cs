@@ -272,6 +272,7 @@ namespace UniversSale.Model
         {
             var project = new Project();
             SheetDefaults.Seed(project.Templates, project.SheetCategories);
+            project.Roots.Add(MakeCategory("Accueil", KeyHome)); // b41 : en premier
             project.Roots.Add(MakeCategory("Écrits", KeyWritings));
             project.Roots.Add(MakeCategory("Recherche", KeyResearch));
             project.Roots.Add(MakeCategory("Fiches", KeySheets));

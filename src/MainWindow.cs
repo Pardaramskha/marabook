@@ -38,6 +38,8 @@ namespace UniversSale
         private CorkboardView _corkboard;
         private View.BookView _bookView;
         private View.DictionaryView _dictionaryView; // racine « Dictionnaire » (b33)
+        private View.HomeView _homeView;             // racine « Accueil » (b41)
+        private bool _restoringSelection;            // sélection initiale à l'ouverture : pas de récent réécrit (A2)
         private View.PlanView _planView;             // un plan (b35)
         private TextBlock _inspPlanLink;             // « Plan : … » d'un livre/dossier (b35)
         private StackPanel _planSection;             // options d'un plan (b35)
@@ -471,6 +473,20 @@ namespace UniversSale
             // Le dictionnaire personnel (batch 33) : la vue de la racine
             // « Dictionnaire » de la Pile ; toute modification prévient le
             // correcteur (clés pliées à reconstruire) et, pour le projet, le .plot.
+            // L'Accueil (batch 41) : la vue de la racine « Accueil ». Ses
+            // commandes sont celles des menus ; ouvrir = sélectionner dans la Pile.
+            _homeView = new View.HomeView { Visibility = Visibility.Collapsed };
+            _homeView.OpenRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _homeView.NewTextRequested += delegate { _binder.NewText(null); };
+            _homeView.NewSheetRequested += delegate { _binder.NewSheet(null); };
+            _homeView.NewPlanRequested += delegate { _binder.NewPlan(null); };
+            _homeView.CompileRequested += CompileManuscript;
+            _homeView.PdfRequested += ExportPdf;
+            _homeView.SessionGoal = delegate { return _sessionGoal; };
+            _homeView.SessionBaseWords = delegate { return _sessionBaseWords; };
+            _homeView.ProjectWords = ProjectWords;
+            center.Children.Add(_homeView);
+
             _dictionaryView = new View.DictionaryView { Visibility = Visibility.Collapsed };
             _dictionaryView.Changed += delegate(bool projectScope)
             {
@@ -1347,6 +1363,22 @@ namespace UniversSale
             // Batch 30 : les textes se préparent dès l'ouverture, par
             // tranches oisives — le premier clic sur un chapitre est chaud.
             StartTextWarmup();
+            // Sélection initiale (batch 41) : le dernier item ouvert encore
+            // valide (existant, hors Corbeille), sinon l'Accueil — un projet
+            // neuf montre le tableau de bord, un roman rouvert son chapitre.
+            // Par le chemin normal (rail, inspecteur, colonne de droite),
+            // mais SANS réécrire la date du récent (A2) : le drapeau couvre
+            // la restauration.
+            var recents = Recents.Valid(project);
+            var first = recents.Count > 0
+                ? project.FindById(recents[0].ItemId)
+                : project.Category(Project.KeyHome);
+            if (first != null)
+            {
+                _restoringSelection = true;
+                try { _binder.SelectItem(first.Id); }
+                finally { _restoringSelection = false; }
+            }
         }
 
         public void OpenFile(string path)
@@ -1622,6 +1654,14 @@ namespace UniversSale
             {
                 _navigating = false;
             }
+            // Les récents (batch 41) : l'OUVERTURE d'un item — jamais une
+            // racine, jamais la sélection fantôme (garde ci-dessus), jamais
+            // la restauration à l'ouverture du projet (A2). Sans MarkDirty :
+            // relire n'est pas modifier, la liste part avec la prochaine
+            // vraie sauvegarde (A1). Hors HistoryManager : Ctrl+Z défait une
+            // épingle, jamais une visite. Rien à voir avec _navBack (A4).
+            if (item != null && !item.IsCategory && !_restoringSelection && _project != null)
+                Recents.Touch(_project.Recents, item.Id, Recents.Now());
             // The phantom may have moved the tree's selection while we were
             // opening: pull it back onto the item actually shown — sans
             // BringIntoView : le défilement déplaçait la ligne sous la souris
@@ -1653,6 +1693,8 @@ namespace UniversSale
                 return _sheetLibrary.Visibility == Visibility.Visible;
             if (item.IsCategory && item.CategoryKey == Project.KeyDictionary)
                 return _dictionaryView.Visibility == Visibility.Visible;
+            if (item.IsHomeRoot)
+                return _homeView.Visibility == Visibility.Visible;
             if (item.Kind == ItemKind.Plan)
                 return _planView.Visibility == Visibility.Visible && _planView.ShowsItem(item);
             return _corkboard.Visibility == Visibility.Visible && _corkboard.ShowsItem(item);
@@ -1673,6 +1715,7 @@ namespace UniversSale
             _sheetView.Visibility = Visibility.Collapsed;
             _sheetLibrary.Visibility = Visibility.Collapsed;
             _dictionaryView.Visibility = Visibility.Collapsed;
+            _homeView.Visibility = Visibility.Collapsed;
             _planView.Visibility = Visibility.Collapsed;
             _planView.Clear();
             _corkboard.Visibility = Visibility.Collapsed;
@@ -1759,6 +1802,16 @@ namespace UniversSale
                 _sheetLibrary.Load(_project, _history);
                 _sheetLibrary.Visibility = Visibility.Visible;
                 _sheetLibrary.Focus();
+                return;
+            }
+            // La racine « Accueil » (batch 41) : les quatre blocs.
+            if (item != null && item.IsHomeRoot)
+            {
+                _editor.Clear();
+                _sheetView.Clear();
+                _homeView.Load(_project);
+                _homeView.Visibility = Visibility.Visible;
+                _homeView.Focus();
                 return;
             }
             // La racine « Dictionnaire » (batch 33) ouvre l'écran du

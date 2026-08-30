@@ -323,7 +323,24 @@ namespace UniversSale.View
                 _tree.Items.Clear();
                 _nodesById.Clear();
                 foreach (var root in _project.Roots)
+                {
                     _tree.Items.Add(BuildNode(root));
+                    // Un filet sous l'Accueil (b41) : un point d'entrée, pas
+                    // un dossier de travail comme les racines qui suivent.
+                    if (root.IsHomeRoot)
+                        _tree.Items.Add(new TreeViewItem
+                        {
+                            Header = new Border
+                            {
+                                Height = 1,
+                                Background = Chrome.Border,
+                                Margin = new Thickness(0, 3, 8, 3),
+                                MinWidth = 120
+                            },
+                            IsEnabled = false,
+                            Focusable = false
+                        });
+                }
 
                 TreeViewItem selected;
                 if (_selectedId != null && _nodesById.TryGetValue(_selectedId, out selected))
@@ -608,6 +625,9 @@ namespace UniversSale.View
                 AddMenu(menu, "Vider la corbeille", delegate { EmptyTrash(); });
                 return menu;
             }
+            // L'Accueil (batch 41) : rien à créer, rien à renommer, rien à
+            // supprimer — pas de menu du tout.
+            if (item.IsHomeRoot) return null;
             // La racine Dictionnaire (batch 33) n'a pas d'enfants dans la
             // Pile : ses entrées vivent dans son écran.
             if (item.IsCategory && item.CategoryKey == Project.KeyDictionary)
@@ -690,7 +710,8 @@ namespace UniversSale.View
         private static bool IsSpecialRoot(BinderItem item)
         {
             var key = item.RootCategory().CategoryKey;
-            return key == Project.KeyTrash || key == Project.KeyDictionary || key == Project.KeyPlans;
+            return key == Project.KeyTrash || key == Project.KeyDictionary || key == Project.KeyPlans
+                || key == Project.KeyHome; // l'Accueil (b41) : un point d'entrée, pas un dossier
         }
 
         /// <summary>Un nouveau plan (batch 35), toujours dans la racine Plans.</summary>
@@ -962,6 +983,7 @@ namespace UniversSale.View
             if (target.IsDescendantOf(dragged)) return null;
             if (target.RootCategory().CategoryKey == Project.KeyTrash) return null; // deletion has its own path
             if (target.RootCategory().CategoryKey == Project.KeyDictionary) return null; // pas un conteneur (b33)
+            if (target.RootCategory().CategoryKey == Project.KeyHome) return null; // l'Accueil non plus (b41)
             // La racine Plans n'accepte que des plans, et un plan ne sort pas de sa racine (b35).
             if ((target.RootCategory().CategoryKey == Project.KeyPlans) != (dragged.Kind == ItemKind.Plan)) return null;
             if (dragged.Kind == ItemKind.Plan && !target.IsCategory) return null;

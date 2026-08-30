@@ -129,6 +129,10 @@ namespace UniversSale.Model
 
         public bool IsCategory { get { return Kind == ItemKind.Category; } }
 
+        /// <summary>La racine « Accueil » (batch 41) : un point d'entrée, pas
+        /// un dossier — jamais d'enfant, jamais de dépôt, pas un conteneur.</summary>
+        public bool IsHomeRoot { get { return IsCategory && CategoryKey == Project.KeyHome; } }
+
         /// <summary>Items that may hold children. Texts qualify (Scrivener
         /// model: a document can carry sub-documents); clicking one still opens
         /// the text — the corkboard is reserved to true containers.</summary>
@@ -136,6 +140,7 @@ namespace UniversSale.Model
         {
             get
             {
+                if (IsHomeRoot) return false;
                 return Kind == ItemKind.Category || Kind == ItemKind.Folder
                     || Kind == ItemKind.Text || Kind == ItemKind.Book;
             }
@@ -147,6 +152,7 @@ namespace UniversSale.Model
         {
             get
             {
+                if (IsHomeRoot) return false;
                 return Kind == ItemKind.Category || Kind == ItemKind.Folder
                     || Kind == ItemKind.Book;
             }

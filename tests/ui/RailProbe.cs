@@ -100,6 +100,11 @@ namespace UniversSale.Tests.Ui
             Check(searchTip != null && ((string)searchTip.Content).Contains("Ctrl+Maj+F"),
                 "…et enseigne le raccourci (« " + (searchTip == null ? "" : searchTip.Content) + " »)");
 
+            // — Depuis le batch 41 l'ouverture atterrit sur l'Accueil : on
+            //   revient explicitement au niveau projet (rien de sélectionné).
+            Invoke(window, "OnBinderSelection", new object[] { null });
+            DoEvents();
+
             // — Sans élément courant : Général grisé, Recherche vive.
             Check(tabs[RightPanel.Inspector].Opacity < 1 && tabs[RightPanel.Search].Opacity == 1,
                 "sans élément courant, Général est grisé, Recherche disponible");
