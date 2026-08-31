@@ -1149,7 +1149,7 @@ namespace UniversSale.View
             }
             catch (Exception error)
             {
-                MessageBox.Show(Window.GetWindow(this), "Image refusée : " + error.Message,
+                MessageDialog.Show(Window.GetWindow(this), "Image refusée : " + error.Message,
                     "Marabook", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }

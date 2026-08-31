@@ -874,7 +874,7 @@ namespace UniversSale.View
         public void EmptyTrash()
         {
             if (_project.Trash.Children.Count == 0) return;
-            var answer = MessageBox.Show(Window.GetWindow(this),
+            var answer = MessageDialog.Show(Window.GetWindow(this),
                 "Vider définitivement la corbeille ?", "Marabook",
                 MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (answer != MessageBoxResult.Yes) return;
@@ -1240,7 +1240,7 @@ namespace UniversSale.View
                 RunAndSelect(new AddItemsAction(parent, items),
                     items[items.Count - 1].Id, parent.Id);
             if (errors.Count > 0)
-                MessageBox.Show(Window.GetWindow(this),
+                MessageDialog.Show(Window.GetWindow(this),
                     "Fichiers non importés :\n" + string.Join("\n", errors.ToArray()),
                     "Import", MessageBoxButton.OK, MessageBoxImage.Warning);
         }

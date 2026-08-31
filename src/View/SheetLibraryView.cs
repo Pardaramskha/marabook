@@ -529,14 +529,14 @@ namespace UniversSale.View
                     && _project.SheetCategoryOf(item) == category) used++;
             if (used > 0)
             {
-                MessageBox.Show(Window.GetWindow(this),
+                MessageDialog.Show(Window.GetWindow(this),
                     "La catégorie « " + category.Name + " » contient " + used
                     + (used == 1 ? " fiche" : " fiches") + ".\nDéplacez-les "
                     + "d'abord (clic droit sur une carte → Changer de catégorie).",
                     "Marabook", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
-            var answer = MessageBox.Show(Window.GetWindow(this),
+            var answer = MessageDialog.Show(Window.GetWindow(this),
                 "Supprimer la catégorie « " + category.Name + " » ?\n"
                 + "Son modèle reste dans l'éditeur de modèles.",
                 "Marabook", MessageBoxButton.YesNo, MessageBoxImage.Question);

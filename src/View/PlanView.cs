@@ -387,7 +387,7 @@ namespace UniversSale.View
             remove.Click += delegate
             {
                 if (column.Entries.Count > 0
-                    && MessageBox.Show(Window.GetWindow(this),
+                    && MessageDialog.Show(Window.GetWindow(this),
                         "Supprimer la colonne « " + column.Title + " » et ses " + column.Entries.Count + " brique(s) ?",
                         "Plan", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
                     return;

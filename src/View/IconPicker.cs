@@ -375,7 +375,7 @@ namespace UniversSale.View
                 }
                 catch (Exception error)
                 {
-                    MessageBox.Show(this, "Icône non ajoutée :\n" + error.Message,
+                    MessageDialog.Show(this, "Icône non ajoutée :\n" + error.Message,
                         "Icônes", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }

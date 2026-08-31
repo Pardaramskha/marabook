@@ -348,7 +348,7 @@ namespace UniversSale.View
             }
             catch (Exception error)
             {
-                MessageBox.Show(Window.GetWindow(this),
+                MessageDialog.Show(Window.GetWindow(this),
                     "Composition impossible :\n" + error.Message,
                     "Marabook", MessageBoxButton.OK, MessageBoxImage.Warning);
                 SetComposition(false);
@@ -655,7 +655,7 @@ namespace UniversSale.View
             if (_item == null) return;
             if (!ComposedActive)
             {
-                MessageBox.Show(Window.GetWindow(this),
+                MessageDialog.Show(Window.GetWindow(this),
                     "La passe typographique s'applique dans les pages composées.",
                     "Formatage", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
@@ -666,7 +666,7 @@ namespace UniversSale.View
                 var message = "Rien à corriger : la typographie de cet écrit est déjà en règle.";
                 if (result.Summary.Warnings.Count > 0)
                     message += "\n\nSignalements :\n• " + string.Join("\n• ", result.Summary.Warnings.ToArray());
-                MessageBox.Show(Window.GetWindow(this), message, "Formatage",
+                MessageDialog.Show(Window.GetWindow(this), message, "Formatage",
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -794,7 +794,7 @@ namespace UniversSale.View
                 // Le gel du classique (batch 26) : la commande vit dans les
                 // pages composées, la seule surface d'édition supportée.
                 if (!ComposedActive || !_composed.ToggleNoProofSelection())
-                    MessageBox.Show(Window.GetWindow(this),
+                    MessageDialog.Show(Window.GetWindow(this),
                         ComposedActive
                             ? "Sélectionnez d'abord le passage à soustraire."
                             : "« Ne pas corriger » s'applique dans les pages composées.",
@@ -1352,7 +1352,7 @@ namespace UniversSale.View
                 : AnnotateClassicSelection(annotation.Id);
             if (!anchored)
             {
-                MessageBox.Show(Window.GetWindow(this),
+                MessageDialog.Show(Window.GetWindow(this),
                     "Sélectionnez d'abord le passage à annoter.",
                     "Révision", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
@@ -3303,7 +3303,7 @@ namespace UniversSale.View
             }
             catch (Exception error)
             {
-                MessageBox.Show(Window.GetWindow(this),
+                MessageDialog.Show(Window.GetWindow(this),
                     "Impossible d'insérer l'image :\n" + error.Message,
                     "Marabook", MessageBoxButton.OK, MessageBoxImage.Warning);
             }

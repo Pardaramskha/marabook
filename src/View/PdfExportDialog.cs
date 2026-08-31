@@ -146,7 +146,7 @@ namespace UniversSale.View
                 previewBtn.Click += delegate
                 {
                     if (!_preview(CurrentOptions()))
-                        MessageBox.Show(this, "Aperçu impossible.", "PDF prêt à imprimer",
+                        MessageDialog.Show(this, "Aperçu impossible.", "PDF prêt à imprimer",
                             MessageBoxButton.OK, MessageBoxImage.Warning);
                 };
                 buttons.Children.Add(previewBtn);

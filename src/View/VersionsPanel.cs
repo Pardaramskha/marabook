@@ -282,7 +282,7 @@ namespace UniversSale.View
             var delete = Small("Supprimer", "Retirer cette version (définitif)");
             delete.Click += delegate
             {
-                var answer = MessageBox.Show(Window.GetWindow(this), "Supprimer la version « " + snapshot.DisplayLabel + " » ?",
+                var answer = MessageDialog.Show(Window.GetWindow(this), "Supprimer la version « " + snapshot.DisplayLabel + " » ?",
                     "Versions", MessageBoxButton.YesNo, MessageBoxImage.Question);
                 if (answer == MessageBoxResult.Yes) Delete(snapshot);
             };
@@ -367,7 +367,7 @@ namespace UniversSale.View
             var entry = new MenuItem { Header = header };
             entry.Click += delegate
             {
-                var answer = MessageBox.Show(Window.GetWindow(this), "Purger : " + header.ToLowerInvariant() + " ?\nC'est définitif.",
+                var answer = MessageDialog.Show(Window.GetWindow(this), "Purger : " + header.ToLowerInvariant() + " ?\nC'est définitif.",
                     "Versions", MessageBoxButton.YesNo, MessageBoxImage.Question);
                 if (answer != MessageBoxResult.Yes) return;
                 var removed = purge();

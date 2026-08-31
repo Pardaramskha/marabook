@@ -765,7 +765,7 @@ namespace UniversSale
             if (_project == null || snapshot == null) return;
             var item = _project.FindById(snapshot.ItemId);
             if (item == null) { _versionsPanel.SetNotice("Cet écrit n'existe plus."); return; }
-            if (confirm && MessageBox.Show(this, RestoreWarning(item, snapshot), "Restaurer une version",
+            if (confirm && MessageDialog.Show(this, RestoreWarning(item, snapshot), "Restaurer une version",
                 MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
             CommitActive();
             SnapshotStore.GuardBeforeRestore(_project, item, snapshot.DisplayLabel, AppSettings.SnapshotCap);
@@ -1488,7 +1488,7 @@ namespace UniversSale
                 }
 
                 if (warnings.Count > 0)
-                    MessageBox.Show(this,
+                    MessageDialog.Show(this,
                         "Le projet s'est ouvert, avec des réserves :\n\n— "
                         + string.Join("\n— ", warnings.ToArray()),
                         AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1506,13 +1506,13 @@ namespace UniversSale
             var bak = path + ".bak";
             if (!File.Exists(bak))
             {
-                MessageBox.Show(this,
+                MessageDialog.Show(this,
                     "Impossible d'ouvrir le projet :\n" + error.Message,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
             var stamp = File.GetLastWriteTime(bak).ToString("dd/MM/yyyy HH:mm");
-            var answer = MessageBox.Show(this,
+            var answer = MessageDialog.Show(this,
                 "Impossible d'ouvrir le projet :\n" + error.Message + "\n\n"
                 + "Une copie de secours existe (dernier enregistrement réussi, "
                 + "du " + stamp + ").\nL'ouvrir à la place ?",
@@ -1530,14 +1530,14 @@ namespace UniversSale
                 _dirty = true;
                 UpdateTitle();
                 if (warnings.Count > 0)
-                    MessageBox.Show(this,
+                    MessageDialog.Show(this,
                         "La copie de secours s'est ouverte, avec des réserves :\n\n— "
                         + string.Join("\n— ", warnings.ToArray()),
                         AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             catch (Exception bakError)
             {
-                MessageBox.Show(this,
+                MessageDialog.Show(this,
                     "La copie de secours est illisible elle aussi :\n" + bakError.Message,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
@@ -1562,7 +1562,7 @@ namespace UniversSale
             if (_path == null) { DoSaveAs(); return; }
             if (_project.ReadOnlyNewerFormat)
             {
-                MessageBox.Show(this,
+                MessageDialog.Show(this,
                     "Ce projet a été enregistré avec une version plus récente de Marabook.\n"
                     + "Il est ouvert en lecture seule pour ne rien détruire : "
                     + "l'enregistrement est désactivé.",
@@ -1586,7 +1586,7 @@ namespace UniversSale
             }
             catch (Exception error)
             {
-                MessageBox.Show(this,
+                MessageDialog.Show(this,
                     "Impossible d'enregistrer le projet :\n" + error.Message,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
@@ -1598,7 +1598,7 @@ namespace UniversSale
             {
                 // Re-writing under another name would silently drop every field
                 // this version does not know — same destruction, new path.
-                MessageBox.Show(this,
+                MessageDialog.Show(this,
                     "Ce projet a été enregistré avec une version plus récente de Marabook.\n"
                     + "L'enregistrer avec cette version détruirait les données "
                     + "qu'elle ne connaît pas : ouvrez-le avec la version qui l'a créé.",
@@ -1629,14 +1629,14 @@ namespace UniversSale
             if (_project.ReadOnlyNewerFormat)
             {
                 // Saving is impossible in this state: offer to leave anyway.
-                var leave = MessageBox.Show(this,
+                var leave = MessageDialog.Show(this,
                     "Ce projet est ouvert en lecture seule (format plus récent) :\n"
                     + "les modifications ne peuvent pas être enregistrées.\n"
                     + "Continuer et les abandonner ?",
                     AppName, MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 return leave == MessageBoxResult.Yes;
             }
-            var answer = MessageBox.Show(this,
+            var answer = MessageDialog.Show(this,
                 "Enregistrer les modifications du projet « " + _project.Name + " » ?",
                 AppName, MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
             if (answer == MessageBoxResult.Cancel) return false;
@@ -1994,7 +1994,7 @@ namespace UniversSale
                 _binder.SelectItem(target.Id);
                 return;
             }
-            var answer = MessageBox.Show(this,
+            var answer = MessageDialog.Show(this,
                 "Aucun élément ne s'intitule « " + title + " ».\nCréer une fiche à ce nom ?",
                 AppName, MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (answer != MessageBoxResult.Yes) return;
@@ -2139,7 +2139,7 @@ namespace UniversSale
                 _binder.SelectItem(items[items.Count - 1].Id);
             }
             if (errors.Count > 0)
-                MessageBox.Show(this, "Documents non importés :\n\n" + string.Join("\n", errors.ToArray()),
+                MessageDialog.Show(this, "Documents non importés :\n\n" + string.Join("\n", errors.ToArray()),
                     AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 
@@ -2156,7 +2156,7 @@ namespace UniversSale
                 return Exchange.Docx.Import(Exchange.ExternalBridge.DocToDocx(path), _project.Styles);
             if (ext == ".gdoc")
             {
-                MessageBox.Show(this, Exchange.ExternalBridge.GdocGuidance,
+                MessageDialog.Show(this, Exchange.ExternalBridge.GdocGuidance,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Information);
                 return null;
             }
@@ -2174,13 +2174,13 @@ namespace UniversSale
                 LoadProject(project, null);
                 _dirty = true; // freshly migrated, not yet saved as .plot
                 UpdateTitle();
-                MessageBox.Show(this,
+                MessageDialog.Show(this,
                     "Projet Scrivener importé. Pensez à l'enregistrer au format .plot (Ctrl+S).",
                     AppName, MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception error)
             {
-                MessageBox.Show(this, "Import Scrivener impossible :\n" + error.Message,
+                MessageDialog.Show(this, "Import Scrivener impossible :\n" + error.Message,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -2193,7 +2193,7 @@ namespace UniversSale
             else if (_current != null && _current.Kind == ItemKind.Sheet) document = _current.Document;
             if (document == null)
             {
-                MessageBox.Show(this, "Sélectionnez d'abord un écrit (ou une fiche) à exporter.",
+                MessageDialog.Show(this, "Sélectionnez d'abord un écrit (ou une fiche) à exporter.",
                     AppName, MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -2240,12 +2240,12 @@ namespace UniversSale
                 else
                     File.WriteAllText(path, Exchange.Compiler.FlattenLists(document).ToPlainText(),
                         new System.Text.UTF8Encoding(false));
-                MessageBox.Show(this, "Export terminé :\n" + path,
+                MessageDialog.Show(this, "Export terminé :\n" + path,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception error)
             {
-                MessageBox.Show(this, "Export impossible :\n" + error.Message,
+                MessageDialog.Show(this, "Export impossible :\n" + error.Message,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -2347,7 +2347,7 @@ namespace UniversSale
                     PageBreakPerText = true
                 });
             }
-            MessageBox.Show(this,
+            MessageDialog.Show(this,
                 "Sélectionnez un écrit, une fiche ou un dossier à mettre en pages.",
                 AppName, MessageBoxButton.OK, MessageBoxImage.Information);
             return null;
@@ -2370,7 +2370,7 @@ namespace UniversSale
             }
             catch (Exception error)
             {
-                MessageBox.Show(this, "Aperçu impossible :\n" + error.Message,
+                MessageDialog.Show(this, "Aperçu impossible :\n" + error.Message,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -2392,7 +2392,7 @@ namespace UniversSale
             }
             catch (Exception error)
             {
-                MessageBox.Show(this, "Impression impossible :\n" + error.Message,
+                MessageDialog.Show(this, "Impression impossible :\n" + error.Message,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -2710,12 +2710,12 @@ namespace UniversSale
             try
             {
                 Persistence.GabaritFile.Export(gabarit, dialog.FileName);
-                MessageBox.Show(this, "Gabarit exporté :\n" + dialog.FileName,
+                MessageDialog.Show(this, "Gabarit exporté :\n" + dialog.FileName,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception error)
             {
-                MessageBox.Show(this, "Export impossible :\n" + error.Message,
+                MessageDialog.Show(this, "Export impossible :\n" + error.Message,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -2735,7 +2735,7 @@ namespace UniversSale
             }
             catch (Exception error)
             {
-                MessageBox.Show(this, "Import impossible :\n" + error.Message,
+                MessageDialog.Show(this, "Import impossible :\n" + error.Message,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -2749,7 +2749,7 @@ namespace UniversSale
                     books.Add(item);
             if (books.Count == 0)
             {
-                MessageBox.Show(this, "Aucun autre livre dans ce projet.",
+                MessageDialog.Show(this, "Aucun autre livre dans ce projet.",
                     AppName, MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -2781,7 +2781,7 @@ namespace UniversSale
                 if (child.Kind == ItemKind.PageTemplate) gabarits.Add(child);
             if (gabarits.Count == 0)
             {
-                MessageBox.Show(this,
+                MessageDialog.Show(this,
                     "Ce livre n'a pas encore de gabarit de pages (vue du livre → Nouveau gabarit).",
                     AppName, MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
@@ -2846,12 +2846,12 @@ namespace UniversSale
                 composition.DefaultDecor = decor;
                 composition.FolioOffset = folioOffset;
                 Print.PdfWriter.Write(dialog.FileName, composition, options);
-                MessageBox.Show(this, "Export terminé :\n" + dialog.FileName,
+                MessageDialog.Show(this, "Export terminé :\n" + dialog.FileName,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception error)
             {
-                MessageBox.Show(this, "Export PDF impossible :\n" + error.Message,
+                MessageDialog.Show(this, "Export PDF impossible :\n" + error.Message,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -3365,7 +3365,7 @@ namespace UniversSale
                 {
                     if (!File.Exists(path))
                     {
-                        MessageBox.Show(this, "Ce fichier n'existe plus :\n" + path,
+                        MessageDialog.Show(this, "Ce fichier n'existe plus :\n" + path,
                             AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
@@ -3815,7 +3815,7 @@ namespace UniversSale
 
         private void ShowAbout()
         {
-            MessageBox.Show(this,
+            MessageDialog.Show(this,
                 AppName + " " + AppVersion + "\n\n" +
                 "Traitement de texte et construction narrative.\n" +
                 "Alpha : éditeur riche paginé, fiches wiki, corkboard, échanges\n" +

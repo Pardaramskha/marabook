@@ -554,7 +554,7 @@ namespace UniversSale.View
             if (style == null) return;
             if (style.Id == "body")
             {
-                MessageBox.Show(this, "Le style « Corps » est le style de secours : il ne peut pas être supprimé.",
+                MessageDialog.Show(this, "Le style « Corps » est le style de secours : il ne peut pas être supprimé.",
                     "Styles", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }

@@ -464,7 +464,7 @@ namespace UniversSale.View
         {
             var template = SelectedTemplate();
             if (template == null) return;
-            var answer = MessageBox.Show(this,
+            var answer = MessageDialog.Show(this,
                 "Supprimer le modèle « " + template.Name + " » ?\n" +
                 "Les fiches existantes garderont leurs valeurs (champs libres uniquement).",
                 "Modèles", MessageBoxButton.YesNo, MessageBoxImage.Question);

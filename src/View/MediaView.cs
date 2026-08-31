@@ -181,7 +181,7 @@ namespace UniversSale.View
             }
             catch (Exception error)
             {
-                MessageBox.Show(Window.GetWindow(this),
+                MessageDialog.Show(Window.GetWindow(this),
                     "Impossible d'ouvrir le fichier :\n" + error.Message,
                     "Marabook", MessageBoxButton.OK, MessageBoxImage.Error);
             }

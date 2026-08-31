@@ -550,7 +550,7 @@ namespace UniversSale.View
                 _composed.Focus();
                 return;
             }
-            MessageBox.Show(Window.GetWindow(this),
+            MessageDialog.Show(Window.GetWindow(this),
                 "L'approche se règle depuis le mode Composition (onglet Composition),\n"
                 + "où son effet est visible à l'écran.",
                 "Approche", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -566,7 +566,7 @@ namespace UniversSale.View
                 _composed.Focus();
                 return;
             }
-            MessageBox.Show(Window.GetWindow(this),
+            MessageDialog.Show(Window.GetWindow(this),
                 "L'approche se règle depuis le mode Composition (onglet Composition),\n"
                 + "où son effet est visible à l'écran.",
                 "Approche", MessageBoxButton.OK, MessageBoxImage.Information);
