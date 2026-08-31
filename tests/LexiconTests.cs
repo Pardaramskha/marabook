@@ -118,7 +118,8 @@ namespace UniversSale.Tests
             var entry = new LexiconEntry
             {
                 Word = "Kaladin", Class = LexiconEntry.ClassProper, Gender = "m",
-                Plural = LexiconEntry.PluralInvariable, Feminine = "", Note = "chef de pont"
+                Plural = LexiconEntry.PluralInvariable, Feminine = "", Note = "chef de pont",
+                Definition = "Soldat déchu devenu porteur d'éclats."
             };
             var json = Json.Write(new Dictionary<string, object> { { "list", LexiconEntry.ToJsonList(new List<LexiconEntry> { entry }) } });
             var back = LexiconEntry.FromJsonList(Json.AsList(Json.Field(Json.AsObject(Json.Parse(json)), "list")));
@@ -128,6 +129,8 @@ namespace UniversSale.Tests
             t.Equal("m", back[0].Gender, "genre");
             t.Equal(LexiconEntry.PluralInvariable, back[0].Plural, "pluriel");
             t.Equal("chef de pont", back[0].Note, "note");
+            t.Equal("Soldat déchu devenu porteur d'éclats.", back[0].Definition, "définition");
+            t.Equal("Soldat déchu devenu porteur d'éclats.", back[0].Clone().Definition, "définition clonée");
             var bogus = LexiconEntry.FromJson(new Dictionary<string, object> { { "word", "x" }, { "class", "pronoun" } });
             t.Equal(LexiconEntry.ClassOther, bogus.Class, "une nature inconnue retombe sur « autre »");
             t.Check(LexiconEntry.FromJson(new Dictionary<string, object> { { "class", "noun" } }) == null,

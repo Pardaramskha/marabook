@@ -248,11 +248,20 @@ namespace UniversSale.View
             grid.Children.Add(left);
 
             var forms = new StackPanel { Margin = new Thickness(12, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
+            if (entry.Definition.Length > 0)
+                forms.Children.Add(new TextBlock
+                {
+                    Text = entry.Definition,
+                    Foreground = Chrome.Ink,
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 2)
+                });
             forms.Children.Add(new TextBlock
             {
                 Text = LexiconInflector.Preview(entry, 12),
-                Foreground = Chrome.Ink,
-                FontSize = 12,
+                Foreground = entry.Definition.Length > 0 ? Chrome.SoftText : Chrome.Ink,
+                FontSize = entry.Definition.Length > 0 ? 11 : 12,
                 TextWrapping = TextWrapping.Wrap,
                 ToolTip = string.Join("\n", entry.Forms().ToArray())
             });
@@ -308,7 +317,7 @@ namespace UniversSale.View
     /// acceptera. Rend l'entrée validée, ou null.</summary>
     public class LexiconEntryDialog : Window
     {
-        private readonly TextBox _word, _feminine, _note;
+        private readonly TextBox _word, _feminine, _definition, _note;
         private readonly ComboBox _class, _gender, _plural, _scope;
         private readonly TextBlock _preview;
         private readonly StackPanel _nominal, _feminineRow;
@@ -324,7 +333,7 @@ namespace UniversSale.View
             ShowInTaskbar = false;
             Background = Chrome.WindowBg;
 
-            var panel = new StackPanel { Margin = new Thickness(16), Width = 380 };
+            var panel = new StackPanel { Margin = new Thickness(16), Width = 520 };
 
             panel.Children.Add(Label("Mot :"));
             _word = new TextBox { Text = initial == null ? "" : initial.Word };
@@ -377,6 +386,17 @@ namespace UniversSale.View
             _feminineRow.Children.Add(_feminine);
             _nominal.Children.Add(_feminineRow);
             panel.Children.Add(_nominal);
+
+            panel.Children.Add(Label("Définition :"));
+            _definition = new TextBox
+            {
+                Text = initial == null ? "" : initial.Definition,
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Height = 72
+            };
+            panel.Children.Add(_definition);
 
             panel.Children.Add(Label("Note (facultative) :"));
             _note = new TextBox { Text = initial == null ? "" : initial.Note };
@@ -449,6 +469,7 @@ namespace UniversSale.View
                 Plural = _plural.SelectedIndex == 1 ? LexiconEntry.PluralX
                        : _plural.SelectedIndex == 2 ? LexiconEntry.PluralInvariable : "",
                 Feminine = _feminine.Text.Trim(),
+                Definition = _definition.Text.Trim(),
                 Note = _note.Text.Trim()
             };
         }

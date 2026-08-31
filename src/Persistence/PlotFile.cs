@@ -87,7 +87,12 @@ namespace UniversSale.Persistence
         //      sur les infos libres des fiches ; les sections sont dérivées
         //      des groupes présents, Relations n'est gardé que par le
         //      Personnage (SheetDefaults.UpgradeSections, au chargement).
-        private const int FormatVersion = 19;
+        // v20: BATCH 43 — définition d'une entrée du dictionnaire
+        //      ("definition" dans le manifeste "lexicon", omise si vide) ;
+        //      édition d'un livre ("book" : genre, audience, themes:[string],
+        //      pitch, backCover — omis si vides) ; nom du projet renommable
+        //      (manifeste "name" : prime sur le nom du fichier quand présent).
+        private const int FormatVersion = 20;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.

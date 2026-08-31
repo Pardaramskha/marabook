@@ -32,6 +32,7 @@ namespace UniversSale.Model
         public string Gender = "";    // "m" | "f" | "" (noms, noms propres, adjectifs)
         public string Plural = "";    // "s" | "x" | "inv" | "" (= régulier)
         public string Feminine = "";  // forme féminine explicite ("" = dérivée par règle)
+        public string Definition = ""; // définition du mot, affichée dans le dictionnaire
         public string Note = "";      // commentaire libre
 
         public static LexiconEntry Simple(string word)
@@ -112,7 +113,8 @@ namespace UniversSale.Model
             return new LexiconEntry
             {
                 Word = Word, Class = Class, Gender = Gender,
-                Plural = Plural, Feminine = Feminine, Note = Note
+                Plural = Plural, Feminine = Feminine,
+                Definition = Definition, Note = Note
             };
         }
 
@@ -126,6 +128,7 @@ namespace UniversSale.Model
             if (Gender.Length > 0) node["gender"] = Gender;
             if (Plural.Length > 0) node["plural"] = Plural;
             if (Feminine.Length > 0) node["feminine"] = Feminine;
+            if (Definition.Length > 0) node["definition"] = Definition;
             if (Note.Length > 0) node["note"] = Note;
             return node;
         }
@@ -140,6 +143,7 @@ namespace UniversSale.Model
                 Gender = Json.AsString(Json.Field(node, "gender")) ?? "",
                 Plural = Json.AsString(Json.Field(node, "plural")) ?? "",
                 Feminine = Json.AsString(Json.Field(node, "feminine")) ?? "",
+                Definition = Json.AsString(Json.Field(node, "definition")) ?? "",
                 Note = Json.AsString(Json.Field(node, "note")) ?? ""
             };
             if (Array.IndexOf(Classes, entry.Class) < 0) entry.Class = ClassOther;

@@ -25,6 +25,7 @@ namespace UniversSale.Model
         public const string KindEntry = "entry";         // brique d'une colonne de plan (RefId = id)
         public const string KindLexicon = "lexicon";     // mot d'une entrée du dictionnaire (RefId = index)
         public const string KindLexiconNote = "lexicon-note";
+        public const string KindLexiconDefinition = "lexicon-definition";
 
         public string Kind = KindTitle;
         public string Label = "";
@@ -87,6 +88,7 @@ namespace UniversSale.Model
                     {
                         var entry = project.Lexicon[i];
                         Add(fields, SearchField.KindLexicon, "Entrée", entry.Word, i.ToString());
+                        Add(fields, SearchField.KindLexiconDefinition, "Définition de « " + entry.Word + " »", entry.Definition, i.ToString());
                         Add(fields, SearchField.KindLexiconNote, "Note de « " + entry.Word + " »", entry.Note, i.ToString());
                     }
                 return fields;
@@ -239,9 +241,12 @@ namespace UniversSale.Model
                 }
                 case SearchField.KindLexicon:
                 case SearchField.KindLexiconNote:
+                case SearchField.KindLexiconDefinition:
                 {
                     var lexical = FindLexicon(project, refId);
-                    return lexical == null ? null : kind == SearchField.KindLexicon ? lexical.Word : lexical.Note;
+                    if (lexical == null) return null;
+                    return kind == SearchField.KindLexicon ? lexical.Word
+                         : kind == SearchField.KindLexiconDefinition ? lexical.Definition : lexical.Note;
                 }
                 default: return null;
             }
@@ -318,10 +323,13 @@ namespace UniversSale.Model
                 }
                 case SearchField.KindLexicon:
                 case SearchField.KindLexiconNote:
+                case SearchField.KindLexiconDefinition:
                 {
                     var lexical = FindLexicon(project, refId);
                     if (lexical == null) return false;
-                    if (kind == SearchField.KindLexicon) lexical.Word = text; else lexical.Note = text;
+                    if (kind == SearchField.KindLexicon) lexical.Word = text;
+                    else if (kind == SearchField.KindLexiconDefinition) lexical.Definition = text;
+                    else lexical.Note = text;
                     return true;
                 }
                 default: return false;
@@ -368,7 +376,7 @@ namespace UniversSale.Model
             if (item.IsCategory)
             {
                 if (item.CategoryKey == Project.KeyDictionary && project != null)
-                    foreach (var entry in project.Lexicon) { h.Add(entry.Word); h.Add(entry.Note); }
+                    foreach (var entry in project.Lexicon) { h.Add(entry.Word); h.Add(entry.Definition); h.Add(entry.Note); }
                 return h.Value;
             }
             h.Add(item.Title); h.Add(item.Synopsis); h.Add(item.Notes);
