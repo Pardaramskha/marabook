@@ -29,10 +29,10 @@ namespace UniversSale.Settings
             { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions };
         private static readonly RightPanel[] ForBook =
             { RightPanel.Inspector, RightPanel.Edition, RightPanel.Metadata, RightPanel.Publication, RightPanel.Search };
-        private static readonly RightPanel[] ForSheet =
-            { RightPanel.Inspector, RightPanel.Search, RightPanel.Versions };
         private static readonly RightPanel[] ForOthers =
             { RightPanel.Inspector, RightPanel.Search };
+        private static readonly RightPanel[] ForCategory =
+            { RightPanel.Search };
 
         /// <summary>Le nom persisté dans settings.json (« rightPanel »).</summary>
         public static string Name(RightPanel panel)
@@ -82,20 +82,22 @@ namespace UniversSale.Settings
 
         /// <summary>Les onglets du rail selon la nature de l'élément courant
         /// (null = rien de sélectionné), dans l'ordre d'affichage : un écrit
-        /// a Correction et Versions ; un livre Métadonnées et Publication ;
-        /// une fiche Versions ; tout le reste (Recherche, Plans, Dictionnaire,
-        /// dossiers, niveau projet) n'a que Général et Recherche.</summary>
-        public static RightPanel[] Offered(ItemKind? kind)
+        /// a Correction et Versions ; un livre Édition, Métadonnées et
+        /// Publication ; une racine de la Pile n'a que Recherche (batch 43 —
+        /// leur Général ne montrait rien), sauf l'Accueil qui garde son
+        /// Général (les raccourcis « Commencer ») ; tout le reste (fiches,
+        /// plans, dossiers, niveau projet) a Général et Recherche.</summary>
+        public static RightPanel[] Offered(ItemKind? kind, bool homeRoot = false)
         {
             if (kind == ItemKind.Text) return ForText;
             if (kind == ItemKind.Book) return ForBook;
-            if (kind == ItemKind.Sheet) return ForSheet;
+            if (kind == ItemKind.Category && !homeRoot) return ForCategory;
             return ForOthers;
         }
 
-        public static bool Offers(ItemKind? kind, RightPanel panel)
+        public static bool Offers(ItemKind? kind, RightPanel panel, bool homeRoot = false)
         {
-            return Array.IndexOf(Offered(kind), panel) >= 0;
+            return Array.IndexOf(Offered(kind, homeRoot), panel) >= 0;
         }
 
         /// <summary>Général, Métadonnées et Publication DÉCRIVENT l'élément
@@ -111,10 +113,10 @@ namespace UniversSale.Settings
         /// et le journal masquent toute la colonne ; le panneau doit être
         /// offert pour la nature de l'élément courant ; Recherche seule vit
         /// sans élément courant (« on cherche avant d'avoir cliqué », b37).</summary>
-        public static bool Available(RightPanel panel, bool columnHidden, bool hasProject, ItemKind? kind)
+        public static bool Available(RightPanel panel, bool columnHidden, bool hasProject, ItemKind? kind, bool homeRoot = false)
         {
             if (columnHidden || !hasProject) return false;
-            if (!Offers(kind, panel)) return false;
+            if (!Offers(kind, panel, homeRoot)) return false;
             return panel == RightPanel.Search || kind != null;
         }
 

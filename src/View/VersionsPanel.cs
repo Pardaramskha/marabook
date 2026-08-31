@@ -146,7 +146,7 @@ namespace UniversSale.View
 
         private bool HasDocument
         {
-            get { return _current != null && (_current.Kind == ItemKind.Text || _current.Kind == ItemKind.Sheet); }
+            get { return _current != null && _current.Kind == ItemKind.Text; } // plus de versions de fiche (b43)
         }
 
         /// <summary>« 12/03/2026 14:05 » depuis « 2026-03-12 14:05:33 ».</summary>

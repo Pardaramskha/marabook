@@ -177,17 +177,18 @@ namespace UniversSale.Tests.Ui
             RenderPng(rail, Path.Combine(Path.GetTempPath(), "marabook-b39-rail.png"), "rail");
             RenderPng((FrameworkElement)window.Content, Path.Combine(Path.GetTempPath(), "marabook-b39-fenetre.png"), "fenêtre");
 
-            // — Une racine de la Pile : le rail rétrécit et Correction cède la place au Général.
+            // — Une racine de la Pile (b43) : plus de Général du tout — le rail
+            //   ne montre que Recherche et la colonne se replie.
             Invoke(window, "OnBinderSelection", new object[] { opened.Category(Project.KeyWritings) });
             DoEvents();
-            Check(tabs.Count == 2 && !tabs.ContainsKey(RightPanel.Correction),
-                "sur une racine : Général et Recherche seulement");
-            Check(AppSettings.RightPanel == RightPanel.Inspector && inspector.Visibility == Visibility.Visible && correctionHost.Visibility != Visibility.Visible,
-                "Correction, plus offerte, cède la place au Général");
+            Check(tabs.Count == 1 && tabs.ContainsKey(RightPanel.Search),
+                "sur une racine : Recherche seule (b43)");
+            Check(inspectorCol.Width.Value == 0 && inspector.Visibility != Visibility.Visible && correctionHost.Visibility != Visibility.Visible,
+                "Correction, plus offerte, replie la colonne (les racines n'ont plus de Général)");
             Invoke(window, "OnBinderSelection", new object[] { item });
             DoEvents();
-            Check(tabs.Count == 4 && inspector.Visibility == Visibility.Visible,
-                "de retour sur l'écrit, les quatre onglets reviennent, Général reste");
+            Check(tabs.Count == 4 && correctionHost.Visibility == Visibility.Visible,
+                "de retour sur l'écrit, les quatre onglets reviennent, Correction reprend");
 
             // — Le mode calme emporte le rail avec le reste ; en sortir le ramène.
             Invoke(window, "SetCalmMode", new object[] { true });
@@ -196,7 +197,7 @@ namespace UniversSale.Tests.Ui
                 "en mode calme, le rail disparaît avec la colonne");
             Invoke(window, "SetCalmMode", new object[] { false });
             DoEvents();
-            Check(rail.Visibility == Visibility.Visible && railCol.Width.Value == 40 && inspector.Visibility == Visibility.Visible,
+            Check(rail.Visibility == Visibility.Visible && railCol.Width.Value == 40 && correctionHost.Visibility == Visibility.Visible,
                 "en sortir ramène le rail et le panneau actif");
 
             // — Le réglage persisté est le nouveau champ, pas les anciens booléens.

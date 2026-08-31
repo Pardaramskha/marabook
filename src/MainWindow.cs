@@ -92,11 +92,13 @@ namespace UniversSale
         private System.Windows.Shapes.Path _statsChevron;
         private StackPanel _statusSection;   // état du texte + couleur de carte
         private ComboBox _statusCombo;
-        private WrapPanel _colorSwatches;
+        private Button _colorButton;   // pastille + menu déroulant (b43)
+        private Border _colorDot;
         private TextBlock _statusLabel, _colorLabel;
         private TextBlock _synopsisLabel, _notesLabel;
         private TextBox _synopsisBox, _notesBox;
         private StackPanel _linksPanel;
+        private TextBlock _linksLabel;
         private bool _loadingInspector;
 
         private TextBlock _statusLeft, _statusRight, _statusPages, _zoomLabel;
@@ -986,8 +988,35 @@ namespace UniversSale
                     + "— et de la boîte pour un dossier de livre"
             };
             _statusSection.Children.Add(_colorLabel);
-            _colorSwatches = new WrapPanel();
-            _statusSection.Children.Add(_colorSwatches);
+            // La pastille dans un bouton ; le clic ouvre le menu des couleurs
+            // (nuancier + couleurs personnalisées du projet) — batch 43.
+            _colorDot = new Border
+            {
+                Width = 16,
+                Height = 16,
+                CornerRadius = new CornerRadius(8),
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var colorRow = new StackPanel { Orientation = Orientation.Horizontal };
+            colorRow.Children.Add(_colorDot);
+            colorRow.Children.Add(new TextBlock
+            {
+                Text = "▾",
+                Foreground = Chrome.SoftText,
+                FontSize = 9,
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            _colorButton = new Button
+            {
+                Content = colorRow,
+                Padding = new Thickness(6, 3, 6, 3),
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            _colorButton.Click += delegate { OpenColorMenu(); };
+            _statusSection.Children.Add(_colorButton);
             panel.Children.Add(_statusSection);
 
             // Options d'un plan (batch 35) : le mot des nouvelles colonnes.
@@ -1123,13 +1152,14 @@ namespace UniversSale
             ApplyStatsExpansion();
             panel.Children.Add(_statsSection);
 
-            panel.Children.Add(new TextBlock
+            _linksLabel = new TextBlock
             {
                 Text = "Liens",
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 Margin = new Thickness(0, 14, 0, 4)
-            });
+            };
+            panel.Children.Add(_linksLabel);
             _linksPanel = new StackPanel();
             panel.Children.Add(_linksPanel);
 
@@ -2971,7 +3001,7 @@ namespace UniversSale
 
         private bool IsPanelAvailable(RightPanel panel)
         {
-            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, CurrentKind());
+            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, CurrentKind(), CurrentIsHomeRoot());
         }
 
         /// <summary>La nature de l'élément courant, null sans sélection — ce
@@ -2979,6 +3009,13 @@ namespace UniversSale
         private ItemKind? CurrentKind()
         {
             return _current == null ? (ItemKind?)null : _current.Kind;
+        }
+
+        /// <summary>L'élément courant est-il la racine Accueil ? Elle seule,
+        /// parmi les racines, garde un panneau Général (batch 43).</summary>
+        private bool CurrentIsHomeRoot()
+        {
+            return _current != null && _current.IsHomeRoot;
         }
 
         /// <summary>LE seul endroit qui change le panneau actif — rail,
@@ -3029,12 +3066,13 @@ namespace UniversSale
                 if (!separated && !RightPanels.DescribesCurrent(panel))
                 {
                     separated = true;
-                    _railStack.Children.Add(new Border
-                    {
-                        Height = 1,
-                        Background = Chrome.Border,
-                        Margin = new Thickness(9, 2, 9, 6)
-                    });
+                    if (_railStack.Children.Count > 0) // pas de filet orphelin en tête (racines sans Général, b43)
+                        _railStack.Children.Add(new Border
+                        {
+                            Height = 1,
+                            Background = Chrome.Border,
+                            Margin = new Thickness(9, 2, 9, 6)
+                        });
                 }
                 _railStack.Children.Add(RailTab(panel));
             }
@@ -3170,7 +3208,7 @@ namespace UniversSale
             var railOn = !_journalOpen && !_calmMode;
             _rail.Visibility = railOn ? Visibility.Visible : Visibility.Collapsed;
             _railCol.Width = new GridLength(railOn ? RailWidth : 0);
-            var offered = RightPanels.Offered(CurrentKind());
+            var offered = RightPanels.Offered(CurrentKind(), CurrentIsHomeRoot());
             if (!ReferenceEquals(offered, _railOffered)) RebuildRailTabs(offered);
             var shown = ShownRightPanel();
             foreach (var pair in _railTabs)
@@ -3332,7 +3370,7 @@ namespace UniversSale
                 _statusLabel.Visibility = showStatus ? Visibility.Visible : Visibility.Collapsed;
                 _statusCombo.Visibility = _statusLabel.Visibility;
                 _colorLabel.Visibility = showColor ? Visibility.Visible : Visibility.Collapsed;
-                _colorSwatches.Visibility = _colorLabel.Visibility;
+                _colorButton.Visibility = _colorLabel.Visibility;
                 if (showStatus)
                 {
                     var index = Array.IndexOf(TextStatus.Keys, _current.Status);
@@ -3411,40 +3449,76 @@ namespace UniversSale
             _bookBar.Show(BookProgress.Of(_current), "Objectif : aucun — définir dans les Options du livre…");
         }
 
-        /// <summary>Reconstruit la rangée de pastilles de couleur pour
-        /// l'élément courant (coche = couleur active).</summary>
+        /// <summary>La pastille du bouton reflète la couleur de carte de
+        /// l'élément courant (batch 43 — l'ancienne rangée de pastilles).</summary>
         private void RebuildColorSwatches()
         {
-            _colorSwatches.Children.Clear();
+            var value = _current == null ? null : _current.CardColor;
+            _colorDot.Background = value == null
+                ? Brushes.Transparent
+                : new SolidColorBrush(View.FlowConverter.ParseColor(value));
+            _colorButton.ToolTip = value == null ? "Aucune couleur" : value;
+        }
+
+        /// <summary>Le menu du bouton couleur : le nuancier, les couleurs
+        /// personnalisées du projet, « Nouvelle couleur… ».</summary>
+        private void OpenColorMenu()
+        {
             if (_current == null) return;
+            var menu = new ContextMenu();
             foreach (var swatch in View.ItemIcons.TintSwatches)
+                menu.Items.Add(ColorMenuItem(swatch));
+            if (_project != null && _project.CustomColors.Count > 0)
             {
-                var value = swatch;
-                var active = _current.CardColor == value;
-                var chip = new Border
+                menu.Items.Add(new Separator());
+                foreach (var hex in _project.CustomColors)
+                    menu.Items.Add(ColorMenuItem(hex));
+            }
+            menu.Items.Add(new Separator());
+            var custom = new MenuItem { Header = "Nouvelle couleur…" };
+            custom.Click += delegate
+            {
+                var hex = View.ColorDialog.Ask(this);
+                if (hex == null || _project == null) return;
+                if (!_project.CustomColors.Contains(hex)) _project.CustomColors.Insert(0, hex);
+                SetCardColor(hex);
+            };
+            menu.Items.Add(custom);
+            menu.PlacementTarget = _colorButton;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
+        }
+
+        private MenuItem ColorMenuItem(string value)
+        {
+            var active = _current != null && _current.CardColor == value;
+            var item = new MenuItem
+            {
+                Header = value == null ? "Aucune couleur" : value,
+                FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal,
+                Icon = new Border
                 {
-                    Width = 18,
-                    Height = 18,
-                    CornerRadius = new CornerRadius(9),
-                    Margin = new Thickness(0, 0, 5, 4),
+                    Width = 14,
+                    Height = 14,
+                    CornerRadius = new CornerRadius(7),
                     Background = value == null
                         ? Brushes.Transparent
                         : new SolidColorBrush(View.FlowConverter.ParseColor(value)),
                     BorderBrush = active ? (Brush)Chrome.Ink : Chrome.Border,
-                    BorderThickness = new Thickness(active ? 2.2 : 1),
-                    ToolTip = value == null ? "Aucune couleur" : value,
-                    Cursor = System.Windows.Input.Cursors.Hand
-                };
-                chip.MouseLeftButtonUp += delegate
-                {
-                    if (_current == null) return;
-                    _current.CardColor = value;
-                    MarkDirty();
-                    RebuildColorSwatches();
-                    RefreshOpenCorkboards();
-                };
-                _colorSwatches.Children.Add(chip);
-            }
+                    BorderThickness = new Thickness(active ? 2 : 1)
+                }
+            };
+            item.Click += delegate { SetCardColor(value); };
+            return item;
+        }
+
+        private void SetCardColor(string value)
+        {
+            if (_current == null) return;
+            _current.CardColor = value;
+            MarkDirty();
+            RebuildColorSwatches();
+            RefreshOpenCorkboards();
         }
 
         /// <summary>Les cartes reflètent état/couleur sans attendre une
@@ -3476,6 +3550,12 @@ namespace UniversSale
         private void UpdateLinksPanel()
         {
             _linksPanel.Children.Clear();
+            // Un plan ne montre pas de liens (batch 43) : ses [[liens]] de
+            // briques rendaient la liste confuse.
+            var hidden = _current != null && _current.Kind == ItemKind.Plan;
+            _linksLabel.Visibility = hidden ? Visibility.Collapsed : Visibility.Visible;
+            _linksPanel.Visibility = _linksLabel.Visibility;
+            if (hidden) return;
             if (_current == null || _current.IsCategory)
             {
                 _linksPanel.Children.Add(new TextBlock
@@ -3575,9 +3655,11 @@ namespace UniversSale
             }
             else if (_current != null && _current.Kind == ItemKind.Sheet && _sheetView.HasItem)
             {
+                // Batch 43 : plus de statistiques dans le Général d'une fiche —
+                // la barre d'état garde son décompte discret.
                 var stats = TextStats.Compute(_sheetView.BodyPlainText());
                 _statusRight.Text = stats.ShortLabel();
-                _inspStats.Text = stats.LongLabel();
+                _inspStats.Text = "";
             }
             else if (_current != null && _current.Kind == ItemKind.Book)
             {

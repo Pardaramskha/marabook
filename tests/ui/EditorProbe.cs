@@ -357,7 +357,7 @@ namespace UniversSale.Tests.Ui
             Check(chart.Children.Count > 10, "le graphique d'intensité se dessine (" + chart.Children.Count + " formes)");
             DoEvents(); // la reconstruction des colonnes attend une passe de mise en page
             Snapshot(planView, Path.Combine(Path.GetTempPath(), "marabook-b35-plan.png"));
-            var inspColor = (WrapPanel)GetField(window, "_colorSwatches");
+            var inspColor = (Button)GetField(window, "_colorButton"); // pastille + menu depuis le b43
             var inspSynopsis = (TextBox)GetField(window, "_synopsisBox");
             Check(inspColor.Visibility == Visibility.Visible && inspSynopsis.Visibility == Visibility.Collapsed,
                 "l'inspecteur d'un plan : la couleur, rien d'autre");

@@ -41,9 +41,11 @@ namespace UniversSale.Tests
             // — Les onglets offerts selon la nature de l'élément courant.
             t.Equal("inspector,correction,search,versions", Join(RightPanels.Offered(ItemKind.Text)), "un écrit : Général, Correction, Recherche, Versions");
             t.Equal("inspector,edition,metadata,publication,search", Join(RightPanels.Offered(ItemKind.Book)), "un livre : Général, Édition, Métadonnées, Publication, Recherche");
-            t.Equal("inspector,search,versions", Join(RightPanels.Offered(ItemKind.Sheet)), "une fiche : Général, Recherche, Versions");
-            foreach (var kind in new[] { ItemKind.Media, ItemKind.Plan, ItemKind.Category, ItemKind.Folder, ItemKind.PageTemplate })
+            t.Equal("inspector,search", Join(RightPanels.Offered(ItemKind.Sheet)), "une fiche : Général et Recherche (plus de Versions, b43)");
+            foreach (var kind in new[] { ItemKind.Media, ItemKind.Plan, ItemKind.Folder, ItemKind.PageTemplate })
                 t.Equal("inspector,search", Join(RightPanels.Offered(kind)), kind + " : Général et Recherche seulement");
+            t.Equal("search", Join(RightPanels.Offered(ItemKind.Category)), "une racine de la Pile : Recherche seule (b43)");
+            t.Equal("inspector,search", Join(RightPanels.Offered(ItemKind.Category, true)), "l'Accueil garde son Général (les raccourcis)");
             t.Equal("inspector,search", Join(RightPanels.Offered(null)), "rien de sélectionné : Général et Recherche");
             t.Check(RightPanels.DescribesCurrent(RightPanel.Edition), "Édition décrit l'élément");
             t.Check(RightPanels.DescribesCurrent(RightPanel.Inspector) && RightPanels.DescribesCurrent(RightPanel.Metadata)
@@ -64,8 +66,12 @@ namespace UniversSale.Tests
                 "…et nulle part ailleurs");
             t.Check(RightPanels.Available(RightPanel.Search, false, true, null), "Recherche sans élément courant : disponible (on cherche avant d'avoir cliqué)");
             t.Check(RightPanels.Available(RightPanel.Search, false, true, ItemKind.Plan), "Recherche sur un plan");
-            t.Check(RightPanels.Available(RightPanel.Versions, false, true, ItemKind.Text) && RightPanels.Available(RightPanel.Versions, false, true, ItemKind.Sheet),
-                "Versions sur un écrit et sur une fiche");
+            t.Check(RightPanels.Available(RightPanel.Versions, false, true, ItemKind.Text) && !RightPanels.Available(RightPanel.Versions, false, true, ItemKind.Sheet),
+                "Versions sur un écrit, plus sur une fiche (b43)");
+            t.Check(!RightPanels.Available(RightPanel.Inspector, false, true, ItemKind.Category)
+                && RightPanels.Available(RightPanel.Inspector, false, true, ItemKind.Category, true)
+                && RightPanels.Available(RightPanel.Search, false, true, ItemKind.Category),
+                "une racine : Recherche seule, sauf l'Accueil qui garde Général (b43)");
             t.Check(!RightPanels.Available(RightPanel.Versions, false, true, null) && !RightPanels.Available(RightPanel.Versions, false, true, ItemKind.Book),
                 "Versions sans élément courant ou sur un livre : indisponible");
             t.Check(!RightPanels.Available(RightPanel.Search, false, false, null), "Recherche sans projet : indisponible");

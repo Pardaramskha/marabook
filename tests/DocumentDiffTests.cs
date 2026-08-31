@@ -122,7 +122,7 @@ namespace UniversSale.Tests
             project.Category(Project.KeyPlans).Children.Add(plan);
             project.RelinkParents();
             var taken = SnapshotStore.GuardBeforeReplace(project, new List<BinderItem> { chapter, other, sheet, plan }, "marabout", 20);
-            t.Equal(2, taken, "avant remplacement : un instantané par écrit ou fiche touché non encore capturé tel quel (le chapitre l'était, le plan n'a pas de document)");
+            t.Equal(1, taken, "avant remplacement : un instantané par écrit touché non encore capturé tel quel (le chapitre l'était ; les fiches n'ont plus de versions depuis le b43)");
             var replaceLabel = SnapshotStore.Latest(project, other.Id);
             t.Check(replaceLabel != null && replaceLabel.Origin == SnapshotOrigin.Replace && replaceLabel.Label == "Avant remplacement de « marabout »", "…libellé par le motif remplacé");
             t.Equal(0, SnapshotStore.GuardBeforeReplace(project, new List<BinderItem> { chapter, other, sheet }, "marabout", 20), "rejouer sans changement : aucun en double");
@@ -186,13 +186,13 @@ namespace UniversSale.Tests
             var sheet = new BinderItem { Kind = ItemKind.Sheet, Title = "Fiche" };
             sheet.Document = TextDocument.FromPlainText("Corps.");
             project.Category(Project.KeySheets).Children.Add(sheet);
-            t.Check(SnapshotStore.Capture(project, sheet, "", SnapshotOrigin.Manual, 20) != null, "une fiche se capture aussi");
+            t.Check(SnapshotStore.Capture(project, sheet, "", SnapshotOrigin.Manual, 20) == null, "une fiche ne se capture plus (b43)");
             var plan = new BinderItem { Kind = ItemKind.Plan, Title = "Plan", Plan = new PlanInfo() };
             t.Check(SnapshotStore.Capture(project, plan, "", SnapshotOrigin.Manual, 20) == null, "un plan n'a pas de document : rien (limite assumée)");
             t.Check(SnapshotStore.HasToday(project, chapter.Id, SnapshotOrigin.Typography) && !SnapshotStore.HasToday(project, chapter.Id, SnapshotOrigin.Daily), "HasToday sait quelle origine a déjà été prise aujourd'hui");
             t.Equal("Avant remplacement", SnapshotOrigin.Label(SnapshotOrigin.Replace), "les origines ont un libellé");
             var stats = SnapshotStore.Weight(project, null);
-            t.Check(stats.StartsWith("3 versions · ") && stats.EndsWith(" o") || stats.EndsWith(" Ko"), "le poids se dit (« " + stats + " »)");
+            t.Check(stats.StartsWith("2 versions · ") && stats.EndsWith(" o") || stats.EndsWith(" Ko"), "le poids se dit (« " + stats + " »)");
         }
 
         private static void CapAndPurge(Harness t)

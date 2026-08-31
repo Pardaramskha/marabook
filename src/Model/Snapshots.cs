@@ -199,7 +199,10 @@ namespace UniversSale.Model
         public static Snapshot CaptureDocument(Project project, BinderItem item, TextDocument document, string label, string origin, int cap)
         {
             if (project == null || item == null || document == null) return null;
-            if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet) return null;
+            // Écrits seulement depuis le batch 43 — les fiches n'ont plus de
+            // versions (les instantanés de fiche déjà pris restent lisibles
+            // dans le .plot, jamais purgés à la sauvegarde).
+            if (item.Kind != ItemKind.Text) return null;
             var latest = Latest(project, item.Id);
             var fingerprint = DocumentFingerprint(document);
             if (latest != null && latest.Fingerprint == fingerprint) return null;
@@ -241,7 +244,7 @@ namespace UniversSale.Model
         }
 
         /// <summary>La ceinture avant un remplacement projet : un instantané
-        /// automatique de CHAQUE item touché (écrits et fiches), libellé
+        /// automatique de CHAQUE écrit touché, libellé
         /// « Avant remplacement de « X » ». Rend le nombre pris.</summary>
         public static int GuardBeforeReplace(Project project, IEnumerable<BinderItem> items, string pattern, int cap)
         {
@@ -267,7 +270,7 @@ namespace UniversSale.Model
         public static Snapshot GuardDaily(Project project, BinderItem item, TextDocument documentAtOpen, bool enabled, int cap)
         {
             if (!enabled || project == null || item == null) return null;
-            if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet) return null;
+            if (item.Kind != ItemKind.Text) return null;
             if (HasToday(project, item.Id, null)) return null;
             return CaptureDocument(project, item, documentAtOpen ?? item.Document, "", SnapshotOrigin.Daily, cap);
         }

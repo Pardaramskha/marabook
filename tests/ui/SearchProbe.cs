@@ -299,10 +299,11 @@ namespace UniversSale.Tests.Ui
             Invoke(window, "RunReplace", new object[] { ReplacePlan.Build(opened, chosen, query, "ibis"), "marabout" });
             DoEvents();
             Check(history.Count == before + 1, "une seule action d'historique pour tout le projet");
-            // 30 chapitres + 6 fiches ont un document ; le plan et le dictionnaire, non ; le livre (sous-titre) non plus.
-            Check(SnapshotStore.Count(opened, null) == 36 && SnapshotStore.Latest(opened, chapter7.Id).Origin == SnapshotOrigin.Replace
+            // 30 chapitres ont un document ; les fiches n'ont plus de versions
+            // (b43) ; le plan et le dictionnaire, pas de document ; le livre non plus.
+            Check(SnapshotStore.Count(opened, null) == 30 && SnapshotStore.Latest(opened, chapter7.Id).Origin == SnapshotOrigin.Replace
                 && SnapshotStore.Latest(opened, chapter7.Id).Label == "Avant remplacement de « marabout »",
-                "un instantané automatique « avant remplacement » par écrit et fiche touchés (b38 ; obtenu : " + SnapshotStore.Count(opened, null) + ")");
+                "un instantané automatique « avant remplacement » par écrit touché (b38/b43 ; obtenu : " + SnapshotStore.Count(opened, null) + ")");
             var remaining = ProjectSearch.Run(ProjectSearch.Collect(opened, SearchScope.Project, null, SearchKind.All, false), query, int.MaxValue, TimeSpan.FromSeconds(30), System.Threading.CancellationToken.None);
             Check(remaining.Total == 2 && remaining.Hits[0].Item.IsCategory, "il ne reste que les deux occurrences du dictionnaire épargné (obtenu : " + remaining.Total + ")");
             Check(chapter7.Document.Paragraphs[0].Runs[0].Text.StartsWith("XLe ibis"), "le chapitre ouvert est remplacé, la frappe conservée");
