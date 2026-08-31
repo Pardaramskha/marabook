@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.40.0-alpha";
+        public const string AppVersion = "0.41.0-alpha";
 
         private Project _project;
         private string _path;
