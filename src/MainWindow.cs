@@ -320,6 +320,25 @@ namespace UniversSale
             return bar;
         }
 
+        /// <summary>Reconstruit la barre de menus ET les KeyBindings de la
+        /// fenêtre après une personnalisation des raccourcis (Préférences →
+        /// Raccourcis, b43) — Entry/AddGesture posent tout à la construction,
+        /// on repart donc de zéro.</summary>
+        private void RefreshShortcuts()
+        {
+            var root = Content as DockPanel;
+            if (root == null || _menuBar == null) return;
+            InputBindings.Clear();
+            var index = root.Children.IndexOf(_menuBar);
+            root.Children.RemoveAt(index);
+            _menuBar = BuildMenuBar();
+            root.Children.Insert(index, _menuBar);
+            UpdateRecentMenu();
+            ApplyPanelVisibility();  // recoche Affichage (les MenuItem sont neufs)
+            _railOffered = null;     // infobulles du rail : geste affiché à refaire
+            UpdateRail();
+        }
+
         /// <summary>Registers a window-wide key binding for an action that has
         /// no menu entry (ribbon-only commands).</summary>
         private void AddGesture(string actionId, Action handler)
@@ -3324,6 +3343,7 @@ namespace UniversSale
                 _current = null;
                 OnBinderSelection(reopen);
             };
+            dialog.ShortcutsChanged += RefreshShortcuts;
             dialog.ShowDialog();
         }
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using UniversSale.Model;
 using UniversSale.Settings;
@@ -25,6 +26,10 @@ namespace UniversSale.View
         /// <summary>Un dictionnaire personnel a changé : l'éditeur doit
         /// oublier ses verdicts en cache et revérifier.</summary>
         public event Action ProofingChanged;
+
+        /// <summary>Un raccourci a changé (onglet Raccourcis, b43) : la
+        /// fenêtre principale reconstruit menus et KeyBindings.</summary>
+        public event Action ShortcutsChanged;
 
         private readonly Model.Project _project; // null : aucun projet ouvert
 
@@ -53,7 +58,10 @@ namespace UniversSale.View
             Title = "Préférences";
             Owner = owner;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            SizeToContent = SizeToContent.WidthAndHeight;
+            // Taille UNIQUE pour tous les onglets (b43) — fini la fenêtre qui
+            // change de taille à chaque onglet.
+            Width = 720;
+            Height = 640;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
             Background = Chrome.RaisedBg;
@@ -63,22 +71,25 @@ namespace UniversSale.View
             tabs.Items.Add(new TabItem
             {
                 Header = "Personnalisation",
-                Content = BuildPersonalizationTab()
+                Content = Scrolled(BuildPersonalizationTab())
             });
             tabs.Items.Add(new TabItem
             {
                 Header = "Édition",
-                Content = BuildEditingTab()
+                Content = Scrolled(BuildEditingTab())
             });
             tabs.Items.Add(new TabItem
             {
                 Header = "Correction",
-                Content = BuildProofingTab()
+                Content = Scrolled(BuildProofingTab())
+            });
+            tabs.Items.Add(new TabItem
+            {
+                Header = "Raccourcis",
+                Content = Scrolled(BuildShortcutsTab())
             });
 
-            var layout = new StackPanel { MinWidth = 380 };
-            layout.Children.Add(tabs);
-
+            var layout = new DockPanel();
             var buttons = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -88,9 +99,21 @@ namespace UniversSale.View
             var close = new Button { Content = "Fermer", IsDefault = true, IsCancel = true, MinWidth = 90 };
             close.Click += delegate { Close(); };
             buttons.Children.Add(close);
+            DockPanel.SetDock(buttons, Dock.Bottom);
             layout.Children.Add(buttons);
+            layout.Children.Add(tabs);
 
             Content = layout;
+        }
+
+        private static ScrollViewer Scrolled(UIElement content)
+        {
+            return new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = content
+            };
         }
 
         /// <summary>Onglet « Édition » : le mode de compatibilité — le repli
@@ -334,6 +357,118 @@ namespace UniversSale.View
             });
 
             return panel;
+        }
+
+        // ------------------------------------------------------ raccourcis (b43)
+
+        /// <summary>L'onglet « Raccourcis » : toutes les actions de
+        /// l'application, groupées par catégorie — cliquer le champ puis
+        /// taper la combinaison ; Retour arrière retire le raccourci,
+        /// Échap referme sans changer. Personnalisations dans
+        /// AppSettings.Shortcuts (settings.json), appliquées aussitôt.</summary>
+        private UIElement BuildShortcutsTab()
+        {
+            var panel = new StackPanel { Margin = new Thickness(12, 10, 16, 12) };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Cliquez un champ puis tapez la combinaison voulue. "
+                     + "Retour arrière retire le raccourci ; « Défaut » restaure celui d'origine.",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            var categories = new List<string>();
+            foreach (var action in AppSettings.Actions)
+                if (!categories.Contains(action.Category)) categories.Add(action.Category);
+            foreach (var category in categories)
+            {
+                panel.Children.Add(Caption(category, 10));
+                foreach (var action in AppSettings.Actions)
+                    if (action.Category == category)
+                        panel.Children.Add(ShortcutRow(action));
+            }
+            return panel;
+        }
+
+        private UIElement ShortcutRow(ActionDefinition action)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 3, 0, 0) };
+
+            var box = new TextBox
+            {
+                Width = 150,
+                IsReadOnly = true,
+                IsReadOnlyCaretVisible = false,
+                TextAlignment = TextAlignment.Center,
+                Cursor = Cursors.Hand,
+                ToolTip = "Cliquer puis taper la combinaison — Retour arrière : aucun raccourci"
+            };
+            var reset = new Button
+            {
+                Content = "Défaut",
+                FontSize = 11,
+                Padding = new Thickness(6, 1, 6, 1),
+                Margin = new Thickness(6, 0, 0, 0),
+                ToolTip = "Revenir au raccourci d'origine"
+                    + (string.IsNullOrEmpty(action.DefaultGesture) ? " (aucun)" : " : " + AppSettings.DisplayGesture(action.DefaultGesture))
+            };
+            Action sync = delegate
+            {
+                var gesture = AppSettings.Gesture(action.Id);
+                box.Text = string.IsNullOrEmpty(gesture) ? "—" : AppSettings.DisplayGesture(gesture);
+                var custom = AppSettings.Shortcuts.ContainsKey(action.Id);
+                box.FontWeight = custom ? FontWeights.SemiBold : FontWeights.Normal;
+                reset.Visibility = custom ? Visibility.Visible : Visibility.Hidden;
+            };
+            Action<string> store = delegate(string gesture)
+            {
+                if (gesture == (action.DefaultGesture ?? "")) AppSettings.Shortcuts.Remove(action.Id);
+                else AppSettings.Shortcuts[action.Id] = gesture;
+                AppSettings.Save();
+                sync();
+                var handler = ShortcutsChanged;
+                if (handler != null) handler();
+            };
+            box.PreviewKeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                e.Handled = true;
+                var key = e.Key == Key.System ? e.SystemKey : e.Key;
+                if (key == Key.LeftCtrl || key == Key.RightCtrl || key == Key.LeftShift || key == Key.RightShift
+                    || key == Key.LeftAlt || key == Key.RightAlt || key == Key.LWin || key == Key.RWin) return;
+                if (key == Key.Escape) { Keyboard.ClearFocus(); sync(); return; }
+                if (key == Key.Back) { store(""); return; }
+                var gesture = "";
+                if ((Keyboard.Modifiers & ModifierKeys.Control) != 0) gesture += "Ctrl+";
+                if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) gesture += "Shift+";
+                if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0) gesture += "Alt+";
+                store(gesture + key);
+            };
+            box.GotKeyboardFocus += delegate { box.Text = "Tapez…"; };
+            box.LostKeyboardFocus += delegate { sync(); };
+            reset.Click += delegate
+            {
+                AppSettings.Shortcuts.Remove(action.Id);
+                AppSettings.Save();
+                sync();
+                var handler = ShortcutsChanged;
+                if (handler != null) handler();
+            };
+            sync();
+
+            var right = new StackPanel { Orientation = Orientation.Horizontal };
+            right.Children.Add(box);
+            right.Children.Add(reset);
+            DockPanel.SetDock(right, Dock.Right);
+            row.Children.Add(right);
+            row.Children.Add(new TextBlock
+            {
+                Text = action.Name,
+                Foreground = Chrome.Ink,
+                FontSize = 13,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            return row;
         }
 
         private TextBlock Caption(string text, double topMargin = 0)
