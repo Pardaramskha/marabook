@@ -99,12 +99,15 @@ namespace UniversSale.Tests.Ui
                     if (candidate.Title == "Fiche héros") sheetItem = candidate;
                 }
 
-                // — Un projet sans récent s'ouvre sur l'Accueil : quatre blocs, les invites.
+                // — Un projet sans récent s'ouvre sur l'Accueil : trois blocs, les invites.
                 var current = (BinderItem)GetField(window, "_current");
                 Check(current != null && current.IsHomeRoot && home.Visibility == Visibility.Visible,
                     "un projet sans récent s'ouvre sur l'Accueil");
                 var grid = (Grid)GetField(home, "_grid");
-                Check(grid.Children.Count == 4, "quatre blocs, pas un de plus");
+                Check(grid.Children.Count == 3, "trois blocs, pas un de plus (Commencer vit dans le rail, b43)");
+                var startSection = (StackPanel)GetField(window, "_homeStartSection");
+                Check(startSection.Visibility == Visibility.Visible,
+                    "le Général de l'Accueil montre les raccourcis « Commencer »");
                 var prompts = home.Prompts;
                 Check(prompts.Count == 2 && prompts.Contains("Les écrits ouverts récemment apparaîtront ici.") && prompts.Contains("Clic droit sur un élément → Épingler."),
                     "Reprendre et Épinglés montrent leur invite ; Où j'en suis a déjà le livre");

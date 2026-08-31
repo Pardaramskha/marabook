@@ -99,6 +99,7 @@ namespace UniversSale
         private TextBox _synopsisBox, _notesBox;
         private StackPanel _linksPanel;
         private TextBlock _linksLabel;
+        private StackPanel _homeStartSection; // raccourcis « Commencer » de l'Accueil (b43)
         private bool _loadingInspector;
 
         private TextBlock _statusLeft, _statusRight, _statusPages, _zoomLabel;
@@ -483,11 +484,7 @@ namespace UniversSale
             // commandes sont celles des menus ; ouvrir = sélectionner dans la Pile.
             _homeView = new View.HomeView { Visibility = Visibility.Collapsed };
             _homeView.OpenRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
-            _homeView.NewTextRequested += delegate { _binder.NewText(null); };
-            _homeView.NewSheetRequested += delegate { _binder.NewSheet(null); };
-            _homeView.NewPlanRequested += delegate { _binder.NewPlan(null); };
-            _homeView.CompileRequested += CompileManuscript;
-            _homeView.PdfRequested += ExportPdf;
+            _homeView.RenameRequested += RenameProject;
             _homeView.SessionGoal = delegate { return _sessionGoal; };
             _homeView.SessionBaseWords = delegate { return _sessionBaseWords; };
             _homeView.ProjectWords = ProjectWords;
@@ -921,6 +918,21 @@ namespace UniversSale
         private Border BuildInspector()
         {
             var panel = new StackPanel { Margin = new Thickness(14) };
+
+            // À l'Accueil, le Général ne montre QUE les raccourcis
+            // « Commencer » (batch 43 — sortis de la carte du même nom).
+            _homeStartSection = new StackPanel { Visibility = Visibility.Collapsed };
+            _homeStartSection.Children.Add(new TextBlock
+            {
+                Text = "Commencer",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+            _homeStartSection.Children.Add(HomeStartButton("Nouvel écrit", Buttons.Look.Primary, delegate { _binder.NewText(null); }));
+            _homeStartSection.Children.Add(HomeStartButton("Nouvelle fiche", Buttons.Look.Outline, delegate { _binder.NewSheet(null); }));
+            _homeStartSection.Children.Add(HomeStartButton("Nouveau plan", Buttons.Look.Outline, delegate { _binder.NewPlan(null); }));
+            panel.Children.Add(_homeStartSection);
 
             _inspTitle = new TextBlock
             {
@@ -1397,13 +1409,36 @@ namespace UniversSale
             }
         }
 
+        /// <summary>Renomme le projet — le crayon à côté du nom, à l'Accueil
+        /// (batch 43). Le nom choisi prime désormais sur le nom du fichier.</summary>
+        private void RenameProject()
+        {
+            if (_project == null) return;
+            var answer = View.InputDialog.Ask(this, "Renommer le projet", "Nom du projet :", _project.Name);
+            if (answer == null || answer.Trim().Length == 0) return;
+            _project.Name = answer.Trim();
+            MarkDirty();
+            UpdateTitle();
+            _homeView.Refresh();
+            UpdateInspector();
+        }
+
+        /// <summary>Le nom du fichier ne s'impose plus au projet (batch 43) :
+        /// un nom choisi par l'utilisateur (manifeste « name ») prime ; le nom
+        /// du fichier ne sert que de repli au défaut « Sans titre ».</summary>
+        private static void AdoptFileName(Project project, string path)
+        {
+            if (string.IsNullOrEmpty(project.Name) || project.Name == "Sans titre")
+                project.Name = Path.GetFileNameWithoutExtension(path);
+        }
+
         public void OpenFile(string path)
         {
             try
             {
                 var warnings = new List<string>();
                 var project = PlotFile.Load(path, warnings);
-                project.Name = Path.GetFileNameWithoutExtension(path);
+                AdoptFileName(project, path);
                 LoadProject(project, path);
                 AppSettings.AddRecentFile(path);
                 AppSettings.Save();
@@ -1457,7 +1492,7 @@ namespace UniversSale
             {
                 var warnings = new List<string>();
                 var project = PlotFile.Load(bak, warnings);
-                project.Name = Path.GetFileNameWithoutExtension(path);
+                AdoptFileName(project, path);
                 // Le projet vit sous son chemin normal : le prochain Ctrl+S
                 // remplacera le .plot corrompu. Marqué modifié pour que la
                 // fermeture propose cet enregistrement.
@@ -1547,7 +1582,7 @@ namespace UniversSale
             };
             if (dialog.ShowDialog(this) != true) return;
             _path = dialog.FileName;
-            _project.Name = Path.GetFileNameWithoutExtension(_path);
+            AdoptFileName(_project, _path);
             DoSave();
         }
 
@@ -3383,6 +3418,19 @@ namespace UniversSale
             }
             _loadingInspector = false;
 
+            // À l'Accueil, le Général s'efface derrière les raccourcis
+            // « Commencer » (batch 43).
+            var homeRoot = CurrentIsHomeRoot();
+            _homeStartSection.Visibility = homeRoot ? Visibility.Visible : Visibility.Collapsed;
+            _inspTitle.Visibility = homeRoot ? Visibility.Collapsed : Visibility.Visible;
+            _inspKind.Visibility = _inspTitle.Visibility;
+            _inspDates.Visibility = _inspTitle.Visibility;
+            if (homeRoot)
+            {
+                _statusSection.Visibility = Visibility.Collapsed;
+                SetInspectorFieldVisibility(false, false);
+            }
+
             // Le plan d'un livre ou d'un dossier (batch 35).
             var linkedPlan = _current != null && (_current.Kind == ItemKind.Book || _current.Kind == ItemKind.Folder)
                 ? _project.PlanForContainer(_current.Id) : null;
@@ -3408,6 +3456,17 @@ namespace UniversSale
 
             UpdateBookSection();
             UpdateBookProgress();
+        }
+
+        /// <summary>Un bouton des raccourcis « Commencer » du Général de
+        /// l'Accueil (b43) — pleine largeur, empilés.</summary>
+        private Button HomeStartButton(string label, Buttons.Look look, Action onClick)
+        {
+            var button = Buttons.Text(label, null, Buttons.Bar, look);
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.Margin = new Thickness(0, 0, 0, 6);
+            button.Click += delegate { onClick(); };
+            return button;
         }
 
         /// <summary>Les panneaux Métadonnées / Publication d'un livre (batch
@@ -3551,8 +3610,9 @@ namespace UniversSale
         {
             _linksPanel.Children.Clear();
             // Un plan ne montre pas de liens (batch 43) : ses [[liens]] de
-            // briques rendaient la liste confuse.
-            var hidden = _current != null && _current.Kind == ItemKind.Plan;
+            // briques rendaient la liste confuse. L'Accueil non plus (son
+            // Général = les raccourcis, rien d'autre).
+            var hidden = _current != null && (_current.Kind == ItemKind.Plan || _current.IsHomeRoot);
             _linksLabel.Visibility = hidden ? Visibility.Collapsed : Visibility.Visible;
             _linksPanel.Visibility = _linksLabel.Visibility;
             if (hidden) return;

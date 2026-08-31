@@ -47,7 +47,8 @@ namespace UniversSale.Tests
         }
 
         /// <summary>Un projet neuf n'a ni récent, ni épingle, ni objectif, ni
-        /// livre : chaque bloc montre son invite, Commencer reste utile.</summary>
+        /// livre : chaque bloc montre son invite (Commencer vit dans le
+        /// panneau Général du rail depuis le b43).</summary>
         private static void EmptyBlocks(Harness t)
         {
             var project = Project.CreateNew();
@@ -60,7 +61,6 @@ namespace UniversSale.Tests
             t.Check(prompts.Contains("Clic droit sur un élément → Épingler."), "l'invite d'Épinglés");
             t.Check(prompts.Contains("Définis un objectif pour suivre ta progression."), "l'invite d'Où j'en suis");
             t.Check(view.ResumeItems.Count == 0 && view.PinnedItems.Count == 0 && view.ProgressBars == 0, "aucune ligne, aucune barre");
-            t.Equal(5, view.StartButtons.Count, "Commencer offre ses cinq commandes, même sur un projet vide");
 
             // — Un livre avec objectif, un objectif journalier, un épinglé et
             //   un récent : les invites cèdent la place au contenu.

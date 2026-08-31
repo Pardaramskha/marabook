@@ -10,26 +10,24 @@ namespace UniversSale.View
 {
     /// <summary>L'Accueil (batch 41) : la vue de la racine « Accueil » de la
     /// Pile — un point d'entrée qui rassemble ce qu'on reprend, ce qu'on
-    /// épingle, où l'on en est, et par quoi on commence. Rien de neuf : tout
-    /// ce qu'il affiche est déjà calculé ailleurs. Quatre blocs FIXES, dans
-    /// un ordre fixe, sur une grille de deux colonnes qui retombe en une
-    /// seule sous 720 px ; cartes raised sur le ground de la zone centrale.
-    /// Les états vides sont un livrable : chaque bloc a son invite.</summary>
+    /// épingle et où l'on en est (les raccourcis « Commencer » vivent dans le
+    /// panneau Général du rail depuis le batch 43). Rien de neuf : tout
+    /// ce qu'il affiche est déjà calculé ailleurs. Trois blocs FIXES, dans
+    /// un ordre fixe, sur une grille de deux colonnes qui ne retombe en une
+    /// seule que sous 520 px ; cartes raised sur le ground de la zone
+    /// centrale. Les états vides sont un livrable : chaque bloc a son
+    /// invite.</summary>
     public class HomeView : ScrollViewer
     {
-        private const double TwoColumnsFrom = 720;
+        private const double TwoColumnsFrom = 520;
 
         private Project _project;
         private readonly Grid _grid;
-        private readonly StackPanel _resumeList, _pinnedList, _progressList, _startList;
+        private readonly StackPanel _resumeList, _pinnedList, _progressList;
         private readonly TextBlock _title;
 
         public event Action<BinderItem> OpenRequested;   // clic sur un récent ou un épinglé
-        public event Action NewTextRequested;
-        public event Action NewSheetRequested;
-        public event Action NewPlanRequested;
-        public event Action CompileRequested;
-        public event Action PdfRequested;
+        public event Action RenameRequested;             // le crayon à côté du nom du projet (b43)
 
         // Fournis par la coquille (déjà calculés là-bas) : l'objectif de
         // session en cours et les mots du projet.
@@ -50,23 +48,32 @@ namespace UniversSale.View
                 FontSize = 22,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = Chrome.Ink,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var titleRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
                 Margin = new Thickness(4, 0, 0, 14)
             };
-            column.Children.Add(_title);
+            titleRow.Children.Add(_title);
+            var rename = Buttons.Icon("pencil-simple-line", "Renommer le projet", Buttons.Compact, Buttons.Look.Calm);
+            rename.Margin = new Thickness(8, 4, 0, 0);
+            rename.VerticalAlignment = VerticalAlignment.Center;
+            rename.Click += delegate { Raise(RenameRequested); };
+            titleRow.Children.Add(rename);
+            column.Children.Add(titleRow);
 
             _grid = new Grid();
             _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            for (var i = 0; i < 4; i++) _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            for (var i = 0; i < 3; i++) _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             _resumeList = new StackPanel();
             _pinnedList = new StackPanel();
             _progressList = new StackPanel();
-            _startList = new StackPanel();
             _grid.Children.Add(Card("Reprendre", _resumeList, 0));
             _grid.Children.Add(Card("Épinglés", _pinnedList, 1));
             _grid.Children.Add(Card("Où j'en suis", _progressList, 2));
-            _grid.Children.Add(Card("Commencer", _startList, 3));
             column.Children.Add(_grid);
             Content = column;
             SizeChanged += delegate { Reflow(); };
@@ -100,16 +107,19 @@ namespace UniversSale.View
         }
 
         /// <summary>Deux colonnes quand la place le permet, une seule sinon —
-        /// l'ordre des blocs ne change jamais.</summary>
+        /// l'ordre des blocs ne change jamais ; un dernier bloc orphelin
+        /// s'étale sur les deux colonnes.</summary>
         private void Reflow()
         {
             var two = ActualWidth >= TwoColumnsFrom;
+            var count = _grid.Children.Count;
             foreach (UIElement child in _grid.Children)
             {
                 var index = (int)((FrameworkElement)child).Tag;
+                var orphan = index == count - 1 && count % 2 == 1;
                 Grid.SetColumn(child, two ? index % 2 : 0);
                 Grid.SetRow(child, two ? index / 2 : index);
-                Grid.SetColumnSpan(child, two ? 1 : 2);
+                Grid.SetColumnSpan(child, !two || orphan ? 2 : 1);
             }
         }
 
@@ -125,10 +135,9 @@ namespace UniversSale.View
             _resumeList.Children.Clear();
             _pinnedList.Children.Clear();
             _progressList.Children.Clear();
-            _startList.Children.Clear();
         }
 
-        /// <summary>Recalcule les quatre blocs depuis le projet — appelé à
+        /// <summary>Recalcule les trois blocs depuis le projet — appelé à
         /// l'affichage et après une épingle. Rien n'est gardé ici.</summary>
         public void Refresh()
         {
@@ -137,7 +146,6 @@ namespace UniversSale.View
             FillResume();
             FillPinned();
             FillProgress();
-            FillStart();
             Reflow();
         }
 
@@ -242,20 +250,6 @@ namespace UniversSale.View
             };
         }
 
-        private void FillStart()
-        {
-            _startList.Children.Clear();
-            var row = new WrapPanel();
-            row.Children.Add(StartButton("Nouvel écrit", Buttons.Look.Primary, delegate { Raise(NewTextRequested); }));
-            row.Children.Add(StartButton("Nouvelle fiche", Buttons.Look.Outline, delegate { Raise(NewSheetRequested); }));
-            row.Children.Add(StartButton("Nouveau plan", Buttons.Look.Outline, delegate { Raise(NewPlanRequested); }));
-            _startList.Children.Add(row);
-            var outputs = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
-            outputs.Children.Add(StartButton("Compiler le manuscrit…", Buttons.Look.Outline, delegate { Raise(CompileRequested); }));
-            outputs.Children.Add(StartButton("Exporter le PDF…", Buttons.Look.Outline, delegate { Raise(PdfRequested); }));
-            _startList.Children.Add(outputs);
-        }
-
         // ------------------------------------------------------------ pièces
 
         private static TextBlock Prompt(string text)
@@ -319,14 +313,6 @@ namespace UniversSale.View
             return host;
         }
 
-        private static Button StartButton(string label, Buttons.Look look, Action onClick)
-        {
-            var button = Buttons.Text(label, null, Buttons.Bar, look);
-            button.Margin = new Thickness(0, 0, 8, 0);
-            button.Click += delegate { onClick(); };
-            return button;
-        }
-
         private void Open(BinderItem item)
         {
             var handler = OpenRequested;
@@ -339,7 +325,7 @@ namespace UniversSale.View
         }
 
         // Pour les tests et les sondes : les lignes cliquables d'un bloc,
-        // les invites d'état vide affichées, les boutons de Commencer.
+        // les invites d'état vide affichées.
         public List<BinderItem> ResumeItems { get { return ItemsOf(_resumeList); } }
         public List<BinderItem> PinnedItems { get { return ItemsOf(_pinnedList); } }
         public int ProgressBars { get { return CountOf(_progressList, typeof(BookProgressBar)); } }
@@ -349,29 +335,13 @@ namespace UniversSale.View
             get
             {
                 var prompts = new List<string>();
-                foreach (var list in new[] { _resumeList, _pinnedList, _progressList, _startList })
+                foreach (var list in new[] { _resumeList, _pinnedList, _progressList })
                     foreach (UIElement child in list.Children)
                     {
                         var text = child as TextBlock;
                         if (text != null && text.FontStyle == FontStyles.Italic) prompts.Add(text.Text);
                     }
                 return prompts;
-            }
-        }
-
-        public List<Button> StartButtons
-        {
-            get
-            {
-                var buttons = new List<Button>();
-                foreach (UIElement child in _startList.Children)
-                {
-                    var row = child as Panel;
-                    if (row == null) continue;
-                    foreach (UIElement element in row.Children)
-                        if (element is Button) buttons.Add((Button)element);
-                }
-                return buttons;
             }
         }
 
