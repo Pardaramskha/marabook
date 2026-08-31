@@ -397,6 +397,11 @@ namespace UniversSale.View
             sectionCombo.SelectionChanged += delegate
             {
                 field.Group = sectionCombo.SelectedIndex <= 0 ? "" : _current.Sections[sectionCombo.SelectedIndex - 1];
+                // Le champ rejoint la FIN de sa nouvelle section, dans la
+                // liste modèle comme à l'écran (b43). Reconstruction différée :
+                // on ne détruit pas le ComboBox pendant son propre événement.
+                MoveFieldToSectionEnd(field);
+                Dispatcher.BeginInvoke((Action)RebuildFields);
             };
             Grid.SetColumn(sectionCombo, 2);
             row.Children.Add(sectionCombo);
@@ -410,6 +415,17 @@ namespace UniversSale.View
             Grid.SetColumn(remove, 3);
             row.Children.Add(remove);
             return row;
+        }
+
+        /// <summary>Replace le champ après le dernier champ de sa section —
+        /// l'ordre persisté suit ce que l'éditeur affiche.</summary>
+        private void MoveFieldToSectionEnd(SheetField field)
+        {
+            if (_current == null || !_current.Fields.Remove(field)) return;
+            var insert = _current.Fields.Count;
+            for (var i = _current.Fields.Count - 1; i >= 0; i--)
+                if (SameSection(_current.Fields[i].Group, field.Group)) { insert = i + 1; break; }
+            _current.Fields.Insert(insert, field);
         }
 
         private void AddField()

@@ -59,6 +59,7 @@ namespace UniversSale.View
         public event Action<int> ZoomStepRequested;
         public event Action BackRequested;                 // ← retour (b34)
         public event Action<BinderItem> NavigateRequested; // ouvrir une fiche liée (b34)
+        public event Action RenameRequested;               // le crayon du bandeau (b43)
 
         public SheetView()
         {
@@ -104,6 +105,7 @@ namespace UniversSale.View
                 ToolTip = "L'arbre généalogique de la fiche, d'après ses relations (paper flottant)"
             };
             _genealogyButton.Click += delegate { ShowGenealogy(); };
+            ToolTipService.SetShowOnDisabled(_genealogyButton, true); // l'infobulle explique le grisé (b43)
             rightTools.Children.Add(_genealogyButton);
             DockPanel.SetDock(rightTools, Dock.Right);
             bannerRow.Children.Add(rightTools);
@@ -116,8 +118,15 @@ namespace UniversSale.View
                 FontWeight = FontWeights.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
+            // Le crayon pour renommer la fiche sans passer par la Pile (b43).
+            var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+            titleRow.Children.Add(_titleLabel);
+            var renameButton = Buttons.Icon("pencil-simple-line", "Renommer la fiche", Buttons.Compact, Buttons.Look.Calm);
+            renameButton.Margin = new Thickness(6, 0, 0, 0);
+            renameButton.Click += delegate { var h = RenameRequested; if (h != null) h(); };
+            titleRow.Children.Add(renameButton);
             _categoryLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 11 };
-            titles.Children.Add(_titleLabel);
+            titles.Children.Add(titleRow);
             titles.Children.Add(_categoryLabel);
             bannerRow.Children.Add(titles);
             banner.Child = bannerRow;
@@ -384,6 +393,11 @@ namespace UniversSale.View
             }
             _showRelations = (_template != null && _template.Relations)
                 || (_item != null && _item.Relations.Count > 0);
+            // Sans paper Relations, pas de généalogie (batch 43).
+            _genealogyButton.IsEnabled = _showRelations;
+            _genealogyButton.ToolTip = _showRelations
+                ? "L'arbre généalogique de la fiche, d'après ses relations (paper flottant)"
+                : "Généalogie indisponible : le modèle de cette fiche n'active pas les relations";
             LayoutPapers(true);
         }
 
@@ -810,6 +824,12 @@ namespace UniversSale.View
 
         /// <summary>Le paper flottant de l'arbre (b36) — une seule fenêtre,
         /// rechargée à chaque fiche, rafraîchie à chaque relation modifiée.</summary>
+        /// <summary>Resynchronise le titre du bandeau après un renommage (b43).</summary>
+        public void RefreshTitle()
+        {
+            if (_item != null) _titleLabel.Text = _item.Title;
+        }
+
         private void ShowGenealogy()
         {
             if (_item == null) return;

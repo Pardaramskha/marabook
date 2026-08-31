@@ -49,6 +49,7 @@ namespace UniversSale.View
         public event Action Changed; // synopsis edited or cards reordered
         public event Action<BinderItem> ExportRequested;      // menu ⋮
         public event Action<BinderItem> DeleteRequested;      // menu ⋮ (corbeille)
+        public event Action<BinderItem> RenameRequested;      // menu ⋮ (b43)
         public event Action<List<BinderItem>> ApplyTemplateRequested; // gabarit sur la sélection
         public event Action<BinderItem> NewTemplateRequested;    // livre
         public event Action<BinderItem> ImportTemplateRequested; // livre
@@ -501,6 +502,13 @@ namespace UniversSale.View
         {
             {
                 var menu = new ContextMenu();
+                var rename = new MenuItem { Header = "Renommer…" };
+                rename.Click += delegate
+                {
+                    var handler = RenameRequested;
+                    if (handler != null) handler(itemRef);
+                };
+                menu.Items.Add(rename);
                 if (itemRef.Kind == ItemKind.Text || itemRef.Kind == ItemKind.Sheet)
                 {
                     var export = new MenuItem { Header = "Exporter…" };

@@ -829,6 +829,16 @@ namespace UniversSale.View
             RunAndSelect(new RenameItemAction(item, answer), item.Id, null);
         }
 
+        /// <summary>Renommage par dialogue SANS déplacer la sélection — le
+        /// « Renommer… » d'une carte de corkboard (b43) reste sur le tableau.</summary>
+        public void RenameQuiet(BinderItem item)
+        {
+            if (item == null || item.IsCategory) return;
+            var answer = InputDialog.Ask(Window.GetWindow(this), "Renommer", "Nouveau titre :", item.Title);
+            if (answer == null || answer == item.Title) return;
+            RunAndSelect(new RenameItemAction(item, answer), null, null);
+        }
+
         /// <summary>« Options du livre » (batch 32) : nom, icône, objectif de
         /// chapitres — un dialogue, une action annulable.</summary>
         public void BookOptions(BinderItem item)

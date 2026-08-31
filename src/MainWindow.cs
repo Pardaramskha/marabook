@@ -450,6 +450,13 @@ namespace UniversSale
                 _binder.SelectItem(_current.Parent.Id);
             };
             _sheetView.NavigateRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _sheetView.RenameRequested += delegate
+            {
+                if (_current == null) return;
+                _binder.RenameQuiet(_current);
+                _sheetView.RefreshTitle();
+                UpdateInspector();
+            };
             _sheetView.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
             center.Children.Add(_sheetView);
 
@@ -458,6 +465,8 @@ namespace UniversSale
             _corkboard.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _corkboard.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             _corkboard.ExportRequested += ExportItem;
+            _corkboard.RenameRequested += delegate(BinderItem item)
+            { _binder.RenameQuiet(item); RefreshOpenCorkboards(); UpdateInspector(); };
             // Supprimer depuis le tableau : la Pile suit par l'historique, le
             // tableau lui-même doit être redessiné (batch 33 — la carte restait).
             _corkboard.DeleteRequested += delegate(BinderItem item)
@@ -528,6 +537,8 @@ namespace UniversSale
                 _bookPub.Sync(); // alerte de divergence à jour
             };
             _bookView.ExportRequested += ExportItem;
+            _bookView.RenameRequested += delegate(BinderItem item)
+            { _binder.RenameQuiet(item); RefreshOpenCorkboards(); UpdateInspector(); };
             _bookView.DeleteRequested += delegate(BinderItem item)
             { _binder.Delete(item); RefreshOpenCorkboards(); UpdateInspector(); UpdateStats(); };
             _bookView.ApplyTemplateRequested += ApplyPageTemplateTo;
