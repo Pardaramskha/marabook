@@ -13,6 +13,13 @@ namespace UniversSale.Model
         public string Isbn = "";
         public string Year = "";
 
+        // Édition (batch 43) — le panneau « Édition » du rail droit.
+        public string Genre = "";
+        public string Audience = "";                                  // public cible
+        public System.Collections.Generic.List<string> Themes = new System.Collections.Generic.List<string>();
+        public string Pitch = "";                                     // accroche « de salon »
+        public string BackCover = "";                                 // quatrième de couverture
+
         /// <summary>The gabarit: page size and margins every document of the
         /// book inherits. Margins default to the PAO values (20/20/30/20).</summary>
         public PageSetup Template = DefaultTemplate();

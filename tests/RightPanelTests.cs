@@ -40,11 +40,12 @@ namespace UniversSale.Tests
 
             // — Les onglets offerts selon la nature de l'élément courant.
             t.Equal("inspector,correction,search,versions", Join(RightPanels.Offered(ItemKind.Text)), "un écrit : Général, Correction, Recherche, Versions");
-            t.Equal("inspector,metadata,publication,search", Join(RightPanels.Offered(ItemKind.Book)), "un livre : Général, Métadonnées, Publication, Recherche");
+            t.Equal("inspector,edition,metadata,publication,search", Join(RightPanels.Offered(ItemKind.Book)), "un livre : Général, Édition, Métadonnées, Publication, Recherche");
             t.Equal("inspector,search,versions", Join(RightPanels.Offered(ItemKind.Sheet)), "une fiche : Général, Recherche, Versions");
             foreach (var kind in new[] { ItemKind.Media, ItemKind.Plan, ItemKind.Category, ItemKind.Folder, ItemKind.PageTemplate })
                 t.Equal("inspector,search", Join(RightPanels.Offered(kind)), kind + " : Général et Recherche seulement");
             t.Equal("inspector,search", Join(RightPanels.Offered(null)), "rien de sélectionné : Général et Recherche");
+            t.Check(RightPanels.DescribesCurrent(RightPanel.Edition), "Édition décrit l'élément");
             t.Check(RightPanels.DescribesCurrent(RightPanel.Inspector) && RightPanels.DescribesCurrent(RightPanel.Metadata)
                 && RightPanels.DescribesCurrent(RightPanel.Publication) && !RightPanels.DescribesCurrent(RightPanel.Search)
                 && !RightPanels.DescribesCurrent(RightPanel.Correction) && !RightPanels.DescribesCurrent(RightPanel.Versions),

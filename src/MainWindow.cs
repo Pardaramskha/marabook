@@ -85,7 +85,8 @@ namespace UniversSale
         // deux boutons dans l'inspecteur.
         private BookMetadataPanel _bookMeta;
         private BookPublicationPanel _bookPub;
-        private Border _metadataHost, _publicationHost;
+        private BookEditionPanel _bookEdition;
+        private Border _metadataHost, _publicationHost, _editionHost;
         private BinderItem _bookPanelsItem;   // livre chargé dans les panneaux
         private StackPanel _statsSection;
         private System.Windows.Shapes.Path _statsChevron;
@@ -628,6 +629,13 @@ namespace UniversSale
             _bookMeta.Changed += delegate { MarkDirty(); _binder.Rebuild(); };
             _bookPub.Changed += delegate { MarkDirty(); _binder.Rebuild(); RefreshOpenCorkboards(); };
             _bookPub.PublishRequested += PublishBook;
+            // Édition d'un livre (batch 43) : genre, public, thématiques,
+            // synopsis, accroche, quatrième de couverture — même colonne.
+            _bookEdition = new BookEditionPanel();
+            _editionHost = ToolHost("Édition", _bookEdition);
+            Grid.SetColumn(_editionHost, 4);
+            grid.Children.Add(_editionHost);
+            _bookEdition.Changed += delegate { MarkDirty(); };
 
             // Le panneau de CORRECTION (batch 28) partage la colonne de
             // droite : ouvert, il REMPLACE l'inspecteur (bascule « Détails
@@ -2940,6 +2948,8 @@ namespace UniversSale
                 _metadataHost.Visibility = shown == RightPanel.Metadata ? Visibility.Visible : Visibility.Collapsed;
             if (_publicationHost != null)
                 _publicationHost.Visibility = shown == RightPanel.Publication ? Visibility.Visible : Visibility.Collapsed;
+            if (_editionHost != null)
+                _editionHost.Visibility = shown == RightPanel.Edition ? Visibility.Visible : Visibility.Collapsed;
             var anyRight = shown != RightPanel.None;
             _inspectorSplit.Visibility = anyRight ? Visibility.Visible : Visibility.Collapsed;
             _inspectorCol.Width = anyRight
@@ -3080,6 +3090,8 @@ namespace UniversSale
                     icon = "arrow-up-left-bold"; name = "Versions de l'écrit"; gesture = AppSettings.Gesture("versions-panel"); break;
                 case RightPanel.Metadata:
                     icon = "list-dashes-bold"; name = "Métadonnées du livre"; break;
+                case RightPanel.Edition:
+                    icon = "book-bold"; name = "Édition du livre"; break;
                 default:
                     icon = "book-open-text-bold"; name = "Publication du livre"; break;
             }
@@ -3303,6 +3315,7 @@ namespace UniversSale
                     _current.Kind != ItemKind.Sheet
                         && _current.Kind != ItemKind.PageTemplate
                         && _current.Kind != ItemKind.Plan // un plan : la couleur, rien d'autre (b35)
+                        && _current.Kind != ItemKind.Book // le synopsis d'un livre vit dans Édition (b43)
                         && !_current.IsCategory,
                     _current.Kind == ItemKind.Text || _current.Kind == ItemKind.Sheet);
 
@@ -3371,6 +3384,7 @@ namespace UniversSale
                 {
                     _bookMeta.Clear();
                     _bookPub.Clear();
+                    _bookEdition.Clear();
                     _bookPanelsItem = null;
                 }
                 return;
@@ -3379,6 +3393,7 @@ namespace UniversSale
             {
                 _bookMeta.Load(book);
                 _bookPub.Load(book, _project);
+                _bookEdition.Load(book);
                 _bookPanelsItem = book;
             }
         }

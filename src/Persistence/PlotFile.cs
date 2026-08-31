@@ -415,6 +415,11 @@ namespace UniversSale.Persistence
                 if (item.Book.Collection.Length > 0) book["collection"] = item.Book.Collection;
                 if (item.Book.Isbn.Length > 0) book["isbn"] = item.Book.Isbn;
                 if (item.Book.Year.Length > 0) book["year"] = item.Book.Year;
+                if (item.Book.Genre.Length > 0) book["genre"] = item.Book.Genre;
+                if (item.Book.Audience.Length > 0) book["audience"] = item.Book.Audience;
+                if (item.Book.Themes.Count > 0) book["themes"] = new List<object>(item.Book.Themes.ToArray());
+                if (item.Book.Pitch.Length > 0) book["pitch"] = item.Book.Pitch;
+                if (item.Book.BackCover.Length > 0) book["backCover"] = item.Book.BackCover;
                 book["bleedMm"] = item.Book.BleedMm;
                 if (item.Book.ChapterGoal > 0) book["chapterGoal"] = item.Book.ChapterGoal;
                 book["template"] = BuildPageSetup(item.Book.Template);
@@ -1080,6 +1085,17 @@ namespace UniversSale.Persistence
                     item.Book.Collection = Json.AsString(Json.Field(book, "collection")) ?? "";
                     item.Book.Isbn = Json.AsString(Json.Field(book, "isbn")) ?? "";
                     item.Book.Year = Json.AsString(Json.Field(book, "year")) ?? "";
+                    item.Book.Genre = Json.AsString(Json.Field(book, "genre")) ?? "";
+                    item.Book.Audience = Json.AsString(Json.Field(book, "audience")) ?? "";
+                    var themes = Json.AsList(Json.Field(book, "themes"));
+                    if (themes != null)
+                        foreach (var theme in themes)
+                        {
+                            var text = Json.AsString(theme);
+                            if (!string.IsNullOrEmpty(text)) item.Book.Themes.Add(text);
+                        }
+                    item.Book.Pitch = Json.AsString(Json.Field(book, "pitch")) ?? "";
+                    item.Book.BackCover = Json.AsString(Json.Field(book, "backCover")) ?? "";
                     item.Book.BleedMm = Json.AsDouble(Json.Field(book, "bleedMm"), 3);
                     item.Book.ChapterGoal = Math.Max(0, Json.AsInt(Json.Field(book, "chapterGoal"), 0));
                     var template = Json.AsObject(Json.Field(book, "template"));

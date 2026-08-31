@@ -143,6 +143,12 @@ namespace UniversSale.Model
                 Add(fields, SearchField.KindBook, "Collection", item.Book.Collection, "Collection");
                 Add(fields, SearchField.KindBook, "ISBN", item.Book.Isbn, "Isbn");
                 Add(fields, SearchField.KindBook, "Année", item.Book.Year, "Year");
+                Add(fields, SearchField.KindBook, "Genre", item.Book.Genre, "Genre");
+                Add(fields, SearchField.KindBook, "Public cible", item.Book.Audience, "Audience");
+                for (var i = 0; i < item.Book.Themes.Count; i++)
+                    Add(fields, SearchField.KindBook, "Thématique", item.Book.Themes[i], "Theme:" + i);
+                Add(fields, SearchField.KindBook, "Accroche", item.Book.Pitch, "Pitch");
+                Add(fields, SearchField.KindBook, "Quatrième de couverture", item.Book.BackCover, "BackCover");
             }
             if (item.Kind == ItemKind.Plan && item.Plan != null)
                 for (var c = 0; c < item.Plan.Columns.Count; c++)
@@ -227,7 +233,15 @@ namespace UniversSale.Model
                         case "Collection": return item.Book.Collection;
                         case "Isbn": return item.Book.Isbn;
                         case "Year": return item.Book.Year;
-                        default: return null;
+                        case "Genre": return item.Book.Genre;
+                        case "Audience": return item.Book.Audience;
+                        case "Pitch": return item.Book.Pitch;
+                        case "BackCover": return item.Book.BackCover;
+                        default:
+                        {
+                            var theme = ThemeIndex(refId);
+                            return theme >= 0 && theme < item.Book.Themes.Count ? item.Book.Themes[theme] : null;
+                        }
                     }
                 case SearchField.KindColumn:
                 {
@@ -305,7 +319,17 @@ namespace UniversSale.Model
                         case "Collection": item.Book.Collection = text; return true;
                         case "Isbn": item.Book.Isbn = text; return true;
                         case "Year": item.Book.Year = text; return true;
-                        default: return false;
+                        case "Genre": item.Book.Genre = text; return true;
+                        case "Audience": item.Book.Audience = text; return true;
+                        case "Pitch": item.Book.Pitch = text; return true;
+                        case "BackCover": item.Book.BackCover = text; return true;
+                        default:
+                        {
+                            var theme = ThemeIndex(refId);
+                            if (theme < 0 || theme >= item.Book.Themes.Count) return false;
+                            item.Book.Themes[theme] = text;
+                            return true;
+                        }
                     }
                 case SearchField.KindColumn:
                 {
@@ -355,6 +379,14 @@ namespace UniversSale.Model
                 foreach (var entry in column.Entries)
                     if (entry.Id == id) return entry;
             return null;
+        }
+
+        /// <summary>L'index d'un RefId « Theme:n » de métadonnée de livre, -1 sinon.</summary>
+        private static int ThemeIndex(string refId)
+        {
+            int index;
+            if (refId == null || !refId.StartsWith("Theme:", StringComparison.Ordinal)) return -1;
+            return int.TryParse(refId.Substring(6), out index) ? index : -1;
         }
 
         private static LexiconEntry FindLexicon(Project project, string refId)
@@ -414,6 +446,8 @@ namespace UniversSale.Model
             {
                 h.Add(item.Book.Subtitle); h.Add(item.Book.AuthorOverride); h.Add(item.Book.Publisher);
                 h.Add(item.Book.Collection); h.Add(item.Book.Isbn); h.Add(item.Book.Year);
+                h.Add(item.Book.Genre); h.Add(item.Book.Audience); h.Add(item.Book.Pitch); h.Add(item.Book.BackCover);
+                foreach (var theme in item.Book.Themes) h.Add(theme);
             }
             if (item.Kind == ItemKind.Plan && item.Plan != null)
             {

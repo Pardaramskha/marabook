@@ -17,7 +17,8 @@ namespace UniversSale.Settings
         Search,
         Versions,
         Metadata,    // livre : sous-titre, auteur, éditeur, ISBN… (b32, sorti de l'inspecteur au b39)
-        Publication  // livre : gabarit et « Publier… » (idem)
+        Publication, // livre : gabarit et « Publier… » (idem)
+        Edition      // livre : genre, public, thématiques, synopsis, accroche, 4e de couverture (b43)
     }
 
     /// <summary>Les règles pures autour du panneau de droite — sans WPF,
@@ -27,7 +28,7 @@ namespace UniversSale.Settings
         private static readonly RightPanel[] ForText =
             { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions };
         private static readonly RightPanel[] ForBook =
-            { RightPanel.Inspector, RightPanel.Metadata, RightPanel.Publication, RightPanel.Search };
+            { RightPanel.Inspector, RightPanel.Edition, RightPanel.Metadata, RightPanel.Publication, RightPanel.Search };
         private static readonly RightPanel[] ForSheet =
             { RightPanel.Inspector, RightPanel.Search, RightPanel.Versions };
         private static readonly RightPanel[] ForOthers =
@@ -44,6 +45,7 @@ namespace UniversSale.Settings
                 case RightPanel.Versions: return "versions";
                 case RightPanel.Metadata: return "metadata";
                 case RightPanel.Publication: return "publication";
+                case RightPanel.Edition: return "edition";
                 default: return "none";
             }
         }
@@ -60,6 +62,7 @@ namespace UniversSale.Settings
                 case "versions": return RightPanel.Versions;
                 case "metadata": return RightPanel.Metadata;
                 case "publication": return RightPanel.Publication;
+                case "edition": return RightPanel.Edition;
                 default: return RightPanel.Inspector;
             }
         }
@@ -99,7 +102,8 @@ namespace UniversSale.Settings
         /// courant ; les autres sont des outils — le filet du rail les sépare.</summary>
         public static bool DescribesCurrent(RightPanel panel)
         {
-            return panel == RightPanel.Inspector || panel == RightPanel.Metadata || panel == RightPanel.Publication;
+            return panel == RightPanel.Inspector || panel == RightPanel.Edition
+                || panel == RightPanel.Metadata || panel == RightPanel.Publication;
         }
 
         /// <summary>Le panneau est-il disponible dans le contexte ? Règles de
