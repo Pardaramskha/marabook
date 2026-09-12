@@ -1,0 +1,94 @@
+Images des succès (12/09/2026, liste complète)
+=============================================
+
+Déposer ici un PNG carré par succès, nommé par son identifiant :
+assets\achievements\<id>.png (le dossier assets\ doit se trouver à côté
+de Marabook.exe). Sans image, l'app dessine un écusson étoilé provisoire.
+Verrouillé = l'image est passée en gris et atténuée ; débloqué = en couleurs.
+
+belle-aventure             Le début d'une belle aventure
+
+ne-quelque-part            Être né quelque part
+clavier-chaud              Faites chauffer le clavier
+canal-carpien              Attention au canal carpien
+mitrailleur                Mitrailleur
+toucher-de-l-herbe         Et sinon, vous touchez de l'herbe ?
+time-to-stop               It's time to stop, okay ?
+dans-deux-mois             Promis, il sera fini dans deux mois
+et-d-un                    Et d'un !
+check-check-check          Check check check
+overachiever               Overachiever
+gros-beta                  Gros bêta
+deux-heures-max            Non mais ça se lit en deux heures max, promis !
+flashbacks-philo           Flashbacks de la philo
+debut-de-la-fin            Le début de la fin
+completionniste            Complétionniste
+gen-zer                    Gen Zer
+
+chercheur-debutant         Chercheur débutant
+c-est-simple               Je vous jure c'est simple !
+
+cartographieur             Cartographieur
+psychorigide               Psychorigide
+
+page-blanche               Page blanche
+fouille-merde              Fouille-merde
+probleme-de-worldbuilding  Peut-être un problème de worldbuilding
+nettoyage-en-profondeur    Nettoyage en profondeur
+sur-stimulation            Sur-stimulation
+aristote                   Ça va Aristote ?
+
+archiviste-debutant        Archiviste débutant
+academicien                Académicien
+tolkienniste               Tolkienniste
+
+profiler                   Profiler
+liberticide                Liberticide
+fier-parent                Fier parent
+une-vie-a-peindre          Une vie à peindre
+pas-de-petit-detail        Y'a pas de petit détail
+maitre-planificateur       Maître planificateur
+genealogiste               Généalogiste
+jamais-content             Jamais content
+toujours-plus              Toujours plus !
+complexe-de-dieu           Complexe de dieu
+
+terre-brulee               Terre brûlée
+masochiste                 Masochiste
+ooh-la-boulette            Ooh la boulette !
+
+chirurgien                 Chirurgien de l'écriture
+
+picky-eater                Picky eater
+pimp-my-write              Pimp my write
+
+speedrunner                Speedrunner
+autre-addiction            Une autre forme d'addiction
+
+accessible                 Le tout c'est que ce soit accessible !
+
+damn-boi                   Damn boi, he thicc!
+vivre-dangereusement       Vivre dangereusement
+
+yolo                       Yolo
+
+incertitude                Incertitude
+
+illustrateur               Illustrateur
+pointilliste               Pointilliste
+sniffeur-de-papier         Sniffeur de papier
+
+sanderson                  Sanderson serait fier
+
+besoin-de-lunettes         Besoin de lunettes ?
+minimaliste                Minimaliste
+pensez-a-vous-etirer       Pensez à vous étirer
+cretin-des-alpes           Crétin des alpes
+enfin-quelqu-un            Enfin quelqu'un qui en a quelque chose à faire !
+inner-peace                Inner peace
+a-l-ancienne               À l'ancienne
+
+petit-nerd                 Petit nerd
+poisson-panerd             Poisson panerd
+nerdinator                 Nerdinator
+empereur-des-nerds         Empereur des nerds

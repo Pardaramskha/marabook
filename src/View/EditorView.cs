@@ -139,6 +139,18 @@ namespace UniversSale.View
         /// (batch 39) ; levé à chaque reconstruction de la liste.</summary>
         public event Action FindingsChanged;
         public int FindingCount { get { return _findings.Count; } }
+
+        /// <summary>Les fautes d'orthographe seules (succès « Nettoyage en profondeur », 12/09).</summary>
+        public int SpellingFindingCount
+        {
+            get
+            {
+                var count = 0;
+                foreach (var finding in _findings)
+                    if (finding.Category == Correction.FindingCategory.Spelling) count++;
+                return count;
+            }
+        }
         private List<Correction.Finding> _findings = new List<Correction.Finding>();
         private DispatcherTimer _checkTimer;
         private bool _deferredRepaintQueued; // coalescence des lots différés

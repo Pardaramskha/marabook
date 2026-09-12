@@ -120,6 +120,28 @@ namespace UniversSale.Settings
         // projets — le pendant de Project.LearnedWords.
         public static List<Model.LexiconEntry> Lexicon = new List<Model.LexiconEntry>();
         public static List<string> RecentFiles = new List<string>(); // last 5 .plot files
+        // Les succès (12/09/2026) : GLOBAUX à l'utilisateur, id → date
+        // d'obtention « yyyy-MM-dd HH:mm » ; plus les compteurs que le projet
+        // ne porte pas (suppressions, jours d'usage consécutifs).
+        public static Dictionary<string, string> Achievements = new Dictionary<string, string>();
+        public static int PermanentlyDeleted; // corbeille vidée, descendants compris
+        public static string UsageLastDay; // "yyyy-MM-dd"
+        public static int UsageStreak;
+        public static int WordsAtMaxZoom;  // mots écrits à 300 %
+        public static int WordsInCalm;     // mots écrits en mode calme
+        // Écrits vierges : id → premier jour vu vierge (« Page blanche »).
+        public static Dictionary<string, string> BlankSince = new Dictionary<string, string>();
+
+        /// <summary>À chaque lancement : prolonge la série de jours d'usage
+        /// consécutifs, ou la fait repartir de un.</summary>
+        public static void NoteUsage(DateTime now)
+        {
+            var today = now.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            var yesterday = now.AddDays(-1).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            if (UsageLastDay == today) return;
+            UsageStreak = UsageLastDay == yesterday ? UsageStreak + 1 : 1;
+            UsageLastDay = today;
+        }
 
         public static void AddRecentFile(string path)
         {
@@ -261,6 +283,30 @@ namespace UniversSale.Settings
                     foreach (var entry in recents)
                         if (entry is string) RecentFiles.Add((string)entry);
                 }
+                var achievements = Json.AsObject(Json.Field(root, "achievements"));
+                if (achievements != null)
+                {
+                    Achievements = new Dictionary<string, string>();
+                    foreach (var pair in achievements)
+                    {
+                        if (!(pair.Value is string)) continue;
+                        string renamed; // la première liste du 12/09 avait d'autres ids
+                        var id = Model.Achievements.RenamedIds.TryGetValue(pair.Key, out renamed) ? renamed : pair.Key;
+                        Achievements[id] = (string)pair.Value;
+                    }
+                }
+                PermanentlyDeleted = (int)Json.AsDouble(Json.Field(root, "permanentlyDeleted"), 0);
+                UsageLastDay = Json.AsString(Json.Field(root, "usageLastDay"));
+                UsageStreak = (int)Json.AsDouble(Json.Field(root, "usageStreak"), 0);
+                WordsAtMaxZoom = (int)Json.AsDouble(Json.Field(root, "wordsAtMaxZoom"), 0);
+                WordsInCalm = (int)Json.AsDouble(Json.Field(root, "wordsInCalm"), 0);
+                var blank = Json.AsObject(Json.Field(root, "blankSince"));
+                if (blank != null)
+                {
+                    BlankSince = new Dictionary<string, string>();
+                    foreach (var pair in blank)
+                        if (pair.Value is string) BlankSince[pair.Key] = (string)pair.Value;
+                }
             }
             catch { }
         }
@@ -304,6 +350,15 @@ namespace UniversSale.Settings
                 if (Lexicon.Count > 0)
                     root["lexicon"] = Model.LexiconEntry.ToJsonList(Lexicon);
                 root["recentFiles"] = new List<object>(RecentFiles.ToArray());
+                if (Achievements.Count > 0)
+                    root["achievements"] = new Dictionary<string, object>(ToObjectDict(Achievements));
+                if (PermanentlyDeleted > 0) root["permanentlyDeleted"] = PermanentlyDeleted;
+                if (UsageLastDay != null) root["usageLastDay"] = UsageLastDay;
+                if (UsageStreak > 0) root["usageStreak"] = UsageStreak;
+                if (WordsAtMaxZoom > 0) root["wordsAtMaxZoom"] = WordsAtMaxZoom;
+                if (WordsInCalm > 0) root["wordsInCalm"] = WordsInCalm;
+                if (BlankSince.Count > 0)
+                    root["blankSince"] = new Dictionary<string, object>(ToObjectDict(BlankSince));
                 File.WriteAllText(SettingsPath(), Json.Write(root), new UTF8Encoding(false));
             }
             catch { }

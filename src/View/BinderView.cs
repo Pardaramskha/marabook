@@ -649,18 +649,18 @@ namespace UniversSale.View
             if (item.CanHaveChildren)
             {
                 var rootKey = item.RootCategory().CategoryKey;
-                // Every container accepts everything; the order just puts the
-                // category's native content first.
+                // Chaque racine ne propose que son contenu natif (pack de
+                // correctifs du 12/09/2026) : Fiches = fiches et dossiers,
+                // Recherche = import seulement, Écrits = écrits, livres,
+                // dossiers. Le dépôt par glisser-déposer reste libre.
                 if (rootKey == Project.KeySheets)
                 {
                     AddMenu(menu, "Nouvelle fiche", delegate { NewSheet(item); });
-                    AddMenu(menu, "Nouvel écrit", delegate { NewText(item); });
+                    AddMenu(menu, "Nouveau dossier", delegate { NewFolder(item); });
                 }
                 else if (rootKey == Project.KeyResearch)
                 {
                     AddMenu(menu, "Importer des fichiers…", delegate { ImportMediaDialog(item); });
-                    AddMenu(menu, "Nouvel écrit", delegate { NewText(item); });
-                    AddMenu(menu, "Nouvelle fiche", delegate { NewSheet(item); });
                 }
                 else
                 {
@@ -669,9 +669,8 @@ namespace UniversSale.View
                     // autre livre.
                     if (rootKey == Project.KeyWritings && item.EnclosingBook() == null)
                         AddMenu(menu, "Nouveau livre", delegate { NewBook(item); });
-                    AddMenu(menu, "Nouvelle fiche", delegate { NewSheet(item); });
+                    AddMenu(menu, "Nouveau dossier", delegate { NewFolder(item); });
                 }
-                AddMenu(menu, "Nouveau dossier", delegate { NewFolder(item); });
             }
             if (!item.IsCategory)
             {
@@ -682,6 +681,13 @@ namespace UniversSale.View
                     AddMenu(menu, "Options du livre…", delegate { BookOptions(item); });
                 AddMenu(menu, "Renommer…", delegate { Rename(item); });
                 AddMenu(menu, "Changer l'icône…", delegate { ChangeIcon(item); });
+                if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Book)
+                {
+                    AddMenu(menu, item.ImageId == null ? "Image de la carte…" : "Changer l'image de la carte…",
+                        delegate { ChangeCardImage(item); });
+                    if (item.ImageId != null)
+                        AddMenu(menu, "Retirer l'image de la carte", delegate { RemoveCardImage(item); });
+                }
                 AddMenu(menu, "Supprimer", delegate { Delete(item); });
             }
             return menu;
@@ -852,6 +858,41 @@ namespace UniversSale.View
             RunAndSelect(action, item.Id, null);
         }
 
+        /// <summary>L'image de la tuile d'un écrit ou d'un livre (pack du
+        /// 12/09/2026) : au tableau, elle remplace l'extrait du texte ou les
+        /// notes. La sélection ne bouge pas (on l'appelle depuis une carte).</summary>
+        public void ChangeCardImage(BinderItem item)
+        {
+            if (item == null || item.IsCategory || _project == null) return;
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp"
+            };
+            if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+            string imageId;
+            try
+            {
+                var info = new System.IO.FileInfo(dialog.FileName);
+                if (info.Length > 20 * 1024 * 1024)
+                    throw new InvalidOperationException("image de plus de 20 Mo — réduisez-la d'abord.");
+                var bytes = System.IO.File.ReadAllBytes(dialog.FileName);
+                imageId = _project.AddImage(bytes, System.IO.Path.GetExtension(dialog.FileName));
+            }
+            catch (Exception error)
+            {
+                MessageDialog.Show(Window.GetWindow(this), "Image refusée : " + error.Message,
+                    "Marabook", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            RunAndSelect(new ChangeImageAction(item, imageId), null, null);
+        }
+
+        public void RemoveCardImage(BinderItem item)
+        {
+            if (item == null || item.ImageId == null) return;
+            RunAndSelect(new ChangeImageAction(item, null), null, null);
+        }
+
         public void ChangeIcon(BinderItem item)
         {
             if (item == null) item = SelectedItem;
@@ -868,7 +909,19 @@ namespace UniversSale.View
             if (item == null) item = SelectedItem;
             if (item == null || item.IsCategory) return;
             if (item.RootCategory().CategoryKey == Project.KeyTrash) return; // already in trash
+            // « Ooh la boulette ! » (12/09) : un livre d'au moins cinq chapitres.
+            var blunder = item.Kind == ItemKind.Book && Achievements.ChapterCount(item) >= 5;
             RunAndSelect(new DeleteToTrashAction(_project.Trash, item), null, _project.Trash.Id);
+            if (blunder) RaiseAchievement(Achievements.Blunder);
+        }
+
+        /// <summary>Un succès à événement gagné depuis la Pile (12/09).</summary>
+        public event Action<string> AchievementEvent;
+
+        private void RaiseAchievement(string id)
+        {
+            var handler = AchievementEvent;
+            if (handler != null) handler(id);
         }
 
         public void EmptyTrash()
@@ -878,6 +931,9 @@ namespace UniversSale.View
                 "Vider définitivement la corbeille ?", "Marabook",
                 MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (answer != MessageBoxResult.Yes) return;
+            // « Terre brûlée » / « Masochiste » : les suppressions DÉFINITIVES,
+            // descendants compris (12/09).
+            Settings.AppSettings.PermanentlyDeleted += Achievements.CountAll(_project.Trash.Children);
             RunAndSelect(new EmptyTrashAction(_project.Trash), null, null);
         }
 

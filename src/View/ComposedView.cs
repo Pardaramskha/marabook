@@ -631,8 +631,11 @@ namespace UniversSale.View
             if (stateHandler != null) stateHandler();
         }
 
+        private bool _keepScroll; // un rafraîchissement qui ne doit pas déplacer la vue
+
         private void EnsureCaretVisible(double y, double height)
         {
+            if (_keepScroll) return;
             var topContent = (_column.Margin.Top + y) * _zoom;
             var bottomContent = (_column.Margin.Top + y + height) * _zoom;
             if (topContent < VerticalOffset + 8)
@@ -807,8 +810,15 @@ namespace UniversSale.View
                 var paragraph = _item.Document.Paragraphs[mark.ParagraphIndex];
                 paragraph.AllowWidows = !paragraph.AllowWidows;
                 var firstChanged = _engine.Repaginate();
+                // La vue reste où elle est (12/09) : UpdateCaretVisual ramenait
+                // le caret — souvent encore en tête du document — dans la
+                // fenêtre, donc tout en haut, à chaque clic sur un signet.
+                var offset = VerticalOffset;
                 RefreshPages(Math.Min(firstChanged, pageIndex));
-                UpdateCaretVisual();
+                _keepScroll = true;
+                try { UpdateCaretVisual(); }
+                finally { _keepScroll = false; }
+                ScrollToVerticalOffset(offset);
                 RaisePageInfo();
                 var handler = Edited;
                 if (handler != null) handler(); // persisté : le projet est sale

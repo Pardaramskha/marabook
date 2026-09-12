@@ -210,7 +210,113 @@ namespace UniversSale.View
             goalCard.Child = goal;
             page.Children.Add(goalCard);
 
+            // ---- succès (12/09/2026) ----
+            var achievementsCard = Card();
+            achievementsCard.Margin = new Thickness(0, 10, 0, 0);
+            var achievements = new StackPanel();
+            var achievementsHeader = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
+            _achievementsCount = new TextBlock
+            {
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            DockPanel.SetDock(_achievementsCount, Dock.Right);
+            achievementsHeader.Children.Add(_achievementsCount);
+            achievementsHeader.Children.Add(new TextBlock
+            {
+                Text = "Succès",
+                Foreground = Chrome.Ink,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            achievements.Children.Add(achievementsHeader);
+            achievements.Children.Add(new TextBlock
+            {
+                Text = "Ils se gagnent une fois pour toutes, sur tous vos projets. "
+                    + "Les boutons « Obtenir / Retirer » sont là pour le développement.",
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 10)
+            });
+            _achievementsPanel = new StackPanel();
+            achievements.Children.Add(_achievementsPanel);
+            achievementsCard.Child = achievements;
+            page.Children.Add(achievementsCard);
+
             Content = page;
+        }
+
+        // --------------------------------------------------------- succès
+
+        private StackPanel _achievementsPanel;
+        private TextBlock _achievementsCount;
+
+        /// <summary>Bouton de développement « Obtenir / Retirer » : (id, obtenir).</summary>
+        public event Action<string, bool> AchievementToggleRequested;
+
+        /// <summary>Redessine la liste depuis les réglages globaux : grisés
+        /// tant que verrouillés, en couleurs (avec la date) une fois obtenus.</summary>
+        public void RefreshAchievements()
+        {
+            if (_achievementsPanel == null) return;
+            _achievementsPanel.Children.Clear();
+            var unlocked = Settings.AppSettings.Achievements;
+            _achievementsCount.Text = unlocked.Count + " / " + Achievements.All.Length;
+            foreach (var achievement in Achievements.All)
+            {
+                string date;
+                var earned = unlocked.TryGetValue(achievement.Id, out date);
+                var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+                var badge = AchievementBadge.Build(achievement, earned, 44);
+                badge.Margin = new Thickness(0, 0, 12, 0);
+                badge.VerticalAlignment = VerticalAlignment.Top;
+                DockPanel.SetDock(badge, Dock.Left);
+                row.Children.Add(badge);
+
+                var buttons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                var idRef = achievement.Id;
+                var toggle = Buttons.Text(earned ? "Retirer" : "Obtenir",
+                    earned ? "Développement : reverrouiller ce succès" : "Développement : débloquer ce succès (avec l'animation)",
+                    Buttons.Compact, Buttons.Look.Outline);
+                toggle.Margin = new Thickness(12, 0, 0, 0);
+                var earnedRef = earned;
+                toggle.Click += delegate
+                {
+                    var handler = AchievementToggleRequested;
+                    if (handler != null) handler(idRef, !earnedRef);
+                };
+                buttons.Children.Add(toggle);
+                DockPanel.SetDock(buttons, Dock.Right);
+                row.Children.Add(buttons);
+
+                var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                text.Children.Add(new TextBlock
+                {
+                    Text = achievement.Name,
+                    Foreground = earned ? Chrome.Ink : Chrome.SoftText,
+                    FontWeight = FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                text.Children.Add(new TextBlock
+                {
+                    Text = achievement.Description,
+                    Foreground = Chrome.SoftText,
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                if (earned)
+                    text.Children.Add(new TextBlock
+                    {
+                        Text = "Obtenu le " + Dates.Display(date),
+                        Foreground = Chrome.Accent,
+                        FontSize = 11,
+                        Margin = new Thickness(0, 2, 0, 0)
+                    });
+                row.Children.Add(text);
+                _achievementsPanel.Children.Add(row);
+            }
         }
 
         private static Border Card()
@@ -307,6 +413,7 @@ namespace UniversSale.View
             _goalField.Value = journal.DailyGoal;
             _loading = false;
             DrawChart();
+            RefreshAchievements();
         }
 
         private void UpdateProgressFill()
