@@ -1,106 +1,80 @@
+<p align="center">
+  <img src="assets/marabook-header.png" alt="Marabook — Parce qu'on est jamais trop nerd dans l'édition">
+</p>
+
+<p align="center">
+  <a href="https://github.com/Pardaramskha/marabook/releases/latest/download/Marabook-Setup-Windows.exe"><img src="assets/downloads/install-windows.png" alt="Installeur Windows" width="24%"></a>
+  <a href="https://github.com/Pardaramskha/marabook/releases/latest/download/marabook-windows-portable.zip"><img src="assets/downloads/portable-windows.png" alt="Version portable Windows" width="24%"></a>
+</p>
+
 # Marabook
 
-*(English: Marabook is a French-first word processor and book-layout tool for
-novelists — think Scrivener + Vellum, open source, zero dependencies, Windows.
-The UI is currently French only; the code and its identifiers are in English.)*
+Auteurs, éditeurs, ceci est le dernier logiciel dont vous aurez besoin. 
 
-Marabook est un traitement de texte et un outil de mise en page **pour le
-roman** : on y organise sa bible d'écriture (fiches, dossiers, corkboard), on
-y écrit au propre dans de vraies pages, et on en sort un PDF prêt pour
-l'imprimeur — polices incorporées, boîtes trim/bleed, traits de coupe,
-imposition en cahier. C'est une alternative libre aux outils payants du
-créneau (Scrivener, Vellum, Atticus, Papyrus) : gratuit, ouvert, et le format
-de projet `.plot` est un simple zip de JSON documenté par le code.
+Et c'est gratos.
 
-![L'éditeur de Marabook](assets/screenshot.png)
+Marabook, c'est difficile à expliquer simplement. Voyez le comme la chimère entre Word, InDesign, Scrievener, Antidote et tout une berzingue d'outils de création et de structuration d'univers. Il reprend des fonctionnalités phares de l'écriture et de l'édition, avec un accès facilité et une direction claire vers la publication de romans.
 
-## État : alpha
+Centralisez vos textes et vos univers, créez des fiches pour personnages, lieux ou objets, plannifiez votre roman et repérez les moments creux avant de les avoir écrits, créez votre lexique personnalisé, et sortez un PDF prêt à l'impression en quelques clics sans vous encombrer du jargon classique de la PAO. 
 
-Le logiciel est **en alpha** (v0.21.x). Il est développé activement et le
-format `.plot` est rétrocompatible depuis la v1, mais il n'a pas encore de
-version stable. Honnêtement :
+Ce logiciel a été créé pour aider ma maison d'édition associative à approcher l'édition sans s'engouffrer dans une pléthore d'outils payants et difficiles à appréhender. Ses usages couvrent principalement l'écriture de romans de fiction, mais pourraient être emmenés à évoluer par la suite.
 
-**Ce qui marche** — l'éditeur paginé (mode classique et mode Composition
-ligne-exacte), les styles de paragraphe à la InDesign (justification à
-plages, césure française réglable, enchaînements, veuves/orphelines), les
-fiches à modèles et les liens `[[wiki]]`, le corkboard, les livres
-(métadonnées, gabarits de pages recto/verso, parties, pages liminaires,
-table des matières dynamique), les notes de bas de page au bas de leur page,
-les annotations de révision, l'import Scrivener, les exports docx/odt/RTF/
-Markdown, l'impression et le **PDF maison** : polices TrueType incorporées et
-sous-ensemblées, boîtes trim/bleed, fonds perdus, traits de coupe, sortie
-CMJN, imposition en livret, journal d'écriture personnel.
+> [!WARNING]
+> **Avertissement lié à l'IA**
+>
+> Ce logiciel n'utilise pas d'IA pour vous assister ou lire ce que vous faites ! Il est purement hors ligne.
+>
+> Je suis ingé logiciel web, et ça se limite à ça. Ce logiciel a été créé en grande partie avec le support de l'IA, puis débuggué manuellement et vérifié sous toutes les coutures. Ce projet est un projet fun, non pas un projet à visée performative ou professionnelle - traitez-le en conséquence, et continuez d'avoir un usage prudent et raisonnable des outils d'intelligence artificielle.
 
-**Ce qui manque encore** — le correcteur orthographique et typographique
-(phase 5, prochaine étape), la recherche/remplacement à l'échelle du projet,
-les snapshots/versions d'écrits, l'export EPUB (repoussé pré-v1), une vraie
-conformité PDF/X (le PDF actuel est de haute qualité mais ne passe pas un
-préflight PDF/X — profil ICC et métadonnées XMP au backlog), le kerning et
-les ligatures dans le compositeur.
+## ⚠ Notes sur la version alpha
 
-## Compiler
+Ce logiciel n'est pas encore terminé. Vous avez actuellement une version alpha de celui-ci, demandant encore de nombreux tests et de nombreuses améliorations. Certaines fonctionnalités peuvent avoir bugs et plantages, ce pourquoi je vous encourage à rapporter les moindres soucis que vous repéreriez au cours de votre utilisation.
 
-Prérequis : Windows 10/11 avec le .NET Framework 4.8 (préinstallé). Rien
-d'autre — pas de Visual Studio, pas de NuGet.
+Le système de mise à jour automatique vous préviendra lorsqu'un patch sera disponible. Des notes de patch sont accessibles en bas de ce LISEZ-MOI. 
 
-```
-build.bat
-```
+## Fonctionnalités principales
 
-Le script appelle directement `csc.exe` et produit `Marabook.exe`.
+* Une **pile **pour réunir tous vos écrits en dossiers ou en livres prêts à l'impression.
+* **Un éditeur de texte** approfondi à plusieurs vues calibré sur un format livre imprimable avec gestionnaire de styles et pagination continue.
+* Un **gestionnaire d'édition et de maquette **incluant marges, fonds perdus, veuves et orphelines, typographies standard de l'imprimerie française et checklist de pages liminaires.
+* Un **correcteur ortho-typographique **associé au **détecteur de répétitions **et de **faiblesses grammaticales **(adverbes, verbes ternes...)
+* Un **tableau de recherche **multimédia pour vos idées et liens.
+* Un **gestionnaire de fiches informatives **"façon wikipedia" entièrement personnalisable, par catégories ouvertes et interconnectées.
+* Un** créateur visuel de plan **et de structure narrative avec graphs d'intensité pour mesurer la rythmique de vos oeuvres.
+* Un **correcteur typographique **en un clic pour le Bon A Tirer prêt pour l'imprimerie.
+* Un** dictionnaire personnalisable **connecté à votre correcteur.
+* Une **compatibilité avec les applications voisines **(Word, OpenOffice, Scrievener, supporte l'export vers certains sous-formats InDesign).
+* Un compteur de stats, des objectifs journaliers, un système d'achievments pour rigoler, et des barres de progression par projet.
+* (à venir) un **publicateur d'EPUB**.
 
-## Lancer les tests
+**NOTE IMPORTANTE** : Tout se fait hors-ligne. Le téléchargement des dictionnaires se fait au lancement, mais MArabook est un logiciel libre portable sans besoin de connexion, sans machine-learning ou accompagnement IA. Vos fichiers et vos idées sont à vous et à vous seul.
 
-```
-build-tests.bat
-```
+## Prix
 
-Compile les sources avec `tests/` et exécute le harnais maison (round-trip
-complet du format `.plot`, algèbre d'édition du pivot, corpus de césure
-française scoré, compositeur sur métriques déterministes). Code de sortie
-non nul si un test échoue. Règle du dépôt : **tout correctif de bug arrive
-avec le test qui l'aurait attrapé.**
+Non, lol.
 
-## Partis pris techniques
+## Installation
 
-- **Zéro dépendance de code C#** : pas de NuGet, pas de `.csproj` ;
-  `csc.exe` direct, et le zip/JSON/docx/odt/PDF sont écrits à la main dans
-  `src/`. Mais soyons honnêtes sur ce que l'installation embarque
-  désormais — ce n'est plus la promesse « un seul exe » des débuts :
-  - le dictionnaire orthographique français `fr-toutesvariantes` v7.7
-    d'Olivier R. (`dict/`, ~3 Mo, MPL-2.0, notice `README_dict_fr.txt`
-    intacte) — batch 27 ;
-  - **Grammalecte 2.3.0** (`grammalecte/`, ~24 Mo déployé, GPL-3.0+ comme
-    Marabook), le correcteur grammatical d'Olivier R., piloté en
-    sous-processus par `marabook_grammar.py` — jamais en serveur ;
-  - **un interpréteur Python embeddable** (`python/`, ~21 Mo déployé,
-    licence PSF), le runtime de Grammalecte — c'est un composant TIERS
-    exécutable, à tenir à jour à chaque version corrective de Python.
-  L'exécutable Marabook reste sous le mégaoctet ; l'installation complète
-  pèse une cinquantaine de mégaoctets, et c'est assumé : on privilégie un
-  correcteur grammatical réel à la pureté du chiffre. Le build vérifie les
-  empreintes SHA256 de TOUT l'embarqué (`tools/verify-dict.ps1` +
-  `tools/embedded-hashes.txt`) ; provenance, contre-vérifications et
-  licences : `APPROVISIONNEMENT.md`.
-- **C# 5 / .NET Framework 4.8 / WPF** : tourne sur tout Windows 10/11 sans
-  runtime à installer ; l'UI est construite en code, sans XAML.
-- **Un modèle pivot unique** (`src/Model/RichText.cs`) : l'éditeur, le
-  `.plot`, les exports et le compositeur parlent tous le même texte.
-- **Un écrit = un document** : jamais de manuscrit monolithe en mémoire ;
-  la compilation assemble à la volée.
-- **Format `.plot` ouvert** : zip + JSON versionné, rétrocompatibilité
-  perpétuelle, écriture atomique avec `.bak` roulant.
+Choisissez votre système d'exploitation, téléchargez, installez, et c'est parti !
 
-`PLAN.md` est à la fois la spécification et le journal de réalisation du
-projet — c'est la meilleure porte d'entrée pour un contributeur.
+> [!WARNING]
+> **Votre antivirus va gueuler**
+>
+> Qui a 300 balles à lâcher par an pour un certificat d'authentification de l'app ? Pas moi, en tous cas. Lorsque vous téléchargerez ou installerez l'app, vous aurez probablement un avertissement. Soyez fermes avec lui !
 
-## Licence
+Marabook n'est actuellement pas disponible sur Mac ou téléphone.
 
-Le code est publié sous **GPL-3.0** (voir [LICENSE](LICENSE)) : toute
-redistribution modifiée doit rester ouverte. Les **dictionnaires
-orthographiques** de `dict/` restent sous **MPL-2.0** (copyleft au
-fichier, compatible — crédit : Olivier R., <https://grammalecte.net/>,
-notice `dict/README_dict_fr.txt`). L'icône, les visuels et les
-polices éventuellement embarquées ont leur propre statut, à clarifier
-séparément du code (les icônes d'interface proviennent du jeu
-[Phosphor](https://phosphoricons.com/), licence MIT).
+## Référence des dépendances
+
+Ce logiciel utilise le formidable travail d'autres ingés et grands nerds de littérature.
+
+* Dictionnaire orthographique français v7.7 par Olivier R.
+* Grammalecte 2.3.0, par Olivier R.
+* Icônes provenant de PhosphorIcons et FlatIcons.
+* Runtime Python pour le correcteur.
+
+Ces éléments sont téléchargés à l'installation, et sont la seule partie du logiciel qui nécessite une connexion web.
+
+<p align="center">
+  <a href="https://github.com/Pardaramskha/unhinged-stargazer-hub"><img src="assets/downloads/stargazer-link.png" alt="Disponible à l'installation modulaire dans la suite Stargazer"></a>
+</p>
