@@ -21,6 +21,7 @@ namespace UniversSale.View
         public event Action<BinderItem> ExportRequested;      // relais corkboard
         public event Action<BinderItem> DeleteRequested;
         public event Action<BinderItem> RenameRequested;      // (b43)
+        public event Action<BinderItem, bool> CardImageRequested; // image de tuile (12/09) : (élément, retirer)
         public event Action<System.Collections.Generic.List<BinderItem>> ApplyTemplateRequested;
         public event Action<BinderItem> NewTemplateRequested;    // book
         public event Action<BinderItem> ExportTemplateRequested; // gabarit
@@ -46,6 +47,8 @@ namespace UniversSale.View
             { var h = DeleteRequested; if (h != null) h(item); };
             _corkboard.RenameRequested += delegate(BinderItem item)
             { var h = RenameRequested; if (h != null) h(item); };
+            _corkboard.CardImageRequested += delegate(BinderItem item, bool remove)
+            { var h = CardImageRequested; if (h != null) h(item, remove); };
             _corkboard.ApplyTemplateRequested += delegate(System.Collections.Generic.List<BinderItem> items)
             { var h = ApplyTemplateRequested; if (h != null) h(items); };
             _corkboard.NewTemplateRequested += delegate(BinderItem book)

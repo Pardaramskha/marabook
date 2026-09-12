@@ -115,6 +115,27 @@ namespace UniversSale.History
         public void Undo() { _item.Icon = _oldIcon; }
     }
 
+    /// <summary>L'image de la tuile d'un écrit ou d'un livre (pack du
+    /// 12/09/2026) — au tableau, elle remplace l'extrait du texte. Les octets
+    /// d'une image abandonnée restent dans le magasin jusqu'à la purge à
+    /// l'enregistrement, ce qui rend l'annulation sûre.</summary>
+    public class ChangeImageAction : IUndoableAction
+    {
+        private readonly BinderItem _item;
+        private readonly string _oldImage;
+        private readonly string _newImage;
+
+        public ChangeImageAction(BinderItem item, string newImage)
+        {
+            _item = item;
+            _oldImage = item.ImageId;
+            _newImage = newImage;
+        }
+
+        public void Do() { _item.ImageId = _newImage; }
+        public void Undo() { _item.ImageId = _oldImage; }
+    }
+
     /// <summary>« Options du livre » (batch 32) : nom, icône et objectif de
     /// chapitres appliqués d'un bloc, annulables d'un bloc.</summary>
     public class BookOptionsAction : IUndoableAction

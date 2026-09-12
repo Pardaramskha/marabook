@@ -27,6 +27,15 @@ namespace UniversSale.View
 
         public event Action<BinderItem> Navigate; // ouvrir une fiche
         public event Action Changed;              // structure/projet modifiés
+        public event Action<string> AchievementEvent; // succès à événement (12/09)
+
+        private bool HasAnySheet()
+        {
+            foreach (var item in _project.AllItems())
+                if (item.Kind == ItemKind.Sheet && item.RootCategory() != null
+                    && item.RootCategory().CategoryKey != Project.KeyTrash) return true;
+            return false;
+        }
 
         public SheetLibraryView()
         {
@@ -52,6 +61,16 @@ namespace UniversSale.View
             newCategory.Click += delegate { NewCategory(); };
             DockPanel.SetDock(newCategory, Dock.Right);
             barRow.Children.Add(newCategory);
+            // « Nouvelle fiche » : UN bouton principal en tête du tableau
+            // (pack du 12/09/2026) — la catégorie se choisit dans le dialogue
+            // avec le nom, plus de bouton par rangée.
+            var newSheet = Buttons.IconText("plus-bold", "Nouvelle fiche",
+                "Créer une fiche — le nom et la catégorie se choisissent ensemble",
+                Buttons.Compact, Buttons.Look.Primary);
+            newSheet.Margin = new Thickness(0, 0, 8, 0);
+            newSheet.Click += delegate { NewSheet(); };
+            DockPanel.SetDock(newSheet, Dock.Right);
+            barRow.Children.Add(newSheet);
             // L'éditeur de modèles, tout en haut, à côté de « Nouvelle
             // catégorie » (b42 bis) — le même que « Modifier les modèles… ».
             var templates = new Button
@@ -82,7 +101,16 @@ namespace UniversSale.View
                 Padding = new Thickness(6, 3, 6, 3),
                 ToolTip = "Rechercher une fiche par nom, toutes catégories confondues"
             };
-            _searchBox.TextChanged += delegate { RebuildRows(); };
+            _searchBox.TextChanged += delegate
+            {
+                RebuildRows();
+                // « Crétin des alpes » (12/09) : chercher une fiche sans en avoir.
+                if (_searchBox.Text.Trim().Length > 0 && _project != null && !HasAnySheet())
+                {
+                    var handler = AchievementEvent;
+                    if (handler != null) handler(Achievements.Cretin);
+                }
+            };
             searchRow.Children.Add(_searchBox);
             barRow.Children.Add(searchRow);
             bar.Child = barRow;
@@ -132,6 +160,12 @@ namespace UniversSale.View
                 list.Add(item);
             }
 
+            // Dans la bibliothèque, l'ordre est TOUJOURS alphabétique, que la
+            // fiche vive à la racine ou dans un dossier de la Pile (pack du
+            // 12/09/2026) — l'ordre de la Pile reste le sien.
+            foreach (var list in byCategory.Values) SortByTitle(list);
+            SortByTitle(uncategorized);
+
             var searching = needle.Length > 0;
             var first = true;
             foreach (var category in _project.SheetCategories)
@@ -157,6 +191,24 @@ namespace UniversSale.View
                     Foreground = Chrome.SoftText,
                     Margin = new Thickness(4, 16, 0, 0)
                 });
+        }
+
+        /// <summary>Tri alphabétique à la française (accents et casse
+        /// ignorés, ordre stable pour les homonymes).</summary>
+        public static void SortByTitle(List<BinderItem> sheets)
+        {
+            var indexed = new List<KeyValuePair<int, BinderItem>>();
+            for (var i = 0; i < sheets.Count; i++)
+                indexed.Add(new KeyValuePair<int, BinderItem>(i, sheets[i]));
+            indexed.Sort(delegate (KeyValuePair<int, BinderItem> a, KeyValuePair<int, BinderItem> b)
+            {
+                var byName = string.Compare(a.Value.Title ?? "", b.Value.Title ?? "",
+                    System.Globalization.CultureInfo.GetCultureInfo("fr-FR"),
+                    System.Globalization.CompareOptions.IgnoreCase);
+                return byName != 0 ? byName : a.Key.CompareTo(b.Key);
+            });
+            sheets.Clear();
+            foreach (var pair in indexed) sheets.Add(pair.Value);
         }
 
         private void AddCategoryRow(SheetCategory category,
@@ -196,25 +248,14 @@ namespace UniversSale.View
 
             if (category != null)
             {
-                var buttons = new StackPanel { Orientation = Orientation.Horizontal };
-                var newSheet = new Button
-                {
-                    Content = Icons.Label("plus-bold", "Nouvelle fiche", 10, Chrome.Ink),
-                    Padding = new Thickness(8, 2, 8, 2),
-                    ToolTip = "Créer une fiche « " + name + " » (modèle de base "
-                        + "de la catégorie)"
-                };
+                // Le menu de la catégorie : un bouton à trois points, sans
+                // texte (b42 bis). Le « + Nouvelle fiche » par rangée est parti
+                // dans la barre du haut (pack du 12/09/2026).
                 var categoryRef = category;
-                newSheet.Click += delegate { NewSheet(categoryRef); };
-                buttons.Children.Add(newSheet);
-
-                // Le menu de la catégorie : un bouton à trois points, sans texte (b42 bis).
                 var edit = Buttons.Icon("dots-three-vertical-bold", "Modifier la catégorie…", Buttons.Compact, Buttons.Look.Calm);
-                edit.Margin = new Thickness(6, 0, 0, 0);
                 edit.Click += delegate { ShowCategoryMenu(edit, categoryRef); };
-                buttons.Children.Add(edit);
-                DockPanel.SetDock(buttons, Dock.Right);
-                header.Children.Add(buttons);
+                DockPanel.SetDock(edit, Dock.Right);
+                header.Children.Add(edit);
             }
 
             var title = new StackPanel { Orientation = Orientation.Horizontal };
@@ -419,18 +460,21 @@ namespace UniversSale.View
 
         // ------------------------------------------------------- catégories
 
-        private void NewSheet(SheetCategory category)
+        /// <summary>Nom et catégorie dans le même dialogue (le même que la
+        /// Pile) ; la fiche naît dans la racine Fiches avec le modèle de base
+        /// de sa catégorie, puis s'ouvre.</summary>
+        private void NewSheet()
         {
-            var title = InputDialog.Ask(Window.GetWindow(this),
-                "Nouvelle fiche " + category.Name, "Nom de la fiche :",
-                "Nouvelle fiche");
-            if (title == null) return;
+            string title, categoryId;
+            if (!NewSheetDialog.Ask(Window.GetWindow(this), _project, out title, out categoryId))
+                return;
+            var category = _project.FindSheetCategory(categoryId);
             var item = new BinderItem
             {
                 Kind = ItemKind.Sheet,
                 Title = title,
-                TemplateId = category.TemplateId,
-                CategoryId = category.Id
+                TemplateId = category != null ? category.TemplateId : null,
+                CategoryId = category != null ? category.Id : null
             };
             _history.Run(new AddItemAction(
                 _project.Category(Project.KeySheets), item, -1));

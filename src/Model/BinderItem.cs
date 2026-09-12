@@ -76,7 +76,8 @@ namespace UniversSale.Model
         public bool Pinned;
         public TextDocument Document = new TextDocument(); // text items and sheet bodies
 
-        // Sheets only: main image (wiki portrait), stored in the project image store.
+        // Sheets: main image (wiki portrait); texts and books: the card picture
+        // shown instead of the excerpt (12/09). Stored in the project image store.
         public string ImageId;
 
         // Sheet items only.

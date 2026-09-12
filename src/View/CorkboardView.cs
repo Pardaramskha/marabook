@@ -20,6 +20,8 @@ namespace UniversSale.View
     {
         private readonly WrapPanel _cards;
         private StackPanel _planActions; // racine Plans : « + Nouveau plan » (b35)
+        private StackPanel _writingsActions; // racine Écrits : Nouvel écrit / dossier / livre (12/09)
+        private StackPanel _researchActions; // racine Recherche : Importer des fichiers (12/09)
         private BinderItem _folder;
         private HistoryManager _history;
         private Project _project; // image store lookups
@@ -50,6 +52,7 @@ namespace UniversSale.View
         public event Action<BinderItem> ExportRequested;      // menu ⋮
         public event Action<BinderItem> DeleteRequested;      // menu ⋮ (corbeille)
         public event Action<BinderItem> RenameRequested;      // menu ⋮ (b43)
+        public event Action<BinderItem, bool> CardImageRequested; // image de tuile (12/09) : (élément, retirer)
         public event Action<List<BinderItem>> ApplyTemplateRequested; // gabarit sur la sélection
         public event Action<BinderItem> NewTemplateRequested;    // livre
         public event Action<BinderItem> ImportTemplateRequested; // livre
@@ -105,12 +108,46 @@ namespace UniversSale.View
             var newPlan = new Button { Content = Icons.Label("plus-bold", "Nouveau plan", 11, Chrome.Ink), Padding = new Thickness(10, 4, 10, 4) };
             newPlan.Click += delegate { RequestNewDocument("plan"); };
             _planActions.Children.Add(newPlan);
+            // Racine Écrits (12/09) : un bouton principal et deux secondaires.
+            _writingsActions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(24, 8, 24, 0),
+                Visibility = Visibility.Collapsed
+            };
+            var newText = Buttons.IconText("plus-bold", "Nouvel écrit",
+                "Un nouvel écrit, hors livre", Buttons.Bar, Buttons.Look.Primary);
+            newText.Click += delegate { RequestNewDocument("root-text"); };
+            _writingsActions.Children.Add(newText);
+            var newFolder = Buttons.IconText("folder-bold", "Nouveau dossier",
+                "Un dossier pour ranger des écrits", Buttons.Bar, Buttons.Look.Outline);
+            newFolder.Margin = new Thickness(8, 0, 0, 0);
+            newFolder.Click += delegate { RequestNewDocument("root-folder"); };
+            _writingsActions.Children.Add(newFolder);
+            var newBook = Buttons.IconText("book-bold", "Nouveau livre",
+                "Un livre : gabarit, chapitres, compilation", Buttons.Bar, Buttons.Look.Outline);
+            newBook.Margin = new Thickness(8, 0, 0, 0);
+            newBook.Click += delegate { RequestNewDocument("root-book"); };
+            _writingsActions.Children.Add(newBook);
+            // Racine Recherche (12/09) : l'import en bouton principal.
+            _researchActions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(24, 8, 24, 0),
+                Visibility = Visibility.Collapsed
+            };
+            var import = Buttons.IconText("file-arrow-down-bold", "Importer des fichiers",
+                "Ajouter des fichiers (images, PDF, documents…) dans Recherche", Buttons.Bar, Buttons.Look.Primary);
+            import.Click += delegate { RequestNewDocument("import"); };
+            _researchActions.Children.Add(import);
             _cards = new WrapPanel { Margin = new Thickness(16, 8, 16, 16) };
             var layout = new StackPanel();
             layout.Children.Add(_templateCards);
             layout.Children.Add(_templateSeparator);
             layout.Children.Add(_documentActions);
             layout.Children.Add(_planActions);
+            layout.Children.Add(_writingsActions);
+            layout.Children.Add(_researchActions);
             layout.Children.Add(BuildFilterHeader());
             layout.Children.Add(BuildFilterBar());
             layout.Children.Add(_cards);
@@ -373,7 +410,9 @@ namespace UniversSale.View
             foreach (var child in _cards.Children)
             {
                 var host = child as Grid;
-                if (host == null || !(host.Tag is BinderItem)) continue;
+                // Les boîtes de partie, et les titres de section de la racine
+                // Écrits (12/09), occupent toute la largeur.
+                if (host == null || !(host.Tag is BinderItem || (host.Tag as string) == "section")) continue;
                 var width = _cards.ActualWidth - host.Margin.Left - host.Margin.Right;
                 if (width > 240) host.Width = width;
             }
@@ -509,6 +548,30 @@ namespace UniversSale.View
                     if (handler != null) handler(itemRef);
                 };
                 menu.Items.Add(rename);
+                if (itemRef.Kind == ItemKind.Text || itemRef.Kind == ItemKind.Book)
+                {
+                    // L'image de tuile (12/09) : elle remplace l'extrait.
+                    var picture = new MenuItem
+                    {
+                        Header = itemRef.ImageId == null ? "Image de la carte…" : "Changer l'image de la carte…"
+                    };
+                    picture.Click += delegate
+                    {
+                        var handler = CardImageRequested;
+                        if (handler != null) handler(itemRef, false);
+                    };
+                    menu.Items.Add(picture);
+                    if (itemRef.ImageId != null)
+                    {
+                        var clear = new MenuItem { Header = "Retirer l'image de la carte" };
+                        clear.Click += delegate
+                        {
+                            var handler = CardImageRequested;
+                            if (handler != null) handler(itemRef, true);
+                        };
+                        menu.Items.Add(clear);
+                    }
+                }
                 if (itemRef.Kind == ItemKind.Text || itemRef.Kind == ItemKind.Sheet)
                 {
                     var export = new MenuItem { Header = "Exporter…" };
@@ -601,8 +664,9 @@ namespace UniversSale.View
             _templateSeparator.Visibility = Visibility.Collapsed;
             _documentActions.Visibility = Visibility.Collapsed;
             if (_folder == null) return;
-            _planActions.Visibility = _folder.IsCategory && _folder.CategoryKey == Project.KeyPlans
-                ? Visibility.Visible : Visibility.Collapsed;
+            _planActions.Visibility = IsRoot(Project.KeyPlans) ? Visibility.Visible : Visibility.Collapsed;
+            _writingsActions.Visibility = IsRoot(Project.KeyWritings) ? Visibility.Visible : Visibility.Collapsed;
+            _researchActions.Visibility = IsRoot(Project.KeyResearch) ? Visibility.Visible : Visibility.Collapsed;
 
             // Livres : la section GABARITS vit au-dessus des documents,
             // séparée par un filet — autre niveau hiérarchique.
@@ -625,7 +689,26 @@ namespace UniversSale.View
                 _filterBar.Visibility = Visibility.Visible;
 
             var documents = 0;
-            foreach (var child in ArrangeChildren(_folder.Children))
+            var arranged = ArrangeChildren(_folder.Children);
+            if (IsRoot(Project.KeyWritings))
+            {
+                // La racine Écrits (12/09) : trois sections — les livres, les
+                // dossiers, les écrits seuls (affichage seulement : l'ordre du
+                // modèle, et donc de la Pile, ne bouge pas).
+                var books = new List<BinderItem>();
+                var folders = new List<BinderItem>();
+                var loose = new List<BinderItem>();
+                foreach (var child in arranged)
+                {
+                    if (child.Kind == ItemKind.Book) books.Add(child);
+                    else if (child.Kind == ItemKind.Folder) folders.Add(child);
+                    else loose.Add(child);
+                }
+                documents += AddSection("Livres", books);
+                documents += AddSection("Dossiers", folders);
+                documents += AddSection("Écrits", loose);
+            }
+            else foreach (var child in arranged)
             {
                 // Dans un LIVRE, un dossier est une PARTIE : une boîte à bords
                 // ronds qui contient les cartes de ses documents.
@@ -642,13 +725,60 @@ namespace UniversSale.View
                         ? "(aucun texte ne passe les filtres)"
                         : _folder.Kind == ItemKind.Book
                             ? "(livre sans document)"
-                        : _folder.IsCategory && _folder.CategoryKey == Project.KeyPlans
+                        : IsRoot(Project.KeyPlans)
                             ? "(aucun plan — clic droit sur « Plans » dans la Pile, ou « + Nouveau plan »)"
+                        : IsRoot(Project.KeyWritings)
+                            ? "(rien encore — « Nouvel écrit » ou « Nouveau livre » pour commencer)"
+                        : IsRoot(Project.KeyResearch)
+                            ? "(rien encore — « Importer des fichiers » pour commencer)"
                             : "(dossier vide)",
                     Foreground = Chrome.SoftText,
                     Margin = new Thickness(12)
                 });
             UpdateFolderBoxWidths();
+        }
+
+        private bool IsRoot(string key)
+        {
+            return _folder != null && _folder.IsCategory && _folder.CategoryKey == key;
+        }
+
+        /// <summary>Une section de la racine Écrits : un titre sur toute la
+        /// largeur (retour à la ligne forcé, cf. UpdateFolderBoxWidths), puis
+        /// les cartes. Rien si la section est vide. Rend le nombre de cartes.</summary>
+        private int AddSection(string title, List<BinderItem> items)
+        {
+            if (items.Count == 0) return 0;
+            var header = new Grid { Tag = "section", Margin = new Thickness(8, 12, 8, 4) };
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(new TextBlock
+            {
+                Text = title,
+                FontSize = 13,
+                FontWeight = FontWeights.Bold,
+                Foreground = Chrome.Ink,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            row.Children.Add(new TextBlock
+            {
+                Text = items.Count.ToString(),
+                FontSize = 11,
+                Foreground = Chrome.SoftText,
+                Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            var line = new Border
+            {
+                Height = 1,
+                Background = Chrome.Border,
+                Margin = new Thickness(0, 6, 0, 0),
+                VerticalAlignment = VerticalAlignment.Bottom
+            };
+            header.Children.Add(line);
+            header.Children.Add(row);
+            _cards.Children.Add(header);
+            foreach (var item in items) _cards.Children.Add(BuildCard(item));
+            return items.Count;
         }
 
         private static bool ContainsTexts(BinderItem folder)
@@ -1084,27 +1214,34 @@ namespace UniversSale.View
             byte[] pictureBytes = null;
             if (item.Kind == ItemKind.Media && MediaView.IsImage(item.MediaExtension))
                 pictureBytes = item.MediaBytes;
-            else if (item.Kind == ItemKind.Sheet && _project != null)
+            else if ((item.Kind == ItemKind.Sheet || item.Kind == ItemKind.Text
+                || item.Kind == ItemKind.Book) && _project != null)
             {
                 var image = _project.FindImage(item.ImageId);
                 if (image != null) pictureBytes = image.Bytes;
             }
+            // L'image de tuile d'un écrit ou d'un livre (12/09) REMPLACE
+            // l'extrait du texte et les notes ; la fiche garde image + notes.
+            var imageOnly = false;
             if (pictureBytes != null)
             {
                 var thumb = MediaView.TryImage(pictureBytes, 200);
                 if (thumb != null)
+                {
+                    imageOnly = item.Kind == ItemKind.Text || item.Kind == ItemKind.Book;
                     body.Children.Add(new Image
                     {
                         Source = thumb,
                         Stretch = Stretch.Uniform,
-                        MaxHeight = 90,
-                        Margin = new Thickness(8, 8, 8, 0)
+                        MaxHeight = imageOnly ? 130 : 90,
+                        Margin = new Thickness(8, 8, 8, imageOnly ? 8 : 0)
                     });
+                }
             }
 
             // Card text, read-only: notes first; else the beginning of the text
             // for written documents; sheets without notes stay blank.
-            var text = (item.Notes ?? "").Trim();
+            var text = imageOnly ? "" : (item.Notes ?? "").Trim();
             if (item.Kind == ItemKind.Plan)
             {
                 // Une carte de plan (batch 35) : sa couleur et son étendue.
@@ -1114,7 +1251,7 @@ namespace UniversSale.View
                 text = columns == 0 ? "Plan vide"
                     : columns + (columns > 1 ? " colonnes" : " colonne") + " · " + bricks + (bricks > 1 ? " briques" : " brique");
             }
-            if (text.Length == 0 && item.Kind == ItemKind.Text)
+            if (text.Length == 0 && item.Kind == ItemKind.Text && !imageOnly)
             {
                 text = item.Document.ToPlainText().Trim();
                 if (text.Length > 220) text = text.Substring(0, 220).TrimEnd() + "…";

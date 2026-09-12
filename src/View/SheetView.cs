@@ -27,6 +27,10 @@ namespace UniversSale.View
         private readonly ToggleButton _previewToggle;
         private readonly Grid _body;
         private readonly TabControl _tabs;         // Général | Texte libre (b36)
+        private Border _dictDot;                   // indicateur de dictionnaire (12/09)
+        private TextBlock _dictState;
+        private Button _dictAdd;
+        private string _focusFieldId;              // le champ libre qui vient d'être ajouté — lui seul prend le focus
         private readonly Button _genealogyButton;
         private GenealogyWindow _genealogy;        // le paper flottant (b36)
         private readonly ScrollViewer _preview;
@@ -60,6 +64,7 @@ namespace UniversSale.View
         public event Action BackRequested;                 // ← retour (b34)
         public event Action<BinderItem> NavigateRequested; // ouvrir une fiche liée (b34)
         public event Action RenameRequested;               // le crayon du bandeau (b43)
+        public event Action LexiconChanged;                // le nom ajouté au dictionnaire du projet (12/09)
 
         public SheetView()
         {
@@ -271,6 +276,7 @@ namespace UniversSale.View
 
             _body = new Grid();
             _body.Children.Add(_tabs);
+            _body.Children.Add(BuildDictionaryBadge()); // bout droit de la rangée d'onglets
 
             _preview = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Visibility = Visibility.Collapsed };
 
@@ -587,10 +593,13 @@ namespace UniversSale.View
             };
             var titleBox = new TextBox { ToolTip = "Nom du champ — Entrée pour valider", MaxWidth = 240, HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 120 };
             var rename = Buttons.Icon("pencil-simple-line", "Changer le nom du champ", Buttons.Compact, Buttons.Look.Calm);
-            var editing = string.IsNullOrEmpty(entry.Title) || entry.Title == "Champ";
+            // La saisie du nom n'est ouverte que pour le champ que l'on VIENT
+            // d'ajouter (12/09, seconde passe) : un champ enregistré sans nom
+            // ou resté « Champ » s'affiche comme les autres, crayon compris.
+            var editing = entry.Id == _focusFieldId;
             Action sync = delegate
             {
-                titleText.Text = entry.Title;
+                titleText.Text = string.IsNullOrEmpty((entry.Title ?? "").Trim()) ? "(sans nom)" : entry.Title;
                 titleText.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
                 rename.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
                 titleBox.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
@@ -629,7 +638,14 @@ namespace UniversSale.View
             sync();
             row.Children.Add(head);
             row.Children.Add(ValueBox(entry.Value, false, delegate(string text) { entry.Value = text; }, entry.Id));
-            if (editing) row.Loaded += delegate { if (titleBox.IsVisible && titleBox.Text == "Champ") { titleBox.Focus(); titleBox.SelectAll(); } };
+            // Seul le champ que l'on VIENT d'ajouter prend le focus (pack du
+            // 12/09/2026) : un champ resté « Champ » dans une fiche enregistrée
+            // se retrouvait sélectionné à chaque ouverture de la fiche.
+            if (editing && entry.Id == _focusFieldId)
+            {
+                _focusFieldId = null;
+                row.Loaded += delegate { if (titleBox.IsVisible && titleBox.Text == "Champ") { titleBox.Focus(); titleBox.SelectAll(); } };
+            }
             return row;
         }
 
@@ -638,8 +654,127 @@ namespace UniversSale.View
             if (_item == null) return;
             var entry = new InfoEntry { Title = "Champ", Group = group ?? "" };
             _item.FreeInfo.Add(entry);
+            _focusFieldId = entry.Id;
             RebuildFields();
             NotifyEdited();
+        }
+
+        // ================================================== dictionnaire
+
+        /// <summary>L'indicateur « présent dans / absent du dictionnaire » au
+        /// bout droit de la rangée d'onglets (pack du 12/09/2026) : vert quand
+        /// CHAQUE mot du nom de la fiche est une entrée (ou une forme d'entrée)
+        /// du dictionnaire du projet ou de tous les projets ; sinon un bouton
+        /// à l'icône du dictionnaire ouvre une nouvelle entrée, le nom de la
+        /// fiche prérempli (à raccourcir à la main : un clic par mot).</summary>
+        private UIElement BuildDictionaryBadge()
+        {
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 8, 16, 0)
+            };
+            _dictDot = new Border
+            {
+                Width = 8,
+                Height = 8,
+                CornerRadius = new CornerRadius(4),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+            row.Children.Add(_dictDot);
+            _dictState = new TextBlock
+            {
+                FontSize = 11,
+                Foreground = Chrome.SoftText,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            row.Children.Add(_dictState);
+            _dictAdd = Buttons.Icon("pile-dictionnaire", "Ajouter le nom de la fiche au dictionnaire du projet",
+                Buttons.Compact, Buttons.Look.Calm);
+            _dictAdd.Margin = new Thickness(6, 0, 0, 0);
+            _dictAdd.Click += delegate { AddNameToDictionary(); };
+            row.Children.Add(_dictAdd);
+            return row;
+        }
+
+        /// <summary>Les mots du nom de la fiche (lettres, apostrophes et traits
+        /// d'union ; la ponctuation sépare).</summary>
+        public static List<string> NameWords(string title)
+        {
+            var words = new List<string>();
+            var current = new System.Text.StringBuilder();
+            foreach (var c in (title ?? "") + " ")
+            {
+                if (char.IsLetter(c) || c == '\'' || c == '’' || c == '-')
+                {
+                    current.Append(c);
+                    continue;
+                }
+                var word = current.ToString().Trim('\'', '’', '-');
+                if (word.Length > 0) words.Add(word);
+                current.Length = 0;
+            }
+            return words;
+        }
+
+        /// <summary>Les mots du nom qui ne sont ni une entrée ni une forme
+        /// d'entrée (accents et casse ignorés).</summary>
+        private List<string> MissingWords()
+        {
+            var missing = new List<string>();
+            if (_item == null) return missing;
+            var known = new HashSet<string>();
+            var sources = new List<List<LexiconEntry>>();
+            if (_project != null) sources.Add(_project.Lexicon);
+            sources.Add(Settings.AppSettings.Lexicon);
+            foreach (var entries in sources)
+                foreach (var entry in entries)
+                    foreach (var form in entry.Forms())
+                        known.Add(Correction.FrenchTokenizer.Fold(form));
+            foreach (var word in NameWords(_item.Title))
+                if (!known.Contains(Correction.FrenchTokenizer.Fold(word)))
+                    missing.Add(word);
+            return missing;
+        }
+
+        private void RefreshDictionaryBadge()
+        {
+            if (_dictState == null) return;
+            if (_item == null || NameWords(_item.Title).Count == 0)
+            {
+                _dictDot.Visibility = Visibility.Collapsed;
+                _dictState.Visibility = Visibility.Collapsed;
+                _dictAdd.Visibility = Visibility.Collapsed;
+                return;
+            }
+            var missing = MissingWords();
+            var present = missing.Count == 0;
+            _dictDot.Visibility = Visibility.Visible;
+            _dictState.Visibility = Visibility.Visible;
+            _dictDot.Background = present ? Chrome.Ok : Chrome.Warn;
+            _dictState.Text = present ? "Présent dans le dictionnaire" : "Absent du dictionnaire";
+            _dictState.ToolTip = present
+                ? "Chaque mot du nom est une entrée du dictionnaire"
+                : "Manque : " + string.Join(", ", missing.ToArray());
+            _dictAdd.Visibility = present ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        /// <summary>Nouvelle entrée du dictionnaire DU PROJET, le nom de la
+        /// fiche prérempli et modifiable ; une entrée du même mot est remplacée.</summary>
+        private void AddNameToDictionary()
+        {
+            if (_item == null || _project == null) return;
+            var entry = LexiconEntryDialog.AskForWord(Window.GetWindow(this), _item.Title, true);
+            if (entry == null) return;
+            var existing = LexiconEntry.Find(_project.Lexicon, entry.Word);
+            if (existing != null) _project.Lexicon.Remove(existing);
+            _project.Lexicon.Add(entry);
+            RefreshDictionaryBadge();
+            var handler = LexiconChanged;
+            if (handler != null) handler();
         }
 
         // ================================================== relations
@@ -828,6 +963,7 @@ namespace UniversSale.View
         public void RefreshTitle()
         {
             if (_item != null) _titleLabel.Text = _item.Title;
+            RefreshDictionaryBadge();
         }
 
         private void ShowGenealogy()
@@ -1104,6 +1240,7 @@ namespace UniversSale.View
             _bodyBox.IsUndoEnabled = false;
             _bodyBox.IsUndoEnabled = true;
             _loading = false;
+            RefreshDictionaryBadge();
             if (_previewToggle.IsChecked == true) ShowPreview();
             SyncGenealogy();
         }
