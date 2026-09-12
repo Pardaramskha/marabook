@@ -99,7 +99,9 @@ namespace UniversSale.Tests
                 ProjectSearchTests.Run,  // C16 — recherche projet (b37)
                 DocumentDiffTests.Run,   // C17 — versions d'écrits (b38)
                 RightPanelTests.Run,     // C18 — la colonne de droite (b39)
-                HomeTests.Run            // C19 — l'Accueil : récents, épingle, racine (b41)
+                HomeTests.Run,           // C19 — l'Accueil : récents, épingle, racine (b41)
+                PackTests.Run,           // C20 — pack de correctifs du 12/09/2026
+                AchievementTests.Run     // C21 — les succès (12/09/2026)
             };
             foreach (var suite in suites)
             {

@@ -104,7 +104,7 @@ namespace UniversSale.Model
                 var day = when.Value.ToString("dddd", new CultureInfo("fr-FR"));
                 return day;
             }
-            return "le " + when.Value.ToString("d MMMM", new CultureInfo("fr-FR"));
+            return "le " + when.Value.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture); // JJ/MM/AAAA à l'écran (12/09)
         }
     }
 }

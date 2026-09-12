@@ -21,7 +21,7 @@ namespace UniversSale
     public class MainWindow : Window
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.41.0-alpha";
+        public const string AppVersion = "0.42.0-alpha";
 
         private Project _project;
         private string _path;
@@ -50,6 +50,13 @@ namespace UniversSale
         private JournalView _journalView;
         private bool _journalOpen; // le journal masque l'inspecteur
         private Grid _centerHost; // hôte du toast de célébration
+        private StackPanel _toastHost;          // succès : toasts en bas à droite de la fenêtre (12/09)
+        private DispatcherTimer _achievementTimer; // vérification coalescée
+        private DispatcherTimer _minuteTimer;   // les succès de durée (ouverture, sauvegarde, page blanche)
+        private long _lastSavedBytes;           // taille du dernier .plot écrit
+        private readonly DateTime _appStart = DateTime.Now;
+        private DateTime? _dirtySince;          // premier MarkDirty depuis la dernière sauvegarde manuelle
+        private readonly HashSet<string> _deepCleanCandidates = new HashSet<string>(); // écrits vus à > 100 fautes
         private UIElement _menuBar, _statusBar;
         private Border _calmExit;  // bouton flottant de sortie du mode calme
         private bool _calmMode;
@@ -140,7 +147,26 @@ namespace UniversSale
             root.Children.Add(BuildReadOnlyBanner());
             root.Children.Add(_statusBar);
             root.Children.Add(BuildContent());
-            Content = root;
+            // Les toasts de succès (12/09) : par-dessus tout, en bas à droite.
+            _toastHost = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 24, 44),
+                IsHitTestVisible = false
+            };
+            var shell = new Grid();
+            shell.Children.Add(root);
+            shell.Children.Add(_toastHost);
+            Content = shell;
+            Loaded += delegate
+            {
+                AppSettings.NoteUsage(DateTime.Now);
+                ScheduleAchievementCheck();
+                _minuteTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMinutes(1) };
+                _minuteTimer.Tick += delegate { ScheduleAchievementCheck(); };
+                _minuteTimer.Start();
+            };
             _editor.CalmRequested += ToggleCalmMode;
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
@@ -395,6 +421,7 @@ namespace UniversSale
             };
             _binder.SelectionChanged += OnBinderSelection;
             _binder.JournalRequested += ShowJournal;
+            _binder.AchievementEvent += UnlockAchievement; // « Ooh la boulette ! » (12/09)
             _binder.StructureChanged += delegate
             {
                 MarkDirty();
@@ -404,6 +431,7 @@ namespace UniversSale
                 ProjectWords();
                 // L'Accueil suit la Pile (épingle, corbeille, livre…) s'il est affiché (b41).
                 if (_homeView.Visibility == Visibility.Visible) _homeView.Refresh();
+                ScheduleAchievementCheck();
             };
             _binder.BookPageTotal = BookPageTotal;
             Grid.SetColumn(_binder, 0);
@@ -486,6 +514,7 @@ namespace UniversSale
             _corkboard.ExportRequested += ExportItem;
             _corkboard.RenameRequested += delegate(BinderItem item)
             { _binder.RenameQuiet(item); RefreshOpenCorkboards(); UpdateInspector(); };
+            _corkboard.CardImageRequested += CardImageRequested;
             // Supprimer depuis le tableau : la Pile suit par l'historique, le
             // tableau lui-même doit être redessiné (batch 33 — la carte restait).
             _corkboard.DeleteRequested += delegate(BinderItem item)
@@ -498,6 +527,7 @@ namespace UniversSale
             // « Fiches » — rangées par catégorie, cartes, recherche.
             _sheetLibrary = new View.SheetLibraryView { Visibility = Visibility.Collapsed };
             _sheetLibrary.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _sheetLibrary.AchievementEvent += UnlockAchievement; // « Crétin des alpes » (12/09)
             _sheetLibrary.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             center.Children.Add(_sheetLibrary);
 
@@ -523,10 +553,19 @@ namespace UniversSale
             {
                 if (projectScope) MarkDirty(); else AppSettings.Save();
                 _editor.RefreshProofing();
+                ScheduleAchievementCheck();
             };
             _editor.LexiconChanged += delegate
             {
                 if (_dictionaryView.Visibility == Visibility.Visible) _dictionaryView.Refresh();
+            };
+            // Le nom d'une fiche ajouté au dictionnaire du projet (12/09).
+            _sheetView.LexiconChanged += delegate
+            {
+                MarkDirty();
+                _editor.RefreshProofing();
+                if (_dictionaryView.Visibility == Visibility.Visible) _dictionaryView.Refresh();
+                ScheduleAchievementCheck();
             };
             center.Children.Add(_dictionaryView);
 
@@ -558,6 +597,7 @@ namespace UniversSale
             _bookView.ExportRequested += ExportItem;
             _bookView.RenameRequested += delegate(BinderItem item)
             { _binder.RenameQuiet(item); RefreshOpenCorkboards(); UpdateInspector(); };
+            _bookView.CardImageRequested += CardImageRequested;
             _bookView.DeleteRequested += delegate(BinderItem item)
             { _binder.Delete(item); RefreshOpenCorkboards(); UpdateInspector(); UpdateStats(); };
             _bookView.ApplyTemplateRequested += ApplyPageTemplateTo;
@@ -585,6 +625,11 @@ namespace UniversSale
 
             _journalView = new JournalView { Visibility = Visibility.Collapsed };
             _journalView.Changed += delegate { MarkDirty(); CheckDailyGoal(); };
+            _journalView.AchievementToggleRequested += delegate(string id, bool unlock)
+            {
+                if (unlock) UnlockAchievement(id);
+                else RevokeAchievement(id);
+            };
             center.Children.Add(_journalView);
 
             // Sortie du mode calme : une pastille discrète en haut à droite des
@@ -704,6 +749,7 @@ namespace UniversSale
             Grid.SetColumn(_rail, 5);
             grid.Children.Add(_rail);
             _editor.FindingsChanged += UpdateRail;
+            _editor.FindingsChanged += TrackDeepClean; // « Nettoyage en profondeur » (12/09)
 
             ApplyPanelVisibility();
             return grid;
@@ -856,6 +902,7 @@ namespace UniversSale
             // session, l'instantané survit à la fermeture.
             if (SnapshotStore.GuardBeforeReplace(_project, plan.Items, pattern, AppSettings.SnapshotCap) > 0) OnSnapshotsChanged();
             _history.Run(new History.ReplaceInProjectAction(_project, plan));
+            if (plan.Edits.Count > 100) UnlockAchievement(Achievements.Yolo); // (12/09)
         }
 
         /// <summary>Des instantanés viennent d'être pris ou retirés : le
@@ -1421,6 +1468,9 @@ namespace UniversSale
             // Batch 30 : les textes se préparent dès l'ouverture, par
             // tranches oisives — le premier clic sur un chapitre est chaud.
             StartTextWarmup();
+            try { _lastSavedBytes = path != null && File.Exists(path) ? new FileInfo(path).Length : 0; }
+            catch (IOException) { _lastSavedBytes = 0; }
+            ScheduleAchievementCheck();
             // Sélection initiale (batch 41) : le dernier item ouvert encore
             // valide (existant, hors Corbeille), sinon l'Accueil — un projet
             // neuf montre le tableau de bord, un roman rouvert son chapitre.
@@ -1583,6 +1633,10 @@ namespace UniversSale
                 UpdateRecentMenu();
                 UpdateTitle();
                 UpdateInspector();
+                try { _lastSavedBytes = new FileInfo(_path).Length; } catch (IOException) { }
+                _dirtySince = null;
+                UnlockAchievement(Achievements.FirstProject); // le premier projet enregistré
+                ScheduleAchievementCheck(); // « Damn boi, he thicc! »
             }
             catch (Exception error)
             {
@@ -2085,12 +2139,14 @@ namespace UniversSale
         {
             _undoMenu.IsEnabled = _history.CanUndo;
             _redoMenu.IsEnabled = _history.CanRedo;
+            ScheduleAchievementCheck(); // états, épingles, fiches, plans…
         }
 
         private void MarkDirty()
         {
             if (_dirty) return;
             _dirty = true;
+            if (_dirtySince == null) _dirtySince = DateTime.Now; // « Vivre dangereusement »
             UpdateTitle();
         }
 
@@ -2389,6 +2445,7 @@ namespace UniversSale
                     ? PageDecor.For(_current, _project) : null;
                 Print.Printing.Print(document, _project.Styles, _project,
                     AppName + " — " + name, setup, offset, decor);
+                UnlockAchievement(Achievements.OldSchool); // « À l'ancienne »
             }
             catch (Exception error)
             {
@@ -2618,9 +2675,24 @@ namespace UniversSale
         /// end of the book — plain, or one of the extra pages (liminaires,
         /// table des matières, éditeur, soutien), pre-filled from the model
         /// and marked IsExtraPage (no folio).</summary>
+        /// <summary>L'image de la tuile d'un écrit ou d'un livre, depuis le
+        /// menu ⋮ d'une carte (12/09) : la sélection ne bouge pas, le tableau
+        /// se redessine.</summary>
+        private void CardImageRequested(BinderItem item, bool remove)
+        {
+            if (remove) _binder.RemoveCardImage(item);
+            else _binder.ChangeCardImage(item);
+            RefreshOpenCorkboards();
+        }
+
         private void NewBookDocument(BinderItem book, string kind)
         {
             if (kind == "plan") { _binder.NewPlan(book); return; } // racine Plans (b35)
+            // Les boutons de tête des racines Écrits et Recherche (12/09).
+            if (kind == "root-text") { _binder.NewText(book); return; }
+            if (kind == "root-folder") { _binder.NewFolder(book); return; }
+            if (kind == "root-book") { _binder.NewBook(book); return; }
+            if (kind == "import") { _binder.ImportMediaDialog(book); RefreshOpenCorkboards(); return; }
             if (book == null || book.Book == null) return;
             BinderItem item;
             if (kind == null)
@@ -2826,10 +2898,16 @@ namespace UniversSale
                 delegate(Print.PdfExportOptions o)
                 { return PreviewPdf(document, book.Book.Template, book.Title, o, null, 0); });
             if (options == null) return;
-            WritePdf(document, book.Book.Template, book.Title, options);
+            // « Complétionniste » (12/09) : le PDF d'un livre fini à 100 %.
+            if (WritePdf(document, book.Book.Template, book.Title, options))
+            {
+                if (Achievements.IsBookComplete(_project, book)) UnlockAchievement(Achievements.Completionist);
+                if (Achievements.IsMinimalist(book)) UnlockAchievement(Achievements.Minimalist);
+            }
         }
 
-        private void WritePdf(TextDocument document, PageSetup setup, string name,
+        /// <summary>True quand le fichier a été écrit (dialogue confirmé, pas d'erreur).</summary>
+        private bool WritePdf(TextDocument document, PageSetup setup, string name,
             Print.PdfExportOptions options, PageDecor decor = null, int folioOffset = 0)
         {
             var dialog = new Microsoft.Win32.SaveFileDialog
@@ -2838,7 +2916,7 @@ namespace UniversSale
                 FileName = SafeFileName(name) + ".pdf",
                 Title = "PDF prêt à imprimer"
             };
-            if (dialog.ShowDialog(this) != true) return;
+            if (dialog.ShowDialog(this) != true) return false;
             try
             {
                 var composition = Print.Composer.Compose(
@@ -2848,11 +2926,13 @@ namespace UniversSale
                 Print.PdfWriter.Write(dialog.FileName, composition, options);
                 MessageDialog.Show(this, "Export terminé :\n" + dialog.FileName,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Information);
+                return true;
             }
             catch (Exception error)
             {
                 MessageDialog.Show(this, "Export PDF impossible :\n" + error.Message,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
             }
         }
 
@@ -2885,7 +2965,14 @@ namespace UniversSale
         {
             _project.Journal.Add(WritingJournal.Today(), delta);
             if (_journalView.Visibility == Visibility.Visible) _journalView.Refresh();
-            if (delta > 0) CheckDailyGoal();
+            if (delta > 0)
+            {
+                CheckDailyGoal();
+                // Compteurs globaux des succès (12/09) : à 300 %, en mode calme.
+                if (AppSettings.Zoom >= 300) AppSettings.WordsAtMaxZoom += delta;
+                if (_calmMode) AppSettings.WordsInCalm += delta;
+                ScheduleAchievementCheck();
+            }
         }
 
         /// <summary>One fanfare per day: the celebration date is persisted in
@@ -2957,6 +3044,183 @@ namespace UniversSale
             toast.RenderTransform.BeginAnimation(TranslateTransform.YProperty, rise);
             toast.BeginAnimation(OpacityProperty, fade, System.Windows.Media.Animation
                 .HandoffBehavior.Compose);
+        }
+
+        // ============================================================= succès (12/09/2026)
+
+        /// <summary>Une vérification coalescée : les gestes qui peuvent
+        /// débloquer un succès arrivent en rafale (frappe, historique), on
+        /// mesure une fois, un peu après.</summary>
+        private void ScheduleAchievementCheck()
+        {
+            if (_achievementTimer == null)
+            {
+                _achievementTimer = new DispatcherTimer(DispatcherPriority.Background)
+                {
+                    Interval = TimeSpan.FromMilliseconds(900)
+                };
+                _achievementTimer.Tick += delegate { _achievementTimer.Stop(); CheckAchievements(); };
+            }
+            _achievementTimer.Stop();
+            _achievementTimer.Start();
+        }
+
+        /// <summary>Mesure les faits (projet + réglages + fenêtre) et débloque
+        /// ce qui vient d'être gagné, un toast par succès.</summary>
+        private void CheckAchievements()
+        {
+            var now = DateTime.Now;
+            var facts = Achievements.Gather(_project, CachedPageCount, CachedBookPages, AppSettings.BlankSince, now);
+            facts.PermanentlyDeleted = AppSettings.PermanentlyDeleted;
+            facts.UsageStreak = AppSettings.UsageStreak;
+            facts.PlotBytes = _lastSavedBytes;
+            facts.AccentChanged = AppSettings.AccentColor != null
+                && !string.Equals(AppSettings.AccentColor, Chrome.DefaultAccent, StringComparison.OrdinalIgnoreCase);
+            if (_project != null) facts.LexiconEntries += AppSettings.Lexicon.Count;
+            facts.AllProofOptions = AppSettings.SpellEnabled && AppSettings.GrammarEnabled
+                && AppSettings.TypographyEnabled && AppSettings.StyleEnabled;
+            facts.WordsAtMaxZoom = AppSettings.WordsAtMaxZoom;
+            facts.WordsInCalm = AppSettings.WordsInCalm;
+            facts.OpenHours = (now - _appStart).TotalHours;
+            facts.DirtyHours = _dirty && _dirtySince != null ? (now - _dirtySince.Value).TotalHours : 0;
+            foreach (var action in AppSettings.Actions)
+            {
+                string gesture;
+                if (AppSettings.Shortcuts.TryGetValue(action.Id, out gesture)
+                    && !string.Equals(gesture ?? "", action.DefaultGesture ?? "", StringComparison.OrdinalIgnoreCase))
+                    facts.ShortcutsChanged++;
+            }
+            var earned = Achievements.Earned(facts, AppSettings.Achievements.Keys);
+            foreach (var id in earned) UnlockAchievement(id);
+        }
+
+        /// <summary>Le compte de pages déjà mesuré d'un écrit (cache du batch
+        /// 30) — jamais une composition rien que pour un succès.</summary>
+        private int CachedPageCount(BinderItem text)
+        {
+            int pages;
+            return _pageCountCache.TryGetValue(text.Id, out pages) ? pages : 0;
+        }
+
+        /// <summary>Même règle pour un livre : la somme des comptes déjà
+        /// mesurés (BookPageTotal composerait tout le livre).</summary>
+        private int CachedBookPages(BinderItem book)
+        {
+            var texts = new List<BinderItem>();
+            CollectBookTexts(book, texts);
+            var total = 0;
+            foreach (var text in texts)
+            {
+                if (total % 2 == 1) total++;
+                total += CachedPageCount(text);
+            }
+            return total;
+        }
+
+        private void UnlockAchievement(string id)
+        {
+            var achievement = Achievements.Find(id);
+            if (achievement == null || AppSettings.Achievements.ContainsKey(id)) return;
+            AppSettings.Achievements[id] = DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+            AppSettings.Save();
+            ShowAchievementToast(achievement);
+            if (_journalView.Visibility == Visibility.Visible) _journalView.RefreshAchievements();
+            // Un palier peut tomber dans la foulée.
+            if (!Achievements.IsTier(id)) ScheduleAchievementCheck();
+        }
+
+        /// <summary>Développement : reverrouille un succès (le Roi avec lui).</summary>
+        /// <summary>« Nettoyage en profondeur » (12/09) : un écrit vu à plus de
+        /// cent fautes d'orthographe, puis revu à zéro.</summary>
+        private void TrackDeepClean()
+        {
+            if (_current == null || _current.Kind != ItemKind.Text || !_editor.ShowsItem(_current)) return;
+            var count = _editor.SpellingFindingCount;
+            if (count > 100) _deepCleanCandidates.Add(_current.Id);
+            else if (count == 0 && _deepCleanCandidates.Remove(_current.Id)) UnlockAchievement(Achievements.DeepClean);
+        }
+
+        private void RevokeAchievement(string id)
+        {
+            AppSettings.Achievements.Remove(id);
+            if (!Achievements.IsTier(id))
+                foreach (var tier in new[] { "petit-nerd", "poisson-panerd", "nerdinator", Achievements.Emperor })
+                    AppSettings.Achievements.Remove(tier);
+            AppSettings.Save();
+            if (_journalView.Visibility == Visibility.Visible) _journalView.RefreshAchievements();
+        }
+
+        /// <summary>Le toast de succès, façon Steam : l'image, le nom, la
+        /// description ; il glisse depuis la droite, s'attarde, s'efface. Les
+        /// toasts s'empilent si plusieurs tombent ensemble.</summary>
+        private void ShowAchievementToast(Achievement achievement)
+        {
+            var row = new DockPanel();
+            var badge = AchievementBadge.Build(achievement, true, 48);
+            badge.Margin = new Thickness(0, 0, 12, 0);
+            DockPanel.SetDock(badge, Dock.Left);
+            row.Children.Add(badge);
+            var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, MaxWidth = 300 };
+            text.Children.Add(new TextBlock
+            {
+                Text = "Succès débloqué",
+                Foreground = Chrome.SoftText,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold
+            });
+            text.Children.Add(new TextBlock
+            {
+                Text = achievement.Name,
+                Foreground = Chrome.Ink,
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap
+            });
+            text.Children.Add(new TextBlock
+            {
+                Text = achievement.Description,
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap
+            });
+            row.Children.Add(text);
+            var toast = new Border
+            {
+                Background = Chrome.RaisedBg,
+                BorderBrush = Chrome.Accent,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(12, 10, 16, 10),
+                Margin = new Thickness(0, 8, 0, 0),
+                Opacity = 0,
+                Child = row,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    Color = Colors.Black,
+                    Opacity = 0.3,
+                    BlurRadius = 14,
+                    ShadowDepth = 2
+                },
+                RenderTransform = new TranslateTransform(60, 0)
+            };
+            _toastHost.Children.Add(toast);
+
+            var appear = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(240));
+            var slide = new System.Windows.Media.Animation.DoubleAnimation(60, 0, TimeSpan.FromMilliseconds(320))
+            {
+                EasingFunction = new System.Windows.Media.Animation.CubicEase
+                {
+                    EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut
+                }
+            };
+            var fade = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(600))
+            {
+                BeginTime = TimeSpan.FromSeconds(6)
+            };
+            fade.Completed += delegate { _toastHost.Children.Remove(toast); };
+            toast.BeginAnimation(OpacityProperty, appear);
+            toast.RenderTransform.BeginAnimation(TranslateTransform.XProperty, slide);
+            toast.BeginAnimation(OpacityProperty, fade, System.Windows.Media.Animation.HandoffBehavior.Compose);
         }
 
         private int ProjectWords()
@@ -3327,10 +3591,13 @@ namespace UniversSale
         {
             var dialog = new PreferencesDialog(this, _project);
             dialog.AppearanceChanged += ApplyAppearance;
+            dialog.AppearanceChanged += ScheduleAchievementCheck; // « Pimp my write »
+            dialog.ShortcutsChanged += ScheduleAchievementCheck;  // « Picky eater »
             dialog.ProofingChanged += delegate
             {
                 _editor.RefreshProofing();
                 if (_project != null) MarkDirty(); // la liste projet a pu changer
+                ScheduleAchievementCheck(); // « Sur-stimulation »
             };
             dialog.EditingSurfaceChanged += delegate
             {
@@ -3483,7 +3750,7 @@ namespace UniversSale
             UpdateLinksPanel();
 
             _inspDates.Text = string.IsNullOrEmpty(_project.CreatedAt) ? ""
-                : "Créé le " + _project.CreatedAt + "\nModifié le " + _project.ModifiedAt;
+                : "Créé le " + Dates.Display(_project.CreatedAt) + "\nModifié le " + Dates.Display(_project.ModifiedAt);
 
             UpdateBookSection();
             UpdateBookProgress();
@@ -3815,6 +4082,7 @@ namespace UniversSale
 
         private void ShowAbout()
         {
+            UnlockAchievement(Achievements.About); // « Enfin quelqu'un qui en a quelque chose à faire ! »
             MessageDialog.Show(this,
                 AppName + " " + AppVersion + "\n\n" +
                 "Traitement de texte et construction narrative.\n" +

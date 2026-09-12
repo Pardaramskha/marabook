@@ -202,7 +202,7 @@ namespace UniversSale.Tests
             t.Equal("il y a 3 h", Recents.Elapsed("2026-08-30 10:30:00", now), "le même jour : en heures");
             t.Equal("hier", Recents.Elapsed("2026-08-29 23:30:00", now), "la veille : hier");
             t.Equal("lundi", Recents.Elapsed("2026-08-24 09:00:00", now), "moins d'une semaine : le jour");
-            t.Equal("le 12 août", Recents.Elapsed("2026-08-12 09:00:00", now), "au-delà : la date");
+            t.Equal("le 12/08/2026", Recents.Elapsed("2026-08-12 09:00:00", now), "au-delà : la date en JJ/MM/AAAA (12/09)");
             t.Equal("", Recents.Elapsed("n'importe quoi", now), "une date illisible : rien");
         }
 
