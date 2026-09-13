@@ -34,8 +34,10 @@ namespace UniversSale.Tests
             t.Equal("Il l’a dit…", Clean("Il l'a dit..."), "apostrophe courbe et points de suspension");
             t.Equal("etc.", Clean("etc..."), "etc… → etc.");
             t.Equal("«" + Nbsp + "Bonjour" + Nbsp + "»", Clean("\"Bonjour\""), "guillemets français, pleine dedans (in)");
-            t.Equal("— Viens, dit-il.", Clean("- Viens, dit-il."), "tiret de dialogue en tête");
-            t.Equal("— Viens.", Clean("-- Viens."), "double tiret de dialogue");
+            // Depuis le 13/09, le tiret de dialogue est suivi d'une INSÉCABLE
+            // (ce que Grammalecte réclame à chaque réplique).
+            t.Equal("— Viens, dit-il.", Clean("- Viens, dit-il."), "tiret de dialogue en tête, suivi d'une insécable");
+            t.Equal("— Viens.", Clean("-- Viens."), "double tiret de dialogue");
             t.Equal("1914–1918", Clean("1914-1918"), "intervalle en demi-cadratin");
             t.Equal("Oui" + Fine + "! Non" + Fine + "?", Clean("Oui ! Non?"), "fine avant ! et ? (posée ou ajoutée)");
             t.Equal("Note" + Nbsp + ": suite", Clean("Note : suite"), "pleine avant : (in)");

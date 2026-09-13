@@ -241,7 +241,12 @@ namespace UniversSale.Correction
             // (4a) tirets de dialogue
             if (o.DialogueDashes && !o.Minimal)
             {
-                work = Replace(work, @"(?m)^([ \t]*)-{1,2}[ \t]+", "$1— ", out n, null); r.Count("tirets de dialogue", n);
+                // Le tiret de dialogue est suivi d'une INSÉCABLE (13/09) : un
+                // espace ordinaire après le cadratin, c'est « il manque un
+                // espace insécable » chez Grammalecte à chaque réplique — et
+                // la passe ne le corrigeait jamais.
+                work = Replace(work, @"(?m)^([ \t]*)-{1,2}[ \t]+", "$1— ", out n, null); r.Count("tirets de dialogue", n);
+                work = Replace(work, @"(?m)^([ \t]*—)[ \t ]+", "$1 ", out n, null); r.Count("insécable après le tiret", n);
             }
             // (4b) intervalles
             if (o.Ranges && !o.Minimal)

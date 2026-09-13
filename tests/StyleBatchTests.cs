@@ -25,6 +25,7 @@ namespace UniversSale.Tests
             OrphanQuoteAndLongQuote(t);
             DialogueAcrossParagraphs(t);
             CloseBeforeIncise(t);
+            DashFollowedByNoBreakSpace(t);
             DialogueCollect(t);
             DialogueWindow(t);
             DialogueInventory(t);
@@ -250,6 +251,28 @@ namespace UniversSale.Tests
             t.Equal(0, pass.Summary.Warnings.Count, "aucun avertissement d'orphelin (" + string.Join(" | ", pass.Summary.Warnings.ToArray()) + ")");
             var closed = Typography.Clean("Il dit \"non\", rétorqua l’autre.", options, null, 0).Text;
             t.Check(closed.Contains("«") && closed.Contains("»"), "sans citation ouverte : la paire ordinaire (" + closed + ")");
+        }
+
+        /// <summary>Le tiret de dialogue est suivi d'une insécable — ce que
+        /// Grammalecte réclame à chaque réplique et que la passe ne posait pas.</summary>
+        private static void DashFollowedByNoBreakSpace(Harness t)
+        {
+            var options = new TypographyOptions();
+            t.Equal("— Bonjour, dit-il.", Typography.Clean("- Bonjour, dit-il.", options).Text, "tiret simple → cadratin + insécable");
+            t.Equal("— Bonjour", Typography.Clean("— Bonjour", options).Text, "cadratin déjà là, espace ordinaire → insécable");
+            t.Equal("— Bonjour", Typography.Clean("— Bonjour", options).Text, "déjà bon : rien ne bouge");
+            t.Equal("a — b", Typography.Clean("a — b", options).Text, "un tiret au milieu d'une phrase n'est pas un tiret de dialogue");
+            // À la frappe : « - » puis l'espace → le cadratin et son insécable
+            // (les règles de la frappe n'ont pas « espaces », qui rognerait
+            // l'espace en bout de ligne avant que le tiret ne le voie).
+            var live = new TypographyOptions { Spaces = false };
+            var before = "- ";
+            var after = Typography.Clean(before, live).Text;
+            var ops = CharDiff.Diff(before, after);
+            int delta;
+            bool changed;
+            var kept = TypographyLive.Restrict(ops, before.Length, 1, int.MaxValue, out delta, out changed);
+            t.Check(changed && Apply(kept) == "— ", "à la frappe aussi (" + Apply(kept) + ")");
         }
 
         // ----------------------------------------------------- verbes de dialogue
