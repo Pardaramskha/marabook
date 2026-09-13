@@ -1407,11 +1407,9 @@ namespace UniversSale.View
                     else InsertParagraphBreak();
                     break;
                 case Key.Escape:
-                    // Échap ne QUITTE plus la composition (13/09) : l'éditeur
-                    // classique est gelé depuis le batch 26, y retomber
-                    // affichait des « pages » figées par-dessus le Brouillon
-                    // ou le mode calme. Ici, Échap ne fait que lâcher la
-                    // sélection ; la coquille garde Échap pour sortir du calme.
+                    // Échap ne fait que lâcher la sélection (13/09 — l'éditeur
+                    // classique où il retombait n'existe plus) ; la coquille
+                    // garde Échap pour sortir du calme.
                     ClearSelection();
                     handled = false; // laisse remonter (mode calme)
                     break;

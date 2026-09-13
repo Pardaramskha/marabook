@@ -66,7 +66,6 @@ namespace UniversSale.Tests.Ui
             PlotFile.Save(project, path);
 
             AppSettings.Load();
-            AppSettings.ClassicCompatibility = false;
             AppSettings.RightPanel = RightPanel.Inspector;
             Chrome.Toggle(false);
             var application = Application.Current ?? new Application

@@ -85,12 +85,8 @@ namespace UniversSale.Settings
         public static double Zoom = 100; // page zoom, percent (50–300)
         public static bool ShowFormattingMarks; // ¶ printing characters
         public static bool ShowRulers;          // règles cm (Ctrl+R)
-        // GEL DU CLASSIQUE (batch 26) : le composé est LA surface d'édition.
-        // true = repli « mode de compatibilité » (Préférences) : l'ancienne
-        // surface RichTextBox, pour la saisie IME et le SpellCheck Windows —
-        // sans correction Marabook, sans approche, sans bulles, sans gabarits
-        // à l'écran. L'ancienne clé compositionMode n'est plus lue.
-        public static bool ClassicCompatibility;
+        // Les clés compositionMode et classicCompatibility ne sont plus lues :
+        // le mode classique (RichTextBox) a été retiré le 13/09.
         public static bool DraftView; // axe d'affichage : Brouillon plutôt que Pages
         public static string AccentColor;    // "#RRGGBB", null = default indigo
         public static bool WhitePaperInDark; // keep white pages under the dark theme
@@ -264,7 +260,6 @@ namespace UniversSale.Settings
                 if (Zoom > 300) Zoom = 300;
                 ShowFormattingMarks = Json.AsBool(Json.Field(root, "formattingMarks"), false);
                 ShowRulers = Json.AsBool(Json.Field(root, "rulers"), false);
-                ClassicCompatibility = Json.AsBool(Json.Field(root, "classicCompatibility"), false);
                 DraftView = Json.AsBool(Json.Field(root, "draftView"), false);
                 AccentColor = Json.AsString(Json.Field(root, "accentColor"));
                 WhitePaperInDark = Json.AsBool(Json.Field(root, "whitePaperInDark"), false);
@@ -367,7 +362,6 @@ namespace UniversSale.Settings
                 root["zoom"] = Zoom;
                 root["formattingMarks"] = ShowFormattingMarks;
                 root["rulers"] = ShowRulers;
-                root["classicCompatibility"] = ClassicCompatibility;
                 root["draftView"] = DraftView;
                 if (AccentColor != null) root["accentColor"] = AccentColor;
                 root["whitePaperInDark"] = WhitePaperInDark;

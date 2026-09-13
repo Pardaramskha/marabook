@@ -52,7 +52,6 @@ namespace UniversSale.Tests.Ui
             PlotFile.Save(project, path);
 
             AppSettings.Load();
-            AppSettings.ClassicCompatibility = false;
             AppSettings.RightPanel = RightPanel.Inspector;
             AppSettings.DailySnapshot = false; // la quotidienne est testée en console ; ici, des comptes exacts
             Chrome.Toggle(false);

@@ -121,28 +121,22 @@ namespace UniversSale.View
             _boldBtn = FormatToggle("G", "Gras (Ctrl+B)", true, false, false, false);
             _boldBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.ToggleBold(); _composed.Focus(); return; }
-                EditingCommands.ToggleBold.Execute(null, _box);
-                AfterFormat();
+                if (ComposedActive) { _composed.ToggleBold(); _composed.Focus(); }
             };
             _italicBtn = FormatToggle("I", "Italique (Ctrl+I)", false, true, false, false);
             _italicBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.ToggleItalic(); _composed.Focus(); return; }
-                EditingCommands.ToggleItalic.Execute(null, _box);
-                AfterFormat();
+                if (ComposedActive) { _composed.ToggleItalic(); _composed.Focus(); }
             };
             _underBtn = FormatToggle("S", "Souligné (Ctrl+U)", false, false, true, false);
             _underBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.ToggleUnderline(); _composed.Focus(); return; }
-                ToggleDecoration(TextDecorationLocation.Underline);
+                if (ComposedActive) { _composed.ToggleUnderline(); _composed.Focus(); }
             };
             _strikeBtn = FormatToggle("B", "Barré", false, false, false, true);
             _strikeBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.ToggleStrike(); _composed.Focus(); return; }
-                ToggleDecoration(TextDecorationLocation.Strikethrough);
+                if (ComposedActive) { _composed.ToggleStrike(); _composed.Focus(); }
             };
             // Icônes Flaticon (batch 28) — les lettres G/I/S/B laissent place
             // aux glyphes universels.
@@ -184,22 +178,17 @@ namespace UniversSale.View
             _bulletBtn = IconToggle("list", "Liste à puces");
             _bulletBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.ApplyList("bullet"); _composed.Focus(); return; }
-                EditingCommands.ToggleBullets.Execute(null, _box);
-                AfterFormat();
+                if (ComposedActive) { _composed.ApplyList("bullet"); _composed.Focus(); }
             };
             _numberBtn = IconToggle("list-numbers-bold", "Liste numérotée");
             _numberBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.ApplyList("number"); _composed.Focus(); return; }
-                EditingCommands.ToggleNumbering.Execute(null, _box);
-                AfterFormat();
+                if (ComposedActive) { _composed.ApplyList("number"); _composed.Focus(); }
             };
             _checkBtn = IconToggle("list-check", "Case à cocher (☐ → ☑ → retirer)");
             _checkBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.TypeText("☐ "); return; }
-                ToggleChecklist();
+                if (ComposedActive) _composed.TypeText("☐ ");
             };
             alignBottom.Children.Add(_bulletBtn);
             alignBottom.Children.Add(_numberBtn);
@@ -421,22 +410,13 @@ namespace UniversSale.View
         }
 
         /// <summary>L'état du sélecteur d'affichage — une seule position
-        /// enfoncée ; Pages et Brouillon se grisent en mode de compatibilité
-        /// (le repli classique n'a que la vue paginée du miroir).</summary>
+        /// enfoncée.</summary>
         private void UpdateViewButtons()
         {
             if (_pagesViewBtn == null) return;
             _pagesViewBtn.IsChecked = !_calm && !_draftView;
             _draftViewBtn.IsChecked = !_calm && _draftView;
             _calmViewBtn.IsChecked = _calm;
-            var composed = !Settings.AppSettings.ClassicCompatibility;
-            _pagesViewBtn.IsEnabled = composed;
-            _draftViewBtn.IsEnabled = composed;
-            if (!composed)
-            {
-                _pagesViewBtn.ToolTip = "Mode de compatibilité actif (Préférences)";
-                _draftViewBtn.ToolTip = _pagesViewBtn.ToolTip;
-            }
         }
 
         /// <summary>Bascule Pages ↔ Brouillon : ré-attache la surface composée
@@ -447,7 +427,7 @@ namespace UniversSale.View
             Settings.AppSettings.DraftView = draft;
             Settings.AppSettings.Save();
             UpdateViewButtons();
-            if (ComposedActive && _item != null) SetComposition(true);
+            AttachComposed();
         }
 
         /// <summary>Le réglage de page du BROUILLON : même moteur, même pivot —
@@ -472,8 +452,8 @@ namespace UniversSale.View
             return draft;
         }
 
-        /// <summary>Mode calme : le ruban et le panneau de notes s'effacent,
-        /// la coquille masque le reste (Pile, inspecteur, menus, barre d'état).</summary>
+        /// <summary>Mode calme : le ruban s'efface, la coquille masque le
+        /// reste (Pile, inspecteur, menus, barre d'état).</summary>
         public void SetCalm(bool calm)
         {
             _calm = calm;
@@ -484,10 +464,9 @@ namespace UniversSale.View
             // (Pages ou Brouillon) en sortant. Même moteur, réglage dérivé.
             ComposedRenderer.ShowWidowMarks = !calm;
             _composed.CalmLook = calm;
-            if (ComposedActive && _item != null) SetComposition(true);
+            AttachComposed();
             UpdateRulers();      // les règles s'effacent en calme
             UpdateViewButtons(); // le sélecteur d'affichage suit
-            RebuildNotesPanel(); // la visibilité des panneaux suit _calm
             RebuildCorrectionPanel();
             RebuildAnnotationsPanel();
         }
@@ -542,44 +521,26 @@ namespace UniversSale.View
             return panel;
         }
 
-        /// <summary>Approche sur la sélection : effective dans la Composition
-        /// (le RichTextBox classique ne rend pas l'interlettrage — le réglage
-        /// s'applique au pivot et se voit en Composition/aperçu/PDF).</summary>
+        /// <summary>Approche sur la sélection (le réglage s'applique au pivot
+        /// et se voit à l'écran, à l'aperçu et au PDF).</summary>
         private void ApplyTrackingStep(double delta)
         {
-            if (_item == null) return;
-            if (ComposedActive)
-            {
-                _composed.ApplyTracking(delta);
-                SyncTrackingBox();
-                _composed.Focus();
-                return;
-            }
-            MessageDialog.Show(Window.GetWindow(this),
-                "L'approche se règle depuis le mode Composition (onglet Composition),\n"
-                + "où son effet est visible à l'écran.",
-                "Approche", MessageBoxButton.OK, MessageBoxImage.Information);
+            if (_item == null || !ComposedActive) return;
+            _composed.ApplyTracking(delta);
+            SyncTrackingBox();
+            _composed.Focus();
         }
 
         private void ApplyTrackingAbsolute(double value)
         {
-            if (_item == null) return;
-            if (ComposedActive)
-            {
-                _composed.SetTracking(value);
-                SyncTrackingBox();
-                _composed.Focus();
-                return;
-            }
-            MessageDialog.Show(Window.GetWindow(this),
-                "L'approche se règle depuis le mode Composition (onglet Composition),\n"
-                + "où son effet est visible à l'écran.",
-                "Approche", MessageBoxButton.OK, MessageBoxImage.Information);
+            if (_item == null || !ComposedActive) return;
+            _composed.SetTracking(value);
+            SyncTrackingBox();
+            _composed.Focus();
         }
 
-        /// <summary>Combos du ruban en MODE COMPOSITION : style, police et
-        /// taille au caret — la synchro classique (SyncToolbar) s'arrête dès
-        /// que la surface composée est active, d'où des combos vides.</summary>
+        /// <summary>Combos et bascules du ruban : style, police, taille et
+        /// formats au caret de la surface composée.</summary>
         private void SyncToolbarComposed()
         {
             if (!ComposedActive || _item == null || _styleCombo == null) return;
@@ -888,7 +849,7 @@ namespace UniversSale.View
 
         private void AfterPageSetupEdit()
         {
-            ApplyPageVisuals();
+            SyncPageTab();
             if (ComposedActive) _composed.RefreshComposition();
             var handler = PageSetupChanged;
             if (handler != null) handler();
@@ -1003,37 +964,19 @@ namespace UniversSale.View
                 var family = _composed.GetCaretFontFamily();
                 if (family != null) return family;
             }
-            else
-            {
-                var value = _box.Selection.GetPropertyValue(TextElement.FontFamilyProperty) as FontFamily;
-                if (value != null) return value.Source;
-            }
             return _styles.Body.FontFamily;
         }
 
         private string CurrentWeightName()
         {
-            if (ComposedActive) return _composed.GetSelectionWeightName();
-            var value = _box.Selection.GetPropertyValue(TextElement.FontWeightProperty);
-            if (!(value is FontWeight)) return "mixed";
-            var weight = (FontWeight)value;
-            var name = FlowConverter.WeightName(weight);
-            if (name != null) return name;
-            return weight >= FontWeights.Bold ? "Bold" : null;
+            return ComposedActive ? _composed.GetSelectionWeightName() : "mixed";
         }
 
         private void ApplyWeight(string weight)
         {
-            if (_item == null) return;
-            if (ComposedActive)
-            {
-                _composed.ApplyWeight(weight);
-                _composed.Focus();
-                return;
-            }
-            _box.Selection.ApplyPropertyValue(TextElement.FontWeightProperty,
-                weight == null ? FontWeights.Normal : FlowConverter.ParseWeight(weight));
-            AfterFormat();
+            if (_item == null || !ComposedActive) return;
+            _composed.ApplyWeight(weight);
+            _composed.Focus();
         }
 
         private ToggleButton AlignToggle(string align, string tooltip)
@@ -1051,13 +994,7 @@ namespace UniversSale.View
             };
             button.Click += delegate
             {
-                if (ComposedActive) { _composed.ApplyAlign(align); _composed.Focus(); return; }
-                var command = align == "center" ? EditingCommands.AlignCenter
-                            : align == "right" ? EditingCommands.AlignRight
-                            : align == "justify" ? EditingCommands.AlignJustify
-                            : EditingCommands.AlignLeft;
-                command.Execute(null, _box);
-                AfterFormat();
+                if (ComposedActive) { _composed.ApplyAlign(align); _composed.Focus(); }
             };
             return button;
         }
@@ -1254,20 +1191,10 @@ namespace UniversSale.View
 
         private void ApplyPaletteColor(string hex, bool isForeground)
         {
-            if (ComposedActive)
-            {
-                if (isForeground) _composed.ApplyColor(hex);
-                else _composed.ApplyHighlight(hex);
-                _composed.Focus();
-                return;
-            }
-            if (isForeground)
-                _box.Selection.ApplyPropertyValue(TextElement.ForegroundProperty,
-                    hex == null ? (Brush)Chrome.PaperInk : new SolidColorBrush(FlowConverter.ParseColor(hex)));
-            else
-                _box.Selection.ApplyPropertyValue(TextElement.BackgroundProperty,
-                    hex == null ? null : new SolidColorBrush(FlowConverter.ParseColor(hex)));
-            AfterFormat();
+            if (!ComposedActive) return;
+            if (isForeground) _composed.ApplyColor(hex);
+            else _composed.ApplyHighlight(hex);
+            _composed.Focus();
         }
 
         private void AddColorEntry(ContextMenu menu, string label, string hex, bool isForeground)

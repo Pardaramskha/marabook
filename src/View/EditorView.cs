@@ -11,69 +11,37 @@ using UniversSale.Model;
 
 namespace UniversSale.View
 {
-    /// <summary>The rich text editor: format bar, RichTextBox over a pivot
-    /// document, find &amp; replace bar, footnotes panel. The pivot stays the
-    /// source of truth — Commit() flushes the FlowDocument back into the item.
-    /// Text-level undo is the RichTextBox's own; the Binder history is separate.</summary>
+    /// <summary>L'éditeur d'écrits : le ruban, la barre de recherche, le
+    /// panneau de correction et LA surface d'édition — les pages composées
+    /// (ComposedView), qui écrivent directement dans le pivot. L'ancien
+    /// RichTextBox (le « mode classique », gelé au batch 26) a été retiré le
+    /// 13/09 : plus de Commit, le pivot est toujours le modèle vivant.
+    /// L'annulation de texte est celle de la surface ; l'historique de la
+    /// Pile est à part.</summary>
     public partial class EditorView : DockPanel
     {
-        private RichTextBox _box;
         private StyleSheet _styles = StyleSheet.CreateDefault();
         private BinderItem _item;
         private Project _project; // image store; null until a project is loaded
         private PageSetup _pageSetup = new PageSetup();
-        private bool _loading, _syncing;
+        private bool _syncing;
 
-        private Border _page;
-        private Grid _pageHost;
-        private Canvas _sheets;    // hand-drawn selection, behind the text
-        private Canvas _pageMarks; // caret, line numbers, ¶ marks — above the text
-        private ScrollViewer _scroller;
-
-        // The paged mirror: the RichTextBox lays the text out CONTINUOUSLY in a
-        // hidden (clipped) host, and the visible surface is a stack of page
-        // frames, each showing a line-accurate slice of it through a
-        // VisualBrush. Real pages, no holes, no document mutation — the same
-        // illusion as the Composition mode.
-        private StackPanel _mirror;
-        private readonly List<double> _sliceTops = new List<double>();
-        private readonly List<double> _sliceHeights = new List<double>();
-        private System.Windows.Shapes.Rectangle _classicCaret;
-        private DispatcherTimer _classicBlink;
-        private TextPointer _mirrorAnchor; // forwarded drag-selection anchor
-        private ComposedView _composed;        // « Composition » mode (composer 4b)
+        private ComposedView _composed;        // la surface d'édition (pages composées)
         private RulerView _rulerH, _rulerV;    // règles cm (Ctrl+R)
         private TextBox _trackingBox;          // champ d'approche (em/1000)
         // L'axe d'affichage (batch 26, lot B.2) : Pages / Brouillon / Calme —
         // même moteur, même pivot, seule la présentation change.
         private ToggleButton _pagesViewBtn, _draftViewBtn, _calmViewBtn;
         private bool _draftView;
-        private DispatcherTimer _marksTimer;   // full pagination, debounced typing
-        private DispatcherTimer _overlayTimer; // fast overlay redraw (scroll, zoom)
         private double _zoom = 1.0;
         private bool _showMarks; // ¶ formatting marks
-
-        // Real pagination: paragraphs are pushed page by page with presentation
-        // margins (never recorded in undo — see UndoGate). _pageTops[k] is the
-        // top of sheet k, _pageBottoms[k] its bottom, in _box coordinates.
-        private readonly Dictionary<Paragraph, double> _appliedExtra = new Dictionary<Paragraph, double>();
-        private readonly List<double> _pageTops = new List<double>();
-        private readonly List<double> _pageBottoms = new List<double>();
-        // Virtual page starts: text flows continuously on stretched sheets,
-        // page boundaries are drawn every A4-content-height (the Composition
-        // mode remains the physically paged reference).
-        private readonly List<double> _virtualStarts = new List<double>();
-        private const double PageGap = 18;
-        private bool _paginating;
 
         public event Action<int> ZoomStepRequested; // +10 / -10 (percent)
         public event Action PageSetupChanged;       // edited from the Mise en page tab
         public event Action<int, int> PageInfoChanged; // caret page, page count
 
         /// <summary>Pages du livre précédant ce document (0 hors livre) :
-        /// folio affiché et parité des marges miroir de la Composition. Le
-        /// miroir classique n'alterne pas sa colonne (RichTextBox mono-flux)
-        /// mais ses folios suivent.</summary>
+        /// folio affiché et parité des marges miroir de la composition.</summary>
         public int FolioOffset;
 
         /// <summary>Décor en-tête/pied du document (fixé par la coquille à
@@ -106,12 +74,7 @@ namespace UniversSale.View
         private PivotSearch.Match _searchCurrent; // résultat courant (composé)
         private TextBlock _searchInfo;
 
-        private Border _notesBar;
-        private StackPanel _notesList;
-
         private ToggleButton _annVisibleBtn; // « Visibles » de l'onglet Révision
-        private Canvas _bubbleLayer; // bulles de commentaire façon Word (classique)
-        private Grid _surface;       // hôte du miroir + des bulles
 
         // ---- correction (batch 26) : le pilote, ses signalements, son panneau
         private readonly Correction.CheckerHost _checkHost = new Correction.CheckerHost();
@@ -193,7 +156,6 @@ namespace UniversSale.View
             _draftView = Settings.AppSettings.DraftView; // avant le ruban
             BuildFormatBar();
             BuildSearchBar();
-            BuildNotesBar();
             BuildCorrectionBar();
             BuildPage();
 
@@ -344,65 +306,22 @@ namespace UniversSale.View
 
         // ============================================================= Composition mode
 
-        /// <summary>True while the composed surface is the writing surface —
-        /// then the pivot is the live source of truth and the RichTextBox is
-        /// dormant/stale.</summary>
+        /// <summary>Vrai quand un écrit est attaché à la surface composée
+        /// (faux sans écrit, ou le temps d'une recomposition ratée).</summary>
         public bool ComposedActive
         {
             get { return _composed != null && _composed.HasItem
                     && _composed.Visibility == Visibility.Visible; }
         }
 
-        /// <summary>Bascule interne entre la surface composée (LA surface
-        /// d'édition depuis le gel du batch 26) et le repli classique (mode
-        /// de compatibilité des Préférences). Plus aucun bouton de ruban n'y
-        /// mène — le choix de l'utilisateur est un AFFICHAGE (Pages /
-        /// Brouillon / Calme), jamais un moteur.</summary>
-        public void SetComposition(bool active)
+        /// <summary>(Ré)attache l'écrit ouvert à la surface composée avec le
+        /// réglage de page de l'AFFICHAGE choisi (Pages / Brouillon / Calme) —
+        /// même moteur, même pivot, seule la présentation change.</summary>
+        private void AttachComposed()
         {
-            if (!active)
-            {
-                if (ComposedActive)
-                {
-                    // Back to the classic surface: reload it from the pivot,
-                    // which the composed editor was mutating live.
-                    _composed.Detach();
-                    _composed.Visibility = Visibility.Collapsed;
-                    _scroller.Visibility = Visibility.Visible;
-                    if (_item != null)
-                    {
-                        _loading = true;
-                        _box.Document = FlowConverter.ToFlow(_item.Document, _styles,
-                            _project, Settings.AppSettings.ShowAnnotations);
-                        _loading = false;
-                        ApplyPageVisuals();
-                        RebuildNotesPanel();
-                        RebuildAnnotationsPanel();
-                    }
-                    _box.Focus();
-                }
-                else
-                {
-                    _composed.Detach();
-                    _composed.Visibility = Visibility.Collapsed;
-                    _scroller.Visibility = Visibility.Visible;
-                }
-                RunCheck(); // hors composé : panneau et ondulés s'éteignent
-                return;
-            }
             if (_item == null) return;
             try
             {
-                // The classic surface may hold unsaved keystrokes: flush first
-                // (la liste d'annotations vit à part des runs, elle survit).
-                if (!ComposedActive && _box.Document != null)
-                {
-                    var annotations = _item.Document.Annotations;
-                    _item.Document = FlowConverter.FromFlow(_box.Document, _styles,
-                        _item.Document.Footnotes, _project);
-                    _item.Document.Annotations = annotations;
-                    _item.Document.AnnotationOrder(true);
-                }
                 _composed.SetZoom(_zoom);
                 // Brouillon : même moteur, réglage de page dérivé — colonne
                 // continue sans décor ni folio (voir DraftSetup).
@@ -415,11 +334,9 @@ namespace UniversSale.View
                     _calm ? CalmSetup(_pageSetup) : _draftView ? DraftSetup(_pageSetup) : _pageSetup,
                     _project);
                 _composed.Visibility = Visibility.Visible;
-                _scroller.Visibility = Visibility.Collapsed;
                 _composed.SetFormattingMarks(_showMarks); // l'état du ¶ suit la surface
                 _composed.Focus();
                 RebuildAnnotationsPanel();
-                RebuildNotesPanel(); // le panneau du bas se retire en pages composées (b33)
                 RunCheck(); // la surface composée s'ouvre vérifiée
             }
             catch (Exception error)
@@ -427,7 +344,8 @@ namespace UniversSale.View
                 MessageDialog.Show(Window.GetWindow(this),
                     "Composition impossible :\n" + error.Message,
                     "Marabook", MessageBoxButton.OK, MessageBoxImage.Warning);
-                SetComposition(false);
+                _composed.Detach();
+                RunCheck(); // sans surface : panneau et ondulés s'éteignent
             }
         }
 
@@ -480,18 +398,7 @@ namespace UniversSale.View
             var pages = new System.Collections.Generic.List<Rect>();
             try
             {
-                if (ComposedActive)
-                    pages = _composed.PageRects(_rulerH);
-                else
-                    foreach (var child in _mirror.Children)
-                    {
-                        var frame = child as FrameworkElement;
-                        if (frame == null || frame.ActualWidth < 1) continue;
-                        var p0 = frame.TranslatePoint(new Point(0, 0), _rulerH);
-                        var p1 = frame.TranslatePoint(
-                            new Point(frame.ActualWidth, frame.ActualHeight), _rulerH);
-                        pages.Add(new Rect(p0, p1));
-                    }
+                if (ComposedActive) pages = _composed.PageRects(_rulerH);
             }
             catch { }
             _rulerH.Update(pages, _pageSetup.PageWidthMm, _pageSetup.PageHeightMm);
@@ -504,10 +411,7 @@ namespace UniversSale.View
         {
             _showMarks = visible;
             if (_marksBtn != null) _marksBtn.IsChecked = visible;
-            // Les pages composées dessinent leurs propres marques (batch 35 —
-            // le classique replié ne les montrait plus à personne).
             if (_composed != null) _composed.SetFormattingMarks(visible);
-            RefreshOverlay();
         }
 
         private void BuildSearchBar()
@@ -596,37 +500,6 @@ namespace UniversSale.View
             return button;
         }
 
-        private void BuildNotesBar()
-        {
-            _notesBar = new Border
-            {
-                Background = Chrome.BarBgLight,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(0, 1, 0, 0),
-                Padding = new Thickness(24, 8, 24, 8),
-                Visibility = Visibility.Collapsed,
-                MaxHeight = 180
-            };
-            SetDock(_notesBar, Dock.Bottom);
-            var panel = new StackPanel();
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Notes de bas de page",
-                Foreground = Chrome.SoftText,
-                FontSize = 11,
-                Margin = new Thickness(0, 0, 0, 4)
-            });
-            _notesList = new StackPanel();
-            panel.Children.Add(new ScrollViewer
-            {
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                MaxHeight = 130,
-                Content = _notesList
-            });
-            _notesBar.Child = panel;
-            Children.Add(_notesBar);
-        }
-
         // ============================================================= insertion
 
         private string _lastNoteId; // dernière note visitée (précédent/suivant)
@@ -686,13 +559,11 @@ namespace UniversSale.View
             OpenNote(order[target]);
         }
 
-        /// <summary>Ouvre une note pour édition : en place dans les pages
-        /// composées, dans le panneau du bas en compatibilité classique.</summary>
+        /// <summary>Ouvre une note pour édition, en place au bas de sa page.</summary>
         private void OpenNote(string id)
         {
             _lastNoteId = id;
             if (ComposedActive) _composed.EditNote(id);
-            else FocusNote(id);
         }
 
         // ============================================================= formatage
@@ -721,14 +592,7 @@ namespace UniversSale.View
         /// comparatif, application en un cran d'annulation.</summary>
         public void RunTypography()
         {
-            if (_item == null) return;
-            if (!ComposedActive)
-            {
-                MessageDialog.Show(Window.GetWindow(this),
-                    "La passe typographique s'applique dans les pages composées.",
-                    "Formatage", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
+            if (_item == null || !ComposedActive) return;
             var result = Correction.TypographyPass.Run(_item.Document, Settings.AppSettings.Typography);
             if (result.Changes.Count == 0)
             {
@@ -749,7 +613,6 @@ namespace UniversSale.View
                 if (taken != null) taken();
             }
             _composed.ReplaceParagraphs(result.Paragraphs);
-            RebuildNotesPanel();
             RunCheck();
         }
 
@@ -844,13 +707,9 @@ namespace UniversSale.View
                 + "— re-cliquer pour l'y rendre");
             noProof.Click += delegate
             {
-                // Le gel du classique (batch 26) : la commande vit dans les
-                // pages composées, la seule surface d'édition supportée.
-                if (!ComposedActive || !_composed.ToggleNoProofSelection())
+                if (ComposedActive && !_composed.ToggleNoProofSelection())
                     MessageDialog.Show(Window.GetWindow(this),
-                        ComposedActive
-                            ? "Sélectionnez d'abord le passage à soustraire."
-                            : "« Ne pas corriger » s'applique dans les pages composées.",
+                        "Sélectionnez d'abord le passage à soustraire.",
                         "Révision", MessageBoxButton.OK, MessageBoxImage.Information);
             };
             panel.Children.Add(Stacked(_corrDetailsBtn, noProof));
@@ -1287,9 +1146,7 @@ namespace UniversSale.View
                 {
                     Text = !Settings.AppSettings.ProofEnabled
                         ? "La vérification est désactivée (bouton « Vérifier », onglet Révision)."
-                        : !ComposedActive
-                            ? "La correction vit dans les pages composées."
-                            : "Aucun signalement — tout est propre.",
+                        : "Aucun signalement — tout est propre.",
                     Foreground = Chrome.SoftText,
                     FontSize = 12,
                     TextWrapping = TextWrapping.Wrap,
@@ -1487,62 +1344,17 @@ namespace UniversSale.View
             _composed.GoToFinding(target);
         }
 
-        /// <summary>Ids d'annotations dans l'ordre du texte — pivot en mode
-        /// Composition (toujours vivant), FlowDocument en classique (le pivot
-        /// n'y est à jour qu'au Commit).</summary>
+        /// <summary>Ids d'annotations dans l'ordre du texte (le pivot est
+        /// toujours vivant).</summary>
         private List<string> AnnotationOrderLive()
         {
-            if (_item == null) return new List<string>();
-            if (ComposedActive) return _item.Document.AnnotationOrder(false);
-            var order = new List<string>();
-            foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
-                CollectAnnotationIds(paragraph.Inlines, order);
-            return order;
+            return _item == null ? new List<string>() : _item.Document.AnnotationOrder(false);
         }
 
-        private void CollectAnnotationIds(InlineCollection inlines, List<string> order)
-        {
-            foreach (var inline in inlines)
-            {
-                var span = inline as Span;
-                if (span != null) { CollectAnnotationIds(span.Inlines, order); continue; }
-                var id = AnnotationIdOf(inline as Run);
-                if (id != null && _item.Document.FindAnnotation(id) != null
-                    && !order.Contains(id))
-                    order.Add(id);
-            }
-        }
-
-        private static string AnnotationIdOf(Run run)
-        {
-            if (run == null) return null;
-            string id;
-            double? tracking;
-            bool noProof;
-            FlowConverter.ParseRunTag(run.Tag, out id, out tracking, out noProof);
-            return id;
-        }
-
-        /// <summary>Le passage annoté tel qu'affiché (extrait du panneau).</summary>
+        /// <summary>Le passage annoté tel qu'affiché (extrait de la bulle).</summary>
         private string AnnotatedTextLive(string id)
         {
-            if (ComposedActive) return _item.Document.AnnotatedText(id);
-            var sb = new System.Text.StringBuilder();
-            foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
-                AppendAnnotatedText(paragraph.Inlines, id, sb);
-            return sb.ToString();
-        }
-
-        private void AppendAnnotatedText(InlineCollection inlines, string id,
-            System.Text.StringBuilder sb)
-        {
-            foreach (var inline in inlines)
-            {
-                var span = inline as Span;
-                if (span != null) { AppendAnnotatedText(span.Inlines, id, sb); continue; }
-                var run = inline as Run;
-                if (run != null && AnnotationIdOf(run) == id) sb.Append(run.Text);
-            }
+            return _item.Document.AnnotatedText(id);
         }
 
         /// <summary>Annoter la sélection : ancre un commentaire neuf au passage
@@ -1563,9 +1375,7 @@ namespace UniversSale.View
             {
                 Created = DateTime.Now.ToString("yyyy-MM-dd HH:mm")
             };
-            var anchored = ComposedActive
-                ? _composed.AnnotateSelection(annotation.Id)
-                : AnnotateClassicSelection(annotation.Id);
+            var anchored = ComposedActive && _composed.AnnotateSelection(annotation.Id);
             if (!anchored)
             {
                 MessageDialog.Show(Window.GetWindow(this),
@@ -1579,42 +1389,13 @@ namespace UniversSale.View
             FocusAnnotation(annotation.Id);
         }
 
-        /// <summary>Mode classique : pose le fond cosmétique (ce qui découpe les
-        /// runs aux bornes de la sélection), puis étiquette les runs couverts.</summary>
-        private bool AnnotateClassicSelection(string id)
-        {
-            var selection = _box.Selection;
-            if (selection.IsEmpty) return false;
-            selection.ApplyPropertyValue(TextElement.BackgroundProperty, Chrome.AnnotationTint);
-            var pointer = selection.Start;
-            while (pointer != null && pointer.CompareTo(selection.End) < 0)
-            {
-                var run = pointer.Parent as Run;
-                if (run != null && run.ContentStart.CompareTo(selection.Start) >= 0)
-                {
-                    // L'approche et « ne pas corriger » déjà portés par le Tag
-                    // survivent à l'ancrage (mini-format à segments).
-                    string previousId;
-                    double? tracking;
-                    bool noProof;
-                    FlowConverter.ParseRunTag(run.Tag, out previousId, out tracking, out noProof);
-                    run.Tag = FlowConverter.ComposeRunTag(id, tracking, noProof);
-                    pointer = run.ElementEnd;
-                    continue;
-                }
-                pointer = pointer.GetNextContextPosition(LogicalDirection.Forward);
-                if (pointer == null) break;
-            }
-            return true;
-        }
-
         /// <summary>Navigation ruban : va à l'annotation suivante/précédente
         /// après celle du caret (ou la première/dernière).</summary>
         private void NavigateAnnotation(int direction)
         {
             var order = AnnotationOrderLive();
             if (order.Count == 0) return;
-            var current = ComposedActive ? _composed.AnnotationAtCaret() : ClassicAnnotationAtCaret();
+            var current = ComposedActive ? _composed.AnnotationAtCaret() : null;
             var index = current == null ? -1 : order.IndexOf(current);
             index = index < 0
                 ? (direction > 0 ? 0 : order.Count - 1)
@@ -1622,16 +1403,6 @@ namespace UniversSale.View
             GoToAnnotation(order[index]);
         }
 
-        private string ClassicAnnotationAtCaret()
-        {
-            var run = _box.CaretPosition.Parent as Run;
-            var id = AnnotationIdOf(run);
-            if (id != null) return id;
-            var backward = _box.CaretPosition.GetNextInsertionPosition(LogicalDirection.Backward);
-            return backward == null ? null : AnnotationIdOf(backward.Parent as Run);
-        }
-
-        /// <summary>Sélectionne le passage d'une annotation et l'amène à l'écran.</summary>
         /// <summary>Remplace une plage plate dans la surface composée (une
         /// occurrence du document ouvert, b37) — un cran d'annulation LOCAL,
         /// comme une frappe. Rend faux si le composé n'est pas la surface.</summary>
@@ -1643,44 +1414,19 @@ namespace UniversSale.View
         }
 
         /// <summary>Sélectionne une plage plate du pivot dans la surface
-        /// composée (une occurrence de la recherche projet, b37) — le composé
-        /// est réveillé s'il dormait (sauf compatibilité classique).</summary>
+        /// composée (une occurrence de la recherche projet, b37).</summary>
         public void GoToRange(int paragraph, int start, int end)
         {
-            if (_item == null) return;
-            if (!ComposedActive && !Settings.AppSettings.ClassicCompatibility) SetComposition(true);
-            if (!ComposedActive) return;
+            if (_item == null || !ComposedActive) return;
             _composed.SelectRange(paragraph, start, end);
         }
 
+        /// <summary>Sélectionne le passage d'une annotation et l'amène à l'écran.</summary>
         public void GoToAnnotation(string id)
         {
-            if (ComposedActive)
-            {
-                _composed.GoToAnnotation(id);
-                _composed.Focus();
-                return;
-            }
-            Run first = null, last = null;
-            foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
-                FindAnnotationRuns(paragraph.Inlines, id, ref first, ref last);
-            if (first == null) return;
-            _box.Selection.Select(first.ContentStart, last.ContentEnd);
-            _box.Focus(); // EnsureCaretVisible suit le SelectionChanged
-        }
-
-        private void FindAnnotationRuns(InlineCollection inlines, string id,
-            ref Run first, ref Run last)
-        {
-            foreach (var inline in inlines)
-            {
-                var span = inline as Span;
-                if (span != null) { FindAnnotationRuns(span.Inlines, id, ref first, ref last); continue; }
-                var run = inline as Run;
-                if (run == null || AnnotationIdOf(run) != id) continue;
-                if (first == null) first = run;
-                last = run;
-            }
+            if (!ComposedActive) return;
+            _composed.GoToAnnotation(id);
+            _composed.Focus();
         }
 
         /// <summary>Résout/rouvre : la teinte s'éteint ou revient, l'ancre reste.</summary>
@@ -1688,7 +1434,6 @@ namespace UniversSale.View
         {
             annotation.Resolved = !annotation.Resolved;
             if (ComposedActive) _composed.RefreshAnnotation(annotation.Id);
-            else RetintClassicAnnotation(annotation.Id, !annotation.Resolved);
             NotifyEdited();
             RebuildAnnotationsPanel();
         }
@@ -1699,80 +1444,27 @@ namespace UniversSale.View
             if (_activeBubbleId == annotation.Id) _activeBubbleId = null;
             _item.Document.Annotations.Remove(annotation);
             if (ComposedActive) _composed.ClearAnnotation(annotation.Id);
-            else ClearClassicAnnotation(annotation.Id);
             NotifyEdited();
             RebuildAnnotationsPanel();
         }
 
-        private void RetintClassicAnnotation(string id, bool tint)
-        {
-            foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
-                RetintRuns(paragraph.Inlines, id, tint, false);
-        }
-
-        private void ClearClassicAnnotation(string id)
-        {
-            foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
-                RetintRuns(paragraph.Inlines, id, false, true);
-        }
-
-        private void RetintRuns(InlineCollection inlines, string id, bool tint, bool clearTag)
-        {
-            foreach (var inline in inlines)
-            {
-                var span = inline as Span;
-                if (span != null) { RetintRuns(span.Inlines, id, tint, clearTag); continue; }
-                var run = inline as Run;
-                if (run == null || AnnotationIdOf(run) != id) continue;
-                // Le fond cosmétique seulement — un vrai surlignage (opaque)
-                // n'est jamais touché.
-                var background = run.Background as SolidColorBrush;
-                var cosmetic = background == null || background.Color.A < 0xFF;
-                if (tint && cosmetic) run.Background = Chrome.AnnotationTint;
-                else if (!tint && cosmetic) run.Background = null;
-                if (clearTag)
-                {
-                    // L'ancre part, l'approche et « ne pas corriger » restent.
-                    string previousId;
-                    double? tracking;
-                    bool noProof;
-                    FlowConverter.ParseRunTag(run.Tag, out previousId, out tracking, out noProof);
-                    run.Tag = FlowConverter.ComposeRunTag(null, tracking, noProof);
-                }
-            }
-        }
-
-        /// <summary>Applique le réglage « annotations visibles » : teintes du
-        /// classique (fond cosmétique, jamais persisté), bulles, panneau — et
-        /// recomposition en mode Composition (la teinte y vient du moteur).</summary>
+        /// <summary>Applique le réglage « annotations visibles » : recomposition
+        /// (la teinte vient du moteur) et bulles.</summary>
         private void ApplyAnnotationVisibility()
         {
-            if (_item == null) return;
-            if (!ComposedActive)
-            {
-                var wasLoading = _loading;
-                _loading = true; // reteinte cosmétique : le projet reste propre
-                try
-                {
-                    foreach (var annotation in _item.Document.Annotations)
-                        RetintClassicAnnotation(annotation.Id,
-                            Settings.AppSettings.ShowAnnotations && !annotation.Resolved);
-                }
-                finally { _loading = wasLoading; }
-            }
-            else _composed.RefreshComposition();
+            if (_item == null || !ComposedActive) return;
+            _composed.RefreshComposition();
             RebuildAnnotationsPanel();
         }
 
         /// <summary>Reprogramme les bulles d'annotation (le panneau du bas a
-        /// disparu au B.4 : l'édition vit dans les bulles, deux surfaces).</summary>
+        /// disparu au B.4 : l'édition vit dans les bulles).</summary>
         public void RebuildAnnotationsPanel()
         {
-            // Depuis les bulles portées (B.4, batch 26), le panneau Révision
-            // du bas a entièrement disparu : les annotations s'éditent dans
-            // leurs bulles sur les DEUX surfaces. Cette méthode — appelée par
-            // tous les chemins historiques — reprogramme les bulles après le
-            // layout (la géométrie des tranches/pages doit être posée).
+            // Les annotations s'éditent dans leurs bulles, à droite des pages.
+            // Cette méthode — appelée par tous les chemins historiques —
+            // reprogramme les bulles après le layout (la géométrie des pages
+            // doit être posée).
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
                 new Action(RebuildAnnotationBubbles));
         }
@@ -1790,18 +1482,14 @@ namespace UniversSale.View
             RebuildAnnotationBubbles(false);
         }
 
-        /// <summary>Reconstruit les bulles de commentaire à droite des pages
-        /// (mode classique). Chaque bulle est posée à la hauteur de son
-        /// passage (coordonnées boîte → tranche du miroir), empilée sans
+        /// <summary>Reconstruit les bulles de commentaire à droite des pages.
+        /// Chaque bulle est posée à la hauteur de son passage, empilée sans
         /// chevauchement, reliée à la page par un filet or. force : passe
         /// outre la garde anti-vol de focus (dépliage/repli volontaire).</summary>
         private void RebuildAnnotationBubbles(bool force)
         {
-            if (_bubbleLayer == null) return;
-            // La couche active : celle du composé (bulles portées, B.4 batch
-            // 26) ou celle du miroir classique.
-            var layer = ComposedActive && _composed != null && _composed.HasItem
-                ? _composed.AnnotationBubbleLayer : _bubbleLayer;
+            if (_composed == null) return;
+            var layer = _composed.AnnotationBubbleLayer;
             // Ne pas voler le focus d'une bulle en cours de frappe.
             if (!force)
                 foreach (var child in layer.Children)
@@ -1816,73 +1504,26 @@ namespace UniversSale.View
                         if (focused != null && focused.IsKeyboardFocused) return;
                     }
                 }
-            // Les DEUX couches se vident : une bascule de surface ne laisse
-            // pas de bulles orphelines derrière elle.
-            _bubbleLayer.Children.Clear();
-            _bubbleLayer.Width = 0;
-            if (_composed != null)
-            {
-                _composed.AnnotationBubbleLayer.Children.Clear();
-                _composed.AnnotationBubbleLayer.Width = 0;
-            }
+            layer.Children.Clear();
+            layer.Width = 0;
             _activeBubbleEditor = null;
-            if (_item == null || _calm
+            if (_item == null || _calm || !ComposedActive
                 || !Settings.AppSettings.ShowAnnotations) return;
             var order = AnnotationOrderLive();
             if (order.Count == 0) return;
 
             const double bubbleWidth = 190;
             var gold = new SolidColorBrush(Color.FromRgb(0xC9, 0xA2, 0x27));
-            double pageRight, pageTop;
-            if (ComposedActive)
-            {
-                pageRight = _composed.PagesRightX();
-                pageTop = 0; // AnnotationAnchorY parle déjà en colonne
-                if (pageRight <= 0) return;
-            }
-            else
-                try
-                {
-                    // TranslatePoint rend l'origine POST-marge du _page : les
-                    // cadres du miroir commencent exactement là.
-                    var origin = _page.TranslatePoint(new Point(0, 0), _surface);
-                    pageRight = origin.X + _pageSetup.PageWidthPx;
-                    pageTop = origin.Y;
-                }
-                catch { return; }
+            var pageRight = _composed.PagesRightX();
+            if (pageRight <= 0) return;
 
             var lastBottom = 0.0;
             foreach (var id in order)
             {
                 var annotation = _item.Document.FindAnnotation(id);
                 if (annotation == null) continue;
-                double y;
-                if (ComposedActive)
-                {
-                    y = _composed.AnnotationAnchorY(id);
-                    if (y < 0) continue;
-                }
-                else
-                {
-                    Run first = null, last = null;
-                    foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
-                        FindAnnotationRuns(paragraph.Inlines, id, ref first, ref last);
-                    if (first == null) continue;
-                    Rect anchor;
-                    try { anchor = first.ContentStart.GetCharacterRect(LogicalDirection.Forward); }
-                    catch { continue; }
-                    if (anchor.IsEmpty) continue;
-
-                    // Coordonnées boîte → miroir : la tranche qui porte la ligne.
-                    var slice = 0;
-                    for (var k = 0; k < _sliceTops.Count; k++)
-                        if (anchor.Top >= _sliceTops[k] - 0.5) slice = k;
-                    var topMargin = _pageSetup.MarginTopMm * PageSetup.PxPerMm;
-                    var pageHeight = _pageSetup.PageHeightMm * PageSetup.PxPerMm;
-                    var frameTop = slice * (pageHeight + PageGap);
-                    y = pageTop + frameTop + topMargin
-                        + (anchor.Top - (_sliceTops.Count > slice ? _sliceTops[slice] : 0));
-                }
+                var y = _composed.AnnotationAnchorY(id); // en colonne
+                if (y < 0) continue;
                 y = Math.Max(y, lastBottom + 6);
 
                 var bubble = BuildAnnotationBubble(annotation, gold, bubbleWidth, layer);
@@ -1930,8 +1571,7 @@ namespace UniversSale.View
         /// <summary>Une bulle façon Word. Repliée : extrait + aperçu du
         /// commentaire. Dépliée (clic, ou création) : champ d'édition et
         /// commandes Résoudre/Supprimer sur place ; elle se replie quand le
-        /// focus la quitte. layer : la couche qui la portera (miroir
-        /// classique ou colonne composée — B.4).</summary>
+        /// focus la quitte. layer : la couche de la colonne composée.</summary>
         private Border BuildAnnotationBubble(Annotation annotation, Brush gold,
             double width, Canvas layer)
         {
@@ -1966,7 +1606,6 @@ namespace UniversSale.View
                 };
                 comment.TextChanged += delegate
                 {
-                    if (_loading) return;
                     annotation.Text = comment.Text;
                     NotifyEdited();
                 };
@@ -2060,129 +1699,6 @@ namespace UniversSale.View
 
         private void BuildPage()
         {
-            _box = new RichTextBox
-            {
-                BorderThickness = new Thickness(0),
-                Background = Brushes.Transparent,
-                Foreground = Chrome.PaperInk,
-                // PIÈGE (élucidé au batch 23) : le caret natif vit dans un
-                // AdornerLayer INTERNE au template du TextBox — il est donc
-                // reflété par le VisualBrush du miroir, superposé à notre
-                // caret maison… jusqu'à une frontière de format (run annoté)
-                // où les deux divergent : « deux carets ». Le natif s'éteint,
-                // le caret maison fait foi.
-                CaretBrush = Brushes.Transparent,
-                AcceptsTab = true,
-                // The sheet grows with its content; scrolling belongs to the
-                // outer viewer so the page keeps its physical size on screen.
-                VerticalScrollBarVisibility = ScrollBarVisibility.Hidden
-            };
-            // The native selection highlight paints one continuous band across
-            // paragraph margins — over our page gaps. We draw it ourselves,
-            // line by line, under the text (Word look), and it survives focus
-            // moves to the toolbars.
-            _box.SelectionBrush = Brushes.Transparent;
-            _box.IsInactiveSelectionHighlightEnabled = true;
-
-            _box.TextChanged += delegate
-            {
-                // _paginating: the engine's own margin pushes must neither dirty
-                // the project nor reschedule themselves.
-                if (_loading || _paginating) return;
-                NotifyEdited();
-                ScheduleMarks();
-            };
-            _box.SelectionChanged += delegate
-            {
-                SyncToolbar();
-                if (!_loading)
-                {
-                    UpdateClassicCaret(); // our caret — the native one is unmirrored
-                    EnsureCaretVisible();
-                    RaisePageInfo();
-                    ScheduleOverlay(); // redraw the hand-drawn selection
-                }
-            };
-            _box.PreviewMouseLeftButtonDown += OnEditorMouseDown;
-
-            _sheets = new Canvas { IsHitTestVisible = false };
-            _pageMarks = new Canvas { IsHitTestVisible = false };
-            _classicCaret = new System.Windows.Shapes.Rectangle
-            {
-                Width = 1.4,
-                Fill = Chrome.PaperInk,
-                Visibility = Visibility.Collapsed
-            };
-            _pageMarks.Children.Add(_classicCaret);
-            _pageHost = new Grid { Width = new PageSetup().PageWidthPx };
-            _pageHost.Children.Add(_sheets); // selection under the text
-            _pageHost.Children.Add(_box);
-            _pageHost.Children.Add(_pageMarks);
-
-            // Hidden measuring host: rendered (the VisualBrush needs it) but
-            // clipped to nothing. A Canvas gives the host free height.
-            var measure = new Canvas();
-            measure.Children.Add(_pageHost);
-            var hiddenClip = new Border
-            {
-                Width = 0,
-                Height = 0,
-                ClipToBounds = true,
-                Child = measure
-            };
-            // The hidden editor must never hijack the scroll viewer: its own
-            // bring-into-view requests (caret moves, focus) are swallowed —
-            // EnsureCaretVisible scrolls to the PAGE carrying the caret.
-            hiddenClip.RequestBringIntoView += delegate(object sender, RequestBringIntoViewEventArgs e)
-            {
-                e.Handled = true;
-            };
-
-            _mirror = new StackPanel();
-            _page = new Border
-            {
-                Background = Brushes.Transparent,
-                Margin = new Thickness(24, 20, 24, 20),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Top,
-                Child = _mirror
-            };
-            var surface = new Grid();
-            surface.Children.Add(hiddenClip);
-            surface.Children.Add(_page);
-            // Bulles de commentaire (révision) à droite des pages, façon Word.
-            _bubbleLayer = new Canvas
-            {
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top
-            };
-            surface.Children.Add(_bubbleLayer);
-            _surface = surface;
-            _scroller = new ScrollViewer
-            {
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Background = Brushes.Transparent,
-                Content = surface
-            };
-
-            _classicBlink = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(530) };
-            _classicBlink.Tick += delegate
-            {
-                if (_item == null || !_box.IsKeyboardFocused)
-                { _classicCaret.Visibility = Visibility.Collapsed; return; }
-                _classicCaret.Visibility = _classicCaret.Visibility == Visibility.Visible
-                    ? Visibility.Hidden : Visibility.Visible;
-            };
-            _classicBlink.Start();
-            _scroller.ScrollChanged += delegate(object sender, ScrollChangedEventArgs e)
-            {
-                // ¶ marks, line numbers and the hand-drawn selection are
-                // viewport-limited: fast redraw (no repagination) after moves.
-                if ((_showMarks || _pageSetup.LineNumbers || !_box.Selection.IsEmpty)
-                    && Math.Abs(e.VerticalChange) > 0.5)
-                    ScheduleOverlay();
-            };
             _composed = new ComposedView { Visibility = Visibility.Collapsed };
             _composed.Edited += delegate { NotifyEdited(); };
             _composed.NoteEditingStarted += delegate(string id) { _lastNoteId = id; };
@@ -2220,7 +1736,6 @@ namespace UniversSale.View
             };
 
             var centerHost = new Grid();
-            centerHost.Children.Add(_scroller);
             centerHost.Children.Add(_composed);
             // Règles cm (Ctrl+R) : bandes fixes au bord du viewport, nourries
             // des rectangles de pages à l'écran ; la verticale repart à zéro
@@ -2244,14 +1759,8 @@ namespace UniversSale.View
             };
             centerHost.Children.Add(_rulerV);
             centerHost.Children.Add(_rulerH);
-            _scroller.ScrollChanged += delegate { UpdateRulers(); };
             _composed.ScrollChanged += delegate { UpdateRulers(); };
             Children.Add(centerHost); // last child fills the remaining space
-
-            _marksTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-            _marksTimer.Tick += delegate { _marksTimer.Stop(); UpdatePagination(); };
-            _overlayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
-            _overlayTimer.Tick += delegate { _overlayTimer.Stop(); RefreshOverlay(); };
 
             PreviewMouseWheel += delegate(object sender, MouseWheelEventArgs e)
             {
@@ -2266,783 +1775,26 @@ namespace UniversSale.View
         public void SetZoom(double factor)
         {
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(UpdateRulers));
-            var oldZoom = _zoom;
             _zoom = Math.Max(0.5, Math.Min(3.0, factor));
-            _page.LayoutTransform = Math.Abs(_zoom - 1.0) < 0.001
-                ? null : new ScaleTransform(_zoom, _zoom);
-            // Miroir classique : même ancrage au centre de la vue (b34).
-            if (_scroller != null && !ComposedActive && _scroller.ViewportHeight > 0
-                && Math.Abs(oldZoom - _zoom) > 0.0001)
-            {
-                var anchorY = _scroller.ViewportHeight / 2;
-                var contentY = (_scroller.VerticalOffset + anchorY) / oldZoom;
-                _scroller.UpdateLayout();
-                _scroller.ScrollToVerticalOffset(Math.Max(0, contentY * _zoom - anchorY));
-            }
             if (_composed != null) _composed.SetZoom(_zoom);
-            ScheduleOverlay(); // marks & line numbers follow the new viewport
-        }
-
-        private void ScheduleMarks()
-        {
-            _marksTimer.Stop();
-            _marksTimer.Start();
-        }
-
-        private void ScheduleOverlay()
-        {
-            _overlayTimer.Stop();
-            _overlayTimer.Start();
-        }
-
-        /// <summary>The pagination engine. Word model, paragraph granularity:
-        /// a paragraph that no longer fits on the current page is pushed to the
-        /// next one by a presentation margin (paused undo — see UndoGate), so
-        /// every page carries its own top/bottom margins and the sheets are
-        /// truly separate. A paragraph taller than a page stretches its page
-        /// (line-level splitting is the 4b refinement). One extra verification
-        /// pass runs after the relayout; the algorithm is stable because
-        /// vertical margins never change line wrapping.</summary>
-        /// <summary>The paged mirror's pagination: walks the laid-out lines of
-        /// the CONTINUOUS RichTextBox and cuts page slices between them — a
-        /// line that no longer fits opens the next page, manual breaks force
-        /// one. No document mutation at all: the pages are pure presentation
-        /// (VisualBrush slices), so undo/redo stay native and no hole can ever
-        /// appear at a page bottom.</summary>
-        private void UpdatePagination()
-        {
-            if (_pageMarks == null || _paginating || _pageHost == null) return;
-            _paginating = true;
-            try
-            {
-                var setup = _pageSetup;
-                var pageHeight = setup.PageHeightMm * PageSetup.PxPerMm;
-                var top = setup.MarginTopMm * PageSetup.PxPerMm;
-                var bottom = setup.MarginBottomMm * PageSetup.PxPerMm;
-                var contentHeight = pageHeight - top - bottom;
-                if (contentHeight < 60) return;
-
-                _sliceTops.Clear();
-                _sliceHeights.Clear();
-                var sliceTop = top;
-                double lastBottom = top;
-
-                if (_item != null && _box.Document != null)
-                {
-                    try
-                    {
-                        var line = _box.Document.ContentStart
-                            .GetInsertionPosition(LogicalDirection.Forward);
-                        var start = line.GetLineStartPosition(0);
-                        if (start != null) line = start;
-                        var guard = 0;
-                        while (line != null && guard++ < 100000)
-                        {
-                            var rect = line.GetCharacterRect(LogicalDirection.Forward);
-                            if (!rect.IsEmpty)
-                            {
-                                var forced = IsForcedBreakLine(line, rect);
-                                if ((rect.Bottom > sliceTop + contentHeight + 0.5 || forced)
-                                    && rect.Top > sliceTop + 0.5)
-                                {
-                                    _sliceTops.Add(sliceTop);
-                                    _sliceHeights.Add(Math.Max(8, lastBottom - sliceTop));
-                                    sliceTop = rect.Top;
-                                }
-                                lastBottom = Math.Max(lastBottom, rect.Bottom);
-                            }
-                            var next = line.GetLineStartPosition(1);
-                            if (next == null || next.CompareTo(line) <= 0) break;
-                            line = next;
-                        }
-                    }
-                    catch { return; } // layout not ready: the debounce returns
-                }
-                _sliceTops.Add(sliceTop);
-                _sliceHeights.Add(Math.Max(8, Math.Max(lastBottom - sliceTop, 12)));
-
-                _pageHost.Width = setup.PageWidthPx;
-                _pageHost.MinHeight = lastBottom + bottom;
-                RebuildMirror();
-                RefreshOverlay();
-                RaisePageInfo();
-                // Les bulles d'annotation suivent la nouvelle pagination.
-                Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
-                    new Action(RebuildAnnotationBubbles));
-            }
-            finally
-            {
-                _paginating = false;
-            }
-        }
-
-        /// <summary>True when this line is the first of a paragraph carrying a
-        /// manual page break.</summary>
-        private static bool IsForcedBreakLine(TextPointer line, Rect rect)
-        {
-            var paragraph = line.Paragraph;
-            if (paragraph == null || !paragraph.BreakPageBefore) return false;
-            var first = paragraph.ContentStart.GetCharacterRect(LogicalDirection.Forward);
-            return !first.IsEmpty && Math.Abs(first.Top - rect.Top) < 1.5;
-        }
-
-        /// <summary>Builds/updates the visible page frames, each mirroring its
-        /// slice of the hidden continuous surface.</summary>
-        private void RebuildMirror()
-        {
-            var setup = _pageSetup;
-            var pageWidth = setup.PageWidthPx;
-            var pageHeight = setup.PageHeightMm * PageSetup.PxPerMm;
-            var top = setup.MarginTopMm * PageSetup.PxPerMm;
-            var bottom = setup.MarginBottomMm * PageSetup.PxPerMm;
-            var left = setup.MarginLeftMm * PageSetup.PxPerMm;
-            var right = setup.MarginRightMm * PageSetup.PxPerMm;
-
-            while (_mirror.Children.Count > _sliceTops.Count)
-                _mirror.Children.RemoveAt(_mirror.Children.Count - 1);
-            while (_mirror.Children.Count < _sliceTops.Count)
-                _mirror.Children.Add(BuildMirrorFrame(_mirror.Children.Count));
-
-            for (var k = 0; k < _sliceTops.Count; k++)
-            {
-                var frame = (Border)_mirror.Children[k];
-                frame.Width = pageWidth;
-                frame.Height = pageHeight;
-                frame.Margin = new Thickness(0, k == 0 ? 0 : PageGap, 0, 0);
-                var grid = (Grid)frame.Child;
-                var slice = (System.Windows.Shapes.Rectangle)grid.Children[0];
-                var guides = (System.Windows.Shapes.Rectangle)grid.Children[1];
-                var folio = (TextBlock)grid.Children[2];
-
-                // Marges en miroir : l'hôte compose au petit fond à gauche ;
-                // les versos décalent leur tranche pour que le petit fond
-                // passe côté reliure (droite). Les overlays vivent DANS
-                // l'hôte : ils suivent, et les clics sont relatifs à la
-                // tranche — tout reste aligné.
-                var isRecto = (k + 1 + FolioOffset) % 2 == 1;
-                var shift = isRecto ? 0 : (right - left);
-                slice.Width = pageWidth;
-                slice.Height = Math.Min(_sliceHeights[k], pageHeight - top - 2);
-                slice.Margin = new Thickness(shift, top, 0, 0);
-                var brush = slice.Fill as VisualBrush;
-                if (brush == null)
-                {
-                    brush = new VisualBrush(_pageHost)
-                    {
-                        ViewboxUnits = BrushMappingMode.Absolute,
-                        Stretch = Stretch.None,
-                        AlignmentX = AlignmentX.Left,
-                        AlignmentY = AlignmentY.Top
-                    };
-                    slice.Fill = brush;
-                }
-                brush.Viewbox = new Rect(0, _sliceTops[k], pageWidth,
-                    Math.Max(8, slice.Height));
-
-                guides.Visibility = setup.ShowMarginGuides ? Visibility.Visible : Visibility.Collapsed;
-                guides.Margin = isRecto
-                    ? new Thickness(left, top, right, bottom)
-                    : new Thickness(right, top, left, bottom); // verso : petit fond à droite
-
-                folio.Visibility = setup.FooterPageNumbers
-                    && (Decor == null || !Decor.SuppressFolio)
-                    ? Visibility.Visible : Visibility.Collapsed;
-                folio.Text = (k + 1 + FolioOffset).ToString();
-                folio.FontFamily = new FontFamily(setup.FooterFont ?? "Times New Roman");
-                folio.Margin = new Thickness(0, 0, 0, Math.Max(2, bottom / 2 - 8));
-            }
-        }
-
-        private Border BuildMirrorFrame(int index)
-        {
-            var slice = new System.Windows.Shapes.Rectangle
-            {
-                VerticalAlignment = VerticalAlignment.Top,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                SnapsToDevicePixels = true,
-                // The mirror frame is the visible writing surface; the hidden
-                // RichTextBox's own IBeam never shows through the VisualBrush.
-                Cursor = Cursors.IBeam
-            };
-            var guides = new System.Windows.Shapes.Rectangle
-            {
-                // Cyan continu légèrement transparent, façon PAO — même
-                // pinceau que la Composition (ComposedRenderer.MarginPen).
-                Stroke = ComposedRenderer.MarginPen.Brush,
-                StrokeThickness = 1,
-                IsHitTestVisible = false,
-                SnapsToDevicePixels = true
-            };
-            var folio = new TextBlock
-            {
-                FontSize = 11,
-                Foreground = Chrome.PaperSoftInk,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                IsHitTestVisible = false
-            };
-            var grid = new Grid();
-            grid.Children.Add(slice);
-            grid.Children.Add(guides);
-            grid.Children.Add(folio);
-            var frame = new Border
-            {
-                Background = Chrome.PaperBg,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(1),
-                ClipToBounds = true, // les tranches décalées (miroir) ne débordent pas
-                Child = grid
-            };
-            WireMirrorInput(frame, slice);
-            return frame;
-        }
-
-        /// <summary>Forwards mouse gestures from a page frame to the hidden
-        /// continuous editor (caret, drag selection, double-click word).</summary>
-        private void WireMirrorInput(Border frame, System.Windows.Shapes.Rectangle slice)
-        {
-            frame.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
-            {
-                if (_item == null) return;
-                var index = _mirror.Children.IndexOf(frame);
-                if (index < 0 || index >= _sliceTops.Count) return;
-                var position = SourcePosition(e.GetPosition(slice), index);
-                if (position == null) return;
-                _box.Focus();
-                // Une bulle d'annotation restée dépliée se replie au clic dans
-                // la page (elle n'a pas toujours le focus à perdre).
-                if (_activeBubbleId != null)
-                {
-                    _activeBubbleId = null;
-                    Dispatcher.BeginInvoke(DispatcherPriority.Background,
-                        new Action(delegate { RebuildAnnotationBubbles(true); }));
-                }
-                if (e.ClickCount == 2)
-                {
-                    // Façon Word (et Composition) : PAS de capture après le
-                    // double-clic — sinon le micro-mouvement du relâchement
-                    // remplaçait le mot par une sélection ancre→pointeur.
-                    SelectWordAtPointer(position);
-                    _mirrorAnchor = _box.Selection.Start;
-                    RedrawSelectionNow();
-                    e.Handled = true;
-                    return;
-                }
-                if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
-                {
-                    _box.Selection.Select(_mirrorAnchor ?? _box.Selection.Start, position);
-                }
-                else
-                {
-                    _mirrorAnchor = position;
-                    _box.Selection.Select(position, position);
-                }
-                RedrawSelectionNow();
-                frame.CaptureMouse();
-                e.Handled = true;
-            };
-            frame.MouseMove += delegate(object sender, MouseEventArgs e)
-            {
-                if (!frame.IsMouseCaptured || e.LeftButton != MouseButtonState.Pressed) return;
-                var index = _mirror.Children.IndexOf(frame);
-                if (index < 0 || index >= _sliceTops.Count) return;
-                // Hors du cadre, la position serait projetée LOIN dans le
-                // document et chaque mouvement faisait défiler d'un bond
-                // (« vitesse folle »). On borne la sélection au cadre, et un
-                // défilement RYTHMÉ (une ligne par tic) prend le relais.
-                var local = e.GetPosition(slice);
-                var sliceHeight = slice.ActualHeight;
-                _dragScrollDirection = local.Y < -2 ? -1
-                    : local.Y > sliceHeight + 2 ? 1 : 0;
-                // Vitesse proportionnelle au dépassement (façon Word) : plus le
-                // pointeur s'éloigne du cadre, plus la sélection défile vite.
-                _dragScrollOvershoot = _dragScrollDirection < 0
-                    ? -local.Y : local.Y - sliceHeight;
-                var clamped = new Point(local.X,
-                    Math.Max(0, Math.Min(sliceHeight, local.Y)));
-                var position = SourcePosition(clamped, index);
-                if (position != null && _mirrorAnchor != null)
-                {
-                    _box.Selection.Select(_mirrorAnchor, position);
-                    // Redessin IMMÉDIAT : le debounce de l'overlay ne se
-                    // déclenche jamais tant que la souris bouge.
-                    RedrawSelectionNow();
-                }
-                if (_dragScrollDirection != 0)
-                {
-                    if (_dragScrollTimer == null)
-                    {
-                        _dragScrollTimer = new DispatcherTimer
-                        { Interval = TimeSpan.FromMilliseconds(60) };
-                        _dragScrollTimer.Tick += delegate { DragScrollStep(); };
-                    }
-                    _dragScrollTimer.Start();
-                }
-                else if (_dragScrollTimer != null) _dragScrollTimer.Stop();
-            };
-            frame.MouseLeftButtonUp += delegate
-            {
-                frame.ReleaseMouseCapture();
-                if (_dragScrollTimer != null) _dragScrollTimer.Stop();
-                _dragScrollDirection = 0;
-            };
-        }
-
-        private DispatcherTimer _dragScrollTimer;
-        private int _dragScrollDirection;
-        private double _dragScrollOvershoot; // px au-delà du cadre (vitesse)
-
-        /// <summary>Un tic de défilement de sélection : l'extrémité mobile
-        /// avance d'une à cinq lignes selon le dépassement du pointeur —
-        /// EnsureCaretVisible suit en douceur.</summary>
-        private void DragScrollStep()
-        {
-            if (_dragScrollDirection == 0 || _mirrorAnchor == null || _item == null)
-            {
-                if (_dragScrollTimer != null) _dragScrollTimer.Stop();
-                return;
-            }
-            try
-            {
-                var selection = _box.Selection;
-                var moving = selection.Start.CompareTo(_mirrorAnchor) == 0
-                    ? selection.End : selection.Start;
-                var steps = 1 + Math.Min(4, (int)(_dragScrollOvershoot / 40));
-                var next = moving.GetLineStartPosition(_dragScrollDirection * steps)
-                    ?? moving.GetLineStartPosition(_dragScrollDirection);
-                if (next == null) { _dragScrollTimer.Stop(); return; }
-                _box.Selection.Select(_mirrorAnchor, next);
-                RedrawSelectionNow();
-            }
-            catch { _dragScrollTimer.Stop(); }
-        }
-
-        /// <summary>Redessine la sélection SEULE, tout de suite (pendant un
-        /// cliquer-glisser) : _sheets ne porte que ses rectangles, les marques
-        /// et numéros de ligne attendent le debounce de l'overlay.</summary>
-        private void RedrawSelectionNow()
-        {
-            if (_sheets == null || _item == null || ComposedActive) return;
-            for (var i = _sheets.Children.Count - 1; i >= 0; i--)
-                _sheets.Children.RemoveAt(i);
-            UpdateClassicCaret();
-            DrawSelection();
-        }
-
-        private TextPointer SourcePosition(Point local, int sliceIndex)
-        {
-            try
-            {
-                var source = new Point(local.X, _sliceTops[sliceIndex] + local.Y);
-                return _box.GetPositionFromPoint(source, true);
-            }
-            catch { return null; }
-        }
-
-        private void SelectWordAtPointer(TextPointer position)
-        {
-            var start = position;
-            var end = position;
-            while (true)
-            {
-                var previous = start.GetNextInsertionPosition(LogicalDirection.Backward);
-                if (previous == null) break;
-                var range = new TextRange(previous, start);
-                // Un pas VIDE est une frontière de run (les annotations
-                // scindent les runs) : on la franchit, le mot continue.
-                if (range.Text.Length == 0) { start = previous; continue; }
-                if (range.Text.Length != 1 || !char.IsLetterOrDigit(range.Text[0])) break;
-                start = previous;
-            }
-            while (true)
-            {
-                var next = end.GetNextInsertionPosition(LogicalDirection.Forward);
-                if (next == null) break;
-                var range = new TextRange(end, next);
-                if (range.Text.Length == 0) { end = next; continue; }
-                if (range.Text.Length != 1 || !char.IsLetterOrDigit(range.Text[0])) break;
-                end = next;
-            }
-            _box.Selection.Select(start, end);
-        }
-
-        /// <summary>Our own caret in the mirrored layer — the RichTextBox's
-        /// native caret lives in the adorner layer, which VisualBrush does not
-        /// reflect.</summary>
-        private void UpdateClassicCaret()
-        {
-            if (_item == null || ComposedActive)
-            {
-                _classicCaret.Visibility = Visibility.Collapsed;
-                return;
-            }
-            try
-            {
-                var rect = _box.CaretPosition.GetCharacterRect(LogicalDirection.Forward);
-                if (rect.IsEmpty) { _classicCaret.Visibility = Visibility.Collapsed; return; }
-                Canvas.SetLeft(_classicCaret, rect.X);
-                Canvas.SetTop(_classicCaret, rect.Top + 1);
-                _classicCaret.Height = Math.Max(8, rect.Height - 2);
-                _classicCaret.Visibility = _box.IsKeyboardFocused
-                    ? Visibility.Visible : Visibility.Collapsed;
-            }
-            catch { }
-        }
-
-        /// <summary>Fast redraw of everything painted around the text: sheets,
-        /// margin guides, folios, line numbers, ¶ marks. Never re-measures the
-        /// pagination itself.</summary>
-        private void RefreshOverlay()
-        {
-            if (_pageMarks == null || _sliceTops.Count == 0) return;
-            for (var i = _sheets.Children.Count - 1; i >= 0; i--) _sheets.Children.RemoveAt(i);
-            for (var i = _pageMarks.Children.Count - 1; i >= 0; i--)
-                if (!ReferenceEquals(_pageMarks.Children[i], _classicCaret))
-                    _pageMarks.Children.RemoveAt(i);
-            UpdateClassicCaret();
-            DrawSelection(); // under the text, mirrored into the pages
-            if (_pageSetup.LineNumbers) DrawLineNumbers();
-            if (_showMarks) DrawFormattingMarks();
-        }
-
-        /// <summary>Word-style selection: one rectangle per selected line,
-        /// drawn beneath the text and inside the page text blocks (line boxes
-        /// never live in the inter-page gaps), viewport-limited. Being ours,
-        /// it stays visible when focus moves to a toolbar or a tab.</summary>
-        private void DrawSelection()
-        {
-            if (_item == null) return;
-            var selection = _box.Selection;
-            if (selection == null || selection.IsEmpty) return;
-            double viewTop, viewBottom;
-            ViewportBounds(out viewTop, out viewBottom);
-
-            var brush = new SolidColorBrush(SystemColors.HighlightColor) { Opacity = 0.45 };
-            brush.Freeze();
-            var start = selection.Start;
-            var end = selection.End;
-            try
-            {
-                var line = start.GetLineStartPosition(0) ?? start;
-                // Jump ahead when the selection begins far above the viewport.
-                var probe = _box.GetPositionFromPoint(new Point(5, Math.Max(0, viewTop)), true);
-                if (probe != null && probe.CompareTo(start) > 0)
-                    line = probe.GetLineStartPosition(0) ?? probe;
-
-                var guard = 0;
-                while (line != null && guard++ < 3000)
-                {
-                    if (line.CompareTo(end) > 0) break;
-                    var next = line.GetLineStartPosition(1);
-                    // Last position ON this line: one insertion position back
-                    // from the next line's start (its start itself measures on
-                    // the following line and would produce sliver rectangles).
-                    var lineEnd = next != null
-                        ? (next.GetNextInsertionPosition(LogicalDirection.Backward) ?? next)
-                        : end;
-                    if (lineEnd.CompareTo(line) < 0) lineEnd = next ?? end;
-
-                    var segmentStart = start.CompareTo(line) > 0 ? start : line;
-                    var segmentEnd = end.CompareTo(lineEnd) < 0 ? end : lineEnd;
-                    // <=: an empty selected line still shows its newline sliver.
-                    if (segmentStart.CompareTo(segmentEnd) <= 0)
-                    {
-                        var r1 = segmentStart.GetCharacterRect(LogicalDirection.Forward);
-                        var r2 = segmentEnd.GetCharacterRect(LogicalDirection.Backward);
-                        if (!r1.IsEmpty && !r2.IsEmpty)
-                        {
-                            if (r1.Top > viewBottom) break;
-                            if (r2.Bottom >= viewTop)
-                            {
-                                // Selection running past the line end shows the
-                                // newline, Word-style.
-                                var extend = end.CompareTo(lineEnd) >= 0 && next != null ? 5 : 0;
-                                var rect = new System.Windows.Shapes.Rectangle
-                                {
-                                    Width = Math.Max(2, r2.Right - r1.X + extend),
-                                    Height = Math.Max(2, Math.Max(r1.Height, r2.Bottom - r1.Top)),
-                                    Fill = brush
-                                };
-                                Canvas.SetLeft(rect, r1.X);
-                                Canvas.SetTop(rect, Math.Min(r1.Top, r2.Top));
-                                _sheets.Children.Add(rect);
-                            }
-                        }
-                    }
-                    if (next == null) break;
-                    line = next;
-                }
-            }
-            catch { } // layout raced an edit: the next overlay pass redraws
-        }
-
-        /// <summary>Line numbers in the left margin, restarting on each page
-        /// (matches the docx export), drawn for the visible pages only.</summary>
-        private void DrawLineNumbers()
-        {
-            if (_item == null) return;
-            var setup = _pageSetup;
-            var top = setup.MarginTopMm * PageSetup.PxPerMm;
-            var bottom = setup.MarginBottomMm * PageSetup.PxPerMm;
-            var left = setup.MarginLeftMm * PageSetup.PxPerMm;
-            double viewTop, viewBottom;
-            ViewportBounds(out viewTop, out viewBottom);
-
-            try
-            {
-                for (var k = 0; k < _sliceTops.Count; k++)
-                {
-                    var contentTop = _sliceTops[k];
-                    var contentBottom = _sliceTops[k] + _sliceHeights[k];
-                    if (contentBottom < viewTop || contentTop > viewBottom) continue;
-
-                    var pointer = _box.GetPositionFromPoint(new Point(left + 2, contentTop + 2), true);
-                    if (pointer == null) continue;
-                    var line = pointer.GetLineStartPosition(0) ?? pointer;
-                    var number = 0;
-                    while (line != null)
-                    {
-                        var rect = line.GetCharacterRect(LogicalDirection.Forward);
-                        if (rect.IsEmpty) break;
-                        if (rect.Top > contentBottom - 1 || rect.Top > viewBottom) break;
-                        number++;
-                        if (rect.Bottom >= viewTop && rect.Top >= contentTop - 1)
-                        {
-                            // Right-aligned column, vertically centered on its
-                            // line so counting reads at a glance.
-                            var label = new TextBlock
-                            {
-                                Text = number.ToString(),
-                                FontSize = 9,
-                                Foreground = Chrome.PaperSoftInk,
-                                Width = 26,
-                                TextAlignment = TextAlignment.Right
-                            };
-                            Canvas.SetLeft(label, Math.Max(2, left - 34));
-                            Canvas.SetTop(label, rect.Top + Math.Max(0, (rect.Height - 12) / 2));
-                            _pageMarks.Children.Add(label);
-                        }
-                        var next = line.GetLineStartPosition(1);
-                        if (next == null || next.CompareTo(line) <= 0) break;
-                        line = next;
-                    }
-                }
-            }
-            catch { } // layout raced an edit: the next overlay pass redraws
-        }
-
-        /// <summary>Visible SOURCE range (hidden-surface coordinates): the
-        /// union of the slices whose page frames intersect the viewport.</summary>
-        private void ViewportBounds(out double viewTop, out double viewBottom)
-        {
-            var zoom = Math.Max(0.1, _zoom);
-            var pageHeight = _pageSetup.PageHeightMm * PageSetup.PxPerMm;
-            var stride = pageHeight + PageGap;
-            var offset = (_scroller.VerticalOffset - _page.Margin.Top * zoom) / zoom;
-            var first = Math.Max(0, Math.Min(_sliceTops.Count - 1, (int)(offset / stride)));
-            var last = Math.Max(first, Math.Min(_sliceTops.Count - 1,
-                (int)((offset + _scroller.ViewportHeight / zoom) / stride)));
-            if (_sliceTops.Count == 0) { viewTop = 0; viewBottom = 0; return; }
-            viewTop = _sliceTops[first] - 20;
-            viewBottom = _sliceTops[last] + _sliceHeights[last] + 40;
-        }
-
-        /// <summary>The caret's page (1-based) from the slice table.</summary>
-        private int CaretPage()
-        {
-            try
-            {
-                var rect = _box.CaretPosition.GetCharacterRect(LogicalDirection.Forward);
-                if (rect.IsEmpty) return 1;
-                var page = 1;
-                for (var k = 0; k < _sliceTops.Count; k++)
-                    if (rect.Top >= _sliceTops[k] - 0.5) page = k + 1;
-                return page;
-            }
-            catch { }
-            return Math.Max(1, _sliceTops.Count);
-        }
-
-        private void RaisePageInfo()
-        {
-            var handler = PageInfoChanged;
-            if (handler != null && _item != null)
-                handler(CaretPage() + FolioOffset,
-                    Math.Max(1, _sliceTops.Count) + FolioOffset);
-        }
-
-        // ============================================================= ¶ formatting marks
-
-        /// <summary>Draws the printing characters (¶ end of paragraph, · space,
-        /// ° non-breaking space, → tab, ↵ line break), viewport-limited so big
-        /// chapters stay fluid.</summary>
-        private void DrawFormattingMarks()
-        {
-            if (!_showMarks || _item == null) return;
-            double viewTop, viewBottom;
-            ViewportBounds(out viewTop, out viewBottom);
-
-            try
-            {
-                foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
-                {
-                    var startRect = paragraph.ContentStart.GetCharacterRect(LogicalDirection.Forward);
-                    if (startRect.IsEmpty || startRect.Top > viewBottom) break;
-                    var endRect = paragraph.ContentEnd.GetCharacterRect(LogicalDirection.Backward);
-                    if (endRect.IsEmpty || endRect.Bottom < viewTop) continue;
-
-                    AddMark("¶", endRect.Right + 1, endRect.Top, endRect.Height);
-                    DrawInlineMarks(paragraph.Inlines, viewTop, viewBottom);
-                }
-            }
-            catch { } // layout raced an edit: next debounce redraws
-        }
-
-        private void DrawInlineMarks(InlineCollection inlines, double viewTop, double viewBottom)
-        {
-            foreach (var inline in inlines)
-            {
-                var lineBreak = inline as LineBreak;
-                if (lineBreak != null)
-                {
-                    var rect = lineBreak.ElementStart.GetCharacterRect(LogicalDirection.Forward);
-                    if (!rect.IsEmpty && rect.Bottom >= viewTop && rect.Top <= viewBottom)
-                        AddMark("↵", rect.Right + 1, rect.Top, rect.Height);
-                    continue;
-                }
-                var run = inline as Run;
-                if (run != null)
-                {
-                    var text = run.Text;
-                    if (text.IndexOf(' ') < 0 && text.IndexOf('\u00A0') < 0 && text.IndexOf('\t') < 0)
-                        continue;
-                    for (var i = 0; i < text.Length; i++)
-                    {
-                        var c = text[i];
-                        if (c != ' ' && c != '\u00A0' && c != '\t') continue;
-                        var pointer = run.ContentStart.GetPositionAtOffset(i);
-                        if (pointer == null) continue;
-                        var rect = pointer.GetCharacterRect(LogicalDirection.Forward);
-                        if (rect.IsEmpty || rect.Bottom < viewTop) continue;
-                        if (rect.Top > viewBottom) return;
-                        if (c == ' ')
-                            AddMark("·", rect.X + 0.5, rect.Top, rect.Height);
-                        else if (c == '\u00A0')
-                            AddMark("°", rect.X, rect.Top, rect.Height);
-                        else
-                            AddMark("→", rect.X + 1, rect.Top, rect.Height);
-                    }
-                    continue;
-                }
-                var span = inline as Span;
-                if (span != null) DrawInlineMarks(span.Inlines, viewTop, viewBottom);
-            }
-        }
-
-        private void AddMark(string glyph, double x, double y, double lineHeight)
-        {
-            var mark = new TextBlock
-            {
-                Text = glyph,
-                FontSize = Math.Max(8, Math.Min(13, lineHeight * 0.62)),
-                // Accent ink: clearly visible, clearly not body text.
-                Foreground = Chrome.Accent
-            };
-            Canvas.SetLeft(mark, x);
-            Canvas.SetTop(mark, y + lineHeight * 0.12);
-            _pageMarks.Children.Add(mark);
-        }
-
-        /// <summary>Keeps the caret in view: source coordinates are mapped to
-        /// the page frame carrying the caret's slice.</summary>
-        private void EnsureCaretVisible()
-        {
-            if (_scroller == null || _item == null || _sliceTops.Count == 0) return;
-            try
-            {
-                var rect = _box.CaretPosition.GetCharacterRect(LogicalDirection.Forward);
-                if (rect.IsEmpty) return;
-                var slice = 0;
-                for (var k = 0; k < _sliceTops.Count; k++)
-                    if (rect.Top >= _sliceTops[k] - 0.5) slice = k;
-                var setup = _pageSetup;
-                var pageHeight = setup.PageHeightMm * PageSetup.PxPerMm;
-                var top = setup.MarginTopMm * PageSetup.PxPerMm;
-                var zoom = Math.Max(0.1, _zoom);
-                var screenTop = (_page.Margin.Top + slice * (pageHeight + PageGap)
-                    + top + (rect.Top - _sliceTops[slice])) * zoom;
-                var screenBottom = screenTop + rect.Height * zoom;
-                if (screenTop < _scroller.VerticalOffset + 8)
-                    _scroller.ScrollToVerticalOffset(Math.Max(0, screenTop - 60));
-                else if (screenBottom > _scroller.VerticalOffset + _scroller.ViewportHeight - 8)
-                    _scroller.ScrollToVerticalOffset(screenBottom - _scroller.ViewportHeight + 60);
-            }
-            catch { }
         }
 
         // ============================================================= page setup
 
         /// <summary>Applies the project's page setup to the editing surface:
-        /// paper width, real margins, optional margin guides, hyphenation.</summary>
+        /// paper size, real margins, optional margin guides, hyphenation.</summary>
         public void ApplyPageSetup(PageSetup setup)
         {
             if (setup != null) _pageSetup = setup;
-            ApplyPageVisuals();
-            if (ComposedActive) _composed.RefreshComposition();
-        }
-
-        private void ApplyPageVisuals()
-        {
-            var setup = _pageSetup;
-            _pageHost.Width = Math.Max(200, setup.PageWidthPx);
-            var margins = new Thickness(
-                setup.MarginLeftMm * PageSetup.PxPerMm,
-                setup.MarginTopMm * PageSetup.PxPerMm,
-                setup.MarginRightMm * PageSetup.PxPerMm,
-                setup.MarginBottomMm * PageSetup.PxPerMm);
-            var flow = _box.Document;
-            if (flow != null)
-            {
-                flow.PagePadding = margins;
-                flow.IsHyphenationEnabled = setup.Hyphenation;
-                if (setup.Columns > 1)
-                {
-                    // Honored by print/export; WPF's RichTextBox itself always
-                    // renders a single column.
-                    flow.ColumnGap = 20;
-                    flow.ColumnWidth = Math.Max(60,
-                        (setup.ContentWidthPx - (setup.Columns - 1) * 20) / setup.Columns);
-                }
-                else
-                    flow.ColumnWidth = double.PositiveInfinity;
-
-                // The RichTextBox silently coerces PagePadding to (5,0,5,0)
-                // during its own layout pass (probed) — the cause of "text
-                // glued to the edges". Re-assert once layout settled, then
-                // paginate right away: no debounce lag on load or page-setup
-                // changes, the flash of unformatted text stays subliminal.
-                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(delegate
-                {
-                    if (_box.Document != flow) return;
-                    flow.PagePadding = margins;
-                    Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
-                        new Action(UpdatePagination));
-                }));
-            }
-            _pageHost.MinHeight = setup.PageHeightMm * PageSetup.PxPerMm;
             SyncPageTab();
+            if (ComposedActive) _composed.RefreshComposition();
         }
 
         /// <summary>Toggles a manual page break above the caret's paragraph.</summary>
         public void InsertPageBreak()
         {
-            if (_item == null) return;
-            if (ComposedActive) { _composed.TogglePageBreak(); return; }
-            var paragraph = _box.CaretPosition.Paragraph;
-            if (paragraph == null) return;
-            FlowConverter.MarkPageBreak(paragraph, !paragraph.BreakPageBefore);
-            NotifyEdited();
-            _box.Focus();
+            if (_item == null || !ComposedActive) return;
+            _composed.TogglePageBreak();
         }
 
         // ============================================================= item lifecycle
@@ -3104,55 +1856,22 @@ namespace UniversSale.View
             // paragraphes de l'ancien document n'ont plus de sens (lot A).
             _checkHost.CancelDeferred();
             _item = item;
-            _loading = true;
-            _appliedExtra.Clear(); // fresh document, fresh pagination
-            _box.Document = FlowConverter.ToFlow(item.Document, _styles,
-                _project, Settings.AppSettings.ShowAnnotations);
-            _loading = false;
-            ApplyPageVisuals();
-            RebuildNotesPanel();
-            RebuildAnnotationsPanel();
+            SyncPageTab();
             HideSearch();
-            // Le composé est LA surface d'édition (gel du batch 26) ; seul le
-            // mode de compatibilité des Préférences rend le repli classique.
-            if (!Settings.AppSettings.ClassicCompatibility) SetComposition(true);
-            else if (ComposedActive) SetComposition(false);
+            AttachComposed();
             // Les combos du ruban (style, police, taille) reflètent le caret
-            // dès l'ouverture — la synchro au chargement était avalée par le
-            // garde _loading (dropdowns « vides »).
-            SyncToolbar();
+            // dès l'ouverture.
+            SyncToolbarComposed();
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(UpdateRulers));
-        }
-
-        /// <summary>Flushes the FlowDocument back into the pivot. Call before any
-        /// save, item switch or style-sheet edit. In Composition mode the pivot
-        /// IS the live model — flushing the dormant RichTextBox would wipe the
-        /// composed edits, so it is skipped.</summary>
-        public void Commit()
-        {
-            if (_item == null || ComposedActive) return;
-            var annotations = _item.Document.Annotations;
-            _item.Document = FlowConverter.FromFlow(_box.Document, _styles,
-                _item.Document.Footnotes, _project);
-            // Les annotations vivent à part des runs : la liste survit au
-            // Commit, puis les orphelines (passage supprimé) sont purgées.
-            _item.Document.Annotations = annotations;
-            _item.Document.AnnotationOrder(true);
         }
 
         /// <summary>Re-renders the current item (after the style sheet changed).</summary>
         public void Reload()
         {
-            if (_item == null) return;
-            if (ComposedActive)
-            {
-                _composed.FolioOffset = FolioOffset;
-                _composed.Decor = Decor;
-                _composed.Attach(_item, _styles, _pageSetup, _project); // recompose
-                return;
-            }
-            Commit();
-            LoadItem(_item);
+            if (_item == null || !ComposedActive) return;
+            _composed.FolioOffset = FolioOffset;
+            _composed.Decor = Decor;
+            _composed.Attach(_item, _styles, _pageSetup, _project); // recompose
         }
 
         /// <summary>Detaches the editor from its item (selection moved to a
@@ -3160,87 +1879,40 @@ namespace UniversSale.View
         public void Clear()
         {
             _item = null;
-            _loading = true;
-            _box.Document = new FlowDocument();
-            _loading = false;
             if (_composed != null)
             {
                 _composed.Detach();
                 _composed.Visibility = Visibility.Collapsed;
-                _scroller.Visibility = Visibility.Visible;
             }
             if (_checkTimer != null) _checkTimer.Stop();
             _findings = new List<Correction.Finding>();
             RebuildCorrectionPanel();
-            ApplyPageVisuals();
-            RebuildNotesPanel();
+            SyncPageTab();
             RebuildAnnotationsPanel();
             HideSearch();
         }
 
-        /// <summary>Cheap periodic notes refresh: renumbers markers and rebuilds
-        /// the panel only when the marker set changed, never while a note is
-        /// being typed in (that would steal focus).</summary>
-        public void SyncNotes()
-        {
-            if (_item == null) return;
-            foreach (DockPanel row in _notesList.Children)
-                foreach (var child in row.Children)
-                {
-                    var box = child as TextBox;
-                    if (box != null && box.IsKeyboardFocused) return;
-                }
-            var ordered = ComposedActive ? PivotFootnoteOrder()
-                : FlowConverter.RenumberFootnotes(_box.Document);
-            var changed = ordered.Count != _notesList.Children.Count;
-            if (!changed)
-            {
-                var i = 0;
-                foreach (DockPanel row in _notesList.Children)
-                {
-                    foreach (var child in row.Children)
-                    {
-                        var box = child as TextBox;
-                        if (box != null && (string)box.Tag != ordered[i]) { changed = true; break; }
-                    }
-                    if (changed) break;
-                    i++;
-                }
-            }
-            if (changed) RebuildNotesPanel();
-        }
-
         public void FocusEditor()
         {
-            _box.Focus();
+            if (ComposedActive) _composed.Focus();
         }
 
-        /// <summary>Text undo/redo, claimed only when the writer is typing here
-        /// (keyboard focus inside the box). Lets the window's Ctrl+Z / Ctrl+Y
-        /// route to the text first and to the Binder history otherwise.</summary>
+        /// <summary>Text undo/redo, claimed by the composed surface when it
+        /// holds the item. Lets the window's Ctrl+Z / Ctrl+Y route to the
+        /// text first and to the Binder history otherwise.</summary>
         public bool TryUndo()
         {
-            if (_item == null) return false;
-            if (ComposedActive) return _composed.Undo();
-            if (!_box.IsKeyboardFocusWithin || !_box.CanUndo) return false;
-            _box.Undo();
-            return true;
+            return _item != null && ComposedActive && _composed.Undo();
         }
 
         public bool TryRedo()
         {
-            if (_item == null) return false;
-            if (ComposedActive) return _composed.Redo();
-            if (!_box.IsKeyboardFocusWithin || !_box.CanRedo) return false;
-            _box.Redo();
-            return true;
+            return _item != null && ComposedActive && _composed.Redo();
         }
 
         public string PlainText()
         {
-            if (_item == null) return "";
-            if (ComposedActive) return _item.Document.ToPlainText();
-            return new TextRange(_box.Document.ContentStart, _box.Document.ContentEnd).Text;
+            return _item == null ? "" : _item.Document.ToPlainText();
         }
 
         private void NotifyEdited()
@@ -3248,13 +1920,6 @@ namespace UniversSale.View
             var handler = Edited;
             if (handler != null) handler();
             ScheduleCheck(); // la correction suit l'édition, au debounce
-        }
-
-        private void AfterFormat()
-        {
-            NotifyEdited();
-            SyncToolbar();
-            _box.Focus();
         }
 
         // ============================================================= formatting
@@ -3265,33 +1930,16 @@ namespace UniversSale.View
             var chosen = _styleCombo.SelectedItem as ComboBoxItem;
             if (chosen == null) return;
             var style = _styles.Find((string)chosen.Tag);
-            if (ComposedActive) { _composed.ApplyStyle(style.Id); _composed.Focus(); return; }
-
-            var paragraph = _box.Selection.Start.Paragraph;
-            var last = _box.Selection.End.Paragraph;
-            while (paragraph != null)
-            {
-                FlowConverter.ApplyParagraphStyle(paragraph, style);
-                if (paragraph == last) break;
-                Block next = paragraph.NextBlock;
-                while (next != null && !(next is Paragraph)) next = next.NextBlock;
-                paragraph = next as Paragraph;
-            }
-            AfterFormat();
+            if (!ComposedActive) return;
+            _composed.ApplyStyle(style.Id);
+            _composed.Focus();
         }
 
         private void OnFontComboChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_syncing || _item == null || _fontCombo.SelectedItem == null) return;
-            if (ComposedActive)
-            {
-                _composed.ApplyFont((string)_fontCombo.SelectedItem);
-                _composed.Focus();
-                return;
-            }
-            _box.Selection.ApplyPropertyValue(TextElement.FontFamilyProperty,
-                new FontFamily((string)_fontCombo.SelectedItem));
-            AfterFormat();
+            if (_syncing || _item == null || _fontCombo.SelectedItem == null || !ComposedActive) return;
+            _composed.ApplyFont((string)_fontCombo.SelectedItem);
+            _composed.Focus();
         }
 
         /// <summary>Police tapée à la main dans la combo éditable.</summary>
@@ -3299,16 +1947,9 @@ namespace UniversSale.View
         {
             if (_item == null) return;
             name = (name ?? "").Trim();
-            if (name.Length == 0) return;
-            if (ComposedActive)
-            {
-                _composed.ApplyFont(name);
-                _composed.Focus();
-                return;
-            }
-            _box.Selection.ApplyPropertyValue(TextElement.FontFamilyProperty,
-                new FontFamily(name));
-            AfterFormat();
+            if (name.Length == 0 || !ComposedActive) return;
+            _composed.ApplyFont(name);
+            _composed.Focus();
         }
 
         /// <summary>Taille personnalisée tapée dans la combo éditable (pt).</summary>
@@ -3320,171 +1961,54 @@ namespace UniversSale.View
                 System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out sizePt)) return;
             sizePt = Math.Max(4, Math.Min(200, sizePt));
-            if (ComposedActive)
-            {
-                _composed.ApplySizePx(sizePt * 4.0 / 3.0);
-                _composed.Focus();
-                return;
-            }
-            _box.Selection.ApplyPropertyValue(TextElement.FontSizeProperty, sizePt * 4.0 / 3.0);
-            AfterFormat();
+            if (!ComposedActive) return;
+            _composed.ApplySizePx(sizePt * 4.0 / 3.0);
+            _composed.Focus();
         }
 
         private void OnSizeComboChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_syncing || _item == null || _sizeCombo.SelectedItem == null) return;
-            if (ComposedActive)
-            {
-                _composed.ApplySizePx((int)_sizeCombo.SelectedItem * 4.0 / 3.0);
-                _composed.Focus();
-                return;
-            }
-            _box.Selection.ApplyPropertyValue(TextElement.FontSizeProperty,
-                (int)_sizeCombo.SelectedItem * 4.0 / 3.0); // pt -> px
-            AfterFormat();
-        }
-
-        /// <summary>Checkbox "list": a text prefix, so it stays plain text in
-        /// every export. Cycles ☐ → ☑ → none on each selected paragraph.</summary>
-        private void ToggleChecklist()
-        {
-            if (_item == null) return;
-            var paragraph = _box.Selection.Start.Paragraph;
-            var last = _box.Selection.End.Paragraph;
-            while (paragraph != null)
-            {
-                ToggleCheckboxPrefix(paragraph);
-                if (paragraph == last) break;
-                Block next = paragraph.NextBlock;
-                while (next != null && !(next is Paragraph)) next = next.NextBlock;
-                paragraph = next as Paragraph;
-            }
-            AfterFormat();
-        }
-
-        private static void ToggleCheckboxPrefix(Paragraph paragraph)
-        {
-            Run run = null;
-            foreach (var inline in paragraph.Inlines)
-            {
-                var candidate = inline as Run;
-                if (candidate == null) break;
-                var tag = candidate.Tag as string;
-                if (tag != null && tag.StartsWith("fn:")) break; // never touch markers
-                run = candidate;
-                break;
-            }
-            if (run == null)
-            {
-                if (paragraph.Inlines.FirstInline == null)
-                    paragraph.Inlines.Add(new Run("☐ "));
-                else
-                    paragraph.Inlines.InsertBefore(paragraph.Inlines.FirstInline, new Run("☐ "));
-                return;
-            }
-            var text = run.Text;
-            if (text.StartsWith("☐", StringComparison.Ordinal))
-                run.Text = "☑" + text.Substring(1);
-            else if (text.StartsWith("☑", StringComparison.Ordinal))
-                run.Text = text.Substring(1).TrimStart(' ');
-            else
-                run.Text = "☐ " + text;
+            if (_syncing || _item == null || _sizeCombo.SelectedItem == null || !ComposedActive) return;
+            _composed.ApplySizePx((int)_sizeCombo.SelectedItem * 4.0 / 3.0); // pt -> px
+            _composed.Focus();
         }
 
         /// <summary>Inserts a horizontal rule on its own paragraph, below the
         /// caret's one; the caret lands on a fresh paragraph after it.</summary>
         public void InsertRule()
         {
-            if (_item == null) return;
-            if (ComposedActive)
-            {
-                _composed.InsertElementAtCaret(new TextRun { IsRule = true });
-                return;
-            }
-            var rule = new Paragraph();
-            FlowConverter.ApplyParagraphStyle(rule, _styles.Body);
-            rule.TextAlignment = TextAlignment.Center;
-            rule.TextIndent = 0;
-            rule.Inlines.Add(FlowConverter.MakeRuleInline(_project));
-            InsertBlockBelowCaret(rule);
+            if (_item == null || !ComposedActive) return;
+            _composed.InsertElementAtCaret(new TextRun { IsRule = true });
         }
 
         /// <summary>Inserts the project's scene separator ("***" by default,
-        /// centered; text/font/size live in the project settings).</summary>
+        /// centered; text/font/size live in the project settings): its own
+        /// centered paragraph, then a clean continuation one.</summary>
         public void InsertSeparator()
         {
-            if (_item == null) return;
+            if (_item == null || !ComposedActive) return;
             var text = _project == null || string.IsNullOrEmpty(_project.SeparatorText)
                 ? "***" : _project.SeparatorText;
             var font = _project != null && _project.SeparatorFont != null
                 ? _project.SeparatorFont : _styles.Body.FontFamily;
             var sizePt = _project != null ? _project.SeparatorSizePt : 12;
 
-            if (ComposedActive)
-            {
-                // Its own centered paragraph, then a clean continuation one.
-                _composed.InsertParagraphBreak();
-                int paragraph, offset;
-                _composed.GetCaret(out paragraph, out offset);
-                _composed.TypeText(text);
-                _composed.PlaceCaret(paragraph, 0, false);
-                _composed.PlaceCaret(paragraph, text.Length, true);
-                _composed.ApplyFont(font);
-                _composed.ApplySizePx(Math.Max(6, sizePt * 4.0 / 3.0));
-                _composed.PlaceCaret(paragraph, text.Length, false);
-                _composed.ApplyAlign("center");
-                _composed.InsertParagraphBreak();
-                int after, afterOffset;
-                _composed.GetCaret(out after, out afterOffset);
-                var style = _styles.Find(_item.Document.Paragraphs[after].StyleId);
-                _composed.ApplyAlign(style.Align); // clears the inherited centering
-                _composed.Focus();
-                return;
-            }
-
-            var separatorParagraph = new Paragraph();
-            FlowConverter.ApplyParagraphStyle(separatorParagraph, _styles.Body);
-            separatorParagraph.TextAlignment = TextAlignment.Center;
-            separatorParagraph.TextIndent = 0;
-            separatorParagraph.Inlines.Add(new Run(text)
-            {
-                FontFamily = new FontFamily(font),
-                FontSize = Math.Max(6, sizePt * 4.0 / 3.0)
-            });
-            InsertBlockBelowCaret(separatorParagraph);
-        }
-
-        /// <summary>Inserts a block after the caret's paragraph (after its list
-        /// when the caret is inside one) and moves the caret to a fresh body
-        /// paragraph below the inserted block.</summary>
-        private void InsertBlockBelowCaret(Block block)
-        {
-            var current = _box.CaretPosition.Paragraph;
-            Block anchor = current;
-            if (current != null)
-            {
-                var listItem = current.Parent as ListItem;
-                var list = listItem == null ? null : listItem.Parent as System.Windows.Documents.List;
-                if (list != null) anchor = list;
-                var section = current.Parent as Section;
-                if (section != null) anchor = section;
-            }
-            if (anchor != null && anchor.Parent is FlowDocument)
-                _box.Document.Blocks.InsertAfter(anchor, block);
-            else
-                _box.Document.Blocks.Add(block);
-
-            var following = block.NextBlock as Paragraph;
-            if (following == null)
-            {
-                following = new Paragraph();
-                FlowConverter.ApplyParagraphStyle(following, _styles.Body);
-                _box.Document.Blocks.InsertAfter(block, following);
-            }
-            _box.CaretPosition = following.ContentStart;
-            NotifyEdited();
-            ScheduleMarks();
-            _box.Focus();
+            _composed.InsertParagraphBreak();
+            int paragraph, offset;
+            _composed.GetCaret(out paragraph, out offset);
+            _composed.TypeText(text);
+            _composed.PlaceCaret(paragraph, 0, false);
+            _composed.PlaceCaret(paragraph, text.Length, true);
+            _composed.ApplyFont(font);
+            _composed.ApplySizePx(Math.Max(6, sizePt * 4.0 / 3.0));
+            _composed.PlaceCaret(paragraph, text.Length, false);
+            _composed.ApplyAlign("center");
+            _composed.InsertParagraphBreak();
+            int after, afterOffset;
+            _composed.GetCaret(out after, out afterOffset);
+            var style = _styles.Find(_item.Document.Paragraphs[after].StyleId);
+            _composed.ApplyAlign(style.Align); // clears the inherited centering
+            _composed.Focus();
         }
 
         /// <summary>Inserts an image at the caret; bytes go to the project
@@ -3504,22 +2028,9 @@ namespace UniversSale.View
                     throw new InvalidOperationException("image de plus de 20 Mo — réduisez-la d'abord.");
                 var bytes = System.IO.File.ReadAllBytes(dialog.FileName);
                 var id = _project.AddImage(bytes, System.IO.Path.GetExtension(dialog.FileName));
-                if (ComposedActive)
-                {
-                    _composed.InsertElementAtCaret(new TextRun { ImageId = id });
-                    _composed.Focus();
-                    return;
-                }
-                var stored = _project.FindImage(id);
-                var caret = _box.CaretPosition.GetInsertionPosition(LogicalDirection.Forward);
-                var container = new InlineUIContainer(FlowConverter.MakeImageElement(stored), caret)
-                {
-                    Tag = "img:" + id,
-                    BaselineAlignment = BaselineAlignment.Bottom
-                };
-                _box.CaretPosition = container.ElementEnd;
-                NotifyEdited();
-                _box.Focus();
+                if (!ComposedActive) return;
+                _composed.InsertElementAtCaret(new TextRun { ImageId = id });
+                _composed.Focus();
             }
             catch (Exception error)
             {
@@ -3529,26 +2040,6 @@ namespace UniversSale.View
             }
         }
 
-        private void ToggleDecoration(TextDecorationLocation location)
-        {
-            var current = _box.Selection.GetPropertyValue(Inline.TextDecorationsProperty)
-                as TextDecorationCollection;
-            var has = false;
-            if (current != null)
-                foreach (var decoration in current)
-                    if (decoration.Location == location) { has = true; break; }
-
-            var next = new TextDecorationCollection();
-            if (current != null)
-                foreach (var decoration in current)
-                    if (decoration.Location != location) next.Add(decoration);
-            if (!has)
-                next.Add(location == TextDecorationLocation.Underline
-                    ? TextDecorations.Underline[0] : TextDecorations.Strikethrough[0]);
-            _box.Selection.ApplyPropertyValue(Inline.TextDecorationsProperty, next);
-            AfterFormat();
-        }
-
         private List<string> PivotFootnoteOrder()
         {
             var ordered = new List<string>();
@@ -3556,82 +2047,6 @@ namespace UniversSale.View
                 foreach (var run in paragraph.Runs)
                     if (run.FootnoteId != null) ordered.Add(run.FootnoteId);
             return ordered;
-        }
-
-        /// <summary>Reflects the selection's formatting in the format bar.</summary>
-        private void SyncToolbar()
-        {
-            if (_loading || _item == null || ComposedActive) return;
-            _syncing = true;
-            try
-            {
-                var weight = _box.Selection.GetPropertyValue(TextElement.FontWeightProperty);
-                _boldBtn.IsChecked = weight is FontWeight && (FontWeight)weight >= FontWeights.Bold;
-
-                var fontStyle = _box.Selection.GetPropertyValue(TextElement.FontStyleProperty);
-                _italicBtn.IsChecked = fontStyle is FontStyle && (FontStyle)fontStyle == FontStyles.Italic;
-
-                var decorations = _box.Selection.GetPropertyValue(Inline.TextDecorationsProperty)
-                    as TextDecorationCollection;
-                var under = false;
-                var strike = false;
-                if (decorations != null)
-                    foreach (var decoration in decorations)
-                    {
-                        if (decoration.Location == TextDecorationLocation.Underline) under = true;
-                        if (decoration.Location == TextDecorationLocation.Strikethrough) strike = true;
-                    }
-                _underBtn.IsChecked = under;
-                _strikeBtn.IsChecked = strike;
-
-                var family = _box.Selection.GetPropertyValue(TextElement.FontFamilyProperty) as FontFamily;
-                _fontCombo.SelectedItem = family == null ? null : (object)family.Source;
-                if (family != null && _fontCombo.SelectedItem == null)
-                    _fontCombo.Text = family.Source; // police hors liste (combo éditable)
-
-                var size = _box.Selection.GetPropertyValue(TextElement.FontSizeProperty);
-                _sizeCombo.SelectedItem = size is double
-                    ? (object)(int)Math.Round((double)size * 0.75) : null; // px -> pt
-                if (size is double && _sizeCombo.SelectedItem == null)
-                    _sizeCombo.Text = ((double)size * 0.75).ToString("0.#",
-                        System.Globalization.CultureInfo.CurrentCulture);
-
-                var paragraph = _box.Selection.Start.Paragraph;
-                if (paragraph != null)
-                {
-                    var styleId = paragraph.Tag as string ?? "body";
-                    ComboBoxItem match = null;
-                    foreach (ComboBoxItem candidate in _styleCombo.Items)
-                        if ((string)candidate.Tag == styleId) { match = candidate; break; }
-                    _styleCombo.SelectedItem = match;
-
-                    var align = paragraph.TextAlignment;
-                    _alignLeft.IsChecked = align == TextAlignment.Left;
-                    _alignCenter.IsChecked = align == TextAlignment.Center;
-                    _alignRight.IsChecked = align == TextAlignment.Right;
-                    _alignJustify.IsChecked = align == TextAlignment.Justify;
-
-                    var listItem = paragraph.Parent as ListItem;
-                    var list = listItem == null ? null : listItem.Parent as System.Windows.Documents.List;
-                    var numbered = list != null
-                        && (list.MarkerStyle == TextMarkerStyle.Decimal
-                            || list.MarkerStyle == TextMarkerStyle.LowerLatin
-                            || list.MarkerStyle == TextMarkerStyle.UpperLatin
-                            || list.MarkerStyle == TextMarkerStyle.LowerRoman
-                            || list.MarkerStyle == TextMarkerStyle.UpperRoman);
-                    _bulletBtn.IsChecked = list != null && !numbered;
-                    _numberBtn.IsChecked = numbered;
-
-                    var firstRun = paragraph.Inlines.FirstInline as Run;
-                    var firstText = firstRun == null ? "" : firstRun.Text;
-                    _checkBtn.IsChecked = firstText.StartsWith("☐", StringComparison.Ordinal)
-                        || firstText.StartsWith("☑", StringComparison.Ordinal);
-                }
-            }
-            finally
-            {
-                _syncing = false;
-            }
         }
 
         // ============================================================= find & replace
@@ -3645,15 +2060,6 @@ namespace UniversSale.View
             _searchBar.Visibility = Visibility.Visible;
             _searchInfo.Text = "";
             _searchCurrent = null;
-            // « Mot entier » vit sur la recherche pivot — le repli classique
-            // (gelé) garde son ancienne recherche telle quelle.
-            _wholeWordCheck.IsEnabled = ComposedActive;
-            _wholeWordCheck.ToolTip = ComposedActive ? null
-                : "Disponible dans les pages composées";
-            if (!ComposedActive && !_box.Selection.IsEmpty
-                && _box.Selection.Text.Length < 80
-                && !_box.Selection.Text.Contains("\n"))
-                _searchBox.Text = _box.Selection.Text;
             _searchBox.Focus();
             _searchBox.SelectAll();
         }
@@ -3664,7 +2070,6 @@ namespace UniversSale.View
             _searchBar.Visibility = Visibility.Collapsed;
             _searchCurrent = null;
             if (ComposedActive) _composed.Focus();
-            else _box.Focus();
         }
 
         private StringComparison Comparison()
@@ -3673,70 +2078,16 @@ namespace UniversSale.View
                 ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase;
         }
 
-        /// <summary>A paragraph's text plus a map from character offsets to runs,
-        /// so a hit index can be turned back into TextPointers.</summary>
-        private sealed class ParagraphMap
-        {
-            public Paragraph Paragraph;
-            public string Text;
-            public List<int> Offsets = new List<int>();
-            public List<Run> Runs = new List<Run>();
-
-            public TextPointer PointerAt(int index)
-            {
-                for (var i = Offsets.Count - 1; i >= 0; i--)
-                    if (Offsets[i] <= index)
-                        return Runs[i].ContentStart.GetPositionAtOffset(index - Offsets[i]);
-                return Paragraph.ContentStart;
-            }
-        }
-
-        private List<ParagraphMap> MapParagraphs()
-        {
-            var maps = new List<ParagraphMap>();
-            foreach (var paragraph in FlowConverter.EnumerateParagraphs(_box.Document))
-            {
-                var map = new ParagraphMap { Paragraph = paragraph };
-                var sb = new System.Text.StringBuilder();
-                AppendInlines(paragraph.Inlines, sb, map);
-                map.Text = sb.ToString();
-                maps.Add(map);
-            }
-            return maps;
-        }
-
-        private static void AppendInlines(InlineCollection inlines, System.Text.StringBuilder sb, ParagraphMap map)
-        {
-            foreach (var inline in inlines)
-            {
-                var run = inline as Run;
-                if (run != null)
-                {
-                    var tag = run.Tag as string;
-                    if (tag != null && tag.StartsWith("fn:")) continue; // markers are not text
-                    map.Offsets.Add(sb.Length);
-                    map.Runs.Add(run);
-                    sb.Append(run.Text);
-                    continue;
-                }
-                if (inline is LineBreak) { sb.Append('\n'); continue; }
-                var span = inline as Span;
-                if (span != null) AppendInlines(span.Inlines, sb, map);
-            }
-        }
-
         private void FindNext()
         {
-            if (ComposedActive) TryFindNextComposed(true);
-            else TryFindNext(true);
+            TryFindNextComposed(true);
         }
 
-        /// <summary>La recherche pivot du mode composé : PivotSearch trouve,
-        /// la vue sélectionne — le composé reste actif du début à la fin.</summary>
+        /// <summary>La recherche pivot : PivotSearch trouve, la vue sélectionne.</summary>
         private bool TryFindNextComposed(bool wrap)
         {
             var needle = _searchBox.Text;
-            if (string.IsNullOrEmpty(needle) || _item == null) return false;
+            if (string.IsNullOrEmpty(needle) || _item == null || !ComposedActive) return false;
             var matches = PivotSearch.FindAll(_item.Document, needle,
                 _caseCheck.IsChecked == true, _wholeWordCheck.IsChecked == true);
             if (matches.Count == 0)
@@ -3765,262 +2116,59 @@ namespace UniversSale.View
             return true;
         }
 
-        private bool TryFindNext(bool wrap)
-        {
-            var needle = _searchBox.Text;
-            if (string.IsNullOrEmpty(needle) || _item == null) return false;
-            var comparison = Comparison();
-            var caret = _box.Selection.End;
-
-            var maps = MapParagraphs();
-            TextPointer firstStart = null, firstEnd = null; // first hit in the document (wrap target)
-            foreach (var map in maps)
-            {
-                var index = 0;
-                while ((index = map.Text.IndexOf(needle, index, comparison)) >= 0)
-                {
-                    var start = map.PointerAt(index);
-                    var end = map.PointerAt(index + needle.Length);
-                    if (start != null && end != null)
-                    {
-                        if (firstStart == null) { firstStart = start; firstEnd = end; }
-                        if (start.CompareTo(caret) > 0)
-                        {
-                            SelectResult(start, end);
-                            return true;
-                        }
-                    }
-                    index += 1;
-                }
-            }
-            if (wrap && firstStart != null)
-            {
-                SelectResult(firstStart, firstEnd);
-                _searchInfo.Text = "Reprise au début";
-                return true;
-            }
-            _searchInfo.Text = "Aucun résultat";
-            return false;
-        }
-
-        private void SelectResult(TextPointer start, TextPointer end)
-        {
-            _box.Selection.Select(start, end);
-            _searchInfo.Text = "";
-            var element = start.Parent as FrameworkContentElement;
-            if (element != null) element.BringIntoView();
-            _box.Focus();
-        }
-
         private void ReplaceCurrent()
         {
             var needle = _searchBox.Text;
-            if (string.IsNullOrEmpty(needle)) return;
-            if (ComposedActive)
+            if (string.IsNullOrEmpty(needle) || !ComposedActive) return;
+            // Le résultat courant est vérifié contre le texte VIVANT
+            // avant remplacement (le document a pu bouger).
+            if (_searchCurrent != null && _item != null
+                && _searchCurrent.ParagraphIndex < _item.Document.Paragraphs.Count)
             {
-                // Le résultat courant est vérifié contre le texte VIVANT
-                // avant remplacement (le document a pu bouger).
-                if (_searchCurrent != null && _item != null
-                    && _searchCurrent.ParagraphIndex < _item.Document.Paragraphs.Count)
-                {
-                    var text = PivotEdit.FlatText(
-                        _item.Document.Paragraphs[_searchCurrent.ParagraphIndex]);
-                    if (_searchCurrent.Start + _searchCurrent.Length <= text.Length
-                        && string.Equals(text.Substring(_searchCurrent.Start,
-                            _searchCurrent.Length), needle, Comparison()))
-                        _composed.ReplaceRange(_searchCurrent.ParagraphIndex,
-                            _searchCurrent.Start, _searchCurrent.Length,
-                            _replaceBox.Text);
-                    _searchCurrent = null;
-                }
-                TryFindNextComposed(true);
-                return;
+                var text = PivotEdit.FlatText(
+                    _item.Document.Paragraphs[_searchCurrent.ParagraphIndex]);
+                if (_searchCurrent.Start + _searchCurrent.Length <= text.Length
+                    && string.Equals(text.Substring(_searchCurrent.Start,
+                        _searchCurrent.Length), needle, Comparison()))
+                    _composed.ReplaceRange(_searchCurrent.ParagraphIndex,
+                        _searchCurrent.Start, _searchCurrent.Length,
+                        _replaceBox.Text);
+                _searchCurrent = null;
             }
-            if (!_box.Selection.IsEmpty
-                && string.Equals(_box.Selection.Text, needle, Comparison()))
-            {
-                _box.Selection.Text = _replaceBox.Text;
-                NotifyEdited();
-            }
-            FindNext();
+            TryFindNextComposed(true);
         }
 
         private void ReplaceAll()
         {
             var needle = _searchBox.Text;
-            if (string.IsNullOrEmpty(needle) || _item == null) return;
-            if (ComposedActive)
-            {
-                var matches = PivotSearch.FindAll(_item.Document, needle,
-                    _caseCheck.IsChecked == true, _wholeWordCheck.IsChecked == true);
-                var replaced = _composed.ReplaceAll(matches, _replaceBox.Text);
-                _searchCurrent = null;
-                _searchInfo.Text = replaced == 0 ? "Aucun résultat"
-                    : replaced == 1 ? "1 remplacement" : replaced + " remplacements";
-                return;
-            }
-            var count = 0;
-            _box.CaretPosition = _box.Document.ContentStart;
-            _box.Selection.Select(_box.Document.ContentStart, _box.Document.ContentStart);
-            while (count < 10000 && TryFindNext(false))
-            {
-                _box.Selection.Text = _replaceBox.Text;
-                _box.CaretPosition = _box.Selection.End;
-                count++;
-            }
-            if (count > 0) NotifyEdited();
-            _searchInfo.Text = count == 0 ? "Aucun résultat"
-                : count == 1 ? "1 remplacement" : count + " remplacements";
+            if (string.IsNullOrEmpty(needle) || _item == null || !ComposedActive) return;
+            var matches = PivotSearch.FindAll(_item.Document, needle,
+                _caseCheck.IsChecked == true, _wholeWordCheck.IsChecked == true);
+            var replaced = _composed.ReplaceAll(matches, _replaceBox.Text);
+            _searchCurrent = null;
+            _searchInfo.Text = replaced == 0 ? "Aucun résultat"
+                : replaced == 1 ? "1 remplacement" : replaced + " remplacements";
         }
 
         // ============================================================= wiki links
 
-        private void OnEditorMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
-        {
-            if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
-            var pointer = _box.GetPositionFromPoint(e.GetPosition(_box), true);
-            if (pointer == null) return;
-            var run = pointer.Parent as Run;
-            if (run == null || (run.Tag as string) != "wikilink") return;
-            var text = run.Text.Trim();
-            if (!text.StartsWith("[[") || !text.EndsWith("]]")) return;
-            var handler = LinkClicked;
-            if (handler != null) handler(text.Substring(2, text.Length - 4).Trim());
-            e.Handled = true;
-        }
-
         /// <summary>Inserts a styled [[link]] at the caret, immediately clickable.</summary>
         public void InsertWikiLink(string title)
         {
-            if (_item == null || string.IsNullOrEmpty(title)) return;
-            if (ComposedActive)
-            {
-                _composed.TypeText("[[" + title + "]]");
-                _composed.Focus();
-                return;
-            }
-            var caret = _box.CaretPosition.GetInsertionPosition(LogicalDirection.Forward);
-            var link = new Run("[[" + title + "]]", caret)
-            {
-                Tag = "wikilink",
-                Foreground = Chrome.Accent,
-                Cursor = System.Windows.Input.Cursors.Hand
-            };
-            _box.CaretPosition = link.ElementEnd;
-            _box.Selection.Select(link.ElementEnd, link.ElementEnd);
-            _box.Selection.ApplyPropertyValue(TextElement.ForegroundProperty, (Brush)Chrome.PaperInk);
-            NotifyEdited();
-            _box.Focus();
+            if (_item == null || string.IsNullOrEmpty(title) || !ComposedActive) return;
+            _composed.TypeText("[[" + title + "]]");
+            _composed.Focus();
         }
 
         // ============================================================= footnotes
 
         public void InsertFootnote()
         {
-            if (_item == null) return;
-            if (ComposedActive)
-            {
-                _composed.InsertFootnoteAtCaret();
-                RebuildNotesPanel();
-                if (_item.Document.Footnotes.Count > 0)
-                    OpenNote(_item.Document.Footnotes[_item.Document.Footnotes.Count - 1].Id);
-                return;
-            }
-            var note = new Footnote();
-            _item.Document.Footnotes.Add(note);
-
-            var caret = _box.CaretPosition.GetInsertionPosition(LogicalDirection.Forward);
-            var paragraph = caret.Paragraph;
-            var size = paragraph != null ? paragraph.FontSize : _styles.Body.FontSize;
-            var marker = new Run("?", caret)
-            {
-                Tag = "fn:" + note.Id,
-                BaselineAlignment = BaselineAlignment.Superscript,
-                FontSize = Math.Max(8, size * 0.65),
-                FontWeight = FontWeights.Bold,
-                Foreground = Chrome.Accent
-            };
-
-            // Move the caret past the marker and neutralize its spring-loaded
-            // formatting so typing resumes with normal text.
-            _box.CaretPosition = marker.ElementEnd;
-            _box.Selection.Select(marker.ElementEnd, marker.ElementEnd);
-            _box.Selection.ApplyPropertyValue(Inline.BaselineAlignmentProperty, BaselineAlignment.Baseline);
-            _box.Selection.ApplyPropertyValue(TextElement.FontSizeProperty, size);
-            _box.Selection.ApplyPropertyValue(TextElement.FontWeightProperty, FontWeights.Normal);
-            _box.Selection.ApplyPropertyValue(TextElement.ForegroundProperty, (Brush)Chrome.PaperInk);
-
-            RebuildNotesPanel();
-            NotifyEdited();
-            FocusNote(note.Id);
+            if (_item == null || !ComposedActive) return;
+            _composed.InsertFootnoteAtCaret();
+            if (_item.Document.Footnotes.Count > 0)
+                OpenNote(_item.Document.Footnotes[_item.Document.Footnotes.Count - 1].Id);
         }
 
-        /// <summary>Renumbers markers, prunes orphaned notes and rebuilds the
-        /// bottom panel. Called after load, insert and edits that may have
-        /// removed a marker.</summary>
-        public void RebuildNotesPanel()
-        {
-            _notesList.Children.Clear();
-            if (_item == null) { _notesBar.Visibility = Visibility.Collapsed; return; }
-
-            var ordered = ComposedActive ? PivotFootnoteOrder()
-                : FlowConverter.RenumberFootnotes(_box.Document);
-            // Pages composées (batch 33) : les notes s'éditent EN PLACE au bas
-            // de leur page — le panneau du bas ne sert plus qu'au classique.
-            _notesBar.Visibility = ordered.Count == 0 || _calm || ComposedActive
-                ? Visibility.Collapsed : Visibility.Visible;
-
-            var number = 0;
-            foreach (var id in ordered)
-            {
-                number++;
-                var note = _item.Document.FindFootnote(id);
-                if (note == null)
-                {
-                    // A marker without its note (should not happen): recreate the
-                    // note rather than lose the marker silently.
-                    note = new Footnote { Id = id };
-                    _item.Document.Footnotes.Add(note);
-                }
-
-                var row = new DockPanel { Margin = new Thickness(0, 1, 0, 1) };
-                var label = new TextBlock
-                {
-                    Text = number + ".",
-                    Foreground = Chrome.SoftText,
-                    Width = 24,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                DockPanel.SetDock(label, Dock.Left);
-                row.Children.Add(label);
-
-                var noteRef = note;
-                var box = new TextBox
-                {
-                    Text = note.Text,
-                    TextWrapping = TextWrapping.Wrap,
-                    AcceptsReturn = false,
-                    Tag = id
-                };
-                box.TextChanged += delegate
-                {
-                    noteRef.Text = box.Text;
-                    if (ComposedActive) _composed.RefreshNotes();
-                    NotifyEdited();
-                };
-                row.Children.Add(box);
-                _notesList.Children.Add(row);
-            }
-        }
-
-        private void FocusNote(string id)
-        {
-            foreach (DockPanel row in _notesList.Children)
-                foreach (var child in row.Children)
-                {
-                    var box = child as TextBox;
-                    if (box != null && (string)box.Tag == id) { box.Focus(); return; }
-                }
-        }
     }
 }

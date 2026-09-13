@@ -66,7 +66,6 @@ namespace UniversSale.Tests.Ui
 
             AppSettings.Load();
             var savedDark = AppSettings.DarkTheme;
-            AppSettings.ClassicCompatibility = false;
             AppSettings.RightPanel = RightPanel.Inspector;
             AppSettings.DarkTheme = false;
             Chrome.Toggle(false);

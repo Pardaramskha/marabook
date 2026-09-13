@@ -21,7 +21,6 @@ namespace UniversSale.View
 
         /// <summary>Le mode de compatibilité a changé : la fenêtre principale
         /// recharge le document ouvert sur la bonne surface.</summary>
-        public event Action EditingSurfaceChanged;
 
         /// <summary>Un dictionnaire personnel a changé : l'éditeur doit
         /// oublier ses verdicts en cache et revérifier.</summary>
@@ -116,53 +115,17 @@ namespace UniversSale.View
             };
         }
 
-        /// <summary>Onglet « Édition » : le mode de compatibilité — le repli
-        /// classique, gelé au batch 26 (gel documenté dans PLAN.md avec ses
-        /// trois conditions de suppression).</summary>
+        /// <summary>Onglet « Édition » : les versions d'écrits (le mode de
+        /// compatibilité classique a disparu le 13/09).</summary>
         private UIElement BuildEditingTab()
         {
             var panel = new StackPanel { Margin = new Thickness(12, 10, 12, 10), MaxWidth = 420 };
-            panel.Children.Add(Caption("Mode de compatibilité"));
-            var compat = new CheckBox
-            {
-                Content = "Écrire dans l'ancienne surface (mode de compatibilité)",
-                IsChecked = AppSettings.ClassicCompatibility,
-                Margin = new Thickness(0, 6, 0, 0)
-            };
-            compat.Click += delegate
-            {
-                AppSettings.ClassicCompatibility = compat.IsChecked == true;
-                AppSettings.Save();
-                var handler = EditingSurfaceChanged;
-                if (handler != null) handler();
-            };
-            panel.Children.Add(compat);
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Ce qu'il apporte : la saisie IME pour les écritures non "
-                    + "latines, et le correcteur orthographique de Windows.\n\n"
-                    + "Ce qu'il coûte : ni correction Marabook (répétitions, et "
-                    + "bientôt orthographe et grammaire), ni approche, ni bulles "
-                    + "d'annotation, ni gabarits à l'écran, ni affichage "
-                    + "Brouillon.\n\n"
-                    + "Les pages composées sont la surface d'édition de "
-                    + "Marabook ; ce repli est conservé tel quel, sans "
-                    + "nouvelle fonctionnalité, en attendant que le composé "
-                    + "couvre aussi ces deux besoins.",
-                Foreground = Chrome.SoftText,
-                FontSize = 12,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 8, 0, 0)
-            });
-
             // Les dictionnaires personnels ont quitté ce volet (batch 34) :
             // l'écran « Dictionnaire » de la Pile tient ce rôle, avec les
             // natures grammaticales et les formes acceptées.
 
             // — Les versions d'écrits (batch 38).
-            var versions = Caption("Versions d'écrits");
-            versions.Margin = new Thickness(0, 18, 0, 0);
-            panel.Children.Add(versions);
+            panel.Children.Add(Caption("Versions d'écrits"));
             var daily = new CheckBox
             {
                 Content = "Instantané automatique à la première modification du jour",

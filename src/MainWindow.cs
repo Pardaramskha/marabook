@@ -203,7 +203,6 @@ namespace UniversSale
             {
                 _statsTimer.Stop();
                 UpdateStats();
-                _editor.SyncNotes();
             };
             _autosaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(2) };
             _autosaveTimer.Tick += delegate { Autosave(); };
@@ -1901,7 +1900,9 @@ namespace UniversSale
 
         private void CommitActive()
         {
-            if (_editor.HasItem) _editor.Commit();
+            // L'éditeur d'écrits n'a rien à rincer : les pages composées
+            // écrivent directement dans le pivot (le classique et son Commit
+            // ont disparu le 13/09).
             if (_sheetView.HasItem) _sheetView.Commit();
             // Template zones normally commit on focus loss, but a pending
             // debounced edit must not be lost by a save that races it.
@@ -3783,17 +3784,6 @@ namespace UniversSale
                 _editor.RefreshProofing();
                 if (_project != null) MarkDirty(); // la liste projet a pu changer
                 ScheduleAchievementCheck(); // « Sur-stimulation »
-            };
-            dialog.EditingSurfaceChanged += delegate
-            {
-                // Le mode de compatibilité a changé : le document ouvert
-                // bascule tout de suite sur la bonne surface (Commit d'abord,
-                // rien ne se perd).
-                if (_current == null || _current.Kind != ItemKind.Text) return;
-                CommitActive();
-                var reopen = _current;
-                _current = null;
-                OnBinderSelection(reopen);
             };
             dialog.ShortcutsChanged += RefreshShortcuts;
             Dialogs.ShowModal(dialog);

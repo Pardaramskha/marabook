@@ -89,7 +89,6 @@ namespace UniversSale.Tests.Ui
             AppSettings.Load();
             var savedDark = AppSettings.DarkTheme;
             var savedWhite = AppSettings.WhitePaperInDark;
-            AppSettings.ClassicCompatibility = false;
             AppSettings.RightPanel = RightPanel.Inspector;
             AppSettings.ProofEnabled = true;
             AppSettings.SpellEnabled = true;

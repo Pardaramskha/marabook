@@ -77,7 +77,6 @@ namespace UniversSale.Tests.Ui
             AppSettings.Load();
             AppSettings.DraftView = false;
             AppSettings.DarkTheme = false;
-            AppSettings.ClassicCompatibility = false;
             Chrome.Toggle(false);
             var application = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             Theme.Apply(application);

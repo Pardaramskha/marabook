@@ -98,7 +98,6 @@ namespace UniversSale.Tests.Ui
             PlotFile.Save(project, path);
 
             AppSettings.Load();
-            AppSettings.ClassicCompatibility = false;
             AppSettings.DraftView = false;
             Chrome.Toggle(false);
             var application = Application.Current ?? new Application
@@ -139,8 +138,6 @@ namespace UniversSale.Tests.Ui
             DoEvents();
             var editor = (EditorView)GetField(window, "_editor");
             Check(editor.Visibility == Visibility.Visible && editor.ComposedActive, "l'écrit s'ouvre en pages composées");
-            var notesBar = (Border)GetField(editor, "_notesBar");
-            Check(notesBar.Visibility == Visibility.Collapsed, "plus de panneau de notes en bas des pages composées");
             var composed = (ComposedView)GetField(editor, "_composed");
             var order = composed.MarkerOrder();
             Check(order.Count == 2, "deux appels de note dans l'ordre du texte");
@@ -440,8 +437,13 @@ namespace UniversSale.Tests.Ui
                 "l'onglet Formatage suit Insertion, avec « Typographie »");
             Snapshot(ribbon, Path.Combine(Path.GetTempPath(), "marabook-b34-ribbon.png"));
             Snapshot((FrameworkElement)GetField(window, "_binder"), Path.Combine(Path.GetTempPath(), "marabook-b35-pile.png"));
+            // La frappe typographique (b45) convertirait les guillemets au vol :
+            // on la suspend pour laisser du travail a la passe.
+            var liveTypography = composed.LiveTypography;
+            composed.LiveTypography = null;
             composed.TypeText(" Il a dit \"salut\"...");
             DoEvents();
+            composed.LiveTypography = liveTypography;
             var pass = Correction.TypographyPass.Run(target.Document, new Correction.TypographyOptions());
             Check(pass.Changes.Count == 1, "la passe trouve le paragraphe à corriger");
             composed.ReplaceParagraphs(pass.Paragraphs);
