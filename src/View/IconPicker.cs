@@ -253,7 +253,7 @@ namespace UniversSale.View
         public static string Ask(Window owner)
         {
             var dialog = new IconPickerDialog(owner);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             return dialog._accepted ? dialog._result : null;
         }
 

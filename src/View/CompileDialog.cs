@@ -132,7 +132,7 @@ namespace UniversSale.View
         public static CompileRequest Show(Window owner, Project project)
         {
             var dialog = new CompileDialog(owner, project);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return null;
 
             var chosen = dialog._scopeCombo.SelectedItem as ComboBoxItem;

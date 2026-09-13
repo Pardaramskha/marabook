@@ -128,7 +128,7 @@ namespace UniversSale.View
         public static StyleSheet Show(Window owner, StyleSheet source)
         {
             var dialog = new StylesDialog(owner, source);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             return dialog._accepted ? dialog._sheet : null;
         }
 

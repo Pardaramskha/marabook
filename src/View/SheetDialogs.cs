@@ -168,7 +168,7 @@ namespace UniversSale.View
         public static List<SheetTemplate> Show(Window owner, List<SheetTemplate> source)
         {
             var dialog = new TemplatesDialog(owner, source);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             return dialog._accepted ? dialog._templates : null;
         }
 
@@ -542,7 +542,7 @@ namespace UniversSale.View
             out string title, out string categoryId)
         {
             var dialog = new NewSheetDialog(owner, project);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             title = dialog._titleBox.Text.Trim();
             var chosen = dialog._categoryCombo.SelectedItem as ComboBoxItem;
             categoryId = chosen == null ? null : chosen.Tag as string;
@@ -598,7 +598,7 @@ namespace UniversSale.View
         public static string Ask(Window owner, List<string> titles)
         {
             var dialog = new LinkDialog(owner, titles);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return null;
             var text = (dialog._combo.Text ?? "").Trim();
             return text.Length == 0 ? null : text;

@@ -148,7 +148,7 @@ namespace UniversSale.View
         public static string Ask(Window owner)
         {
             var dialog = new ColorDialog(owner);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return null;
             var text = dialog._hexBox.Text.Trim();
             if (!text.StartsWith("#")) text = "#" + text;

@@ -3725,7 +3725,7 @@ namespace UniversSale
                 OnBinderSelection(reopen);
             };
             dialog.ShortcutsChanged += RefreshShortcuts;
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
         }
 
         // ============================================================= displays

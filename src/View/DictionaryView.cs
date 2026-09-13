@@ -497,7 +497,7 @@ namespace UniversSale.View
         public static LexiconEntry Ask(Window owner, LexiconEntry initial, ref bool projectScope)
         {
             var dialog = new LexiconEntryDialog(owner, initial, projectScope, true);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return null;
             projectScope = dialog._scope.SelectedIndex == 0;
             return dialog.Build();
@@ -510,7 +510,7 @@ namespace UniversSale.View
             var initial = new LexiconEntry { Word = word ?? "", Class = LexiconInflector.GuessClass(word) };
             var dialog = new LexiconEntryDialog(owner, initial, projectScope, false);
             dialog.Title = "Ajouter au dictionnaire";
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             return dialog._accepted ? dialog.Build() : null;
         }
     }

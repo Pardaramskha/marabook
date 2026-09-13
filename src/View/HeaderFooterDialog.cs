@@ -116,7 +116,7 @@ namespace UniversSale.View
         public static HeaderFooter Edit(Window owner, HeaderFooter initial, bool isHeader)
         {
             var dialog = new HeaderFooterDialog(owner, initial, isHeader);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return null;
             double size;
             if (!double.TryParse(dialog._size.Text.Trim().Replace(',', '.'),

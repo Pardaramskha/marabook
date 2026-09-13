@@ -60,7 +60,7 @@ namespace UniversSale.View
         public static string Ask(Window owner, string title, string label, string initial)
         {
             var dialog = new InputDialog(owner, title, label, initial);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return null;
             var text = dialog._input.Text.Trim();
             return text.Length == 0 ? null : text;

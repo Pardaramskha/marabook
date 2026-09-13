@@ -159,7 +159,7 @@ namespace UniversSale.View
         public static Result Ask(Window owner, BinderItem book)
         {
             var dialog = new BookOptionsDialog(owner, book);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return null;
             var title = dialog._title.Text.Trim();
             return new Result

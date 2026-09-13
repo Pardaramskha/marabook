@@ -126,7 +126,7 @@ namespace UniversSale.View
         public static bool Ask(Window owner)
         {
             var dialog = new TypographyOptionsDialog(owner, AppSettings.Typography);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return false;
             AppSettings.Typography = dialog.Build();
             AppSettings.Save();
@@ -325,7 +325,7 @@ namespace UniversSale.View
         public static bool Ask(Window owner, TypographyPassResult result, string title)
         {
             var window = new TypographyCompareWindow(owner, result, title);
-            window.ShowDialog();
+            Dialogs.ShowModal(window);
             return window._accepted;
         }
     }

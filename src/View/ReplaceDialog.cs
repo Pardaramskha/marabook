@@ -202,7 +202,7 @@ namespace UniversSale.View
         public static List<SearchHit> Ask(Window owner, SearchResult result, SearchQuery query, string replacement, BinderItem current)
         {
             var dialog = new ReplacePreviewDialog(owner, result, query, replacement, current);
-            var ok = dialog.ShowDialog();
+            var ok = Dialogs.ShowModal(dialog);
             return ok == true ? dialog._chosen : null;
         }
     }

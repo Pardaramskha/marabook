@@ -96,7 +96,7 @@ namespace UniversSale.View
         public static bool Show(Window owner, Project project)
         {
             var dialog = new ProjectSettingsDialog(owner, project);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return false;
 
             var changed = false;

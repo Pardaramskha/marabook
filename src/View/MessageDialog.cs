@@ -132,7 +132,7 @@ namespace UniversSale.View
             MessageBoxButton buttons, MessageBoxImage image)
         {
             var dialog = new MessageDialog(owner, text, caption, buttons, image);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             return dialog._result;
         }
     }

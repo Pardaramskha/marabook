@@ -40,10 +40,19 @@ namespace UniversSale.View
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
             WindowStartupLocation = WindowStartupLocation.Manual;
-            Background = Chrome.RaisedBg;
-            BorderBrush = Chrome.Border;
-            BorderThickness = new Thickness(1);
-            Content = Build();
+            // Coins arrondis (13/09) : une fenêtre sans chrome est carrée —
+            // fenêtre transparente, et c'est la bordure du contenu qui
+            // dessine le panneau, rayon 16.
+            AllowsTransparency = true;
+            Background = Brushes.Transparent;
+            Content = new Border
+            {
+                Background = Chrome.RaisedBg,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(16),
+                Child = Build()
+            };
             Closing += delegate(object sender, System.ComponentModel.CancelEventArgs e)
             {
                 if (!_release) e.Cancel = true; // jamais fermée à la main
@@ -102,8 +111,7 @@ namespace UniversSale.View
             });
             var link = new Hyperlink(new Run("Version " + MainWindow.AppVersion))
             {
-                Foreground = Chrome.SoftText,
-                ToolTip = Updater.RepositoryUrl
+                Foreground = Chrome.SoftText
             };
             link.Click += delegate
             {

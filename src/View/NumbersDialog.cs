@@ -64,7 +64,7 @@ namespace UniversSale.View
             double[] initial, double min, double max)
         {
             var dialog = new NumbersDialog(owner, title, labels, initial);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return null;
             var values = new double[labels.Length];
             for (var i = 0; i < values.Length; i++)

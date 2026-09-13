@@ -171,7 +171,7 @@ namespace UniversSale.View
         public static bool Ask(Window owner)
         {
             var dialog = new ProofOptionsDialog(owner);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return false;
             var spell = dialog._spell.IsChecked == true;
             var grammar = dialog._grammar.IsChecked == true;

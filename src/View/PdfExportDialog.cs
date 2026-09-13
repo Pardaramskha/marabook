@@ -202,7 +202,7 @@ namespace UniversSale.View
             var dialog = new PdfExportDialog(owner, bookDefaults, title, preview);
             if (bleedMm > 0)
                 dialog._bleed.Text = bleedMm.ToString(CultureInfo.InvariantCulture);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return null;
             return dialog.CurrentOptions();
         }

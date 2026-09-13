@@ -768,7 +768,7 @@ namespace UniversSale.View
         public static bool Ask(Window owner, PlanEntry entry)
         {
             var dialog = new PlanEntryDialog(owner, entry);
-            dialog.ShowDialog();
+            Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return false;
             entry.Text = dialog._text.Text.Trim();
             if (entry.IsElement)
@@ -869,7 +869,7 @@ namespace UniversSale.View
         public static void Show(Window owner, BinderItem plan)
         {
             if (plan.Plan == null) plan.Plan = new PlanInfo();
-            new PlanChartWindow(owner, plan).ShowDialog();
+            Dialogs.ShowModal(new PlanChartWindow(owner, plan));
         }
     }
 }
