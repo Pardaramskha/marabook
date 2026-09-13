@@ -47,7 +47,12 @@ namespace UniversSale.Tests
             t.Equal("un cœur, des bœufs", Clean("un coeur, des boeufs"), "ligatures œ (liste blanche)");
             t.Equal("Coeurville", Clean("Coeurville"), "hors liste blanche : pas de ligature");
             t.Equal("10" + Nbsp + "×" + Nbsp + "15", Clean("10 x 15"), "dimensions ×");
-            t.Equal("le 2e et la 1re", Clean("le 2ème et la 1ère"), "ordinaux");
+            // Depuis le 13/09 : les exposants Unicode de Grammalecte.
+            t.Equal("le 2ᵉ et la 1ʳᵉ", Clean("le 2ème et la 1ère"), "ordinaux fautifs → exposants");
+            t.Equal("le 2ᵉ et la 1ʳᵉ", Clean("le 2e et la 1re"), "ordinaux plats → exposants");
+            t.Equal("les 1ᵉʳˢ, le 2ⁿᵈ, la 2ᵈᵉ, les 3ᵉˢ", Clean("les 1ers, le 2nd, la 2de, les 3èmes"), "toutes les formes");
+            t.Equal("le 2ᵉ et la 1ʳᵉ", Clean("le 2ᵉ et la 1ʳᵉ"), "déjà en exposant : rien ne bouge");
+            t.Equal("1e5", Clean("1e5"), "une lettre coincée entre des chiffres n'est pas un ordinal");
             t.Equal("a b", Clean("a   b"), "espaces doubles");
             t.Equal("fin", Clean("fin   "), "espaces en fin de ligne");
             var flagged = Typography.Clean("Il dort. Etat de grâce.", new TypographyOptions());

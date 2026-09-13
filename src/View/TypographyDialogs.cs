@@ -93,7 +93,7 @@ namespace UniversSale.View
             Rule("Ligatures œ (liste blanche)", "ligaturesOe", options.LigaturesOe, live.LigaturesOe);
             Rule("Ligatures æ (liste blanche)", "ligaturesAe", options.LigaturesAe, live.LigaturesAe);
             Rule("Dimensions 10 × 15 °", "dimensions", options.Dimensions, live.Dimensions);
-            Rule("Ordinaux 2ème → 2e", "ordinals", options.Ordinals, live.Ordinals);
+            Rule("Ordinaux en exposants 2ème → 2ᵉ, 1er → 1ᵉʳ (comme Grammalecte)", "ordinals", options.Ordinals, live.Ordinals);
             Rule("Signaler les majuscules à accentuer (État, À…)", "flagCapitals", options.FlagCapitals, live.FlagCapitals);
 
             panel.Children.Add(new TextBlock

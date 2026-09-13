@@ -26,7 +26,7 @@ namespace UniversSale.Correction
         public bool LigaturesOe = true;  // œ (liste blanche)
         public bool LigaturesAe;         // æ (liste blanche), éteint par défaut
         public bool Dimensions = true;   // 10 x 15 → 10 × 15 °
-        public bool Ordinals = true;     // 2ème → 2e
+        public bool Ordinals = true;     // 2ème → 2ᵉ (exposants Unicode, comme Grammalecte)
         public bool FlagCapitals = true; // signaler Etat/A… (jamais corrigé)
 
         public bool Minimal { get { return Preset == "minimal"; } }
@@ -297,11 +297,22 @@ namespace UniversSale.Correction
             // (6d) ordinaux
             if (o.Ordinals)
             {
+                // Le canon de Grammalecte (décision de Rémi, 13/09) : les
+                // ordinaux en EXPOSANTS Unicode — 1ᵉʳ, 1ʳᵉ, 2ⁿᵈ, 2ᵈᵉ, 2ᵉ, et
+                // leurs pluriels. Les formes plates (2e, 1er) et fautives
+                // (2ème, 1ère) y passent ; une forme déjà en exposant ne
+                // bouge plus — Typonanny ne la voit plus comme une erreur.
                 var total = 0;
-                work = Replace(work, @"\b1ères\b", "1res", out n, null); total += n;
-                work = Replace(work, @"\b1ère\b", "1re", out n, null); total += n;
-                work = Replace(work, @"\b2ndes?\b", "2de", out n, null); total += n;
-                work = Replace(work, @"\b(\d+)i?èmes?\b", "$1e", out n, null); total += n;
+                work = Replace(work, @"\b1(?:ers|iers)\b", "1ᵉʳˢ", out n, null); total += n;
+                work = Replace(work, @"\b1(?:er|ier)\b", "1ᵉʳ", out n, null); total += n;
+                work = Replace(work, @"\b1(?:ères|res|ières)\b", "1ʳᵉˢ", out n, null); total += n;
+                work = Replace(work, @"\b1(?:ère|re|ière)\b", "1ʳᵉ", out n, null); total += n;
+                work = Replace(work, @"\b2(?:ndes|des)\b", "2ᵈᵉˢ", out n, null); total += n;
+                work = Replace(work, @"\b2(?:nde|de)\b", "2ᵈᵉ", out n, null); total += n;
+                work = Replace(work, @"\b2nds\b", "2ⁿᵈˢ", out n, null); total += n;
+                work = Replace(work, @"\b2nd\b", "2ⁿᵈ", out n, null); total += n;
+                work = Replace(work, @"\b(\d+)(?:i?èmes|es)\b", "$1ᵉˢ", out n, null); total += n;
+                work = Replace(work, @"\b(\d+)(?:i?ème|e)\b", "$1ᵉ", out n, null); total += n;
                 r.Count("ordinaux", total);
             }
             // (6e) majuscules à accentuer — signalement seul
