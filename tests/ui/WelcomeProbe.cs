@@ -3,6 +3,7 @@ using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -84,6 +85,7 @@ namespace UniversSale.Tests.Ui
                 {
                     Check(welcome.ActualWidth >= window.ActualWidth * 0.75 && welcome.ActualHeight >= window.ActualHeight * 0.75,
                         "l'accueil prend la majeure partie de la fenêtre (" + (int)welcome.ActualWidth + "×" + (int)welcome.ActualHeight + ")");
+                    Check(FindButton(welcome, "Ouvrir un projet…") != null, "« Ouvrir un projet… » à côté de « Derniers projets »");
                     RenderPng(welcome, Path.Combine(Path.GetTempPath(), "marabook-b44-accueil.png")); // la fenêtre entière : un Content rendu seul garde son décalage de marge
                     RenderPng((FrameworkElement)window.Content, Path.Combine(Path.GetTempPath(), "marabook-b44-accueil-fond.png"));
                     // Fermeture à la main : refusée.
@@ -162,6 +164,23 @@ namespace UniversSale.Tests.Ui
             Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle,
                 new Action(delegate { frame.Continue = false; }));
             Dispatcher.PushFrame(frame);
+        }
+
+        private static Button FindButton(DependencyObject root, string label)
+        {
+            var button = root as Button;
+            if (button != null)
+            {
+                var text = button.Content as TextBlock;
+                if (text != null && text.Text == label) return button;
+                if (button.Content as string == label) return button;
+            }
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            {
+                var found = FindButton(VisualTreeHelper.GetChild(root, i), label);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         private static void Check(bool condition, string label)

@@ -1783,9 +1783,16 @@ namespace UniversSale
 
         private void DoOpen()
         {
+            OpenProjectWithDialog(this);
+        }
+
+        /// <summary>« Ouvrir… » : le dialogue de fichier (posé sur owner —
+        /// l'accueil quand il est là), puis OpenFile, qui relâche l'accueil.</summary>
+        public void OpenProjectWithDialog(Window owner)
+        {
             if (!ConfirmDiscard()) return;
             var dialog = new Microsoft.Win32.OpenFileDialog { Filter = PlotFile.OpenFilter };
-            if (dialog.ShowDialog(this) == true)
+            if (dialog.ShowDialog(owner ?? this) == true)
                 OpenFile(dialog.FileName);
         }
 

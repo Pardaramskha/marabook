@@ -49,6 +49,18 @@ namespace UniversSale.Tests.Ui
             }
             finally
             {
+                try { Directory.Delete(dir, true); } catch (IOException) { }
+            }
+            // Les autres sondes UI de la campagne (même exe). Elles OUVRENT
+            // des .plot, donc OpenFile écrit les récents : l'état utilisateur
+            // n'est restauré qu'à la toute fin (13/09 — la campagne avait
+            // effacé les projets récents de Rémi).
+            try
+            {
+                RunOthers();
+            }
+            finally
+            {
                 // Règle du batch 11 : l'état utilisateur est restauré tel quel.
                 try
                 {
@@ -56,10 +68,22 @@ namespace UniversSale.Tests.Ui
                     else if (File.Exists(settingsPath)) File.Delete(settingsPath);
                 }
                 catch { }
-                try { Directory.Delete(dir, true); } catch (IOException) { }
             }
-            // Les autres sondes UI de la campagne (même exe, même règle
-            // settings.json — elles n'y touchent pas).
+            if (Application.Current != null)
+            {
+                Application.Current.Shutdown();
+                var frame = new DispatcherFrame();
+                Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle,
+                    new Action(delegate { frame.Continue = false; }));
+                Dispatcher.PushFrame(frame);
+            }
+            Console.WriteLine(_failures == 0
+                ? "SONDES UI OK" : "*** SONDES UI : " + _failures + " échec(s) ***");
+            return _failures == 0 ? 0 : 1;
+        }
+
+        private static void RunOthers()
+        {
             Console.WriteLine();
             _failures += CorrectionProbe.Run();
             Console.WriteLine();
@@ -81,17 +105,6 @@ namespace UniversSale.Tests.Ui
             Console.WriteLine();
             Console.WriteLine("== Sonde style morphologique (b44)");
             _failures += StyleProbe.Run();
-            if (Application.Current != null)
-            {
-                Application.Current.Shutdown();
-                var frame = new DispatcherFrame();
-                Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle,
-                    new Action(delegate { frame.Continue = false; }));
-                Dispatcher.PushFrame(frame);
-            }
-            Console.WriteLine(_failures == 0
-                ? "SONDES UI OK" : "*** SONDES UI : " + _failures + " échec(s) ***");
-            return _failures == 0 ? 0 : 1;
         }
 
         private static void Run(string path)

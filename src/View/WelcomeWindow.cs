@@ -145,14 +145,29 @@ namespace UniversSale.View
 
             // ---- au centre : les tuiles, sur UNE ligne
             var center = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            center.Children.Add(new TextBlock
+            // Le titre, et à côté « Ouvrir un projet… » (demande de Rémi,
+            // 13/09) : un projet absent des récents s'ouvre d'ici, sans
+            // passer par la coquille voilée.
+            var titleRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(6, 0, 0, 6)
+            };
+            titleRow.Children.Add(new TextBlock
             {
                 Text = "Derniers projets",
                 FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = Chrome.SoftText,
-                Margin = new Thickness(6, 0, 0, 6)
+                VerticalAlignment = VerticalAlignment.Center
             });
+            var open = Buttons.Text("Ouvrir un projet…",
+                "Choisir un fichier .plot sur le disque",
+                Buttons.Compact, Buttons.Look.Outline);
+            open.Margin = new Thickness(12, 0, 0, 0);
+            open.Click += delegate { _shell.OpenProjectWithDialog(this); };
+            titleRow.Children.Add(open);
+            center.Children.Add(titleRow);
             var tiles = new UniformGrid { Rows = 1, Columns = 6, Height = 150 };
             var recents = Settings.AppSettings.RecentFiles;
             var shown = 0;
