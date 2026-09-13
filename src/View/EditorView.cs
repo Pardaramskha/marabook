@@ -117,6 +117,10 @@ namespace UniversSale.View
         private readonly Correction.CheckerHost _checkHost = new Correction.CheckerHost();
         private Correction.SpellChecker _spellChecker; // null sans dictionnaire
         private readonly Correction.RepetitionChecker _repetitionChecker = new Correction.RepetitionChecker();
+        // b45 : les verbes de dialogue (incises), et la racine des mots pour
+        // les répétitions, les incises et le bilan (moteur d'orthographe).
+        private readonly Correction.DialogueChecker _dialogueChecker = new Correction.DialogueChecker();
+        private Func<string, string> _lemma;
         // La grammaire (batch 29) : le pont Grammalecte, PARESSEUX — le
         // processus Python ne démarre qu'au premier paragraphe vérifié, un
         // utilisateur qui n'active jamais la grammaire ne paie rien.
@@ -199,8 +203,11 @@ namespace UniversSale.View
             // 50 000 mots (mesure C5) : le fil UI suffit largement.
             // Options du correcteur (batch 33) : le style (répétitions) ne
             // s'allume plus qu'à la demande.
+            _repetitionChecker.Radius = Settings.AppSettings.RepetitionRadius;
             if (Settings.AppSettings.StyleEnabled && Settings.AppSettings.StyleRepetitions)
                 _checkHost.Add(_repetitionChecker);
+            if (Settings.AppSettings.StyleEnabled && Settings.AppSettings.StyleDialogue)
+                _checkHost.Add(_dialogueChecker);
             // L'orthographe (batch 27) : moteur Hunspell maison sur le
             // dictionnaire embarqué — absent du disque, le vérificateur se
             // retire sans bruit. Les suggestions sont servies À LA DEMANDE.
@@ -221,6 +228,15 @@ namespace UniversSale.View
                 {
                     return spellEngine.Accepts(word) || checker.IsLearned(word);
                 };
+                // La racine des mots (b45) : la plus courte des entrées du
+                // dictionnaire qui acceptent la forme — cheval pour chevaux.
+                _lemma = delegate(string word)
+                {
+                    var stems = spellEngine.Stems(word);
+                    return stems.Count > 0 ? stems[0] : null;
+                };
+                _repetitionChecker.Lemma = _lemma;
+                _dialogueChecker.Lemma = _lemma;
             }
             // La grammaire (batch 29, lot B) : Grammalecte en sous-processus,
             // vérificateur DIFFÉRÉ — jamais un point de panne : pont absent
@@ -257,6 +273,9 @@ namespace UniversSale.View
             {
                 return _synonyms.Answer(word, 30, true);
             };
+            // La typographie à la frappe (b45) : les règles retenues, ou rien.
+            _composed.LiveTypography = Settings.AppSettings.TypographyLiveEnabled
+                ? Settings.AppSettings.TypographyLive : null;
             _grammarBridge.StateChanged += delegate
             {
                 // Pont redevenu prêt : les échecs de synonymes sont oubliés.
@@ -844,8 +863,24 @@ namespace UniversSale.View
             {
                 if (ProofOptionsDialog.Ask(Window.GetWindow(this))) RefreshProofing();
             };
-            panel.Children.Add(options);
+            var report = OneLine("exam-bold", "Bilan de style",
+                "Un compte rendu de l'écrit ouvert, en mots simples : longueur des phrases, "
+                + "rythme, dialogue, variété des mots, tics, paragraphes à revoir");
+            report.Click += delegate { ShowStyleReport(); };
+            panel.Children.Add(Stacked(options, report));
             return panel;
+        }
+
+        /// <summary>Le bilan de style (b45) de l'écrit ouvert : les mesures
+        /// du texte, les relevés de la dernière passe, l'inventaire des
+        /// incises — puis la fenêtre qui raconte tout ça.</summary>
+        private void ShowStyleReport()
+        {
+            if (_item == null) return;
+            var report = Correction.StyleReport.Compute(_item.Document, _findings, _lemma,
+                _dialogueChecker.Inventory(_item.Document));
+            report.DeferredPending = _checkHost.PendingDeferred > 0;
+            StyleReportWindow.Show(Window.GetWindow(this), _item.Title, report);
         }
 
         // ============================================================ correction
@@ -1033,8 +1068,13 @@ namespace UniversSale.View
             // typographie partagent Grammalecte (le vol est annulé quand il sort).
             if (_spellChecker != null)
                 SetCheckerPresent(_spellChecker, Settings.AppSettings.SpellEnabled);
+            _repetitionChecker.Radius = Settings.AppSettings.RepetitionRadius;
             SetCheckerPresent(_repetitionChecker,
                 Settings.AppSettings.StyleEnabled && Settings.AppSettings.StyleRepetitions);
+            SetCheckerPresent(_dialogueChecker,
+                Settings.AppSettings.StyleEnabled && Settings.AppSettings.StyleDialogue);
+            _composed.LiveTypography = Settings.AppSettings.TypographyLiveEnabled
+                ? Settings.AppSettings.TypographyLive : null;
             if (_styleChecker != null)
             {
                 ApplyStyleSettings();

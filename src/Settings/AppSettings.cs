@@ -118,6 +118,25 @@ namespace UniversSale.Settings
         public static bool StyleDullVerbs = true;
         public static List<string> DullVerbs
             = new List<string>(Correction.Grammalecte.StyleChecker.DefaultDullVerbs);
+        // b45 : les verbes de dialogue (incises), le rayon des répétitions
+        // (en mots), et la typographie À LA FRAPPE — ses propres règles,
+        // à côté de celles de la passe.
+        public static bool StyleDialogue = true;
+        public static int RepetitionRadius = 100;
+        public static bool TypographyLiveEnabled = true;
+        public static Correction.TypographyOptions TypographyLive = DefaultLiveTypography();
+
+        /// <summary>Les règles retenues à la frappe par défaut : tout sauf
+        /// les espaces (un second espace, un espace en fin de ligne : on ne
+        /// l'efface pas sous les doigts) et les majuscules à accentuer (un
+        /// signalement, pas une correction).</summary>
+        public static Correction.TypographyOptions DefaultLiveTypography()
+        {
+            var live = new Correction.TypographyOptions();
+            live.Spaces = false;
+            live.FlagCapitals = false;
+            return live;
+        }
         // La passe typographique (batch 34, port de Typonanny) : préréglage et règles.
         public static Correction.TypographyOptions Typography = new Correction.TypographyOptions();
         public static Dictionary<string, bool> GrammarOptions
@@ -269,6 +288,13 @@ namespace UniversSale.Settings
                     string.Join(",", Json.AsStringList(Json.Field(root, "dullVerbs")).ToArray()));
                 if (dullVerbs.Count > 0) DullVerbs = dullVerbs;
                 Typography = Correction.TypographyOptions.FromJson(Json.AsObject(Json.Field(root, "typography")));
+                StyleDialogue = Json.AsBool(Json.Field(root, "styleDialogue"), true);
+                RepetitionRadius = (int)Json.AsDouble(Json.Field(root, "repetitionRadius"), 100);
+                if (RepetitionRadius < 20) RepetitionRadius = 20;
+                if (RepetitionRadius > 500) RepetitionRadius = 500;
+                TypographyLiveEnabled = Json.AsBool(Json.Field(root, "typographyLiveEnabled"), true);
+                var live = Json.AsObject(Json.Field(root, "typographyLive"));
+                TypographyLive = live == null ? DefaultLiveTypography() : Correction.TypographyOptions.FromJson(live);
                 var grammarOptions = Json.AsObject(Json.Field(root, "grammarOptions"));
                 if (grammarOptions != null)
                 {
@@ -359,6 +385,10 @@ namespace UniversSale.Settings
                 root["styleDullVerbs"] = StyleDullVerbs;
                 root["dullVerbs"] = new List<object>(DullVerbs.ToArray());
                 root["typography"] = Typography.ToJson();
+                root["styleDialogue"] = StyleDialogue;
+                root["repetitionRadius"] = RepetitionRadius;
+                root["typographyLiveEnabled"] = TypographyLiveEnabled;
+                root["typographyLive"] = TypographyLive.ToJson();
                 if (GrammarOptions.Count > 0)
                 {
                     var grammarOptions = new Dictionary<string, object>();

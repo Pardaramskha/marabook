@@ -381,6 +381,71 @@ namespace UniversSale.Correction
     /// son run (donc son format), une insertion rejoint le run du caractère
     /// qui la précède, les éléments (notes, images) restent intacts, les
     /// passages « ne pas corriger » sont protégés.</summary>
+    /// <summary>La typographie À LA FRAPPE (b45) : la même passe, mais
+    /// appliquée au paragraphe en cours d'écriture après chaque frappe, en
+    /// ne gardant que les corrections PROCHES DU CURSEUR et derrière lui.
+    /// Trois garde-fous, pour ne jamais se battre avec l'auteur :
+    /// - rien après le curseur (ce qu'il n'a pas encore écrit ne bouge pas) ;
+    /// - rien à plus de `window` caractères en arrière (le reste du
+    ///   paragraphe attend la passe complète) ;
+    /// - jamais une pure suppression de ce qu'il vient de taper (un espace
+    ///   en fin de ligne, un second espace : on ne l'efface pas sous ses
+    ///   doigts — la passe s'en chargera).
+    /// Rend les opérations retenues, les autres devenues « conservé », et
+    /// le déplacement du curseur.</summary>
+    public static class TypographyLive
+    {
+        public static List<CharOp> Restrict(List<CharOp> ops, int caretOld, int typedLength,
+            int window, out int caretDelta, out bool changed)
+        {
+            caretDelta = 0;
+            changed = false;
+            var result = new List<CharOp>(ops.Count);
+            var i = 0; // position dans l'ancien texte
+            var k = 0;
+            while (k < ops.Count)
+            {
+                if (ops[k].Type == ' ')
+                {
+                    result.Add(ops[k]);
+                    i++;
+                    k++;
+                    continue;
+                }
+                // un bloc d'éditions contiguës
+                var startOld = i;
+                var deletes = 0;
+                var inserts = 0;
+                var end = k;
+                while (end < ops.Count && ops[end].Type != ' ')
+                {
+                    if (ops[end].Type == '-') deletes++;
+                    else inserts++;
+                    end++;
+                }
+                var endOld = startOld + deletes;
+                var pureDeletionOfTyped = inserts == 0
+                    && startOld >= caretOld - typedLength && endOld <= caretOld;
+                var accept = startOld >= caretOld - window && startOld <= caretOld
+                    && endOld <= caretOld && !pureDeletionOfTyped;
+                for (var j = k; j < end; j++)
+                {
+                    if (accept) result.Add(ops[j]);
+                    else if (ops[j].Type == '-') result.Add(new CharOp(' ', ops[j].Char));
+                    // une insertion refusée disparaît
+                }
+                if (accept)
+                {
+                    changed = true;
+                    caretDelta += inserts - deletes;
+                }
+                i = endOld;
+                k = end;
+            }
+            return result;
+        }
+    }
+
     public class TypographyParagraphChange
     {
         public int Index;
@@ -422,7 +487,7 @@ namespace UniversSale.Correction
             return result;
         }
 
-        private static List<int[]> NoProofSpans(TextParagraph paragraph)
+        public static List<int[]> NoProofSpans(TextParagraph paragraph)
         {
             List<int[]> spans = null;
             var pos = 0;

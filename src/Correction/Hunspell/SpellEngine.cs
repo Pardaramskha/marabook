@@ -176,6 +176,73 @@ namespace UniversSale.Correction.Hunspell
             return false;
         }
 
+        /// <summary>Les RACINES qui acceptent ce mot (b45) : l'entrée exacte du
+        /// dictionnaire, et les radicaux atteints par un SUFFIXE (pluriel,
+        /// féminin, conjugaison : chevaux → cheval, répondit → répondre) —
+        /// jamais par un préfixe (« refaire » n'est pas « faire »). Vide si
+        /// le mot est inconnu. En minuscules, sans doublon, la plus courte
+        /// d'abord — c'est la clé des répétitions et des verbes de dialogue.</summary>
+        public List<string> Stems(string word)
+        {
+            var result = new List<string>();
+            if (string.IsNullOrEmpty(word)) return result;
+            var w = ApplyIconv(word);
+            var shape = ShapeOf(w);
+            CollectStems(w, false, result);
+            if (shape == Shape.Capitalized || shape == Shape.AllCaps)
+                CollectStems(Lower(w), true, result);
+            if (shape == Shape.AllCaps)
+                CollectStems(Capitalize(Lower(w)), true, result);
+            result.Sort(delegate(string a, string b)
+            {
+                return a.Length != b.Length ? a.Length.CompareTo(b.Length) : string.CompareOrdinal(a, b);
+            });
+            return result;
+        }
+
+        private void CollectStems(string form, bool caseChanged, List<string> into)
+        {
+            List<string[]> sets;
+            if (_stems.TryGetValue(form, out sets))
+                foreach (var flags in sets)
+                {
+                    if (Has(flags, _affix.ForbiddenFlag)) return;
+                    if (Has(flags, _affix.NeedAffixFlag)) continue;
+                    if (caseChanged && Has(flags, _affix.KeepCaseFlag)) continue;
+                    AddStem(into, form);
+                    break;
+                }
+            foreach (var length in _suffixLengths)
+            {
+                if (length > form.Length) break;
+                List<AffixHit> hits;
+                if (!_suffixByAppend.TryGetValue(form.Substring(form.Length - length), out hits)) continue;
+                foreach (var hit in hits)
+                {
+                    var stem = form.Substring(0, form.Length - length) + hit.Entry.Strip;
+                    if (stem.Length == 0 && !_affix.FullStrip) continue;
+                    if (!MatchesEnd(stem, hit.Entry.Condition)) continue;
+                    if (RequiresCircumfixPartner(hit.Entry)) continue;
+                    List<string[]> stemSets;
+                    if (!_stems.TryGetValue(stem, out stemSets)) continue;
+                    foreach (var flags in stemSets)
+                    {
+                        if (!Has(flags, hit.Rule.Flag)) continue;
+                        if (Has(flags, _affix.ForbiddenFlag)) continue;
+                        if (caseChanged && Has(flags, _affix.KeepCaseFlag)) continue;
+                        AddStem(into, stem);
+                        break;
+                    }
+                }
+            }
+        }
+
+        private static void AddStem(List<string> into, string stem)
+        {
+            var lower = stem.ToLowerInvariant();
+            if (!into.Contains(lower)) into.Add(lower);
+        }
+
         /// <summary>Une forme donnée, dans une casse donnée. caseChanged :
         /// la forme diffère de la surface tapée — les entrées KEEPCASE ne
         /// comptent plus (Po/|| n'autorise ni PO ni po).</summary>

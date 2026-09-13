@@ -168,6 +168,32 @@ namespace UniversSale.Tests.Ui
                 Invoke(editor, "SetDraftView", new object[] { false });
                 DoEvents();
 
+                // La typographie à la frappe (b45) : on tape dans la surface
+                // composée, les signes se corrigent sous le curseur.
+                AppSettings.TypographyLiveEnabled = true;
+                AppSettings.TypographyLive = AppSettings.DefaultLiveTypography();
+                Invoke(editor, "RefreshProofing", null);
+                DoEvents();
+                composed.Focus();
+                var paragraphs = ((Project)GetField(window, "_project")).FindByTitle("Le marabout").Document.Paragraphs;
+                var last = paragraphs.Count - 1;
+                composed.PlaceCaret(last, PivotEdit.FlatLength(paragraphs[last]), false);
+                composed.TypeText(" ");
+                foreach (var ch in "Il dit \"bonjour\" et partit...")
+                    composed.TypeText(ch.ToString());
+                DoEvents();
+                var typed = PivotEdit.FlatText(paragraphs[last]);
+                Check(typed.Contains("«") && typed.Contains("»"), "frappe : les guillemets droits deviennent « » (" + typed + ")");
+                Check(typed.EndsWith("…"), "frappe : les trois points deviennent des points de suspension");
+                int caretParagraph, caretOffset;
+                composed.CaretLocation(out caretParagraph, out caretOffset);
+                Check(caretOffset == typed.Length, "frappe : le curseur reste en fin de texte (" + caretOffset + "/" + typed.Length + ")");
+                composed.TypeText(" ");
+                composed.TypeText(" ");
+                DoEvents();
+                typed = PivotEdit.FlatText(paragraphs[last]);
+                Check(typed.EndsWith("…  "), "frappe : les espaces tapés ne sont pas effacés sous les doigts");
+
                 // Les menus sur l'écran du livre : Note de bas de page grisée.
                 if (book != null)
                 {
@@ -194,6 +220,14 @@ namespace UniversSale.Tests.Ui
             }
             finally
             {
+                // La frappe a sali le projet : on ne veut pas le dialogue
+                // « Enregistrer ? » (modal, la sonde attendrait un clic).
+                try
+                {
+                    var dirty = typeof(MainWindow).GetField("_dirty", BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (dirty != null) dirty.SetValue(window, false);
+                }
+                catch { }
                 try { window.Close(); } catch { }
                 DoEvents();
             }

@@ -960,14 +960,13 @@ namespace UniversSale.View
                 // « Ignorer cette règle » (batch 29) : réservé au
                 // grammatical — un RuleId d'orthographe (« spelling ») ou de
                 // répétition couvrirait TOUT le vérificateur.
-                if (findingRef.CheckerId == "grammar"
-                    && findingRef.RuleId.Length > 0)
+                var ruleLabel = RuleLabel(findingRef);
+                if (ruleLabel != null)
                 {
                     var rule = new MenuItem
                     {
-                        Header = "Ignorer cette règle",
-                        ToolTip = "Plus aucun signalement de la règle « "
-                            + findingRef.RuleId + " » dans ce projet "
+                        Header = ruleLabel,
+                        ToolTip = "Plus aucun signalement de cette règle dans ce projet "
                             + "(liste enregistrée avec lui)"
                     };
                     rule.Click += delegate
@@ -1099,6 +1098,24 @@ namespace UniversSale.View
             if (menu.Items.Count == 0) return;
             menu.IsOpen = true;
             e.Handled = true;
+        }
+
+        /// <summary>Le libellé de « ne plus signaler cette règle » — la
+        /// grammaire (règle de Grammalecte) et les indices de style (b45),
+        /// en mots simples ; null quand la règle ne se tait pas ainsi.</summary>
+        private static string RuleLabel(Correction.Finding finding)
+        {
+            if (finding.RuleId.Length == 0) return null;
+            switch (finding.RuleId)
+            {
+                case Correction.Grammalecte.StyleChecker.AdverbRule:
+                    return "Ne plus signaler les adverbes en -ment (ce projet)";
+                case Correction.Grammalecte.StyleChecker.DullVerbRule:
+                    return "Ne plus signaler les verbes ternes (ce projet)";
+                case Correction.DialogueChecker.Rule:
+                    return "Ne plus signaler les verbes de dialogue (ce projet)";
+            }
+            return finding.CheckerId == "grammar" ? "Ignorer cette règle" : null;
         }
 
         /// <summary>Le mot (lettres/chiffres) sous l'offset, ou null.</summary>
@@ -1243,7 +1260,43 @@ namespace UniversSale.View
             PivotEdit.InsertText(_item.Document.Paragraphs[_caretParagraph], _caretOffset, text);
             _caretOffset += text.Length;
             _caretDesiredX = -1;
+            if (!ApplyLiveTypography(text.Length))
+                AfterEdit(_engine.RecomposeParagraph(_caretParagraph));
+        }
+
+        /// <summary>La typographie à la frappe (b45), ou null = éteinte —
+        /// posée par EditorView depuis les réglages.</summary>
+        public Correction.TypographyOptions LiveTypography;
+
+        /// <summary>Après une frappe : la passe sur le paragraphe courant,
+        /// réduite aux corrections proches du curseur (TypographyLive), puis
+        /// les runs reconstruits format par format (Redistribute). Un cran
+        /// d'annulation À PART : Ctrl+Z défait la correction et garde la
+        /// frappe. Vrai si le paragraphe a été réécrit (et redessiné).</summary>
+        private bool ApplyLiveTypography(int typedLength)
+        {
+            var options = LiveTypography;
+            if (options == null || ReadOnly) return false;
+            var paragraph = _item.Document.Paragraphs[_caretParagraph];
+            var flat = PivotEdit.FlatText(paragraph);
+            if (flat.Length == 0) return false;
+            var cleaned = Correction.Typography.Clean(flat, options,
+                Correction.TypographyPass.NoProofSpans(paragraph));
+            if (cleaned.Text == flat) return false;
+            var ops = CharDiff.Diff(flat, cleaned.Text);
+            if (ops == null) return false;
+            int delta;
+            bool changed;
+            var kept = Correction.TypographyLive.Restrict(ops, _caretOffset, typedLength, 80,
+                out delta, out changed);
+            if (!changed) return false;
+            PushUndo(false);
+            var replacement = Correction.TypographyPass.Redistribute(paragraph, kept);
+            paragraph.Runs.Clear();
+            paragraph.Runs.AddRange(replacement.Runs);
+            _caretOffset = Math.Max(0, Math.Min(PivotEdit.FlatLength(paragraph), _caretOffset + delta));
             AfterEdit(_engine.RecomposeParagraph(_caretParagraph));
+            return true;
         }
 
         private void OnKeyDown(object sender, KeyEventArgs e)

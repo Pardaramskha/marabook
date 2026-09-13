@@ -15,8 +15,8 @@ namespace UniversSale.View
         private readonly CheckBox _spell, _grammar, _typography, _style;
         // L'étage style (batch 44) : trois sous-cases et la liste des verbes
         // ternes, sous la case Style — grisées quand elle est décochée.
-        private readonly CheckBox _repetitions, _adverbs, _dullVerbs;
-        private readonly TextBox _dullList;
+        private readonly CheckBox _repetitions, _adverbs, _dullVerbs, _dialogue;
+        private readonly TextBox _dullList, _radius;
         private readonly StackPanel _styleDetail;
         private bool _accepted;
 
@@ -41,16 +41,17 @@ namespace UniversSale.View
             // Les pastilles (13/09) reprennent la couleur de l'ondulé de
             // chaque relevé : ce que l'auteur voit dans la page.
             _spell = Option("Orthographe",
-                "Mots inconnus du dictionnaire (Hunspell) et du dictionnaire personnel",
+                "Les mots que le dictionnaire ne connaît pas (ni le vôtre)",
                 AppSettings.SpellEnabled, Dot(Correction.FindingCategory.Spelling, ""));
             _grammar = Option("Grammaire",
-                "Accords, conjugaisons, confusions… (Grammalecte, en différé)",
+                "Accords, conjugaisons, confusions… — arrive quelques instants après la frappe",
                 AppSettings.GrammarEnabled, Dot(Correction.FindingCategory.Grammar, ""));
             _typography = Option("Typographie",
-                "Signes, apostrophes, espaces insécables, nombres… (règles typographiques de Grammalecte)",
+                "Signes, apostrophes, espaces insécables, nombres… (la correction au moment "
+                + "d'écrire se règle dans Formatage → Options)",
                 AppSettings.TypographyEnabled, Dot(Correction.FindingCategory.Typography, ""));
             _style = Option("Style",
-                "Répétitions, adverbes en -ment, verbes ternes — des indices, jamais des fautes",
+                "Des indices sur la manière d'écrire, jamais des fautes : à vous de juger",
                 AppSettings.StyleEnabled);
             foreach (var box in new[] { _spell, _grammar, _typography, _style })
                 panel.Children.Add(box);
@@ -58,19 +59,37 @@ namespace UniversSale.View
             // Les sous-options du style (batch 44), en retrait sous la case.
             _styleDetail = new StackPanel { Margin = new Thickness(22, 0, 0, 4) };
             _repetitions = SubOption("Répétitions",
-                "Un mot qui revient à portée d'oreille (rayon en mots, réglé pour le roman)",
+                "Un mot qui revient trop vite après son dernier emploi (cheval et chevaux comptent "
+                + "pour un). On regarde en arrière sur ce nombre de mots :",
                 AppSettings.StyleRepetitions, Dot(Correction.FindingCategory.Style, "repetition"));
             _adverbs = SubOption("Adverbes en -ment",
-                "« rapidement », « vraiment »… — le dictionnaire tranche, « moment » n'est pas relevé",
+                "Les mots comme « rapidement » ou « vraiment » : souvent, un verbe plus précis fait mieux "
+                + "(« moment » n'est pas relevé, le dictionnaire tranche)",
                 AppSettings.StyleAdverbs,
                 Dot(Correction.FindingCategory.Style, Correction.Grammalecte.StyleChecker.AdverbRule));
             _dullVerbs = SubOption("Verbes ternes",
-                "Les verbes passe-partout conjugués ; les auxiliaires (« avait mangé ») sont laissés en paix",
+                "Les verbes passe-partout (être, avoir, faire, dire…) qu'un verbe plus imagé peut "
+                + "remplacer ; « avait mangé » et les participes sont laissés en paix",
                 AppSettings.StyleDullVerbs,
                 Dot(Correction.FindingCategory.Style, Correction.Grammalecte.StyleChecker.DullVerbRule));
+            _dialogue = SubOption("Verbes de dialogue",
+                "Le même verbe qui revient dans les incises (« dit-il », « répondit-elle »…) "
+                + "à quelques répliques d'écart",
+                AppSettings.StyleDialogue,
+                Dot(Correction.FindingCategory.Style, Correction.DialogueChecker.Rule));
             _styleDetail.Children.Add(_repetitions);
+            _radius = new TextBox
+            {
+                Text = AppSettings.RepetitionRadius.ToString(),
+                Width = 60,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(22, 0, 0, 4),
+                ToolTip = "Entre 20 et 500 mots — 100 convient au roman"
+            };
+            _styleDetail.Children.Add(_radius);
             _styleDetail.Children.Add(_adverbs);
             _styleDetail.Children.Add(_dullVerbs);
+            _styleDetail.Children.Add(_dialogue);
             _dullList = new TextBox
             {
                 Text = Correction.Grammalecte.StyleChecker.JoinDullVerbs(AppSettings.DullVerbs),
@@ -180,6 +199,10 @@ namespace UniversSale.View
             var repetitions = dialog._repetitions.IsChecked == true;
             var adverbs = dialog._adverbs.IsChecked == true;
             var dullVerbs = dialog._dullVerbs.IsChecked == true;
+            var dialogue = dialog._dialogue.IsChecked == true;
+            int radius;
+            if (!int.TryParse(dialog._radius.Text.Trim(), out radius)) radius = AppSettings.RepetitionRadius;
+            radius = Math.Max(20, Math.Min(500, radius));
             var dullList = Correction.Grammalecte.StyleChecker.ParseDullVerbs(dialog._dullList.Text);
             if (dullList.Count == 0)
                 dullList = new System.Collections.Generic.List<string>(
@@ -188,6 +211,7 @@ namespace UniversSale.View
                 || typography != AppSettings.TypographyEnabled || style != AppSettings.StyleEnabled
                 || repetitions != AppSettings.StyleRepetitions || adverbs != AppSettings.StyleAdverbs
                 || dullVerbs != AppSettings.StyleDullVerbs
+                || dialogue != AppSettings.StyleDialogue || radius != AppSettings.RepetitionRadius
                 || !SameList(dullList, AppSettings.DullVerbs);
             AppSettings.SpellEnabled = spell;
             AppSettings.GrammarEnabled = grammar;
@@ -196,6 +220,8 @@ namespace UniversSale.View
             AppSettings.StyleRepetitions = repetitions;
             AppSettings.StyleAdverbs = adverbs;
             AppSettings.StyleDullVerbs = dullVerbs;
+            AppSettings.StyleDialogue = dialogue;
+            AppSettings.RepetitionRadius = radius;
             AppSettings.DullVerbs = dullList;
             AppSettings.Save();
             return changed;

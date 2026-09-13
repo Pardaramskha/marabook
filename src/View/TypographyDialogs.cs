@@ -16,9 +16,13 @@ namespace UniversSale.View
     {
         private readonly RadioButton _in, _souple, _minimal;
         private readonly List<KeyValuePair<CheckBox, string>> _rules = new List<KeyValuePair<CheckBox, string>>();
+        private readonly List<KeyValuePair<CheckBox, string>> _liveRules = new List<KeyValuePair<CheckBox, string>>();
+        private readonly CheckBox _liveMaster;
+        private readonly Grid _rulesGrid;
         private bool _accepted;
 
-        private TypographyOptionsDialog(Window owner, TypographyOptions options)
+        private TypographyOptionsDialog(Window owner, TypographyOptions options,
+            TypographyOptions live, bool liveEnabled)
         {
             Title = "Options de la passe typographique";
             Owner = owner;
@@ -50,20 +54,47 @@ namespace UniversSale.View
                 FontWeight = FontWeights.SemiBold,
                 Margin = new Thickness(0, 12, 0, 4)
             });
-            Rule(panel, "Espaces (doubles, fins de ligne)", "spaces", options.Spaces);
-            Rule(panel, "Apostrophes courbes ’", "apostrophes", options.Apostrophes);
-            Rule(panel, "Points de suspension … et « etc. »", "ellipses", options.Ellipses);
-            Rule(panel, "Guillemets français « » °", "quotes", options.Quotes);
-            Rule(panel, "Tirets de dialogue — °", "dialogueDashes", options.DialogueDashes);
-            Rule(panel, "Intervalles 1914–1918 °", "ranges", options.Ranges);
-            Rule(panel, "Insécables de ponctuation ; ! ? : « » °", "noBreakPunctuation", options.NoBreakPunctuation);
-            Rule(panel, "Insécables d'unités 10 %, 10 €, 12 kg °", "noBreakUnits", options.NoBreakUnits);
-            Rule(panel, "Milliers en fine 10 000 °", "thousands", options.Thousands);
-            Rule(panel, "Ligatures œ (liste blanche)", "ligaturesOe", options.LigaturesOe);
-            Rule(panel, "Ligatures æ (liste blanche)", "ligaturesAe", options.LigaturesAe);
-            Rule(panel, "Dimensions 10 × 15 °", "dimensions", options.Dimensions);
-            Rule(panel, "Ordinaux 2ème → 2e", "ordinals", options.Ordinals);
-            Rule(panel, "Signaler les majuscules à accentuer (État, À…)", "flagCapitals", options.FlagCapitals);
+            // Deux colonnes (b45) : la passe complète, et la correction AU
+            // MOMENT OÙ L'ON TAPE — chaque règle se règle séparément.
+            _liveMaster = new CheckBox
+            {
+                Content = new TextBlock
+                {
+                    Text = "Corriger aussi au moment où j'écris (dans les pages composées) — "
+                        + "Ctrl+Z annule une correction automatique sans effacer la frappe",
+                    Foreground = Chrome.Ink,
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 400
+                },
+                IsChecked = liveEnabled,
+                Margin = new Thickness(0, 2, 0, 6)
+            };
+            panel.Children.Add(_liveMaster);
+            _rulesGrid = new Grid();
+            _rulesGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _rulesGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _rulesGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _rulesGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var passHead = new TextBlock { Text = "Passe", FontSize = 11, Foreground = Chrome.SoftText, Margin = new Thickness(0, 0, 8, 2) };
+            var liveHead = new TextBlock { Text = "À la frappe", FontSize = 11, Foreground = Chrome.SoftText, Margin = new Thickness(0, 0, 8, 2) };
+            Grid.SetColumn(liveHead, 1);
+            _rulesGrid.Children.Add(passHead);
+            _rulesGrid.Children.Add(liveHead);
+            panel.Children.Add(_rulesGrid);
+            Rule("Espaces (doubles, fins de ligne)", "spaces", options.Spaces, live.Spaces);
+            Rule("Apostrophes courbes ’", "apostrophes", options.Apostrophes, live.Apostrophes);
+            Rule("Points de suspension … et « etc. »", "ellipses", options.Ellipses, live.Ellipses);
+            Rule("Guillemets français « » °", "quotes", options.Quotes, live.Quotes);
+            Rule("Tirets de dialogue — °", "dialogueDashes", options.DialogueDashes, live.DialogueDashes);
+            Rule("Intervalles 1914–1918 °", "ranges", options.Ranges, live.Ranges);
+            Rule("Insécables de ponctuation ; ! ? : « » °", "noBreakPunctuation", options.NoBreakPunctuation, live.NoBreakPunctuation);
+            Rule("Insécables d'unités 10 %, 10 €, 12 kg °", "noBreakUnits", options.NoBreakUnits, live.NoBreakUnits);
+            Rule("Milliers en fine 10 000 °", "thousands", options.Thousands, live.Thousands);
+            Rule("Ligatures œ (liste blanche)", "ligaturesOe", options.LigaturesOe, live.LigaturesOe);
+            Rule("Ligatures æ (liste blanche)", "ligaturesAe", options.LigaturesAe, live.LigaturesAe);
+            Rule("Dimensions 10 × 15 °", "dimensions", options.Dimensions, live.Dimensions);
+            Rule("Ordinaux 2ème → 2e", "ordinals", options.Ordinals, live.Ordinals);
+            Rule("Signaler les majuscules à accentuer (État, À…)", "flagCapitals", options.FlagCapitals, live.FlagCapitals);
 
             panel.Children.Add(new TextBlock
             {
@@ -102,32 +133,47 @@ namespace UniversSale.View
             };
         }
 
-        private void Rule(StackPanel panel, string label, string key, bool value)
+        private void Rule(string label, string key, bool value, bool liveValue)
         {
-            var box = new CheckBox
-            {
-                Content = new TextBlock { Text = label, Foreground = Chrome.Ink },
-                IsChecked = value,
-                Margin = new Thickness(0, 2, 0, 2)
-            };
-            _rules.Add(new KeyValuePair<CheckBox, string>(box, key));
-            panel.Children.Add(box);
+            var row = _rulesGrid.RowDefinitions.Count;
+            _rulesGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var pass = new CheckBox { IsChecked = value, Margin = new Thickness(6, 3, 14, 3), VerticalAlignment = VerticalAlignment.Center };
+            var live = new CheckBox { IsChecked = liveValue, Margin = new Thickness(18, 3, 14, 3), VerticalAlignment = VerticalAlignment.Center };
+            var text = new TextBlock { Text = label, Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            Grid.SetRow(pass, row);
+            Grid.SetRow(live, row);
+            Grid.SetRow(text, row);
+            Grid.SetColumn(live, 1);
+            Grid.SetColumn(text, 2);
+            _rulesGrid.Children.Add(pass);
+            _rulesGrid.Children.Add(live);
+            _rulesGrid.Children.Add(text);
+            _rules.Add(new KeyValuePair<CheckBox, string>(pass, key));
+            _liveRules.Add(new KeyValuePair<CheckBox, string>(live, key));
         }
 
         private TypographyOptions Build()
         {
+            return Build(_rules);
+        }
+
+        private TypographyOptions Build(List<KeyValuePair<CheckBox, string>> rules)
+        {
             var node = new Dictionary<string, object>();
             node["preset"] = _souple.IsChecked == true ? "souple" : _minimal.IsChecked == true ? "minimal" : "in";
-            foreach (var rule in _rules) node[rule.Value] = rule.Key.IsChecked == true;
+            foreach (var rule in rules) node[rule.Value] = rule.Key.IsChecked == true;
             return TypographyOptions.FromJson(node);
         }
 
         /// <summary>Vrai si validé : AppSettings.Typography est mis à jour et enregistré.</summary>
         public static bool Ask(Window owner)
         {
-            var dialog = new TypographyOptionsDialog(owner, AppSettings.Typography);
+            var dialog = new TypographyOptionsDialog(owner, AppSettings.Typography,
+                AppSettings.TypographyLive, AppSettings.TypographyLiveEnabled);
             Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return false;
+            AppSettings.TypographyLive = dialog.Build(dialog._liveRules);
+            AppSettings.TypographyLiveEnabled = dialog._liveMaster.IsChecked == true;
             AppSettings.Typography = dialog.Build();
             AppSettings.Save();
             return true;

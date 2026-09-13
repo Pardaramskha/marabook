@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UniversSale.Model;
 
@@ -25,6 +26,11 @@ namespace UniversSale.Correction
         /// « va », « eu » : le bruit pur.</summary>
         public int MinLength = 3;
 
+        /// <summary>La racine d'un mot (chevaux → cheval, répondit →
+        /// répondre), ou null si inconnue — le moteur d'orthographe la
+        /// fournit (b45). Sans elle, la forme exacte, comme avant.</summary>
+        public Func<string, string> Lemma;
+
         public string Id { get { return "repetition"; } }
         public string Label { get { return "Répétitions"; } }
         public FindingCategory Category { get { return FindingCategory.Style; } }
@@ -43,6 +49,7 @@ namespace UniversSale.Correction
         {
             var findings = new List<Finding>();
             var lastSeen = new Dictionary<string, int>();
+            var lastSurface = new Dictionary<string, string>();
             var wordIndex = 0;
 
             for (var p = 0; p < document.Paragraphs.Count; p++)
@@ -52,9 +59,14 @@ namespace UniversSale.Correction
                 foreach (var token in tokens)
                 {
                     if (token.Kind != TokenKind.Word) continue;
-                    var key = token.Folded;
-                    if (key.Length < MinLength || FrenchStopWords.Contains(key))
+                    var folded = token.Folded;
+                    if (folded.Length < MinLength || FrenchStopWords.Contains(folded))
                         continue;
+                    // La clé : la racine quand on la connaît (cheval et
+                    // chevaux ne font qu'un), la forme pliée sinon.
+                    var root = Lemma == null ? null : Lemma(token.CoreSurface);
+                    var key = string.IsNullOrEmpty(root) ? folded : FrenchTokenizer.Fold(root);
+                    if (FrenchStopWords.Contains(key)) continue;
 
                     wordIndex++;
                     int previous;
@@ -62,6 +74,8 @@ namespace UniversSale.Correction
                         && wordIndex - previous <= Radius)
                     {
                         var distance = wordIndex - previous;
+                        var before = lastSurface[key];
+                        var sameForm = FrenchTokenizer.Fold(before) == folded;
                         findings.Add(new Finding
                         {
                             ParagraphIndex = p,
@@ -69,7 +83,8 @@ namespace UniversSale.Correction
                             Length = token.CoreLength,
                             Category = FindingCategory.Style,
                             Severity = FindingSeverity.Hint,
-                            Message = "« " + token.CoreSurface + " » déjà employé "
+                            Message = "« " + token.CoreSurface + " »"
+                                + (sameForm ? " déjà employé " : " : « " + before + " » employé ")
                                 + (distance == 1 ? "juste avant"
                                     : distance + " mots plus haut"),
                             RuleId = "repetition",
@@ -79,6 +94,7 @@ namespace UniversSale.Correction
                         });
                     }
                     lastSeen[key] = wordIndex;
+                    lastSurface[key] = token.CoreSurface;
                 }
             }
             return findings;
