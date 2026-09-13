@@ -230,13 +230,13 @@ namespace UniversSale.Correction
                 // MAIS les paires qui le précèdent sont converties : avant le
                 // 13/09, un seul orphelin gelait le paragraphe entier — à la
                 // frappe, plus aucun guillemet ne se convertissait jamais.
-                var straight = 0;
-                foreach (var c in work) if (c == '"') straight++;
                 int count;
                 work = ConvertQuotes(work, o.InsideQuotes.ToString(), openQuotesBefore, out count);
                 r.Count("guillemets français", count);
-                if (straight % 2 == 1)
-                    r.Warnings.Add("un guillemet droit orphelin (nombre impair) est laissé tel quel");
+                // Signalé seulement s'il en RESTE un : l'ouvrant ou le fermant
+                // d'un dialogue sur plusieurs lignes vient d'être converti.
+                if (work.IndexOf('"') >= 0)
+                    r.Warnings.Add("un guillemet droit orphelin est laissé tel quel (ni paire, ni ouverture ou fermeture de dialogue reconnue)");
             }
             // (4a) tirets de dialogue
             if (o.DialogueDashes && !o.Minimal)

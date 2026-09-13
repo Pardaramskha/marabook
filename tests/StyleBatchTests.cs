@@ -240,6 +240,14 @@ namespace UniversSale.Tests
             t.Check(typing.Contains("\"aller"), "à la frappe, « si \"aller » n'est pas un fermant (" + typing + ")");
             var comma = Typography.Clean("— On se fait chier, mon ami,\"", options, null, 1).Text;
             t.Check(comma.EndsWith("»"), "« ami,\" » en bout de ligne : déjà le fermant (l'incise arrive) (" + comma + ")");
+            // L'exemple de Rémi, tel quel, par la passe entière : la paire déjà
+            // en courbes, le fermant droit devant l'incise — converti, et
+            // aucun avertissement d'orphelin.
+            var document = Document("« Alors bébé, on y va ?", "— Pas sur que je veuille “y aller”,\" dit l’autre.");
+            var pass = TypographyPass.Run(document, options);
+            var line = PivotEdit.FlatText(pass.Paragraphs[1]);
+            t.Check(line.Contains("aller”, » dit") && !line.Contains("\""), "l'exemple de Rémi par la passe (" + line + ")");
+            t.Equal(0, pass.Summary.Warnings.Count, "aucun avertissement d'orphelin (" + string.Join(" | ", pass.Summary.Warnings.ToArray()) + ")");
             var closed = Typography.Clean("Il dit \"non\", rétorqua l’autre.", options, null, 0).Text;
             t.Check(closed.Contains("«") && closed.Contains("»"), "sans citation ouverte : la paire ordinaire (" + closed + ")");
         }
