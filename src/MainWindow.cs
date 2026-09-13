@@ -1676,6 +1676,31 @@ namespace UniversSale
         public void ShowWelcome()
         {
             if (_welcome != null) return;
+            // Un peu de couleur au démarrage (13/09) : assetsackground.jpg
+            // à côté de l'exe, en remplissage proportionnel derrière
+            // l'accueil — son centre est blanc, l'accueil le recouvre.
+            // Absent ou illisible : le voile blanc cassé, simplement.
+            var background = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                System.IO.Path.Combine("assets", "background.jpg"));
+            if (File.Exists(background))
+            {
+                try
+                {
+                    var image = new System.Windows.Media.Imaging.BitmapImage();
+                    image.BeginInit();
+                    image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    image.UriSource = new Uri(background, UriKind.Absolute);
+                    image.EndInit();
+                    image.Freeze();
+                    _welcomeVeil.Background = new ImageBrush(image)
+                    {
+                        Stretch = Stretch.UniformToFill,
+                        AlignmentX = AlignmentX.Center,
+                        AlignmentY = AlignmentY.Center
+                    };
+                }
+                catch { }
+            }
             _welcomeVeil.Visibility = Visibility.Visible;
             _shellRoot.IsEnabled = false;
             _welcome = new WelcomeWindow(this);
