@@ -387,10 +387,14 @@ namespace UniversSale.View
                 _composed.SetZoom(_zoom);
                 // Brouillon : même moteur, réglage de page dérivé — colonne
                 // continue sans décor ni folio (voir DraftSetup).
-                _composed.FolioOffset = _draftView ? 0 : FolioOffset;
-                _composed.Decor = _draftView ? null : Decor;
+                // Mode calme (13/09) : toujours la même feuille — A4 nue,
+                // ni décor, ni folio, ni guides — quel que soit l'axe choisi.
+                var plain = _draftView || _calm;
+                _composed.FolioOffset = plain ? 0 : FolioOffset;
+                _composed.Decor = plain ? null : Decor;
                 _composed.Attach(_item, _styles,
-                    _draftView ? DraftSetup(_pageSetup) : _pageSetup, _project);
+                    _calm ? CalmSetup(_pageSetup) : _draftView ? DraftSetup(_pageSetup) : _pageSetup,
+                    _project);
                 _composed.Visibility = Visibility.Visible;
                 _scroller.Visibility = Visibility.Collapsed;
                 _composed.SetFormattingMarks(_showMarks); // l'état du ¶ suit la surface
@@ -449,7 +453,8 @@ namespace UniversSale.View
         public void UpdateRulers()
         {
             if (_rulerH == null) return;
-            var show = Settings.AppSettings.ShowRulers && _item != null;
+            // Jamais de règles en mode calme (13/09) : rien que la feuille.
+            var show = Settings.AppSettings.ShowRulers && _item != null && !_calm;
             _rulerH.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             _rulerV.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             if (!show) return;
@@ -2139,7 +2144,6 @@ namespace UniversSale.View
                     ScheduleOverlay();
             };
             _composed = new ComposedView { Visibility = Visibility.Collapsed };
-            _composed.ExitRequested += delegate { SetComposition(false); };
             _composed.Edited += delegate { NotifyEdited(); };
             _composed.NoteEditingStarted += delegate(string id) { _lastNoteId = id; };
             _composed.FindingIgnoreHere += delegate(Correction.Finding finding)

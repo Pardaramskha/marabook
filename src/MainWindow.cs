@@ -181,6 +181,10 @@ namespace UniversSale
                 _minuteTimer.Start();
             };
             _editor.CalmRequested += ToggleCalmMode;
+            // Les menus se grisent selon la vue affichée (13/09).
+            _editor.IsVisibleChanged += delegate { RefreshMenuAvailability(); };
+            _sheetView.IsVisibleChanged += delegate { RefreshMenuAvailability(); };
+            _binder.SelectionChanged += delegate { Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(RefreshMenuAvailability)); };
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 // Échap quitte le mode calme — en bulle, pour laisser la barre
@@ -262,17 +266,17 @@ namespace UniversSale
             file.Items.Add(Entry("project-settings", "Paramètres du projet…", OpenProjectSettings));
             file.Items.Add(Entry("preferences", "Préférences…", OpenPreferences));
             file.Items.Add(new Separator());
-            file.Items.Add(Entry("print-preview", "Aperçu des pages", ShowPrintPreview));
-            file.Items.Add(Entry("print", "Imprimer…", PrintCurrent));
+            file.Items.Add(Entry("print-preview", "Aperçu des pages", ShowPrintPreview, TextOrSheetActive));
+            file.Items.Add(Entry("print", "Imprimer…", PrintCurrent, TextOrSheetActive));
             file.Items.Add(new Separator());
             var importMenu = new MenuItem { Header = "Importer" };
             importMenu.Items.Add(Entry("import-docs", "Des documents…", ImportDocuments));
             importMenu.Items.Add(Entry("import-scrivener", "Un projet Scrivener…", ImportScrivener));
             file.Items.Add(importMenu);
             var exportMenu = new MenuItem { Header = "Exporter" };
-            exportMenu.Items.Add(Entry("export-item", "L'écrit sélectionné…", ExportCurrentItem));
+            exportMenu.Items.Add(Entry("export-item", "L'écrit sélectionné…", ExportCurrentItem, TextOrSheetActive));
             exportMenu.Items.Add(Entry("compile", "Compiler le manuscrit…", CompileManuscript));
-            exportMenu.Items.Add(Entry("export-pdf", "PDF prêt à imprimer…", ExportPdf));
+            exportMenu.Items.Add(Entry("export-pdf", "PDF prêt à imprimer…", ExportPdf, TextOrSheetActive));
             file.Items.Add(exportMenu);
             file.Items.Add(new Separator());
             file.Items.Add(Entry(null, "Quitter", Close));
@@ -285,7 +289,7 @@ namespace UniversSale
             edit.Items.Add(_undoMenu);
             edit.Items.Add(_redoMenu);
             edit.Items.Add(new Separator());
-            edit.Items.Add(Entry("find", "Rechercher dans l'écrit…", ShowSearchInActive));
+            edit.Items.Add(Entry("find", "Rechercher dans l'écrit…", ShowSearchInActive, TextOrSheetActive));
             _searchMenu = Entry("project-search", "Rechercher dans le projet…", OpenSearchPanel);
             _searchMenu.IsCheckable = true;
             edit.Items.Add(_searchMenu);
@@ -299,7 +303,7 @@ namespace UniversSale
                 if (AppSettings.RightPanel != RightPanel.Search) { OpenSearchPanel(); return; }
                 _searchPanel.Previous();
             }));
-            _versionsMenu = Entry("versions-panel", "Versions de l'écrit…", OpenVersionsPanel);
+            _versionsMenu = Entry("versions-panel", "Versions de l'écrit…", OpenVersionsPanel, TextActive);
             _versionsMenu.IsCheckable = true;
             edit.Items.Add(_versionsMenu);
             edit.Items.Add(Entry("session-goal", "Objectif de session…", SetSessionGoal));
@@ -309,8 +313,8 @@ namespace UniversSale
             edit.Items.Add(Entry("new-folder", "Nouveau dossier", delegate { _binder.NewFolder(null); }));
             edit.Items.Add(Entry("new-book", "Nouveau livre", delegate { _binder.NewBook(null); }));
             edit.Items.Add(Entry("import-media", "Importer dans Recherche…", delegate { _binder.ImportMediaDialog(null); }));
-            edit.Items.Add(Entry("rename", "Renommer…", delegate { _binder.Rename(null); }));
-            edit.Items.Add(Entry("delete", "Supprimer", delegate { _binder.Delete(null); }));
+            edit.Items.Add(Entry("rename", "Renommer…", delegate { _binder.Rename(null); }, ItemSelected));
+            edit.Items.Add(Entry("delete", "Supprimer", delegate { _binder.Delete(null); }, ItemSelected));
             edit.Items.Add(new Separator());
             edit.Items.Add(Entry("empty-trash", "Vider la corbeille", delegate { _binder.EmptyTrash(); }));
             menu.Items.Add(edit);
@@ -320,16 +324,16 @@ namespace UniversSale
             format.Items.Add(Entry("styles", "Gérer les styles…", OpenStylesDialog));
             format.Items.Add(Entry("templates", "Modèles de fiches…", OpenTemplatesDialog));
             format.Items.Add(new Separator());
-            format.Items.Add(Entry("insert-footnote", "Note de bas de page", InsertFootnoteInActive));
-            format.Items.Add(Entry("insert-link", "Lien vers une fiche…", InsertLinkInActive));
-            format.Items.Add(Entry("insert-image", "Insérer une image…", InsertImageInActive));
-            format.Items.Add(Entry("insert-rule", "Ligne horizontale", delegate { RouteToActiveEditor("rule"); }));
-            format.Items.Add(Entry("insert-separator", "Séparateur de scène", delegate { RouteToActiveEditor("separator"); }));
+            format.Items.Add(Entry("insert-footnote", "Note de bas de page", InsertFootnoteInActive, TextOrSheetActive));
+            format.Items.Add(Entry("insert-link", "Lien vers une fiche…", InsertLinkInActive, TextOrSheetActive));
+            format.Items.Add(Entry("insert-image", "Insérer une image…", InsertImageInActive, TextOrSheetActive));
+            format.Items.Add(Entry("insert-rule", "Ligne horizontale", delegate { RouteToActiveEditor("rule"); }, TextOrSheetActive));
+            format.Items.Add(Entry("insert-separator", "Séparateur de scène", delegate { RouteToActiveEditor("separator"); }, TextOrSheetActive));
             menu.Items.Add(format);
 
             // « Mise en page » lives as a ribbon tab in the editor now; only
             // its shortcut survives at the window level.
-            AddGesture("page-break", InsertPageBreakInActive);
+            AddGesture("page-break", delegate { if (TextActive()) InsertPageBreakInActive(); });
 
             // --- Affichage ---
             var view = new MenuItem { Header = "_Affichage" };
@@ -340,7 +344,7 @@ namespace UniversSale
             _darkMenu = Entry("dark-theme", "Thème sombre", ToggleDarkTheme);
             _darkMenu.IsCheckable = true;
             _darkMenu.IsChecked = AppSettings.DarkTheme;
-            _rulersMenu = Entry("toggle-rulers", "Règles", ToggleRulers);
+            _rulersMenu = Entry("toggle-rulers", "Règles", ToggleRulers, TextOrSheetActive);
             _rulersMenu.IsCheckable = true;
             _rulersMenu.IsChecked = AppSettings.ShowRulers;
             view.Items.Add(_binderMenu);
@@ -393,8 +397,17 @@ namespace UniversSale
         /// from settings, click handler, and a window-wide key binding.</summary>
         private MenuItem Entry(string actionId, string header, Action handler)
         {
+            return Entry(actionId, header, handler, null);
+        }
+
+        /// <summary>Une entrée de menu avec sa CONDITION (13/09) : grisée
+        /// quand elle n'a pas de sens là où l'on est (une note de bas de page
+        /// sur l'écran d'un livre) ; son raccourci se tait de même.</summary>
+        private MenuItem Entry(string actionId, string header, Action handler, Func<bool> when)
+        {
             var item = new MenuItem { Header = header };
-            item.Click += delegate { handler(); };
+            var guarded = when == null ? handler : delegate { if (when()) handler(); };
+            item.Click += delegate { guarded(); };
             if (actionId != null)
             {
                 var gesture = AppSettings.Gesture(actionId);
@@ -402,9 +415,42 @@ namespace UniversSale
                 Key key;
                 ModifierKeys modifiers;
                 if (AppSettings.ParseGesture(gesture, out key, out modifiers))
-                    InputBindings.Add(new KeyBinding(new DelegateCommand(handler), key, modifiers));
+                    InputBindings.Add(new KeyBinding(new DelegateCommand(guarded), key, modifiers));
             }
+            if (when != null) _menuRules.Add(new KeyValuePair<MenuItem, Func<bool>>(item, when));
             return item;
+        }
+
+        // Les entrées conditionnelles et leur règle ; réévaluées à chaque
+        // changement de vue (l'éditeur ou la fiche qui apparaît/disparaît).
+        private readonly List<KeyValuePair<MenuItem, Func<bool>>> _menuRules
+            = new List<KeyValuePair<MenuItem, Func<bool>>>();
+
+        /// <summary>Un écrit ou une fiche est ouvert dans sa vue.</summary>
+        private bool TextOrSheetActive()
+        {
+            return _editor.Visibility == Visibility.Visible || _sheetView.Visibility == Visibility.Visible;
+        }
+
+        private bool TextActive()
+        {
+            return _editor.Visibility == Visibility.Visible;
+        }
+
+        private bool ItemSelected()
+        {
+            return _current != null && !_current.IsCategory;
+        }
+
+        private void RefreshMenuAvailability()
+        {
+            foreach (var rule in _menuRules)
+            {
+                bool enabled;
+                try { enabled = rule.Value(); }
+                catch { enabled = true; }
+                rule.Key.IsEnabled = enabled;
+            }
         }
 
         private UIElement BuildContent()

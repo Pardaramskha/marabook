@@ -479,10 +479,36 @@ namespace UniversSale.View
             _calm = calm;
             _ribbonBar.Visibility = calm ? Visibility.Collapsed : Visibility.Visible;
             if (calm) _searchBar.Visibility = Visibility.Collapsed;
+            // La feuille du calme (13/09) : A4 nue, ombre réelle, air en tête,
+            // pas de marqueurs veuves/orphelines — et retour à l'axe choisi
+            // (Pages ou Brouillon) en sortant. Même moteur, réglage dérivé.
+            ComposedRenderer.ShowWidowMarks = !calm;
+            _composed.CalmLook = calm;
+            if (ComposedActive && _item != null) SetComposition(true);
+            UpdateRulers();      // les règles s'effacent en calme
             UpdateViewButtons(); // le sélecteur d'affichage suit
             RebuildNotesPanel(); // la visibilité des panneaux suit _calm
             RebuildCorrectionPanel();
             RebuildAnnotationsPanel();
+        }
+
+        /// <summary>Le réglage de page du MODE CALME (13/09) : une feuille A4
+        /// à marges régulières, sans guides, numéros de ligne ni folio —
+        /// toujours la même, quel que soit le format du document.</summary>
+        private static PageSetup CalmSetup(PageSetup source)
+        {
+            var calm = source.Clone();
+            calm.PageWidthMm = 210;
+            calm.PageHeightMm = 297;
+            calm.MarginTopMm = 22;
+            calm.MarginBottomMm = 22;
+            calm.MarginLeftMm = 25;
+            calm.MarginRightMm = 25;
+            calm.Columns = 1;
+            calm.ShowMarginGuides = false;
+            calm.LineNumbers = false;
+            calm.FooterPageNumbers = false;
+            return calm;
         }
 
         // ============================================================= « Gabarit » tab

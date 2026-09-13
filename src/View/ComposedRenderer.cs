@@ -52,6 +52,10 @@ namespace UniversSale.View
         /// batch 40) ; au papier, le noir — l'impression ne change pas.</summary>
         private static Brush DefaultInk = Brushes.Black;
 
+        /// <summary>Les marqueurs veuves/orphelines à l'écran — éteints par le
+        /// mode calme (13/09), comme les guides de marges.</summary>
+        public static bool ShowWidowMarks = true;
+
         public static void DrawPage(DrawingContext dc, Composition composition, int index,
             bool screenExtras)
         {
@@ -195,8 +199,8 @@ namespace UniversSale.View
 
             // Marqueurs veuves/orphelines (écran seulement) : orange = une
             // correction retient des lignes ici, gris = correction débrayée.
-            // Cliquables dans la vue Composition.
-            if (screenExtras)
+            // Cliquables dans la vue Composition. Jamais en mode calme (13/09).
+            if (screenExtras && ShowWidowMarks)
                 foreach (var mark in page.WidowMarks)
                 {
                     var brush = mark.Disabled

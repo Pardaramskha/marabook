@@ -23,6 +23,70 @@ namespace UniversSale.View
 
         private readonly Grid _column;      // pages + overlay, centered
         private readonly StackPanel _pages;
+
+        /// <summary>L'apparence du mode calme (13/09) : une VRAIE ombre portée
+        /// sous chaque page (un DropShadowEffect sur un cadre vide SOUS la
+        /// page — jamais sur la page, dont le texte deviendrait flou), et de
+        /// l'air entre le haut de la fenêtre et la première page.</summary>
+        public bool CalmLook
+        {
+            get { return _calmLook; }
+            set
+            {
+                if (_calmLook == value) return;
+                _calmLook = value;
+                ApplyLook();
+            }
+        }
+        private bool _calmLook;
+
+        private void ApplyLook()
+        {
+            if (_column == null) return;
+            _column.Margin = new Thickness(24, _calmLook ? 64 : 20, 24, 20);
+            foreach (UIElement child in _pages.Children)
+            {
+                var slot = child as PageSlot;
+                if (slot == null) continue;
+                slot.Shadow.Visibility = _calmLook ? Visibility.Visible : Visibility.Collapsed;
+                slot.Page.InvalidateVisual();
+            }
+        }
+
+        /// <summary>Une page à l'écran : son ombre (cadre vide, effet) et sa
+        /// surface (PageElement) dans la même cellule — la grille les tient
+        /// à la même taille.</summary>
+        private sealed class PageSlot : Grid
+        {
+            public readonly Border Shadow;
+            public readonly PageElement Page;
+
+            public PageSlot(ComposedView owner, int index)
+            {
+                Shadow = new Border
+                {
+                    Background = Chrome.PaperBg,
+                    Visibility = owner._calmLook ? Visibility.Visible : Visibility.Collapsed,
+                    IsHitTestVisible = false,
+                    Effect = new System.Windows.Media.Effects.DropShadowEffect
+                    {
+                        BlurRadius = 22,
+                        ShadowDepth = 4,
+                        Direction = 270,
+                        Opacity = 0.30,
+                        Color = Colors.Black
+                    }
+                };
+                Page = new PageElement(owner, index);
+                Children.Add(Shadow);
+                Children.Add(Page);
+            }
+        }
+
+        private PageElement PageAt(int index)
+        {
+            return ((PageSlot)_pages.Children[index]).Page;
+        }
         private readonly Canvas _overlay;   // caret + selection
         private readonly Canvas _bubbleLayer; // bulles d'annotation Word,
                                               // peuplées par EditorView (B.4)
@@ -61,7 +125,6 @@ namespace UniversSale.View
         public event Action Edited;
         public event Action<string> LinkClicked;
         public event Action<int, int> PageInfoChanged;
-        public event Action ExitRequested; // Échap : retour à l'éditeur classique
         public event Action SelectionStateChanged; // caret/sélection ont bougé
         public event Action<string> NoteEditingStarted; // id de la note ouverte en place
 
@@ -283,7 +346,7 @@ namespace UniversSale.View
             while (_pages.Children.Count > composition.Pages.Count)
                 _pages.Children.RemoveAt(_pages.Children.Count - 1);
             while (_pages.Children.Count < composition.Pages.Count)
-                _pages.Children.Add(new PageElement(this, _pages.Children.Count));
+                _pages.Children.Add(new PageSlot(this, _pages.Children.Count));
             // PIÈGE (batch 33) : les éléments de page survivants sont RÉUTILISÉS
             // (Attach ne détache pas) — InvalidateVisual seul redessinait la
             // nouvelle géométrie (Brouillon : 600 mm) dans une boîte MESURÉE à
@@ -292,10 +355,10 @@ namespace UniversSale.View
             // marge (l'écart entre pages) réaffirmée d'après l'index.
             for (var k = 0; k < _pages.Children.Count; k++)
             {
-                var element = (PageElement)_pages.Children[k];
-                element.Margin = new Thickness(0, k == 0 ? 0 : PageGapPx, 0, 0);
-                element.InvalidateMeasure();
-                element.InvalidateVisual();
+                var slot = (PageSlot)_pages.Children[k];
+                slot.Margin = new Thickness(0, k == 0 ? 0 : PageGapPx, 0, 0);
+                slot.Page.InvalidateMeasure();
+                slot.Page.InvalidateVisual();
             }
             PositionNoteEditor();
         }
@@ -480,7 +543,7 @@ namespace UniversSale.View
             if (_pages.Children.Count != composition.Pages.Count) { RebuildPages(); return; }
             if (firstChanged == int.MaxValue) return;
             for (var k = firstChanged; k < _pages.Children.Count; k++)
-                ((PageElement)_pages.Children[k]).InvalidateVisual();
+                PageAt(k).InvalidateVisual();
         }
 
         internal Composition CurrentComposition
@@ -530,7 +593,9 @@ namespace UniversSale.View
                 // ombre portée légère la décolle du fond (ground).
                 var w = composition.PageWidthPx;
                 var h = composition.PageHeightPx;
-                dc.DrawRectangle(PageShadow, null, new Rect(2, 4, w, h));
+                // Mode calme (13/09) : l'ombre vient du cadre à effet dessous,
+                // pas de ce rectangle décalé.
+                if (!_owner._calmLook) dc.DrawRectangle(PageShadow, null, new Rect(2, 4, w, h));
                 dc.DrawRectangle(Chrome.PaperBg, new Pen(Chrome.Border, 1),
                     new Rect(0.5, 0.5, w - 1, h - 1));
                 ComposedRenderer.DrawPage(dc, composition, _index, true);
@@ -794,6 +859,7 @@ namespace UniversSale.View
         /// mark stays (orange = correction active, gris = débrayée).</summary>
         private bool ToggleWidowMarkAt(MouseButtonEventArgs e)
         {
+            if (!ComposedRenderer.ShowWidowMarks) return false; // invisibles : inertes
             var composition = _engine == null ? null : _engine.Current;
             if (composition == null || composition.Pages.Count == 0) return false;
             var point = e.GetPosition(_pages);
@@ -1215,8 +1281,13 @@ namespace UniversSale.View
                     else InsertParagraphBreak();
                     break;
                 case Key.Escape:
-                    var exit = ExitRequested;
-                    if (exit != null) exit();
+                    // Échap ne QUITTE plus la composition (13/09) : l'éditeur
+                    // classique est gelé depuis le batch 26, y retomber
+                    // affichait des « pages » figées par-dessus le Brouillon
+                    // ou le mode calme. Ici, Échap ne fait que lâcher la
+                    // sélection ; la coquille garde Échap pour sortir du calme.
+                    ClearSelection();
+                    handled = false; // laisse remonter (mode calme)
                     break;
                 case Key.A: if (ctrl) SelectAll(); else handled = false; break;
                 case Key.C: if (ctrl) CopySelection(false); else handled = false; break;
@@ -2009,7 +2080,7 @@ namespace UniversSale.View
                 }
                 composition.ScreenFindings = byParagraph;
             }
-            foreach (UIElement child in _pages.Children) child.InvalidateVisual();
+            for (var k = 0; k < _pages.Children.Count; k++) PageAt(k).InvalidateVisual();
         }
 
         /// <summary>Sélectionne une plage plate et l'amène à l'écran (même
@@ -2151,7 +2222,7 @@ namespace UniversSale.View
         public void SetFormattingMarks(bool visible)
         {
             ComposedRenderer.ShowMarks = visible;
-            foreach (UIElement page in _pages.Children) page.InvalidateVisual();
+            for (var k = 0; k < _pages.Children.Count; k++) PageAt(k).InvalidateVisual();
         }
 
         /// <summary>Remplace tous les paragraphes (la passe typographique,
