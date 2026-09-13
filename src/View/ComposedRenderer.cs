@@ -189,7 +189,7 @@ namespace UniversSale.View
                         var x2 = OffsetX(line, Math.Min(finding.End, line.End), left);
                         if (x2 - x1 < 1.5) continue;
                         DrawSquiggle(dc, x1, x2,
-                            placed.Y + line.Ascent + 2.2, FindingPen(finding.Category));
+                            placed.Y + line.Ascent + 2.2, FindingPen(finding));
                     }
                 }
 
@@ -298,10 +298,17 @@ namespace UniversSale.View
 
         // ------------------------------------------- signalements de correction
 
+        // Les couleurs des relevés (13/09, demande de Rémi) : orthographe
+        // rouge, grammaire bleu, typographie jaune, style vert (répétitions),
+        // violet (adverbes en -ment), gris (verbes ternes). Le style se
+        // distingue PAR RÈGLE : FindingPen(finding) tranche, la version par
+        // catégorie sert aux en-têtes et aux filtres.
         private static readonly Pen SpellingPen = FrozenPen(Color.FromRgb(0xD6, 0x45, 0x41));
         private static readonly Pen GrammarPen = FrozenPen(Color.FromRgb(0x3B, 0x7D, 0xD8));
-        private static readonly Pen TypographyPen = FrozenPen(Color.FromRgb(0x9B, 0x59, 0xB6));
+        private static readonly Pen TypographyPen = FrozenPen(Color.FromRgb(0xD9, 0xA4, 0x06));
         private static readonly Pen StylePen = FrozenPen(Color.FromRgb(0x2E, 0x9E, 0x6B));
+        private static readonly Pen AdverbPen = FrozenPen(Color.FromRgb(0x8E, 0x44, 0xAD));
+        private static readonly Pen DullVerbPen = FrozenPen(Color.FromRgb(0x85, 0x85, 0x85));
 
         private static Pen FrozenPen(Color color)
         {
@@ -317,8 +324,54 @@ namespace UniversSale.View
             return pen;
         }
 
-        /// <summary>La couleur d'un signalement — partagée par l'ondulé, la
-        /// pastille du panneau Correction et le menu contextuel.</summary>
+        /// <summary>La couleur d'UN signalement — l'ondulé, la pastille de sa
+        /// fiche, le menu contextuel : la catégorie, affinée par la règle
+        /// pour le style.</summary>
+        public static Pen FindingPen(Correction.Finding finding)
+        {
+            return FindingPen(finding.Category, finding.RuleId);
+        }
+
+        public static Pen FindingPen(Correction.FindingCategory category, string ruleId)
+        {
+            if (category == Correction.FindingCategory.Style)
+            {
+                if (ruleId == Correction.Grammalecte.StyleChecker.AdverbRule) return AdverbPen;
+                if (ruleId == Correction.Grammalecte.StyleChecker.DullVerbRule) return DullVerbPen;
+            }
+            return FindingPen(category);
+        }
+
+        /// <summary>Le libellé français d'une catégorie — filtres, en-têtes
+        /// de groupe, dialogue des options : UNE source.</summary>
+        public static string CategoryLabel(Correction.FindingCategory category)
+        {
+            switch (category)
+            {
+                case Correction.FindingCategory.Spelling: return "Orthographe";
+                case Correction.FindingCategory.Grammar: return "Grammaire";
+                case Correction.FindingCategory.Typography: return "Typographie";
+                default: return "Style";
+            }
+        }
+
+        /// <summary>La pastille d'un relevé (panneau, dialogue des options) :
+        /// un rond de la couleur de l'ondulé.</summary>
+        public static System.Windows.Controls.Border FindingDot(Pen pen, double size)
+        {
+            return new System.Windows.Controls.Border
+            {
+                Width = size,
+                Height = size,
+                CornerRadius = new CornerRadius(size / 2),
+                Background = pen.Brush,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 1, 6, 0)
+            };
+        }
+
+        /// <summary>La couleur d'une catégorie — en-têtes de groupe et
+        /// filtres du panneau Correction (le style y est vert).</summary>
         public static Pen FindingPen(Correction.FindingCategory category)
         {
             switch (category)

@@ -14,7 +14,7 @@ if errorlevel 1 exit /b 1
   /lib:"%FW%\WPF" ^
   /r:PresentationFramework.dll /r:PresentationCore.dll /r:WindowsBase.dll /r:System.Xaml.dll ^
   /r:ReachFramework.dll /r:System.Printing.dll ^
-  /r:System.IO.Compression.dll ^
+  /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll ^
   /recurse:src\*.cs
 
 if errorlevel 1 (

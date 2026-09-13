@@ -36,6 +36,22 @@
 # jamais une tentative de rattrapage.
 #
 # Commande de sortie propre : {"quit": true}  (sinon : fin de stdin, ou kill).
+#
+# ---- L'étage STYLE (batch 44) — même tube, deux requêtes de plus, servies
+# par marabook_style.py (rien de nouveau n'est embarqué : le dictionnaire
+# morphologique, le conjugueur et le thésaurus de Grammalecte suffisent) :
+#
+#   {"id": <entier>, "style": "<paragraphe>", "options": {"adverbs": true,
+#                                  "dull": true, "dullVerbs": ["être", ...]}}
+#   → {"id": <entier>, "findings": [{"nStart": .., "nEnd": .., "kind":
+#                                    "adverb" | "dull", "word": "..",
+#                                    "lemma": ".."}, ...]}
+#
+#   {"id": <entier>, "synonyms": "<mot tel qu'écrit>"}
+#   → {"id": <entier>, "groups": [{"pos": "Verbe", "lemma": "faire",
+#                                  "words": ["accomplissait", ...]}, ...]}
+#     (synonymes FLÉCHIS comme le mot demandé quand le conjugueur ou les
+#     tables de flexion le permettent ; vide si le mot est inconnu.)
 # ==============================================================================
 
 import io
@@ -70,6 +86,19 @@ def main():
             if request.get("quit"):
                 break
             request_id = request.get("id")
+            if "style" in request:
+                import marabook_style
+                findings = marabook_style.analyze_style(
+                    request.get("style") or "", request.get("options"))
+                print(json.dumps({"id": request_id, "findings": findings},
+                                 ensure_ascii=False), flush=True)
+                continue
+            if "synonyms" in request:
+                import marabook_style
+                groups = marabook_style.synonyms(request.get("synonyms") or "")
+                print(json.dumps({"id": request_id, "groups": groups},
+                                 ensure_ascii=False), flush=True)
+                continue
             text = request.get("text", "")
             options = request.get("options") or None
             errors = []

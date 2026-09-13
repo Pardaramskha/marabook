@@ -158,9 +158,22 @@ namespace UniversSale
             var shell = new Grid();
             shell.Children.Add(root);
             shell.Children.Add(_toastHost);
+            // Le voile de l'accueil (13/09) : à l'ouverture SANS projet, la
+            // fenêtre reste vide — blanc cassé, pas d'interface — sous la
+            // fenêtre d'accueil ; l'interface est aussi désactivée dessous.
+            _shellRoot = root;
+            _welcomeVeil = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0xFA, 0xF9, 0xF6)),
+                Visibility = Visibility.Collapsed
+            };
+            shell.Children.Add(_welcomeVeil);
             Content = shell;
             Loaded += delegate
             {
+                // Lancée sans .plot (ni argument, ni fichier ouvert avant
+                // l'affichage) : l'accueil, et rien d'autre.
+                if (_path == null) ShowWelcome();
                 AppSettings.NoteUsage(DateTime.Now);
                 ScheduleAchievementCheck();
                 _minuteTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMinutes(1) };
@@ -339,6 +352,7 @@ namespace UniversSale
 
             // --- Aide ---
             var help = new MenuItem { Header = "Aid_e" };
+            help.Items.Add(Entry(null, "Vérifier les mises à jour…", CheckUpdates));
             help.Items.Add(Entry(null, "À propos de Marabook…", ShowAbout));
             menu.Items.Add(help);
 
@@ -478,7 +492,6 @@ namespace UniversSale
             _editor.PreviewRequested += ShowPrintPreview;
             _editor.PrintRequested += PrintCurrent;
             _editor.ExportRequested += ExportCurrentItem;
-            _editor.CompileRequested += CompileManuscript;
             _editor.PdfRequested += ExportPdf;
             center.Children.Add(_editor);
 
@@ -1520,6 +1533,9 @@ namespace UniversSale
                 var project = PlotFile.Load(path, warnings);
                 AdoptFileName(project, path);
                 LoadProject(project, path);
+                // Un projet est ouvert : l'accueil (13/09) se retire — quel
+                // que soit le chemin qui a mené ici (tuile, sonde, argument).
+                if (_welcome != null) _welcome.Release();
                 AppSettings.AddRecentFile(path);
                 AppSettings.Save();
                 UpdateRecentMenu();
@@ -1597,6 +1613,102 @@ namespace UniversSale
         {
             if (!ConfirmDiscard()) return;
             LoadProject(Project.CreateNew(), null);
+        }
+
+        // ============================================================= accueil (13/09)
+
+        private WelcomeWindow _welcome;
+        private Border _welcomeVeil;
+        private UIElement _shellRoot;
+
+        /// <summary>Vrai quand un projet ENREGISTRÉ est ouvert — l'accueil
+        /// s'en sert pour savoir si l'ouverture a réussi.</summary>
+        public bool HasProjectPath { get { return _path != null; } }
+
+        /// <summary>Montre l'accueil par-dessus une fenêtre vide et
+        /// désactivée ; tout revient quand il se retire.</summary>
+        public void ShowWelcome()
+        {
+            if (_welcome != null) return;
+            _welcomeVeil.Visibility = Visibility.Visible;
+            _shellRoot.IsEnabled = false;
+            _welcome = new WelcomeWindow(this);
+            _welcome.Closed += delegate
+            {
+                _welcome = null;
+                _welcomeVeil.Visibility = Visibility.Collapsed;
+                _shellRoot.IsEnabled = true;
+            };
+            _welcome.Show();
+        }
+
+        /// <summary>La tuile « + » de l'accueil : un projet n'existe qu'une
+        /// fois enregistré quelque part — le dialogue d'enregistrement
+        /// d'abord, le projet vide ensuite, écrit sur-le-champ.</summary>
+        public bool NewProjectWithSaveDialog()
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter = PlotFile.SaveFilter,
+                FileName = "Sans titre" + PlotFile.Extension,
+                Title = "Enregistrer le nouveau projet"
+            };
+            if (dialog.ShowDialog(this) != true) return false;
+            LoadProject(Project.CreateNew(), null);
+            _path = dialog.FileName;
+            AdoptFileName(_project, _path);
+            DoSave();
+            if (!File.Exists(_path)) { _path = null; return false; }
+            AppSettings.AddRecentFile(_path);
+            AppSettings.Save();
+            UpdateRecentMenu();
+            UpdateTitle();
+            return true;
+        }
+
+        /// <summary>Aide → Vérifier les mises à jour (standard de la famille
+        /// Stargazer) : la vérification en fond, puis le verdict — et
+        /// l'installation sur place si une version est publiée.</summary>
+        private void CheckUpdates()
+        {
+            var version = AppVersion;
+            System.Threading.Tasks.Task.Factory.StartNew(delegate { return Updater.Run(version); })
+                .ContinueWith(delegate(System.Threading.Tasks.Task<Updater.Check> done)
+                {
+                    var check = done.Status == System.Threading.Tasks.TaskStatus.RanToCompletion ? done.Result : null;
+                    Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate
+                    {
+                        if (check == null)
+                        {
+                            MessageDialog.Show(this, "Vérification impossible.", "Mise à jour",
+                                MessageBoxButton.OK, MessageBoxImage.Warning);
+                            return;
+                        }
+                        if (!check.Available || check.Latest == null)
+                        {
+                            MessageDialog.Show(this, check.Message + " (" + version + ").", "Mise à jour",
+                                MessageBoxButton.OK, MessageBoxImage.Information);
+                            return;
+                        }
+                        var install = MessageDialog.Show(this,
+                            check.Message + ".\n\nL'installer et redémarrer Marabook ?\n"
+                            + "(l'archive est téléchargée, l'application se ferme, les fichiers "
+                            + "sont remplacés — vos projets et réglages restent — et Marabook redémarre)",
+                            "Mise à jour", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                        if (install != MessageBoxResult.Yes) return;
+                        if (!ConfirmDiscard()) return;
+                        try
+                        {
+                            Updater.Install(check.Latest, AppDomain.CurrentDomain.BaseDirectory);
+                            Application.Current.Shutdown();
+                        }
+                        catch (Exception failure)
+                        {
+                            MessageDialog.Show(this, "Mise à jour impossible : " + failure.Message,
+                                "Mise à jour", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        }
+                    }));
+                });
         }
 
         private void DoOpen()
@@ -1705,6 +1817,8 @@ namespace UniversSale
         private void OnClosingWindow(object sender, System.ComponentModel.CancelEventArgs e)
         {
             if (!ConfirmDiscard()) { e.Cancel = true; return; }
+            // L'accueil se ferme avec l'app (c'est sa seule autre sortie).
+            if (_welcome != null) _welcome.Release();
             // Quitter n'attend jamais la correction différée (batch 29).
             _editor.ShutdownProofing();
             AppSettings.BinderWidth = _binderCol.Width.Value > 0 ? _binderCol.Width.Value : AppSettings.BinderWidth;
@@ -3450,7 +3564,7 @@ namespace UniversSale
                 case RightPanel.Inspector:
                     icon = "article-bold"; name = "Général"; gesture = AppSettings.Gesture("toggle-inspector"); break;
                 case RightPanel.Correction:
-                    icon = "check-square-bold"; name = "Détails de correction"; break;
+                    icon = "exam-bold"; name = "Détails de correction"; break;
                 case RightPanel.Search:
                     icon = "magnifying-glass-bold"; name = "Recherche dans le projet"; gesture = AppSettings.Gesture("project-search"); break;
                 case RightPanel.Versions:

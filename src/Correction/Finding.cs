@@ -14,6 +14,13 @@ namespace UniversSale.Correction
 
     public enum FindingSeverity { Hint, Warning, Error }
 
+    /// <summary>D'où viennent les suggestions d'un signalement (revue du
+    /// 13/09) — UN résolveur côté interface au lieu de deux aiguillages par
+    /// chaînes : Inline = portées par le signalement (grammaire,
+    /// typographie) ; Spelling = le moteur d'orthographe, à la demande ;
+    /// Synonyms = le thésaurus, à la demande (répétitions, verbes ternes).</summary>
+    public enum SuggestionSource { Inline, Spelling, Synonyms }
+
     /// <summary>Un signalement de correction : une plage du pivot (offsets
     /// PLATS de PivotEdit — 1 caractère = 1, un élément = 1), une catégorie,
     /// un message, des suggestions. Architecturalement une ANNOTATION du
@@ -33,6 +40,7 @@ namespace UniversSale.Correction
         public string CheckerId = "";// l'origine : quel vérificateur l'a produit
         public string Word = "";     // le mot signalé TEL QU'AFFICHÉ (casse
                                      // d'origine) — clé des listes d'ignorés
+        public SuggestionSource Suggests = SuggestionSource.Inline;
 
         public int End { get { return Start + Length; } }
 
@@ -55,7 +63,8 @@ namespace UniversSale.Correction
                 Suggestions = Suggestions,
                 RuleId = RuleId,
                 CheckerId = CheckerId,
-                Word = Word
+                Word = Word,
+                Suggests = Suggests
             };
         }
     }

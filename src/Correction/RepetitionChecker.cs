@@ -74,7 +74,8 @@ namespace UniversSale.Correction
                                     : distance + " mots plus haut"),
                             RuleId = "repetition",
                             CheckerId = Id,
-                            Word = token.CoreSurface
+                            Word = token.CoreSurface,
+                            Suggests = SuggestionSource.Synonyms // le thésaurus, à la demande
                         });
                     }
                     lastSeen[key] = wordIndex;

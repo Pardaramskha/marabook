@@ -22,6 +22,27 @@ namespace UniversSale.Correction.Grammalecte
         public List<string> Suggestions = new List<string>();
     }
 
+    /// <summary>Un relevé de STYLE tel que le pont le rapporte (batch 44) —
+    /// offsets en points de code ; Kind = « adverb » (adverbe en -ment) ou
+    /// « dull » (verbe terne, Lemma = l'infinitif).</summary>
+    public sealed class StyleItem
+    {
+        public int Start;
+        public int End;
+        public string Kind = "";
+        public string Word = "";
+        public string Lemma = "";
+    }
+
+    /// <summary>Un groupe de synonymes (batch 44) : la nature (« Verbe »,
+    /// « Nom »…), le lemme d'origine et les mots, déjà fléchis.</summary>
+    public sealed class SynonymGroup
+    {
+        public string Pos = "";
+        public string Lemma = "";
+        public List<string> Words = new List<string>();
+    }
+
     /// <summary>Le pilotage du sous-processus Grammalecte (batch 29, lot B) :
     /// un processus Python LONG qui lit une requête JSON par ligne sur stdin
     /// et rend une réponse JSON par ligne sur stdout — l'initialisation
@@ -59,8 +80,30 @@ namespace UniversSale.Correction.Grammalecte
 
         private readonly object _gate = new object();
         private Process _process;
-        private Stream _input;            // le tube stdin BRUT du fils
         private Thread _reader;
+        // LE FIL D'ÉCRITURE (13/09/2026, premier gel de Marabook) : les
+        // trames partent d'une file, écrites sur le tube par un fil dédié,
+        // JAMAIS sous _gate et JAMAIS sur le fil de l'appelant. Avant : le
+        // fil UI écrivait sous verrou ; un chapitre de 108 paragraphes
+        // remplissait le tube stdin (4 Ko) pendant que Python, lui,
+        // remplissait stdout de relevés de style — le fil lecteur, qui
+        // prend _gate à chaque ligne, attendait le fil UI, Python attendait
+        // le lecteur, le fil UI attendait Python : blocage croisé, AppHang.
+        // La grammaire seule n'y tombait pas (réponses courtes) — le style
+        // en produit dix fois plus par paragraphe.
+        private readonly Queue<string> _outbox = new Queue<string>();
+        // Un réveil PAR GÉNÉRATION de fil d'écriture (revue du 13/09) : un
+        // ancien fil, réveillé à la mort de son processus, ne consomme jamais
+        // le signal destiné au nouveau.
+        private AutoResetEvent _outboxSignal;
+
+        /// <summary>Ce qu'un fil d'écriture reçoit : SON processus et SON
+        /// réveil — il s'arrête dès que le pont n'est plus sur ce processus.</summary>
+        private sealed class WriterState
+        {
+            public Process Process;
+            public AutoResetEvent Signal;
+        }
         private BridgeState _state = BridgeState.Idle;
         private string _stateDetail = "";
         private string _version = "";
@@ -70,7 +113,10 @@ namespace UniversSale.Correction.Grammalecte
 
         private sealed class Flight
         {
-            public TaskCompletionSource<List<BridgeError>> Source;
+            // Depuis le batch 44, un vol rend la TRAME entière (objet JSON) :
+            // la grammaire y lit « errors », le style « findings », les
+            // synonymes « groups » — le pont ne connaît pas les métiers.
+            public TaskCompletionSource<Dictionary<string, object>> Source;
         }
         private readonly Dictionary<int, Flight> _flights
             = new Dictionary<int, Flight>();
@@ -112,10 +158,47 @@ namespace UniversSale.Correction.Grammalecte
         /// <summary>Vérifie un texte (un PARAGRAPHE, déjà NFC). La tâche
         /// échoue si le pont est indisponible, si la requête expire ou si le
         /// processus meurt — l'appelant (GrammarChecker) se tait alors.</summary>
-        public Task<List<BridgeError>> CheckAsync(string text,
+        public async Task<List<BridgeError>> CheckAsync(string text,
             Dictionary<string, object> options, CancellationToken token)
         {
-            var source = new TaskCompletionSource<List<BridgeError>>();
+            var request = new Dictionary<string, object> { { "text", text } };
+            if (options != null) request["options"] = options;
+            var message = await SendAsync(request, token).ConfigureAwait(false);
+            return ParseErrors(UniversSale.Json.Field(message, "errors"));
+        }
+
+        /// <summary>L'étage STYLE (batch 44) : adverbes en -ment et verbes
+        /// ternes d'un paragraphe, relevés par le dictionnaire morphologique
+        /// de Grammalecte (marabook_style.py). Mêmes offsets en points de
+        /// code, même silence en cas d'échec que la grammaire.</summary>
+        public async Task<List<StyleItem>> AnalyzeStyleAsync(string text,
+            Dictionary<string, object> options, CancellationToken token)
+        {
+            var request = new Dictionary<string, object> { { "style", text } };
+            if (options != null) request["options"] = options;
+            var message = await SendAsync(request, token).ConfigureAwait(false);
+            return ParseStyleItems(UniversSale.Json.Field(message, "findings"));
+        }
+
+        /// <summary>Les synonymes d'un mot TEL QU'ÉCRIT (batch 44), fléchis
+        /// comme lui par le pont (thésaurus + conjugueur de Grammalecte) —
+        /// groupés par nature. Liste vide : mot inconnu du thésaurus.</summary>
+        public async Task<List<SynonymGroup>> SynonymsAsync(string word,
+            CancellationToken token)
+        {
+            var request = new Dictionary<string, object> { { "synonyms", word } };
+            var message = await SendAsync(request, token).ConfigureAwait(false);
+            return ParseSynonymGroups(UniversSale.Json.Field(message, "groups"));
+        }
+
+        /// <summary>Envoie UNE requête (l'id d'appariement est posé ici) et
+        /// rend la trame de réponse entière. Toute la mécanique de vol, de
+        /// chien de garde et de relance vit ici, une fois pour tous les
+        /// métiers du pont.</summary>
+        public Task<Dictionary<string, object>> SendAsync(
+            Dictionary<string, object> request, CancellationToken token)
+        {
+            var source = new TaskCompletionSource<Dictionary<string, object>>();
             int id;
             lock (_gate)
             {
@@ -132,30 +215,24 @@ namespace UniversSale.Correction.Grammalecte
                     return source.Task;
                 }
                 id = _nextId++;
+                request["id"] = id;
+                // Sérialisée AVANT d'enregistrer le vol : une requête
+                // inécrivable (type non supporté — erreur de programmation)
+                // échoue seule, sans rien laisser derrière elle.
+                string line;
+                try { line = UniversSale.Json.Write(request); }
+                catch (Exception failure)
+                {
+                    source.SetException(failure);
+                    return source.Task;
+                }
                 _flights[id] = new Flight { Source = source };
                 // Le chien de garde s'arme au premier vol ; il n'est PAS
                 // réarmé par les demandes suivantes (seul le PROGRÈS — une
                 // ligne reçue — le réarme, sinon un flot de demandes
                 // masquerait un moteur figé).
                 if (_flights.Count == 1) ArmWatchdogLocked();
-                var request = new Dictionary<string, object>
-                {
-                    { "id", id },
-                    { "text", text }
-                };
-                if (options != null) request["options"] = options;
-                try
-                {
-                    WriteLineLocked(UniversSale.Json.Write(request));
-                }
-                catch (Exception failure)
-                {
-                    _flights.Remove(id);
-                    if (_flights.Count == 0) DisarmWatchdogLocked();
-                    source.SetException(failure);
-                    KillLocked("écriture impossible (processus mort ?)");
-                    return source.Task;
-                }
+                EnqueueLocked(line);
             }
             if (token.CanBeCanceled)
                 token.Register(delegate { source.TrySetCanceled(); });
@@ -207,11 +284,15 @@ namespace UniversSale.Correction.Grammalecte
                 // s'invite par des chemins retors (attrapé par la sonde UI :
                 // la PREMIÈRE requête mourait d'un « Unexpected UTF-8 BOM »
                 // côté Python). Donc AUCUN écrivain intermédiaire : les
-                // octets UTF-8 sans BOM sont posés sur le tube brut.
-                _input = process.StandardInput.BaseStream;
+                // octets UTF-8 sans BOM sont posés sur le tube brut — par
+                // le fil d'écriture, hors verrou.
+                _outbox.Clear();
+                _outboxSignal = new AutoResetEvent(false);
                 SetStateLocked(BridgeState.Starting, "initialisation…");
                 _reader = new Thread(ReadLoop) { IsBackground = true };
                 _reader.Start(process);
+                var writer = new Thread(WriteLoop) { IsBackground = true };
+                writer.Start(new WriterState { Process = process, Signal = _outboxSignal });
                 // stderr : lu et jeté sur son propre fil — un tampon plein
                 // fige le fils (A2).
                 var drain = new Thread(delegate()
@@ -226,7 +307,6 @@ namespace UniversSale.Correction.Grammalecte
             {
                 _failedStarts++;
                 _process = null;
-                _input = null;
                 SetStateLocked(_failedStarts >= 3
                     ? BridgeState.Unavailable : BridgeState.Idle,
                     "démarrage impossible : " + failure.Message);
@@ -292,8 +372,7 @@ namespace UniversSale.Correction.Grammalecte
                             UniversSale.Json.Field(message, "error"))));
                     continue;
                 }
-                flight.Source.TrySetResult(ParseErrors(
-                    UniversSale.Json.Field(message, "errors")));
+                flight.Source.TrySetResult(message);
             }
             // Mort du fils : toutes les demandes en vol échouent, le pont se
             // relancera À LA PROCHAINE demande (jamais en boucle ici).
@@ -301,18 +380,29 @@ namespace UniversSale.Correction.Grammalecte
             lock (_gate)
             {
                 if (_process != process) return; // un remplaçant est déjà là
-                orphans = new List<Flight>(_flights.Values);
-                _flights.Clear();
-                DisarmWatchdogLocked();
-                _process = null;
-                _input = null;
-                if (_state != BridgeState.Unavailable)
-                    SetStateLocked(BridgeState.Idle, "processus terminé");
+                orphans = DrainLocked();
+                KillLocked("processus terminé");
             }
-            foreach (var orphan in orphans)
-                orphan.Source.TrySetException(new InvalidOperationException(
-                    "Grammalecte : processus terminé"));
+            Fail(orphans, new InvalidOperationException("Grammalecte : processus terminé"));
             RaiseStateChanged();
+        }
+
+        /// <summary>Sous verrou : retire TOUS les vols et les trames en
+        /// attente, désarme le chien de garde — la séquence commune de la
+        /// mort du fils, du timeout, de l'écriture impossible et de la
+        /// fermeture. Les vols rendus sont à faire échouer HORS verrou.</summary>
+        private List<Flight> DrainLocked()
+        {
+            var orphans = new List<Flight>(_flights.Values);
+            _flights.Clear();
+            _outbox.Clear();
+            DisarmWatchdogLocked();
+            return orphans;
+        }
+
+        private static void Fail(List<Flight> flights, Exception reason)
+        {
+            foreach (var flight in flights) flight.Source.TrySetException(reason);
         }
 
         /// <summary>Le JSON du pont → des BridgeError. Une entrée mal formée
@@ -356,13 +446,120 @@ namespace UniversSale.Correction.Grammalecte
             return errors;
         }
 
-        /// <summary>Sous verrou : une ligne JSON en octets UTF-8 SANS BOM,
-        /// LF final, affleurée (A2) — directement sur le tube.</summary>
-        private void WriteLineLocked(string line)
+        /// <summary>Les relevés de style du pont → des StyleItem (batch 44).
+        /// Une entrée sans plage valide ou sans nature connue est sautée.</summary>
+        public static List<StyleItem> ParseStyleItems(object itemsJson)
         {
-            var bytes = Encoding.UTF8.GetBytes(line + "\n");
-            _input.Write(bytes, 0, bytes.Length);
-            _input.Flush();
+            var items = new List<StyleItem>();
+            var list = UniversSale.Json.AsList(itemsJson);
+            if (list == null) return items;
+            foreach (var entry in list)
+            {
+                var obj = UniversSale.Json.AsObject(entry);
+                if (obj == null) continue;
+                var start = UniversSale.Json.AsInt(UniversSale.Json.Field(obj, "nStart"), -1);
+                var end = UniversSale.Json.AsInt(UniversSale.Json.Field(obj, "nEnd"), -1);
+                if (start < 0 || end <= start) continue;
+                var kind = UniversSale.Json.AsString(UniversSale.Json.Field(obj, "kind")) ?? "";
+                if (kind != "adverb" && kind != "dull") continue;
+                items.Add(new StyleItem
+                {
+                    Start = start,
+                    End = end,
+                    Kind = kind,
+                    Word = UniversSale.Json.AsString(UniversSale.Json.Field(obj, "word")) ?? "",
+                    Lemma = UniversSale.Json.AsString(UniversSale.Json.Field(obj, "lemma")) ?? ""
+                });
+            }
+            return items;
+        }
+
+        /// <summary>Les groupes de synonymes du pont → des SynonymGroup
+        /// (batch 44). Un groupe vide est sauté.</summary>
+        public static List<SynonymGroup> ParseSynonymGroups(object groupsJson)
+        {
+            var groups = new List<SynonymGroup>();
+            var list = UniversSale.Json.AsList(groupsJson);
+            if (list == null) return groups;
+            foreach (var entry in list)
+            {
+                var obj = UniversSale.Json.AsObject(entry);
+                if (obj == null) continue;
+                var group = new SynonymGroup
+                {
+                    Pos = UniversSale.Json.AsString(UniversSale.Json.Field(obj, "pos")) ?? "",
+                    Lemma = UniversSale.Json.AsString(UniversSale.Json.Field(obj, "lemma")) ?? ""
+                };
+                var words = UniversSale.Json.AsList(UniversSale.Json.Field(obj, "words"));
+                if (words != null)
+                    foreach (var word in words)
+                    {
+                        var text = UniversSale.Json.AsString(word);
+                        if (!string.IsNullOrEmpty(text) && !group.Words.Contains(text))
+                            group.Words.Add(text);
+                    }
+                if (group.Words.Count > 0) groups.Add(group);
+            }
+            return groups;
+        }
+
+        /// <summary>Sous verrou : dépose une trame dans la file du fil
+        /// d'écriture et le réveille. Ne bloque jamais.</summary>
+        private void EnqueueLocked(string line)
+        {
+            _outbox.Enqueue(line);
+            _outboxSignal.Set();
+        }
+
+        /// <summary>La boucle du fil d'écriture : une ligne JSON en octets
+        /// UTF-8 SANS BOM, LF final, affleurée (A2) — directement sur le tube,
+        /// HORS verrou (le tube peut bloquer quand Python est occupé : c'est
+        /// ce fil qui attend, jamais l'appelant, jamais le lecteur). Une
+        /// écriture impossible = processus mort : les vols échouent, le pont
+        /// se relancera à la prochaine demande.</summary>
+        private void WriteLoop(object state)
+        {
+            var writer = (WriterState)state;
+            var process = writer.Process;
+            Stream input;
+            try { input = process.StandardInput.BaseStream; }
+            catch { return; }
+            while (true)
+            {
+                string line = null;
+                lock (_gate)
+                {
+                    if (_process != process) return; // remplacé ou mort
+                    if (_outbox.Count > 0) line = _outbox.Dequeue();
+                }
+                if (line == null)
+                {
+                    // Réveillé par EnqueueLocked, ou par la mort de SON
+                    // processus (KillLocked signale) — l'AutoResetEvent
+                    // retient un signal posé avant l'attente.
+                    writer.Signal.WaitOne();
+                    continue;
+                }
+                try
+                {
+                    var bytes = Encoding.UTF8.GetBytes(line + "\n");
+                    input.Write(bytes, 0, bytes.Length);
+                    input.Flush();
+                }
+                catch
+                {
+                    List<Flight> orphans;
+                    lock (_gate)
+                    {
+                        if (_process != process) return;
+                        orphans = DrainLocked();
+                        KillLocked("écriture impossible (processus mort ?)");
+                    }
+                    Fail(orphans, new InvalidOperationException("Grammalecte : écriture impossible"));
+                    RaiseStateChanged();
+                    return;
+                }
+            }
         }
 
         /// <summary>Sous verrou : (ré)arme le chien de garde. Un tir tardif
@@ -387,33 +584,37 @@ namespace UniversSale.Correction.Grammalecte
         /// échouent, la prochaine demande relancera un processus sain.</summary>
         private void OnWatchdog(int token)
         {
-            List<Flight> starved = null;
+            List<Flight> starved;
             lock (_gate)
             {
                 if (token != _watchdogToken) return; // réarmé/désarmé depuis
-                if (_flights.Count > 0)
-                {
-                    starved = new List<Flight>(_flights.Values);
-                    _flights.Clear();
-                }
-                DisarmWatchdogLocked();
+                starved = DrainLocked();
                 KillLocked("timeout de vérification");
             }
-            if (starved != null)
-                foreach (var flight in starved)
-                    flight.Source.TrySetException(new TimeoutException(
-                        "Grammalecte : délai dépassé (aucun progrès)"));
+            Fail(starved, new TimeoutException("Grammalecte : délai dépassé (aucun progrès)"));
             RaiseStateChanged();
         }
 
+        /// <summary>Sous verrou : le pont quitte ce processus — le fil
+        /// d'écriture est réveillé (il verra _process changé et sortira),
+        /// stdin est fermé (Python sort de lui-même à la fin du flux, même
+        /// si Kill échouait), puis Kill sans attendre.</summary>
         private void KillLocked(string reason)
         {
             var process = _process;
             _process = null;
-            _input = null;
+            _outbox.Clear();
+            if (_outboxSignal != null) _outboxSignal.Set();
             if (_state != BridgeState.Unavailable)
                 SetStateLocked(BridgeState.Idle, reason);
+            Terminate(process);
+        }
+
+        private static void Terminate(Process process)
+        {
             if (process == null) return;
+            try { process.StandardInput.Close(); }
+            catch { }
             try { if (!process.HasExited) process.Kill(); }
             catch { }
         }
@@ -430,34 +631,23 @@ namespace UniversSale.Correction.Grammalecte
             if (handler != null) handler();
         }
 
-        /// <summary>Arrêt à la fermeture : demande de sortie propre (une
-        /// ligne), puis Kill sans JAMAIS attendre.</summary>
+        /// <summary>Arrêt à la fermeture : la sortie propre par « quit » a
+        /// été abandonnée avec le fil d'écriture (elle pouvait bloquer sur
+        /// un tube plein) — Kill, sans JAMAIS attendre ; le fils est un
+        /// processus sans état, rien à perdre.</summary>
         public void Dispose()
         {
             List<Flight> orphans;
-            Process process;
             lock (_gate)
             {
                 if (_disposed) return;
                 _disposed = true;
-                orphans = new List<Flight>(_flights.Values);
-                _flights.Clear();
-                DisarmWatchdogLocked();
-                process = _process;
-                _process = null;
-                try
-                {
-                    if (_input != null) WriteLineLocked("{\"quit\": true}");
-                }
-                catch { }
-                _input = null;
+                orphans = DrainLocked();
+                KillLocked("fermeture");
                 SetStateLocked(BridgeState.Unavailable, "fermeture");
             }
             foreach (var orphan in orphans)
                 orphan.Source.TrySetCanceled();
-            if (process != null)
-                try { if (!process.HasExited) process.Kill(); }
-                catch { }
         }
     }
 }

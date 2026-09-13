@@ -182,6 +182,17 @@ Python, qui *est* le source : rien de plus à faire.
   ou altéré fait échouer la compilation. `__pycache__/` (créé au premier
   lancement) est ignoré de git et du manifeste.
 
+### Batch 44 (13/09/2026) — l'étage style puise dans le paquet, rien de neuf
+
+Les adverbes en -ment, les verbes ternes et les synonymes n'ajoutent
+AUCUNE ressource : `grammalecte/marabook_style.py` (à nous, GPL-3 comme
+le reste) appelle le dictionnaire morphologique de graphspell, le
+conjugueur `fr/conj.py`, les flexions `fr/mfsp.py` et le thésaurus
+`fr/thesaurus_data.py` (données Dicollecte, déjà dans le paquet 2.3.0,
+déjà couvertes par les empreintes). Le pont `marabook_grammar.py` reste
+le seul processus. À ne pas retirer du déploiement : `fr/thesaurus*.py`,
+`fr/conj*.py`, `fr/mfsp*.py`.
+
 ## Non vérifié
 
 - Versions et URL amont déclarées chez Fedora, openSUSE et Arch.

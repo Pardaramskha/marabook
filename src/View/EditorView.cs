@@ -122,6 +122,14 @@ namespace UniversSale.View
         // utilisateur qui n'active jamais la grammaire ne paie rien.
         private Correction.Grammalecte.GrammalecteBridge _grammarBridge;
         private Correction.Grammalecte.GrammarChecker _grammarChecker;
+        // L'étage style morphologique et les synonymes (batch 44) : le MÊME
+        // pont que la grammaire — adverbes en -ment, verbes ternes, et le
+        // thésaurus servi à la demande (menu contextuel, panneau).
+        private Correction.Grammalecte.StyleChecker _styleChecker;
+        private Correction.Grammalecte.SynonymProvider _synonyms;
+        // Les mots dont les synonymes viennent d'arriver, en attente de la
+        // repeinture coalescée (sous _suggestGate).
+        private readonly HashSet<string> _synonymArrivals = new HashSet<string>();
         private ToggleButton _corrDetailsBtn; // « Détails de correction » (b28)
 
         /// <summary>Le panneau des signalements vit À DROITE depuis le batch
@@ -191,7 +199,8 @@ namespace UniversSale.View
             // 50 000 mots (mesure C5) : le fil UI suffit largement.
             // Options du correcteur (batch 33) : le style (répétitions) ne
             // s'allume plus qu'à la demande.
-            if (Settings.AppSettings.StyleEnabled) _checkHost.Add(_repetitionChecker);
+            if (Settings.AppSettings.StyleEnabled && Settings.AppSettings.StyleRepetitions)
+                _checkHost.Add(_repetitionChecker);
             // L'orthographe (batch 27) : moteur Hunspell maison sur le
             // dictionnaire embarqué — absent du disque, le vérificateur se
             // retire sans bruit. Les suggestions sont servies À LA DEMANDE.
@@ -223,8 +232,36 @@ namespace UniversSale.View
             _grammarChecker.TypographyEnabled = Settings.AppSettings.TypographyEnabled;
             if (Settings.AppSettings.GrammarEnabled || Settings.AppSettings.TypographyEnabled)
                 _checkHost.Add(_grammarChecker);
+            // Le style morphologique (batch 44) : même pont, même différé,
+            // même silence si le pont manque.
+            _styleChecker = new Correction.Grammalecte.StyleChecker(_grammarBridge);
+            ApplyStyleSettings();
+            if (Settings.AppSettings.StyleEnabled && _styleChecker.Wanted)
+                _checkHost.Add(_styleChecker);
+            // Les synonymes (batch 44) : demandés au clic, affichés quand ils
+            // sont prêts — le menu ouvert se remplit, le panneau se repeint.
+            _synonyms = Correction.Grammalecte.SynonymProvider.For(_grammarBridge);
+            // Arrivées COALESCÉES (13/09) : cent répétitions au panneau font
+            // cent demandes ; cent réponses rapprochées = UNE repeinture,
+            // jamais cent reconstructions de 150 fiches. Les mots arrivés
+            // sont gardés : seul le sous-menu qui attendait L'UN d'eux est
+            // rafraîchi (revue du 13/09).
+            _synonyms.Arrived += delegate(string word)
+            {
+                lock (_suggestGate) _synonymArrivals.Add(word);
+                QueueCorrectionRepaint();
+            };
+            // Le sous-menu « Synonymes » : la demande part quand l'auteur
+            // L'OUVRE (geste explicite — le pont peut démarrer pour lui).
+            _composed.SynonymLookup = delegate(string word)
+            {
+                return _synonyms.Answer(word, 30, true);
+            };
             _grammarBridge.StateChanged += delegate
             {
+                // Pont redevenu prêt : les échecs de synonymes sont oubliés.
+                if (_grammarBridge.State == Correction.Grammalecte.BridgeState.Ready)
+                    _synonyms.Reset();
                 Dispatcher.BeginInvoke(DispatcherPriority.Background,
                     new Action(UpdateGrammarStatus));
             };
@@ -253,9 +290,13 @@ namespace UniversSale.View
             };
             _composed.SuggestionProvider = delegate(Correction.Finding finding)
             {
-                return _spellChecker != null && finding.CheckerId == "spelling"
-                    ? _spellChecker.Suggestions(finding.Word)
-                    : finding.Suggestions;
+                // Le menu contextuel montre au moment de montrer : les
+                // suggestions d'orthographe se calculent ICI (batch 27) ;
+                // les synonymes prêts sont listés, les autres attendent le
+                // sous-menu « Synonymes » du même mot.
+                if (finding.Suggests == Correction.SuggestionSource.Spelling && _spellChecker != null)
+                    return _spellChecker.Suggestions(finding.Word);
+                return SuggestionsFor(finding, 8, false);
             };
             _checkHost.GlobalIgnored = Settings.AppSettings.ProofIgnored;
             _checkTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
@@ -566,26 +607,27 @@ namespace UniversSale.View
 
         private string _lastNoteId; // dernière note visitée (précédent/suivant)
 
-        /// <summary>Onglet « Insertion » (batch 33) : la note de bas de page et
-        /// le lien vers une fiche, séparés d'un filet ; puis la navigation
-        /// entre les notes — chacune s'ouvre EN PLACE au bas de sa page (le
-        /// panneau du bas a disparu des pages composées).</summary>
+        /// <summary>Onglet « Insertion » (13/09) : la note en grand carré,
+        /// la navigation entre notes superposée, le lien, le saut de page
+        /// (venu de Mise en page) — chacun dans sa section.</summary>
         private UIElement BuildInsertTab()
         {
-            var panel = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(8, 3, 8, 3),
-                MinHeight = 52
-            };
-
-            var footnote = TallButton("Note de bas de page",
+            var panel = TabPanel();
+            var footnote = BigSquare("footnote", "Note de bas de page",
                 "Insère un appel de note au curseur (Ctrl+Maj+N) — la note "
                 + "s'édite en place, au bas de la page : cliquez-la, ou son appel");
             footnote.Click += delegate { InsertFootnote(); };
             panel.Children.Add(footnote);
+            panel.Children.Add(VerticalRuleTall());
 
-            var link = TallButton("Lien vers une fiche",
+            var previous = OneLine("previous", "Note précédente", "Note de bas de page précédente");
+            previous.Click += delegate { NavigateNote(-1); };
+            var next = OneLine("next", "Note suivante", "Note de bas de page suivante");
+            next.Click += delegate { NavigateNote(1); };
+            panel.Children.Add(Stacked(previous, next));
+            panel.Children.Add(VerticalRuleTall());
+
+            var link = OneLine("connection", "Lien vers une fiche",
                 "Insère un [[lien]] vers une fiche ou un écrit (Ctrl+K) — "
                 + "Ctrl+clic sur le lien pour l'ouvrir");
             link.Click += delegate
@@ -594,17 +636,12 @@ namespace UniversSale.View
                 if (handler != null) handler();
             };
             panel.Children.Add(link);
-
             panel.Children.Add(VerticalRuleTall());
 
-            var previous = Buttons.Icon("previous", "Note de bas de page précédente", Buttons.Bar, Buttons.Look.Calm);
-            previous.Click += delegate { NavigateNote(-1); };
-            var next = Buttons.Icon("next", "Note de bas de page suivante", Buttons.Bar, Buttons.Look.Calm);
-            next.Click += delegate { NavigateNote(1); };
-            // Le groupe « notes » : le bouton d'insertion ET la navigation,
-            // puis le filet, puis le lien (batch 34).
-            panel.Children.Insert(1, SideBySide(previous, next));
-            panel.Children.Insert(2, VerticalRuleTall());
+            var pageBreak = OneLine("file-arrow-down-bold", "Saut de page",
+                "Commencer une nouvelle page au paragraphe du curseur (Ctrl+Entrée)");
+            pageBreak.Click += delegate { InsertPageBreak(); };
+            panel.Children.Add(pageBreak);
             return panel;
         }
 
@@ -636,24 +673,20 @@ namespace UniversSale.View
 
         // ============================================================= formatage
 
-        /// <summary>Onglet « Formatage » (batch 34) : la PASSE TYPOGRAPHIQUE —
-        /// les règles de Typonanny sur tout l'écrit ouvert, une fenêtre
-        /// comparative avant/après en miroir, puis « Appliquer » (annulable) ;
-        /// et ses options.</summary>
+        /// <summary>Onglet « Formatage » (batch 34 ; 13/09 : deux grands
+        /// carrés) : la PASSE TYPOGRAPHIQUE — les règles de Typonanny sur
+        /// tout l'écrit ouvert, une fenêtre comparative avant/après en
+        /// miroir, puis « Appliquer » (annulable) ; et ses options.</summary>
         private UIElement BuildFormatTab()
         {
-            var panel = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(8, 3, 8, 3),
-                MinHeight = 52
-            };
-            var typography = TallButton("Typographie",
+            var panel = TabPanel();
+            var typography = BigSquare("section", "Typographie",
                 "Repasse typographique de tout l'écrit (apostrophes, « », insécables, …, tirets, "
                 + "ligatures, ordinaux…) — comparatif avant/après, puis application");
             typography.Click += delegate { RunTypography(); };
             panel.Children.Add(typography);
-            var options = TallButton("Options",
+            panel.Children.Add(VerticalRuleTall());
+            var options = BigSquare("gear-six-bold", "Options",
                 "Préréglage (Imprimerie nationale, souple, minimal) et règles de la passe typographique");
             options.Click += delegate { TypographyOptionsDialog.Ask(Window.GetWindow(this)); };
             panel.Children.Add(options);
@@ -709,35 +742,26 @@ namespace UniversSale.View
 
         // ============================================================= révision
 
-        /// <summary>Onglet « Révision » : annoter la sélection, naviguer entre
-        /// les annotations, les masquer. En classique, chaque bulle porte son
-        /// commentaire et ses commandes ; le panneau du bas ne sert qu'en
-        /// Composition (qui n'a pas de bulles).</summary>
+        /// <summary>Onglet « Révision » (13/09) : annoter en grand carré ;
+        /// la navigation entre annotations superposée et la visibilité des
+        /// notes dans la seconde section.</summary>
         private UIElement BuildRevisionTab()
         {
-            // Deux SECTIONS séparées d'un filet vertical (batch 28) : les
-            // ANNOTATIONS, puis la RÉVISION ORTHOTYPO.
-            var panel = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(8, 3, 8, 3),
-                MinHeight = 52
-            };
-
-            // ---- Annotations -------------------------------------------------
-            var annotate = TallButton("add-annotation", "Annoter la sélection",
+            var panel = TabPanel();
+            var annotate = BigSquare("add-annotation", "Annoter la sélection",
                 "Ancre un commentaire de révision au passage sélectionné "
                 + "(teinte or à l'écran, jamais imprimée)");
             annotate.Click += delegate { CreateAnnotation(); };
             panel.Children.Add(annotate);
+            panel.Children.Add(VerticalRuleTall());
 
-            var previous = Buttons.Icon("previous", "Annotation précédente", Buttons.Bar, Buttons.Look.Calm);
+            var previous = OneLine("previous", "Annotation précédente", "Aller à l'annotation précédente");
             previous.Click += delegate { NavigateAnnotation(-1); };
-            var next = Buttons.Icon("next", "Annotation suivante", Buttons.Bar, Buttons.Look.Calm);
+            var next = OneLine("next", "Annotation suivante", "Aller à l'annotation suivante");
             next.Click += delegate { NavigateAnnotation(1); };
-            panel.Children.Add(SideBySide(previous, next));
+            panel.Children.Add(Stacked(previous, next));
 
-            _annVisibleBtn = TallToggle("Afficher les notes",
+            _annVisibleBtn = OneLineTextToggle("Afficher les notes",
                 "Affiche ou masque les annotations (teintes et bulles) — "
                 + "elles restent dans le projet");
             _annVisibleBtn.IsChecked = Settings.AppSettings.ShowAnnotations;
@@ -753,21 +777,14 @@ namespace UniversSale.View
 
         // ============================================================= correction (onglet)
 
-        /// <summary>Onglet « Correction » (batch 33) : ce qui vivait dans la
-        /// seconde section de Révision — vérifier, naviguer entre les
-        /// signalements, le panneau des détails, « ne pas corriger » — plus
-        /// les OPTIONS DU CORRECTEUR (orthographe / grammaire / typographie /
-        /// style ; seules les deux premières actives par défaut).</summary>
+        /// <summary>Onglet « Correction » (batch 33 ; 13/09 : grand carré et
+        /// piles) : Vérifier en grand carré ; signalement précédent/suivant
+        /// superposés ; Détails et Ne pas corriger superposés ; les Options
+        /// du correcteur.</summary>
         private UIElement BuildCorrectionTab()
         {
-            var panel = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(8, 3, 8, 3),
-                MinHeight = 52
-            };
-
-            var proofToggle = TallToggle("Vérifier",
+            var panel = TabPanel();
+            var proofToggle = BigSquareToggle("text-a-underline-bold", "Vérifier",
                 "Vérification continue du texte — orthographe, grammaire, "
                 + "typographie et style selon les Options du correcteur");
             proofToggle.IsChecked = Settings.AppSettings.ProofEnabled;
@@ -778,14 +795,16 @@ namespace UniversSale.View
                 RunCheck();
             };
             panel.Children.Add(proofToggle);
+            panel.Children.Add(VerticalRuleTall());
 
-            var previousFinding = Buttons.Icon("previous", "Signalement de correction précédent", Buttons.Bar, Buttons.Look.Calm);
+            var previousFinding = OneLine("previous", "Signalement précédent", "Signalement de correction précédent");
             previousFinding.Click += delegate { NavigateFinding(-1); };
-            var nextFinding = Buttons.Icon("next", "Signalement de correction suivant", Buttons.Bar, Buttons.Look.Calm);
+            var nextFinding = OneLine("next", "Signalement suivant", "Signalement de correction suivant");
             nextFinding.Click += delegate { NavigateFinding(1); };
-            panel.Children.Add(SideBySide(previousFinding, nextFinding));
+            panel.Children.Add(Stacked(previousFinding, nextFinding));
+            panel.Children.Add(VerticalRuleTall());
 
-            _corrDetailsBtn = TallToggle("Détails de correction",
+            _corrDetailsBtn = OneLineToggle("exam-bold", "Détails de correction",
                 "Le panneau des signalements, à droite — il remplace les "
                 + "détails du chapitre tant qu'il est ouvert");
             _corrDetailsBtn.IsChecked = Settings.AppSettings.RightPanel == Settings.RightPanel.Correction;
@@ -795,9 +814,7 @@ namespace UniversSale.View
                 var handler = CorrectionPanelToggled;
                 if (handler != null) handler(_corrDetailsBtn.IsChecked == true);
             };
-            panel.Children.Add(_corrDetailsBtn);
-
-            var noProof = TallButton("Ne pas corriger",
+            var noProof = OneLine("text-t-slash-bold", "Ne pas corriger",
                 "Soustrait le passage sélectionné aux correcteurs "
                 + "(noms inventés, langues fictives, citations étrangères) "
                 + "— re-cliquer pour l'y rendre");
@@ -812,11 +829,10 @@ namespace UniversSale.View
                             : "« Ne pas corriger » s'applique dans les pages composées.",
                         "Révision", MessageBoxButton.OK, MessageBoxImage.Information);
             };
-            panel.Children.Add(noProof);
-
+            panel.Children.Add(Stacked(_corrDetailsBtn, noProof));
             panel.Children.Add(VerticalRuleTall());
 
-            var options = TallButton("Options du correcteur",
+            var options = OneLine("gear-six-bold", "Options du correcteur",
                 "Ce que le correcteur relève : orthographe, grammaire, "
                 + "typographie, style — cochez, décochez");
             options.Click += delegate
@@ -858,10 +874,7 @@ namespace UniversSale.View
                 Margin = new Thickness(0, 0, 0, 4)
             });
             var filters = new WrapPanel();
-            AddCorrectionFilter(filters, Correction.FindingCategory.Spelling, "Orthographe");
-            AddCorrectionFilter(filters, Correction.FindingCategory.Grammar, "Grammaire");
-            AddCorrectionFilter(filters, Correction.FindingCategory.Typography, "Typographie");
-            AddCorrectionFilter(filters, Correction.FindingCategory.Style, "Style");
+            foreach (var category in CategoryOrder) AddCorrectionFilter(filters, category);
             head.Children.Add(filters);
             panel.Children.Add(head);
             _corrList = new StackPanel();
@@ -874,12 +887,19 @@ namespace UniversSale.View
             // Plus AUCUN panneau du bas : la coquille héberge _corrBar.
         }
 
-        private void AddCorrectionFilter(Panel host,
-            Correction.FindingCategory category, string label)
+        /// <summary>L'ordre des catégories partout au panneau : filtres et
+        /// groupes.</summary>
+        private static readonly Correction.FindingCategory[] CategoryOrder =
+        {
+            Correction.FindingCategory.Spelling, Correction.FindingCategory.Grammar,
+            Correction.FindingCategory.Typography, Correction.FindingCategory.Style
+        };
+
+        private void AddCorrectionFilter(Panel host, Correction.FindingCategory category)
         {
             var chip = new ToggleButton
             {
-                Content = label,
+                Content = ComposedRenderer.CategoryLabel(category),
                 IsChecked = true,
                 Margin = new Thickness(6, 0, 0, 0),
                 Padding = new Thickness(7, 1, 7, 1),
@@ -900,7 +920,97 @@ namespace UniversSale.View
         public void ShutdownProofing()
         {
             _checkHost.CancelDeferred();
+            if (_synonyms != null) _synonyms.Cancel();
             if (_grammarBridge != null) _grammarBridge.Dispose();
+        }
+
+        /// <summary>Les réglages de l'étage style (batch 44) → le vérificateur.</summary>
+        private void ApplyStyleSettings()
+        {
+            if (_styleChecker == null) return;
+            _styleChecker.AdverbsEnabled = Settings.AppSettings.StyleAdverbs;
+            _styleChecker.DullVerbsEnabled = Settings.AppSettings.StyleDullVerbs;
+            _styleChecker.DullVerbs = new List<string>(Settings.AppSettings.DullVerbs);
+        }
+
+        /// <summary>Vrai si le pont Grammalecte est déjà en service pour un
+        /// vérificateur (grammaire, typographie, style morphologique) ou
+        /// déjà prêt : alors le panneau peut demander des synonymes sans
+        /// rien allumer. Sinon, seul le geste explicite de l'auteur (le
+        /// sous-menu) démarre Python — l'invariant du pont paresseux.</summary>
+        private bool SynonymsOffered
+        {
+            get
+            {
+                if (_grammarBridge == null || _synonyms == null) return false;
+                return BridgeInUse
+                    || _grammarBridge.State == Correction.Grammalecte.BridgeState.Ready;
+            }
+        }
+
+        /// <summary>Le pont sert-il un vérificateur actif ?</summary>
+        private bool BridgeInUse
+        {
+            get
+            {
+                return Settings.AppSettings.GrammarEnabled
+                    || Settings.AppSettings.TypographyEnabled
+                    || (Settings.AppSettings.StyleEnabled && _styleChecker != null && _styleChecker.Wanted);
+            }
+        }
+
+        /// <summary>LE résolveur des suggestions d'un signalement (revue du
+        /// 13/09) — panneau et menu contextuel l'appellent tous deux :
+        /// - Spelling : le mémo du moteur SEULEMENT (le calcul coûte des
+        ///   dizaines de ms, il se fait dans l'ouvrier de fond) ;
+        /// - Synonyms : le mémo du thésaurus, une demande si le pont est en
+        ///   service (requestMissing) — la rangée se remplit à l'arrivée ;
+        /// - Inline : ce que le vérificateur a posé (grammaire, typographie).</summary>
+        private List<string> SuggestionsFor(Correction.Finding finding, int cap, bool requestMissing)
+        {
+            switch (finding.Suggests)
+            {
+                case Correction.SuggestionSource.Spelling:
+                    if (_spellChecker == null) return new List<string>();
+                    var cached = _spellChecker.CachedSuggestions(finding.Word);
+                    if (cached != null) return cached;
+                    if (requestMissing) QueueSuggestion(finding.Word, true);
+                    return new List<string>();
+                case Correction.SuggestionSource.Synonyms:
+                    if (_synonyms == null || finding.Word.Length == 0) return new List<string>();
+                    var answer = _synonyms.Answer(finding.Word, cap, requestMissing && SynonymsOffered);
+                    return answer.Words ?? new List<string>();
+                default:
+                    return finding.Suggestions;
+            }
+        }
+
+        /// <summary>UNE repeinture coalescée du panneau pour tous les
+        /// producteurs de fond (suggestions d'orthographe, synonymes) : dix
+        /// arrivées rapprochées, une reconstruction ; les sous-menus de
+        /// synonymes ouverts sont rafraîchis pour LEURS mots.</summary>
+        private void QueueCorrectionRepaint()
+        {
+            lock (_suggestGate)
+            {
+                if (_suggestRepaintQueued) return;
+                _suggestRepaintQueued = true;
+            }
+            Dispatcher.BeginInvoke(DispatcherPriority.Background,
+                new Action(delegate
+                {
+                    List<string> arrivals;
+                    lock (_suggestGate)
+                    {
+                        _suggestRepaintQueued = false;
+                        arrivals = new List<string>(_synonymArrivals);
+                        _synonymArrivals.Clear();
+                    }
+                    foreach (var word in arrivals) _composed.RefreshSynonyms(word);
+                    // Les signalements n'ont pas bougé : seules les rangées
+                    // de boutons se remplissent — reconstruction directe.
+                    RebuildCorrectionPanel();
+                }));
         }
 
         /// <summary>L'état du pont (initialisation, prêt, indisponible) vit
@@ -918,30 +1028,39 @@ namespace UniversSale.View
             // typographie partagent Grammalecte (le vol est annulé quand il sort).
             if (_spellChecker != null)
                 SetCheckerPresent(_spellChecker, Settings.AppSettings.SpellEnabled);
-            SetCheckerPresent(_repetitionChecker, Settings.AppSettings.StyleEnabled);
+            SetCheckerPresent(_repetitionChecker,
+                Settings.AppSettings.StyleEnabled && Settings.AppSettings.StyleRepetitions);
+            if (_styleChecker != null)
+            {
+                ApplyStyleSettings();
+                SetCheckerPresent(_styleChecker,
+                    Settings.AppSettings.StyleEnabled && _styleChecker.Wanted);
+            }
             if (_grammarChecker != null)
             {
                 _grammarChecker.GrammarEnabled = Settings.AppSettings.GrammarEnabled;
                 _grammarChecker.TypographyEnabled = Settings.AppSettings.TypographyEnabled;
-                var wanted = Settings.AppSettings.GrammarEnabled || Settings.AppSettings.TypographyEnabled;
-                var present = _checkHost.Checkers.Contains(_grammarChecker);
-                if (wanted && !present) _checkHost.Add(_grammarChecker);
-                else if (!wanted && present)
-                {
-                    _checkHost.Checkers.Remove(_grammarChecker);
-                    _checkHost.CancelDeferred();
-                }
-                else if (present) _checkHost.CancelDeferred(); // le jeu d'options a pu changer
+                SetCheckerPresent(_grammarChecker,
+                    Settings.AppSettings.GrammarEnabled || Settings.AppSettings.TypographyEnabled);
             }
+            // Les options ont pu changer sans que le texte change : le cache
+            // oublie tout ET le différé en vol change de génération (les
+            // réponses parties sous les anciennes options sont jetées).
             _checkHost.InvalidateCache();
             RunCheck();
         }
 
+        /// <summary>Un vérificateur entre ou sort du pilote ; un DIFFÉRÉ qui
+        /// sort voit son vol annulé (ses réponses n'ont plus de preneur).</summary>
         private void SetCheckerPresent(Correction.IChecker checker, bool wanted)
         {
             var present = _checkHost.Checkers.Contains(checker);
             if (wanted && !present) _checkHost.Add(checker);
-            else if (!wanted && present) _checkHost.Checkers.Remove(checker);
+            else if (!wanted && present)
+            {
+                _checkHost.Checkers.Remove(checker);
+                if (checker is Correction.IDeferredChecker) _checkHost.CancelDeferred();
+            }
         }
 
         private void ScheduleCheck()
@@ -984,16 +1103,28 @@ namespace UniversSale.View
             if (!Settings.AppSettings.ProofEnabled || !ComposedActive)
                 return null;
             string text = null;
-            if (Settings.AppSettings.GrammarEnabled && _grammarBridge != null)
+            // Le pont sert la grammaire, la typographie (règles de
+            // Grammalecte), le style morphologique et les synonymes : la
+            // ligne d'état parle au nom de ce qui l'attend (revue du 13/09).
+            var parts = new List<string>();
+            if (Settings.AppSettings.GrammarEnabled) parts.Add("Grammaire");
+            if (Settings.AppSettings.TypographyEnabled) parts.Add("Typographie");
+            if (Settings.AppSettings.StyleEnabled && _styleChecker != null && _styleChecker.Wanted)
+                parts.Add("Style");
+            if (_synonyms != null && _synonyms.PendingCount > 0) parts.Add("Synonymes");
+            if (parts.Count > 0 && _grammarBridge != null)
             {
                 var state = _grammarBridge.State;
+                var who = parts.Count == 1 ? parts[0]
+                    : string.Join(", ", parts.GetRange(0, parts.Count - 1).ToArray())
+                        + " et " + parts[parts.Count - 1].ToLowerInvariant();
                 if (state == Correction.Grammalecte.BridgeState.Starting)
-                    text = "Grammaire : Grammalecte s'initialise (une seconde, "
+                    text = who + " : Grammalecte s'initialise (une seconde, "
                         + "au premier besoin seulement)…";
-                else if (_checkHost.PendingDeferred > 0)
-                    text = "Grammaire : analyse en cours…";
+                else if (_checkHost.PendingDeferred > 0 || (_synonyms != null && _synonyms.PendingCount > 0))
+                    text = who + " : analyse en cours…";
                 else if (state == Correction.Grammalecte.BridgeState.Unavailable)
-                    text = "Grammaire indisponible ("
+                    text = who + " : Grammalecte indisponible ("
                         + _grammarBridge.StateDetail
                         + ") — l'orthographe et les répétitions continuent.";
             }
@@ -1061,19 +1192,7 @@ namespace UniversSale.View
                 }
                 try { _spellEngine.Suggest(word); }
                 catch { } // un mot pathologique se tait, la file continue
-                lock (_suggestGate)
-                {
-                    if (_suggestRepaintQueued) continue;
-                    _suggestRepaintQueued = true;
-                }
-                Dispatcher.BeginInvoke(DispatcherPriority.Background,
-                    new Action(delegate
-                    {
-                        lock (_suggestGate) _suggestRepaintQueued = false;
-                        // Les signalements n'ont pas bougé : seule la rangée
-                        // de boutons se remplit — reconstruction directe.
-                        RebuildCorrectionPanel();
-                    }));
+                QueueCorrectionRepaint();
             }
         }
 
@@ -1133,10 +1252,30 @@ namespace UniversSale.View
                 });
                 return;
             }
-            // Jamais de troncature SILENCIEUSE : la queue est annoncée.
+            // Groupé PAR TYPE (13/09) : orthographe, grammaire, typographie,
+            // style — un en-tête avec le compte, puis les fiches dans l'ordre
+            // du texte. Jamais de troncature SILENCIEUSE : la queue est
+            // annoncée.
             const int cap = 150;
-            for (var i = 0; i < visible.Count && i < cap; i++)
-                _corrList.Children.Add(BuildFindingRow(visible[i]));
+            var shown = 0;
+            foreach (var category in CategoryOrder)
+            {
+                var group = new List<Correction.Finding>();
+                foreach (var finding in visible)
+                    if (finding.Category == category) group.Add(finding);
+                if (group.Count == 0) continue;
+                // L'en-tête existe TOUJOURS (revue du 13/09) : une catégorie
+                // coupée par le plafond dit « 150 sur 160 », une catégorie
+                // entière au-delà dit qu'elle est là sans être montrée —
+                // jamais de relevés invisibles sans en-tête.
+                var room = Math.Max(0, Math.Min(group.Count, cap - shown));
+                _corrList.Children.Add(CategoryHeader(category, room, group.Count));
+                for (var i = 0; i < room; i++)
+                {
+                    _corrList.Children.Add(BuildFindingRow(group[i]));
+                    shown++;
+                }
+            }
             if (visible.Count > cap)
                 _corrList.Children.Add(new TextBlock
                 {
@@ -1146,6 +1285,32 @@ namespace UniversSale.View
                     FontSize = 11,
                     Margin = new Thickness(14, 4, 0, 2)
                 });
+        }
+
+        /// <summary>L'en-tête d'un groupe du panneau (13/09) : pastille de
+        /// la catégorie, libellé, compte — « (n) », « (n sur N) » si le
+        /// plafond a coupé, « (N, au-delà des fiches affichées) » si rien
+        /// du groupe n'est montré.</summary>
+        private static UIElement CategoryHeader(Correction.FindingCategory category, int shown, int count)
+        {
+            var label = ComposedRenderer.CategoryLabel(category);
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 8, 0, 2)
+            };
+            row.Children.Add(ComposedRenderer.FindingDot(ComposedRenderer.FindingPen(category), 8));
+            row.Children.Add(new TextBlock
+            {
+                Text = label + (shown == count ? " (" + count + ")"
+                    : shown == 0 ? " (" + count + ", au-delà des fiches affichées)"
+                    : " (" + shown + " sur " + count + ")"),
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            return row;
         }
 
         /// <summary>Le passage couvert par un signalement SANS Word (la
@@ -1171,15 +1336,7 @@ namespace UniversSale.View
         {
             var row = new StackPanel { Margin = new Thickness(0, 3, 0, 6) };
             var title = new StackPanel { Orientation = Orientation.Horizontal };
-            title.Children.Add(new Border
-            {
-                Width = 8,
-                Height = 8,
-                CornerRadius = new CornerRadius(4),
-                Background = ComposedRenderer.FindingPen(finding.Category).Brush,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 1, 6, 0)
-            });
+            title.Children.Add(ComposedRenderer.FindingDot(ComposedRenderer.FindingPen(finding), 8));
             var excerpt = new TextBlock
             {
                 Text = "« " + (finding.Word.Length > 0
@@ -1202,40 +1359,42 @@ namespace UniversSale.View
                 Foreground = Chrome.SoftText,
                 FontSize = 11,
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(14, 1, 0, 2)
+                Margin = new Thickness(14, 1, 0, 2),
+                // Le détail long du signalement (Finding.Detail) se lit au
+                // survol — le panneau reste court.
+                ToolTip = string.IsNullOrEmpty(finding.Detail) ? null : finding.Detail
             });
 
             var buttons = new WrapPanel { Margin = new Thickness(14, 0, 0, 0) };
-            // Suggestions PRÊTES seulement (batch 30) : Suggest() coûte des
-            // dizaines de ms par mot — 150 lignes en payaient jusqu'à 6,5 s
-            // au clic. Un mot pas encore prêt part en TÊTE de file, ses
-            // boutons apparaîtront à la repeinture coalescée de l'ouvrier.
-            List<string> suggestions;
-            if (_spellChecker != null && finding.CheckerId == "spelling")
-            {
-                suggestions = _spellChecker.CachedSuggestions(finding.Word);
-                if (suggestions == null)
-                {
-                    QueueSuggestion(finding.Word, true);
-                    suggestions = new List<string>();
-                }
-            }
-            else suggestions = finding.Suggestions;
+            // Suggestions PRÊTES seulement (batch 30) : le calcul se fait en
+            // fond, la rangée se remplit à la repeinture coalescée. Les
+            // synonymes prennent la casse du mot remplacé ; les autres
+            // suggestions s'appliquent TELLES QUELLES (un mot appris
+            // « d'Artagnan » garde sa casse — revue du 13/09).
+            var suggestions = SuggestionsFor(finding, 3, true);
+            var synonyms = finding.Suggests == Correction.SuggestionSource.Synonyms;
             for (var i = 0; i < suggestions.Count && i < 3; i++)
             {
-                var suggestion = suggestions[i];
                 var findingRef = finding;
-                var apply = SmallButton(suggestion,
-                    delegate { _composed.ApplySuggestion(findingRef, suggestion); });
+                var replacement = synonyms
+                    ? Correction.Typography.KeepCase(finding.Word, suggestions[i]) : suggestions[i];
+                var apply = SmallButton(replacement,
+                    delegate { _composed.ApplySuggestion(findingRef, replacement); });
                 apply.FontSize = 11;
                 apply.Margin = new Thickness(0, 0, 4, 2);
-                apply.ToolTip = "Remplacer par « " + suggestion + " »";
+                apply.ToolTip = "Remplacer par « " + replacement + " »";
                 buttons.Children.Add(apply);
             }
+            // « Ignorer » : un MOT (orthographe, répétition) se tait dans tout
+            // le projet ; un indice de style morphologique (adverbe, verbe
+            // terne) se tait ICI seulement — faire taire « vraiment » partout
+            // éteindrait aussi son orthographe et ses répétitions (revue du
+            // 13/09) ; sans mot, ici aussi.
             var ignoreRef = finding;
+            var projectWide = finding.Word.Length > 0 && finding.CheckerId != "style";
             var ignore = SmallButton("Ignorer", delegate
             {
-                if (ignoreRef.Word.Length > 0)
+                if (projectWide)
                 {
                     _checkHost.IgnoreInProject(ignoreRef.Word);
                     NotifyEdited(); // la liste du projet est persistée
@@ -1245,7 +1404,7 @@ namespace UniversSale.View
             });
             ignore.FontSize = 11;
             ignore.Margin = new Thickness(0, 0, 4, 2);
-            ignore.ToolTip = finding.Word.Length > 0
+            ignore.ToolTip = projectWide
                 ? "Ne plus signaler « " + finding.Word + " » dans ce projet"
                 : "Taire ce signalement (session)";
             buttons.Children.Add(ignore);
@@ -2022,17 +2181,22 @@ namespace UniversSale.View
             // Règles cm (Ctrl+R) : bandes fixes au bord du viewport, nourries
             // des rectangles de pages à l'écran ; la verticale repart à zéro
             // à chaque page.
+            // ClipToBounds (13/09) : une règle dessine au-delà de sa bande
+            // quand on défile (ses graduations suivaient la page jusque sur
+            // le ruban) — WPF ne rogne pas OnRender de lui-même.
             _rulerV = new RulerView(true)
             {
                 Width = RulerView.Thickness,
                 HorizontalAlignment = HorizontalAlignment.Left,
-                Visibility = Visibility.Collapsed
+                Visibility = Visibility.Collapsed,
+                ClipToBounds = true
             };
             _rulerH = new RulerView(false)
             {
                 Height = RulerView.Thickness,
                 VerticalAlignment = VerticalAlignment.Top,
-                Visibility = Visibility.Collapsed
+                Visibility = Visibility.Collapsed,
+                ClipToBounds = true
             };
             centerHost.Children.Add(_rulerV);
             centerHost.Children.Add(_rulerH);

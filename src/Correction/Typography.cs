@@ -312,7 +312,10 @@ namespace UniversSale.Correction
             return result;
         }
 
-        private static string KeepCase(string original, string corrected)
+        /// <summary>Le remplaçant prend la casse du remplacé : « Maison » →
+        /// « Demeure », « MAISON » → « DEMEURE », sinon tel quel. Partagé
+        /// avec les synonymes (revue du 13/09 : une seule version).</summary>
+        public static string KeepCase(string original, string corrected)
         {
             var allUpper = true;
             foreach (var c in original) if (char.IsLetter(c) && char.IsLower(c)) { allUpper = false; break; }

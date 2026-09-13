@@ -51,26 +51,58 @@ namespace UniversSale.View
             return button;
         }
 
-        // ---- bascules (calmes ; cochées = actives)
+        /// <summary>Le GRAND CARRÉ du ruban (13/09) : icône en haut au centre,
+        /// libellé dessous, toute la hauteur du ruban — la commande phare
+        /// d'un onglet (Vérifier, Aperçu des pages, Typographie…).</summary>
+        public static Button Big(string icon, string label, string tooltip, double size, Look look)
+        {
+            var button = new Button { Content = BigContent(icon, label) };
+            DressBig(button, tooltip, size, look);
+            return button;
+        }
+
+        public static ToggleButton BigToggle(string icon, string label, string tooltip, double size, Look look)
+        {
+            var button = new ToggleButton { Content = BigContent(icon, label) };
+            DressBig(button, tooltip, size, look);
+            return button;
+        }
+
+        // ---- bascules (calmes par défaut ; cochées = actives)
 
         public static ToggleButton IconToggle(string icon, string tooltip, double height)
         {
+            return IconToggle(icon, tooltip, height, Look.Calm);
+        }
+
+        public static ToggleButton IconToggle(string icon, string tooltip, double height, Look look)
+        {
             var button = new ToggleButton { Content = IconContent(icon), Width = height, Padding = new Thickness(0) };
-            Dress(button, tooltip, height, Look.Calm);
+            Dress(button, tooltip, height, look);
             return button;
         }
 
         public static ToggleButton TextToggle(string label, string tooltip, double height)
         {
+            return TextToggle(label, tooltip, height, Look.Calm);
+        }
+
+        public static ToggleButton TextToggle(string label, string tooltip, double height, Look look)
+        {
             var button = new ToggleButton { Content = TextContent(label), Padding = new Thickness(10, 0, 10, 0) };
-            Dress(button, tooltip, height, Look.Calm);
+            Dress(button, tooltip, height, look);
             return button;
         }
 
         public static ToggleButton IconTextToggle(string icon, string label, string tooltip, double height)
         {
+            return IconTextToggle(icon, label, tooltip, height, Look.Calm);
+        }
+
+        public static ToggleButton IconTextToggle(string icon, string label, string tooltip, double height, Look look)
+        {
             var button = new ToggleButton { Content = IconTextContent(icon, label), Padding = new Thickness(8, 0, 10, 0) };
-            Dress(button, tooltip, height, Look.Calm);
+            Dress(button, tooltip, height, look);
             return button;
         }
 
@@ -89,6 +121,42 @@ namespace UniversSale.View
                 ? (button is ToggleButton ? "CalmToggle" : "CalmButton")
                 : look == Look.Primary ? "PrimaryButton" : null;
             if (key != null) button.SetResourceReference(FrameworkElement.StyleProperty, key);
+        }
+
+        private static void DressBig(ButtonBase button, string tooltip, double size, Look look)
+        {
+            Dress(button, tooltip, size, look);
+            button.MinWidth = size;
+            // 18 + 2 + deux lignes de 12 = 44, sous les 50 disponibles : plus
+            // d'icône rognée en haut (vu au rendu du 13/09).
+            button.Padding = new Thickness(6, 3, 6, 2);
+            button.VerticalAlignment = VerticalAlignment.Top;
+        }
+
+        /// <summary>Icône au-dessus, libellé centré dessous (replié sur deux
+        /// lignes au besoin — le bouton reste à peu près carré).</summary>
+        private static UIElement BigContent(string icon, string label)
+        {
+            var column = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var glyph = Icons.Make(icon, 18, Chrome.Ink) as FrameworkElement;
+            if (glyph != null)
+            {
+                glyph.HorizontalAlignment = HorizontalAlignment.Center;
+                glyph.Margin = new Thickness(0, 0, 0, 2);
+                FollowForeground(glyph);
+                column.Children.Add(glyph);
+            }
+            column.Children.Add(new TextBlock
+            {
+                Text = label,
+                FontSize = 11,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 88,
+                LineHeight = 12,
+                LineStackingStrategy = LineStackingStrategy.BlockLineHeight
+            });
+            return column;
         }
 
         private static UIElement IconContent(string icon)

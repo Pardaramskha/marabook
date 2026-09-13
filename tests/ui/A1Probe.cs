@@ -78,6 +78,9 @@ namespace UniversSale.Tests.Ui
             _failures += LookProbe.Run();
             Console.WriteLine();
             _failures += HomeProbe.Run();
+            Console.WriteLine();
+            Console.WriteLine("== Sonde style morphologique (b44)");
+            _failures += StyleProbe.Run();
             if (Application.Current != null)
             {
                 Application.Current.Shutdown();

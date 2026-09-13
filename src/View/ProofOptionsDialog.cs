@@ -13,6 +13,11 @@ namespace UniversSale.View
     public class ProofOptionsDialog : Window
     {
         private readonly CheckBox _spell, _grammar, _typography, _style;
+        // L'étage style (batch 44) : trois sous-cases et la liste des verbes
+        // ternes, sous la case Style — grisées quand elle est décochée.
+        private readonly CheckBox _repetitions, _adverbs, _dullVerbs;
+        private readonly TextBox _dullList;
+        private readonly StackPanel _styleDetail;
         private bool _accepted;
 
         private ProofOptionsDialog(Window owner)
@@ -33,20 +38,56 @@ namespace UniversSale.View
                 FontWeight = FontWeights.SemiBold,
                 Margin = new Thickness(0, 0, 0, 8)
             });
+            // Les pastilles (13/09) reprennent la couleur de l'ondulé de
+            // chaque relevé : ce que l'auteur voit dans la page.
             _spell = Option("Orthographe",
                 "Mots inconnus du dictionnaire (Hunspell) et du dictionnaire personnel",
-                AppSettings.SpellEnabled);
+                AppSettings.SpellEnabled, Dot(Correction.FindingCategory.Spelling, ""));
             _grammar = Option("Grammaire",
                 "Accords, conjugaisons, confusions… (Grammalecte, en différé)",
-                AppSettings.GrammarEnabled);
+                AppSettings.GrammarEnabled, Dot(Correction.FindingCategory.Grammar, ""));
             _typography = Option("Typographie",
                 "Signes, apostrophes, espaces insécables, nombres… (règles typographiques de Grammalecte)",
-                AppSettings.TypographyEnabled);
+                AppSettings.TypographyEnabled, Dot(Correction.FindingCategory.Typography, ""));
             _style = Option("Style",
-                "Répétitions à portée d'oreille (réglées pour le roman)",
+                "Répétitions, adverbes en -ment, verbes ternes — des indices, jamais des fautes",
                 AppSettings.StyleEnabled);
             foreach (var box in new[] { _spell, _grammar, _typography, _style })
                 panel.Children.Add(box);
+
+            // Les sous-options du style (batch 44), en retrait sous la case.
+            _styleDetail = new StackPanel { Margin = new Thickness(22, 0, 0, 4) };
+            _repetitions = SubOption("Répétitions",
+                "Un mot qui revient à portée d'oreille (rayon en mots, réglé pour le roman)",
+                AppSettings.StyleRepetitions, Dot(Correction.FindingCategory.Style, "repetition"));
+            _adverbs = SubOption("Adverbes en -ment",
+                "« rapidement », « vraiment »… — le dictionnaire tranche, « moment » n'est pas relevé",
+                AppSettings.StyleAdverbs,
+                Dot(Correction.FindingCategory.Style, Correction.Grammalecte.StyleChecker.AdverbRule));
+            _dullVerbs = SubOption("Verbes ternes",
+                "Les verbes passe-partout conjugués ; les auxiliaires (« avait mangé ») sont laissés en paix",
+                AppSettings.StyleDullVerbs,
+                Dot(Correction.FindingCategory.Style, Correction.Grammalecte.StyleChecker.DullVerbRule));
+            _styleDetail.Children.Add(_repetitions);
+            _styleDetail.Children.Add(_adverbs);
+            _styleDetail.Children.Add(_dullVerbs);
+            _dullList = new TextBox
+            {
+                Text = Correction.Grammalecte.StyleChecker.JoinDullVerbs(AppSettings.DullVerbs),
+                TextWrapping = TextWrapping.Wrap,
+                AcceptsReturn = false,
+                MinHeight = 44,
+                Margin = new Thickness(22, 2, 0, 2),
+                ToolTip = "Les infinitifs des verbes ternes, séparés par des virgules"
+            };
+            _styleDetail.Children.Add(_dullList);
+            _dullVerbs.Checked += delegate { _dullList.IsEnabled = true; };
+            _dullVerbs.Unchecked += delegate { _dullList.IsEnabled = false; };
+            _dullList.IsEnabled = AppSettings.StyleDullVerbs;
+            _style.Checked += delegate { _styleDetail.IsEnabled = true; };
+            _style.Unchecked += delegate { _styleDetail.IsEnabled = false; };
+            _styleDetail.IsEnabled = AppSettings.StyleEnabled;
+            panel.Children.Add(_styleDetail);
 
             panel.Children.Add(new TextBlock
             {
@@ -73,10 +114,34 @@ namespace UniversSale.View
             Content = panel;
         }
 
-        private static CheckBox Option(string label, string detail, bool value)
+        /// <summary>La pastille d'un relevé : la couleur de son ondulé.</summary>
+        private static Border Dot(Correction.FindingCategory category, string ruleId)
+        {
+            return ComposedRenderer.FindingDot(ComposedRenderer.FindingPen(category, ruleId), 9);
+        }
+
+        private static CheckBox SubOption(string label, string detail, bool value, Border dot)
+        {
+            var box = Option(label, detail, value, dot);
+            box.Margin = new Thickness(0, 2, 0, 2);
+            // En retrait de 22 px : le détail se replie plus tôt, sinon il
+            // déborde du dialogue (vu au rendu du 13/09).
+            var content = (StackPanel)box.Content;
+            foreach (var child in content.Children)
+            {
+                var text = child as TextBlock;
+                if (text != null) text.MaxWidth = 296;
+            }
+            return box;
+        }
+
+        private static CheckBox Option(string label, string detail, bool value, Border dot = null)
         {
             var content = new StackPanel();
-            content.Children.Add(new TextBlock { Text = label, Foreground = Chrome.Ink });
+            var title = new StackPanel { Orientation = Orientation.Horizontal };
+            if (dot != null) title.Children.Add(dot);
+            title.Children.Add(new TextBlock { Text = label, Foreground = Chrome.Ink });
+            content.Children.Add(title);
             content.Children.Add(new TextBlock
             {
                 Text = detail,
@@ -93,6 +158,15 @@ namespace UniversSale.View
             };
         }
 
+        private static bool SameList(System.Collections.Generic.List<string> a,
+            System.Collections.Generic.List<string> b)
+        {
+            if (a.Count != b.Count) return false;
+            for (var i = 0; i < a.Count; i++)
+                if (!string.Equals(a[i], b[i], StringComparison.Ordinal)) return false;
+            return true;
+        }
+
         /// <summary>Vrai si les réglages ont changé (déjà enregistrés).</summary>
         public static bool Ask(Window owner)
         {
@@ -103,12 +177,26 @@ namespace UniversSale.View
             var grammar = dialog._grammar.IsChecked == true;
             var typography = dialog._typography.IsChecked == true;
             var style = dialog._style.IsChecked == true;
+            var repetitions = dialog._repetitions.IsChecked == true;
+            var adverbs = dialog._adverbs.IsChecked == true;
+            var dullVerbs = dialog._dullVerbs.IsChecked == true;
+            var dullList = Correction.Grammalecte.StyleChecker.ParseDullVerbs(dialog._dullList.Text);
+            if (dullList.Count == 0)
+                dullList = new System.Collections.Generic.List<string>(
+                    Correction.Grammalecte.StyleChecker.DefaultDullVerbs);
             var changed = spell != AppSettings.SpellEnabled || grammar != AppSettings.GrammarEnabled
-                || typography != AppSettings.TypographyEnabled || style != AppSettings.StyleEnabled;
+                || typography != AppSettings.TypographyEnabled || style != AppSettings.StyleEnabled
+                || repetitions != AppSettings.StyleRepetitions || adverbs != AppSettings.StyleAdverbs
+                || dullVerbs != AppSettings.StyleDullVerbs
+                || !SameList(dullList, AppSettings.DullVerbs);
             AppSettings.SpellEnabled = spell;
             AppSettings.GrammarEnabled = grammar;
             AppSettings.TypographyEnabled = typography;
             AppSettings.StyleEnabled = style;
+            AppSettings.StyleRepetitions = repetitions;
+            AppSettings.StyleAdverbs = adverbs;
+            AppSettings.StyleDullVerbs = dullVerbs;
+            AppSettings.DullVerbs = dullList;
             AppSettings.Save();
             return changed;
         }

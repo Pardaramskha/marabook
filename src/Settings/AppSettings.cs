@@ -109,6 +109,15 @@ namespace UniversSale.Settings
         public static bool SpellEnabled = true;
         public static bool TypographyEnabled;
         public static bool StyleEnabled;
+        // L'étage style (batch 44) : sous l'interrupteur Style, ce qu'il
+        // relève — répétitions (les nôtres), adverbes en -ment et verbes
+        // ternes (le dictionnaire morphologique de Grammalecte) ; la liste
+        // des verbes ternes appartient à l'auteur.
+        public static bool StyleRepetitions = true;
+        public static bool StyleAdverbs = true;
+        public static bool StyleDullVerbs = true;
+        public static List<string> DullVerbs
+            = new List<string>(Correction.Grammalecte.StyleChecker.DefaultDullVerbs);
         // La passe typographique (batch 34, port de Typonanny) : préréglage et règles.
         public static Correction.TypographyOptions Typography = new Correction.TypographyOptions();
         public static Dictionary<string, bool> GrammarOptions
@@ -251,6 +260,14 @@ namespace UniversSale.Settings
                 SpellEnabled = Json.AsBool(Json.Field(root, "spellEnabled"), true);
                 TypographyEnabled = Json.AsBool(Json.Field(root, "typographyEnabled"), false);
                 StyleEnabled = Json.AsBool(Json.Field(root, "styleEnabled"), false);
+                StyleRepetitions = Json.AsBool(Json.Field(root, "styleRepetitions"), true);
+                StyleAdverbs = Json.AsBool(Json.Field(root, "styleAdverbs"), true);
+                StyleDullVerbs = Json.AsBool(Json.Field(root, "styleDullVerbs"), true);
+                // Repliés en minuscules : le pont compare les lemmes tels
+                // quels, un « Être » tapé à la main ne relèverait rien.
+                var dullVerbs = Correction.Grammalecte.StyleChecker.ParseDullVerbs(
+                    string.Join(",", Json.AsStringList(Json.Field(root, "dullVerbs")).ToArray()));
+                if (dullVerbs.Count > 0) DullVerbs = dullVerbs;
                 Typography = Correction.TypographyOptions.FromJson(Json.AsObject(Json.Field(root, "typography")));
                 var grammarOptions = Json.AsObject(Json.Field(root, "grammarOptions"));
                 if (grammarOptions != null)
@@ -337,6 +354,10 @@ namespace UniversSale.Settings
                 root["spellEnabled"] = SpellEnabled;
                 root["typographyEnabled"] = TypographyEnabled;
                 root["styleEnabled"] = StyleEnabled;
+                root["styleRepetitions"] = StyleRepetitions;
+                root["styleAdverbs"] = StyleAdverbs;
+                root["styleDullVerbs"] = StyleDullVerbs;
+                root["dullVerbs"] = new List<object>(DullVerbs.ToArray());
                 root["typography"] = Typography.ToJson();
                 if (GrammarOptions.Count > 0)
                 {

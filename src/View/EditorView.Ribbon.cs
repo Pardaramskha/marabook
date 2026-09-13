@@ -31,12 +31,7 @@ namespace UniversSale.View
             // LE RUBAN À DEUX LIGNES (batch 28) : chaque onglet dispose de
             // deux rangées — les blocs denses s'empilent, les séparateurs
             // verticaux courent sur toute la hauteur.
-            var panel = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(8, 3, 8, 3),
-                MinHeight = 52
-            };
+            var panel = TabPanel();
             var typeRows = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             var typeTop = RibbonRow();
             var typeBottom = RibbonRow();
@@ -263,7 +258,17 @@ namespace UniversSale.View
             restBottom.Children.Add(separatorBtn);
 
             panel.Children.Add(VerticalRuleTall());
-            // ¶ et approche coulent sur une ligne, centrés verticalement.
+            // Les caractères d'impression : un grand carré (13/09), puis
+            // l'approche dans sa propre section, centrée verticalement.
+            _marksBtn = BigSquareToggle("paragraph", "Caractères d'impression",
+                "Afficher les caractères d'impression (¶ espaces · insécables ° tabulations →)");
+            _marksBtn.Click += delegate
+            {
+                var handler = MarksToggled;
+                if (handler != null) handler(_marksBtn.IsChecked == true);
+            };
+            panel.Children.Add(_marksBtn);
+            panel.Children.Add(VerticalRuleTall());
             var rest = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -271,29 +276,11 @@ namespace UniversSale.View
             };
             panel.Children.Add(rest);
 
-            _marksBtn = new ToggleButton
-            {
-                Content = Icons.Make("paragraph", 14, Chrome.Ink),
-                ToolTip = "Afficher les caractères d'impression (¶ espaces · insécables ° tabulations →)",
-                Width = 26,
-                Height = 26,
-                Padding = new Thickness(0),
-                Margin = new Thickness(1, 0, 1, 0),
-                Focusable = false
-            };
-            _marksBtn.Click += delegate
-            {
-                var handler = MarksToggled;
-                if (handler != null) handler(_marksBtn.IsChecked == true);
-            };
-            rest.Children.Add(_marksBtn);
-
             // Approche (tracking, millièmes de cadratin) — champ de valeur à
             // la Adobe : petits boutons ± verticaux à gauche, valeur absolue
             // lisible et retouchable. Rendue par le compositeur (Composition,
             // aperçu, PDF). Plus de libellé « Approche » (b43) : l'icône et
             // son infobulle suffisent.
-            rest.Children.Add(VerticalRule());
             var kerningIcon = Icons.Make("kerning", 13, Chrome.SoftText) as FrameworkElement;
             if (kerningIcon != null)
             {
@@ -500,39 +487,31 @@ namespace UniversSale.View
 
         // ============================================================= « Gabarit » tab
 
-        /// <summary>Header/footer of THIS document — applied to every page.
-        /// A page gabarit applied to the document wins over these.</summary>
+        /// <summary>Onglet « Gabarit » (13/09) : en-tête et pied de page en
+        /// deux boutons d'une ligne superposés, même largeur ; la note sur
+        /// les gabarits de livre dans sa propre section, repliée.</summary>
         private UIElement BuildDecorTab()
         {
-            var panel = new WrapPanel { Margin = new Thickness(8, 4, 8, 4) };
-            var header = new Button
-            {
-                Content = TabButtonContent("sort-descending-bold", "Éditer l'en-tête…"),
-                ToolTip = "Ligne d'en-tête sur toutes les pages du document "
-                    + "(jetons : {page}, {pages}, {titre})",
-                Margin = new Thickness(0, 0, 6, 0),
-                Padding = new Thickness(8, 2, 8, 2),
-                Focusable = false
-            };
+            var panel = TabPanel();
+            var header = OneLine("sort-descending-bold", "Éditer l'en-tête…",
+                "Ligne d'en-tête sur toutes les pages du document "
+                + "(jetons : {page}, {pages}, {titre})");
             header.Click += delegate { EditHeaderFooter(true); };
-            panel.Children.Add(header);
-            var footer = new Button
-            {
-                Content = TabButtonContent("sort-ascending-bold", "Éditer le pied de page…"),
-                ToolTip = "Pied de page sur toutes les pages — c'est ici que se "
-                    + "règle le look des numéros de page ({page})",
-                Margin = new Thickness(0, 0, 10, 0),
-                Padding = new Thickness(8, 2, 8, 2),
-                Focusable = false
-            };
+            var footer = OneLine("sort-ascending-bold", "Éditer le pied de page…",
+                "Pied de page sur toutes les pages — c'est ici que se "
+                + "règle le look des numéros de page ({page})");
             footer.Click += delegate { EditHeaderFooter(false); };
-            panel.Children.Add(footer);
+            panel.Children.Add(Stacked(header, footer));
+            panel.Children.Add(VerticalRuleTall());
             panel.Children.Add(new TextBlock
             {
                 Text = "Un gabarit de pages appliqué au document (livres) remplace ces réglages.",
                 Foreground = Chrome.SoftText,
-                FontSize = 12,
-                VerticalAlignment = VerticalAlignment.Center
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 210,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(2, 3, 0, 0)
             });
             return panel;
         }
@@ -654,53 +633,33 @@ namespace UniversSale.View
         public event Action PreviewRequested;  // Aperçu des pages
         public event Action PrintRequested;    // Imprimer / PDF
         public event Action ExportRequested;   // Exporter l'écrit
-        public event Action CompileRequested;  // Compiler le manuscrit
         public event Action PdfRequested;      // PDF prêt à imprimer (4b-2)
 
+        /// <summary>Onglet « Composition » (13/09) : l'aperçu en grand carré
+        /// dans sa section ; Imprimer et PDF prêt à imprimer superposés ;
+        /// l'export. « Compiler le manuscrit » a quitté le ruban (menu
+        /// Fichier, Ctrl+Maj+E).</summary>
         private UIElement BuildCompositionTab()
         {
-            var panel = new WrapPanel { Margin = new Thickness(8, 4, 8, 4) };
-
-            // Le bouton « Composition » a disparu avec le gel du classique
-            // (batch 26) : l'onglet ne porte plus que les sorties.
-            // Icône + libellé quand l'icône existe ; texte seul sinon
-            // (« Aperçu », « PDF prêt à imprimer » n'ont pas d'icône — b40).
-            panel.Children.Add(CompositionAction(null, "Aperçu des pages",
-                "Les pages exactes, prêtes à relire (Ctrl+Alt+P)",
-                delegate { var handler = PreviewRequested; if (handler != null) handler(); }));
-            panel.Children.Add(CompositionAction("file-text-bold", "Imprimer / PDF…",
-                "Impression ou PDF via « Microsoft Print to PDF » (Ctrl+P)",
-                delegate { var handler = PrintRequested; if (handler != null) handler(); }));
-            panel.Children.Add(CompositionAction(null, "PDF prêt à imprimer…",
-                "PDF maison : polices incorporées, fond perdu, traits de coupe",
-                delegate { var handler = PdfRequested; if (handler != null) handler(); }));
-            panel.Children.Add(CompositionAction("file-arrow-down-bold", "Exporter l'écrit…",
-                "docx, odt, RTF, Markdown, texte (Ctrl+E)",
-                delegate { var handler = ExportRequested; if (handler != null) handler(); }));
-            panel.Children.Add(CompositionAction("files-bold", "Compiler le manuscrit…",
-                "Assembler les écrits en un manuscrit exportable (Ctrl+Maj+E)",
-                delegate { var handler = CompileRequested; if (handler != null) handler(); }));
+            var panel = TabPanel();
+            var preview = BigSquare("book-open-text-bold", "Aperçu des pages",
+                "Les pages exactes, prêtes à relire (Ctrl+Alt+P)");
+            preview.Click += delegate { var handler = PreviewRequested; if (handler != null) handler(); };
+            panel.Children.Add(preview);
+            panel.Children.Add(VerticalRuleTall());
+            var print = OneLine("printer-bold", "Imprimer",
+                "Impression ou PDF via « Microsoft Print to PDF » (Ctrl+P)");
+            print.Click += delegate { var handler = PrintRequested; if (handler != null) handler(); };
+            var pdf = OneLine("document-file", "PDF prêt à imprimer…",
+                "PDF maison : polices incorporées, fond perdu, traits de coupe");
+            pdf.Click += delegate { var handler = PdfRequested; if (handler != null) handler(); };
+            panel.Children.Add(Stacked(print, pdf));
+            panel.Children.Add(VerticalRuleTall());
+            var export = OneLine("file-arrow-down-bold", "Exporter l'écrit…",
+                "docx, odt, RTF, Markdown, texte (Ctrl+E)");
+            export.Click += delegate { var handler = ExportRequested; if (handler != null) handler(); };
+            panel.Children.Add(export);
             return panel;
-        }
-
-        private Button CompositionAction(string icon, string label, string tooltip, Action onClick)
-        {
-            var button = icon == null
-                ? Buttons.Text(label, tooltip, Buttons.Bar, Buttons.Look.Calm)
-                : Buttons.IconText(icon, label, tooltip, Buttons.Bar, Buttons.Look.Calm);
-            button.Margin = new Thickness(0, 0, 4, 0);
-            button.Click += delegate { onClick(); };
-            return button;
-        }
-
-        private static UIElement TabButtonContent(string iconName, string label)
-        {
-            var row = new StackPanel { Orientation = Orientation.Horizontal };
-            var icon = Icons.Make(iconName, 14, Chrome.Ink) as FrameworkElement;
-            if (icon != null) icon.Margin = new Thickness(0, 0, 5, 0);
-            row.Children.Add(icon);
-            row.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
-            return row;
         }
 
         // ============================================================= « Mise en page » tab
@@ -710,43 +669,84 @@ namespace UniversSale.View
         private ToggleButton _marksBtn;
         private bool _syncingPage;
 
+        /// <summary>Onglet « Mise en page » (13/09) : marges, taille et
+        /// colonnes en haut à gauche ; guides et numéros de ligne superposés ;
+        /// césure et folio superposés. Le saut de page vit dans Insertion.</summary>
         private UIElement BuildPageSetupTab()
         {
-            var panel = new WrapPanel { Margin = new Thickness(8, 4, 8, 4) };
+            var panel = TabPanel();
+            var setup = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Top
+            };
+            panel.Children.Add(setup);
 
-            panel.Children.Add(PageLabel("Marges"));
+            // Marges et Taille superposés (13/09) : une grille de deux
+            // rangées, libellés alignés, listes de même largeur.
+            var pageGrid = new Grid { VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 0, 10, 0) };
+            pageGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            pageGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            pageGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(Buttons.Compact) });
+            pageGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(Buttons.Compact + 2) });
+            setup.Children.Add(pageGrid);
+
+            var marginsLabel = PageLabel("Marges");
+            pageGrid.Children.Add(marginsLabel);
             _marginsCombo = new ComboBox
             {
                 Width = 150,
-                Margin = new Thickness(4, 0, 10, 0),
+                Height = Buttons.Compact,
+                Margin = new Thickness(4, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Top,
                 ToolTip = "Nomenclature PAO : de tête (haut), de pied (bas), "
                     + "petit fond (côté reliure), grand fond (côté extérieur)"
             };
+            Grid.SetColumn(_marginsCombo, 1);
             _marginsCombo.Items.Add("Livre (20/20/30/20)");
             _marginsCombo.Items.Add("Uniformes (2,5 cm)");
             _marginsCombo.Items.Add("Étroites (1,27 cm)");
             _marginsCombo.Items.Add("Personnalisées…");
             _marginsCombo.SelectionChanged += OnMarginsComboChanged;
-            panel.Children.Add(_marginsCombo);
+            pageGrid.Children.Add(_marginsCombo);
 
-            panel.Children.Add(PageLabel("Taille"));
-            _sizeComboPage = new ComboBox { Width = 150, Margin = new Thickness(4, 0, 10, 0) };
+            var sizeLabel = PageLabel("Taille");
+            sizeLabel.Margin = new Thickness(0, 2, 0, 0);
+            Grid.SetRow(sizeLabel, 1);
+            pageGrid.Children.Add(sizeLabel);
+            _sizeComboPage = new ComboBox
+            {
+                Width = 150,
+                Height = Buttons.Compact,
+                Margin = new Thickness(4, 2, 0, 0),
+                VerticalAlignment = VerticalAlignment.Top
+            };
+            Grid.SetRow(_sizeComboPage, 1);
+            Grid.SetColumn(_sizeComboPage, 1);
             _sizeComboPage.Items.Add("A4 (21 × 29,7 cm)");
             _sizeComboPage.Items.Add("A5 (14,8 × 21 cm)");
             _sizeComboPage.Items.Add("Letter (21,6 × 27,9 cm)");
             _sizeComboPage.Items.Add("Livre (14 × 21,6 cm)");
             _sizeComboPage.Items.Add("Personnalisée…");
             _sizeComboPage.SelectionChanged += OnPageSizeComboChanged;
-            panel.Children.Add(_sizeComboPage);
+            pageGrid.Children.Add(_sizeComboPage);
 
             var columnsIcon = Icons.Make("text-columns-bold", 14, Chrome.SoftText) as FrameworkElement;
             if (columnsIcon != null)
             {
-                columnsIcon.VerticalAlignment = VerticalAlignment.Center;
+                columnsIcon.VerticalAlignment = VerticalAlignment.Top;
+                columnsIcon.Margin = new Thickness(0, 6, 0, 0);
                 columnsIcon.ToolTip = "Colonnes";
-                panel.Children.Add(columnsIcon);
+                setup.Children.Add(columnsIcon);
             }
-            _columnsCombo = new ComboBox { Width = 46, Margin = new Thickness(4, 0, 10, 0), ToolTip = "Colonnes — appliquées à l'export et à l'impression" };
+            _columnsCombo = new ComboBox
+            {
+                Width = 46,
+                Height = Buttons.Compact,
+                Margin = new Thickness(4, 0, 4, 0),
+                VerticalAlignment = VerticalAlignment.Top,
+                ToolTip = "Colonnes — appliquées à l'export et à l'impression"
+            };
             _columnsCombo.Items.Add(1);
             _columnsCombo.Items.Add(2);
             _columnsCombo.Items.Add(3);
@@ -756,55 +756,43 @@ namespace UniversSale.View
                 _pageSetup.Columns = (int)_columnsCombo.SelectedItem;
                 AfterPageSetupEdit();
             };
-            panel.Children.Add(_columnsCombo);
+            setup.Children.Add(_columnsCombo);
 
-            var breakBtn = new Button
-            {
-                Content = TabButtonContent("file-arrow-down-bold", "Saut de page"),
-                ToolTip = "Commencer une nouvelle page au paragraphe du curseur (Ctrl+Entrée)",
-                Margin = new Thickness(0, 0, 10, 0),
-                Padding = new Thickness(8, 2, 8, 2),
-                Focusable = false
-            };
-            breakBtn.Click += delegate { InsertPageBreak(); };
-            panel.Children.Add(breakBtn);
-
-            _guidesBtn = PageToggle("margins", "Marges", "Cadres de marges sur chaque page");
+            panel.Children.Add(VerticalRuleTall());
+            _guidesBtn = OneLineToggle("margins", "Marges", "Cadres de marges sur chaque page");
             _guidesBtn.Click += delegate
             {
                 if (_project == null) return;
                 _pageSetup.ShowMarginGuides = _guidesBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
-            panel.Children.Add(_guidesBtn);
-
-            _lineNumbersBtn = PageToggle("list-numbers-bold", "Numéros de ligne", "à l'export Word et à l'impression");
+            _lineNumbersBtn = OneLineToggle("list-numbers-bold", "Numéros de ligne",
+                "Numéros de ligne à l'export Word et à l'impression");
             _lineNumbersBtn.Click += delegate
             {
                 if (_project == null) return;
                 _pageSetup.LineNumbers = _lineNumbersBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
-            panel.Children.Add(_lineNumbersBtn);
+            panel.Children.Add(Stacked(_guidesBtn, _lineNumbersBtn));
 
-            _hyphenBtn = PageToggle("kerning", "Césure", "Coupure des mots en fin de ligne");
+            panel.Children.Add(VerticalRuleTall());
+            _hyphenBtn = OneLineToggle("minus", "Césure", "Coupure des mots en fin de ligne");
             _hyphenBtn.Click += delegate
             {
                 if (_project == null) return;
                 _pageSetup.Hyphenation = _hyphenBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
-            panel.Children.Add(_hyphenBtn);
-
-            _folioBtn = PageToggle("symbol", "Folio", "Numéro de page centré en pied de page (aperçu, impression, export Word)");
+            _folioBtn = OneLineToggle("numbered", "Folio",
+                "Numéro de page centré en pied de page (aperçu, impression, export Word)");
             _folioBtn.Click += delegate
             {
                 if (_project == null) return;
                 _pageSetup.FooterPageNumbers = _folioBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
-            panel.Children.Add(_folioBtn);
-
+            panel.Children.Add(Stacked(_hyphenBtn, _folioBtn));
             return panel;
         }
 
@@ -817,15 +805,6 @@ namespace UniversSale.View
                 FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center
             };
-        }
-
-        /// <summary>Une bascule de la barre « Mise en page » : icône seule,
-        /// le libellé passe dans l'infobulle (batch 40).</summary>
-        private ToggleButton PageToggle(string icon, string label, string tooltip)
-        {
-            var button = Buttons.IconToggle(icon, label + " — " + tooltip, Buttons.Bar);
-            button.Margin = new Thickness(0, 0, 4, 0);
-            return button;
         }
 
         private void OnMarginsComboChanged(object sender, SelectionChangedEventArgs e)
@@ -1102,53 +1081,90 @@ namespace UniversSale.View
             };
         }
 
-        /// <summary>Séparateur vertical courant sur les deux lignes.</summary>
+        /// <summary>LA hauteur du contenu des onglets (13/09) : tous les
+        /// onglets la partagent, le ruban ne saute plus d'un onglet à
+        /// l'autre ; les grands carrés la prennent entière, deux boutons
+        /// d'une ligne (26 px) s'y superposent.</summary>
+        public const double RibbonHeight = 56;
+
+        private static StackPanel TabPanel()
+        {
+            return new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(8, 3, 8, 3),
+                Height = RibbonHeight
+            };
+        }
+
+        /// <summary>Séparateur vertical courant sur toute la hauteur.</summary>
         private static Border VerticalRuleTall()
         {
             return new Border
             {
                 Width = 1,
-                MinHeight = 44,
+                Height = RibbonHeight - 6,
                 Background = Chrome.Border,
-                Margin = new Thickness(7, 2, 7, 2)
+                Margin = new Thickness(7, 3, 7, 3),
+                VerticalAlignment = VerticalAlignment.Top
             };
         }
 
-        /// <summary>Un bouton texte du ruban — 32 px, calme (batch 40 : les
-        /// « grands » boutons Office à 44 px n'existent plus, deux hauteurs
-        /// seulement).</summary>
-        private Button TallButton(string label, string tooltip)
+        /// <summary>Un bouton d'UNE ligne du ruban (13/09) : icône + libellé,
+        /// 26 px, fond papier et contour (un bouton se distingue d'un
+        /// glyphe), aligné en haut à gauche de sa section.</summary>
+        private static Button OneLine(string icon, string label, string tooltip)
         {
-            var button = Buttons.Text(label, tooltip, Buttons.Bar, Buttons.Look.Calm);
+            var button = Buttons.IconText(icon, label, tooltip, Buttons.Compact, Buttons.Look.Outline);
+            button.Margin = new Thickness(0, 0, 4, 0);
+            button.VerticalAlignment = VerticalAlignment.Top;
+            button.HorizontalContentAlignment = HorizontalAlignment.Left; // icône + texte à gauche, même dans une pile
+            return button;
+        }
+
+        private static ToggleButton OneLineToggle(string icon, string label, string tooltip)
+        {
+            var button = Buttons.IconTextToggle(icon, label, tooltip, Buttons.Compact, Buttons.Look.Outline);
+            button.Margin = new Thickness(0, 0, 4, 0);
+            button.VerticalAlignment = VerticalAlignment.Top;
+            button.HorizontalContentAlignment = HorizontalAlignment.Left; // icône + texte à gauche, même dans une pile
+            return button;
+        }
+
+        private static ToggleButton OneLineTextToggle(string label, string tooltip)
+        {
+            var button = Buttons.TextToggle(label, tooltip, Buttons.Compact, Buttons.Look.Outline);
+            button.Margin = new Thickness(0, 0, 4, 0);
+            button.VerticalAlignment = VerticalAlignment.Top;
+            button.HorizontalContentAlignment = HorizontalAlignment.Left; // icône + texte à gauche, même dans une pile
+            return button;
+        }
+
+        /// <summary>Deux boutons d'une ligne superposés, même largeur (la
+        /// pile verticale étire au plus large), collés en haut.</summary>
+        private static StackPanel Stacked(FrameworkElement top, FrameworkElement bottom)
+        {
+            top.Margin = new Thickness(0, 0, 4, 2);
+            bottom.Margin = new Thickness(0, 0, 4, 0);
+            var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
+            stack.Children.Add(top);
+            stack.Children.Add(bottom);
+            return stack;
+        }
+
+        /// <summary>Le grand carré du ruban : toute la hauteur.</summary>
+        private static Button BigSquare(string icon, string label, string tooltip)
+        {
+            var button = Buttons.Big(icon, label, tooltip, RibbonHeight, Buttons.Look.Outline);
             button.Margin = new Thickness(0, 0, 4, 0);
             return button;
         }
 
-        /// <summary>Variante icône + libellé.</summary>
-        private Button TallButton(string icon, string label, string tooltip)
+        private static ToggleButton BigSquareToggle(string icon, string label, string tooltip)
         {
-            var button = Buttons.IconText(icon, label, tooltip, Buttons.Bar, Buttons.Look.Calm);
+            var button = Buttons.BigToggle(icon, label, tooltip, RibbonHeight, Buttons.Look.Outline);
             button.Margin = new Thickness(0, 0, 4, 0);
             return button;
-        }
-
-        private ToggleButton TallToggle(string label, string tooltip)
-        {
-            var button = Buttons.TextToggle(label, tooltip, Buttons.Bar);
-            button.Margin = new Thickness(0, 0, 4, 0);
-            return button;
-        }
-
-        /// <summary>Précédent / suivant côte à côte : deux boutons à icône
-        /// seule (batch 40 — plus d'empilement de deux lignes).</summary>
-        private static StackPanel SideBySide(Button previous, Button next)
-        {
-            previous.Margin = new Thickness(0, 0, 1, 0);
-            next.Margin = new Thickness(0, 0, 4, 0);
-            var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            row.Children.Add(previous);
-            row.Children.Add(next);
-            return row;
         }
 
         private Button PaletteButton(string tooltip, bool isForeground)

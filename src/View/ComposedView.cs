@@ -861,7 +861,7 @@ namespace UniversSale.View
                 {
                     Header = finding.Message,
                     IsEnabled = false,
-                    Foreground = ComposedRenderer.FindingPen(finding.Category).Brush
+                    Foreground = ComposedRenderer.FindingPen(finding).Brush
                 };
                 menu.Items.Add(header);
                 // Suggestions À LA DEMANDE (batch 27) : le calcul n'a pas eu
@@ -911,7 +911,10 @@ namespace UniversSale.View
                     };
                     menu.Items.Add(rule);
                 }
-                if (findingRef.Word.Length > 0)
+                // Un indice de style morphologique (adverbe, verbe terne) ne
+                // propose pas d'ignorer LE MOT dans le projet : cela
+                // éteindrait aussi son orthographe et ses répétitions.
+                if (findingRef.Word.Length > 0 && findingRef.CheckerId != "style")
                 {
                     var inProject = new MenuItem
                     {
@@ -964,6 +967,42 @@ namespace UniversSale.View
                 menu.Items.Add(new Separator());
             }
 
+            // — Les synonymes du mot (batch 44) : un sous-menu qui ne demande
+            // rien tant qu'on ne l'OUVRE pas (revue du 13/09 : un clic droit
+            // ne doit pas démarrer Python), puis se remplit quand le pont
+            // répond — jamais d'attente sur le fil UI.
+            int wordStart, wordLength;
+            string wordText;
+            if (word != null && word.Length >= 2 && SynonymLookup != null
+                && WordRangeAt(paragraph, offset, out wordStart, out wordLength, out wordText))
+            {
+                var target = new SynonymTarget
+                {
+                    Menu = new MenuItem
+                    {
+                        Header = "Synonymes de « " + word + " »",
+                        ToolTip = "Thésaurus de Grammalecte, formes fléchies comme le mot"
+                    },
+                    Word = word,
+                    Paragraph = paragraph,
+                    Start = wordStart,
+                    Length = wordLength
+                };
+                // Un item de garde : sans enfant, le sous-menu n'aurait pas
+                // de flèche et ne s'ouvrirait jamais.
+                target.Menu.Items.Add(new MenuItem { Header = "Recherche…", IsEnabled = false });
+                target.Menu.SubmenuOpened += delegate
+                {
+                    _openSynonyms = target;
+                    FillSynonymMenu(target);
+                };
+                menu.Items.Add(target.Menu);
+                menu.Closed += delegate
+                {
+                    if (_openSynonyms == target) _openSynonyms = null;
+                };
+            }
+
             // — La césure du mot (batch 25).
             if (word != null && word.Length >= 2)
             {
@@ -999,16 +1038,31 @@ namespace UniversSale.View
         /// <summary>Le mot (lettres/chiffres) sous l'offset, ou null.</summary>
         private string WordAt(int paragraphIndex, int offset)
         {
+            int start, length;
+            string word;
+            return WordRangeAt(paragraphIndex, offset, out start, out length, out word) ? word : null;
+        }
+
+        /// <summary>La plage du mot sous l'offset et le mot lui-même (batch
+        /// 44 : le remplacement par un synonyme a besoin de la position).</summary>
+        private bool WordRangeAt(int paragraphIndex, int offset,
+            out int start, out int length, out string word)
+        {
+            start = 0;
+            length = 0;
+            word = null;
             var text = PivotEdit.FlatText(_item.Document.Paragraphs[paragraphIndex]);
-            if (text.Length == 0) return null;
+            if (text.Length == 0) return false;
             var i = Math.Min(offset, text.Length - 1);
             if (!char.IsLetterOrDigit(text[i]) && i > 0) i--;
-            if (!char.IsLetterOrDigit(text[i])) return null;
-            var start = i;
+            if (!char.IsLetterOrDigit(text[i])) return false;
+            start = i;
             var end = i;
             while (start > 0 && char.IsLetterOrDigit(text[start - 1])) start--;
             while (end < text.Length && char.IsLetterOrDigit(text[end])) end++;
-            return text.Substring(start, end - start);
+            length = end - start;
+            word = text.Substring(start, length);
+            return true;
         }
 
         private void ToggleHyphenException(string word)
@@ -1875,6 +1929,61 @@ namespace UniversSale.View
         /// vérificateur). Null : les suggestions portées par le signalement
         /// font foi.</summary>
         public Func<Correction.Finding, List<string>> SuggestionProvider;
+
+        /// <summary>Les synonymes d'un mot tel qu'écrit (batch 44), posé par
+        /// EditorView : la réponse PRÊTE, en attente, ou une notice —
+        /// RefreshSynonyms remplira le sous-menu ouvert à l'arrivée.</summary>
+        public Func<string, Correction.Grammalecte.SynonymAnswer> SynonymLookup;
+
+        /// <summary>Le sous-menu « Synonymes » et ce qu'il vise.</summary>
+        private sealed class SynonymTarget
+        {
+            public MenuItem Menu;
+            public string Word;
+            public int Paragraph, Start, Length;
+        }
+        private SynonymTarget _openSynonyms; // le sous-menu ouvert, s'il y en a un
+
+        /// <summary>Les synonymes de ce mot viennent d'arriver : le sous-menu
+        /// ouvert qui les attendait se remplit (sur le fil UI) — un autre
+        /// mot ne le touche pas.</summary>
+        public void RefreshSynonyms(string word)
+        {
+            var target = _openSynonyms;
+            if (target == null || target.Word != word) return;
+            FillSynonymMenu(target);
+        }
+
+        private void FillSynonymMenu(SynonymTarget target)
+        {
+            var lookup = SynonymLookup;
+            var answer = lookup != null ? lookup(target.Word) : null;
+            target.Menu.Items.Clear();
+            if (answer == null || answer.Pending)
+            {
+                target.Menu.Items.Add(new MenuItem { Header = "Recherche…", IsEnabled = false });
+                return;
+            }
+            if (answer.Words.Count == 0)
+            {
+                target.Menu.Items.Add(new MenuItem
+                {
+                    Header = answer.Notice.Length > 0 ? answer.Notice : "Aucun synonyme connu",
+                    IsEnabled = false
+                });
+                return;
+            }
+            foreach (var candidate in answer.Words)
+            {
+                var replacement = Correction.Typography.KeepCase(target.Word, candidate);
+                var item = new MenuItem { Header = replacement };
+                item.Click += delegate
+                {
+                    ReplaceRange(target.Paragraph, target.Start, target.Length, replacement);
+                };
+                target.Menu.Items.Add(item);
+            }
+        }
 
         /// <summary>Affiche ces signalements (ondulés). Liste triée par le
         /// pilote ; null ou vide = plus rien à l'écran.</summary>

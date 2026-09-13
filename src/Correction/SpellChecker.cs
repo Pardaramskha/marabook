@@ -141,7 +141,8 @@ namespace UniversSale.Correction
                 Message = "« " + word + " » est inconnu du dictionnaire",
                 RuleId = "spelling",
                 CheckerId = Id,
-                Word = word
+                Word = word,
+                Suggests = SuggestionSource.Spelling
             };
         }
 

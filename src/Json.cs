@@ -49,6 +49,21 @@ namespace UniversSale
             return v as List<object>;
         }
 
+        /// <summary>Une liste JSON de chaînes → des chaînes non vides, sans
+        /// doublon, dans l'ordre ; vide si absente ou d'un autre type.</summary>
+        public static List<string> AsStringList(object v)
+        {
+            var result = new List<string>();
+            var list = AsList(v);
+            if (list == null) return result;
+            foreach (var item in list)
+            {
+                var text = AsString(item);
+                if (!string.IsNullOrEmpty(text) && !result.Contains(text)) result.Add(text);
+            }
+            return result;
+        }
+
         public static string AsString(object v)
         {
             return v as string;

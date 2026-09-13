@@ -171,7 +171,7 @@ namespace UniversSale.View
           <Border x:Name=""Bg"" CornerRadius=""6"" Background=""{StaticResource Paper}""
                   BorderBrush=""{StaticResource Border}"" BorderThickness=""1""
                   Padding=""{TemplateBinding Padding}"">
-            <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+            <ContentPresenter HorizontalAlignment=""{TemplateBinding HorizontalContentAlignment}"" VerticalAlignment=""Center""/>
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property=""IsMouseOver"" Value=""True"">
@@ -205,7 +205,7 @@ namespace UniversSale.View
           <Border x:Name=""Bg"" CornerRadius=""6"" Background=""{StaticResource Paper}""
                   BorderBrush=""{StaticResource Border}"" BorderThickness=""1""
                   Padding=""{TemplateBinding Padding}"">
-            <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+            <ContentPresenter HorizontalAlignment=""{TemplateBinding HorizontalContentAlignment}"" VerticalAlignment=""Center""/>
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property=""IsMouseOver"" Value=""True"">
@@ -239,7 +239,7 @@ namespace UniversSale.View
           <Border x:Name=""Bg"" CornerRadius=""6"" Background=""Transparent""
                   BorderBrush=""Transparent"" BorderThickness=""1""
                   Padding=""{TemplateBinding Padding}"">
-            <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+            <ContentPresenter HorizontalAlignment=""{TemplateBinding HorizontalContentAlignment}"" VerticalAlignment=""Center""/>
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property=""IsMouseOver"" Value=""True"">
@@ -266,7 +266,7 @@ namespace UniversSale.View
           <Border x:Name=""Bg"" CornerRadius=""6"" Background=""{StaticResource Accent}""
                   BorderBrush=""{StaticResource Accent}"" BorderThickness=""1""
                   Padding=""{TemplateBinding Padding}"">
-            <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+            <ContentPresenter HorizontalAlignment=""{TemplateBinding HorizontalContentAlignment}"" VerticalAlignment=""Center""/>
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property=""IsMouseOver"" Value=""True"">
@@ -291,7 +291,7 @@ namespace UniversSale.View
           <Border x:Name=""Bg"" CornerRadius=""6"" Background=""Transparent""
                   BorderBrush=""Transparent"" BorderThickness=""1""
                   Padding=""{TemplateBinding Padding}"">
-            <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+            <ContentPresenter HorizontalAlignment=""{TemplateBinding HorizontalContentAlignment}"" VerticalAlignment=""Center""/>
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property=""IsMouseOver"" Value=""True"">

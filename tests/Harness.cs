@@ -101,7 +101,8 @@ namespace UniversSale.Tests
                 RightPanelTests.Run,     // C18 — la colonne de droite (b39)
                 HomeTests.Run,           // C19 — l'Accueil : récents, épingle, racine (b41)
                 PackTests.Run,           // C20 — pack de correctifs du 12/09/2026
-                AchievementTests.Run     // C21 — les succès (12/09/2026)
+                AchievementTests.Run,    // C21 — les succès (12/09/2026)
+                StyleTests.Run           // C22 — style morphologique + synonymes (b44)
             };
             foreach (var suite in suites)
             {
