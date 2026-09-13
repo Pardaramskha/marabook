@@ -149,6 +149,31 @@ namespace UniversSale.Correction
         /// jamais toucher — les passages « ne pas corriger » du pivot.</summary>
         public static TypographyResult Clean(string text, TypographyOptions o, List<int[]> extraProtected)
         {
+            return Clean(text, o, extraProtected, 0);
+        }
+
+        /// <summary>Le nombre de « » restés ouverts à la fin d'un texte, en
+        /// partant de `before` — pour enchaîner les paragraphes : une réplique
+        /// ouverte au paragraphe précédent l'est encore ici.</summary>
+        public static int QuoteDepth(string text, int before)
+        {
+            var depth = before;
+            if (text == null) return depth;
+            foreach (var c in text)
+            {
+                if (c == '«') depth++;
+                else if (c == '»' && depth > 0) depth--;
+            }
+            return depth;
+        }
+
+        /// <summary>La passe, en sachant combien de « » sont déjà ouverts avant
+        /// ce texte (openQuotesBefore) : les guillemets droits imbriqués dans
+        /// une citation ouverte deviennent des guillemets courbes “ ”, pas
+        /// des « » — c'est la règle : « Elle a dit “non” ».</summary>
+        public static TypographyResult Clean(string text, TypographyOptions o, List<int[]> extraProtected,
+            int openQuotesBefore)
+        {
             var r = new TypographyResult();
             if (text == null) { r.Text = ""; return r; }
             if (o == null) o = new TypographyOptions();
@@ -190,10 +215,12 @@ namespace UniversSale.Correction
                     r.Warnings.Add("guillemets droits en nombre impair : la conversion en « » est laissée de côté");
                 else
                 {
-                    var nbsp = o.InsideQuotes.ToString();
-                    var count = 0;
-                    work = Regex.Replace(work, "\"[ \u00A0\u202F]*([^\"\n]*?)[ \u00A0\u202F]*\"",
-                        delegate(Match m) { count++; return "«" + nbsp + m.Groups[1].Value + nbsp + "»"; });
+                    // Une paire de guillemets droits devient « … » — sauf
+                    // à l'intérieur d'une citation « déjà ouverte » (dans ce
+                    // paragraphe ou avant lui) : là, des courbes “ … ”, qui
+                    // signalent une insistance au milieu d'une réplique.
+                    int count;
+                    work = ConvertQuotes(work, o.InsideQuotes.ToString(), openQuotesBefore, out count);
                     r.Count("guillemets français", count);
                 }
             }
@@ -312,6 +339,29 @@ namespace UniversSale.Correction
             return result;
         }
 
+        private static string ConvertQuotes(string work, string nbsp, int openQuotesBefore, out int count)
+        {
+            count = 0;
+            var sb = new StringBuilder(work.Length + 8);
+            var depth = Math.Max(0, openQuotesBefore);
+            var i = 0;
+            while (i < work.Length)
+            {
+                var c = work[i];
+                if (c == '«') { depth++; sb.Append(c); i++; continue; }
+                if (c == '»') { if (depth > 0) depth--; sb.Append(c); i++; continue; }
+                if (c != '"') { sb.Append(c); i++; continue; }
+                var close = work.IndexOf('"', i + 1);
+                if (close < 0 || work.IndexOf('\n', i, close - i) >= 0) { sb.Append(c); i++; continue; }
+                var inner = work.Substring(i + 1, close - i - 1).Trim(' ', '\u00A0', '\u202F');
+                if (depth > 0) sb.Append('\u201C').Append(inner).Append('\u201D');
+                else sb.Append('«').Append(nbsp).Append(inner).Append(nbsp).Append('»');
+                count++;
+                i = close + 1;
+            }
+            return sb.ToString();
+        }
+
         /// <summary>Le remplaçant prend la casse du remplacé : « Maison » →
         /// « Demeure », « MAISON » → « DEMEURE », sinon tel quel. Partagé
         /// avec les synonymes (revue du 13/09 : une seule version).</summary>
@@ -398,8 +448,23 @@ namespace UniversSale.Correction
         public static List<CharOp> Restrict(List<CharOp> ops, int caretOld, int typedLength,
             int window, out int caretDelta, out bool changed)
         {
+            List<KeyValuePair<int, string>> accepted;
+            var result = Restrict(ops, caretOld, typedLength, window, null, out caretDelta, out accepted);
+            changed = accepted.Count > 0;
+            return result;
+        }
+
+        /// <summary>Comme ci-dessus, avec les corrections REFUSÉES par l'auteur
+        /// (Ctrl+Z sur une correction automatique) : `vetoed(début, texte
+        /// remplacé)` rend vrai pour un bloc à laisser tel quel. Rend aussi
+        /// les blocs retenus (début dans l'ancien texte, texte remplacé) —
+        /// c'est ce qu'un Ctrl+Z ultérieur mémorisera.</summary>
+        public static List<CharOp> Restrict(List<CharOp> ops, int caretOld, int typedLength,
+            int window, Func<int, string, bool> vetoed,
+            out int caretDelta, out List<KeyValuePair<int, string>> accepted)
+        {
             caretDelta = 0;
-            changed = false;
+            accepted = new List<KeyValuePair<int, string>>();
             var result = new List<CharOp>(ops.Count);
             var i = 0; // position dans l'ancien texte
             var k = 0;
@@ -426,8 +491,11 @@ namespace UniversSale.Correction
                 var endOld = startOld + deletes;
                 var pureDeletionOfTyped = inserts == 0
                     && startOld >= caretOld - typedLength && endOld <= caretOld;
+                var deleted = new StringBuilder();
+                for (var j = k; j < end; j++) if (ops[j].Type == '-') deleted.Append(ops[j].Char);
                 var accept = startOld >= caretOld - window && startOld <= caretOld
-                    && endOld <= caretOld && !pureDeletionOfTyped;
+                    && endOld <= caretOld && !pureDeletionOfTyped
+                    && (vetoed == null || !vetoed(startOld, deleted.ToString()));
                 for (var j = k; j < end; j++)
                 {
                     if (accept) result.Add(ops[j]);
@@ -436,7 +504,7 @@ namespace UniversSale.Correction
                 }
                 if (accept)
                 {
-                    changed = true;
+                    accepted.Add(new KeyValuePair<int, string>(startOld, deleted.ToString()));
                     caretDelta += inserts - deletes;
                 }
                 i = endOld;
@@ -468,11 +536,13 @@ namespace UniversSale.Correction
         public static TypographyPassResult Run(TextDocument document, TypographyOptions options)
         {
             var result = new TypographyPassResult();
+            var openQuotes = 0; // les « » restés ouverts avant le paragraphe
             for (var i = 0; i < document.Paragraphs.Count; i++)
             {
                 var paragraph = document.Paragraphs[i];
                 var flat = PivotEdit.FlatText(paragraph);
-                var cleaned = Typography.Clean(flat, options, NoProofSpans(paragraph));
+                var cleaned = Typography.Clean(flat, options, NoProofSpans(paragraph), openQuotes);
+                openQuotes = Typography.QuoteDepth(cleaned.Text, openQuotes);
                 result.Summary.Merge(cleaned);
                 if (cleaned.Text == flat) { result.Paragraphs.Add(paragraph); continue; }
                 var ops = CharDiff.Diff(flat, cleaned.Text);

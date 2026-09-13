@@ -116,6 +116,61 @@ namespace UniversSale.View
         {
             public TextDocument Document;
             public int Paragraph, Offset;
+            // Une correction automatique (b45) : ce qu'elle a remplacé, en
+            // positions du texte d'AVANT — un Ctrl+Z dessus devient un refus.
+            public int AutoParagraph;
+            public List<KeyValuePair<int, string>> AutoBlocks;
+        }
+
+        /// <summary>Une correction automatique REFUSÉE par Ctrl+Z (b45) : à
+        /// cet endroit, ce texte-là ne sera plus corrigé — jusqu'à ce que
+        /// l'auteur l'efface et le retape (le refus tombe quand les
+        /// caractères sont effacés).</summary>
+        private sealed class TypoVeto
+        {
+            public int Paragraph;
+            public int Start;
+            public string Text = "";
+            public int Group; // une correction = un groupe (les deux guillemets d'une paire)
+        }
+        private readonly List<TypoVeto> _typoVetoes = new List<TypoVeto>();
+        private int _vetoGroups;
+
+        private bool IsVetoed(int paragraph, int start, string deleted)
+        {
+            foreach (var veto in _typoVetoes)
+                if (veto.Paragraph == paragraph && veto.Text == deleted && Math.Abs(veto.Start - start) <= 1)
+                    return true;
+            return false;
+        }
+
+        /// <summary>Le texte d'un paragraphe a bougé : les refus qui suivent
+        /// la position glissent avec lui (insertion : delta > 0 ; suppression
+        /// : delta < 0), ceux dont les caractères sont effacés tombent.</summary>
+        private void ShiftVetoes(int paragraph, int position, int delta)
+        {
+            for (var i = _typoVetoes.Count - 1; i >= 0; i--)
+            {
+                var veto = _typoVetoes[i];
+                if (veto.Paragraph != paragraph) continue;
+                var length = Math.Max(1, veto.Text.Length);
+                if (delta < 0 && veto.Start < position - delta && veto.Start + length > position)
+                {
+                    // effacé : le refus tombe, avec tout son groupe (la paire)
+                    var group = veto.Group;
+                    _typoVetoes.RemoveAll(delegate(TypoVeto other) { return other.Group == group; });
+                    i = Math.Min(i, _typoVetoes.Count);
+                    continue;
+                }
+                if (veto.Start >= position) veto.Start += delta;
+            }
+        }
+
+        /// <summary>Un changement de structure (fusion, coupure, restauration
+        /// d'une passe) : les positions ne veulent plus rien dire.</summary>
+        private void ClearVetoes()
+        {
+            _typoVetoes.Clear();
         }
         private readonly List<Snapshot> _undo = new List<Snapshot>();
         private readonly List<Snapshot> _redo = new List<Snapshot>();
@@ -283,6 +338,7 @@ namespace UniversSale.View
             CloseNoteEditor(false);
             _item = null;
             _engine = null;
+            ClearVetoes();
             _blink.Stop();
             _pages.Children.Clear();
             ClearOverlay();
@@ -1258,6 +1314,7 @@ namespace UniversSale.View
             PushUndo(true);
             DeleteSelectionIfAny();
             PivotEdit.InsertText(_item.Document.Paragraphs[_caretParagraph], _caretOffset, text);
+            ShiftVetoes(_caretParagraph, _caretOffset, text.Length);
             _caretOffset += text.Length;
             _caretDesiredX = -1;
             if (!ApplyLiveTypography(text.Length))
@@ -1280,17 +1337,30 @@ namespace UniversSale.View
             var paragraph = _item.Document.Paragraphs[_caretParagraph];
             var flat = PivotEdit.FlatText(paragraph);
             if (flat.Length == 0) return false;
+            // Les « » ouverts dans les paragraphes d'avant : une réplique
+            // commencée plus haut est encore ouverte ici (guillemets courbes
+            // pour ce qui s'y imbrique).
+            var openQuotes = 0;
+            for (var p = 0; p < _caretParagraph; p++)
+                openQuotes = Correction.Typography.QuoteDepth(PivotEdit.FlatText(_item.Document.Paragraphs[p]), openQuotes);
             var cleaned = Correction.Typography.Clean(flat, options,
-                Correction.TypographyPass.NoProofSpans(paragraph));
+                Correction.TypographyPass.NoProofSpans(paragraph), openQuotes);
             if (cleaned.Text == flat) return false;
             var ops = CharDiff.Diff(flat, cleaned.Text);
             if (ops == null) return false;
             int delta;
-            bool changed;
+            List<KeyValuePair<int, string>> accepted;
+            var paragraphIndex = _caretParagraph;
             var kept = Correction.TypographyLive.Restrict(ops, _caretOffset, typedLength, 80,
-                out delta, out changed);
-            if (!changed) return false;
+                delegate(int start, string deleted) { return IsVetoed(paragraphIndex, start, deleted); },
+                out delta, out accepted);
+            if (accepted.Count == 0) return false;
             PushUndo(false);
+            // Le cran d'annulation porte ce que la correction remplace : un
+            // Ctrl+Z dessus mémorise le refus.
+            var snapshot = _undo[_undo.Count - 1];
+            snapshot.AutoParagraph = _caretParagraph;
+            snapshot.AutoBlocks = accepted;
             var replacement = Correction.TypographyPass.Redistribute(paragraph, kept);
             paragraph.Runs.Clear();
             paragraph.Runs.AddRange(replacement.Runs);
@@ -1584,6 +1654,20 @@ namespace UniversSale.View
                 Offset = _caretOffset
             });
             RestoreSnapshot(snapshot);
+            // Ctrl+Z sur une correction automatique (b45) : l'auteur la
+            // refuse — elle ne reviendra pas tant que ces caractères sont là.
+            if (snapshot.AutoBlocks != null)
+            {
+                var group = ++_vetoGroups;
+                foreach (var block in snapshot.AutoBlocks)
+                    _typoVetoes.Add(new TypoVeto
+                    {
+                        Paragraph = snapshot.AutoParagraph,
+                        Start = block.Key,
+                        Text = block.Value,
+                        Group = group
+                    });
+            }
             _lastWasTyping = false;
             return true;
         }
@@ -1635,9 +1719,11 @@ namespace UniversSale.View
             if (pa == pb)
             {
                 PivotEdit.DeleteInParagraph(document.Paragraphs[pa], oa, ob);
+                ShiftVetoes(pa, oa, oa - ob);
             }
             else
             {
+                ClearVetoes();
                 PivotEdit.DeleteInParagraph(document.Paragraphs[pa], oa,
                     PivotEdit.FlatLength(document.Paragraphs[pa]));
                 PivotEdit.DeleteInParagraph(document.Paragraphs[pb], 0, ob);
@@ -1664,11 +1750,13 @@ namespace UniversSale.View
             {
                 PivotEdit.DeleteInParagraph(document.Paragraphs[_caretParagraph],
                     _caretOffset - 1, _caretOffset);
+                ShiftVetoes(_caretParagraph, _caretOffset - 1, -1);
                 _caretOffset--;
                 AfterEdit(_engine.RecomposeParagraph(_caretParagraph));
             }
             else if (_caretParagraph > 0)
             {
+                ClearVetoes();
                 var previous = document.Paragraphs[_caretParagraph - 1];
                 var newOffset = PivotEdit.FlatLength(previous);
                 PivotEdit.MergeInto(previous, document.Paragraphs[_caretParagraph]);
@@ -1690,10 +1778,12 @@ namespace UniversSale.View
             {
                 PivotEdit.DeleteInParagraph(document.Paragraphs[_caretParagraph],
                     _caretOffset, _caretOffset + 1);
+                ShiftVetoes(_caretParagraph, _caretOffset, -1);
                 AfterEdit(_engine.RecomposeParagraph(_caretParagraph));
             }
             else if (_caretParagraph < document.Paragraphs.Count - 1)
             {
+                ClearVetoes();
                 PivotEdit.MergeInto(document.Paragraphs[_caretParagraph],
                     document.Paragraphs[_caretParagraph + 1]);
                 document.Paragraphs.RemoveAt(_caretParagraph + 1);
@@ -1705,6 +1795,7 @@ namespace UniversSale.View
         {
             PushUndo(false);
             DeleteSelectionIfAny();
+            ClearVetoes();
             var document = _item.Document;
             var tail = PivotEdit.Split(document.Paragraphs[_caretParagraph], _caretOffset);
             document.Paragraphs.Insert(_caretParagraph + 1, tail);

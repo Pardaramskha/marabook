@@ -19,6 +19,9 @@ namespace UniversSale.Tests
             LiveRestrictWindow(t);
             LiveRestrictTypedDeletion(t);
             LiveRestrictReplacement(t);
+            LiveRestrictVeto(t);
+            NestedQuotes(t);
+            NestedQuotesAcrossParagraphs(t);
             DialogueCollect(t);
             DialogueWindow(t);
             DialogueInventory(t);
@@ -101,6 +104,65 @@ namespace UniversSale.Tests
             var options = new TypographyOptions();
             var live = Typography.Clean("Il dit \"bonjour\" et partit...", options);
             t.Check(live.Text.Contains("«") && live.Text.EndsWith("…"), "la passe elle-même sert de moteur à la frappe");
+        }
+
+        /// <summary>Un bloc refusé (Ctrl+Z) n'est plus proposé ; les autres
+        /// passent ; les blocs retenus sont rendus pour mémoire.</summary>
+        private static void LiveRestrictVeto(Harness t)
+        {
+            var before = "Il dit \"oui\" puis partit...";
+            var after = "Il dit « oui » puis partit…";
+            var ops = Ops(before, after);
+            int delta;
+            List<KeyValuePair<int, string>> accepted;
+            var kept = TypographyLive.Restrict(ops, before.Length, 1, 200, null, out delta, out accepted);
+            t.Equal(after, Apply(kept), "sans refus : tout passe");
+            t.Check(accepted.Count >= 2, "les blocs retenus sont rendus (" + accepted.Count + ")");
+            var quoteAt = before.IndexOf('"');
+            kept = TypographyLive.Restrict(ops, before.Length, 1, 200,
+                delegate(int start, string deleted) { return deleted == "\"" && start == quoteAt; },
+                out delta, out accepted);
+            var text = Apply(kept);
+            t.Check(text.StartsWith("Il dit \"oui"), "le guillemet refusé reste droit (" + text + ")");
+            t.Check(text.EndsWith("…"), "les autres corrections passent");
+        }
+
+        /// <summary>« Elle a dit “non” » : des guillemets droits DANS une
+        /// citation ouverte deviennent courbes, pas français.</summary>
+        private static void NestedQuotes(Harness t)
+        {
+            var options = new TypographyOptions();
+            var top = Typography.Clean("Il dit \"oui\".", options).Text;
+            t.Check(top.Contains("«") && top.Contains("»"), "au premier niveau : « » (" + top + ")");
+            var nested = Typography.Clean("« Comment ça, \"pas le faire\" ? »", options).Text;
+            t.Check(nested.Contains("“pas le faire”"), "imbriqués dans « » : courbes “ ” (" + nested + ")");
+            t.Check(!nested.Contains("««"), "jamais deux « de suite");
+            // (Des guillemets droits DANS des guillemets droits : indécidable —
+            // le cas réel est celui de l'auteur, où l'extérieur est déjà « ».)
+            var closed = Typography.Clean("« Oui. » Puis \"non\".", options).Text;
+            t.Check(closed.IndexOf('«', closed.IndexOf('»')) > 0 && !closed.Contains("“"),
+                "après la fermante » : de nouveau des « » (" + closed + ")");
+            t.Equal(1, Typography.QuoteDepth("« a « b » c", 0), "profondeur : deux ouverts, un fermé = un");
+            t.Equal(0, Typography.QuoteDepth("a » b", 0), "jamais négative");
+        }
+
+        /// <summary>La réplique ouverte au paragraphe d'avant compte : la
+        /// passe enchaîne la profondeur d'un paragraphe à l'autre.</summary>
+        private static void NestedQuotesAcrossParagraphs(Harness t)
+        {
+            var options = new TypographyOptions();
+            var document = Document(
+                "« Elle n'a pas voulu le faire.",
+                "— Comment ça, \"pas le faire\" ? »",
+                "Il répondit \"oui\".");
+            var result = TypographyPass.Run(document, options);
+            var second = PivotEdit.FlatText(result.Paragraphs[1]);
+            t.Check(second.Contains("“pas le faire”"), "réplique ouverte plus haut : courbes (" + second + ")");
+            var third = PivotEdit.FlatText(result.Paragraphs[2]);
+            t.Check(third.Contains("«") && third.Contains("»") && !third.Contains("“"),
+                "la réplique est fermée : de nouveau « » (" + third + ")");
+            t.Check(Typography.Clean("\"pas le faire\"", options, null, 1).Text.Contains("“"),
+                "Clean avec un « ouvert avant : courbes");
         }
 
         // ----------------------------------------------------- verbes de dialogue

@@ -194,6 +194,30 @@ namespace UniversSale.Tests.Ui
                 typed = PivotEdit.FlatText(paragraphs[last]);
                 Check(typed.EndsWith("…  "), "frappe : les espaces tapés ne sont pas effacés sous les doigts");
 
+                // Ctrl+Z sur une correction automatique : refusée, elle ne
+                // revient pas à la frappe suivante — jusqu'à ce qu'on efface
+                // et retape les caractères.
+                foreach (var ch in " et \"non\"") composed.TypeText(ch.ToString());
+                DoEvents();
+                typed = PivotEdit.FlatText(paragraphs[last]);
+                Check(typed.EndsWith("»") && !typed.Contains("\"non"), "frappe : une nouvelle paire devient « » (" + typed + ")");
+                composed.Undo();
+                DoEvents();
+                typed = PivotEdit.FlatText(paragraphs[last]);
+                Check(typed.EndsWith("\"non\""), "Ctrl+Z : la correction est défaite, la frappe reste (" + typed + ")");
+                composed.TypeText(" ");
+                DoEvents();
+                typed = PivotEdit.FlatText(paragraphs[last]);
+                Check(typed.EndsWith("\"non\" "), "un espace après Ctrl+Z : la correction ne revient PAS (" + typed + ")");
+                // On efface le guillemet fermant et on le retape : corrigé.
+                Invoke(composed, "Backspace", null);
+                Invoke(composed, "Backspace", null);
+                DoEvents();
+                composed.TypeText("\"");
+                DoEvents();
+                typed = PivotEdit.FlatText(paragraphs[last]);
+                Check(typed.EndsWith("»") && !typed.Contains("\"non"), "retapé : la correction revient (" + typed + ")");
+
                 // Les menus sur l'écran du livre : Note de bas de page grisée.
                 if (book != null)
                 {
