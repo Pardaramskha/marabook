@@ -363,6 +363,17 @@ namespace UniversSale.Correction
             // ferait sinon grimper la profondeur sans fin.
             var depth = Math.Min(1, Math.Max(0, openQuotesBefore));
             var continuation = FirstQuoteIsContinuation(work, depth);
+            // Les guillemets droits du paragraphe. UN DIALOGUE S'ÉTALE SUR
+            // PLUSIEURS PARAGRAPHES (une réplique par ligne) : son ouvrant est
+            // seul dans le premier, son fermant seul dans le dernier. Un
+            // guillemet droit orphelin EN TÊTE de paragraphe est donc un
+            // ouvrant ; un orphelin EN FIN de paragraphe, citation ouverte,
+            // est un fermant ; les autres vont par paires.
+            var quotes = new List<int>();
+            for (var q = 0; q < work.Length; q++) if (work[q] == '"') quotes.Add(q);
+            var odd = quotes.Count % 2 == 1;
+            var openAtStart = odd && IsAtParagraphStart(work, quotes[0]);
+            var closeAtEnd = odd && !openAtStart && depth >= 1 && IsAtParagraphEnd(work, quotes[quotes.Count - 1]);
             var i = 0;
             while (i < work.Length)
             {
@@ -370,7 +381,29 @@ namespace UniversSale.Correction
                 if (c == '«') { if (i != continuation) depth++; sb.Append(c); i++; continue; }
                 if (c == '»') { if (depth > 0) depth--; sb.Append(c); i++; continue; }
                 if (c != '"') { sb.Append(c); i++; continue; }
+                if (openAtStart && i == quotes[0])
+                {
+                    // l'ouvrant d'un dialogue : « et, si rien n'était ouvert,
+                    // la citation commence (sinon c'est une suite)
+                    sb.Append('«').Append(nbsp);
+                    if (depth == 0) depth++;
+                    count++;
+                    i++;
+                    while (i < work.Length && (work[i] == ' ' || work[i] == '\u00A0' || work[i] == '\u202F')) i++;
+                    continue;
+                }
+                if (closeAtEnd && i == quotes[quotes.Count - 1])
+                {
+                    // le fermant du dialogue : » collé au texte par l'insécable
+                    TrimTrailingSpaces(sb);
+                    sb.Append(nbsp).Append('»');
+                    if (depth > 0) depth--;
+                    count++;
+                    i++;
+                    continue;
+                }
                 var close = work.IndexOf('"', i + 1);
+                if (closeAtEnd && close == quotes[quotes.Count - 1]) close = -1; // réservé au fermant
                 if (close < 0 || work.IndexOf('\n', i, close - i) >= 0) { sb.Append(c); i++; continue; }
                 var inner = work.Substring(i + 1, close - i - 1).Trim(' ', '\u00A0', '\u202F');
                 if (depth > 0) sb.Append('\u201C').Append(inner).Append('\u201D');
@@ -379,6 +412,50 @@ namespace UniversSale.Correction
                 i = close + 1;
             }
             return sb.ToString();
+        }
+
+        /// <summary>Le guillemet est le premier signe du paragraphe — rien
+        /// avant lui que des blancs, ou un tiret de dialogue et ses blancs.</summary>
+        private static bool IsAtParagraphStart(string text, int index)
+        {
+            for (var i = 0; i < index; i++)
+            {
+                var c = text[i];
+                if (char.IsWhiteSpace(c) || c == '—' || c == '–' || c == '-') continue;
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>Le guillemet est le dernier signe du paragraphe — après
+        /// lui, rien que des blancs ou une ponctuation finale — ET il suit une
+        /// fin de phrase (« pertinent." ») : à la frappe, un guillemet tapé
+        /// après un espace en bout de ligne (« si " ») est le début d'une
+        /// paire à venir, pas le fermant du dialogue.</summary>
+        private static bool IsAtParagraphEnd(string text, int index)
+        {
+            var before = index - 1;
+            while (before >= 0 && (text[before] == ' ' || text[before] == '\u00A0' || text[before] == '\u202F')) before--;
+            if (before < 0) return false;
+            var previous = text[before];
+            if (previous != '.' && previous != '!' && previous != '?' && previous != '…') return false;
+            for (var i = index + 1; i < text.Length; i++)
+            {
+                var c = text[i];
+                if (char.IsWhiteSpace(c) || c == '.' || c == '!' || c == '?' || c == '…' || c == ',' || c == ';' || c == ':' || c == ')') continue;
+                return false;
+            }
+            return true;
+        }
+
+        private static void TrimTrailingSpaces(StringBuilder sb)
+        {
+            while (sb.Length > 0)
+            {
+                var last = sb[sb.Length - 1];
+                if (last != ' ' && last != '\u00A0' && last != '\u202F') break;
+                sb.Length--;
+            }
         }
 
         /// <summary>Le remplaçant prend la casse du remplacé : « Maison » →

@@ -23,6 +23,7 @@ namespace UniversSale.Tests
             NestedQuotes(t);
             NestedQuotesAcrossParagraphs(t);
             OrphanQuoteAndLongQuote(t);
+            DialogueAcrossParagraphs(t);
             DialogueCollect(t);
             DialogueWindow(t);
             DialogueInventory(t);
@@ -191,6 +192,32 @@ namespace UniversSale.Tests
             t.Check(second.Contains("“un mot”"), "guillemets de suite : dans la citation, courbes (" + second + ")");
             var third = PivotEdit.FlatText(suite.Paragraphs[2]);
             t.Check(third.Contains("«") && !third.Contains("“"), "après la fermante : de nouveau « » (" + third + ")");
+        }
+
+        /// <summary>Le dialogue de Rémi : l'ouvrant seul en tête du premier
+        /// paragraphe, le fermant seul en fin du dernier, un mot cité entre
+        /// les deux — « en tête, “courbes” dedans, » à la fin.</summary>
+        private static void DialogueAcrossParagraphs(Harness t)
+        {
+            var options = new TypographyOptions();
+            var first = Typography.Clean("\" Hello enfoiré ! Comment ça va ?", options).Text;
+            t.Check(first.StartsWith("«") && !first.Contains("\""), "un guillemet droit seul en tête : c'est l'ouvrant (" + first + ")");
+            t.Equal(1, Typography.QuoteDepth(first, 0), "… et la citation reste ouverte après le paragraphe");
+            var second = Typography.Clean("— Je sais pas trop si \"aller\" est pertinent.\"", options, null, 1).Text;
+            t.Check(second.Contains("“aller”"), "dans la citation ouverte : “aller” en courbes (" + second + ")");
+            t.Check(second.EndsWith("»") && !second.Contains("\""), "un guillemet droit seul en fin, citation ouverte : c'est le fermant");
+            t.Equal(0, Typography.QuoteDepth(second, 1), "… et la citation est refermée");
+            var alone = Typography.Clean("Il partit.\"", options, null, 0).Text;
+            t.Check(alone.EndsWith("\""), "un guillemet seul en fin SANS citation ouverte : on ne devine pas, il reste");
+            var mixed = Typography.Clean("\" Il dit \"oui\" et partit.", options).Text;
+            t.Check(mixed.StartsWith("«") && mixed.Contains("“oui”"), "ouvrant en tête + paire dedans : « … “oui” … (" + mixed + ")");
+            var document = Document("\" Hello enfoiré ! Comment ça va ?", "— Je sais pas trop si \"aller\" est pertinent.\"", "Il dit \"bon\".");
+            var pass = TypographyPass.Run(document, options);
+            var p2 = PivotEdit.FlatText(pass.Paragraphs[1]);
+            var p3 = PivotEdit.FlatText(pass.Paragraphs[2]);
+            t.Check(PivotEdit.FlatText(pass.Paragraphs[0]).StartsWith("«") && p2.Contains("“aller”") && p2.EndsWith("»"),
+                "la passe enchaîne les deux paragraphes du dialogue");
+            t.Check(p3.Contains("«") && !p3.Contains("“"), "après la fin du dialogue : de nouveau « » (" + p3 + ")");
         }
 
         // ----------------------------------------------------- verbes de dialogue

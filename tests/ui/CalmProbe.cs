@@ -218,6 +218,19 @@ namespace UniversSale.Tests.Ui
                 typed = PivotEdit.FlatText(paragraphs[last]);
                 Check(typed.EndsWith("»") && !typed.Contains("\"non"), "retapé : la correction revient (" + typed + ")");
 
+                // Un dialogue sur deux paragraphes, tapé au clavier : l'ouvrant
+                // seul en tête, le fermant seul en fin, un mot cité entre.
+                composed.InsertParagraphBreak();
+                foreach (var ch in "\" Hello ! Comment ça va ?") composed.TypeText(ch.ToString());
+                composed.InsertParagraphBreak();
+                foreach (var ch in "— Je sais pas si \"aller\" est pertinent.\"") composed.TypeText(ch.ToString());
+                DoEvents();
+                var firstLine = PivotEdit.FlatText(paragraphs[paragraphs.Count - 2]);
+                var secondLine = PivotEdit.FlatText(paragraphs[paragraphs.Count - 1]);
+                Check(firstLine.StartsWith("«"), "dialogue tapé : l'ouvrant seul en tête devient « (" + firstLine + ")");
+                Check(secondLine.Contains("“aller”"), "dialogue tapé : le mot cité passe en courbes (" + secondLine + ")");
+                Check(secondLine.EndsWith("»"), "dialogue tapé : le fermant seul en fin devient »");
+
                 // Les menus sur l'écran du livre : Note de bas de page grisée.
                 if (book != null)
                 {
