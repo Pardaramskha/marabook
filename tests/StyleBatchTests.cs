@@ -22,6 +22,7 @@ namespace UniversSale.Tests
             LiveRestrictVeto(t);
             NestedQuotes(t);
             NestedQuotesAcrossParagraphs(t);
+            OrphanQuoteAndLongQuote(t);
             DialogueCollect(t);
             DialogueWindow(t);
             DialogueInventory(t);
@@ -163,6 +164,33 @@ namespace UniversSale.Tests
                 "la réplique est fermée : de nouveau « » (" + third + ")");
             t.Check(Typography.Clean("\"pas le faire\"", options, null, 1).Text.Contains("“"),
                 "Clean avec un « ouvert avant : courbes");
+        }
+
+        /// <summary>Un guillemet orphelin ne gèle plus le paragraphe : les
+        /// paires se convertissent, l'orphelin reste ; une citation longue se
+        /// convertit entière à la frappe (fenêtre = le paragraphe) ; les
+        /// guillemets de suite ne font pas grimper la profondeur.</summary>
+        private static void OrphanQuoteAndLongQuote(Harness t)
+        {
+            var options = new TypographyOptions();
+            var orphan = Typography.Clean("Il dit \"oui\" et \" seul.", options);
+            t.Check(orphan.Text.Contains("«") && orphan.Text.Contains("»") && orphan.Text.Contains("\" seul"),
+                "orphelin : la paire est convertie, l'orphelin reste (" + orphan.Text + ")");
+            t.Check(orphan.Warnings.Count > 0, "… et il est signalé");
+            var longInner = new string('a', 150);
+            var before = "Il dit \"" + longInner + "\"";
+            var after = Typography.Clean(before, options).Text;
+            var ops = CharDiff.Diff(before, after);
+            int delta;
+            bool changed;
+            var kept = TypographyLive.Restrict(ops, before.Length, 1, int.MaxValue, out delta, out changed);
+            var text = Apply(kept);
+            t.Check(!text.Contains("\""), "citation longue à la frappe : l'ouvrant aussi (" + text.Substring(0, 12) + "…)");
+            var suite = TypographyPass.Run(Document("« Premier paragraphe de la citation.", "« Second, avec \"un mot\" dedans. »", "Après : \"libre\"."), options);
+            var second = PivotEdit.FlatText(suite.Paragraphs[1]);
+            t.Check(second.Contains("“un mot”"), "guillemets de suite : dans la citation, courbes (" + second + ")");
+            var third = PivotEdit.FlatText(suite.Paragraphs[2]);
+            t.Check(third.Contains("«") && !third.Contains("“"), "après la fermante : de nouveau « » (" + third + ")");
         }
 
         // ----------------------------------------------------- verbes de dialogue

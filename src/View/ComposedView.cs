@@ -1351,7 +1351,10 @@ namespace UniversSale.View
             int delta;
             List<KeyValuePair<int, string>> accepted;
             var paragraphIndex = _caretParagraph;
-            var kept = Correction.TypographyLive.Restrict(ops, _caretOffset, typedLength, 80,
+            // La fenêtre (13/09) : tout le paragraphe DERRIÈRE le curseur —
+            // 80 caractères laissaient le guillemet ouvrant d'une citation
+            // longue en droit, et l'orphelin bloquait ensuite le paragraphe.
+            var kept = Correction.TypographyLive.Restrict(ops, _caretOffset, typedLength, int.MaxValue,
                 delegate(int start, string deleted) { return IsVetoed(paragraphIndex, start, deleted); },
                 out delta, out accepted);
             if (accepted.Count == 0) return false;

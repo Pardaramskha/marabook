@@ -159,12 +159,25 @@ namespace UniversSale.Correction
         {
             var depth = before;
             if (text == null) return depth;
-            foreach (var c in text)
+            var first = FirstQuoteIsContinuation(text, before);
+            for (var i = 0; i < text.Length; i++)
             {
-                if (c == '«') depth++;
+                var c = text[i];
+                if (c == '«') { if (i != first) depth++; }
                 else if (c == '»' && depth > 0) depth--;
             }
             return depth;
+        }
+
+        /// <summary>La convention des « guillemets de suite » : une citation
+        /// ouverte plus haut se poursuit par un « en tête de paragraphe, qui
+        /// n'ouvre rien de nouveau. Rend l'index de ce « ou -1.</summary>
+        private static int FirstQuoteIsContinuation(string text, int openBefore)
+        {
+            if (openBefore <= 0) return -1;
+            var i = 0;
+            while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
+            return i < text.Length && text[i] == '«' ? i : -1;
         }
 
         /// <summary>La passe, en sachant combien de « » sont déjà ouverts avant
@@ -209,20 +222,21 @@ namespace UniversSale.Correction
             // (3c) guillemets français
             if (o.Quotes && !o.Minimal)
             {
+                // Une paire de guillemets droits devient « … » — sauf à
+                // l'intérieur d'une citation « déjà ouverte » (dans ce
+                // paragraphe ou avant lui) : là, des courbes “ … ”, qui
+                // signalent une insistance au milieu d'une réplique. Un
+                // guillemet orphelin (nombre impair) reste droit, signalé,
+                // MAIS les paires qui le précèdent sont converties : avant le
+                // 13/09, un seul orphelin gelait le paragraphe entier — à la
+                // frappe, plus aucun guillemet ne se convertissait jamais.
                 var straight = 0;
                 foreach (var c in work) if (c == '"') straight++;
+                int count;
+                work = ConvertQuotes(work, o.InsideQuotes.ToString(), openQuotesBefore, out count);
+                r.Count("guillemets français", count);
                 if (straight % 2 == 1)
-                    r.Warnings.Add("guillemets droits en nombre impair : la conversion en « » est laissée de côté");
-                else
-                {
-                    // Une paire de guillemets droits devient « … » — sauf
-                    // à l'intérieur d'une citation « déjà ouverte » (dans ce
-                    // paragraphe ou avant lui) : là, des courbes “ … ”, qui
-                    // signalent une insistance au milieu d'une réplique.
-                    int count;
-                    work = ConvertQuotes(work, o.InsideQuotes.ToString(), openQuotesBefore, out count);
-                    r.Count("guillemets français", count);
-                }
+                    r.Warnings.Add("un guillemet droit orphelin (nombre impair) est laissé tel quel");
             }
             // (4a) tirets de dialogue
             if (o.DialogueDashes && !o.Minimal)
@@ -343,12 +357,17 @@ namespace UniversSale.Correction
         {
             count = 0;
             var sb = new StringBuilder(work.Length + 8);
-            var depth = Math.Max(0, openQuotesBefore);
+            // Avant ce paragraphe, une citation est ouverte ou ne l'est pas :
+            // la convention des « guillemets de suite » (un « en tête de
+            // chaque paragraphe d'une longue citation, un seul » à la fin)
+            // ferait sinon grimper la profondeur sans fin.
+            var depth = Math.Min(1, Math.Max(0, openQuotesBefore));
+            var continuation = FirstQuoteIsContinuation(work, depth);
             var i = 0;
             while (i < work.Length)
             {
                 var c = work[i];
-                if (c == '«') { depth++; sb.Append(c); i++; continue; }
+                if (c == '«') { if (i != continuation) depth++; sb.Append(c); i++; continue; }
                 if (c == '»') { if (depth > 0) depth--; sb.Append(c); i++; continue; }
                 if (c != '"') { sb.Append(c); i++; continue; }
                 var close = work.IndexOf('"', i + 1);
