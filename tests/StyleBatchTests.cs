@@ -24,6 +24,7 @@ namespace UniversSale.Tests
             NestedQuotesAcrossParagraphs(t);
             OrphanQuoteAndLongQuote(t);
             DialogueAcrossParagraphs(t);
+            CloseBeforeIncise(t);
             DialogueCollect(t);
             DialogueWindow(t);
             DialogueInventory(t);
@@ -218,6 +219,29 @@ namespace UniversSale.Tests
             t.Check(PivotEdit.FlatText(pass.Paragraphs[0]).StartsWith("«") && p2.Contains("“aller”") && p2.EndsWith("»"),
                 "la passe enchaîne les deux paragraphes du dialogue");
             t.Check(p3.Contains("«") && !p3.Contains("“"), "après la fin du dialogue : de nouveau « » (" + p3 + ")");
+        }
+
+        /// <summary>Le canon des incises : « mon ami, » rétorqua l'autre — le
+        /// fermant après la ponctuation de fin de parole, avant l'incise.</summary>
+        private static void CloseBeforeIncise(Harness t)
+        {
+            var options = new TypographyOptions();
+            var reply = Typography.Clean("— On se fait chier, mon ami,\" rétorqua l’autre.", options, null, 1).Text;
+            t.Check(reply.Contains("ami,\u00A0» rétorqua"), "fermant après la virgule, avant l'incise (" + reply + ")");
+            t.Check(!reply.Contains("\""), "plus de guillemet droit");
+            t.Equal(0, Typography.QuoteDepth(reply, 1), "la réplique est refermée");
+            var swapped = Typography.Clean("— On se fait chier, mon ami\", rétorqua l’autre.", options, null, 1).Text;
+            t.Check(swapped.Contains("ami,\u00A0» rétorqua"), "virgule tapée après le guillemet : elle passe devant (" + swapped + ")");
+            var exclaim = Typography.Clean("— Non !\" cria-t-elle.", options, null, 1).Text;
+            t.Check(exclaim.Contains("!\u00A0» cria"), "après un point d'exclamation aussi (" + exclaim + ")");
+            var pair = Typography.Clean("— Je sais pas si \"aller\" est pertinent.", options, null, 1).Text;
+            t.Check(pair.Contains("“aller”"), "une paire citée reste une paire en courbes (" + pair + ")");
+            var typing = Typography.Clean("— Je sais pas si \"aller", options, null, 1).Text;
+            t.Check(typing.Contains("\"aller"), "à la frappe, « si \"aller » n'est pas un fermant (" + typing + ")");
+            var comma = Typography.Clean("— On se fait chier, mon ami,\"", options, null, 1).Text;
+            t.Check(comma.EndsWith("»"), "« ami,\" » en bout de ligne : déjà le fermant (l'incise arrive) (" + comma + ")");
+            var closed = Typography.Clean("Il dit \"non\", rétorqua l’autre.", options, null, 0).Text;
+            t.Check(closed.Contains("«") && closed.Contains("»"), "sans citation ouverte : la paire ordinaire (" + closed + ")");
         }
 
         // ----------------------------------------------------- verbes de dialogue

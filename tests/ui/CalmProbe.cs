@@ -231,6 +231,16 @@ namespace UniversSale.Tests.Ui
                 Check(secondLine.Contains("“aller”"), "dialogue tapé : le mot cité passe en courbes (" + secondLine + ")");
                 Check(secondLine.EndsWith("»"), "dialogue tapé : le fermant seul en fin devient »");
 
+                // L'incise après la réplique : « mon ami, » rétorqua l'autre.
+                composed.InsertParagraphBreak();
+                foreach (var ch in "\" Alors, continua-t-il, comment ça se passe ?") composed.TypeText(ch.ToString());
+                composed.InsertParagraphBreak();
+                foreach (var ch in "— On se fait chier, mon ami,\" rétorqua l'autre.") composed.TypeText(ch.ToString());
+                DoEvents();
+                var replyLine = PivotEdit.FlatText(paragraphs[paragraphs.Count - 1]);
+                Check(replyLine.Contains("ami,\u00A0» rétorqua") && !replyLine.Contains("\""),
+                    "incise tapée : « mon ami, » rétorqua (" + replyLine + ")");
+
                 // Les menus sur l'écran du livre : Note de bas de page grisée.
                 if (book != null)
                 {

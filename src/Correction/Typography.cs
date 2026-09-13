@@ -373,7 +373,27 @@ namespace UniversSale.Correction
             for (var q = 0; q < work.Length; q++) if (work[q] == '"') quotes.Add(q);
             var odd = quotes.Count % 2 == 1;
             var openAtStart = odd && IsAtParagraphStart(work, quotes[0]);
-            var closeAtEnd = odd && !openAtStart && depth >= 1 && IsAtParagraphEnd(work, quotes[quotes.Count - 1]);
+            // Le fermant du dialogue : le dernier guillemet en fin de
+            // paragraphe, OU (le canon des incises) un guillemet qui suit la
+            // ponctuation de fin de parole et précède une incise — « mon
+            // ami, » rétorqua l'autre. La virgule tapée APRÈS le guillemet
+            // (« ami", rétorqua ») passe devant lui.
+            var reservedClose = -1;
+            var swapPunctuation = false;
+            if (odd && !openAtStart && depth >= 1)
+            {
+                var last = quotes[quotes.Count - 1];
+                if (IsAtParagraphEnd(work, last)) reservedClose = last;
+                else
+                    for (var q = quotes.Count - 1; q >= 0; q--)
+                    {
+                        bool swap;
+                        if (!IsBeforeIncise(work, quotes[q], out swap)) continue;
+                        reservedClose = quotes[q];
+                        swapPunctuation = swap;
+                        break;
+                    }
+            }
             var i = 0;
             while (i < work.Length)
             {
@@ -392,18 +412,24 @@ namespace UniversSale.Correction
                     while (i < work.Length && (work[i] == ' ' || work[i] == '\u00A0' || work[i] == '\u202F')) i++;
                     continue;
                 }
-                if (closeAtEnd && i == quotes[quotes.Count - 1])
+                if (i == reservedClose)
                 {
-                    // le fermant du dialogue : » collé au texte par l'insécable
+                    // le fermant du dialogue : » collé au texte par l'insécable ;
+                    // une ponctuation tapée juste après passe devant lui
                     TrimTrailingSpaces(sb);
+                    i++;
+                    if (swapPunctuation)
+                    {
+                        sb.Append(work[i]);
+                        i++;
+                    }
                     sb.Append(nbsp).Append('»');
                     if (depth > 0) depth--;
                     count++;
-                    i++;
                     continue;
                 }
                 var close = work.IndexOf('"', i + 1);
-                if (closeAtEnd && close == quotes[quotes.Count - 1]) close = -1; // réservé au fermant
+                if (close == reservedClose) close = -1; // réservé au fermant
                 if (close < 0 || work.IndexOf('\n', i, close - i) >= 0) { sb.Append(c); i++; continue; }
                 var inner = work.Substring(i + 1, close - i - 1).Trim(' ', '\u00A0', '\u202F');
                 if (depth > 0) sb.Append('\u201C').Append(inner).Append('\u201D');
@@ -427,18 +453,22 @@ namespace UniversSale.Correction
             return true;
         }
 
+        private static bool IsSpeechEnd(char c)
+        {
+            return c == '.' || c == '!' || c == '?' || c == '…' || c == ',' || c == ';' || c == ':';
+        }
+
         /// <summary>Le guillemet est le dernier signe du paragraphe — après
         /// lui, rien que des blancs ou une ponctuation finale — ET il suit une
-        /// fin de phrase (« pertinent." ») : à la frappe, un guillemet tapé
-        /// après un espace en bout de ligne (« si " ») est le début d'une
-        /// paire à venir, pas le fermant du dialogue.</summary>
+        /// ponctuation de fin de parole (« pertinent." », « mon ami," ») : à
+        /// la frappe, un guillemet tapé après un espace en bout de ligne
+        /// (« si " ») est le début d'une paire à venir, pas le fermant.</summary>
         private static bool IsAtParagraphEnd(string text, int index)
         {
             var before = index - 1;
             while (before >= 0 && (text[before] == ' ' || text[before] == '\u00A0' || text[before] == '\u202F')) before--;
             if (before < 0) return false;
-            var previous = text[before];
-            if (previous != '.' && previous != '!' && previous != '?' && previous != '…') return false;
+            if (!IsSpeechEnd(text[before])) return false;
             for (var i = index + 1; i < text.Length; i++)
             {
                 var c = text[i];
@@ -446,6 +476,29 @@ namespace UniversSale.Correction
                 return false;
             }
             return true;
+        }
+
+        /// <summary>Le guillemet ferme une réplique AVANT une incise : il suit
+        /// la ponctuation de fin de parole et précède un blanc puis une
+        /// minuscule (« mon ami," rétorqua »). swap : la ponctuation a été
+        /// tapée juste après lui (« ami", rétorqua ») — elle passera devant.</summary>
+        private static bool IsBeforeIncise(string text, int index, out bool swap)
+        {
+            swap = false;
+            var after = index + 1;
+            var punctuationAfter = after < text.Length && IsSpeechEnd(text[after]);
+            var before = index - 1;
+            while (before >= 0 && (text[before] == ' ' || text[before] == '\u00A0' || text[before] == '\u202F')) before--;
+            if (before < 0) return false;
+            var punctuationBefore = IsSpeechEnd(text[before]);
+            if (!punctuationBefore && !punctuationAfter) return false;
+            if (!punctuationBefore) { swap = true; after++; }
+            else if (punctuationAfter) return false; // « ami,", » : on ne devine pas
+            var j = after;
+            var blanks = 0;
+            while (j < text.Length && (text[j] == ' ' || text[j] == '\u00A0' || text[j] == '\u202F')) { j++; blanks++; }
+            if (blanks == 0 || j >= text.Length) return false;
+            return char.IsLower(text[j]);
         }
 
         private static void TrimTrailingSpaces(StringBuilder sb)
