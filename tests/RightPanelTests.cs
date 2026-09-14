@@ -39,14 +39,14 @@ namespace UniversSale.Tests
             t.Equal(RightPanel.Inspector, RightPanels.Parse(null), "un nom absent vaut l'inspecteur");
 
             // — Les onglets offerts selon la nature de l'élément courant.
-            t.Equal("inspector,correction,search,versions", Join(RightPanels.Offered(ItemKind.Text)), "un écrit : Général, Correction, Recherche, Versions");
-            t.Equal("inspector,edition,metadata,publication,search", Join(RightPanels.Offered(ItemKind.Book)), "un livre : Général, Édition, Métadonnées, Publication, Recherche");
-            t.Equal("inspector,search", Join(RightPanels.Offered(ItemKind.Sheet)), "une fiche : Général et Recherche (plus de Versions, b43)");
+            t.Equal("inspector,correction,search,versions,pinned", Join(RightPanels.Offered(ItemKind.Text)), "un écrit : Général, Correction, Recherche, Versions, Épinglé");
+            t.Equal("inspector,edition,metadata,publication,search,pinned", Join(RightPanels.Offered(ItemKind.Book)), "un livre : Général, Édition, Métadonnées, Publication, Recherche, Épinglé");
+            t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Sheet)), "une fiche : Général et Recherche (plus de Versions, b43), Épinglé");
             foreach (var kind in new[] { ItemKind.Media, ItemKind.Plan, ItemKind.Folder, ItemKind.PageTemplate })
-                t.Equal("inspector,search", Join(RightPanels.Offered(kind)), kind + " : Général et Recherche seulement");
-            t.Equal("search", Join(RightPanels.Offered(ItemKind.Category)), "une racine de la Pile : Recherche seule (b43)");
-            t.Equal("inspector,search", Join(RightPanels.Offered(ItemKind.Category, true)), "l'Accueil garde son Général (les raccourcis)");
-            t.Equal("inspector,search", Join(RightPanels.Offered(null)), "rien de sélectionné : Général et Recherche");
+                t.Equal("inspector,search,pinned", Join(RightPanels.Offered(kind)), kind + " : Général et Recherche seulement (et l'épinglé)");
+            t.Equal("search,pinned", Join(RightPanels.Offered(ItemKind.Category)), "une racine de la Pile : Recherche seule (b43), et l'épinglé");
+            t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Category, true)), "l'Accueil garde son Général (les raccourcis)");
+            t.Equal("inspector,search,pinned", Join(RightPanels.Offered(null)), "rien de sélectionné : Général et Recherche");
             t.Check(RightPanels.DescribesCurrent(RightPanel.Edition), "Édition décrit l'élément");
             t.Check(RightPanels.DescribesCurrent(RightPanel.Inspector) && RightPanels.DescribesCurrent(RightPanel.Metadata)
                 && RightPanels.DescribesCurrent(RightPanel.Publication) && !RightPanels.DescribesCurrent(RightPanel.Search)
@@ -79,6 +79,13 @@ namespace UniversSale.Tests
             foreach (RightPanel panel in Enum.GetValues(typeof(RightPanel)))
                 t.Check(!RightPanels.Available(panel, true, true, ItemKind.Text), "colonne masquée (calme, journal) : « " + RightPanels.Name(panel) + " » indisponible");
             t.Check(!RightPanels.Available(RightPanel.None, false, true, ItemKind.Text), "« aucun » n'est jamais montré");
+            // — L'épinglé (b47) : partout, mais seulement une épingle posée.
+            t.Check(!RightPanels.Available(RightPanel.Pinned, false, true, ItemKind.Text), "épinglé sans épingle : indisponible");
+            t.Check(RightPanels.Available(RightPanel.Pinned, false, true, ItemKind.Text, false, true), "épinglé avec une épingle, sur un écrit");
+            t.Check(RightPanels.Available(RightPanel.Pinned, false, true, null, false, true), "épinglé sans élément courant : disponible");
+            t.Check(RightPanels.Available(RightPanel.Pinned, false, true, ItemKind.Category, false, true), "épinglé sur une racine");
+            t.Check(!RightPanels.Available(RightPanel.Pinned, true, true, ItemKind.Text, false, true), "épinglé, colonne masquée : indisponible");
+            t.Check(!RightPanels.DescribesCurrent(RightPanel.Pinned), "l'épinglé est un outil (après le filet)");
 
             // — Transitions du rail : ouvrir, changer, replier sur l'actif.
             t.Equal(RightPanel.Search, RightPanels.Toggle(RightPanel.None, RightPanel.Search), "colonne repliée, clic Recherche : ouvre");

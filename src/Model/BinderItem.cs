@@ -86,6 +86,7 @@ namespace UniversSale.Model
         public Dictionary<string, string> FieldValues = new Dictionary<string, string>();
         public List<InfoEntry> FreeInfo = new List<InfoEntry>();
         public List<SheetRelation> Relations = new List<SheetRelation>(); // fiches (batch 34)
+        public List<EvolutionEntry> Evolution = new List<EvolutionEntry>(); // fiches : les étapes liées aux écrits (batch 47)
 
         // Media items only: raw bytes, written to the zip on save.
         public byte[] MediaBytes;

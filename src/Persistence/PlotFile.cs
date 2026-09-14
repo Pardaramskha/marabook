@@ -92,7 +92,11 @@ namespace UniversSale.Persistence
         //      édition d'un livre ("book" : genre, audience, themes:[string],
         //      pitch, backCover — omis si vides) ; nom du projet renommable
         //      (manifeste "name" : prime sur le nom du fichier quand présent).
-        private const int FormatVersion = 20;
+        // v21: BATCH 47 — évolution d'une fiche ("evolution" : [{id, text,
+        //      note}], text = id de l'écrit, omis pour une étape libre) ;
+        //      élément épinglé sur le côté (manifeste "sidePin" : id, omis
+        //      sans épingle — un id mort est ignoré à l'affichage).
+        private const int FormatVersion = 21;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -292,6 +296,7 @@ namespace UniversSale.Persistence
                 }
                 manifest["recents"] = recents;
             }
+            if (!string.IsNullOrEmpty(project.SidePinId)) manifest["sidePin"] = project.SidePinId; // v21
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
             manifest["page"] = BuildPageSetup(project.Page);
@@ -470,6 +475,19 @@ namespace UniversSale.Persistence
                         relations.Add(r);
                     }
                     node["relations"] = relations;
+                }
+                if (item.Evolution.Count > 0) // v21
+                {
+                    var steps = new List<object>();
+                    foreach (var step in item.Evolution)
+                    {
+                        var s = new Dictionary<string, object>();
+                        s["id"] = step.Id;
+                        if (step.TextId != null) s["text"] = step.TextId;
+                        s["note"] = step.Note ?? "";
+                        steps.Add(s);
+                    }
+                    node["evolution"] = steps;
                 }
             }
             if (item.Kind == ItemKind.Media && item.MediaExtension != null)
@@ -712,6 +730,7 @@ namespace UniversSale.Persistence
                             Date = Json.AsString(Json.Field(r, "date")) ?? ""
                         });
                     }
+                project.SidePinId = Json.AsString(Json.Field(manifest, "sidePin")); // v21
                 var ignoredRules = Json.AsList(Json.Field(manifest, "ignoredRules"));
                 if (ignoredRules != null)
                     foreach (var entry in ignoredRules)
@@ -1141,6 +1160,19 @@ namespace UniversSale.Persistence
                         relation.TargetId = Json.AsString(Json.Field(r, "target"));
                         relation.Name = Json.AsString(Json.Field(r, "name")) ?? "";
                         item.Relations.Add(relation);
+                    }
+                var evolution = Json.AsList(Json.Field(obj, "evolution")); // v21
+                if (evolution != null)
+                    foreach (var stepNode in evolution)
+                    {
+                        var s = Json.AsObject(stepNode);
+                        if (s == null) continue;
+                        var step = new EvolutionEntry();
+                        var stepId = Json.AsString(Json.Field(s, "id"));
+                        if (!string.IsNullOrEmpty(stepId)) step.Id = stepId;
+                        step.TextId = Json.AsString(Json.Field(s, "text"));
+                        step.Note = Json.AsString(Json.Field(s, "note")) ?? "";
+                        item.Evolution.Add(step);
                     }
             }
 

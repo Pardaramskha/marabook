@@ -442,6 +442,11 @@ namespace UniversSale.Tests
             sheet.Relations.Add(new SheetRelation { Kind = "rivale", Name = "La Pie" });
             // — Natures de relation personnalisées du projet (batch 36, v16).
             project.RelationKinds.Add("Mentor");
+            // — Évolution (batch 47, v21) : une étape liée au chapitre, une libre ;
+            //   l'épinglé sur le côté = la fiche.
+            sheet.Evolution.Add(new EvolutionEntry { TextId = chapter.Id, Note = "perd une plume" });
+            sheet.Evolution.Add(new EvolutionEntry { Note = "étape libre" });
+            project.SidePinId = sheet.Id;
             // — Les récents (batch 41, v18) : deux items ouverts, le plus
             // récent en tête ; l'épingle du chapitre est remplie par le
             // filler réflexif (bool scalaire) et relue depuis "pinned".

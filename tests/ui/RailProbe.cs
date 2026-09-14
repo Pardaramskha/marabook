@@ -90,8 +90,8 @@ namespace UniversSale.Tests.Ui
             // — Le rail est là, à droite de tout ; sans sélection, Général et Recherche.
             Check(rail.Visibility == Visibility.Visible && rail.ActualWidth == 40 && Grid.GetColumn(rail) == 5,
                 "le rail est présent, 40 px, dernière colonne de la grille");
-            Check(tabs.Count == 2 && tabs.ContainsKey(RightPanel.Inspector) && tabs.ContainsKey(RightPanel.Search),
-                "rien de sélectionné : deux onglets, Général et Recherche");
+            Check(tabs.Count == 3 && tabs.ContainsKey(RightPanel.Inspector) && tabs.ContainsKey(RightPanel.Search) && tabs.ContainsKey(RightPanel.Pinned),
+                "rien de sélectionné : trois onglets, Général, Recherche et Épinglé (b47)");
             var searchTip = tabs[RightPanel.Search].ToolTip as ToolTip;
             Check(searchTip != null && searchTip.Placement == PlacementMode.Left
                 && ToolTipService.GetPlacement(tabs[RightPanel.Search]) == PlacementMode.Left,
@@ -141,8 +141,8 @@ namespace UniversSale.Tests.Ui
             foreach (var candidate in opened.AllItems()) if (candidate.Title == "Chapitre du rail") item = candidate;
             Invoke(window, "OnBinderSelection", new object[] { item });
             DoEvents();
-            Check(tabs.Count == 4 && tabs.ContainsKey(RightPanel.Correction) && tabs.ContainsKey(RightPanel.Versions),
-                "sur un écrit : quatre onglets (Général, Correction, Recherche, Versions)");
+            Check(tabs.Count == 5 && tabs.ContainsKey(RightPanel.Correction) && tabs.ContainsKey(RightPanel.Versions),
+                "sur un écrit : cinq onglets (Général, Correction, Recherche, Versions, Épinglé)");
             Check(tabs[RightPanel.Inspector].Opacity == 1 && tabs[RightPanel.Correction].Opacity == 1,
                 "avec un élément courant, Général et Correction sont disponibles");
             Check(inspectorCol.Width.Value == 0, "…la colonne reste repliée tant qu'on n'a rien demandé");
@@ -180,14 +180,14 @@ namespace UniversSale.Tests.Ui
             //   ne montre que Recherche et la colonne se replie.
             Invoke(window, "OnBinderSelection", new object[] { opened.Category(Project.KeyWritings) });
             DoEvents();
-            Check(tabs.Count == 1 && tabs.ContainsKey(RightPanel.Search),
-                "sur une racine : Recherche seule (b43)");
+            Check(tabs.Count == 2 && tabs.ContainsKey(RightPanel.Search) && tabs.ContainsKey(RightPanel.Pinned),
+                "sur une racine : Recherche et Épinglé seuls (b43, b47)");
             Check(inspectorCol.Width.Value == 0 && inspector.Visibility != Visibility.Visible && correctionHost.Visibility != Visibility.Visible,
                 "Correction, plus offerte, replie la colonne (les racines n'ont plus de Général)");
             Invoke(window, "OnBinderSelection", new object[] { item });
             DoEvents();
-            Check(tabs.Count == 4 && correctionHost.Visibility == Visibility.Visible,
-                "de retour sur l'écrit, les quatre onglets reviennent, Correction reprend");
+            Check(tabs.Count == 5 && correctionHost.Visibility == Visibility.Visible,
+                "de retour sur l'écrit, les cinq onglets reviennent, Correction reprend");
 
             // — Le mode calme emporte le rail avec le reste ; en sortir le ramène.
             Invoke(window, "SetCalmMode", new object[] { true });

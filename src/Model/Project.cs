@@ -80,6 +80,11 @@ namespace UniversSale.Model
         // récent en tête — voir Recents. Purgés au chargement seulement.
         public List<RecentEntry> Recents = new List<RecentEntry>();
 
+        // L'élément ÉPINGLÉ SUR LE CÔTÉ (batch 47, v21) : un écrit ou une
+        // fiche lu en miroir dans la colonne de droite. Null = rien ; un id
+        // dont l'item n'existe plus (ou dort à la corbeille) vaut rien.
+        public string SidePinId;
+
         // Les instantanés (batch 38, v17) — tous les items confondus, dans
         // l'ordre chronologique ; chacun est sa propre entrée du .plot.
         public List<Snapshot> Snapshots = new List<Snapshot>();

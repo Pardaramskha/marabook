@@ -38,6 +38,9 @@ namespace UniversSale.View
         // Les papers de l'onglet Général (batch 42) : l'image, une section
         // par nom (« » = Informations), les relations si le modèle les veut.
         private readonly Border _imagePaper, _relationsPaper;
+        // Troisième colonne (batch 47) : où la fiche apparaît, et ses étapes.
+        private readonly Border _presencePaper, _evolutionPaper;
+        private readonly StackPanel _presencePanel, _evolutionPanel;
         private readonly Grid _papersGrid;
         private readonly StackPanel[] _columns;
         private readonly Dictionary<string, StackPanel> _sectionPanels = new Dictionary<string, StackPanel>();
@@ -194,6 +197,17 @@ namespace UniversSale.View
             var addRelation = AddButton("Ajouter une relation");
             addRelation.Click += delegate { AddRelation(); };
             _relationsPaper = Paper("Relations", _relationsPanel, addRelation);
+
+            // Présence dans les écrits (b47) : dérivée, jamais saisie — les
+            // écrits où le titre, le nom, le prénom ou un alias apparaissent.
+            _presencePanel = new StackPanel();
+            _presencePaper = Paper("Présence dans les écrits", _presencePanel, null);
+            // Évolution (b47) : les étapes du personnage, chacune liée à un
+            // écrit (ou libre), dans l'ordre du récit.
+            _evolutionPanel = new StackPanel();
+            var addStep = AddButton("Ajouter une étape");
+            addStep.Click += delegate { AddStep(); };
+            _evolutionPaper = Paper("Évolution", _evolutionPanel, addStep);
 
             // Trois modes selon la largeur des papers : large (≥ 900 px) =
             // les trois colonnes ; moyen (≥ 560 px) = deux colonnes (image +
@@ -436,6 +450,145 @@ namespace UniversSale.View
             var second = wantMode == 1 ? _columns[0] : _columns[1];
             for (var i = 1; i < _sectionPapers.Count; i++) second.Children.Add(_sectionPapers[i]);
             if (_showRelations) second.Children.Add(_relationsPaper);
+            // La troisième colonne (b47) : Présence puis Évolution ; en deux
+            // colonnes ils suivent les relations, en une ils ferment la pile.
+            var third = wantMode == 3 ? _columns[2] : second;
+            third.Children.Add(_presencePaper);
+            third.Children.Add(_evolutionPaper);
+        }
+
+        // ================================================== présence + évolution (b47)
+
+        /// <summary>Une ligne par écrit où un nom de la fiche apparaît, dans
+        /// l'ordre du récit : le titre (cliquable), le livre, le compte et
+        /// une barre à l'échelle du plus présent.</summary>
+        private void RebuildPresence()
+        {
+            _presencePanel.Children.Clear();
+            if (_item == null) return;
+            var rows = Presence.Of(_item, _template, _project);
+            if (rows.Count == 0)
+            {
+                _presencePanel.Children.Add(Hint(Presence.NamesOf(_item, _template).Count == 0
+                    ? "Donnez un nom à la fiche : ses apparitions dans les écrits se compteront ici."
+                    : "Aucun écrit ne nomme cette fiche pour l'instant (titre, nom, prénom, alias)."));
+                return;
+            }
+            var max = 0;
+            foreach (var row in rows) if (row.Count > max) max = row.Count;
+            foreach (var row in rows)
+            {
+                var rowRef = row;
+                var line = new StackPanel { Margin = new Thickness(0, 0, 0, 7), Cursor = Cursors.Hand, Background = Brushes.Transparent, ToolTip = "Ouvrir l'écrit" };
+                var head = new DockPanel();
+                var count = new TextBlock
+                {
+                    Text = row.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    Foreground = Chrome.SoftText,
+                    FontSize = 11,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(8, 0, 0, 0)
+                };
+                DockPanel.SetDock(count, Dock.Right);
+                head.Children.Add(count);
+                var title = new TextBlock { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+                title.Inlines.Add(new System.Windows.Documents.Run(row.Text.Title) { Foreground = Chrome.Accent });
+                if (row.Book != null)
+                    title.Inlines.Add(new System.Windows.Documents.Run("  " + row.Book.Title) { Foreground = Chrome.FaintText, FontSize = 11 });
+                head.Children.Add(title);
+                line.Children.Add(head);
+                var track = new Border { Height = 4, CornerRadius = new CornerRadius(2), Background = Chrome.Border, Margin = new Thickness(0, 3, 0, 0) };
+                var fill = new Border { CornerRadius = new CornerRadius(2), Background = Chrome.Accent, HorizontalAlignment = HorizontalAlignment.Left, Opacity = 0.7 };
+                track.Child = fill;
+                track.SizeChanged += delegate { fill.Width = Math.Max(3, track.ActualWidth * rowRef.Count / max); };
+                line.Children.Add(track);
+                line.MouseLeftButtonUp += delegate { var h = NavigateRequested; if (h != null) h(rowRef.Text); };
+                _presencePanel.Children.Add(line);
+            }
+        }
+
+        /// <summary>Les étapes, dans l'ordre du récit (les libres après).</summary>
+        private void RebuildEvolution()
+        {
+            _evolutionPanel.Children.Clear();
+            if (_item == null) return;
+            var writings = Presence.Writings(_project);
+            foreach (var step in Presence.OrderedSteps(_item, _project))
+                _evolutionPanel.Children.Add(EvolutionRow(step, writings));
+            if (_item.Evolution.Count == 0)
+                _evolutionPanel.Children.Add(Hint("Aucune étape — ce qui change pour cette fiche, écrit par écrit : « perd son bras », « apprend la vérité »…"));
+        }
+
+        private const string FreeStepEntry = "— étape libre —";
+
+        /// <summary>Une étape : l'écrit (sélecteur dans l'ordre de la Pile,
+        /// « Livre › Titre » dans un livre, ou libre), la croix, la note.</summary>
+        private UIElement EvolutionRow(EvolutionEntry step, List<BinderItem> writings)
+        {
+            var row = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
+            var head = new DockPanel { Margin = new Thickness(0, 0, 0, 3) };
+            var remove = new Button { Content = "✕", Width = 26, Margin = new Thickness(6, 0, 0, 0), ToolTip = "Supprimer cette étape" };
+            remove.Click += delegate
+            {
+                _item.Evolution.Remove(step);
+                RebuildEvolution();
+                NotifyEdited();
+            };
+            DockPanel.SetDock(remove, Dock.Right);
+            head.Children.Add(remove);
+            var combo = new ComboBox { ToolTip = "L'écrit où cette étape se joue" };
+            combo.Items.Add(FreeStepEntry);
+            var selected = 0;
+            for (var i = 0; i < writings.Count; i++)
+            {
+                var book = writings[i].EnclosingBook();
+                combo.Items.Add(book != null ? book.Title + " › " + writings[i].Title : writings[i].Title);
+                if (writings[i].Id == step.TextId) selected = i + 1;
+            }
+            if (step.TextId != null && selected == 0)
+            {
+                combo.Items.Add("(écrit disparu)");
+                selected = combo.Items.Count - 1;
+            }
+            combo.SelectedIndex = selected;
+            combo.SelectionChanged += delegate
+            {
+                if (_loading || _item == null) return;
+                var index = combo.SelectedIndex;
+                if (index < 0 || index > writings.Count) return;
+                step.TextId = index == 0 ? null : writings[index - 1].Id;
+                NotifyEdited();
+            };
+            head.Children.Add(combo);
+            row.Children.Add(head);
+            var note = new TextBox
+            {
+                Text = step.Note,
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                MinHeight = 40,
+                VerticalContentAlignment = VerticalAlignment.Top
+            };
+            _fieldBoxes["evolution:" + step.Id] = note;
+            note.TextChanged += delegate
+            {
+                if (_loading || _item == null) return;
+                step.Note = note.Text;
+                NotifyEdited();
+            };
+            row.Children.Add(note);
+            return row;
+        }
+
+        private void AddStep()
+        {
+            if (_item == null) return;
+            var step = new EvolutionEntry();
+            _item.Evolution.Add(step);
+            RebuildEvolution();
+            NotifyEdited();
+            Control box;
+            if (_fieldBoxes.TryGetValue("evolution:" + step.Id, out box)) box.Focus();
         }
 
         // ================================================== champs
@@ -1232,6 +1385,8 @@ namespace UniversSale.View
             RebuildPapers();
             RebuildFields();
             RebuildRelations();
+            RebuildPresence();
+            RebuildEvolution();
             RefreshPortrait();
             _bodyBox.Text = item.Document.ToPlainText();
             // La pile d'annulation du TextBox repart de zéro avec le texte
@@ -1263,6 +1418,8 @@ namespace UniversSale.View
             _removePortrait.Visibility = Visibility.Collapsed;
             _preview.Content = null;
             RebuildPapers();
+            _presencePanel.Children.Clear();
+            _evolutionPanel.Children.Clear();
             SyncGenealogy();
         }
 
@@ -1327,116 +1484,14 @@ namespace UniversSale.View
             _body.Visibility = Visibility.Visible;
         }
 
-        /// <summary>Rendu wiki : grand titre, infobox à droite (portrait,
-        /// champs remplis groupés, champs libres, relations), corps markdown.</summary>
+        /// <summary>Rendu wiki (SheetWiki, partagé avec l'épinglé du rail — b47) :
+        /// grand titre, infobox à droite, corps markdown.</summary>
         private UIElement BuildPreviewContent()
         {
-            var page = new Border
-            {
-                Background = Chrome.PaperBg,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(6),
-                Margin = new Thickness(24, 20, 24, 20),
-                Padding = new Thickness(28),
-                MaxWidth = 900
-            };
-            var layout = new DockPanel { LastChildFill = true };
-
-            var infobox = new StackPanel();
-            var image = _project == null ? null : _project.FindImage(_item.ImageId);
-            var source = image == null ? null : MediaView.TryImage(image.Bytes, 480);
-            if (source != null)
-                infobox.Children.Add(new Image { Source = source, Stretch = Stretch.Uniform, MaxHeight = 240, Margin = new Thickness(0, 0, 0, 10) });
-            if (_template != null)
-            {
-                string lastGroup = null;
-                foreach (var field in _template.Fields)
-                {
-                    string value;
-                    _item.FieldValues.TryGetValue(field.Id, out value);
-                    if (string.IsNullOrEmpty(value)) continue;
-                    if (field.Group.Length > 0 && field.Group != lastGroup)
-                        infobox.Children.Add(GroupCaption(field.Group));
-                    lastGroup = field.Group.Length > 0 ? field.Group : lastGroup;
-                    AddInfoboxRow(infobox, field.Name, value);
-                }
-            }
-            foreach (var entry in _item.FreeInfo)
-                if (!string.IsNullOrEmpty(entry.Value))
-                    AddInfoboxRow(infobox, entry.Title, entry.Value);
-            if (_item.Relations.Count > 0)
-            {
-                // Format wiki (b36) : NOM (NATURE) — le nom cliquable quand
-                // c'est une fiche.
-                infobox.Children.Add(GroupCaption("Relations"));
-                foreach (var relation in _item.Relations)
-                {
-                    var target = _project == null || relation.TargetId == null ? null : _project.FindById(relation.TargetId);
-                    var label = target != null ? target.Title : relation.Name;
-                    var kind = RelationKinds.Canonical(relation.Kind);
-                    if (label.Length == 0 && kind.Length == 0) continue;
-                    var line = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
-                    if (target != null)
-                    {
-                        var anchor = new System.Windows.Documents.Run(label) { Foreground = Chrome.Accent, Cursor = Cursors.Hand };
-                        var targetRef = target;
-                        anchor.MouseLeftButtonDown += delegate { var h = NavigateRequested; if (h != null) h(targetRef); };
-                        line.Inlines.Add(anchor);
-                    }
-                    else line.Inlines.Add(new System.Windows.Documents.Run(label) { Foreground = Chrome.Ink });
-                    if (kind.Length > 0)
-                        line.Inlines.Add(new System.Windows.Documents.Run((label.Length > 0 ? " (" : "(") + kind + ")") { Foreground = Chrome.SoftText });
-                    infobox.Children.Add(line);
-                }
-            }
-            if (infobox.Children.Count > 0)
-            {
-                var infoboxFrame = new Border
-                {
-                    Background = Chrome.BarBgLight,
-                    BorderBrush = Chrome.Border,
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(4),
-                    Padding = new Thickness(12),
-                    Width = 250,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(20, 6, 0, 0),
-                    Child = infobox
-                };
-                DockPanel.SetDock(infoboxFrame, Dock.Right);
-                layout.Children.Add(infoboxFrame);
-            }
-
-            var main = new StackPanel();
-            main.Children.Add(new TextBlock { Text = _item.Title, FontSize = 26, FontWeight = FontWeights.Bold, Foreground = Chrome.PaperInk, TextWrapping = TextWrapping.Wrap });
-            var category = _project == null ? null : _project.SheetCategoryOf(_item);
-            main.Children.Add(new TextBlock
-            {
-                Text = category != null ? category.Name : _template != null ? _template.Name : "Fiche",
-                FontSize = 12,
-                Foreground = Chrome.PaperSoftInk,
-                Margin = new Thickness(0, 2, 0, 8)
-            });
-            main.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 0, 0, 12) });
-            var flow = MarkdownRender.Build(_bodyBox.Text,
+            return SheetWiki.Build(_item, _template, _project, _bodyBox.Text, false,
+                delegate(BinderItem target) { var h = NavigateRequested; if (h != null) h(target); },
                 delegate(string target) { var handler = LinkClicked; if (handler != null) handler(target); },
                 ToggleTask);
-            main.Children.Add(new FlowDocumentScrollViewer
-            {
-                Document = flow,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                IsToolBarVisible = false,
-                Focusable = false
-            });
-            layout.Children.Add(main);
-            page.Child = layout;
-            return page;
-        }
-
-        private static TextBlock GroupCaption(string text)
-        {
-            return new TextBlock { Text = text, FontSize = 11, FontWeight = FontWeights.Bold, Foreground = Chrome.Accent, Margin = new Thickness(0, 8, 0, 0) };
         }
 
         private void ToggleTask(int index)
@@ -1447,12 +1502,6 @@ namespace UniversSale.View
             var current = text[position];
             _bodyBox.Text = text.Substring(0, position) + (current == ' ' ? 'x' : ' ') + text.Substring(position + 1);
             if (_previewToggle.IsChecked == true) ShowPreview();
-        }
-
-        private static void AddInfoboxRow(StackPanel infobox, string label, string value)
-        {
-            infobox.Children.Add(new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Chrome.SoftText, Margin = new Thickness(0, 4, 0, 0) });
-            infobox.Children.Add(new TextBlock { Text = value, FontSize = 12, Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap });
         }
 
         // ------------------------------------------------------- surface

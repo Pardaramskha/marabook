@@ -18,21 +18,23 @@ namespace UniversSale.Settings
         Versions,
         Metadata,    // livre : sous-titre, auteur, éditeur, ISBN… (b32, sorti de l'inspecteur au b39)
         Publication, // livre : gabarit et « Publier… » (idem)
-        Edition      // livre : genre, public, thématiques, synopsis, accroche, 4e de couverture (b43)
+        Edition,     // livre : genre, public, thématiques, synopsis, accroche, 4e de couverture (b43)
+        Pinned       // l'écrit ou la fiche ÉPINGLÉ SUR LE CÔTÉ, lu en miroir (b47)
     }
 
     /// <summary>Les règles pures autour du panneau de droite — sans WPF,
     /// donc testables en console (C18).</summary>
     public static class RightPanels
     {
+        // L'épinglé (b47) est un outil de partout, comme Recherche : en queue.
         private static readonly RightPanel[] ForText =
-            { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions };
+            { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned };
         private static readonly RightPanel[] ForBook =
-            { RightPanel.Inspector, RightPanel.Edition, RightPanel.Metadata, RightPanel.Publication, RightPanel.Search };
+            { RightPanel.Inspector, RightPanel.Edition, RightPanel.Metadata, RightPanel.Publication, RightPanel.Search, RightPanel.Pinned };
         private static readonly RightPanel[] ForOthers =
-            { RightPanel.Inspector, RightPanel.Search };
+            { RightPanel.Inspector, RightPanel.Search, RightPanel.Pinned };
         private static readonly RightPanel[] ForCategory =
-            { RightPanel.Search };
+            { RightPanel.Search, RightPanel.Pinned };
 
         /// <summary>Le nom persisté dans settings.json (« rightPanel »).</summary>
         public static string Name(RightPanel panel)
@@ -46,6 +48,7 @@ namespace UniversSale.Settings
                 case RightPanel.Metadata: return "metadata";
                 case RightPanel.Publication: return "publication";
                 case RightPanel.Edition: return "edition";
+                case RightPanel.Pinned: return "pinned";
                 default: return "none";
             }
         }
@@ -63,6 +66,7 @@ namespace UniversSale.Settings
                 case "metadata": return RightPanel.Metadata;
                 case "publication": return RightPanel.Publication;
                 case "edition": return RightPanel.Edition;
+                case "pinned": return RightPanel.Pinned;
                 default: return RightPanel.Inspector;
             }
         }
@@ -112,11 +116,14 @@ namespace UniversSale.Settings
         /// domaine, pas d'ordonnancement : il faut un projet ; le mode calme
         /// et le journal masquent toute la colonne ; le panneau doit être
         /// offert pour la nature de l'élément courant ; Recherche seule vit
-        /// sans élément courant (« on cherche avant d'avoir cliqué », b37).</summary>
-        public static bool Available(RightPanel panel, bool columnHidden, bool hasProject, ItemKind? kind, bool homeRoot = false)
+        /// sans élément courant (« on cherche avant d'avoir cliqué », b37) ;
+        /// l'épinglé (b47) ne demande qu'une épingle posée, élément courant
+        /// ou non.</summary>
+        public static bool Available(RightPanel panel, bool columnHidden, bool hasProject, ItemKind? kind, bool homeRoot = false, bool hasPin = false)
         {
             if (columnHidden || !hasProject) return false;
             if (!Offers(kind, panel, homeRoot)) return false;
+            if (panel == RightPanel.Pinned) return hasPin;
             return panel == RightPanel.Search || kind != null;
         }
 

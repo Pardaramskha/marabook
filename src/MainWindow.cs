@@ -68,6 +68,12 @@ namespace UniversSale
         private Border _searchHost;     // le panneau de recherche du projet (batch 37)
         private View.SearchPanel _searchPanel;
         private Border _versionsHost;   // le panneau Versions (batch 38)
+        private Border _pinnedHost;     // l'épinglé sur le côté (batch 47)
+        private View.PinnedPanel _pinnedPanel;
+        private BinderItem _sidePin;    // l'item épinglé (Project.SidePinId résolu), null = rien
+        private DispatcherTimer _pinTimer; // le miroir suit la frappe, un peu après elle
+        private StackPanel _presenceSection; // « Personnages présents » d'un écrit (b47)
+        private StackPanel _presencePanel;
         // Le rail (batch 39) : quatre onglets à bascule, un par panneau de
         // droite, à droite de tout. Connus à la compilation — pas de registre.
         private const double RailWidth = 40;
@@ -485,6 +491,7 @@ namespace UniversSale
             {
                 MarkDirty();
                 _pageCountCache.Clear(); // moves change book folio offsets
+                ValidateSidePin(); // un épinglé jeté ou supprimé lâche l'épingle ; un renommé se met à jour (b47)
                 // Chauffe le cache de mots : un document importé entre au cache
                 // à sa taille réelle, sans jamais créditer le journal.
                 ProjectWords();
@@ -802,6 +809,25 @@ namespace UniversSale
             _versionsHost = new Border { Child = _versionsPanel };
             Grid.SetColumn(_versionsHost, 4);
             grid.Children.Add(_versionsHost);
+
+            // L'ÉPINGLÉ SUR LE CÔTÉ (batch 47) : un écrit ou une fiche lu en
+            // miroir, même colonne ; un seul à la fois, posé par le menu
+            // contextuel de la Pile, tenu par le projet (.plot v21).
+            _pinnedPanel = new View.PinnedPanel();
+            _pinnedPanel.OpenRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _pinnedPanel.NavigateRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _pinnedPanel.LinkClicked += NavigateToTitle;
+            _pinnedPanel.UnpinRequested += UnpinSide;
+            _pinnedHost = new Border { Child = _pinnedPanel };
+            Grid.SetColumn(_pinnedHost, 4);
+            grid.Children.Add(_pinnedHost);
+            _pinTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+            _pinTimer.Tick += delegate { _pinTimer.Stop(); RefreshSidePin(); };
+            _binder.IsSidePinned = delegate(BinderItem item) { return item != null && item == _sidePin; };
+            _binder.SidePinRequested += delegate(BinderItem item)
+            {
+                if (item == _sidePin) UnpinSide(); else PinToSide(item);
+            };
 
             _rail = BuildRail();
             Grid.SetColumn(_rail, 5);
@@ -1187,6 +1213,22 @@ namespace UniversSale
             _planSection.Children.Add(_planColumnWord);
             panel.Children.Add(_planSection);
 
+            // Personnages présents dans un écrit (batch 47) : les fiches
+            // Personnage dont un nom apparaît, les plus présentes d'abord,
+            // avec leur étape d'évolution pour cet écrit s'il y en a une.
+            _presenceSection = new StackPanel { Margin = new Thickness(0, 0, 0, 10), Visibility = Visibility.Collapsed };
+            _presenceSection.Children.Add(new TextBlock
+            {
+                Text = "Personnages présents",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 4),
+                ToolTip = "Les fiches Personnage nommées dans cet écrit (titre, nom, prénom, alias), et leur étape d'évolution ici"
+            });
+            _presencePanel = new StackPanel();
+            _presenceSection.Children.Add(_presencePanel);
+            panel.Children.Add(_presenceSection);
+
             _synopsisLabel = new TextBlock
             {
                 Text = "Synopsis",
@@ -1504,7 +1546,9 @@ namespace UniversSale
             _mediaView.Clear();
             _corkboard.Clear();
             _journalView.Clear();
+            _pinnedPanel.SetProject(project, project.Styles);
             _binder.LoadProject(project, _history);
+            ResolveSidePin();
             // Chauffe le cache de mots : les comptes existants deviennent la
             // référence des deltas du journal (rien n'est crédité à l'ouverture).
             ProjectWords();
@@ -2301,6 +2345,8 @@ namespace UniversSale
         private void OnEditorEdited()
         {
             MarkDirty();
+            // Le miroir épinglé suit l'original en cours de frappe (b47).
+            if (_sidePin != null && _sidePin == _current) { _pinTimer.Stop(); _pinTimer.Start(); }
             // La capture quotidienne (b38, lot C) : à la première modification
             // du jour, l'état d'AVANT la frappe (la pile locale du composé s'en
             // souvient) — une par jour et par item, débrayable (Préférences).
@@ -3538,6 +3584,8 @@ namespace UniversSale
                 _publicationHost.Visibility = shown == RightPanel.Publication ? Visibility.Visible : Visibility.Collapsed;
             if (_editionHost != null)
                 _editionHost.Visibility = shown == RightPanel.Edition ? Visibility.Visible : Visibility.Collapsed;
+            if (_pinnedHost != null)
+                _pinnedHost.Visibility = shown == RightPanel.Pinned ? Visibility.Visible : Visibility.Collapsed;
             var anyRight = shown != RightPanel.None;
             _inspectorSplit.Visibility = anyRight ? Visibility.Visible : Visibility.Collapsed;
             _inspectorCol.Width = anyRight
@@ -3559,7 +3607,7 @@ namespace UniversSale
 
         private bool IsPanelAvailable(RightPanel panel)
         {
-            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, CurrentKind(), CurrentIsHomeRoot());
+            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, CurrentKind(), CurrentIsHomeRoot(), _sidePin != null);
         }
 
         /// <summary>La nature de l'élément courant, null sans sélection — ce
@@ -3688,6 +3736,8 @@ namespace UniversSale
                     icon = "list-dashes-bold"; name = "Métadonnées du livre"; break;
                 case RightPanel.Edition:
                     icon = "book-bold"; name = "Édition du livre"; break;
+                case RightPanel.Pinned:
+                    icon = "push-pin-bold"; name = "Épinglé sur le côté"; break;
                 default:
                     icon = "book-open-text-bold"; name = "Publication du livre"; break;
             }
@@ -3768,6 +3818,7 @@ namespace UniversSale
             _railCol.Width = new GridLength(railOn ? RailWidth : 0);
             var offered = RightPanels.Offered(CurrentKind(), CurrentIsHomeRoot());
             if (!ReferenceEquals(offered, _railOffered)) RebuildRailTabs(offered);
+            UpdatePinTip();
             var shown = ShownRightPanel();
             foreach (var pair in _railTabs)
             {
@@ -3966,6 +4017,7 @@ namespace UniversSale
                 ApplyPanelVisibility();
 
             UpdateLinksPanel();
+            UpdatePresenceSection();
 
             _inspDates.Text = string.IsNullOrEmpty(_project.CreatedAt) ? ""
                 : "Créé le " + Dates.Display(_project.CreatedAt) + "\nModifié le " + Dates.Display(_project.ModifiedAt);
@@ -4212,6 +4264,135 @@ namespace UniversSale
                 row.MouseLeftButtonDown += delegate { NavigateToTitle(targetTitle); };
             }
             return row;
+        }
+
+        /// <summary>« Personnages présents » (b47) : sur un écrit seulement.</summary>
+        private void UpdatePresenceSection()
+        {
+            var isText = _current != null && _current.Kind == ItemKind.Text && !_current.IsExtraPage;
+            _presenceSection.Visibility = isText ? Visibility.Visible : Visibility.Collapsed;
+            _presencePanel.Children.Clear();
+            if (!isText) return;
+            var project = _project;
+            var rows = Presence.In(_current, project, delegate(BinderItem sheet)
+            {
+                var category = project.SheetCategoryOf(sheet);
+                return category != null && Achievements.IsCharacterCategory(category.Name);
+            });
+            if (rows.Count == 0)
+            {
+                _presencePanel.Children.Add(new TextBlock { Text = "—", Foreground = Chrome.SoftText, FontSize = 12 });
+                return;
+            }
+            var shown = 0;
+            foreach (var row in rows)
+            {
+                if (shown++ >= 12)
+                {
+                    _presencePanel.Children.Add(new TextBlock
+                    {
+                        Text = "… et " + (rows.Count - 12) + " autres",
+                        Foreground = Chrome.SoftText,
+                        FontSize = 11,
+                        Margin = new Thickness(0, 2, 0, 0)
+                    });
+                    break;
+                }
+                var sheet = row.Text;
+                var line = new DockPanel { Margin = new Thickness(0, 1, 0, 1), Cursor = System.Windows.Input.Cursors.Hand, Background = Brushes.Transparent, ToolTip = "Ouvrir la fiche" };
+                var count = new TextBlock
+                {
+                    Text = row.Count.ToString(CultureInfo.InvariantCulture),
+                    Foreground = Chrome.SoftText,
+                    FontSize = 11,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(6, 0, 0, 0)
+                };
+                DockPanel.SetDock(count, Dock.Right);
+                line.Children.Add(count);
+                var text = new StackPanel();
+                text.Children.Add(new TextBlock { Text = sheet.Title, FontSize = 12, Foreground = Chrome.Accent, TextTrimming = TextTrimming.CharacterEllipsis });
+                var step = Presence.StepIn(sheet, _current.Id);
+                if (step != null)
+                    text.Children.Add(new TextBlock
+                    {
+                        Text = step.Note.Trim(),
+                        FontSize = 11,
+                        FontStyle = FontStyles.Italic,
+                        Foreground = Chrome.SoftText,
+                        TextWrapping = TextWrapping.Wrap
+                    });
+                line.Children.Add(text);
+                line.MouseLeftButtonDown += delegate { _binder.SelectItem(sheet.Id); };
+                _presencePanel.Children.Add(line);
+            }
+        }
+
+        // ============================================================= épinglé sur le côté (b47)
+
+        /// <summary>Épingle un écrit ou une fiche : le projet le retient, le
+        /// panneau le rend, la colonne l'affiche.</summary>
+        private void PinToSide(BinderItem item)
+        {
+            if (item == null || (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet)) return;
+            _sidePin = item;
+            _project.SidePinId = item.Id;
+            _pinnedPanel.Show(item);
+            SetRightPanel(RightPanel.Pinned);
+            UpdateRail();
+        }
+
+        private void UnpinSide()
+        {
+            if (_sidePin == null) return;
+            _sidePin = null;
+            _project.SidePinId = null;
+            _pinnedPanel.Clear();
+            if (AppSettings.RightPanel == RightPanel.Pinned) SetRightPanel(RightPanel.Inspector);
+            else ApplyPanelVisibility();
+        }
+
+        /// <summary>À l'ouverture : l'id du projet redevient un item — s'il
+        /// existe encore et ne dort pas à la corbeille.</summary>
+        private void ResolveSidePin()
+        {
+            _sidePin = null;
+            var item = string.IsNullOrEmpty(_project.SidePinId) ? null : _project.FindById(_project.SidePinId);
+            if (item != null && (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
+                && item.RootCategory().CategoryKey != Project.KeyTrash)
+                _sidePin = item;
+            else _project.SidePinId = null;
+            _pinnedPanel.Show(_sidePin);
+            if (_sidePin == null && AppSettings.RightPanel == RightPanel.Pinned) AppSettings.RightPanel = RightPanel.Inspector;
+        }
+
+        /// <summary>Après un changement de la Pile : l'épinglé jeté ou
+        /// supprimé lâche l'épingle, sinon le miroir se rafraîchit (titre…).</summary>
+        private void ValidateSidePin()
+        {
+            if (_sidePin == null) return;
+            var alive = _project.FindById(_sidePin.Id) == _sidePin
+                && _sidePin.RootCategory().CategoryKey != Project.KeyTrash;
+            if (!alive) { UnpinSide(); return; }
+            RefreshSidePin();
+        }
+
+        private void RefreshSidePin()
+        {
+            if (_sidePin == null || _pinnedHost.Visibility != Visibility.Visible) return;
+            _pinnedPanel.Refresh();
+        }
+
+        /// <summary>L'infobulle de l'onglet Épinglé dit ce qui est épinglé.</summary>
+        private void UpdatePinTip()
+        {
+            Border tab;
+            if (!_railTabs.TryGetValue(RightPanel.Pinned, out tab)) return;
+            var tip = tab.ToolTip as ToolTip;
+            if (tip == null) return;
+            tip.Content = _sidePin == null
+                ? "Épinglé sur le côté — rien pour l'instant : clic droit sur un écrit ou une fiche › « Épingler sur le côté »"
+                : "Épinglé sur le côté — " + _sidePin.Title;
         }
 
         private void UpdateStats()

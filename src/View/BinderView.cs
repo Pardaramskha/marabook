@@ -39,6 +39,10 @@ namespace UniversSale.View
         public event Action<BinderItem> SelectionChanged;
         public event Action StructureChanged; // a user-initiated, undoable change happened
         public event Action JournalRequested; // clic sur « Journal perso » (pied de Pile)
+        // Épingler sur le côté (b47) : la coquille tient l'épingle ; la Pile
+        // demande, et sait si l'item est déjà épinglé pour libeller le menu.
+        public event Action<BinderItem> SidePinRequested;
+        public Func<BinderItem, bool> IsSidePinned;
 
         // Fourni par MainWindow (cache de composition) : total de pages d'un
         // livre, pour le garde-fou « page finale impaire ». Null = pas d'icône.
@@ -677,6 +681,15 @@ namespace UniversSale.View
                 menu.Items.Add(new Separator());
                 // Épingler sur l'Accueil (batch 41) : une bascule annulable.
                 AddMenu(menu, item.Pinned ? "Ne plus épingler" : "Épingler", delegate { TogglePin(item); });
+                if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
+                {
+                    var sidePinned = IsSidePinned != null && IsSidePinned(item);
+                    AddMenu(menu, sidePinned ? "Retirer du côté" : "Épingler sur le côté", delegate
+                    {
+                        var handler = SidePinRequested;
+                        if (handler != null) handler(item);
+                    });
+                }
                 if (item.Kind == ItemKind.Book)
                     AddMenu(menu, "Options du livre…", delegate { BookOptions(item); });
                 AddMenu(menu, "Renommer…", delegate { Rename(item); });
