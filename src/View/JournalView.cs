@@ -12,9 +12,15 @@ namespace UniversSale.View
     /// (mots nets du jour, 7 jours, 30 jours, série, total), un graphique des
     /// quatorze derniers jours et le réglage de l'objectif journalier. Les
     /// données viennent de Project.Journal, nourries par MainWindow au fil des
-    /// éditions.</summary>
-    public class JournalView : ScrollViewer
+    /// éditions. Deux onglets au style du ruban (14/09) : « Général » (les
+    /// chiffres, le graphique, l'objectif) et « Succès » (la liste des
+    /// succès) — chacun défile pour son compte, l'en-tête et la barre
+    /// d'onglets restent en place.</summary>
+    public class JournalView : DockPanel
     {
+        /// <summary>La largeur de la colonne de lecture — l'en-tête, la barre
+        /// d'onglets et les pages s'y alignent.</summary>
+        private const double ColumnWidth = 680;
         private Project _project;
         private bool _loading;
 
@@ -30,18 +36,23 @@ namespace UniversSale.View
 
         public JournalView()
         {
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
             Background = Chrome.WindowBg;
+            LastChildFill = true;
 
-            var page = new StackPanel
+            // ---- entête (hors onglets, ne défile pas) ----
+            // L'en-tête et la barre d'onglets laissent à droite la place de
+            // l'ascenseur (toujours réservé dans les pages) : les trois
+            // colonnes tombent au même endroit.
+            var head = new StackPanel
             {
-                MaxWidth = 680,
-                Margin = new Thickness(36, 28, 36, 36),
-                HorizontalAlignment = HorizontalAlignment.Center
+                MaxWidth = ColumnWidth,
+                Margin = new Thickness(36, 28, 36 + SystemParameters.VerticalScrollBarWidth, 0),
+                HorizontalAlignment = HorizontalAlignment.Stretch
             };
+            SetDock(head, Dock.Top);
+            Children.Add(head);
+            var page = head;
 
-            // ---- entête ----
             var header = new StackPanel { Orientation = Orientation.Horizontal };
             var icon = Icons.Make("book-open-text-bold", 22, Chrome.Accent) as FrameworkElement;
             if (icon != null)
@@ -64,9 +75,25 @@ namespace UniversSale.View
             {
                 Foreground = Chrome.SoftText,
                 FontSize = 13,
-                Margin = new Thickness(0, 4, 0, 18)
+                Margin = new Thickness(0, 4, 0, 10)
             };
             page.Children.Add(_dateLabel);
+
+            // ---- les onglets « Général » / « Succès » (14/09) ----
+            // Le TabControl prend le reste ; sa barre d'onglets (le style
+            // chip du ruban, posé par Theme sur tout TabItem) est alignée
+            // sur la colonne de lecture, chaque page défile pour elle-même.
+            var tabs = new TabControl
+            {
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(0),
+                Template = ColumnTabTemplate()
+            };
+            Children.Add(tabs);
+
+            page = Page();
+            tabs.Items.Add(new TabItem { Header = "Général", Content = Scroll(page) });
 
             // ---- aujourd'hui (héros) ----
             var todayCard = Card();
@@ -210,9 +237,10 @@ namespace UniversSale.View
             goalCard.Child = goal;
             page.Children.Add(goalCard);
 
-            // ---- succès (12/09/2026) ----
+            // ---- succès (12/09/2026), dans leur propre onglet (14/09) ----
+            page = Page();
+            tabs.Items.Add(new TabItem { Header = "Succès", Content = Scroll(page) });
             var achievementsCard = Card();
-            achievementsCard.Margin = new Thickness(0, 10, 0, 0);
             var achievements = new StackPanel();
             var achievementsHeader = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
             _achievementsCount = new TextBlock
@@ -244,8 +272,59 @@ namespace UniversSale.View
             achievements.Children.Add(_achievementsPanel);
             achievementsCard.Child = achievements;
             page.Children.Add(achievementsCard);
+        }
 
-            Content = page;
+        // ---------------------------------------------------- mise en page
+
+        /// <summary>Une page d'onglet : la colonne de lecture — étirée puis
+        /// bornée, donc centrée et toujours pleine (elle ne se cale plus sur
+        /// son texte le plus long).</summary>
+        private static StackPanel Page()
+        {
+            return new StackPanel
+            {
+                MaxWidth = ColumnWidth,
+                Margin = new Thickness(36, 6, 36, 36),
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+        }
+
+        /// <summary>L'ascenseur est toujours réservé : la colonne ne bouge pas
+        /// d'un onglet à l'autre et reste alignée sur l'en-tête.</summary>
+        private static ScrollViewer Scroll(UIElement content)
+        {
+            return new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Visible,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Background = Brushes.Transparent,
+                Content = content
+            };
+        }
+
+        /// <summary>Le gabarit du TabControl : la barre d'onglets en haut,
+        /// limitée à la colonne de lecture (étirée puis bornée par MaxWidth,
+        /// WPF la centre — comme les pages), le contenu sélectionné dessous
+        /// sur toute la largeur. Les onglets eux-mêmes gardent le style chip
+        /// du ruban posé par Theme.</summary>
+        private static ControlTemplate ColumnTabTemplate()
+        {
+            var root = new FrameworkElementFactory(typeof(DockPanel));
+            root.SetValue(LastChildFillProperty, true);
+
+            var strip = new FrameworkElementFactory(typeof(TabPanel));
+            strip.SetValue(Panel.IsItemsHostProperty, true);
+            strip.SetValue(DockProperty, Dock.Top);
+            strip.SetValue(MaxWidthProperty, ColumnWidth);
+            strip.SetValue(MarginProperty, new Thickness(33, 0, 36 + SystemParameters.VerticalScrollBarWidth, 4));
+            strip.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Stretch);
+            root.AppendChild(strip);
+
+            var content = new FrameworkElementFactory(typeof(ContentPresenter));
+            content.SetValue(ContentPresenter.ContentSourceProperty, "SelectedContent");
+            root.AppendChild(content);
+
+            return new ControlTemplate(typeof(TabControl)) { VisualTree = root };
         }
 
         // --------------------------------------------------------- succès

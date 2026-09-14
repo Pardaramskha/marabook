@@ -1354,7 +1354,8 @@ namespace UniversSale
                 Orientation = Orientation.Horizontal,
                 Margin = new Thickness(14, 0, 0, 0)
             };
-            // Réinitialiser (flèche qui tourne) + curseur 50–300 % (batch 34).
+            // Réinitialiser (flèche qui tourne — l'icône « arrow-counter-
+            // clockwise » de Rémi, 14/09) + curseur 50–300 % (batch 34).
             var reset = new Button
             {
                 Width = 22,
@@ -1362,18 +1363,7 @@ namespace UniversSale
                 Padding = new Thickness(0),
                 Focusable = false,
                 ToolTip = "Revenir à 100 %",
-                Content = new System.Windows.Shapes.Path
-                {
-                    Data = Geometry.Parse("M 10.5,3.5 A 4.5,4.5 0 1 1 3.9,5.4 M 3.4,2.2 L 3.9,5.6 L 7.2,5.0"),
-                    Stroke = Chrome.Ink,
-                    StrokeThickness = 1.4,
-                    StrokeStartLineCap = PenLineCap.Round,
-                    StrokeEndLineCap = PenLineCap.Round,
-                    StrokeLineJoin = PenLineJoin.Round,
-                    Width = 14,
-                    Height = 14,
-                    Stretch = Stretch.Uniform
-                }
+                Content = Icons.Make("arrow-counter-clockwise", 13, Chrome.Ink)
             };
             reset.Click += delegate { ApplyZoom(100); };
             _zoomSlider = new Slider
@@ -1576,38 +1566,76 @@ namespace UniversSale
             {
                 var warnings = new List<string>();
                 var project = PlotFile.Load(path, warnings);
-                AdoptFileName(project, path);
-                LoadProject(project, path);
-                // Un projet est ouvert : l'accueil (13/09) se retire — quel
-                // que soit le chemin qui a mené ici (tuile, sonde, argument).
-                if (_welcome != null) _welcome.Release();
-                AppSettings.AddRecentFile(path);
-                AppSettings.Save();
-                UpdateRecentMenu();
-
-                // Un .tmp orphelin signale une sauvegarde interrompue (crash en
-                // pleine écriture). Le .plot est resté intact — l'écriture est
-                // atomique — mais le débris ne doit pas rester en silence.
-                var orphan = path + ".tmp";
-                if (File.Exists(orphan))
-                {
-                    try { File.Delete(orphan); } catch (IOException) { }
-                    catch (UnauthorizedAccessException) { }
-                    warnings.Insert(0, "Une sauvegarde précédente a été interrompue "
-                        + "(fichier temporaire « .tmp » retrouvé, maintenant supprimé). "
-                        + "Le projet ouvert est la dernière sauvegarde complète.");
-                }
-
-                if (warnings.Count > 0)
-                    MessageDialog.Show(this,
-                        "Le projet s'est ouvert, avec des réserves :\n\n— "
-                        + string.Join("\n— ", warnings.ToArray()),
-                        AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
+                InstallOpened(project, path, warnings);
             }
             catch (Exception error)
             {
                 TryRecoverFromBackup(path, error);
             }
+        }
+
+        /// <summary>L'ouverture depuis l'accueil (14/09) : la lecture du .plot
+        /// (la part longue d'un gros projet) se fait HORS du fil d'interface,
+        /// pour que l'indicateur de chargement de l'accueil vive ; le projet
+        /// est ensuite installé sur le fil d'interface, comme OpenFile.
+        /// PlotFile et le modèle ne touchent à rien de WPF. « finished » est
+        /// toujours appelé, réussite ou non — l'accueil regarde HasProjectPath.</summary>
+        public void OpenFileInBackground(string path, Action finished)
+        {
+            var warnings = new List<string>();
+            System.Threading.Tasks.Task.Factory
+                .StartNew(delegate { return PlotFile.Load(path, warnings); })
+                .ContinueWith(delegate(System.Threading.Tasks.Task<Project> done)
+                {
+                    var failure = done.Exception == null ? null : done.Exception.GetBaseException();
+                    var project = failure == null ? done.Result : null;
+                    Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate
+                    {
+                        try
+                        {
+                            if (failure != null) TryRecoverFromBackup(path, failure);
+                            else InstallOpened(project, path, warnings);
+                        }
+                        catch (Exception error)
+                        {
+                            TryRecoverFromBackup(path, error);
+                        }
+                        if (finished != null) finished();
+                    }));
+                });
+        }
+
+        /// <summary>Le projet lu : installé, ajouté aux récents, l'accueil
+        /// relâché, le .tmp orphelin nettoyé, les réserves montrées.</summary>
+        private void InstallOpened(Project project, string path, List<string> warnings)
+        {
+            AdoptFileName(project, path);
+            LoadProject(project, path);
+            // Un projet est ouvert : l'accueil (13/09) se retire — quel
+            // que soit le chemin qui a mené ici (tuile, sonde, argument).
+            if (_welcome != null) _welcome.Release();
+            AppSettings.AddRecentFile(path);
+            AppSettings.Save();
+            UpdateRecentMenu();
+
+            // Un .tmp orphelin signale une sauvegarde interrompue (crash en
+            // pleine écriture). Le .plot est resté intact — l'écriture est
+            // atomique — mais le débris ne doit pas rester en silence.
+            var orphan = path + ".tmp";
+            if (File.Exists(orphan))
+            {
+                try { File.Delete(orphan); } catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                warnings.Insert(0, "Une sauvegarde précédente a été interrompue "
+                    + "(fichier temporaire « .tmp » retrouvé, maintenant supprimé). "
+                    + "Le projet ouvert est la dernière sauvegarde complète.");
+            }
+
+            if (warnings.Count > 0)
+                MessageDialog.Show(this,
+                    "Le projet s'est ouvert, avec des réserves :\n\n— "
+                    + string.Join("\n— ", warnings.ToArray()),
+                    AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 
         /// <summary>The .plot itself is unreadable: offer the rolling .bak
@@ -1790,10 +1818,18 @@ namespace UniversSale
         /// l'accueil quand il est là), puis OpenFile, qui relâche l'accueil.</summary>
         public void OpenProjectWithDialog(Window owner)
         {
-            if (!ConfirmDiscard()) return;
+            var path = AskProjectFile(owner);
+            if (path != null) OpenFile(path);
+        }
+
+        /// <summary>Le dialogue de fichier seul (14/09) : le chemin choisi, ou
+        /// null — l'accueil s'en sert pour ouvrir ensuite en fond, avec son
+        /// indicateur de chargement.</summary>
+        public string AskProjectFile(Window owner)
+        {
+            if (!ConfirmDiscard()) return null;
             var dialog = new Microsoft.Win32.OpenFileDialog { Filter = PlotFile.OpenFilter };
-            if (dialog.ShowDialog(owner ?? this) == true)
-                OpenFile(dialog.FileName);
+            return dialog.ShowDialog(owner ?? this) == true ? dialog.FileName : null;
         }
 
         private void DoSave()
@@ -3643,11 +3679,11 @@ namespace UniversSale
                 case RightPanel.Inspector:
                     icon = "article-bold"; name = "Général"; gesture = AppSettings.Gesture("toggle-inspector"); break;
                 case RightPanel.Correction:
-                    icon = "exam-bold"; name = "Détails de correction"; break;
+                    icon = "file-magnifying-glass"; name = "Détails de correction"; break;
                 case RightPanel.Search:
                     icon = "magnifying-glass-bold"; name = "Recherche dans le projet"; gesture = AppSettings.Gesture("project-search"); break;
                 case RightPanel.Versions:
-                    icon = "arrow-up-left-bold"; name = "Versions de l'écrit"; gesture = AppSettings.Gesture("versions-panel"); break;
+                    icon = "git-branch"; name = "Versions de l'écrit"; gesture = AppSettings.Gesture("versions-panel"); break;
                 case RightPanel.Metadata:
                     icon = "list-dashes-bold"; name = "Métadonnées du livre"; break;
                 case RightPanel.Edition:

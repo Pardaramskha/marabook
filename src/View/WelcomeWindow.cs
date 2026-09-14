@@ -8,6 +8,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 
@@ -30,6 +31,16 @@ namespace UniversSale.View
         private TextBlock _updateText;
         private Button _updateButton;
         private Updater.Info _latest;
+
+        // L'indicateur de chargement (14/09) : un projet long à ouvrir ne
+        // doit pas passer pour un plantage — le texte dit ce qui s'ouvre,
+        // le curseur va et vient sur son rail tant que ça dure.
+        private bool _opening;
+        private UIElement _loading;
+        private TextBlock _loadingText;
+        private Border _runner;
+        private UniformGrid _tiles;
+        private Button _openButton;
 
         public WelcomeWindow(MainWindow shell)
         {
@@ -165,7 +176,13 @@ namespace UniversSale.View
                 "Choisir un fichier .plot sur le disque",
                 Buttons.Compact, Buttons.Look.Outline);
             open.Margin = new Thickness(12, 0, 0, 0);
-            open.Click += delegate { _shell.OpenProjectWithDialog(this); };
+            open.Click += delegate
+            {
+                if (_opening) return;
+                var chosen = _shell.AskProjectFile(this);
+                if (chosen != null) BeginOpen(chosen);
+            };
+            _openButton = open;
             titleRow.Children.Add(open);
             center.Children.Add(titleRow);
             var tiles = new UniformGrid { Rows = 1, Columns = 6, Height = 150 };
@@ -180,9 +197,91 @@ namespace UniversSale.View
             tiles.Children.Add(NewTile());
             for (var i = shown + 1; i < 6; i++)
                 tiles.Children.Add(new Border { Visibility = Visibility.Hidden });
+            _tiles = tiles;
             center.Children.Add(tiles);
+            center.Children.Add(BuildLoading());
             root.Children.Add(center);
             return root;
+        }
+
+        // ------------------------------------------------------- chargement
+
+        /// <summary>La ligne d'attente sous les tuiles : un rail et son
+        /// curseur, le nom du projet qui s'ouvre. Cachée (mais sa place
+        /// réservée, rien ne saute) tant qu'on n'ouvre rien.</summary>
+        private UIElement BuildLoading()
+        {
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(6, 14, 0, 0),
+                Visibility = Visibility.Hidden
+            };
+            var rail = new Canvas
+            {
+                Width = 120,
+                Height = 4,
+                VerticalAlignment = VerticalAlignment.Center,
+                ClipToBounds = true
+            };
+            rail.Children.Add(new Border
+            {
+                Width = 120,
+                Height = 4,
+                CornerRadius = new CornerRadius(2),
+                Background = Chrome.Border
+            });
+            _runner = new Border
+            {
+                Width = 40,
+                Height = 4,
+                CornerRadius = new CornerRadius(2),
+                Background = Chrome.Accent
+            };
+            rail.Children.Add(_runner);
+            row.Children.Add(rail);
+            _loadingText = new TextBlock
+            {
+                FontSize = 12,
+                Foreground = Chrome.SoftText,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 0, 0)
+            };
+            row.Children.Add(_loadingText);
+            _loading = row;
+            return row;
+        }
+
+        /// <summary>Ouvre un projet en montrant l'attente : les tuiles et le
+        /// bouton se désactivent, le curseur court, la lecture du fichier se
+        /// fait en fond (MainWindow.OpenFileInBackground). Réussite : l'accueil
+        /// est relâché par la coquille. Échec (fichier illisible, secours
+        /// refusé) : tout revient, l'accueil reste.</summary>
+        private void BeginOpen(string path)
+        {
+            if (_opening) return;
+            _opening = true;
+            _tiles.IsEnabled = false;
+            _openButton.IsEnabled = false;
+            _loadingText.Text = "Ouverture de « "
+                + System.IO.Path.GetFileNameWithoutExtension(path) + " »…";
+            _loading.Visibility = Visibility.Visible;
+            var sweep = new DoubleAnimation(0, 80, TimeSpan.FromMilliseconds(700))
+            {
+                AutoReverse = true,
+                RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+            };
+            _runner.BeginAnimation(Canvas.LeftProperty, sweep);
+            _shell.OpenFileInBackground(path, delegate
+            {
+                if (_shell.HasProjectPath) { Release(); return; }
+                _runner.BeginAnimation(Canvas.LeftProperty, null);
+                _loading.Visibility = Visibility.Hidden;
+                _tiles.IsEnabled = true;
+                _openButton.IsEnabled = true;
+                _opening = false;
+            });
         }
 
         /// <summary>Une tuile de projet récent : le nom, le dossier, la date
@@ -232,12 +331,9 @@ namespace UniversSale.View
             tile.ToolTip = path;
             if (exists)
             {
-                tile.MouseLeftButtonUp += delegate
-                {
-                    _shell.OpenFile(path);
-                    // OpenFile a échoué (fichier illisible) : l'accueil reste.
-                    if (_shell.HasProjectPath) Release();
-                };
+                // L'ouverture passe par l'attente (14/09) ; si elle échoue
+                // (fichier illisible), l'accueil reste.
+                tile.MouseLeftButtonUp += delegate { BeginOpen(path); };
             }
             return tile;
         }

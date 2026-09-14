@@ -59,18 +59,18 @@ namespace UniversSale.View
                 frame.Background = new ImageBrush(source) { Stretch = Stretch.UniformToFill };
                 return frame;
             }
-            // L'écusson provisoire : dégradé accent (ou gris) et une étoile.
+            // L'écusson provisoire : dégradé accent (ou gris) et le trophée
+            // (icône « achievement » de Rémi, 14/09 — plus l'étoile en texte).
             frame.Background = unlocked
                 ? (Brush)new LinearGradientBrush(Chrome.Accent.Color, Chrome.AccentStrong.Color, 90)
                 : new SolidColorBrush(Chrome.Blend(Chrome.SoftText.Color, Chrome.WindowBg.Color, 0.5));
-            frame.Child = new TextBlock
+            var trophy = Icons.Make("achievement", size * 0.56, Brushes.White) as FrameworkElement;
+            if (trophy != null)
             {
-                Text = "★",
-                FontSize = size * 0.5,
-                Foreground = Brushes.White,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            };
+                trophy.HorizontalAlignment = HorizontalAlignment.Center;
+                trophy.VerticalAlignment = VerticalAlignment.Center;
+                frame.Child = trophy;
+            }
             return frame;
         }
     }

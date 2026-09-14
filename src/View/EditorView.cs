@@ -691,7 +691,7 @@ namespace UniversSale.View
             panel.Children.Add(Stacked(previousFinding, nextFinding));
             panel.Children.Add(VerticalRuleTall());
 
-            _corrDetailsBtn = OneLineToggle("exam-bold", "Détails de correction",
+            _corrDetailsBtn = OneLineToggle("file-magnifying-glass", "Détails de correction",
                 "Le panneau des signalements, à droite — il remplace les "
                 + "détails du chapitre tant qu'il est ouvert");
             _corrDetailsBtn.IsChecked = Settings.AppSettings.RightPanel == Settings.RightPanel.Correction;
