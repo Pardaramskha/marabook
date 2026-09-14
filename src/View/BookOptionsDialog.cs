@@ -16,11 +16,17 @@ namespace UniversSale.View
             public string Title;
             public string Icon;      // null = icône par défaut
             public int ChapterGoal;  // 0 = aucun objectif
+            public string Deadline;  // "yyyy-MM-dd", "" = aucune (b48)
+            public int SizeGoal;     // 0 = aucun
+            public string SizeUnit;  // "words" | "chars"
         }
 
         private readonly BinderItem _book;
         private readonly TextBox _title;
         private readonly SpinnerField _goal;
+        private readonly SpinnerField _size;   // objectif de taille (b48)
+        private readonly ComboBox _unit;
+        private string _deadlineText;          // tel que saisi (JJ/MM/AAAA)
         private readonly Border _iconHost;
         private string _icon;
         private bool _accepted;
@@ -106,6 +112,39 @@ namespace UniversSale.View
             };
             panel.Children.Add(hint);
 
+            // b48 : la projection en taille et l'échéance, à côté des chapitres.
+            panel.Children.Add(Label("Objectif — taille du livre (0 = aucun) :"));
+            var sizeRow = new StackPanel { Orientation = Orientation.Horizontal };
+            _size = new SpinnerField(book.Book != null ? book.Book.SizeGoal : 0, 0, 5000000, 1000,
+                "Le livre vise ce nombre de mots ou de caractères (textes du récit, liminaires exclus)");
+            _size.BoxWidth = 84; // « 120 000 » doit tenir
+            sizeRow.Children.Add(_size);
+            _unit = new ComboBox { Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, MinWidth = 110 };
+            _unit.Items.Add("mots");
+            _unit.Items.Add("caractères");
+            _unit.SelectedIndex = book.Book != null && book.Book.CountsChars ? 1 : 0;
+            sizeRow.Children.Add(_unit);
+            panel.Children.Add(sizeRow);
+
+            panel.Children.Add(Label("Échéance (JJ/MM/AAAA, vide = aucune) :"));
+            _deadlineText = book.Book == null || book.Book.Deadline.Length == 0 ? "" : Dates.Display(book.Book.Deadline);
+            var deadline = FieldEditors.Build(FieldKinds.Date, _deadlineText, null, null, null,
+                delegate(string text) { _deadlineText = text; }, null);
+            deadline.MaxWidth = 340;
+            deadline.HorizontalAlignment = HorizontalAlignment.Left;
+            deadline.MinWidth = 220;
+            panel.Children.Add(deadline);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Avec une échéance et une taille, la carte « Où j'en suis » et le "
+                    + "Général du livre disent ce qu'il reste à écrire par jour.",
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 340,
+                Margin = new Thickness(0, 6, 0, 0)
+            });
+
             var buttons = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -162,11 +201,20 @@ namespace UniversSale.View
             Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return null;
             var title = dialog._title.Text.Trim();
+            // L'échéance saisie JJ/MM/AAAA devient « yyyy-MM-dd » ; illisible = aucune.
+            System.DateTime parsed;
+            var typed = (dialog._deadlineText ?? "").Trim();
+            var deadline = typed.Length > 0 && System.DateTime.TryParseExact(typed, "dd/MM/yyyy",
+                System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out parsed)
+                ? parsed.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) : "";
             return new Result
             {
                 Title = title.Length == 0 ? book.Title : title,
                 Icon = dialog._icon,
-                ChapterGoal = System.Math.Max(0, (int)System.Math.Round(dialog._goal.Value))
+                ChapterGoal = System.Math.Max(0, (int)System.Math.Round(dialog._goal.Value)),
+                Deadline = deadline,
+                SizeGoal = System.Math.Max(0, (int)System.Math.Round(dialog._size.Value)),
+                SizeUnit = dialog._unit.SelectedIndex == 1 ? "chars" : "words"
             };
         }
     }

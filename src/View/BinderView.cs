@@ -621,12 +621,19 @@ namespace UniversSale.View
         /// les tuiles de la bibliothèque de fiches offrent le même.</summary>
         public ContextMenu BuildContextMenu(BinderItem item)
         {
-            return BuildContextMenu(item, false);
+            return BuildContextMenu(item, false, true);
         }
 
-        /// <summary>Le même menu, « Supprimer » demandant confirmation — pour
-        /// les tuiles des corkboards, de la bibliothèque et de l'Accueil (14/09).</summary>
+        /// <summary>Le même menu pour les TUILES des corkboards, de la
+        /// bibliothèque et de l'Accueil (14/09) : « Supprimer » demande
+        /// confirmation, et les créations « au même niveau » de la Pile
+        /// (Nouvelle fiche, Nouvel import, Nouveau plan) n'y sont pas.</summary>
         public ContextMenu BuildContextMenu(BinderItem item, bool confirmDelete)
+        {
+            return BuildContextMenu(item, confirmDelete, false);
+        }
+
+        private ContextMenu BuildContextMenu(BinderItem item, bool confirmDelete, bool fromPile)
         {
             var menu = new ContextMenu();
             var inTrash = item.RootCategory().CategoryKey == Project.KeyTrash;
@@ -684,6 +691,19 @@ namespace UniversSale.View
                         AddMenu(menu, "Nouveau livre", delegate { NewBook(item); });
                     AddMenu(menu, "Nouveau dossier", delegate { NewFolder(item); });
                 }
+            }
+            // Depuis la Pile seulement (14/09) : créer AU MÊME NIVEAU que
+            // l'item cliqué — une fiche à côté d'une fiche, un import à côté
+            // d'un document de Recherche, un plan à côté d'un plan.
+            if (fromPile && !item.IsCategory)
+            {
+                var parent = item.Parent;
+                if (item.Kind == ItemKind.Sheet)
+                    AddMenu(menu, "Nouvelle fiche", delegate { NewSheet(parent); });
+                else if (item.Kind == ItemKind.Media)
+                    AddMenu(menu, "Nouvel import…", delegate { ImportMediaDialog(parent); });
+                else if (item.Kind == ItemKind.Plan)
+                    AddMenu(menu, "Nouveau plan", delegate { NewPlan(null); });
             }
             if (!item.IsCategory)
             {
@@ -895,7 +915,8 @@ namespace UniversSale.View
             if (item == null || item.Kind != ItemKind.Book) return;
             var result = BookOptionsDialog.Ask(Window.GetWindow(this), item);
             if (result == null) return;
-            var action = new BookOptionsAction(item, result.Title, result.Icon, result.ChapterGoal);
+            var action = new BookOptionsAction(item, result.Title, result.Icon, result.ChapterGoal,
+                result.Deadline, result.SizeGoal, result.SizeUnit);
             if (action.IsNoOp) return;
             RunAndSelect(action, item.Id, null);
         }

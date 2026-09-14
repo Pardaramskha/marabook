@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
@@ -28,6 +29,9 @@ namespace UniversSale.View
         private Border _progressTrack, _progressFill, _goalChip;
         private TextBlock _tile7, _tile30, _tileStreak, _tileTotal;
         private Canvas _chart;
+        private int _chartDays = 14;             // 14, 30 ou 90 (b48)
+        private readonly List<ToggleButton> _rangeChips = new List<ToggleButton>();
+        private StackPanel _sprintsPanel;        // les derniers sprints (b48)
         private SpinnerField _goalField;
         private double _progressRatio;
 
@@ -177,13 +181,43 @@ namespace UniversSale.View
             var chartCard = Card();
             chartCard.Margin = new Thickness(0, 10, 0, 0);
             var chartPanel = new StackPanel();
-            chartPanel.Children.Add(new TextBlock
+            // L'en-tête du graphique (b48) : le titre, et à droite trois chips
+            // 14 / 30 / 90 jours — la même courbe, plus loin en arrière.
+            var chartHead = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
+            var chips = new StackPanel { Orientation = Orientation.Horizontal };
+            foreach (var days in new[] { 14, 30, 90 })
             {
-                Text = "Quatorze derniers jours",
+                var daysRef = days;
+                var chip = new ToggleButton
+                {
+                    Content = days + " j",
+                    FontSize = 11,
+                    Padding = new Thickness(8, 1, 8, 1),
+                    Margin = new Thickness(4, 0, 0, 0),
+                    IsChecked = days == _chartDays,
+                    Focusable = false,
+                    ToolTip = "Les " + days + " derniers jours"
+                };
+                chip.Checked += delegate
+                {
+                    _chartDays = daysRef;
+                    foreach (var other in _rangeChips) if (other != chip && other.IsChecked == true) other.IsChecked = false;
+                    DrawChart();
+                };
+                chip.Unchecked += delegate { if (_chartDays == daysRef) chip.IsChecked = true; }; // toujours un chip actif
+                _rangeChips.Add(chip);
+                chips.Children.Add(chip);
+            }
+            DockPanel.SetDock(chips, Dock.Right);
+            chartHead.Children.Add(chips);
+            chartHead.Children.Add(new TextBlock
+            {
+                Text = "Derniers jours — mots nets par jour, la moyenne en pointillé",
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
-                Margin = new Thickness(0, 0, 0, 10)
+                VerticalAlignment = VerticalAlignment.Center
             });
+            chartPanel.Children.Add(chartHead);
             _chart = new Canvas { Height = 130, ClipToBounds = false };
             _chart.SizeChanged += delegate { DrawChart(); };
             chartPanel.Children.Add(_chart);
@@ -236,6 +270,29 @@ namespace UniversSale.View
             });
             goalCard.Child = goal;
             page.Children.Add(goalCard);
+
+            // ---- sprints (b48) ----
+            var sprintsCard = Card();
+            sprintsCard.Margin = new Thickness(0, 10, 0, 0);
+            var sprints = new StackPanel();
+            sprints.Children.Add(new TextBlock
+            {
+                Text = "Sprints",
+                Foreground = Chrome.Ink,
+                FontWeight = FontWeights.SemiBold
+            });
+            sprints.Children.Add(new TextBlock
+            {
+                Text = "Les derniers sprints — Édition › Lancer un sprint… : une durée, un objectif de mots, un bandeau discret.",
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 8)
+            });
+            _sprintsPanel = new StackPanel();
+            sprints.Children.Add(_sprintsPanel);
+            sprintsCard.Child = sprints;
+            page.Children.Add(sprintsCard);
 
             // ---- succès (12/09/2026), dans leur propre onglet (14/09) ----
             page = Page();
@@ -492,7 +549,47 @@ namespace UniversSale.View
             _goalField.Value = journal.DailyGoal;
             _loading = false;
             DrawChart();
+            RebuildSprints();
             RefreshAchievements();
+        }
+
+        /// <summary>Les huit derniers sprints, le plus récent en tête (b48).</summary>
+        private void RebuildSprints()
+        {
+            _sprintsPanel.Children.Clear();
+            if (_project == null) return;
+            var culture = CultureInfo.CurrentCulture;
+            var last = _project.Journal.LastSprints(8);
+            if (last.Count == 0)
+            {
+                _sprintsPanel.Children.Add(new TextBlock { Text = "Aucun sprint pour l'instant.", Foreground = Chrome.SoftText, FontSize = 11 });
+                return;
+            }
+            foreach (var sprint in last)
+            {
+                var row = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+                var verdict = new TextBlock
+                {
+                    Text = sprint.Goal <= 0 ? "" : sprint.Reached ? "objectif atteint ✓" : "objectif " + sprint.Goal.ToString("N0", culture),
+                    Foreground = sprint.Reached ? Chrome.Ok : Chrome.SoftText,
+                    FontSize = 11,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                DockPanel.SetDock(verdict, Dock.Right);
+                row.Children.Add(verdict);
+                DateTime when;
+                var date = DateTime.TryParseExact(sprint.Date, "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out when)
+                    ? when.ToString("dd/MM HH:mm", culture) : sprint.Date;
+                row.Children.Add(new TextBlock
+                {
+                    Text = date + " — " + (sprint.Minutes > 0 ? sprint.Minutes + " min" : "libre, " + sprint.Elapsed + " min")
+                        + " · " + sprint.Words.ToString("N0", culture) + (sprint.Words > 1 ? " mots" : " mot"),
+                    Foreground = Chrome.Ink,
+                    FontSize = 12,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                _sprintsPanel.Children.Add(row);
+            }
         }
 
         private void UpdateProgressFill()
@@ -513,7 +610,7 @@ namespace UniversSale.View
             var journal = _project.Journal;
             var culture = CultureInfo.CurrentCulture;
 
-            const int count = 14;
+            var count = _chartDays;
             const double labelBand = 16;
             var plotHeight = _chart.Height - labelBand;
 
@@ -530,8 +627,9 @@ namespace UniversSale.View
             var scale = Math.Max(max, journal.DailyGoal > 0 ? journal.DailyGoal : 0);
             if (scale == 0) scale = 100; // page vide : talons seuls, échelle neutre
 
-            var gap = 2.0;
-            var barWidth = Math.Min(30, (width - gap * (count - 1)) / count);
+            var gap = count > 30 ? 1.0 : 2.0;
+            var barWidth = Math.Max(2, Math.Min(30, (width - gap * (count - 1)) / count));
+            var every = count <= 14 ? 1 : count <= 30 ? 5 : 15; // une étiquette de jour sur « every »
             var span = barWidth * count + gap * (count - 1);
             var left = (width - span) / 2;
 
@@ -550,6 +648,28 @@ namespace UniversSale.View
                     StrokeDashArray = new DoubleCollection(new double[] { 3, 3 })
                 };
                 _chart.Children.Add(line);
+            }
+
+            // La moyenne de la période (b48) : un pointillé accent, son chiffre à droite.
+            var mean = journal.AverageOverDays(count);
+            if (mean > 0)
+            {
+                var y = plotHeight - plotHeight * mean / scale;
+                _chart.Children.Add(new System.Windows.Shapes.Line
+                {
+                    X1 = left, X2 = left + span, Y1 = y, Y2 = y,
+                    Stroke = Chrome.Accent, StrokeThickness = 1, Opacity = 0.7,
+                    StrokeDashArray = new DoubleCollection(new double[] { 2, 3 })
+                });
+                var meanLabel = new TextBlock
+                {
+                    Text = "moy. " + Math.Round(mean).ToString("N0", culture),
+                    Foreground = Chrome.Accent,
+                    FontSize = 9
+                };
+                Canvas.SetLeft(meanLabel, left + span + 4);
+                Canvas.SetTop(meanLabel, y - 7);
+                _chart.Children.Add(meanLabel);
             }
 
             for (var i = 0; i < count; i++)
@@ -574,16 +694,17 @@ namespace UniversSale.View
                 Canvas.SetTop(bar, plotHeight - height);
                 _chart.Children.Add(bar);
 
+                if ((count - 1 - i) % every != 0) continue; // étiquettes espacées sur 30 et 90 jours
                 var label = new TextBlock
                 {
-                    Text = dates[i].Day.ToString(),
+                    Text = count > 14 ? dates[i].ToString("d/M", culture) : dates[i].Day.ToString(),
                     Foreground = Chrome.SoftText,
                     FontSize = 9,
-                    Width = barWidth,
+                    Width = Math.Max(barWidth, 26),
                     TextAlignment = TextAlignment.Center,
                     FontWeight = isToday ? FontWeights.SemiBold : FontWeights.Normal
                 };
-                Canvas.SetLeft(label, x);
+                Canvas.SetLeft(label, x + barWidth / 2 - Math.Max(barWidth, 26) / 2);
                 Canvas.SetTop(label, plotHeight + 3);
                 _chart.Children.Add(label);
             }

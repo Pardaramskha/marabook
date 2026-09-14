@@ -64,7 +64,7 @@ namespace UniversSale.Settings
             new ActionDefinition("preferences", "Fichier", "Préférences de l'application", null),
             new ActionDefinition("print-preview", "Fichier", "Aperçu des pages", "Ctrl+Alt+P"),
             new ActionDefinition("print", "Fichier", "Imprimer", "Ctrl+P"),
-            new ActionDefinition("session-goal", "Écriture", "Objectif de session", null),
+            new ActionDefinition("session-goal", "Écriture", "Lancer un sprint", null),
             new ActionDefinition("toggle-binder", "Affichage", "Afficher la Pile", "Ctrl+D1"),
             new ActionDefinition("toggle-inspector", "Affichage", "Afficher l'inspecteur", "Ctrl+D2"),
             new ActionDefinition("dark-theme", "Affichage", "Thème sombre", "Ctrl+Shift+L"),

@@ -133,7 +133,16 @@ namespace UniversSale
         // document yields a net delta, credited to today — imports, purges and
         // moves never touch the journal (see UpdateStats).
         private readonly Dictionary<string, int> _wordCache = new Dictionary<string, int>();
-        private int _sessionGoal, _sessionBaseWords;
+        private int _sessionGoal, _sessionBaseWords; // l'objectif du sprint en cours (b48 : le sprint a remplacé l'objectif de session)
+        // Le SPRINT (b48) : lancé pour une durée (0 = libre) et un objectif de
+        // mots, suivi par une pastille discrète en haut de la zone centrale.
+        private DateTime _sprintStart;
+        private int _sprintMinutes;
+        private bool _sprintActive, _sprintFinished;
+        private DispatcherTimer _sprintTimer;
+        private Border _sprintPill;
+        private TextBlock _sprintText;
+        private TextBlock _paceLabel;               // le rythme du livre (Général, b48)
 
         public MainWindow()
         {
@@ -311,7 +320,7 @@ namespace UniversSale
             _versionsMenu = Entry("versions-panel", "Versions de l'écrit…", OpenVersionsPanel, TextActive);
             _versionsMenu.IsCheckable = true;
             edit.Items.Add(_versionsMenu);
-            edit.Items.Add(Entry("session-goal", "Objectif de session…", SetSessionGoal));
+            edit.Items.Add(Entry("session-goal", "Lancer un sprint…", StartSprint));
             edit.Items.Add(new Separator());
             edit.Items.Add(Entry("new-text", "Nouvel écrit", delegate { _binder.NewText(null); }));
             edit.Items.Add(Entry("new-sheet", "Nouvelle fiche", delegate { _binder.NewSheet(null); }));
@@ -618,9 +627,9 @@ namespace UniversSale
             _homeView.OpenRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _homeView.MenuProvider = delegate(BinderItem item) { return _binder.BuildContextMenu(item, true); };
             _homeView.RenameRequested += RenameProject;
-            _homeView.SessionGoal = delegate { return _sessionGoal; };
-            _homeView.SessionBaseWords = delegate { return _sessionBaseWords; };
-            _homeView.ProjectWords = ProjectWords;
+            _homeView.Sprint = SprintStatusNow;
+            _homeView.WordsOf = WordsOfItem;
+            _homeView.CharsOf = CharsOfItem;
             center.Children.Add(_homeView);
 
             _dictionaryView = new View.DictionaryView { Visibility = Visibility.Collapsed };
@@ -688,6 +697,7 @@ namespace UniversSale
             _bookView.ImportTemplateRequested += ImportPageTemplate;
             _bookView.CopyTemplateRequested += CopyPageTemplate;
             _bookView.NewDocumentRequested += NewBookDocument;
+            _bookView.MenuProvider = delegate(BinderItem item) { return _binder.BuildContextMenu(item, true); }; // le corkboard du livre aussi (14/09)
             center.Children.Add(_bookView);
 
             _templateView = new View.TemplateView { Visibility = Visibility.Collapsed };
@@ -752,6 +762,35 @@ namespace UniversSale
             _calmExit.MouseLeave += delegate { _calmExit.Opacity = 0.45; };
             _calmExit.MouseLeftButtonUp += delegate { SetCalmMode(false); };
             center.Children.Add(_calmExit);
+
+            // La pastille du sprint (b48) : en haut de la zone centrale,
+            // centrée, discrète — le temps qui reste, les mots écrits, une
+            // croix pour arrêter ou refermer.
+            var sprintRow = new StackPanel { Orientation = Orientation.Horizontal };
+            _sprintText = new TextBlock { FontSize = 12, Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center };
+            sprintRow.Children.Add(_sprintText);
+            var sprintStop = Buttons.Text("✕", "Arrêter le sprint (ou refermer la pastille)", Buttons.Compact, Buttons.Look.Calm);
+            sprintStop.Margin = new Thickness(8, 0, 0, 0);
+            sprintStop.Click += delegate { CloseSprint(); };
+            sprintRow.Children.Add(sprintStop);
+            _sprintPill = new Border
+            {
+                Background = Chrome.RaisedBg,
+                BorderBrush = Chrome.Accent,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(14),
+                Padding = new Thickness(14, 3, 6, 3),
+                // À droite, sous l'axe d'affichage du ruban (Pages/Brouillon/
+                // Calme) : jamais sur les onglets, jamais sur la sortie du calme.
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 40, 24, 0),
+                Visibility = Visibility.Collapsed,
+                Child = sprintRow
+            };
+            center.Children.Add(_sprintPill);
+            _sprintTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _sprintTimer.Tick += delegate { TickSprint(); };
 
             _centerHost = center;
             Grid.SetColumn(center, 2);
@@ -1317,6 +1356,15 @@ namespace UniversSale
             _progDone = _bookBar.Done;
             _progUndone = _bookBar.Undone;
             _progressSection.Children.Add(_bookBar);
+            _paceLabel = new TextBlock
+            {
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0),
+                Visibility = Visibility.Collapsed
+            };
+            _progressSection.Children.Add(_paceLabel);
             _progressSection.MouseLeftButtonUp += delegate
             {
                 if (_current != null && _current.Kind == ItemKind.Book) _binder.BookOptions(_current);
@@ -1557,6 +1605,7 @@ namespace UniversSale
             _wordCache.Clear();
             _pageCountCache.Clear();
             _sessionGoal = 0;
+            ResetSprint();
             _editor.SetStyleSheet(project.Styles);
             _editor.SetProject(project);
             _editor.ApplyPageSetup(project.Page);
@@ -3249,22 +3298,127 @@ namespace UniversSale
 
         // ============================================================= session goal
 
-        private void SetSessionGoal()
+        // ============================================================= sprints (b48)
+
+        /// <summary>Édition › Lancer un sprint… : une durée (15, 25, 45 min ou
+        /// libre) et un objectif de mots ; la pastille suit, le journal
+        /// consigne à la fin. Un sprint en cours est d'abord arrêté.</summary>
+        private void StartSprint()
         {
-            var answer = View.InputDialog.Ask(this, "Objectif de session",
-                "Nombre de mots à écrire (0 pour désactiver) :",
-                _sessionGoal > 0 ? _sessionGoal.ToString() : "500");
-            if (answer == null) return;
-            int goal;
-            if (!int.TryParse(answer.Trim(), out goal) || goal <= 0)
-            {
-                _sessionGoal = 0;
-                UpdateStats();
-                return;
-            }
-            _sessionGoal = goal;
+            if (_project == null) return;
+            var choice = SprintDialog.Ask(this);
+            if (choice == null) return;
+            if (_sprintActive) FinishSprint();
+            _sessionGoal = choice.Goal;
             _sessionBaseWords = ProjectWords();
+            _sprintStart = DateTime.Now;
+            _sprintMinutes = choice.Minutes;
+            _sprintActive = true;
+            _sprintFinished = false;
+            _sprintPill.BorderBrush = Chrome.Accent;
+            _sprintPill.Visibility = Visibility.Visible;
+            _sprintTimer.Start();
+            TickSprint();
             UpdateStats();
+            RefreshHomeIfShown();
+        }
+
+        private int SprintWords()
+        {
+            return Math.Max(0, ProjectWords() - _sessionBaseWords);
+        }
+
+        private void TickSprint()
+        {
+            if (!_sprintActive) return;
+            var elapsed = DateTime.Now - _sprintStart;
+            var words = SprintWords();
+            var culture = CultureInfo.CurrentCulture;
+            if (_sprintMinutes > 0)
+            {
+                var left = TimeSpan.FromMinutes(_sprintMinutes) - elapsed;
+                if (left <= TimeSpan.Zero) { FinishSprint(); return; }
+                _sprintText.Text = "⏱ " + left.ToString(@"mm\:ss") + "   ·   " + words.ToString("N0", culture)
+                    + (_sessionGoal > 0 ? " / " + _sessionGoal.ToString("N0", culture) : "") + " mots"
+                    + (_sessionGoal > 0 && words >= _sessionGoal ? " — objectif atteint !" : "");
+            }
+            else
+                _sprintText.Text = "⏱ " + elapsed.ToString(@"hh\:mm\:ss") + "   ·   " + words.ToString("N0", culture)
+                    + (_sessionGoal > 0 ? " / " + _sessionGoal.ToString("N0", culture) : "") + " mots"
+                    + (_sessionGoal > 0 && words >= _sessionGoal ? " — objectif atteint !" : "");
+        }
+
+        /// <summary>Le sprint s'achève (temps écoulé, ou arrêt) : consigné dans
+        /// le journal, la pastille passe au vert et reste jusqu'à la croix.</summary>
+        private void FinishSprint()
+        {
+            if (!_sprintActive) return;
+            _sprintTimer.Stop();
+            _sprintActive = false;
+            _sprintFinished = true;
+            var elapsedMinutes = (int)Math.Round((DateTime.Now - _sprintStart).TotalMinutes);
+            var words = SprintWords();
+            var culture = CultureInfo.CurrentCulture;
+            _project.Journal.Sprints.Add(new SprintRecord
+            {
+                Date = _sprintStart.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                Minutes = _sprintMinutes,
+                Elapsed = Math.Max(_sprintMinutes > 0 ? Math.Min(_sprintMinutes, elapsedMinutes) : elapsedMinutes, 0),
+                Words = words,
+                Goal = _sessionGoal
+            });
+            MarkDirty();
+            _sprintPill.BorderBrush = Chrome.Ok;
+            _sprintText.Text = "Sprint terminé — " + words.ToString("N0", culture) + (words > 1 ? " mots" : " mot")
+                + " en " + Math.Max(1, elapsedMinutes) + " min"
+                + (_sessionGoal > 0 && words >= _sessionGoal ? " — objectif atteint !" : "");
+            if (_journalView.Visibility == Visibility.Visible) _journalView.Refresh();
+            RefreshHomeIfShown();
+        }
+
+        /// <summary>La croix : un sprint en cours s'arrête (et se consigne),
+        /// une pastille finie se referme ; l'objectif de la barre d'état s'efface.</summary>
+        private void CloseSprint()
+        {
+            if (_sprintActive) FinishSprint();
+            _sprintFinished = false;
+            _sprintPill.Visibility = Visibility.Collapsed;
+            _sessionGoal = 0;
+            UpdateStats();
+            RefreshHomeIfShown();
+        }
+
+        /// <summary>Changement de projet : le sprint en cours est oublié
+        /// (jamais consigné dans un autre journal).</summary>
+        private void ResetSprint()
+        {
+            if (_sprintTimer != null) _sprintTimer.Stop();
+            _sprintActive = false;
+            _sprintFinished = false;
+            if (_sprintPill != null) _sprintPill.Visibility = Visibility.Collapsed;
+        }
+
+        private View.SprintStatus SprintStatusNow()
+        {
+            if (!_sprintActive && !_sprintFinished) return null;
+            var elapsed = DateTime.Now - _sprintStart;
+            var status = new View.SprintStatus
+            {
+                Active = _sprintActive,
+                Finished = _sprintFinished,
+                Written = SprintWords(),
+                Goal = _sessionGoal,
+                Minutes = _sprintMinutes,
+                Elapsed = (int)Math.Round(elapsed.TotalMinutes)
+            };
+            status.SecondsLeft = _sprintMinutes > 0
+                ? Math.Max(0, (int)(TimeSpan.FromMinutes(_sprintMinutes) - elapsed).TotalSeconds) : -1;
+            return status;
+        }
+
+        private void RefreshHomeIfShown()
+        {
+            if (_homeView != null && _homeView.Visibility == Visibility.Visible) _homeView.Refresh();
         }
 
         // ============================================================= journal perso
@@ -4121,6 +4275,27 @@ namespace UniversSale
             }
             _progressSection.Visibility = Visibility.Visible;
             _bookBar.Show(BookProgress.Of(_current), "Objectif : aucun — définir dans les Options du livre…");
+            // Le rythme (b48) : échéance et taille, réglés dans les Options du livre.
+            var pace = BookPace.Of(_current, WordsOfItem, CharsOfItem, DateTime.Today);
+            var text = pace.Describe(CultureInfo.CurrentCulture);
+            _paceLabel.Text = text;
+            _paceLabel.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>Les mots d'un écrit, depuis le cache (chauffé à l'ouverture).</summary>
+        private int WordsOfItem(BinderItem item)
+        {
+            int words;
+            if (_wordCache.TryGetValue(item.Id, out words)) return words;
+            words = TextStats.Compute(item.Document.ToPlainText()).Words;
+            _wordCache[item.Id] = words;
+            return words;
+        }
+
+        /// <summary>Les caractères (espaces comprises) d'un écrit — à la demande.</summary>
+        private int CharsOfItem(BinderItem item)
+        {
+            return TextStats.Compute(item.Document.ToPlainText()).Sec;
         }
 
         /// <summary>La pastille du bouton reflète la couleur de carte de

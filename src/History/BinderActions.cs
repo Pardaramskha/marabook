@@ -144,19 +144,36 @@ namespace UniversSale.History
         private readonly string _oldTitle, _newTitle;
         private readonly string _oldIcon, _newIcon;
         private readonly int _oldGoal, _newGoal;
+        // b48 : l'échéance et l'objectif de taille voyagent avec les options.
+        private readonly string _oldDeadline, _newDeadline, _oldUnit, _newUnit;
+        private readonly int _oldSize, _newSize;
 
         public BookOptionsAction(BinderItem book, string title, string icon, int chapterGoal)
+            : this(book, title, icon, chapterGoal, book.Book == null ? "" : book.Book.Deadline,
+                  book.Book == null ? 0 : book.Book.SizeGoal, book.Book == null ? "words" : book.Book.SizeUnit)
+        {
+        }
+
+        public BookOptionsAction(BinderItem book, string title, string icon, int chapterGoal,
+            string deadline, int sizeGoal, string sizeUnit)
         {
             _book = book;
             if (book.Book == null) book.Book = new BookInfo();
             _oldTitle = book.Title; _newTitle = title;
             _oldIcon = book.Icon; _newIcon = icon;
             _oldGoal = book.Book.ChapterGoal; _newGoal = Math.Max(0, chapterGoal);
+            _oldDeadline = book.Book.Deadline; _newDeadline = deadline ?? "";
+            _oldSize = book.Book.SizeGoal; _newSize = Math.Max(0, sizeGoal);
+            _oldUnit = book.Book.SizeUnit; _newUnit = sizeUnit == "chars" ? "chars" : "words";
         }
 
         public bool IsNoOp
         {
-            get { return _oldTitle == _newTitle && _oldIcon == _newIcon && _oldGoal == _newGoal; }
+            get
+            {
+                return _oldTitle == _newTitle && _oldIcon == _newIcon && _oldGoal == _newGoal
+                    && _oldDeadline == _newDeadline && _oldSize == _newSize && _oldUnit == _newUnit;
+            }
         }
 
         public void Do()
@@ -164,6 +181,9 @@ namespace UniversSale.History
             _book.Title = _newTitle;
             _book.Icon = _newIcon;
             _book.Book.ChapterGoal = _newGoal;
+            _book.Book.Deadline = _newDeadline;
+            _book.Book.SizeGoal = _newSize;
+            _book.Book.SizeUnit = _newUnit;
         }
 
         public void Undo()
@@ -171,6 +191,9 @@ namespace UniversSale.History
             _book.Title = _oldTitle;
             _book.Icon = _oldIcon;
             _book.Book.ChapterGoal = _oldGoal;
+            _book.Book.Deadline = _oldDeadline;
+            _book.Book.SizeGoal = _oldSize;
+            _book.Book.SizeUnit = _oldUnit;
         }
     }
 

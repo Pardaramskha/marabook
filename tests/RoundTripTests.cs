@@ -297,6 +297,8 @@ namespace UniversSale.Tests
             project.Journal.LastCelebrated = "2026-08-07";
             project.Journal.Days.Add(new JournalDay { Date = "2026-08-06", Words = 812 });
             project.Journal.Days.Add(new JournalDay { Date = "2026-08-07", Words = 43 });
+            // — Un sprint consigné (b48, v23).
+            project.Journal.Sprints.Add(new SprintRecord { Date = "2026-09-14 10:00", Minutes = 25, Elapsed = 25, Words = 412, Goal = 500 });
             project.Page = new PageSetup
             {
                 PageWidthMm = 148, PageHeightMm = 210,
@@ -380,6 +382,7 @@ namespace UniversSale.Tests
                     Subtitle = "Sous-titre", AuthorOverride = "Nom de plume",
                     Publisher = "Éditions du Marabout", Collection = "Plumes",
                     Isbn = "978-2-1234-5680-3", Year = "2026", BleedMm = 5,
+                    Deadline = "2027-03-12", SizeGoal = 80000, SizeUnit = "chars", // b48, v23
                     Template = new PageSetup
                     {
                         PageWidthMm = 140, PageHeightMm = 216,

@@ -73,6 +73,14 @@ namespace UniversSale.View
             Children.Add(_box);
         }
 
+        /// <summary>La largeur de la zone de saisie (44 par défaut) — à élargir
+        /// pour les grands nombres (objectif de taille d'un livre, b48).</summary>
+        public double BoxWidth
+        {
+            get { return _box.Width; }
+            set { _box.Width = value; }
+        }
+
         public double Value
         {
             get { return _value; }

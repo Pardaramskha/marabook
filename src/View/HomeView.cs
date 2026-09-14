@@ -8,6 +8,16 @@ using UniversSale.Model;
 
 namespace UniversSale.View
 {
+    /// <summary>L'état du sprint en cours, servi par la coquille (b48).</summary>
+    public class SprintStatus
+    {
+        public bool Active, Finished;
+        public int Written, Goal;
+        public int Minutes;      // prévues, 0 = libre
+        public int Elapsed;      // minutes écoulées
+        public int SecondsLeft;  // -1 = libre
+    }
+
     /// <summary>L'Accueil (batch 41) : la vue de la racine « Accueil » de la
     /// Pile — un point d'entrée qui rassemble ce qu'on reprend, ce qu'on
     /// épingle et où l'on en est (les raccourcis « Commencer » vivent dans le
@@ -36,11 +46,11 @@ namespace UniversSale.View
         public Func<BinderItem, ContextMenu> MenuProvider; // clic droit : le menu de la Pile (14/09)
         public event Action RenameRequested;             // le crayon à côté du nom du projet (b43)
 
-        // Fournis par la coquille (déjà calculés là-bas) : l'objectif de
-        // session en cours et les mots du projet.
-        public Func<int> SessionGoal;
-        public Func<int> SessionBaseWords;
-        public Func<int> ProjectWords;
+        // Fournis par la coquille (déjà calculés là-bas, b48) : le sprint en
+        // cours, les mots et caractères d'un écrit (pour le rythme des livres).
+        public Func<SprintStatus> Sprint;
+        public Func<BinderItem, int> WordsOf;
+        public Func<BinderItem, int> CharsOf;
 
         public HomeView()
         {
@@ -232,16 +242,24 @@ namespace UniversSale.View
                 any = true;
             }
 
-            var sessionGoal = SessionGoal == null ? 0 : SessionGoal();
-            if (sessionGoal > 0 && SessionBaseWords != null && ProjectWords != null)
+            // Le sprint (b48) : en cours ou fini, tant qu'il n'est pas refermé.
+            var sprint = Sprint == null ? null : Sprint();
+            if (sprint != null && (sprint.Active || sprint.Finished))
             {
-                var written = System.Math.Max(0, ProjectWords() - SessionBaseWords());
-                var bar = new BookProgressBar { Margin = new Thickness(0, 0, 0, 10) };
-                bar.ShowRatio("Session : " + written.ToString("N0", culture) + " / "
-                    + sessionGoal.ToString("N0", culture) + " mots"
-                    + (written >= sessionGoal ? " — objectif atteint !" : ""),
-                    (double)written / sessionGoal, written >= sessionGoal ? 1 : 0);
-                _progressList.Children.Add(bar);
+                var label = sprint.Finished
+                    ? "Sprint terminé : " + sprint.Written.ToString("N0", culture) + (sprint.Written > 1 ? " mots" : " mot")
+                        + " en " + sprint.Elapsed + " min" + (sprint.Goal > 0 && sprint.Written >= sprint.Goal ? " — objectif atteint !" : "")
+                    : "Sprint : " + sprint.Written.ToString("N0", culture)
+                        + (sprint.Goal > 0 ? " / " + sprint.Goal.ToString("N0", culture) : "") + " mots"
+                        + (sprint.SecondsLeft >= 0 ? " — " + System.Math.Ceiling(sprint.SecondsLeft / 60.0) + " min restantes" : " — sprint libre")
+                        + (sprint.Goal > 0 && sprint.Written >= sprint.Goal ? " — objectif atteint !" : "");
+                if (sprint.Goal > 0)
+                {
+                    var bar = new BookProgressBar { Margin = new Thickness(0, 0, 0, 10) };
+                    bar.ShowRatio(label, (double)sprint.Written / sprint.Goal, sprint.Written >= sprint.Goal ? 1 : 0);
+                    _progressList.Children.Add(bar);
+                }
+                else _progressList.Children.Add(Line(label));
                 any = true;
             }
 
@@ -249,11 +267,29 @@ namespace UniversSale.View
             {
                 if (item.Kind != ItemKind.Book || Recents.InTrash(item)) continue;
                 var progress = BookProgress.Of(item);
-                var bar = new BookProgressBar { Margin = new Thickness(0, 0, 0, 10) };
+                var bar = new BookProgressBar { Margin = new Thickness(0, 0, 0, 4) };
                 var title = string.IsNullOrEmpty(item.Title) ? "Livre" : item.Title;
                 bar.Show(progress, title + " — pas d'objectif de chapitres");
                 if (progress.HasGoal) bar.Label.Text = title + " — " + BookProgressBar.Describe(progress);
                 _progressList.Children.Add(bar);
+                // Le rythme (b48) : échéance et taille, s'ils sont réglés.
+                var pace = BookPace.Of(item, WordsOf, CharsOf, DateTime.Today);
+                if (pace.HasSizeGoal)
+                {
+                    var sizeBar = new BookProgressBar { Margin = new Thickness(0, 0, 0, 10) };
+                    sizeBar.ShowRatio(pace.Describe(culture), pace.Ratio, pace.Reached ? 1 : 0);
+                    _progressList.Children.Add(sizeBar);
+                }
+                else if (pace.HasDeadline) _progressList.Children.Add(Line(pace.Describe(culture)));
+                else bar.Margin = new Thickness(0, 0, 0, 10);
+                any = true;
+            }
+
+            // La série (b48) : les jours d'affilée, un repère qui donne envie.
+            var streak = journal.Streak();
+            if (streak > 0)
+            {
+                _progressList.Children.Add(Line("Série : " + streak + (streak > 1 ? " jours d'écriture d'affilée" : " jour d'écriture")));
                 any = true;
             }
 

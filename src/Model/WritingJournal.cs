@@ -12,6 +12,20 @@ namespace UniversSale.Model
         public int Words;
     }
 
+    /// <summary>Un SPRINT d'écriture (b48) : lancé pour une durée (0 = libre)
+    /// avec un objectif de mots (0 = sans), il consigne la date de départ,
+    /// les minutes réellement écoulées et les mots nets écrits.</summary>
+    public class SprintRecord
+    {
+        public string Date = "";  // "yyyy-MM-dd HH:mm"
+        public int Minutes;       // durée prévue, 0 = libre
+        public int Elapsed;       // minutes réellement écoulées
+        public int Words;
+        public int Goal;
+
+        public bool Reached { get { return Goal > 0 && Words >= Goal; } }
+    }
+
     /// <summary>The writer's personal journal, per project: net words written
     /// day by day plus the daily goal. Only EDITS feed it (the deltas of the
     /// open document) — imports, trash purges and structure moves never count
@@ -21,6 +35,22 @@ namespace UniversSale.Model
         public int DailyGoal;         // words per day, 0 = disabled
         public string LastCelebrated; // day the goal fanfare last fired ("yyyy-MM-dd")
         public List<JournalDay> Days = new List<JournalDay>();
+        public List<SprintRecord> Sprints = new List<SprintRecord>(); // b48, v23
+
+        /// <summary>Les n derniers sprints, le plus récent en tête.</summary>
+        public List<SprintRecord> LastSprints(int count)
+        {
+            var list = new List<SprintRecord>();
+            for (var i = Sprints.Count - 1; i >= 0 && list.Count < count; i--) list.Add(Sprints[i]);
+            return list;
+        }
+
+        /// <summary>La moyenne des mots par jour sur les <paramref name="count"/>
+        /// derniers jours (jours vides compris), aujourd'hui inclus.</summary>
+        public double AverageOverDays(int count)
+        {
+            return count <= 0 ? 0 : (double)WordsOverDays(count) / count;
+        }
 
         public static string Today()
         {

@@ -102,7 +102,11 @@ namespace UniversSale.Persistence
         //      et "options" sur une info libre ; RADAR d'un modèle ("radar" :
         //      {max, axes:[{id, name}]}, omis si désactivé) et valeurs d'une
         //      fiche ("radar" : {axeId: entier}, omis si vide).
-        private const int FormatVersion = 22;
+        // v23: BATCH 48 — objectifs et temps : échéance et objectif de taille
+        //      d'un livre ("book" : deadline « yyyy-MM-dd », sizeGoal, sizeUnit
+        //      "words"|"chars" — omis aux défauts) ; sprints du journal
+        //      ("journal" : "sprints" : [{d, m, e, w, g}]).
+        private const int FormatVersion = 23;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -306,7 +310,7 @@ namespace UniversSale.Persistence
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
             manifest["page"] = BuildPageSetup(project.Page);
-            if (project.Journal.DailyGoal > 0 || project.Journal.Days.Count > 0)
+            if (project.Journal.DailyGoal > 0 || project.Journal.Days.Count > 0 || project.Journal.Sprints.Count > 0)
             {
                 var journal = new Dictionary<string, object>();
                 if (project.Journal.DailyGoal > 0)
@@ -323,6 +327,21 @@ namespace UniversSale.Persistence
                     days.Add(entry);
                 }
                 if (days.Count > 0) journal["days"] = days;
+                if (project.Journal.Sprints.Count > 0) // v23
+                {
+                    var sprints = new List<object>();
+                    foreach (var sprint in project.Journal.Sprints)
+                    {
+                        var s = new Dictionary<string, object>();
+                        s["d"] = sprint.Date;
+                        s["m"] = sprint.Minutes;
+                        s["e"] = sprint.Elapsed;
+                        s["w"] = sprint.Words;
+                        s["g"] = sprint.Goal;
+                        sprints.Add(s);
+                    }
+                    journal["sprints"] = sprints;
+                }
                 manifest["journal"] = journal;
             }
             var roots = new List<object>();
@@ -433,6 +452,9 @@ namespace UniversSale.Persistence
                 if (item.Book.BackCover.Length > 0) book["backCover"] = item.Book.BackCover;
                 book["bleedMm"] = item.Book.BleedMm;
                 if (item.Book.ChapterGoal > 0) book["chapterGoal"] = item.Book.ChapterGoal;
+                if (item.Book.Deadline.Length > 0) book["deadline"] = item.Book.Deadline; // v23
+                if (item.Book.SizeGoal > 0) book["sizeGoal"] = item.Book.SizeGoal;
+                if (item.Book.SizeUnit != "words") book["sizeUnit"] = item.Book.SizeUnit;
                 book["template"] = BuildPageSetup(item.Book.Template);
                 node["book"] = book;
             }
@@ -789,6 +811,21 @@ namespace UniversSale.Persistence
                             var words = (int)Json.AsDouble(Json.Field(dayObj, "w"), 0);
                             if (date != null && words > 0)
                                 project.Journal.Days.Add(new JournalDay { Date = date, Words = words });
+                        }
+                    var sprints = Json.AsList(Json.Field(journal, "sprints")); // v23
+                    if (sprints != null)
+                        foreach (var rawSprint in sprints)
+                        {
+                            var s = Json.AsObject(rawSprint);
+                            if (s == null) continue;
+                            project.Journal.Sprints.Add(new SprintRecord
+                            {
+                                Date = Json.AsString(Json.Field(s, "d")) ?? "",
+                                Minutes = Json.AsInt(Json.Field(s, "m"), 0),
+                                Elapsed = Json.AsInt(Json.Field(s, "e"), 0),
+                                Words = Json.AsInt(Json.Field(s, "w"), 0),
+                                Goal = Json.AsInt(Json.Field(s, "g"), 0)
+                            });
                         }
                 }
 
@@ -1172,6 +1209,9 @@ namespace UniversSale.Persistence
                     item.Book.BackCover = Json.AsString(Json.Field(book, "backCover")) ?? "";
                     item.Book.BleedMm = Json.AsDouble(Json.Field(book, "bleedMm"), 3);
                     item.Book.ChapterGoal = Math.Max(0, Json.AsInt(Json.Field(book, "chapterGoal"), 0));
+                    item.Book.Deadline = Json.AsString(Json.Field(book, "deadline")) ?? ""; // v23
+                    item.Book.SizeGoal = Math.Max(0, Json.AsInt(Json.Field(book, "sizeGoal"), 0));
+                    item.Book.SizeUnit = Json.AsString(Json.Field(book, "sizeUnit")) ?? "words";
                     var template = Json.AsObject(Json.Field(book, "template"));
                     if (template != null) item.Book.Template = ReadPageSetup(template);
                 }

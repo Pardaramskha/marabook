@@ -105,7 +105,8 @@ namespace UniversSale.Tests
                 StyleTests.Run,          // C22 — style morphologique + synonymes (b44)
                 StyleBatchTests.Run,     // C23 — b45 : frappe typographique, incises, racines, bilan
                 PresenceTests.Run,       // C24 — présence et évolution (b47)
-                FieldKindTests.Run       // C25 — natures de champ (b47 bis)
+                FieldKindTests.Run,      // C25 — natures de champ (b47 bis)
+                PaceTests.Run            // C26 — objectifs et temps (b48)
             };
             foreach (var suite in suites)
             {

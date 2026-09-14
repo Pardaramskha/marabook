@@ -20,6 +20,8 @@ namespace UniversSale.View
     {
         private readonly WrapPanel _cards;
         private StackPanel _planActions; // racine Plans : « + Nouveau plan » (b35)
+        private StackPanel _bookActions;   // livre : Nouvel écrit / Nouvelle partie / Nouvelle liminaire (14/09)
+        private StackPanel _folderActions; // dossier d'Écrits : Nouvel écrit / Nouveau sous-dossier (14/09)
         private StackPanel _writingsActions; // racine Écrits : Nouvel écrit / dossier / livre (12/09)
         private StackPanel _researchActions; // racine Recherche : Importer des fichiers (12/09)
         private BinderItem _folder;
@@ -103,6 +105,44 @@ namespace UniversSale.View
                 Visibility = Visibility.Collapsed
             };
             BuildDocumentActions();
+            // Livre (14/09) : « Nouvel écrit » (principal), « Nouvelle partie »,
+            // « Nouvelle liminaire » (le menu des pages extra) — tout en haut.
+            _bookActions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0),
+                Visibility = Visibility.Collapsed
+            };
+            var bookText = Buttons.IconText("plus-bold", "Nouvel écrit",
+                "Un écrit à la fin du livre, au gabarit du livre", Buttons.Bar, Buttons.Look.Primary);
+            bookText.Click += delegate { RequestNewDocument(null); };
+            _bookActions.Children.Add(bookText);
+            var bookPart = Buttons.IconText("folder-bold", "Nouvelle partie",
+                "Une partie : un dossier indicatif, traversé par la compilation et les folios", Buttons.Bar, Buttons.Look.Outline);
+            bookPart.Margin = new Thickness(8, 0, 0, 0);
+            bookPart.Click += delegate { RequestNewDocument("folder"); };
+            _bookActions.Children.Add(bookPart);
+            var bookExtra = Buttons.IconText("file-dashed-bold", "Nouvelle liminaire",
+                "Pages extra : vierge, pages de titre, table des matières, page éditeur…", Buttons.Bar, Buttons.Look.Outline);
+            bookExtra.Margin = new Thickness(8, 0, 0, 0);
+            bookExtra.Click += delegate { OpenExtraMenu(bookExtra); };
+            _bookActions.Children.Add(bookExtra);
+            // Dossier d'Écrits (14/09) : « Nouvel écrit » (principal), « Nouveau sous-dossier ».
+            _folderActions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0),
+                Visibility = Visibility.Collapsed
+            };
+            var folderText = Buttons.IconText("plus-bold", "Nouvel écrit",
+                "Un écrit dans ce dossier", Buttons.Bar, Buttons.Look.Primary);
+            folderText.Click += delegate { RequestNewDocument("root-text"); };
+            _folderActions.Children.Add(folderText);
+            var subFolder = Buttons.IconText("folder-bold", "Nouveau sous-dossier",
+                "Un dossier dans ce dossier", Buttons.Bar, Buttons.Look.Outline);
+            subFolder.Margin = new Thickness(8, 0, 0, 0);
+            subFolder.Click += delegate { RequestNewDocument("root-folder"); };
+            _folderActions.Children.Add(subFolder);
             _planActions = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -147,9 +187,8 @@ namespace UniversSale.View
             _researchActions.Children.Add(import);
             _cards = new WrapPanel { Margin = new Thickness(16, 8, 16, 16) };
             var layout = new StackPanel();
-            layout.Children.Add(_templateCards);
-            layout.Children.Add(_templateSeparator);
-            layout.Children.Add(_documentActions);
+            layout.Children.Add(_bookActions);
+            layout.Children.Add(_folderActions);
             layout.Children.Add(_planActions);
             layout.Children.Add(_writingsActions);
             layout.Children.Add(_researchActions);
@@ -591,6 +630,20 @@ namespace UniversSale.View
                     };
                     menu.Items.Add(export);
                 }
+                if (IsDivergent(itemRef))
+                {
+                    var bookRef = _folder.EnclosingBook();
+                    var applyBook = new MenuItem { Header = "Appliquer le gabarit du livre au document" };
+                    applyBook.Click += delegate
+                    {
+                        if (itemRef.Page == null) itemRef.Page = bookRef.Book.Template.Clone();
+                        else itemRef.Page.ApplyLayout(bookRef.Book.Template);
+                        Rebuild();
+                        var changed = Changed;
+                        if (changed != null) changed();
+                    };
+                    menu.Items.Add(applyBook);
+                }
                 if (itemRef.Kind == ItemKind.Text && _folder != null
                     && _folder.EnclosingBook() != null)
                 {
@@ -682,25 +735,31 @@ namespace UniversSale.View
         {
             _cards.Children.Clear();
             _templateCards.Children.Clear();
-            _templateCards.Visibility = Visibility.Collapsed;
-            _templateSeparator.Visibility = Visibility.Collapsed;
-            _documentActions.Visibility = Visibility.Collapsed;
             if (_folder == null) return;
+            _bookActions.Visibility = _folder.Kind == ItemKind.Book ? Visibility.Visible : Visibility.Collapsed;
+            _folderActions.Visibility = _folder.Kind == ItemKind.Folder && _folder.RootCategory().CategoryKey == Project.KeyWritings
+                ? Visibility.Visible : Visibility.Collapsed;
             _planActions.Visibility = IsRoot(Project.KeyPlans) ? Visibility.Visible : Visibility.Collapsed;
             _writingsActions.Visibility = IsRoot(Project.KeyWritings) ? Visibility.Visible : Visibility.Collapsed;
             _researchActions.Visibility = IsRoot(Project.KeyResearch) ? Visibility.Visible : Visibility.Collapsed;
 
-            // Livres : la section GABARITS vit au-dessus des documents,
-            // séparée par un filet — autre niveau hiérarchique.
+            // Livres (14/09) : deux SECTIONS titrées comme les catégories de
+            // fiches — « Gabarits » (les cartes de gabarit et leurs boutons),
+            // puis « Écrits » (les documents et les parties).
             if (_folder.Kind == ItemKind.Book)
             {
-                _templateCards.Visibility = Visibility.Visible;
-                _templateSeparator.Visibility = Visibility.Visible;
-                _documentActions.Visibility = Visibility.Visible;
+                var gabarits = 0;
+                foreach (var child in _folder.Children)
+                    if (child.Kind == ItemKind.PageTemplate) gabarits++;
+                AddSectionHeader("Gabarits", gabarits);
                 foreach (var child in _folder.Children)
                     if (child.Kind == ItemKind.PageTemplate)
-                        _templateCards.Children.Add(BuildTemplateCard(child));
-                _templateCards.Children.Add(BuildTemplateActions());
+                        _cards.Children.Add(BuildTemplateCard(child));
+                _cards.Children.Add(BuildTemplateActions());
+                var texts = 0;
+                foreach (var child in _folder.Children)
+                    if (child.Kind != ItemKind.PageTemplate) texts++;
+                AddSectionHeader("Écrits", texts);
             }
 
             // Le bouton Filtres n'apparaît que devant des textes (récursif :
@@ -772,6 +831,15 @@ namespace UniversSale.View
         private int AddSection(string title, List<BinderItem> items)
         {
             if (items.Count == 0) return 0;
+            AddSectionHeader(title, items.Count);
+            foreach (var item in items) _cards.Children.Add(BuildCard(item));
+            return items.Count;
+        }
+
+        /// <summary>Le titre d'une section (racine Écrits, livre) : sur toute
+        /// la largeur, le compte à côté, un filet dessous.</summary>
+        private void AddSectionHeader(string title, int count)
+        {
             var header = new Grid { Tag = "section", Margin = new Thickness(8, 12, 8, 4) };
             var row = new StackPanel { Orientation = Orientation.Horizontal };
             row.Children.Add(new TextBlock
@@ -784,7 +852,7 @@ namespace UniversSale.View
             });
             row.Children.Add(new TextBlock
             {
-                Text = items.Count.ToString(),
+                Text = count.ToString(),
                 FontSize = 11,
                 Foreground = Chrome.SoftText,
                 Margin = new Thickness(8, 0, 0, 0),
@@ -800,8 +868,6 @@ namespace UniversSale.View
             header.Children.Add(line);
             header.Children.Add(row);
             _cards.Children.Add(header);
-            foreach (var item in items) _cards.Children.Add(BuildCard(item));
-            return items.Count;
         }
 
         private static bool ContainsTexts(BinderItem folder)
@@ -1109,9 +1175,16 @@ namespace UniversSale.View
                 Margin = new Thickness(2, 0, 0, 0),
                 ToolTip = "Pages extra : liminaires, table des matières…"
             };
-            arrow.Click += delegate
+            arrow.Click += delegate { OpenExtraMenu(arrow); };
+            _documentActions.Children.Add(arrow);
+        }
+
+        /// <summary>Le menu des pages extra (« Nouvelle liminaire », 14/09) :
+        /// partie, document vierge, pages de titre, TdM, page éditeur…</summary>
+        private void OpenExtraMenu(UIElement anchor)
+        {
             {
-                var menu = new ContextMenu { PlacementTarget = arrow };
+                var menu = new ContextMenu { PlacementTarget = anchor };
                 // Partie : un dossier purement indicatif — la compilation et
                 // les folios l'ignorent, le corkboard l'affiche en boîte.
                 AddExtraEntry(menu, "Dossier (partie)", "folder",
@@ -1133,8 +1206,7 @@ namespace UniversSale.View
                 AddExtraEntry(menu, "Page soutien", ExtraPages.KindSupport,
                     "Mention des soutiens du livre");
                 menu.IsOpen = true;
-            };
-            _documentActions.Children.Add(arrow);
+            }
         }
 
         private void AddExtraEntry(ContextMenu menu, string label, string kind, string tip)
@@ -1409,20 +1481,9 @@ namespace UniversSale.View
                 {
                     card.BorderBrush = new SolidColorBrush(Color.FromRgb(230, 126, 34));
                     card.ToolTip = "Ce document ne suit pas le gabarit du livre.";
-                    var menu = new ContextMenu();
-                    var apply = new MenuItem { Header = "Appliquer le gabarit du livre au document" };
-                    var itemRef = item;
-                    var bookRef = book;
-                    apply.Click += delegate
-                    {
-                        if (itemRef.Page == null) itemRef.Page = bookRef.Book.Template.Clone();
-                        else itemRef.Page.ApplyLayout(bookRef.Book.Template);
-                        Rebuild();
-                        var handler = Changed;
-                        if (handler != null) handler();
-                    };
-                    menu.Items.Add(apply);
-                    card.ContextMenu = menu;
+                    // « Appliquer le gabarit du livre » vit désormais dans le
+                    // menu commun de la carte (14/09) : un ContextMenu propre
+                    // cachait les épingles et le reste.
                 }
             }
             CardLift.Attach(card); // soulèvement au survol (b35)

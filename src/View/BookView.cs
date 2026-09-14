@@ -81,6 +81,13 @@ namespace UniversSale.View
 
         public bool ShowsItem(BinderItem item) { return _item == item; }
 
+        /// <summary>Le menu de la Pile pour les tuiles du livre (14/09) — les
+        /// épingles y manquaient : le livre a son propre corkboard.</summary>
+        public Func<BinderItem, ContextMenu> MenuProvider
+        {
+            set { _corkboard.MenuProvider = value; }
+        }
+
         /// <summary>Relais du compteur de pages vers le corkboard du livre
         /// (tri « Pages » des filtres, batch 28).</summary>
         public System.Func<BinderItem, int> PageCounter
