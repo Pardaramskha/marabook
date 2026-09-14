@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 using UniversSale.Model;
 
@@ -93,6 +94,14 @@ namespace UniversSale.View
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 Padding = new Thickness(12, 0, 12, 12)
+            };
+            // La molette (14/09) : le FlowDocumentScrollViewer du contenu
+            // avalait l'événement sans défiler (son propre ascenseur est
+            // désactivé) — le panneau prend la molette en amont.
+            _scroller.PreviewMouseWheel += delegate(object sender, MouseWheelEventArgs e)
+            {
+                _scroller.ScrollToVerticalOffset(_scroller.VerticalOffset - e.Delta);
+                e.Handled = true;
             };
             Children.Add(_scroller);
         }

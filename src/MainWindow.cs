@@ -583,7 +583,10 @@ namespace UniversSale
             // Supprimer depuis le tableau : la Pile suit par l'historique, le
             // tableau lui-même doit être redessiné (batch 33 — la carte restait).
             _corkboard.DeleteRequested += delegate(BinderItem item)
-            { _binder.Delete(item); RefreshOpenCorkboards(); UpdateInspector(); UpdateStats(); };
+            {
+                if (!ConfirmTrash(item)) return; // confirmation depuis un corkboard (14/09)
+                _binder.Delete(item); RefreshOpenCorkboards(); UpdateInspector(); UpdateStats();
+            };
             _corkboard.ApplyTemplateRequested += ApplyPageTemplateTo;
             _corkboard.NewDocumentRequested += NewBookDocument; // « + Nouveau plan » de la racine Plans (b35)
             center.Children.Add(_corkboard);
@@ -594,6 +597,7 @@ namespace UniversSale
             _sheetLibrary.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _sheetLibrary.AchievementEvent += UnlockAchievement; // « Crétin des alpes » (12/09)
             _sheetLibrary.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
+            _sheetLibrary.MenuProvider = _binder.BuildContextMenu; // les tuiles offrent le menu de la Pile (14/09)
             center.Children.Add(_sheetLibrary);
 
             _editor.LinkRequested += InsertLinkInActive; // onglet Insertion (b33)
@@ -644,6 +648,13 @@ namespace UniversSale
                 _binder.Rebuild();
             };
             _planView.NavigateRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _planView.RenameRequested += delegate // le crayon du plan (14/09)
+            {
+                if (_current == null || _current.Kind != ItemKind.Plan) return;
+                _binder.RenameQuiet(_current);
+                _planView.Refresh();
+                UpdateInspector();
+            };
             _planView.BackRequested += delegate
             {
                 var root = _project == null ? null : _project.Category(Project.KeyPlans);
@@ -837,6 +848,22 @@ namespace UniversSale
 
             ApplyPanelVisibility();
             return grid;
+        }
+
+        /// <summary>« Supprimer » depuis un corkboard (14/09) : on demande —
+        /// l'item part à la corbeille, d'où on le restaure, mais une tuile
+        /// se clique vite.</summary>
+        private bool ConfirmTrash(BinderItem item)
+        {
+            if (item == null) return false;
+            var what = item.Kind == ItemKind.Book ? "le livre" : item.Kind == ItemKind.Folder ? "le dossier"
+                : item.Kind == ItemKind.Sheet ? "la fiche" : item.Kind == ItemKind.Plan ? "le plan"
+                : item.Kind == ItemKind.PageTemplate ? "le gabarit" : item.Kind == ItemKind.Media ? "le document" : "l'écrit";
+            var answer = MessageDialog.Show(this,
+                "Envoyer " + what + " « " + item.Title + " » à la corbeille ?"
+                + (item.Children.Count > 0 ? "\nSon contenu part avec." : ""),
+                AppName, MessageBoxButton.YesNo, MessageBoxImage.Question);
+            return answer == MessageBoxResult.Yes;
         }
 
         /// <summary>Ouvre (ou ramène) le panneau de recherche du projet, la
@@ -1979,7 +2006,7 @@ namespace UniversSale
             // Quitter n'attend jamais la correction différée (batch 29).
             _editor.ShutdownProofing();
             AppSettings.BinderWidth = _binderCol.Width.Value > 0 ? _binderCol.Width.Value : AppSettings.BinderWidth;
-            AppSettings.InspectorWidth = _inspectorCol.Width.Value > 0 ? _inspectorCol.Width.Value : AppSettings.InspectorWidth;
+            RememberRightWidth();
             AppSettings.Save();
         }
 
@@ -2207,7 +2234,19 @@ namespace UniversSale
             {
                 _editor.Clear();
                 _sheetView.Clear();
-                _sheetLibrary.Load(_project, _history);
+                _sheetLibrary.Load(_project, _history, null);
+                _sheetLibrary.Visibility = Visibility.Visible;
+                _sheetLibrary.Focus();
+                return;
+            }
+            // Un DOSSIER de Fiches (14/09) : la même bibliothèque, à sa
+            // portée — tuiles de fiches par catégorie, sous-dossiers.
+            if (item != null && item.Kind == ItemKind.Folder
+                && item.RootCategory().CategoryKey == Project.KeySheets)
+            {
+                _editor.Clear();
+                _sheetView.Clear();
+                _sheetLibrary.Load(_project, _history, item);
                 _sheetLibrary.Visibility = Visibility.Visible;
                 _sheetLibrary.Focus();
                 return;
@@ -2270,8 +2309,7 @@ namespace UniversSale
                 _placeholder.Visibility = Visibility.Collapsed;
                 _journalView.Load(_project);
                 _journalView.Visibility = Visibility.Visible;
-                if (_inspectorCol.Width.Value > 0)
-                    AppSettings.InspectorWidth = _inspectorCol.Width.Value;
+                RememberRightWidth();
                 _journalOpen = true;
                 ApplyPanelVisibility();
             }
@@ -3589,7 +3627,8 @@ namespace UniversSale
             var anyRight = shown != RightPanel.None;
             _inspectorSplit.Visibility = anyRight ? Visibility.Visible : Visibility.Collapsed;
             _inspectorCol.Width = anyRight
-                ? new GridLength(AppSettings.InspectorWidth) : new GridLength(0);
+                ? new GridLength(shown == RightPanel.Pinned ? AppSettings.PinnedWidth : AppSettings.InspectorWidth)
+                : new GridLength(0);
             _inspectorMenu.IsChecked = shown == RightPanel.Inspector;
             _searchMenu.IsChecked = shown == RightPanel.Search;
             _versionsMenu.IsChecked = shown == RightPanel.Versions;
@@ -3630,11 +3669,21 @@ namespace UniversSale
         private void SetRightPanel(RightPanel panel)
         {
             if (panel != RightPanel.None && !IsPanelAvailable(panel)) return;
-            if (panel == RightPanel.None && _inspectorCol.Width.Value > 0)
-                AppSettings.InspectorWidth = _inspectorCol.Width.Value;
+            RememberRightWidth();
             AppSettings.RightPanel = panel;
             AppSettings.Save();
             ApplyPanelVisibility();
+        }
+
+        /// <summary>La largeur de la colonne de droite est retenue pour le
+        /// panneau qui l'occupe : l'épinglé a la sienne (1,25 × la Pile par
+        /// défaut, 14/09), les autres partagent InspectorWidth.</summary>
+        private void RememberRightWidth()
+        {
+            var width = _inspectorCol.Width.Value;
+            if (width <= 0) return;
+            if (ShownRightPanel() == RightPanel.Pinned) AppSettings.PinnedWidth = width;
+            else AppSettings.InspectorWidth = width;
         }
 
         // ============================================================= le rail (b39)
@@ -3737,7 +3786,7 @@ namespace UniversSale
                 case RightPanel.Edition:
                     icon = "book-bold"; name = "Édition du livre"; break;
                 case RightPanel.Pinned:
-                    icon = "push-pin-bold"; name = "Épinglé sur le côté"; break;
+                    icon = "push-pin-bold"; name = "Épinglé au rail"; break;
                 default:
                     icon = "book-open-text-bold"; name = "Publication du livre"; break;
             }
@@ -4391,8 +4440,8 @@ namespace UniversSale
             var tip = tab.ToolTip as ToolTip;
             if (tip == null) return;
             tip.Content = _sidePin == null
-                ? "Épinglé sur le côté — rien pour l'instant : clic droit sur un écrit ou une fiche › « Épingler sur le côté »"
-                : "Épinglé sur le côté — " + _sidePin.Title;
+                ? "Épinglé au rail — rien pour l'instant : clic droit sur un écrit ou une fiche › « Épingler au rail »"
+                : "Épinglé au rail — " + _sidePin.Title;
         }
 
         private void UpdateStats()

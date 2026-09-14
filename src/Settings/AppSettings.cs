@@ -82,6 +82,7 @@ namespace UniversSale.Settings
         public static RightPanel RightPanel = RightPanel.Inspector;
         public static double BinderWidth = 260;
         public static double InspectorWidth = 260; // = BinderWidth à l'ouverture (b43)
+        public static double PinnedWidth = 325;    // l'épinglé au rail : 1,25 × la Pile par défaut (14/09)
         public static double Zoom = 100; // page zoom, percent (50–300)
         public static bool ShowFormattingMarks; // ¶ printing characters
         public static bool ShowRulers;          // règles cm (Ctrl+R)
@@ -255,6 +256,8 @@ namespace UniversSale.Settings
                 // la largeur de la Pile — la clé « inspectorWidth » n'est plus
                 // ni lue ni écrite (redimensionner reste libre en session).
                 InspectorWidth = BinderWidth;
+                PinnedWidth = Json.AsDouble(Json.Field(root, "pinnedWidth"), BinderWidth * 1.25);
+                if (PinnedWidth < 200) PinnedWidth = BinderWidth * 1.25;
                 Zoom = Json.AsDouble(Json.Field(root, "zoom"), 100);
                 if (Zoom < 50) Zoom = 50;
                 if (Zoom > 300) Zoom = 300;
@@ -359,6 +362,7 @@ namespace UniversSale.Settings
                 root["binderVisible"] = BinderVisible;
                 root["rightPanel"] = RightPanels.Name(RightPanel);
                 root["binderWidth"] = BinderWidth;
+                root["pinnedWidth"] = PinnedWidth;
                 root["zoom"] = Zoom;
                 root["formattingMarks"] = ShowFormattingMarks;
                 root["rulers"] = ShowRulers;

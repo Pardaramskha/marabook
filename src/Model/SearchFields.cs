@@ -124,6 +124,7 @@ namespace UniversSale.Model
                     foreach (var templateField in template.Fields)
                     {
                         string value;
+                        if (!FieldKinds.Searchable(templateField.Kind)) continue; // une fiche liée est un id (b47 bis)
                         if (item.FieldValues.TryGetValue(templateField.Id, out value))
                             Add(fields, SearchField.KindField, templateField.Name, value, templateField.Id);
                     }
@@ -131,7 +132,8 @@ namespace UniversSale.Model
                     foreach (var pair in item.FieldValues)
                         Add(fields, SearchField.KindField, "Champ", pair.Value, pair.Key);
                 foreach (var entry in item.FreeInfo)
-                    Add(fields, SearchField.KindInfo, entry.Title.Length > 0 ? entry.Title : "Champ libre", entry.Value, entry.Id);
+                    if (FieldKinds.Searchable(entry.Kind))
+                        Add(fields, SearchField.KindInfo, entry.Title.Length > 0 ? entry.Title : "Champ libre", entry.Value, entry.Id);
                 foreach (var relation in item.Relations)
                     Add(fields, SearchField.KindRelation, relation.Kind.Length > 0 ? "Relation (" + relation.Kind + ")" : "Relation", relation.Name, relation.Id);
             }

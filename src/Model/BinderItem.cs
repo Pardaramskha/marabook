@@ -87,6 +87,7 @@ namespace UniversSale.Model
         public List<InfoEntry> FreeInfo = new List<InfoEntry>();
         public List<SheetRelation> Relations = new List<SheetRelation>(); // fiches (batch 34)
         public List<EvolutionEntry> Evolution = new List<EvolutionEntry>(); // fiches : les étapes liées aux écrits (batch 47)
+        public Dictionary<string, int> RadarValues = new Dictionary<string, int>(); // fiches : valeur par id d'axe du radar (b47 bis)
 
         // Media items only: raw bytes, written to the zip on save.
         public byte[] MediaBytes;

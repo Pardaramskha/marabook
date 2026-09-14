@@ -27,46 +27,31 @@ namespace UniversSale.View
             Background = Chrome.WindowBg;
             Focusable = true;
 
-            var bar = new Border
-            {
-                Background = Chrome.BarBg,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(16, 8, 16, 8)
-            };
-            SetDock(bar, Dock.Top);
-            var barRow = new DockPanel();
-            var newEntry = new Button
-            {
-                Content = Icons.Label("plus-bold", "Nouvelle entrée…", 11, Chrome.Ink),
-                Padding = new Thickness(10, 3, 10, 3),
-                ToolTip = "Ajouter un mot au dictionnaire personnel avec sa nature grammaticale"
-            };
-            newEntry.Click += delegate { NewEntry(true); };
-            DockPanel.SetDock(newEntry, Dock.Right);
-            barRow.Children.Add(newEntry);
-            var searchRow = new DockPanel { Margin = new Thickness(0, 0, 12, 0) };
-            var glass = new TextBlock
-            {
-                Text = "🔍",
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 6, 0)
-            };
-            DockPanel.SetDock(glass, Dock.Left);
-            searchRow.Children.Add(glass);
+            // La rangée du haut, alignée sur celle d'Écrits (14/09) : pas de
+            // barre, « Nouvelle entrée » en principal à gauche, la recherche
+            // contre le bord droit.
+            var toolbar = new DockPanel { Margin = new Thickness(24, 10, 24, 0) };
+            SetDock(toolbar, Dock.Top);
             _searchBox = new TextBox
             {
-                MaxWidth = 340,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                MinWidth = 220,
-                Padding = new Thickness(6, 3, 6, 3),
+                BorderThickness = new Thickness(0),
+                Background = Brushes.Transparent,
+                Padding = new Thickness(6, 3, 4, 3),
+                MinWidth = 200,
                 ToolTip = "Filtrer les entrées (mot ou forme acceptée)"
             };
             _searchBox.TextChanged += delegate { Rebuild(); };
-            searchRow.Children.Add(_searchBox);
-            barRow.Children.Add(searchRow);
-            bar.Child = barRow;
-            Children.Add(bar);
+            var search = SheetLibraryView.SearchField(_searchBox);
+            DockPanel.SetDock(search, Dock.Right);
+            toolbar.Children.Add(search);
+            var left = new StackPanel { Orientation = Orientation.Horizontal };
+            var newEntry = Buttons.IconText("plus-bold", "Nouvelle entrée",
+                "Ajouter un mot au dictionnaire personnel avec sa nature grammaticale",
+                Buttons.Bar, Buttons.Look.Primary);
+            newEntry.Click += delegate { NewEntry(true); };
+            left.Children.Add(newEntry);
+            toolbar.Children.Add(left);
+            Children.Add(toolbar);
 
             _sections = new StackPanel { Margin = new Thickness(16, 12, 16, 24), MaxWidth = 980, HorizontalAlignment = HorizontalAlignment.Left };
             Children.Add(new ScrollViewer

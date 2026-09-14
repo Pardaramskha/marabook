@@ -21,9 +21,16 @@ namespace UniversSale.View
     {
         private Project _project;
         private HistoryManager _history;
+        private BinderItem _scope; // un dossier de Fiches (14/09), null = la racine
         private readonly TextBox _searchBox;
         private readonly StackPanel _rows;
         private readonly ScrollViewer _scroll;
+        private readonly Button _back;
+        private readonly TextBlock _scopeLabel;
+
+        /// <summary>Le menu contextuel d'une tuile : celui de la Pile pour le
+        /// même item (BinderView.BuildContextMenu), posé par la coquille.</summary>
+        public Func<BinderItem, ContextMenu> MenuProvider;
 
         public event Action<BinderItem> Navigate; // ouvrir une fiche
         public event Action Changed;              // structure/projet modifiés
@@ -42,63 +49,17 @@ namespace UniversSale.View
             Background = Chrome.WindowBg;
             Focusable = true;
 
-            // — Barre du haut : recherche + nouvelle catégorie.
-            var bar = new Border
-            {
-                Background = Chrome.BarBg,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(16, 8, 16, 8)
-            };
-            SetDock(bar, Dock.Top);
-            var barRow = new DockPanel();
-
-            var newCategory = new Button
-            {
-                Content = Icons.Label("plus-bold", "Nouvelle catégorie", 11, Chrome.Ink),
-                Padding = new Thickness(10, 3, 10, 3)
-            };
-            newCategory.Click += delegate { NewCategory(); };
-            DockPanel.SetDock(newCategory, Dock.Right);
-            barRow.Children.Add(newCategory);
-            // « Nouvelle fiche » : UN bouton principal en tête du tableau
-            // (pack du 12/09/2026) — la catégorie se choisit dans le dialogue
-            // avec le nom, plus de bouton par rangée.
-            var newSheet = Buttons.IconText("plus-bold", "Nouvelle fiche",
-                "Créer une fiche — le nom et la catégorie se choisissent ensemble",
-                Buttons.Compact, Buttons.Look.Primary);
-            newSheet.Margin = new Thickness(0, 0, 8, 0);
-            newSheet.Click += delegate { NewSheet(); };
-            DockPanel.SetDock(newSheet, Dock.Right);
-            barRow.Children.Add(newSheet);
-            // L'éditeur de modèles, tout en haut, à côté de « Nouvelle
-            // catégorie » (b42 bis) — le même que « Modifier les modèles… ».
-            var templates = new Button
-            {
-                Content = Icons.Label("pencil-simple-line", "Éditeur de modèles", 11, Chrome.Ink),
-                Padding = new Thickness(10, 3, 10, 3),
-                Margin = new Thickness(0, 0, 8, 0),
-                ToolTip = "Sections, champs et natures des modèles de fiches"
-            };
-            templates.Click += delegate { EditTemplates(); };
-            DockPanel.SetDock(templates, Dock.Right);
-            barRow.Children.Add(templates);
-
-            var searchRow = new DockPanel { Margin = new Thickness(0, 0, 12, 0) };
-            var glass = new TextBlock
-            {
-                Text = "🔍",
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 6, 0)
-            };
-            DockPanel.SetDock(glass, Dock.Left);
-            searchRow.Children.Add(glass);
+            // — La rangée du haut, alignée sur celle d'Écrits (14/09) : pas de
+            // barre, les boutons à gauche (« Nouvelle fiche » en principal,
+            // puis catégorie et modèles), la recherche contre le bord droit.
+            var toolbar = new DockPanel { Margin = new Thickness(24, 10, 24, 0) };
+            SetDock(toolbar, Dock.Top);
             _searchBox = new TextBox
             {
-                MaxWidth = 340,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                MinWidth = 220,
-                Padding = new Thickness(6, 3, 6, 3),
+                BorderThickness = new Thickness(0),
+                Background = Brushes.Transparent,
+                Padding = new Thickness(6, 3, 4, 3),
+                MinWidth = 200,
                 ToolTip = "Rechercher une fiche par nom, toutes catégories confondues"
             };
             _searchBox.TextChanged += delegate
@@ -111,10 +72,52 @@ namespace UniversSale.View
                     if (handler != null) handler(Achievements.Cretin);
                 }
             };
-            searchRow.Children.Add(_searchBox);
-            barRow.Children.Add(searchRow);
-            bar.Child = barRow;
-            Children.Add(bar);
+            var search = SearchField(_searchBox);
+            DockPanel.SetDock(search, Dock.Right);
+            toolbar.Children.Add(search);
+
+            var left = new StackPanel { Orientation = Orientation.Horizontal };
+            _back = Buttons.Icon("arrow-left-bold", "Revenir à la bibliothèque", Buttons.Bar, Buttons.Look.Calm);
+            _back.Margin = new Thickness(0, 0, 6, 0);
+            _back.Visibility = Visibility.Collapsed;
+            _back.Click += delegate
+            {
+                var handler = Navigate;
+                if (handler != null && _project != null)
+                    handler(_scope != null && _scope.Parent != null ? _scope.Parent : _project.Category(Project.KeySheets));
+            };
+            left.Children.Add(_back);
+            _scopeLabel = new TextBlock
+            {
+                Foreground = Chrome.Ink,
+                FontSize = 15,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 14, 0),
+                Visibility = Visibility.Collapsed,
+                MaxWidth = 320,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            left.Children.Add(_scopeLabel);
+            // « Nouvelle fiche » : UN bouton principal (pack du 12/09/2026) —
+            // la catégorie se choisit dans le dialogue avec le nom.
+            var newSheet = Buttons.IconText("plus-bold", "Nouvelle fiche",
+                "Créer une fiche — le nom et la catégorie se choisissent ensemble",
+                Buttons.Bar, Buttons.Look.Primary);
+            newSheet.Click += delegate { NewSheet(); };
+            left.Children.Add(newSheet);
+            var newCategory = Buttons.IconText("plus-bold", "Nouvelle catégorie",
+                "Une catégorie de fiches, avec son modèle", Buttons.Bar, Buttons.Look.Outline);
+            newCategory.Margin = new Thickness(8, 0, 0, 0);
+            newCategory.Click += delegate { NewCategory(); };
+            left.Children.Add(newCategory);
+            var templates = Buttons.IconText("pencil-simple-line", "Éditeur de modèles",
+                "Sections, champs, natures et radar des modèles de fiches", Buttons.Bar, Buttons.Look.Outline);
+            templates.Margin = new Thickness(8, 0, 0, 0);
+            templates.Click += delegate { EditTemplates(); };
+            left.Children.Add(templates);
+            toolbar.Children.Add(left);
+            Children.Add(toolbar);
 
             _rows = new StackPanel { Margin = new Thickness(16, 12, 16, 24) };
             _scroll = new ScrollViewer
@@ -125,11 +128,66 @@ namespace UniversSale.View
             Children.Add(_scroll);
         }
 
-        public void Load(Project project, HistoryManager history)
+        /// <summary>La bibliothèque de la racine Fiches (scope null) ou d'un
+        /// DOSSIER de Fiches (14/09) : mêmes tuiles, mêmes catégories, les
+        /// sous-dossiers en rangée « Dossiers ».</summary>
+        public void Load(Project project, HistoryManager history, BinderItem scope)
         {
             _project = project;
             _history = history;
+            _scope = scope != null && scope.Kind == ItemKind.Folder ? scope : null;
+            _back.Visibility = _scope != null ? Visibility.Visible : Visibility.Collapsed;
+            _scopeLabel.Visibility = _back.Visibility;
+            _scopeLabel.Text = _scope != null ? _scope.Title : "";
             RebuildRows();
+        }
+
+        public bool ShowsFolder(BinderItem folder) { return folder != null && _scope == folder; }
+
+        /// <summary>Le champ de recherche « contre le rebord » (14/09) : un
+        /// cadre, la zone de texte, la loupe à droite — partagé avec le
+        /// Dictionnaire.</summary>
+        public static Border SearchField(TextBox box)
+        {
+            var row = new DockPanel();
+            var glass = Icons.Make("magnifying-glass-bold", 12, Chrome.SoftText) as FrameworkElement;
+            if (glass != null)
+            {
+                glass.VerticalAlignment = VerticalAlignment.Center;
+                glass.Margin = new Thickness(0, 0, 8, 0);
+                DockPanel.SetDock(glass, Dock.Right);
+                row.Children.Add(glass);
+            }
+            row.Children.Add(box);
+            return new Border
+            {
+                Background = Chrome.PaperBg,
+                BorderBrush = Chrome.BorderStrong,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Width = 260,
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = row
+            };
+        }
+
+        /// <summary>Les fiches de la portée : toutes (racine), ou celles du
+        /// dossier et de ses sous-dossiers.</summary>
+        private IEnumerable<BinderItem> Source()
+        {
+            if (_scope == null) return _project.AllItems();
+            var list = new List<BinderItem>();
+            Collect(_scope, list);
+            return list;
+        }
+
+        private static void Collect(BinderItem parent, List<BinderItem> list)
+        {
+            foreach (var child in parent.Children)
+            {
+                list.Add(child);
+                Collect(child, list);
+            }
         }
 
         public void Refresh() { RebuildRows(); }
@@ -145,7 +203,7 @@ namespace UniversSale.View
             // Les fiches par catégorie (une passe), plus les sans-catégorie.
             var byCategory = new Dictionary<string, List<BinderItem>>();
             var uncategorized = new List<BinderItem>();
-            foreach (var item in _project.AllItems())
+            foreach (var item in Source())
             {
                 if (item.Kind != ItemKind.Sheet) continue;
                 if (item.RootCategory() != null
@@ -168,6 +226,21 @@ namespace UniversSale.View
 
             var searching = needle.Length > 0;
             var first = true;
+            // Les DOSSIERS (14/09) : leur propre rangée, en tête — ceux de la
+            // racine Fiches, ou les sous-dossiers du dossier ouvert.
+            var parent = _scope ?? _project.Category(Project.KeySheets);
+            var folders = new List<BinderItem>();
+            if (parent != null && !searching)
+                foreach (var child in parent.Children)
+                    if (child.Kind == ItemKind.Folder) folders.Add(child);
+            if (folders.Count > 0)
+            {
+                AddHeader("Dossiers", null, -1);
+                var wrap = new WrapPanel();
+                foreach (var folder in folders) wrap.Children.Add(BuildFolderCard(folder));
+                _rows.Children.Add(wrap);
+                first = false;
+            }
             foreach (var category in _project.SheetCategories)
             {
                 List<BinderItem> sheets;
@@ -267,7 +340,7 @@ namespace UniversSale.View
                 Foreground = Chrome.Ink,
                 VerticalAlignment = VerticalAlignment.Center
             });
-            title.Children.Add(new TextBlock
+            if (count >= 0) title.Children.Add(new TextBlock
             {
                 Text = count == 0 ? "aucune fiche"
                     : count == 1 ? "1 fiche" : count + " fiches",
@@ -309,6 +382,68 @@ namespace UniversSale.View
                     Margin = new Thickness(4, 2, 0, 2)
                 });
             _rows.Children.Add(wrap);
+        }
+
+        /// <summary>Une tuile de dossier (14/09) : l'icône, le nom, le compte
+        /// de fiches qu'il contient ; un clic l'ouvre (même bibliothèque,
+        /// à sa portée), le clic droit offre le menu de la Pile.</summary>
+        private UIElement BuildFolderCard(BinderItem folder)
+        {
+            var count = 0;
+            var inside = new List<BinderItem>();
+            Collect(folder, inside);
+            foreach (var item in inside) if (item.Kind == ItemKind.Sheet) count++;
+            var layout = new StackPanel { Width = 132 };
+            var icon = Icons.Make("folder-bold", 34, Chrome.Accent) as FrameworkElement;
+            if (icon != null)
+            {
+                icon.HorizontalAlignment = HorizontalAlignment.Center;
+                icon.Margin = new Thickness(0, 22, 0, 6);
+                layout.Children.Add(icon);
+            }
+            layout.Children.Add(new TextBlock
+            {
+                Text = folder.Title,
+                FontWeight = FontWeights.SemiBold,
+                FontSize = 12,
+                Foreground = Chrome.Ink,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxHeight = 34,
+                Margin = new Thickness(6, 0, 6, 2)
+            });
+            layout.Children.Add(new TextBlock
+            {
+                Text = count == 0 ? "vide" : count == 1 ? "1 fiche" : count + " fiches",
+                FontSize = 11,
+                Foreground = Chrome.SoftText,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(6, 0, 6, 10)
+            });
+            var card = new Border
+            {
+                Background = Chrome.CardBg,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Margin = new Thickness(0, 0, 10, 10),
+                Cursor = Cursors.Hand,
+                Child = layout
+            };
+            var folderRef = folder;
+            card.MouseLeftButtonUp += delegate { var handler = Navigate; if (handler != null) handler(folderRef); };
+            card.MouseRightButtonUp += delegate
+            {
+                var menu = MenuProvider == null ? null : MenuProvider(folderRef);
+                if (menu == null) return;
+                menu.PlacementTarget = card;
+                menu.IsOpen = true;
+            };
+            card.MouseEnter += delegate { card.BorderBrush = Chrome.Accent; };
+            card.MouseLeave += delegate { card.BorderBrush = Chrome.Border; };
+            CardLift.Attach(card);
+            return card;
         }
 
         /// <summary>Une carte-fiche : PHOTO EN HAUT (ou emplacement réservé),
@@ -425,6 +560,9 @@ namespace UniversSale.View
             return geometry;
         }
 
+        /// <summary>Le menu d'une tuile (14/09) : Ouvrir, Changer de catégorie,
+        /// puis TOUT ce que la Pile offre sur la même fiche (épingler à
+        /// l'accueil, épingler au rail, renommer, icône, supprimer…).</summary>
         private void ShowCardMenu(UIElement anchor, BinderItem sheet)
         {
             var menu = new ContextMenu();
@@ -454,6 +592,17 @@ namespace UniversSale.View
                 move.Items.Add(entry);
             }
             menu.Items.Add(move);
+            var provided = MenuProvider == null ? null : MenuProvider(sheet);
+            if (provided != null && provided.Items.Count > 0)
+            {
+                menu.Items.Add(new Separator());
+                var items = new List<object>();
+                foreach (var entry in provided.Items) items.Add(entry);
+                provided.Items.Clear(); // un MenuItem n'a qu'un parent
+                foreach (var entry in items)
+                    if (!(entry is Separator && menu.Items[menu.Items.Count - 1] is Separator))
+                        menu.Items.Add(entry);
+            }
             menu.PlacementTarget = anchor;
             menu.IsOpen = true;
         }
@@ -477,7 +626,7 @@ namespace UniversSale.View
                 CategoryId = category != null ? category.Id : null
             };
             _history.Run(new AddItemAction(
-                _project.Category(Project.KeySheets), item, -1));
+                _scope ?? _project.Category(Project.KeySheets), item, -1));
             NotifyChanged();
             RebuildRows();
             var handler = Navigate; // la fiche neuve s'ouvre, prête à remplir

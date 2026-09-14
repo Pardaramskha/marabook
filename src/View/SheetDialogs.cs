@@ -22,6 +22,11 @@ namespace UniversSale.View
         private readonly TextBox _nameBox;
         private readonly StackPanel _sectionsPanel, _fieldsPanel;
         private readonly CheckBox _relationsCheck;
+        // Le radar (b47 bis) : activé par modèle, ses axes et son échelle.
+        private readonly CheckBox _radarCheck;
+        private readonly SpinnerField _radarMax;
+        private readonly StackPanel _axesPanel;
+        private readonly Button _addAxis;
         private SheetTemplate _current;
         private ListBoxItem _currentEntry; // list row of _current — NOT SelectedItem,
                                            // which already points to the next row
@@ -141,6 +146,49 @@ namespace UniversSale.View
                 Content = _fieldsPanel
             });
             tabs.Items.Add(new TabItem { Header = "Champs", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = fieldsDock } });
+
+            // — Radar (b47 bis) : optionnel par modèle, désactivé par défaut ;
+            //   activé, la fiche gagne un onglet « Radar ». Axes et échelle libres.
+            var radarDock = new DockPanel();
+            var radarHead = new StackPanel();
+            _radarCheck = new CheckBox
+            {
+                Content = "Activer le radar sur ce modèle — la fiche gagne un onglet « Radar » (toile à un axe par ligne ci-dessous)",
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            _radarCheck.Checked += delegate
+            {
+                if (_current == null || _syncing) return;
+                _current.Radar = true;
+                if (_current.RadarAxes.Count == 0)
+                    foreach (var name in SheetTemplate.DefaultRadarAxes) _current.RadarAxes.Add(new RadarAxis { Name = name });
+                RebuildAxes();
+            };
+            _radarCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Radar = false; RebuildAxes(); } };
+            radarHead.Children.Add(_radarCheck);
+            var scaleRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
+            scaleRow.Children.Add(new TextBlock { Text = "Échelle : de 0 à", Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            _radarMax = new SpinnerField(5, SheetTemplate.RadarMaxFloor, SheetTemplate.RadarMaxCeiling, 1, "Le maximum de chaque axe (3 à 10)");
+            _radarMax.ValueChanged += delegate(double value) { if (_current != null && !_syncing) _current.RadarMax = (int)value; };
+            scaleRow.Children.Add(_radarMax);
+            radarHead.Children.Add(scaleRow);
+            radarHead.Children.Add(new TextBlock { Text = "Les axes (trois au moins pour une toile)", Foreground = Chrome.FaintText, FontSize = 11, Margin = new Thickness(2, 0, 0, 4) });
+            DockPanel.SetDock(radarHead, Dock.Top);
+            radarDock.Children.Add(radarHead);
+            _addAxis = Buttons.IconText("plus-bold", "Ajouter un axe", null, Buttons.Bar, Buttons.Look.Outline);
+            _addAxis.HorizontalAlignment = HorizontalAlignment.Left;
+            _addAxis.Margin = new Thickness(0, 8, 0, 0);
+            _addAxis.Click += delegate
+            {
+                if (_current == null) return;
+                _current.RadarAxes.Add(new RadarAxis { Name = "Axe " + (_current.RadarAxes.Count + 1) });
+                RebuildAxes();
+            };
+            DockPanel.SetDock(_addAxis, Dock.Bottom);
+            radarDock.Children.Add(_addAxis);
+            _axesPanel = new StackPanel();
+            radarDock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _axesPanel });
+            tabs.Items.Add(new TabItem { Header = "Radar", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = radarDock } });
             right.Children.Add(tabs);
             Grid.SetColumn(right, 2);
             root.Children.Add(right);
@@ -218,9 +266,40 @@ namespace UniversSale.View
             _nameBox.Text = template == null ? "" : template.Name;
             _relationsCheck.IsChecked = template != null && template.Relations;
             _relationsCheck.IsEnabled = template != null;
+            _radarCheck.IsChecked = template != null && template.Radar;
+            _radarCheck.IsEnabled = template != null;
+            _radarMax.Value = template == null ? 5 : template.RadarMax;
             _syncing = false;
             RebuildSections();
             RebuildFields();
+            RebuildAxes();
+        }
+
+        // ------------------------------------------------------------ radar (b47 bis)
+
+        private void RebuildAxes()
+        {
+            _axesPanel.Children.Clear();
+            var on = _current != null && _current.Radar;
+            _addAxis.IsEnabled = on;
+            _radarMax.IsEnabled = on;
+            if (_current == null) return;
+            foreach (var axis in _current.RadarAxes)
+            {
+                var axisRef = axis;
+                var row = new DockPanel { Margin = new Thickness(0, 0, 0, 4), IsEnabled = on };
+                var remove = Buttons.Icon("trash", "Retirer cet axe (les fiches perdent sa valeur)", Buttons.Compact, Buttons.Look.Calm);
+                remove.Margin = new Thickness(6, 0, 0, 0);
+                remove.Click += delegate { _current.RadarAxes.Remove(axisRef); RebuildAxes(); };
+                DockPanel.SetDock(remove, Dock.Right);
+                row.Children.Add(remove);
+                var nameBox = new TextBox { Text = axis.Name, MaxWidth = 320, HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 220 };
+                nameBox.TextChanged += delegate { axisRef.Name = nameBox.Text; };
+                row.Children.Add(nameBox);
+                _axesPanel.Children.Add(row);
+            }
+            if (_current.RadarAxes.Count == 0)
+                _axesPanel.Children.Add(new TextBlock { Text = on ? "Aucun axe — ajoutez-en trois au moins." : "Radar désactivé sur ce modèle.", Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(2, 4, 0, 0) });
         }
 
         private void CommitName()
@@ -377,13 +456,18 @@ namespace UniversSale.View
             Grid.SetColumn(nameBox, 0);
             row.Children.Add(nameBox);
 
-            var kindCombo = new ComboBox { Margin = new Thickness(0, 0, 6, 0) };
-            kindCombo.Items.Add("Texte court");
-            kindCombo.Items.Add("Texte long");
-            kindCombo.SelectedIndex = field.Kind == "multiline" ? 1 : 0;
+            // La nature (b47 bis) : les huit de FieldKinds ; un « Choix »
+            // déplie ses options sous la rangée.
+            var kindCombo = new ComboBox { Margin = new Thickness(0, 0, 6, 0), ToolTip = "Comment ce champ se saisit et se lit sur la fiche" };
+            foreach (var kind in FieldKinds.All) kindCombo.Items.Add(FieldKinds.Label(kind));
+            kindCombo.SelectedIndex = Array.IndexOf(FieldKinds.All, FieldKinds.Normalize(field.Kind));
             kindCombo.SelectionChanged += delegate
             {
-                field.Kind = kindCombo.SelectedIndex == 1 ? "multiline" : "text";
+                if (kindCombo.SelectedIndex < 0) return;
+                var chosen = FieldKinds.All[kindCombo.SelectedIndex];
+                if (chosen == field.Kind) return;
+                field.Kind = chosen;
+                Dispatcher.BeginInvoke((Action)RebuildFields); // la rangée d'options apparaît ou disparaît
             };
             Grid.SetColumn(kindCombo, 1);
             row.Children.Add(kindCombo);
@@ -414,7 +498,20 @@ namespace UniversSale.View
             };
             Grid.SetColumn(remove, 3);
             row.Children.Add(remove);
-            return row;
+            if (FieldKinds.Normalize(field.Kind) != FieldKinds.Choice) return row;
+
+            // Les options du choix, sous la rangée.
+            var stack = new StackPanel();
+            stack.Children.Add(row);
+            var optionsRow = new DockPanel { Margin = new Thickness(14, 0, 40, 6) };
+            var label = new TextBlock { Text = "Options :", Foreground = Chrome.FaintText, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            DockPanel.SetDock(label, Dock.Left);
+            optionsRow.Children.Add(label);
+            var optionsBox = new TextBox { Text = FieldKinds.JoinOptions(field.Options), ToolTip = "Les valeurs proposées, séparées par des virgules : « vivant, mort, disparu »" };
+            optionsBox.TextChanged += delegate { field.Options = FieldKinds.ListItems(optionsBox.Text); };
+            optionsRow.Children.Add(optionsBox);
+            stack.Children.Add(optionsRow);
+            return stack;
         }
 
         /// <summary>Replace le champ après le dernier champ de sa section —

@@ -105,7 +105,8 @@ namespace UniversSale.View
                 Margin = new Thickness(24, 8, 24, 0),
                 Visibility = Visibility.Collapsed
             };
-            var newPlan = new Button { Content = Icons.Label("plus-bold", "Nouveau plan", 11, Chrome.Ink), Padding = new Thickness(10, 4, 10, 4) };
+            var newPlan = Buttons.IconText("plus-bold", "Nouveau plan",
+                "Un plan : colonnes, briques d'intensité, notes", Buttons.Bar, Buttons.Look.Primary); // principal (14/09)
             newPlan.Click += delegate { RequestNewDocument("plan"); };
             _planActions.Children.Add(newPlan);
             // Racine Écrits (12/09) : un bouton principal et deux secondaires.

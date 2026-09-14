@@ -617,7 +617,9 @@ namespace UniversSale.View
 
         // ------------------------------------------------------- context menus
 
-        private ContextMenu BuildContextMenu(BinderItem item)
+        /// <summary>Le menu contextuel d'un item — public depuis le 14/09 :
+        /// les tuiles de la bibliothèque de fiches offrent le même.</summary>
+        public ContextMenu BuildContextMenu(BinderItem item)
         {
             var menu = new ContextMenu();
             var inTrash = item.RootCategory().CategoryKey == Project.KeyTrash;
@@ -680,11 +682,11 @@ namespace UniversSale.View
             {
                 menu.Items.Add(new Separator());
                 // Épingler sur l'Accueil (batch 41) : une bascule annulable.
-                AddMenu(menu, item.Pinned ? "Ne plus épingler" : "Épingler", delegate { TogglePin(item); });
+                AddMenu(menu, item.Pinned ? "Ne plus épingler à l'accueil" : "Épingler à l'accueil", delegate { TogglePin(item); });
                 if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
                 {
                     var sidePinned = IsSidePinned != null && IsSidePinned(item);
-                    AddMenu(menu, sidePinned ? "Retirer du côté" : "Épingler sur le côté", delegate
+                    AddMenu(menu, sidePinned ? "Retirer du rail" : "Épingler au rail", delegate
                     {
                         var handler = SidePinRequested;
                         if (handler != null) handler(item);

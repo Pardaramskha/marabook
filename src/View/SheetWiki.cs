@@ -129,12 +129,21 @@ namespace UniversSale.View
                     if (field.Group.Length > 0 && field.Group != lastGroup)
                         infobox.Children.Add(GroupCaption(field.Group));
                     lastGroup = field.Group.Length > 0 ? field.Group : lastGroup;
-                    AddRow(infobox, field.Name, value);
+                    AddRow(infobox, field.Name, field.Kind, value, project, navigate);
                 }
             }
             foreach (var entry in item.FreeInfo)
                 if (!string.IsNullOrEmpty(entry.Value))
-                    AddRow(infobox, entry.Title, entry.Value);
+                    AddRow(infobox, entry.Title, entry.Kind, entry.Value, project, navigate);
+            // Le radar (b47 bis) : la toile en petit, si le modèle l'active
+            // et que la fiche a une valeur.
+            if (template != null && template.ShowsRadar && RadarChart.HasValues(template, item.RadarValues))
+            {
+                infobox.Children.Add(GroupCaption("Radar"));
+                var canvas = new Canvas { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 2) };
+                RadarChart.Draw(canvas, template, item.RadarValues, 220, true);
+                infobox.Children.Add(canvas);
+            }
             if (item.Relations.Count > 0)
             {
                 infobox.Children.Add(GroupCaption("Relations"));
@@ -197,10 +206,36 @@ namespace UniversSale.View
             return new TextBlock { Text = text, FontSize = 11, FontWeight = FontWeights.Bold, Foreground = Chrome.Accent, Margin = new Thickness(0, 8, 0, 0) };
         }
 
-        private static void AddRow(StackPanel infobox, string label, string value)
+        /// <summary>Une ligne de l'infobox selon la nature (b47 bis) : une note
+        /// en ronds, une liste en chips, une fiche liée cliquable, le reste
+        /// en texte.</summary>
+        private static void AddRow(StackPanel infobox, string label, string kind, string value, Project project, Action<BinderItem> navigate)
         {
             infobox.Children.Add(new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Chrome.SoftText, Margin = new Thickness(0, 4, 0, 0) });
-            infobox.Children.Add(new TextBlock { Text = value, FontSize = 12, Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap });
+            switch (FieldKinds.Normalize(kind))
+            {
+                case FieldKinds.List:
+                {
+                    var chips = new WrapPanel { Margin = new Thickness(0, 2, 0, 0) };
+                    foreach (var entry in FieldKinds.ListItems(value)) chips.Children.Add(FieldEditors.Chip(entry));
+                    infobox.Children.Add(chips);
+                    return;
+                }
+                case FieldKinds.Sheet:
+                {
+                    var target = FieldKinds.SheetOf(value, project);
+                    var line = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap };
+                    line.Inlines.Add(Anchor(FieldKinds.Display(kind, value, project), target, navigate));
+                    infobox.Children.Add(line);
+                    return;
+                }
+                case FieldKinds.Rating:
+                    infobox.Children.Add(new TextBlock { Text = FieldKinds.Display(kind, value, project), FontSize = 13, Foreground = Chrome.Accent });
+                    return;
+                default:
+                    infobox.Children.Add(new TextBlock { Text = FieldKinds.Display(kind, value, project), FontSize = 12, Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap });
+                    return;
+            }
         }
     }
 }

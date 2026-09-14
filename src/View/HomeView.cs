@@ -19,7 +19,13 @@ namespace UniversSale.View
     /// invite.</summary>
     public class HomeView : ScrollViewer
     {
-        private const double TwoColumnsFrom = 520;
+        // Deux colonnes (2-1 : Reprendre et Épinglés côte à côte, « Où j'en
+        // suis » en dessous sur toute la largeur) tant que la FENÊTRE fait
+        // 1 400 px ou plus ; une seule colonne en dessous (14/09 — la largeur
+        // de la vue seule variait avec la Pile et le rail, d'où deux
+        // dispositions à même écran).
+        private const double WideWindowFrom = 1400;
+        private bool _windowHooked;
 
         private Project _project;
         private readonly Grid _grid;
@@ -77,6 +83,7 @@ namespace UniversSale.View
             column.Children.Add(_grid);
             Content = column;
             SizeChanged += delegate { Reflow(); };
+            Loaded += delegate { HookWindow(); Reflow(); };
         }
 
         /// <summary>La carte d'un bloc : titre en ink-faint, contenu.</summary>
@@ -111,7 +118,8 @@ namespace UniversSale.View
         /// s'étale sur les deux colonnes.</summary>
         private void Reflow()
         {
-            var two = ActualWidth >= TwoColumnsFrom;
+            var window = Window.GetWindow(this);
+            var two = (window != null && window.ActualWidth > 0 ? window.ActualWidth : ActualWidth) >= WideWindowFrom;
             var count = _grid.Children.Count;
             foreach (UIElement child in _grid.Children)
             {
@@ -126,7 +134,20 @@ namespace UniversSale.View
         public void Load(Project project)
         {
             _project = project;
+            HookWindow();
             Refresh();
+            Reflow();
+        }
+
+        /// <summary>La disposition suit la FENÊTRE (14/09) : accroché une fois,
+        /// au chargement de la vue ou à sa première ouverture.</summary>
+        private void HookWindow()
+        {
+            if (_windowHooked) return;
+            var window = Window.GetWindow(this);
+            if (window == null) return;
+            _windowHooked = true;
+            window.SizeChanged += delegate { Reflow(); };
         }
 
         public void Clear()

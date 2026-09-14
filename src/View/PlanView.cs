@@ -44,6 +44,7 @@ namespace UniversSale.View
         public event Action Edited;                          // le modèle a changé
         public event Action<BinderItem> NavigateRequested;   // ouvrir un écrit / livre / dossier
         public event Action BackRequested;                   // ← la carte des plans
+        public event Action RenameRequested;                 // le crayon à côté du nom (14/09)
 
         public PlanView()
         {
@@ -89,6 +90,13 @@ namespace UniversSale.View
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
             left.Children.Add(_title);
+            // Le crayon (14/09) : renommer le plan sans passer par la Pile,
+            // comme sur une fiche.
+            var rename = Buttons.Icon("pencil-simple-line", "Renommer le plan", Buttons.Compact, Buttons.Look.Calm);
+            rename.Margin = new Thickness(6, 0, 0, 0);
+            rename.VerticalAlignment = VerticalAlignment.Center;
+            rename.Click += delegate { var h = RenameRequested; if (h != null) h(); };
+            left.Children.Add(rename);
             var chart = new Button
             {
                 Content = "📈  Graphique d'intensité",

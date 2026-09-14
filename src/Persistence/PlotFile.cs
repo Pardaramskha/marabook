@@ -96,7 +96,13 @@ namespace UniversSale.Persistence
         //      note}], text = id de l'écrit, omis pour une étape libre) ;
         //      élément épinglé sur le côté (manifeste "sidePin" : id, omis
         //      sans épingle — un id mort est ignoré à l'affichage).
-        private const int FormatVersion = 21;
+        // v22: BATCH 47 bis — NATURES DE CHAMP : "kind" d'un champ de modèle
+        //      prend number/date/rating/list/choice/sheet (les valeurs restent
+        //      des chaînes), "options" : [string] pour un « choice » ; "kind"
+        //      et "options" sur une info libre ; RADAR d'un modèle ("radar" :
+        //      {max, axes:[{id, name}]}, omis si désactivé) et valeurs d'une
+        //      fiche ("radar" : {axeId: entier}, omis si vide).
+        private const int FormatVersion = 22;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -458,6 +464,8 @@ namespace UniversSale.Persistence
                         e["title"] = entry.Title;
                         e["value"] = entry.Value;
                         if (entry.Group.Length > 0) e["group"] = entry.Group;
+                        if (entry.Kind != "text") e["kind"] = entry.Kind; // v22
+                        if (entry.Options.Count > 0) e["options"] = new List<object>(entry.Options.ToArray());
                         info.Add(e);
                     }
                     node["info"] = info;
@@ -475,6 +483,12 @@ namespace UniversSale.Persistence
                         relations.Add(r);
                     }
                     node["relations"] = relations;
+                }
+                if (item.RadarValues.Count > 0) // v22
+                {
+                    var radar = new Dictionary<string, object>();
+                    foreach (var kv in item.RadarValues) if (kv.Value != 0) radar[kv.Key] = kv.Value;
+                    if (radar.Count > 0) node["radar"] = radar;
                 }
                 if (item.Evolution.Count > 0) // v21
                 {
@@ -565,12 +579,29 @@ namespace UniversSale.Persistence
                     f["name"] = field.Name;
                     if (field.Kind != "text") f["kind"] = field.Kind;
                     if (field.Group.Length > 0) f["group"] = field.Group;
+                    if (field.Options.Count > 0) f["options"] = new List<object>(field.Options.ToArray()); // v22
                     fields.Add(f);
                 }
                 t["fields"] = fields;
                 if (template.Sections.Count > 0) // v19
                     t["sections"] = new List<object>(template.Sections.ToArray());
                 if (template.Relations) t["relations"] = true; // v19 — omis faux
+                if (template.Radar || template.RadarAxes.Count > 0) // v22
+                {
+                    var radar = new Dictionary<string, object>();
+                    radar["on"] = template.Radar;
+                    radar["max"] = template.RadarMax;
+                    var axes = new List<object>();
+                    foreach (var axis in template.RadarAxes)
+                    {
+                        var a = new Dictionary<string, object>();
+                        a["id"] = axis.Id;
+                        a["name"] = axis.Name;
+                        axes.Add(a);
+                    }
+                    radar["axes"] = axes;
+                    t["radar"] = radar;
+                }
                 list.Add(t);
             }
             root["templates"] = list;
@@ -973,10 +1004,32 @@ namespace UniversSale.Persistence
                             var fieldId = Json.AsString(Json.Field(f, "id"));
                             if (!string.IsNullOrEmpty(fieldId)) field.Id = fieldId;
                             field.Name = Json.AsString(Json.Field(f, "name")) ?? "Champ";
-                            field.Kind = Json.AsString(Json.Field(f, "kind")) ?? "text";
+                            field.Kind = Json.AsString(Json.Field(f, "kind")) ?? "text"; // brut : Normalize à l'usage (une nature inconnue vaut texte)
                             field.Group = Json.AsString(Json.Field(f, "group")) ?? "";
+                            var options = Json.AsList(Json.Field(f, "options")); // v22
+                            if (options != null)
+                                foreach (var option in options)
+                                    if (option is string && ((string)option).Length > 0) field.Options.Add((string)option);
                             template.Fields.Add(field);
                         }
+                    var radar = Json.AsObject(Json.Field(t, "radar")); // v22
+                    if (radar != null)
+                    {
+                        template.Radar = Json.AsBool(Json.Field(radar, "on"), false);
+                        template.RadarMax = Math.Max(SheetTemplate.RadarMaxFloor, Math.Min(SheetTemplate.RadarMaxCeiling, Json.AsInt(Json.Field(radar, "max"), 5)));
+                        var axes = Json.AsList(Json.Field(radar, "axes"));
+                        if (axes != null)
+                            foreach (var axisNode in axes)
+                            {
+                                var a = Json.AsObject(axisNode);
+                                if (a == null) continue;
+                                var axis = new RadarAxis();
+                                var axisId = Json.AsString(Json.Field(a, "id"));
+                                if (!string.IsNullOrEmpty(axisId)) axis.Id = axisId;
+                                axis.Name = Json.AsString(Json.Field(a, "name")) ?? "Axe";
+                                template.RadarAxes.Add(axis);
+                            }
+                    }
                     var sections = Json.AsList(Json.Field(t, "sections")); // v19
                     if (sections != null)
                         foreach (var section in sections)
@@ -1145,6 +1198,11 @@ namespace UniversSale.Persistence
                         entry.Title = Json.AsString(Json.Field(e, "title")) ?? "";
                         entry.Value = Json.AsString(Json.Field(e, "value")) ?? "";
                         entry.Group = Json.AsString(Json.Field(e, "group")) ?? "";
+                        entry.Kind = Json.AsString(Json.Field(e, "kind")) ?? "text"; // v22 — brut, Normalize à l'usage
+                        var entryOptions = Json.AsList(Json.Field(e, "options"));
+                        if (entryOptions != null)
+                            foreach (var option in entryOptions)
+                                if (option is string && ((string)option).Length > 0) entry.Options.Add((string)option);
                         item.FreeInfo.Add(entry);
                     }
                 var relations = Json.AsList(Json.Field(obj, "relations"));
@@ -1161,6 +1219,10 @@ namespace UniversSale.Persistence
                         relation.Name = Json.AsString(Json.Field(r, "name")) ?? "";
                         item.Relations.Add(relation);
                     }
+                var radarValues = Json.AsObject(Json.Field(obj, "radar")); // v22
+                if (radarValues != null)
+                    foreach (var kv in radarValues)
+                        item.RadarValues[kv.Key] = Json.AsInt(kv.Value, 0);
                 var evolution = Json.AsList(Json.Field(obj, "evolution")); // v21
                 if (evolution != null)
                     foreach (var stepNode in evolution)

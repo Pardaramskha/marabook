@@ -26,7 +26,10 @@ namespace UniversSale.View
         private readonly TextBlock _titleLabel, _categoryLabel;
         private readonly ToggleButton _previewToggle;
         private readonly Grid _body;
-        private readonly TabControl _tabs;         // Général | Texte libre (b36)
+        private readonly TabControl _tabs;         // Général | Texte libre (b36) | Radar (b47 bis, si le modèle l'active)
+        private readonly TabItem _radarTab;
+        private readonly StackPanel _radarHost;
+        private Canvas _radarCanvas;
         private Border _dictDot;                   // indicateur de dictionnaire (12/09)
         private TextBlock _dictState;
         private Button _dictAdd;
@@ -288,11 +291,26 @@ namespace UniversSale.View
             };
             _tabs.Items.Add(new TabItem { Header = "Texte libre", Content = editorPaper });
 
+            // — Radar (b47 bis) : l'onglet n'existe que si le modèle l'active
+            // (RebuildRadar l'ajoute ou le retire).
+            _radarHost = new StackPanel { Margin = new Thickness(2, 4, 2, 10) };
+            _radarTab = new TabItem
+            {
+                Header = "Radar",
+                Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _radarHost, Cursor = Cursors.Arrow }
+            };
+
             _body = new Grid();
             _body.Children.Add(_tabs);
             _body.Children.Add(BuildDictionaryBadge()); // bout droit de la rangée d'onglets
 
             _preview = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Visibility = Visibility.Collapsed };
+            // La molette sur le rendu wiki (14/09) : même remède que l'épinglé.
+            _preview.PreviewMouseWheel += delegate(object sender, MouseWheelEventArgs e)
+            {
+                _preview.ScrollToVerticalOffset(_preview.VerticalOffset - e.Delta);
+                e.Handled = true;
+            };
 
             var center = new Grid();
             center.Children.Add(_body);
@@ -660,11 +678,12 @@ namespace UniversSale.View
                     string value;
                     _item.FieldValues.TryGetValue(field.Id, out value);
                     var fieldRef = field;
-                    var row = FieldRow(field.Name, value ?? "", field.Kind == "multiline", delegate(string text)
+                    // La nature du champ choisit l'éditeur (b47 bis).
+                    var editor = Editor(field.Kind, value ?? "", field.Options, delegate(string text)
                     {
                         _item.FieldValues[fieldRef.Id] = text;
-                    }, null, field.Id);
-                    PanelFor(field.Group).Children.Add(row);
+                    }, field.Id);
+                    PanelFor(field.Group).Children.Add(FieldRow(field.Name, editor, null));
                 }
             foreach (var entry in _item.FreeInfo)
                 PanelFor(entry.Group).Children.Add(FreeFieldRow(entry));
@@ -681,8 +700,8 @@ namespace UniversSale.View
         }
 
         /// <summary>Une rangée d'un paper (batch 42) : le nom du champ en haut,
-        /// petit, la valeur sur la ligne du dessous. remove = bouton ✕ optionnel.</summary>
-        private UIElement FieldRow(string label, string value, bool multiline, Action<string> onChanged, Button remove, string refId)
+        /// petit, l'éditeur sur la ligne du dessous. remove = bouton ✕ optionnel.</summary>
+        private static UIElement FieldRow(string label, FrameworkElement editor, Button remove)
         {
             var row = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
             var head = new DockPanel { Margin = new Thickness(0, 0, 0, 2) };
@@ -696,28 +715,24 @@ namespace UniversSale.View
                 TextTrimming = TextTrimming.CharacterEllipsis
             });
             row.Children.Add(head);
-            row.Children.Add(ValueBox(value, multiline, onChanged, refId));
+            row.Children.Add(editor);
             return row;
         }
 
-        private TextBox ValueBox(string value, bool multiline, Action<string> onChanged, string refId)
+        /// <summary>L'éditeur d'une valeur selon sa nature (FieldEditors, b47
+        /// bis) : le changement est ignoré pendant le chargement, sinon
+        /// appliqué puis signalé ; la zone est enregistrée pour la recherche.</summary>
+        private FrameworkElement Editor(string kind, string value, List<string> options, Action<string> onChanged, string refId)
         {
-            var box = new TextBox { Text = value };
-            if (refId != null) _fieldBoxes[refId] = box;
-            if (multiline)
-            {
-                box.AcceptsReturn = true;
-                box.TextWrapping = TextWrapping.Wrap;
-                box.MinHeight = 52;
-                box.VerticalContentAlignment = VerticalAlignment.Top;
-            }
-            box.TextChanged += delegate
+            var editor = FieldEditors.Build(kind, value, options, _project, _item, delegate(string text)
             {
                 if (_loading || _item == null) return;
-                onChanged(box.Text);
+                onChanged(text);
                 NotifyEdited();
-            };
-            return box;
+            }, delegate(BinderItem target) { var h = NavigateRequested; if (h != null) h(target); });
+            var focus = FieldEditors.FocusTarget(editor);
+            if (refId != null && focus != null) _fieldBoxes[refId] = focus;
+            return editor;
         }
 
         /// <summary>Un champ propre à la fiche : son nom, une fois renseigné,
@@ -787,10 +802,57 @@ namespace UniversSale.View
             titleRow.Children.Add(titleBox);
             rename.Margin = new Thickness(4, 0, 0, 0);
             titleRow.Children.Add(rename);
+            // La nature du champ libre (b47 bis) : un petit sélecteur ; un
+            // « Choix » demande ses options (bouton « … » pour les revoir).
+            var kindCombo = new ComboBox
+            {
+                FontSize = 11,
+                Margin = new Thickness(8, 0, 0, 0),
+                MinWidth = 96,
+                ToolTip = "La nature de ce champ : texte, nombre, date, note, liste, choix, fiche liée"
+            };
+            foreach (var kind in FieldKinds.All) kindCombo.Items.Add(FieldKinds.Label(kind));
+            kindCombo.SelectedIndex = Array.IndexOf(FieldKinds.All, FieldKinds.Normalize(entry.Kind));
+            var optionsButton = new Button
+            {
+                Content = "…",
+                Width = 24,
+                Padding = new Thickness(0, 1, 0, 1),
+                Margin = new Thickness(4, 0, 0, 0),
+                ToolTip = "Les options de ce choix (séparées par des virgules)",
+                Visibility = FieldKinds.Normalize(entry.Kind) == FieldKinds.Choice ? Visibility.Visible : Visibility.Collapsed
+            };
+            Action askOptions = delegate
+            {
+                var text = InputDialog.Ask(Window.GetWindow(this), "Options du choix",
+                    "Les options, séparées par des virgules :", FieldKinds.JoinOptions(entry.Options));
+                if (text == null) return;
+                entry.Options = FieldKinds.ListItems(text);
+                NotifyEdited();
+                RebuildFields();
+            };
+            optionsButton.Click += delegate { askOptions(); };
+            kindCombo.SelectionChanged += delegate
+            {
+                if (_loading || kindCombo.SelectedIndex < 0) return;
+                var chosen = FieldKinds.All[kindCombo.SelectedIndex];
+                if (chosen == entry.Kind) return;
+                entry.Kind = chosen;
+                NotifyEdited();
+                // Reconstruction différée : on ne détruit pas le sélecteur
+                // pendant son propre événement.
+                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(delegate
+                {
+                    if (chosen == FieldKinds.Choice && entry.Options.Count == 0) askOptions();
+                    else RebuildFields();
+                }));
+            };
+            titleRow.Children.Add(kindCombo);
+            titleRow.Children.Add(optionsButton);
             head.Children.Add(titleRow);
             sync();
             row.Children.Add(head);
-            row.Children.Add(ValueBox(entry.Value, false, delegate(string text) { entry.Value = text; }, entry.Id));
+            row.Children.Add(Editor(entry.Kind, entry.Value, entry.Options, delegate(string text) { entry.Value = text; }, entry.Id));
             // Seul le champ que l'on VIENT d'ajouter prend le focus (pack du
             // 12/09/2026) : un champ resté « Champ » dans une fiche enregistrée
             // se retrouvait sélectionné à chaque ouverture de la fiche.
@@ -1387,6 +1449,7 @@ namespace UniversSale.View
             RebuildRelations();
             RebuildPresence();
             RebuildEvolution();
+            RebuildRadar();
             RefreshPortrait();
             _bodyBox.Text = item.Document.ToPlainText();
             // La pile d'annulation du TextBox repart de zéro avec le texte
@@ -1420,7 +1483,84 @@ namespace UniversSale.View
             RebuildPapers();
             _presencePanel.Children.Clear();
             _evolutionPanel.Children.Clear();
+            RebuildRadar();
             SyncGenealogy();
+        }
+
+        // ================================================== radar (b47 bis)
+
+        /// <summary>L'onglet Radar : présent si le modèle l'active (trois axes
+        /// au moins). La toile à gauche, un curseur par axe à droite ; la
+        /// toile se redessine à chaque cran.</summary>
+        private void RebuildRadar()
+        {
+            _radarHost.Children.Clear();
+            var shown = _item != null && _template != null && _template.ShowsRadar;
+            if (!shown)
+            {
+                if (_tabs.Items.Contains(_radarTab))
+                {
+                    if (_tabs.SelectedItem == _radarTab) _tabs.SelectedIndex = 0;
+                    _tabs.Items.Remove(_radarTab);
+                }
+                return;
+            }
+            if (!_tabs.Items.Contains(_radarTab)) _tabs.Items.Add(_radarTab);
+            var layout = new Grid();
+            layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _radarCanvas = new Canvas { Margin = new Thickness(6) };
+            RadarChart.Draw(_radarCanvas, _template, _item.RadarValues, 380, true);
+            var web = Paper("Toile", _radarCanvas, null);
+            web.VerticalAlignment = VerticalAlignment.Top;
+            Grid.SetColumn(web, 0);
+            layout.Children.Add(web);
+
+            var rows = new StackPanel();
+            var max = Math.Max(1, _template.RadarMax);
+            foreach (var axis in _template.RadarAxes)
+            {
+                var axisRef = axis;
+                var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+                var valueLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, MinWidth = 44, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+                DockPanel.SetDock(valueLabel, Dock.Right);
+                row.Children.Add(valueLabel);
+                var name = new TextBlock { Text = axis.Name, Foreground = Chrome.Ink, FontSize = 12, Width = 120, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+                DockPanel.SetDock(name, Dock.Left);
+                row.Children.Add(name);
+                var slider = new Slider
+                {
+                    Minimum = 0,
+                    Maximum = max,
+                    TickFrequency = 1,
+                    IsSnapToTickEnabled = true,
+                    SmallChange = 1,
+                    LargeChange = 1,
+                    Value = RadarChart.ValueOf(_item.RadarValues, axis.Id, max),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(8, 0, 10, 0)
+                };
+                Action relabel = delegate { valueLabel.Text = (int)slider.Value + " / " + max; };
+                relabel();
+                slider.ValueChanged += delegate
+                {
+                    if (_loading || _item == null) return;
+                    var value = (int)Math.Round(slider.Value);
+                    if (value == 0) _item.RadarValues.Remove(axisRef.Id);
+                    else _item.RadarValues[axisRef.Id] = value;
+                    relabel();
+                    RadarChart.Draw(_radarCanvas, _template, _item.RadarValues, 380, true);
+                    NotifyEdited();
+                };
+                row.Children.Add(slider);
+                rows.Children.Add(row);
+            }
+            rows.Children.Add(Hint("Chaque axe de 0 à " + max + " — l'échelle et les axes se règlent dans l'éditeur de modèles."));
+            var values = Paper("Valeurs", rows, null);
+            values.VerticalAlignment = VerticalAlignment.Top;
+            Grid.SetColumn(values, 1);
+            layout.Children.Add(values);
+            _radarHost.Children.Add(layout);
         }
 
         // ------------------------------------------------------- image

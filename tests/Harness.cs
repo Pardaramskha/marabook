@@ -104,7 +104,8 @@ namespace UniversSale.Tests
                 AchievementTests.Run,    // C21 — les succès (12/09/2026)
                 StyleTests.Run,          // C22 — style morphologique + synonymes (b44)
                 StyleBatchTests.Run,     // C23 — b45 : frappe typographique, incises, racines, bilan
-                PresenceTests.Run        // C24 — présence et évolution (b47)
+                PresenceTests.Run,       // C24 — présence et évolution (b47)
+                FieldKindTests.Run       // C25 — natures de champ (b47 bis)
             };
             foreach (var suite in suites)
             {

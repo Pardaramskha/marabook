@@ -73,8 +73,10 @@ namespace UniversSale.Tests
             "BinderItem.FooterHideFirst",   // gabarit de pages
             // --- types non scalaires exercés à la main (règle 2 du 0.5).
             "BinderItem.Kind",              // enum : détermine le jeu de clés
-            "BinderItem.FieldValues"        // Dictionary<string,string> — la
+            "BinderItem.FieldValues",       // Dictionary<string,string> — la
                                             //   fiche héroïne l'exerce
+            "BinderItem.RadarValues"        // Dictionary<string,int> — la fiche
+                                            //   héroïne l'exerce (b47 bis, v22)
         };
 
         /// <summary>Remplit les scalaires encore à leur défaut de l'objet

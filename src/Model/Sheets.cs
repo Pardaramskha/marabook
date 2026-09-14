@@ -11,7 +11,10 @@ namespace UniversSale.Model
     {
         public string Id = Guid.NewGuid().ToString("N");
         public string Name = "Champ";
-        public string Kind = "text"; // "text" (one line) | "multiline"
+        public string Kind = "text"; // une nature de FieldKinds (b47 bis) : text, multiline, number, date, rating, list, choice, sheet
+        // Les options d'un champ « choice » (b47 bis, v22) : les valeurs
+        // proposées, dans l'ordre.
+        public List<string> Options = new List<string>();
 
         // Groupe d'affichage (batch 31) : les champs d'un même groupe sont
         // rendus sous un intertitre ("Infos", "Physique"…). Vide = groupe
@@ -20,7 +23,161 @@ namespace UniversSale.Model
 
         public SheetField Clone()
         {
-            return (SheetField)MemberwiseClone();
+            var copy = (SheetField)MemberwiseClone();
+            copy.Options = new List<string>(Options);
+            return copy;
+        }
+    }
+
+    /// <summary>Un axe du radar d'un modèle (b47 bis, v22) : « Force »,
+    /// « Charisme »… Une fiche porte une valeur par axe (BinderItem.RadarValues,
+    /// clé = l'id de l'axe) — renommer un axe garde les valeurs.</summary>
+    public class RadarAxis
+    {
+        public string Id = Guid.NewGuid().ToString("N");
+        public string Name = "Axe";
+    }
+
+    /// <summary>LES NATURES DE CHAMP (b47 bis) — la seule liste. Une nature
+    /// dit comment on saisit et comment on lit ; la valeur reste TOUJOURS une
+    /// chaîne dans le .plot (FieldValues, InfoEntry.Value), donc un vieux
+    /// fichier s'ouvre tel quel et une valeur illisible dans sa nature
+    /// s'affiche en texte, jamais perdue.</summary>
+    public static class FieldKinds
+    {
+        public const string Text = "text";
+        public const string Multiline = "multiline";
+        public const string Number = "number";
+        public const string Date = "date";
+        public const string Rating = "rating";
+        public const string List = "list";
+        public const string Choice = "choice";
+        public const string Sheet = "sheet";
+
+        public const int RatingMax = 5;
+
+        public static readonly string[] All = { Text, Multiline, Number, Date, Rating, List, Choice, Sheet };
+
+        private static readonly char[] ListSeparators = { ',', ';' };
+
+        /// <summary>Une nature connue, ou « text » pour tout le reste (une
+        /// valeur inconnue d'un .plot plus récent lu par une version qui ne
+        /// la sait pas : jamais un plantage).</summary>
+        public static string Normalize(string kind)
+        {
+            if (kind == null) return Text;
+            foreach (var known in All) if (known == kind) return kind;
+            return Text;
+        }
+
+        public static string Label(string kind)
+        {
+            switch (Normalize(kind))
+            {
+                case Multiline: return "Texte long";
+                case Number: return "Nombre";
+                case Date: return "Date";
+                case Rating: return "Note sur 5";
+                case List: return "Liste";
+                case Choice: return "Choix";
+                case Sheet: return "Fiche liée";
+                default: return "Texte court";
+            }
+        }
+
+        /// <summary>Un nombre en tête de la valeur (« 1,78 m » → 1.78, l'unité
+        /// suit librement) ; faux si la valeur ne commence pas par un nombre.</summary>
+        public static bool TryNumber(string value, out double number)
+        {
+            number = 0;
+            if (value == null) return false;
+            var text = value.Trim().Replace(',', '.');
+            var end = 0;
+            if (end < text.Length && (text[end] == '-' || text[end] == '+')) end++;
+            var digits = false;
+            var dot = false;
+            while (end < text.Length)
+            {
+                var c = text[end];
+                if (char.IsDigit(c)) { digits = true; end++; continue; }
+                if (c == '.' && !dot) { dot = true; end++; continue; }
+                if (c == ' ' && digits && end + 1 < text.Length && char.IsDigit(text[end + 1])) { end++; continue; } // « 12 000 »
+                break;
+            }
+            if (!digits) return false;
+            return double.TryParse(text.Substring(0, end).Replace(" ", ""),
+                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out number);
+        }
+
+        /// <summary>La note d'une valeur « rating » : 0 (vide ou illisible) à RatingMax.</summary>
+        public static int RatingOf(string value)
+        {
+            int n;
+            if (value == null || !int.TryParse(value.Trim(), out n)) return 0;
+            return n < 0 ? 0 : n > RatingMax ? RatingMax : n;
+        }
+
+        /// <summary>Les ronds d'une note : « ●●●○○ ».</summary>
+        public static string RatingText(int rating)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (var i = 1; i <= RatingMax; i++) sb.Append(i <= rating ? '●' : '○');
+            return sb.ToString();
+        }
+
+        /// <summary>Les éléments d'une valeur « list » (virgule ou point-virgule),
+        /// rognés, vides écartés.</summary>
+        public static List<string> ListItems(string value)
+        {
+            var items = new List<string>();
+            if (string.IsNullOrEmpty(value)) return items;
+            foreach (var part in value.Split(ListSeparators))
+            {
+                var item = part.Trim();
+                if (item.Length > 0) items.Add(item);
+            }
+            return items;
+        }
+
+        /// <summary>Les options d'un champ « choice » écrites sur une ligne
+        /// (« vivant, mort, disparu ») — et l'inverse (ListItems).</summary>
+        public static string JoinOptions(IEnumerable<string> options)
+        {
+            return string.Join(", ", new List<string>(options).ToArray());
+        }
+
+        /// <summary>Ce qu'on LIT d'une valeur selon sa nature : la note en
+        /// ronds, la liste en éléments séparés, la fiche liée par son titre
+        /// (« (fiche disparue) » si l'id ne mène nulle part), le reste tel quel.</summary>
+        public static string Display(string kind, string value, Project project)
+        {
+            switch (Normalize(kind))
+            {
+                case Rating: return RatingText(RatingOf(value));
+                case List: return string.Join(" · ", ListItems(value).ToArray());
+                case Sheet:
+                {
+                    if (string.IsNullOrEmpty(value)) return "";
+                    var target = project == null ? null : project.FindById(value);
+                    return target != null ? target.Title : "(fiche disparue)";
+                }
+                default: return value ?? "";
+            }
+        }
+
+        /// <summary>Une fiche d'une valeur « sheet », ou null.</summary>
+        public static BinderItem SheetOf(string value, Project project)
+        {
+            if (string.IsNullOrEmpty(value) || project == null) return null;
+            var target = project.FindById(value);
+            return target != null && target.Kind == ItemKind.Sheet ? target : null;
+        }
+
+        /// <summary>Vrai si la nature est « lisible » par la recherche (une
+        /// fiche liée est un id : on ne la cherche ni ne la remplace).</summary>
+        public static bool Searchable(string kind)
+        {
+            return Normalize(kind) != Sheet;
         }
     }
 
@@ -41,13 +198,37 @@ namespace UniversSale.Model
         // Le paper « Relations » (liens entre fiches) — vrai pour le
         // Personnage, faux pour les autres modèles livrés (batch 42).
         public bool Relations;
+        // LE RADAR (b47 bis, v22) : désactivé par défaut ; activé, la fiche
+        // gagne un troisième onglet « Radar » — une toile à un axe par
+        // RadarAxes, chaque valeur de 0 à RadarMax.
+        public bool Radar;
+        public List<RadarAxis> RadarAxes = new List<RadarAxis>();
+        public int RadarMax = 5;
+
+        public const int RadarMaxFloor = 3, RadarMaxCeiling = 10;
+
+        /// <summary>Les axes livrés quand on active le radar sur un modèle
+        /// qui n'en a pas encore.</summary>
+        public static readonly string[] DefaultRadarAxes =
+            { "Force", "Agilité", "Intelligence", "Charisme", "Volonté", "Chance" };
 
         public SheetTemplate Clone()
         {
-            var copy = new SheetTemplate { Id = Id, Name = Name, Relations = Relations };
+            var copy = new SheetTemplate { Id = Id, Name = Name, Relations = Relations, Radar = Radar, RadarMax = RadarMax };
             foreach (var field in Fields) copy.Fields.Add(field.Clone());
             copy.Sections.AddRange(Sections);
+            foreach (var axis in RadarAxes) copy.RadarAxes.Add(new RadarAxis { Id = axis.Id, Name = axis.Name });
             return copy;
+        }
+
+        /// <summary>Le radar est-il à montrer : activé ET au moins trois axes
+        /// (à deux, ce n'est pas une toile).</summary>
+        public bool ShowsRadar { get { return Radar && RadarAxes.Count >= 3; } }
+
+        public RadarAxis FindAxis(string id)
+        {
+            foreach (var axis in RadarAxes) if (axis.Id == id) return axis;
+            return null;
         }
 
         public bool HasSection(string name)
@@ -343,6 +524,8 @@ namespace UniversSale.Model
         public string Title = "";
         public string Value = "";
         public string Group = ""; // "" = Informations, "Physique" = Apparence (batch 34)
+        public string Kind = "text"; // la nature (b47 bis, v22) — comme SheetField.Kind
+        public List<string> Options = new List<string>(); // options d'un « choice »
     }
 
     /// <summary>Une relation d'une fiche vers une autre (batch 34) : sa

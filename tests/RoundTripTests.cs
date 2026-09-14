@@ -444,6 +444,19 @@ namespace UniversSale.Tests
             project.RelationKinds.Add("Mentor");
             // — Évolution (batch 47, v21) : une étape liée au chapitre, une libre ;
             //   l'épinglé sur le côté = la fiche.
+            // — Natures et radar (b47 bis, v22) : un champ « choice » avec
+            //   ses options, une info libre typée, le radar du modèle et les
+            //   valeurs de la fiche.
+            template.Fields.Add(new SheetField { Name = "Statut", Kind = FieldKinds.Choice, Options = new System.Collections.Generic.List<string> { "vivant", "mort" } });
+            sheet.FieldValues[template.Fields[template.Fields.Count - 1].Id] = "mort";
+            sheet.FreeInfo.Add(new InfoEntry { Title = "Courage", Value = "4", Kind = FieldKinds.Rating });
+            template.Radar = true;
+            template.RadarMax = 6;
+            template.RadarAxes.Add(new RadarAxis { Name = "Force" });
+            template.RadarAxes.Add(new RadarAxis { Name = "Ruse" });
+            template.RadarAxes.Add(new RadarAxis { Name = "Charme" });
+            sheet.RadarValues[template.RadarAxes[0].Id] = 3;
+            sheet.RadarValues[template.RadarAxes[2].Id] = 6;
             sheet.Evolution.Add(new EvolutionEntry { TextId = chapter.Id, Note = "perd une plume" });
             sheet.Evolution.Add(new EvolutionEntry { Note = "étape libre" });
             project.SidePinId = sheet.Id;
