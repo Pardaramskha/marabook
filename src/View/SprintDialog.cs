@@ -14,9 +14,11 @@ namespace UniversSale.View
             public int Goal;    // 0 = sans objectif
         }
 
-        private static int _lastMinutes = 25, _lastGoal = 500;
+        private static int _lastMinutes = 25, _lastGoal = 500, _lastCustom = 60;
 
         private readonly RadioButton[] _durations;
+        private readonly RadioButton _custom;   // « Personnalisé » + minutes (14/09)
+        private readonly SpinnerField _customMinutes;
         private readonly SpinnerField _goal;
         private bool _accepted;
 
@@ -34,6 +36,7 @@ namespace UniversSale.View
             panel.Children.Add(Label("Durée :"));
             var row = new StackPanel { Orientation = Orientation.Horizontal };
             var minutes = new[] { 15, 25, 45, 0 };
+            var preset = false;
             _durations = new RadioButton[minutes.Length];
             for (var i = 0; i < minutes.Length; i++)
             {
@@ -45,9 +48,19 @@ namespace UniversSale.View
                     IsChecked = minutes[i] == _lastMinutes,
                     VerticalAlignment = VerticalAlignment.Center
                 };
+                if (minutes[i] == _lastMinutes) preset = true;
                 row.Children.Add(_durations[i]);
             }
             panel.Children.Add(row);
+            // La durée personnalisée : un bouton radio de plus, avec ses minutes.
+            var customRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            _custom = new RadioButton { Content = "Personnalisé :", IsChecked = !preset, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            customRow.Children.Add(_custom);
+            _customMinutes = new SpinnerField(_lastCustom, 1, 480, 5, "La durée du sprint, en minutes (1 à 480)");
+            _customMinutes.VerticalAlignment = VerticalAlignment.Center;
+            customRow.Children.Add(_customMinutes);
+            customRow.Children.Add(new TextBlock { Text = "min", Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
+            panel.Children.Add(customRow);
 
             panel.Children.Add(Label("Objectif de mots (0 = sans objectif) :"));
             _goal = new SpinnerField(_lastGoal, 0, 20000, 50, "Les mots nets à écrire pendant le sprint");
@@ -92,6 +105,11 @@ namespace UniversSale.View
             var minutes = 0;
             foreach (var radio in dialog._durations)
                 if (radio.IsChecked == true) minutes = (int)radio.Tag;
+            if (dialog._custom.IsChecked == true)
+            {
+                minutes = System.Math.Max(1, (int)System.Math.Round(dialog._customMinutes.Value));
+                _lastCustom = minutes;
+            }
             _lastMinutes = minutes;
             _lastGoal = System.Math.Max(0, (int)System.Math.Round(dialog._goal.Value));
             return new Choice { Minutes = minutes, Goal = _lastGoal };

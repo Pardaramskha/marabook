@@ -717,6 +717,7 @@ namespace UniversSale
 
             _journalView = new JournalView { Visibility = Visibility.Collapsed };
             _journalView.Changed += delegate { MarkDirty(); CheckDailyGoal(); };
+            _journalView.SprintRequested += StartSprint; // « Démarrer un sprint » de la carte Sprints (14/09)
             _journalView.AchievementToggleRequested += delegate(string id, bool unlock)
             {
                 if (unlock) UnlockAchievement(id);
@@ -789,6 +790,41 @@ namespace UniversSale
                 Child = sprintRow
             };
             center.Children.Add(_sprintPill);
+            // La pastille se DÉPLACE à la souris (14/09) : elle gênait parfois
+            // l'accès à un bouton. Saisie sur le texte (la croix garde son clic),
+            // bornée à la zone centrale ; la position tient la session.
+            _sprintPill.Cursor = System.Windows.Input.Cursors.SizeAll;
+            Point dragOrigin = new Point();
+            Thickness dragStart = new Thickness();
+            _sprintPill.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                dragOrigin = e.GetPosition(center);
+                if (_sprintPill.HorizontalAlignment != HorizontalAlignment.Left)
+                {
+                    // Première saisie : on passe en coordonnées absolues (haut-gauche).
+                    var at = _sprintPill.TranslatePoint(new Point(0, 0), center);
+                    _sprintPill.HorizontalAlignment = HorizontalAlignment.Left;
+                    _sprintPill.VerticalAlignment = VerticalAlignment.Top;
+                    _sprintPill.Margin = new Thickness(at.X, at.Y, 0, 0);
+                }
+                dragStart = _sprintPill.Margin;
+                _sprintPill.CaptureMouse();
+                e.Handled = true;
+            };
+            _sprintPill.MouseMove += delegate(object sender, MouseEventArgs e)
+            {
+                if (!_sprintPill.IsMouseCaptured) return;
+                var now = e.GetPosition(center);
+                var x = dragStart.Left + now.X - dragOrigin.X;
+                var y = dragStart.Top + now.Y - dragOrigin.Y;
+                x = Math.Max(0, Math.Min(x, Math.Max(0, center.ActualWidth - _sprintPill.ActualWidth)));
+                y = Math.Max(0, Math.Min(y, Math.Max(0, center.ActualHeight - _sprintPill.ActualHeight)));
+                _sprintPill.Margin = new Thickness(x, y, 0, 0);
+            };
+            _sprintPill.MouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (_sprintPill.IsMouseCaptured) { _sprintPill.ReleaseMouseCapture(); e.Handled = true; }
+            };
             _sprintTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _sprintTimer.Tick += delegate { TickSprint(); };
 

@@ -37,6 +37,8 @@ namespace UniversSale.View
 
         /// <summary>L'objectif journalier a changé (le projet est sale).</summary>
         public event Action Changed;
+        /// <summary>« Démarrer un sprint » depuis la carte Sprints (14/09).</summary>
+        public event Action SprintRequested;
 
         public JournalView()
         {
@@ -275,12 +277,20 @@ namespace UniversSale.View
             var sprintsCard = Card();
             sprintsCard.Margin = new Thickness(0, 10, 0, 0);
             var sprints = new StackPanel();
-            sprints.Children.Add(new TextBlock
+            var sprintsHead = new DockPanel();
+            var startSprint = Buttons.IconText("play-fill", "Démarrer un sprint",
+                "Une durée, un objectif de mots — la pastille suit, le journal consigne", Buttons.Compact, Buttons.Look.Primary);
+            startSprint.Click += delegate { var h = SprintRequested; if (h != null) h(); };
+            DockPanel.SetDock(startSprint, Dock.Right);
+            sprintsHead.Children.Add(startSprint);
+            sprintsHead.Children.Add(new TextBlock
             {
                 Text = "Sprints",
                 Foreground = Chrome.Ink,
-                FontWeight = FontWeights.SemiBold
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
             });
+            sprints.Children.Add(sprintsHead);
             sprints.Children.Add(new TextBlock
             {
                 Text = "Les derniers sprints — Édition › Lancer un sprint… : une durée, un objectif de mots, un bandeau discret.",
