@@ -591,6 +591,7 @@ namespace UniversSale.Persistence
                     var radar = new Dictionary<string, object>();
                     radar["on"] = template.Radar;
                     radar["max"] = template.RadarMax;
+                    if (template.RadarName != "Radar") radar["name"] = template.RadarName;
                     var axes = new List<object>();
                     foreach (var axis in template.RadarAxes)
                     {
@@ -1017,6 +1018,7 @@ namespace UniversSale.Persistence
                     {
                         template.Radar = Json.AsBool(Json.Field(radar, "on"), false);
                         template.RadarMax = Math.Max(SheetTemplate.RadarMaxFloor, Math.Min(SheetTemplate.RadarMaxCeiling, Json.AsInt(Json.Field(radar, "max"), 5)));
+                        template.RadarName = Json.AsString(Json.Field(radar, "name")) ?? "Radar";
                         var axes = Json.AsList(Json.Field(radar, "axes"));
                         if (axes != null)
                             foreach (var axisNode in axes)
@@ -1222,7 +1224,7 @@ namespace UniversSale.Persistence
                 var radarValues = Json.AsObject(Json.Field(obj, "radar")); // v22
                 if (radarValues != null)
                     foreach (var kv in radarValues)
-                        item.RadarValues[kv.Key] = Json.AsInt(kv.Value, 0);
+                        item.RadarValues[kv.Key] = Json.AsDouble(kv.Value, 0); // par pas de 0,5 (14/09)
                 var evolution = Json.AsList(Json.Field(obj, "evolution")); // v21
                 if (evolution != null)
                     foreach (var stepNode in evolution)

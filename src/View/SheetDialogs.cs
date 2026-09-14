@@ -24,6 +24,7 @@ namespace UniversSale.View
         private readonly CheckBox _relationsCheck;
         // Le radar (b47 bis) : activé par modèle, ses axes et son échelle.
         private readonly CheckBox _radarCheck;
+        private readonly TextBox _radarName;
         private readonly SpinnerField _radarMax;
         private readonly StackPanel _axesPanel;
         private readonly Button _addAxis;
@@ -166,6 +167,12 @@ namespace UniversSale.View
             };
             _radarCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Radar = false; RebuildAxes(); } };
             radarHead.Children.Add(_radarCheck);
+            var radarNameRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+            radarNameRow.Children.Add(new TextBlock { Text = "Nom du radar", Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            _radarName = new TextBox { Width = 220, ToolTip = "Le nom de l'onglet et de la section : « Radar », « Traits », « Aptitudes »…" };
+            _radarName.TextChanged += delegate { if (_current != null && !_syncing) _current.RadarName = _radarName.Text; };
+            radarNameRow.Children.Add(_radarName);
+            radarHead.Children.Add(radarNameRow);
             var scaleRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
             scaleRow.Children.Add(new TextBlock { Text = "Échelle : de 0 à", Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
             _radarMax = new SpinnerField(5, SheetTemplate.RadarMaxFloor, SheetTemplate.RadarMaxCeiling, 1, "Le maximum de chaque axe (3 à 10)");
@@ -269,6 +276,7 @@ namespace UniversSale.View
             _radarCheck.IsChecked = template != null && template.Radar;
             _radarCheck.IsEnabled = template != null;
             _radarMax.Value = template == null ? 5 : template.RadarMax;
+            _radarName.Text = template == null ? "" : template.RadarName;
             _syncing = false;
             RebuildSections();
             RebuildFields();
@@ -283,6 +291,7 @@ namespace UniversSale.View
             var on = _current != null && _current.Radar;
             _addAxis.IsEnabled = on;
             _radarMax.IsEnabled = on;
+            _radarName.IsEnabled = on;
             if (_current == null) return;
             foreach (var axis in _current.RadarAxes)
             {

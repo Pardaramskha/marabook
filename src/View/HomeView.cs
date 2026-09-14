@@ -33,6 +33,7 @@ namespace UniversSale.View
         private readonly TextBlock _title;
 
         public event Action<BinderItem> OpenRequested;   // clic sur un récent ou un épinglé
+        public Func<BinderItem, ContextMenu> MenuProvider; // clic droit : le menu de la Pile (14/09)
         public event Action RenameRequested;             // le crayon à côté du nom du projet (b43)
 
         // Fournis par la coquille (déjà calculés là-bas) : l'objectif de
@@ -331,6 +332,14 @@ namespace UniversSale.View
             host.MouseEnter += delegate { host.Background = Chrome.AccentTint; };
             host.MouseLeave += delegate { host.Background = Brushes.Transparent; };
             host.MouseLeftButtonUp += delegate { Open(item); };
+            host.MouseRightButtonUp += delegate(object sender, MouseButtonEventArgs e)
+            {
+                var menu = MenuProvider == null ? null : MenuProvider(item);
+                if (menu == null) return;
+                menu.PlacementTarget = host;
+                menu.IsOpen = true;
+                e.Handled = true;
+            };
             return host;
         }
 

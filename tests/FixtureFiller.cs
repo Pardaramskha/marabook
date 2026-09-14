@@ -75,7 +75,7 @@ namespace UniversSale.Tests
             "BinderItem.Kind",              // enum : détermine le jeu de clés
             "BinderItem.FieldValues",       // Dictionary<string,string> — la
                                             //   fiche héroïne l'exerce
-            "BinderItem.RadarValues"        // Dictionary<string,int> — la fiche
+            "BinderItem.RadarValues"        // Dictionary<string,double> — la fiche
                                             //   héroïne l'exerce (b47 bis, v22)
         };
 

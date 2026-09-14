@@ -52,16 +52,9 @@ namespace UniversSale.View
             // — La rangée du haut, alignée sur celle d'Écrits (14/09) : pas de
             // barre, les boutons à gauche (« Nouvelle fiche » en principal,
             // puis catégorie et modèles), la recherche contre le bord droit.
-            var toolbar = new DockPanel { Margin = new Thickness(24, 10, 24, 0) };
+            var toolbar = new DockPanel { Margin = new Thickness(24, TopGap, 24, 0) };
             SetDock(toolbar, Dock.Top);
-            _searchBox = new TextBox
-            {
-                BorderThickness = new Thickness(0),
-                Background = Brushes.Transparent,
-                Padding = new Thickness(6, 3, 4, 3),
-                MinWidth = 200,
-                ToolTip = "Rechercher une fiche par nom, toutes catégories confondues"
-            };
+            _searchBox = new TextBox { ToolTip = "Rechercher une fiche par nom, toutes catégories confondues" };
             _searchBox.TextChanged += delegate
             {
                 RebuildRows();
@@ -144,31 +137,28 @@ namespace UniversSale.View
 
         public bool ShowsFolder(BinderItem folder) { return folder != null && _scope == folder; }
 
-        /// <summary>Le champ de recherche « contre le rebord » (14/09) : un
-        /// cadre, la zone de texte, la loupe à droite — partagé avec le
+        /// <summary>L'écart entre le haut de la zone et la rangée d'actions,
+        /// LE MÊME sur Écrits (corkboard), Fiches et Dictionnaire (14/09).</summary>
+        public const double TopGap = 12;
+
+        /// <summary>Le champ de recherche « contre le rebord » (14/09) : la
+        /// zone de texte du thème, telle quelle (comme celle du panneau
+        /// Recherche du rail), la loupe à côté, sans cadre — partagé avec le
         /// Dictionnaire.</summary>
-        public static Border SearchField(TextBox box)
+        public static UIElement SearchField(TextBox box)
         {
-            var row = new DockPanel();
-            var glass = Icons.Make("magnifying-glass-bold", 12, Chrome.SoftText) as FrameworkElement;
+            var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            box.Width = 240;
+            box.VerticalAlignment = VerticalAlignment.Center;
+            row.Children.Add(box);
+            var glass = Icons.Make("magnifying-glass-bold", 14, Chrome.SoftText) as FrameworkElement;
             if (glass != null)
             {
                 glass.VerticalAlignment = VerticalAlignment.Center;
-                glass.Margin = new Thickness(0, 0, 8, 0);
-                DockPanel.SetDock(glass, Dock.Right);
+                glass.Margin = new Thickness(8, 0, 0, 0);
                 row.Children.Add(glass);
             }
-            row.Children.Add(box);
-            return new Border
-            {
-                Background = Chrome.PaperBg,
-                BorderBrush = Chrome.BorderStrong,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Width = 260,
-                VerticalAlignment = VerticalAlignment.Center,
-                Child = row
-            };
+            return row;
         }
 
         /// <summary>Les fiches de la portée : toutes (racine), ou celles du

@@ -51,6 +51,10 @@ namespace UniversSale.View
         public event Action Changed; // synopsis edited or cards reordered
         public event Action<BinderItem> ExportRequested;      // menu ⋮
         public event Action<BinderItem> DeleteRequested;      // menu ⋮ (corbeille)
+        // Le menu de la Pile pour le même item (14/09) : les tuiles offrent
+        // épingler à l'accueil / au rail, renommer, icône, image, supprimer
+        // (avec confirmation) — le corkboard n'ajoute que ce qui est à lui.
+        public Func<BinderItem, ContextMenu> MenuProvider;
         public event Action<BinderItem> RenameRequested;      // menu ⋮ (b43)
         public event Action<BinderItem, bool> CardImageRequested; // image de tuile (12/09) : (élément, retirer)
         public event Action<List<BinderItem>> ApplyTemplateRequested; // gabarit sur la sélection
@@ -84,7 +88,7 @@ namespace UniversSale.View
         {
             Focusable = true; // le focus logique quitte la Pile à l'affichage
             Background = Chrome.WindowBg;
-            _templateCards = new WrapPanel { Margin = new Thickness(16, 12, 16, 4) };
+            _templateCards = new WrapPanel { Margin = new Thickness(16, 12, 16, 4), Visibility = Visibility.Collapsed };
             _templateSeparator = new Border
             {
                 Height = 1,
@@ -102,7 +106,7 @@ namespace UniversSale.View
             _planActions = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Margin = new Thickness(24, 8, 24, 0),
+                Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0),
                 Visibility = Visibility.Collapsed
             };
             var newPlan = Buttons.IconText("plus-bold", "Nouveau plan",
@@ -113,7 +117,7 @@ namespace UniversSale.View
             _writingsActions = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Margin = new Thickness(24, 8, 24, 0),
+                Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0),
                 Visibility = Visibility.Collapsed
             };
             var newText = Buttons.IconText("plus-bold", "Nouvel écrit",
@@ -134,7 +138,7 @@ namespace UniversSale.View
             _researchActions = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Margin = new Thickness(24, 8, 24, 0),
+                Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0),
                 Visibility = Visibility.Collapsed
             };
             var import = Buttons.IconText("file-arrow-down-bold", "Importer des fichiers",
@@ -542,14 +546,18 @@ namespace UniversSale.View
         {
             {
                 var menu = new ContextMenu();
-                var rename = new MenuItem { Header = "Renommer…" };
-                rename.Click += delegate
+                var provided = MenuProvider == null ? null : MenuProvider(itemRef);
+                if (provided == null)
                 {
-                    var handler = RenameRequested;
-                    if (handler != null) handler(itemRef);
-                };
-                menu.Items.Add(rename);
-                if (itemRef.Kind == ItemKind.Text || itemRef.Kind == ItemKind.Book)
+                    var rename = new MenuItem { Header = "Renommer…" };
+                    rename.Click += delegate
+                    {
+                        var handler = RenameRequested;
+                        if (handler != null) handler(itemRef);
+                    };
+                    menu.Items.Add(rename);
+                }
+                if (provided == null && (itemRef.Kind == ItemKind.Text || itemRef.Kind == ItemKind.Book))
                 {
                     // L'image de tuile (12/09) : elle remplace l'extrait.
                     var picture = new MenuItem
@@ -614,6 +622,18 @@ namespace UniversSale.View
                     };
                     menu.Items.Add(extra);
                 }
+                if (provided != null)
+                {
+                    // Les entrées de la Pile, à la suite (un MenuItem n'a qu'un parent).
+                    var items = new List<object>();
+                    foreach (var entry in provided.Items) items.Add(entry);
+                    provided.Items.Clear();
+                    if (menu.Items.Count > 0 && items.Count > 0) menu.Items.Add(new Separator());
+                    foreach (var entry in items)
+                        if (!(entry is Separator && (menu.Items.Count == 0 || menu.Items[menu.Items.Count - 1] is Separator)))
+                            menu.Items.Add(entry);
+                    return menu;
+                }
                 if (menu.Items.Count > 0) menu.Items.Add(new Separator());
                 var delete = new MenuItem { Header = "Supprimer" };
                 delete.Click += delegate
@@ -662,6 +682,7 @@ namespace UniversSale.View
         {
             _cards.Children.Clear();
             _templateCards.Children.Clear();
+            _templateCards.Visibility = Visibility.Collapsed;
             _templateSeparator.Visibility = Visibility.Collapsed;
             _documentActions.Visibility = Visibility.Collapsed;
             if (_folder == null) return;
@@ -673,6 +694,7 @@ namespace UniversSale.View
             // séparée par un filet — autre niveau hiérarchique.
             if (_folder.Kind == ItemKind.Book)
             {
+                _templateCards.Visibility = Visibility.Visible;
                 _templateSeparator.Visibility = Visibility.Visible;
                 _documentActions.Visibility = Visibility.Visible;
                 foreach (var child in _folder.Children)

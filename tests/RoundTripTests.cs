@@ -452,10 +452,11 @@ namespace UniversSale.Tests
             sheet.FreeInfo.Add(new InfoEntry { Title = "Courage", Value = "4", Kind = FieldKinds.Rating });
             template.Radar = true;
             template.RadarMax = 6;
+            template.RadarName = "Traits";
             template.RadarAxes.Add(new RadarAxis { Name = "Force" });
             template.RadarAxes.Add(new RadarAxis { Name = "Ruse" });
             template.RadarAxes.Add(new RadarAxis { Name = "Charme" });
-            sheet.RadarValues[template.RadarAxes[0].Id] = 3;
+            sheet.RadarValues[template.RadarAxes[0].Id] = 3.5;
             sheet.RadarValues[template.RadarAxes[2].Id] = 6;
             sheet.Evolution.Add(new EvolutionEntry { TextId = chapter.Id, Note = "perd une plume" });
             sheet.Evolution.Add(new EvolutionEntry { Note = "étape libre" });

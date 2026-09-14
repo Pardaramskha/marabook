@@ -621,6 +621,13 @@ namespace UniversSale.View
         /// les tuiles de la bibliothèque de fiches offrent le même.</summary>
         public ContextMenu BuildContextMenu(BinderItem item)
         {
+            return BuildContextMenu(item, false);
+        }
+
+        /// <summary>Le même menu, « Supprimer » demandant confirmation — pour
+        /// les tuiles des corkboards, de la bibliothèque et de l'Accueil (14/09).</summary>
+        public ContextMenu BuildContextMenu(BinderItem item, bool confirmDelete)
+        {
             var menu = new ContextMenu();
             var inTrash = item.RootCategory().CategoryKey == Project.KeyTrash;
 
@@ -680,7 +687,7 @@ namespace UniversSale.View
             }
             if (!item.IsCategory)
             {
-                menu.Items.Add(new Separator());
+                if (menu.Items.Count > 0) menu.Items.Add(new Separator()); // pas de filet en tête (fiche, écrit sans enfant — 14/09)
                 // Épingler sur l'Accueil (batch 41) : une bascule annulable.
                 AddMenu(menu, item.Pinned ? "Ne plus épingler à l'accueil" : "Épingler à l'accueil", delegate { TogglePin(item); });
                 if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
@@ -703,9 +710,29 @@ namespace UniversSale.View
                     if (item.ImageId != null)
                         AddMenu(menu, "Retirer l'image de la carte", delegate { RemoveCardImage(item); });
                 }
-                AddMenu(menu, "Supprimer", delegate { Delete(item); });
+                AddMenu(menu, "Supprimer", delegate
+                {
+                    if (confirmDelete && !ConfirmTrash(item)) return;
+                    Delete(item);
+                });
             }
             return menu;
+        }
+
+        /// <summary>« Supprimer » depuis une tuile (14/09) : on demande —
+        /// l'item part à la corbeille, d'où on le restaure, mais une tuile
+        /// se clique vite.</summary>
+        public bool ConfirmTrash(BinderItem item)
+        {
+            if (item == null) return false;
+            var what = item.Kind == ItemKind.Book ? "le livre" : item.Kind == ItemKind.Folder ? "le dossier"
+                : item.Kind == ItemKind.Sheet ? "la fiche" : item.Kind == ItemKind.Plan ? "le plan"
+                : item.Kind == ItemKind.PageTemplate ? "le gabarit" : item.Kind == ItemKind.Media ? "le document" : "l'écrit";
+            var answer = MessageDialog.Show(Window.GetWindow(this),
+                "Envoyer " + what + " « " + item.Title + " » à la corbeille ?"
+                + (item.Children.Count > 0 ? "\nSon contenu part avec." : ""),
+                MainWindow.AppName, MessageBoxButton.YesNo, MessageBoxImage.Question);
+            return answer == MessageBoxResult.Yes;
         }
 
         private static void AddMenu(ContextMenu menu, string label, RoutedEventHandler onClick)

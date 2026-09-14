@@ -139,7 +139,7 @@ namespace UniversSale.View
             // et que la fiche a une valeur.
             if (template != null && template.ShowsRadar && RadarChart.HasValues(template, item.RadarValues))
             {
-                infobox.Children.Add(GroupCaption("Radar"));
+                infobox.Children.Add(GroupCaption(template.RadarLabel));
                 var canvas = new Canvas { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 2) };
                 RadarChart.Draw(canvas, template, item.RadarValues, 220, true);
                 infobox.Children.Add(canvas);

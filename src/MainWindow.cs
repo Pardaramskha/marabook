@@ -492,6 +492,10 @@ namespace UniversSale
                 MarkDirty();
                 _pageCountCache.Clear(); // moves change book folio offsets
                 ValidateSidePin(); // un épinglé jeté ou supprimé lâche l'épingle ; un renommé se met à jour (b47)
+                // Les tuiles suivent la Pile (14/09) : un item supprimé ou
+                // renommé depuis le menu d'une tuile passe par la Pile.
+                RefreshOpenCorkboards();
+                if (_sheetLibrary.Visibility == Visibility.Visible) _sheetLibrary.Refresh();
                 // Chauffe le cache de mots : un document importé entre au cache
                 // à sa taille réelle, sans jamais créditer le journal.
                 ProjectWords();
@@ -597,7 +601,8 @@ namespace UniversSale
             _sheetLibrary.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _sheetLibrary.AchievementEvent += UnlockAchievement; // « Crétin des alpes » (12/09)
             _sheetLibrary.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
-            _sheetLibrary.MenuProvider = _binder.BuildContextMenu; // les tuiles offrent le menu de la Pile (14/09)
+            _sheetLibrary.MenuProvider = delegate(BinderItem item) { return _binder.BuildContextMenu(item, true); }; // les tuiles offrent le menu de la Pile (14/09)
+            _corkboard.MenuProvider = delegate(BinderItem item) { return _binder.BuildContextMenu(item, true); };
             center.Children.Add(_sheetLibrary);
 
             _editor.LinkRequested += InsertLinkInActive; // onglet Insertion (b33)
@@ -611,6 +616,7 @@ namespace UniversSale
             // commandes sont celles des menus ; ouvrir = sélectionner dans la Pile.
             _homeView = new View.HomeView { Visibility = Visibility.Collapsed };
             _homeView.OpenRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _homeView.MenuProvider = delegate(BinderItem item) { return _binder.BuildContextMenu(item, true); };
             _homeView.RenameRequested += RenameProject;
             _homeView.SessionGoal = delegate { return _sessionGoal; };
             _homeView.SessionBaseWords = delegate { return _sessionBaseWords; };
@@ -855,15 +861,7 @@ namespace UniversSale
         /// se clique vite.</summary>
         private bool ConfirmTrash(BinderItem item)
         {
-            if (item == null) return false;
-            var what = item.Kind == ItemKind.Book ? "le livre" : item.Kind == ItemKind.Folder ? "le dossier"
-                : item.Kind == ItemKind.Sheet ? "la fiche" : item.Kind == ItemKind.Plan ? "le plan"
-                : item.Kind == ItemKind.PageTemplate ? "le gabarit" : item.Kind == ItemKind.Media ? "le document" : "l'écrit";
-            var answer = MessageDialog.Show(this,
-                "Envoyer " + what + " « " + item.Title + " » à la corbeille ?"
-                + (item.Children.Count > 0 ? "\nSon contenu part avec." : ""),
-                AppName, MessageBoxButton.YesNo, MessageBoxImage.Question);
-            return answer == MessageBoxResult.Yes;
+            return _binder.ConfirmTrash(item); // la même question que le menu des tuiles
         }
 
         /// <summary>Ouvre (ou ramène) le panneau de recherche du projet, la

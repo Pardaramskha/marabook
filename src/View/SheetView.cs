@@ -54,6 +54,14 @@ namespace UniversSale.View
         private readonly TextBlock _portraitPlaceholder;
         private readonly Button _removePortrait;
         private readonly TextBox _bodyBox;
+        // La vue miroir du texte libre (14/09) : le rendu wiki à droite de
+        // l'éditeur, rafraîchi un peu après la frappe ; le choix vaut pour
+        // la session, fiche après fiche.
+        private readonly Grid _bodySplit;
+        private readonly ScrollViewer _mirror;
+        private readonly ToggleButton _editToggle, _mirrorToggle;
+        private readonly System.Windows.Threading.DispatcherTimer _mirrorTimer;
+        private static bool _mirrorMode;
         private readonly DockPanel _findBar;
         private readonly TextBox _findBox;
 
@@ -270,11 +278,52 @@ namespace UniversSale.View
 
             var editorStack = new DockPanel();
             var toolbar = BuildMarkdownToolbar();
-            DockPanel.SetDock(toolbar, Dock.Top);
-            editorStack.Children.Add(toolbar);
+            // À droite de la barre (14/09) : vue édition / vue miroir, les
+            // icônes de Markdown We Go, sans texte.
+            var toolRow = new DockPanel { Margin = new Thickness(0, 0, 10, 0) };
+            var modes = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(6, 8, 0, 0) };
+            _editToggle = ModeToggle("editeur", "Vue édition — le texte seul");
+            _mirrorToggle = ModeToggle("miroir", "Vue miroir — le rendu wiki à côté du texte, mis à jour en écrivant");
+            _editToggle.Checked += delegate { SetMirror(false); };
+            _mirrorToggle.Checked += delegate { SetMirror(true); };
+            modes.Children.Add(_editToggle);
+            modes.Children.Add(_mirrorToggle);
+            DockPanel.SetDock(modes, Dock.Right);
+            toolRow.Children.Add(modes);
+            toolRow.Children.Add(toolbar);
+            DockPanel.SetDock(toolRow, Dock.Top);
+            editorStack.Children.Add(toolRow);
             DockPanel.SetDock(_findBar, Dock.Top);
             editorStack.Children.Add(_findBar);
-            editorStack.Children.Add(_bodyBox);
+            _mirror = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Background = Chrome.PaperBg,
+                Padding = new Thickness(14, 8, 14, 12),
+                Visibility = Visibility.Collapsed
+            };
+            _mirror.PreviewMouseWheel += delegate(object sender, MouseWheelEventArgs e)
+            {
+                _mirror.ScrollToVerticalOffset(_mirror.VerticalOffset - e.Delta);
+                e.Handled = true;
+            };
+            _bodySplit = new Grid();
+            _bodySplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _bodySplit.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _bodySplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0) });
+            Grid.SetColumn(_bodyBox, 0);
+            _bodySplit.Children.Add(_bodyBox);
+            var divider = new Border { Width = 1, Background = Chrome.Border, Visibility = Visibility.Collapsed };
+            Grid.SetColumn(divider, 1);
+            _bodySplit.Children.Add(divider);
+            Grid.SetColumn(_mirror, 2);
+            _bodySplit.Children.Add(_mirror);
+            _mirror.IsVisibleChanged += delegate { divider.Visibility = _mirror.Visibility; };
+            editorStack.Children.Add(_bodySplit);
+            _mirrorTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+            _mirrorTimer.Tick += delegate { _mirrorTimer.Stop(); RefreshMirror(); };
+            _bodyBox.TextChanged += delegate { if (_mirrorMode && !_loading) { _mirrorTimer.Stop(); _mirrorTimer.Start(); } };
             // L'ombre sur un cadre vide dessous, le contenu net par-dessus
             // (voir Lifted) — l'éditeur s'étire, lui.
             var editorShadow = new Border { Background = Chrome.PaperBg, CornerRadius = new CornerRadius(8), Effect = Shadow() };
@@ -1237,6 +1286,50 @@ namespace UniversSale.View
             return bar;
         }
 
+        /// <summary>Un bouton de mode de la barre (édition / miroir), icône
+        /// seule, accent quand actif.</summary>
+        private static ToggleButton ModeToggle(string icon, string tooltip)
+        {
+            return new ToggleButton
+            {
+                Content = Icons.Make(icon, 14, Chrome.Ink),
+                Width = Buttons.Compact,
+                Height = Buttons.Compact,
+                Padding = new Thickness(0),
+                Margin = new Thickness(2, 0, 0, 0),
+                ToolTip = tooltip,
+                Focusable = false
+            };
+        }
+
+        /// <summary>Vue miroir ou vue édition — les deux bascules restent
+        /// cohérentes, le rendu se (re)fait à l'ouverture du miroir.</summary>
+        private void SetMirror(bool on)
+        {
+            _mirrorMode = on;
+            if (_editToggle.IsChecked != !on) _editToggle.IsChecked = !on;
+            if (_mirrorToggle.IsChecked != on) _mirrorToggle.IsChecked = on;
+            _bodySplit.ColumnDefinitions[2].Width = on ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            _mirror.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+            if (on) RefreshMirror();
+            else _mirror.Content = null;
+        }
+
+        private void RefreshMirror()
+        {
+            if (!_mirrorMode || _item == null) { _mirror.Content = null; return; }
+            var flow = MarkdownRender.Build(_bodyBox.Text,
+                delegate(string target) { var handler = LinkClicked; if (handler != null) handler(target); },
+                ToggleTask);
+            _mirror.Content = new FlowDocumentScrollViewer
+            {
+                Document = flow,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                IsToolBarVisible = false,
+                Focusable = false
+            };
+        }
+
         private static UIElement Gap()
         {
             return new Border { Width = 1, Height = 18, Background = Chrome.Border, Margin = new Thickness(6, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
@@ -1458,6 +1551,7 @@ namespace UniversSale.View
             _bodyBox.IsUndoEnabled = false;
             _bodyBox.IsUndoEnabled = true;
             _loading = false;
+            SetMirror(_mirrorMode); // le mode choisi suit d'une fiche à l'autre
             RefreshDictionaryBadge();
             if (_previewToggle.IsChecked == true) ShowPreview();
             SyncGenealogy();
@@ -1506,6 +1600,7 @@ namespace UniversSale.View
                 return;
             }
             if (!_tabs.Items.Contains(_radarTab)) _tabs.Items.Add(_radarTab);
+            _radarTab.Header = _template.RadarLabel; // le nom du radar du modèle (14/09)
             var layout = new Grid();
             layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -1532,20 +1627,20 @@ namespace UniversSale.View
                 {
                     Minimum = 0,
                     Maximum = max,
-                    TickFrequency = 1,
+                    TickFrequency = 0.5, // par pas de 0,5 (14/09)
                     IsSnapToTickEnabled = true,
-                    SmallChange = 1,
+                    SmallChange = 0.5,
                     LargeChange = 1,
                     Value = RadarChart.ValueOf(_item.RadarValues, axis.Id, max),
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(8, 0, 10, 0)
                 };
-                Action relabel = delegate { valueLabel.Text = (int)slider.Value + " / " + max; };
+                Action relabel = delegate { valueLabel.Text = RadarChart.Format(slider.Value) + " / " + max; };
                 relabel();
                 slider.ValueChanged += delegate
                 {
                     if (_loading || _item == null) return;
-                    var value = (int)Math.Round(slider.Value);
+                    var value = Math.Round(slider.Value * 2) / 2;
                     if (value == 0) _item.RadarValues.Remove(axisRef.Id);
                     else _item.RadarValues[axisRef.Id] = value;
                     relabel();
@@ -1555,7 +1650,7 @@ namespace UniversSale.View
                 row.Children.Add(slider);
                 rows.Children.Add(row);
             }
-            rows.Children.Add(Hint("Chaque axe de 0 à " + max + " — l'échelle et les axes se règlent dans l'éditeur de modèles."));
+            rows.Children.Add(Hint("Chaque axe de 0 à " + max + ", par demi-point — le nom, l'échelle et les axes se règlent dans l'éditeur de modèles."));
             var values = Paper("Valeurs", rows, null);
             values.VerticalAlignment = VerticalAlignment.Top;
             Grid.SetColumn(values, 1);

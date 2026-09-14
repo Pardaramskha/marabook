@@ -17,7 +17,7 @@ namespace UniversSale.View
     /// au mode wiki et à l'épinglé (en petit, sans étiquettes si demandé).</summary>
     public static class RadarChart
     {
-        public static void Draw(Canvas canvas, SheetTemplate template, IDictionary<string, int> values, double size, bool labels)
+        public static void Draw(Canvas canvas, SheetTemplate template, IDictionary<string, double> values, double size, bool labels)
         {
             canvas.Children.Clear();
             canvas.Width = size;
@@ -87,7 +87,7 @@ namespace UniversSale.View
                     Fill = Chrome.Accent,
                     Stroke = Chrome.PaperBg,
                     StrokeThickness = 1.5,
-                    ToolTip = axes[i].Name + " : " + value.ToString(CultureInfo.InvariantCulture) + " / " + max
+                    ToolTip = axes[i].Name + " : " + Format(value) + " / " + max
                 };
                 Canvas.SetLeft(dot, at.X - 4);
                 Canvas.SetTop(dot, at.Y - 4);
@@ -95,11 +95,19 @@ namespace UniversSale.View
             }
         }
 
-        public static int ValueOf(IDictionary<string, int> values, string axisId, int max)
+        public static double ValueOf(IDictionary<string, double> values, string axisId, int max)
         {
-            int value;
+            double value;
             if (values == null || !values.TryGetValue(axisId, out value)) return 0;
+            if (double.IsNaN(value)) return 0;
+            value = Math.Round(value * 2) / 2; // par pas de 0,5
             return value < 0 ? 0 : value > max ? max : value;
+        }
+
+        /// <summary>« 3 » ou « 3,5 » — la virgule française, pas de zéro inutile.</summary>
+        public static string Format(double value)
+        {
+            return value.ToString("0.#", CultureInfo.GetCultureInfo("fr-FR"));
         }
 
         /// <summary>Le point du i-ème axe (sur n), le premier en haut, sens horaire.</summary>
@@ -110,7 +118,7 @@ namespace UniversSale.View
         }
 
         /// <summary>Vrai si une fiche a au moins une valeur non nulle sur le radar.</summary>
-        public static bool HasValues(SheetTemplate template, IDictionary<string, int> values)
+        public static bool HasValues(SheetTemplate template, IDictionary<string, double> values)
         {
             if (template == null || values == null) return false;
             foreach (var axis in template.RadarAxes)

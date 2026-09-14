@@ -202,8 +202,12 @@ namespace UniversSale.Model
         // gagne un troisième onglet « Radar » — une toile à un axe par
         // RadarAxes, chaque valeur de 0 à RadarMax.
         public bool Radar;
+        public string RadarName = "Radar"; // le nom du radar, libre (« Traits », « Aptitudes »…)
         public List<RadarAxis> RadarAxes = new List<RadarAxis>();
         public int RadarMax = 5;
+
+        /// <summary>Le nom affiché (onglet, infobox) : le nom du modèle ou « Radar ».</summary>
+        public string RadarLabel { get { return string.IsNullOrEmpty((RadarName ?? "").Trim()) ? "Radar" : RadarName.Trim(); } }
 
         public const int RadarMaxFloor = 3, RadarMaxCeiling = 10;
 
@@ -214,7 +218,7 @@ namespace UniversSale.Model
 
         public SheetTemplate Clone()
         {
-            var copy = new SheetTemplate { Id = Id, Name = Name, Relations = Relations, Radar = Radar, RadarMax = RadarMax };
+            var copy = new SheetTemplate { Id = Id, Name = Name, Relations = Relations, Radar = Radar, RadarMax = RadarMax, RadarName = RadarName };
             foreach (var field in Fields) copy.Fields.Add(field.Clone());
             copy.Sections.AddRange(Sections);
             foreach (var axis in RadarAxes) copy.RadarAxes.Add(new RadarAxis { Id = axis.Id, Name = axis.Name });

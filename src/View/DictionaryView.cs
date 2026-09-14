@@ -30,16 +30,9 @@ namespace UniversSale.View
             // La rangée du haut, alignée sur celle d'Écrits (14/09) : pas de
             // barre, « Nouvelle entrée » en principal à gauche, la recherche
             // contre le bord droit.
-            var toolbar = new DockPanel { Margin = new Thickness(24, 10, 24, 0) };
+            var toolbar = new DockPanel { Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0) };
             SetDock(toolbar, Dock.Top);
-            _searchBox = new TextBox
-            {
-                BorderThickness = new Thickness(0),
-                Background = Brushes.Transparent,
-                Padding = new Thickness(6, 3, 4, 3),
-                MinWidth = 200,
-                ToolTip = "Filtrer les entrées (mot ou forme acceptée)"
-            };
+            _searchBox = new TextBox { ToolTip = "Filtrer les entrées (mot ou forme acceptée)" };
             _searchBox.TextChanged += delegate { Rebuild(); };
             var search = SheetLibraryView.SearchField(_searchBox);
             DockPanel.SetDock(search, Dock.Right);
