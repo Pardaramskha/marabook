@@ -1,9 +1,9 @@
 using System.IO;
 using System.Windows.Documents;
-using UniversSale.Model;
-using UniversSale.View;
+using Marabook.Model;
+using Marabook.View;
 
-namespace UniversSale.Exchange
+namespace Marabook.Exchange
 {
     /// <summary>RTF via WPF's own converter (TextRange.Save/Load on a
     /// FlowDocument): free and battle-tested. Named styles flatten to direct

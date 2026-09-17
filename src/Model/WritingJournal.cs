@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>One day of writing: net words added to the manuscript (typing
     /// minus deletions, floored at zero for the day).</summary>

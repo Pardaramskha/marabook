@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.History
+namespace Marabook.History
 {
     /// <summary>Épingler / ne plus épingler sur l'Accueil (batch 41) : une
     /// bascule, annulable comme le reste des mutations de la Pile.</summary>

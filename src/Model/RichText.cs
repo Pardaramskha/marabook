@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>The pivot text model — the single central format every exchange
     /// goes through (editor, .plot, docx/odt/RTF later, PDF later). Deliberately
@@ -53,6 +53,12 @@ namespace UniversSale.Model
         public string StyleId = "body";
         public string AlignOverride; // "left"|"center"|"right"|"justify", null = style alignment
         public string ListKind;      // null | "bullet" | "number"
+        // Décalage (17/09/2026) : retrait gauche UNIFORME du paragraphe en px,
+        // posé depuis le ruban par pas de 0,5 cm. Null = le style décide
+        // (retrait gauche + alinéa + les 24 px d'une liste) ; une valeur
+        // remplace les trois — 0 ramène tout au bord de la marge, alinéa
+        // du style compris. Persisté (.plot v24, clé "indent").
+        public double? Indent;
         public List<TextRun> Runs = new List<TextRun>();
 
         // Manual page break (Mise en page), also set by the compiler on chapter

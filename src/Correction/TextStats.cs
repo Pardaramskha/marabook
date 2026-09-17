@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace UniversSale.Correction
+namespace Marabook.Correction
 {
     /// <summary>Professional writer's counts, ported from Typonanny's
     /// Statistiques: SEC (signs including spaces), signs without spaces, words,

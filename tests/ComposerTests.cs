@@ -1,9 +1,9 @@
 using System;
 using System.Text;
-using UniversSale.Model;
-using UniversSale.Print;
+using Marabook.Model;
+using Marabook.Print;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C4 — le compositeur sur StubGlyphMetrics : chaque caractère
     /// avance d'un demi-cadratin, donc les positions attendues se calculent à
@@ -103,6 +103,40 @@ namespace UniversSale.Tests
             ExceptionWordNeverHyphenated(t);
             WidowControl(t);
             OrphanControl(t);
+            IndentOverride(t);
+        }
+
+        /// <summary>Le décalage d'un paragraphe (17/09) remplace d'un bloc
+        /// retrait gauche, alinéa et retrait de liste ; 0 ramène tout à la
+        /// marge, alinéa du style compris.</summary>
+        private static void IndentOverride(Harness t)
+        {
+            var document = Document("un deux trois quatre cinq six sept huit neuf dix onze douze",
+                "un deux trois quatre cinq six sept huit neuf dix onze douze",
+                "puce");
+            document.Paragraphs[2].ListKind = "bullet";
+            var styles = Styles();
+            styles.Find("body").FirstLineIndent = 10;
+            var engine = new CompositionEngine(document, styles, Setup(), null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            var plain = engine.Current.Paragraphs[0].Lines;
+            t.Check(plain.Count >= 2, "témoin : deux lignes au moins");
+            t.Equal(10.0, plain[0].Pieces[0].Origin.X, "témoin : l'alinéa du style sur la première ligne");
+            t.Equal(0.0, plain[1].Pieces[0].Origin.X, "témoin : la suite à la marge");
+
+            document.Paragraphs[1].Indent = 0;
+            document.Paragraphs[2].Indent = 0;
+            engine.ComposeAll();
+            var flush = engine.Current.Paragraphs[1].Lines;
+            t.Equal(0.0, flush[0].Pieces[0].Origin.X, "décalage 0 : plus d'alinéa sur la première ligne");
+            t.Equal(0.0, engine.Current.Paragraphs[2].Lines[0].Pieces[0].Origin.X,
+                "décalage 0 : la puce revient à la marge (plus de retrait de liste)");
+
+            document.Paragraphs[1].Indent = 37.8;
+            engine.ComposeAll();
+            var shifted = engine.Current.Paragraphs[1].Lines;
+            t.Equal(37.8, shifted[0].Pieces[0].Origin.X, "décalage 37,8 : la première ligne suit, sans alinéa");
+            t.Equal(37.8, shifted[1].Pieces[0].Origin.X, "décalage 37,8 : la deuxième ligne aussi");
         }
 
         /// <summary>Le bouton « Césure » du document (PageSetup.Hyphenation)

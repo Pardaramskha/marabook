@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>« Lancer un sprint » (b48) : une durée — 15, 25, 45 minutes
     /// ou libre — et un objectif de mots (0 = sans). Le dernier choix est

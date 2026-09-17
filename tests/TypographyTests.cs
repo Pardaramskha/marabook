@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using UniversSale.Correction;
-using UniversSale.Model;
+using Marabook.Correction;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C13 — la passe typographique (batch 34, port de Typonanny) :
     /// chaque règle, les préréglages, les zones protégées, l'idempotence,

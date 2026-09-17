@@ -2,9 +2,9 @@ using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
-using UniversSale.Print;
+using Marabook.Print;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Options for the print-ready PDF export (4b-2): bleed and crop
     /// marks. The page format itself comes from « Mise en page ».</summary>

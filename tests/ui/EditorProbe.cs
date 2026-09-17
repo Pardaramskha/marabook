@@ -7,12 +7,12 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using UniversSale.Model;
-using UniversSale.Persistence;
-using UniversSale.Settings;
-using UniversSale.View;
+using Marabook.Model;
+using Marabook.Persistence;
+using Marabook.Settings;
+using Marabook.View;
 
-namespace UniversSale.Tests.Ui
+namespace Marabook.Tests.Ui
 {
     /// <summary>Sonde du batch 33 sur vraie MainWindow hors écran : les
     /// notes de bas de page s'éditent EN PLACE (plus de panneau du bas en

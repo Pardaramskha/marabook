@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>La PRÉVISUALISATION obligatoire d'un remplacement projet
     /// (batch 37, lot C) : combien d'occurrences, dans combien d'items, la

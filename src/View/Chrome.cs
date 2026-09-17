@@ -1,8 +1,8 @@
 using System;
 using System.Windows.Media;
-using UniversSale.Settings;
+using Marabook.Settings;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>LA source de vérité de la couleur (batch 40). Brosses
     /// partagées et mutables : basculer le thème recolore toute l'application

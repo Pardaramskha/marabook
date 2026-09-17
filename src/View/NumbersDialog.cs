@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Small generic dialog asking for a few numbers (custom margins,
     /// custom page size). Values are clamped to [min, max]; returns null on

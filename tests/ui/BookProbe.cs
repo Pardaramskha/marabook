@@ -7,13 +7,13 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using UniversSale.History;
-using UniversSale.Model;
-using UniversSale.Persistence;
-using UniversSale.Settings;
-using UniversSale.View;
+using Marabook.History;
+using Marabook.Model;
+using Marabook.Persistence;
+using Marabook.Settings;
+using Marabook.View;
 
-namespace UniversSale.Tests.Ui
+namespace Marabook.Tests.Ui
 {
     /// <summary>Sonde du batch 32 — le livre dans l'inspecteur, sur vraie
     /// MainWindow hors écran : la barre d'objectif (orange = chapitres
@@ -131,20 +131,20 @@ namespace UniversSale.Tests.Ui
 
             // — Métadonnées et Publication : deux onglets du rail (batch 39),
             //   plus de boutons dans l'inspecteur ; rien d'ouvert au départ.
-            var tabs = (System.Collections.Generic.Dictionary<UniversSale.Settings.RightPanel, Border>)GetField(window, "_railTabs");
+            var tabs = (System.Collections.Generic.Dictionary<Marabook.Settings.RightPanel, Border>)GetField(window, "_railTabs");
             var metaHost = (Border)GetField(window, "_metadataHost");
             var pubHost = (Border)GetField(window, "_publicationHost");
-            Check(tabs.ContainsKey(UniversSale.Settings.RightPanel.Metadata) && tabs.ContainsKey(UniversSale.Settings.RightPanel.Publication)
-                && !tabs.ContainsKey(UniversSale.Settings.RightPanel.Correction),
+            Check(tabs.ContainsKey(Marabook.Settings.RightPanel.Metadata) && tabs.ContainsKey(Marabook.Settings.RightPanel.Publication)
+                && !tabs.ContainsKey(Marabook.Settings.RightPanel.Correction),
                 "sur un livre, le rail offre Métadonnées et Publication (et pas Correction)");
             Check(metaHost.Visibility == Visibility.Collapsed && pubHost.Visibility == Visibility.Collapsed,
                 "aucun panneau de livre ouvert au départ");
 
             // — Métadonnées : ouverture, frappe → modèle, sans resynchronisation.
-            Invoke(window, "ClickRailTab", new object[] { UniversSale.Settings.RightPanel.Metadata });
+            Invoke(window, "ClickRailTab", new object[] { Marabook.Settings.RightPanel.Metadata });
             DoEvents();
             var meta = (BookMetadataPanel)GetField(window, "_bookMeta");
-            Check(metaHost.Visibility == Visibility.Visible && UniversSale.Settings.AppSettings.RightPanel == UniversSale.Settings.RightPanel.Metadata,
+            Check(metaHost.Visibility == Visibility.Visible && Marabook.Settings.AppSettings.RightPanel == Marabook.Settings.RightPanel.Metadata,
                 "« Métadonnées » ouvre le panneau des métadonnées à droite");
             var subtitle = (TextBox)GetField(meta, "_subtitle");
             subtitle.Focus();
@@ -162,7 +162,7 @@ namespace UniversSale.Tests.Ui
             Check((bool)GetField(window, "_dirty"), "le projet est marqué modifié");
 
             // — Publication remplace Métadonnées ; recliquer l'actif replie.
-            Invoke(window, "ClickRailTab", new object[] { UniversSale.Settings.RightPanel.Publication });
+            Invoke(window, "ClickRailTab", new object[] { Marabook.Settings.RightPanel.Publication });
             DoEvents();
             Check(pubHost.Visibility == Visibility.Visible && metaHost.Visibility == Visibility.Collapsed,
                 "« Publication » ouvre son panneau et remplace l'autre");
@@ -171,22 +171,22 @@ namespace UniversSale.Tests.Ui
             bleed.Text = "4";
             DoEvents();
             Check(Near(target.Book.BleedMm, 4), "le fond perdu tapé atteint le modèle");
-            Invoke(window, "ClickRailTab", new object[] { UniversSale.Settings.RightPanel.Publication });
+            Invoke(window, "ClickRailTab", new object[] { Marabook.Settings.RightPanel.Publication });
             DoEvents();
-            Check(pubHost.Visibility == Visibility.Collapsed && UniversSale.Settings.AppSettings.RightPanel == UniversSale.Settings.RightPanel.None,
+            Check(pubHost.Visibility == Visibility.Collapsed && Marabook.Settings.AppSettings.RightPanel == Marabook.Settings.RightPanel.None,
                 "recliquer l'onglet actif replie la colonne");
 
             // — Sur un écrit, le rail change et un panneau de livre cède la place au Général.
-            Invoke(window, "ClickRailTab", new object[] { UniversSale.Settings.RightPanel.Metadata });
+            Invoke(window, "ClickRailTab", new object[] { Marabook.Settings.RightPanel.Metadata });
             DoEvents();
             Invoke(window, "OnBinderSelection", new object[] { target.Children[0] });
             DoEvents();
-            Check(!tabs.ContainsKey(UniversSale.Settings.RightPanel.Metadata) && progress.Visibility == Visibility.Collapsed
-                && UniversSale.Settings.AppSettings.RightPanel == UniversSale.Settings.RightPanel.Inspector && metaHost.Visibility == Visibility.Collapsed,
+            Check(!tabs.ContainsKey(Marabook.Settings.RightPanel.Metadata) && progress.Visibility == Visibility.Collapsed
+                && Marabook.Settings.AppSettings.RightPanel == Marabook.Settings.RightPanel.Inspector && metaHost.Visibility == Visibility.Collapsed,
                 "sur un écrit : ni onglets de livre ni barre d'objectif, Général reprend la colonne");
             Invoke(window, "OnBinderSelection", new object[] { target });
             DoEvents();
-            Check(tabs.ContainsKey(UniversSale.Settings.RightPanel.Metadata) && tabs.ContainsKey(UniversSale.Settings.RightPanel.Publication),
+            Check(tabs.ContainsKey(Marabook.Settings.RightPanel.Metadata) && tabs.ContainsKey(Marabook.Settings.RightPanel.Publication),
                 "de retour sur le livre, les onglets Métadonnées et Publication reviennent");
 
             // — « Options du livre » : une action, annulable ; la barre suit.
@@ -229,7 +229,7 @@ namespace UniversSale.Tests.Ui
             // — Contrôle visuel : l'inspecteur puis le panneau Publication en PNG.
             Snapshot((FrameworkElement)GetField(window, "_inspector"),
                 Path.Combine(Path.GetTempPath(), "marabook-b32-inspector.png"));
-            Invoke(window, "ClickRailTab", new object[] { UniversSale.Settings.RightPanel.Publication });
+            Invoke(window, "ClickRailTab", new object[] { Marabook.Settings.RightPanel.Publication });
             DoEvents();
             Snapshot(pubHost, Path.Combine(Path.GetTempPath(), "marabook-b39-publication.png"));
 

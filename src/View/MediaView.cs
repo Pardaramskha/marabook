@@ -5,9 +5,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Viewer for research media: inline preview for images and plain
     /// text, an info card plus "open externally" for everything else.</summary>
@@ -173,7 +173,7 @@ namespace UniversSale.View
             if (_item == null || _item.MediaBytes == null) return;
             try
             {
-                var folder = Path.Combine(Path.GetTempPath(), "UniversSale");
+                var folder = Path.Combine(Path.GetTempPath(), "Marabook");
                 Directory.CreateDirectory(folder);
                 var path = Path.Combine(folder, SafeName(_item.Title) + (_item.MediaExtension ?? ""));
                 File.WriteAllBytes(path, _item.MediaBytes);

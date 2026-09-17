@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>A field declared by a sheet template, e.g. "Âge" on a character
     /// sheet. Values are stored on instances by field id, so renaming a field

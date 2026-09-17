@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Xml;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Exchange
+namespace Marabook.Exchange
 {
     /// <summary>Scrivener project import. A .scriv is a folder: project.scrivx
     /// (XML binder tree) plus per-item RTF content. Scrivener 3 stores

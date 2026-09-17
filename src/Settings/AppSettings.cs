@@ -4,7 +4,7 @@ using System.IO;
 using System.Text;
 using System.Windows.Input;
 
-namespace UniversSale.Settings
+namespace Marabook.Settings
 {
     /// <summary>An action that can be rebound to a shortcut. The rebinding dialog
     /// itself arrives later; the table is the source of truth from day one
@@ -23,7 +23,7 @@ namespace UniversSale.Settings
     }
 
     /// <summary>Application-wide settings, shared by all projects
-    /// (%APPDATA%\Univers Sale\settings.json).</summary>
+    /// (%APPDATA%\Marabook\settings.json).</summary>
     public static class AppSettings
     {
         public static readonly ActionDefinition[] Actions =
@@ -185,28 +185,7 @@ namespace UniversSale.Settings
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             var folder = Path.Combine(appData, "Marabook");
             Directory.CreateDirectory(folder);
-            var path = Path.Combine(folder, "settings.json");
-            // Rebrand : migration douce depuis « Univers Sale » (réglages,
-            // récents, icônes persos) — une seule fois, sans rien détruire.
-            if (!File.Exists(path))
-            {
-                var legacy = Path.Combine(appData, "Univers Sale");
-                try
-                {
-                    var legacySettings = Path.Combine(legacy, "settings.json");
-                    if (File.Exists(legacySettings)) File.Copy(legacySettings, path);
-                    var legacyIcons = Path.Combine(legacy, "icons");
-                    var icons = Path.Combine(folder, "icons");
-                    if (Directory.Exists(legacyIcons) && !Directory.Exists(icons))
-                    {
-                        Directory.CreateDirectory(icons);
-                        foreach (var file in Directory.GetFiles(legacyIcons))
-                            File.Copy(file, Path.Combine(icons, Path.GetFileName(file)), true);
-                    }
-                }
-                catch { }
-            }
-            return path;
+            return Path.Combine(folder, "settings.json");
         }
 
         public static ActionDefinition Definition(string id)

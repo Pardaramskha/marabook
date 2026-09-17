@@ -6,7 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     // ================================================================ dialecte
     // Le dialecte Markdown de la maison (batch 31) — le MÊME que l'app

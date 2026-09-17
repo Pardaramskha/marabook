@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Correction.Grammalecte
+namespace Marabook.Correction.Grammalecte
 {
     /// <summary>Le vérificateur grammatical (batch 29, lot B.3) — catégorie
     /// Grammar, portée ParagraphLocal, exécution DIFFÉRÉE : chaque paragraphe

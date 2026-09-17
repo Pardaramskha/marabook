@@ -1,9 +1,9 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
-using UniversSale.Correction;
+using Marabook.Correction;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>La fenêtre du BILAN DE STYLE (b45) : les sections racontées
     /// par StyleReport.Narrate, en phrases simples — un point fort se voit

@@ -5,9 +5,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>The page gabarit view: two facing pages (verso | recto) at the
     /// book's margins. The four header/footer zones are REAL rich-text

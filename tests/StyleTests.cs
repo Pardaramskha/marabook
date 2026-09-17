@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using UniversSale.Correction;
-using UniversSale.Correction.Grammalecte;
+using Marabook.Correction;
+using Marabook.Correction.Grammalecte;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C22 — l'étage style morphologique et les synonymes (batch
     /// 44) : les trames du pont (relevés de style, groupes de synonymes),
@@ -46,9 +46,9 @@ namespace UniversSale.Tests
                 + "{\"nStart\": 5, \"nEnd\": 2, \"kind\": \"dull\", \"word\": \"x\"},"
                 + "{\"nStart\": 0, \"nEnd\": 2, \"kind\": \"inconnu\", \"word\": \"Il\"},"
                 + "{\"pas\": \"un relevé\"}]}";
-            var parsed = UniversSale.Json.Parse(line);
+            var parsed = Marabook.Json.Parse(line);
             var items = GrammalecteBridge.ParseStyleItems(
-                UniversSale.Json.Field(parsed, "findings"));
+                Marabook.Json.Field(parsed, "findings"));
             t.Equal(2, items.Count, "plage inversée, nature inconnue et entrée difforme : sautées");
             t.Equal("dull", items[0].Kind, "verbe terne");
             t.Equal("faire", items[0].Lemma, "le lemme voyage");
@@ -121,15 +121,15 @@ namespace UniversSale.Tests
             checker.AdverbsEnabled = false;
             checker.DullVerbs = new List<string> { "être", "faire" };
             var options = checker.BuildOptions();
-            var json = UniversSale.Json.Write(options);
-            var back = UniversSale.Json.AsObject(UniversSale.Json.Parse(json));
-            t.Equal(false, UniversSale.Json.AsBool(UniversSale.Json.Field(back, "adverbs"), true),
+            var json = Marabook.Json.Write(options);
+            var back = Marabook.Json.AsObject(Marabook.Json.Parse(json));
+            t.Equal(false, Marabook.Json.AsBool(Marabook.Json.Field(back, "adverbs"), true),
                 "adverbs suit l'interrupteur");
-            t.Equal(true, UniversSale.Json.AsBool(UniversSale.Json.Field(back, "dull"), false),
+            t.Equal(true, Marabook.Json.AsBool(Marabook.Json.Field(back, "dull"), false),
                 "dull suit l'interrupteur");
-            var verbs = UniversSale.Json.AsList(UniversSale.Json.Field(back, "dullVerbs"));
+            var verbs = Marabook.Json.AsList(Marabook.Json.Field(back, "dullVerbs"));
             t.Equal(2, verbs.Count, "la liste des verbes ternes voyage");
-            t.Equal("être", UniversSale.Json.AsString(verbs[0]), "en UTF-8, accents compris");
+            t.Equal("être", Marabook.Json.AsString(verbs[0]), "en UTF-8, accents compris");
             checker.DullVerbsEnabled = false;
             t.Check(!checker.Wanted, "plus rien à relever : le vérificateur n'a pas sa place dans le pilote");
             t.Equal(CheckerScope.ParagraphLocal, checker.Scope, "différé = local au paragraphe (contrat du pilote)");
@@ -159,7 +159,7 @@ namespace UniversSale.Tests
                 + "{\"pos\": \"Verbe\", \"lemma\": \"x\", \"words\": []},"
                 + "{\"pos\": \"Adjectif\", \"words\": [\"vastes\"]}]}";
             var groups = GrammalecteBridge.ParseSynonymGroups(
-                UniversSale.Json.Field(UniversSale.Json.Parse(line), "groups"));
+                Marabook.Json.Field(Marabook.Json.Parse(line), "groups"));
             t.Equal(2, groups.Count, "le groupe vide est sauté");
             t.Equal("Nom", groups[0].Pos, "nature");
             t.Equal("cheval", groups[0].Lemma, "lemme");
@@ -274,9 +274,9 @@ namespace UniversSale.Tests
         /// — l'interface n'aiguille plus par chaînes.</summary>
         private static void SuggestionSources(Harness t)
         {
-            var document = new UniversSale.Model.TextDocument();
-            var paragraph = new UniversSale.Model.TextParagraph();
-            paragraph.Runs.Add(new UniversSale.Model.TextRun { Text = "Le marabout regarde le marabout." });
+            var document = new Marabook.Model.TextDocument();
+            var paragraph = new Marabook.Model.TextParagraph();
+            paragraph.Runs.Add(new Marabook.Model.TextRun { Text = "Le marabout regarde le marabout." });
             document.Paragraphs.Add(paragraph);
             var repetitions = new RepetitionChecker().Check(document, null);
             t.Equal(1, repetitions.Count, "une répétition");

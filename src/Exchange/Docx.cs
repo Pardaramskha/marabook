@@ -5,9 +5,9 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using System.Xml;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Exchange
+namespace Marabook.Exchange
 {
     /// <summary>Native .docx reader/writer — plain OOXML over ZipArchive, no
     /// dependency. The pivot was modeled on docx semantics precisely so this
@@ -261,6 +261,9 @@ namespace UniversSale.Exchange
                 if (paragraph.PageBreakBefore) sb.Append("<w:pageBreakBefore/>");
                 if (paragraph.AlignOverride != null)
                     sb.Append("<w:jc w:val=\"").Append(Jc(paragraph.AlignOverride)).Append("\"/>");
+                if (paragraph.Indent.HasValue) // décalage : bloc uniforme, sans alinéa
+                    sb.Append("<w:ind w:left=\"").Append(Twips(paragraph.Indent.Value))
+                      .Append("\" w:firstLine=\"0\"/>");
                 sb.Append("</w:pPr>");
                 if (isRule) { sb.Append("</w:p>"); continue; } // the border IS the rule
                 foreach (var run in paragraph.Runs)
@@ -560,6 +563,12 @@ namespace UniversSale.Exchange
             var style = projectStyles.Find(paragraph.StyleId);
             var jc = Attr(pPr == null ? null : pPr.SelectSingleNode("w:jc", ns), "w:val");
             if (jc != null && FromJc(jc) != style.Align) paragraph.AlignOverride = FromJc(jc);
+            // Retrait gauche posé sur le paragraphe lui-même : notre décalage.
+            var indLeft = Attr(pPr == null ? null : pPr.SelectSingleNode("w:ind", ns), "w:left");
+            double indTwips;
+            if (indLeft != null && double.TryParse(indLeft, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out indTwips))
+                paragraph.Indent = Math.Max(0, PxFromTwips(indTwips));
             if (pPr != null && pPr.SelectSingleNode("w:pageBreakBefore", ns) != null)
                 paragraph.PageBreakBefore = true;
 

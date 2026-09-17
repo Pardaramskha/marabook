@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace UniversSale.Correction.Grammalecte
+namespace Marabook.Correction.Grammalecte
 {
     /// <summary>Ce que l'interface reçoit pour un mot (revue du 13/09) : les
     /// mots PRÊTS, ou null tant que la recherche court, et une notice quand

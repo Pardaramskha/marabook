@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>L'éditeur de modèles de fiches : les modèles à gauche ; à
     /// droite, le nom puis deux onglets (batch 42) — « Sections » (Informations

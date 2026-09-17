@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Small generic input dialog (new item names, renames).</summary>
     public class InputDialog : Window

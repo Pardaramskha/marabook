@@ -14,7 +14,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\verify-dict.ps1"
 if errorlevel 1 exit /b 1
 
 "%FW%\csc.exe" /nologo /target:exe /out:MarabookTests.exe /optimize+ /codepage:65001 ^
-  /main:UniversSale.Tests.TestMain ^
+  /main:Marabook.Tests.TestMain ^
   /lib:"%FW%\WPF" ^
   /r:PresentationFramework.dll /r:PresentationCore.dll /r:WindowsBase.dll /r:System.Xaml.dll ^
   /r:ReachFramework.dll /r:System.Printing.dll ^

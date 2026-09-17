@@ -3,9 +3,9 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Style sheet editor: list on the left, attributes on the right in
     /// four tabs — Caractère, Paragraphe, Césure, Justification (InDesign-style;

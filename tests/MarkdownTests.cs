@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using UniversSale.Model;
-using UniversSale.View;
+using Marabook.Model;
+using Marabook.View;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C10 — le dialecte Markdown des fiches (batch 31) : le parseur
     /// de blocs porté de Markdown We Go (titres, filets, citations, listes,

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C15 — la généalogie (batch 36) : natures de relation et
     /// réciproques selon le genre, synchronisation miroir entre fiches,

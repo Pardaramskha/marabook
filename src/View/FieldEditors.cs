@@ -7,9 +7,9 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>LES ÉDITEURS DE CHAMP (b47 bis) : une nature (FieldKinds) →
     /// le bon petit outil de saisie, la valeur restant une chaîne. Un texte

@@ -1,4 +1,4 @@
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>Page layout — the project default, a document's own setup, or
     /// a book template ("gabarit"). Lengths are millimeters; PxPerMm converts

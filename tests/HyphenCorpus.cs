@@ -1,4 +1,4 @@
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>Corpus de césure française : chaque entrée porte ses coupures
     /// ATTENDUES (tirets), établies à la main selon l'usage typographique

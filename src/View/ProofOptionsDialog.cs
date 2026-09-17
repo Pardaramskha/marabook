@@ -1,9 +1,9 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
-using UniversSale.Settings;
+using Marabook.Settings;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>« Options du correcteur » (batch 33) : ce que le correcteur
     /// RELÈVE — orthographe, grammaire, typographie, style — quatre cases.

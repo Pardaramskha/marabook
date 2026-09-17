@@ -7,17 +7,17 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using UniversSale.Model;
-using UniversSale.Persistence;
-using UniversSale.Settings;
-using UniversSale.View;
+using Marabook.Model;
+using Marabook.Persistence;
+using Marabook.Settings;
+using Marabook.View;
 
-namespace UniversSale.Tests.Ui
+namespace Marabook.Tests.Ui
 {
     /// <summary>Sonde visuelle de l'onglet Correction (13/09) : icônes du
     /// ruban et panneau groupé par type — rendu PNG de la fenêtre entière,
     /// onglet Correction sélectionné, panneau Détails ouvert. À lancer à la
-    /// main (/main:UniversSale.Tests.Ui.RibbonProbe) ; settings.json est
+    /// main (/main:Marabook.Tests.Ui.RibbonProbe) ; settings.json est
     /// sauvegardé puis restauré.</summary>
     public static class RibbonProbe
     {

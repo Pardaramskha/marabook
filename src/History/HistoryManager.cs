@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace UniversSale.History
+namespace Marabook.History
 {
     /// <summary>A reversible action on the project. Ported from Mental-o
     /// (ICommande/GestionnaireHistorique) — battle-tested, zero coupling.</summary>

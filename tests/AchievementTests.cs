@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using UniversSale.Model;
-using UniversSale.Settings;
+using Marabook.Model;
+using Marabook.Settings;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C21 — les succès (12/09/2026, liste complète du soir) : le
     /// catalogue (ids uniques, noms), les conditions mesurables, la mesure

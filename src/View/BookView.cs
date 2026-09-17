@@ -1,10 +1,10 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
-using UniversSale.History;
-using UniversSale.Model;
+using Marabook.History;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>The Book view: the corkboard of its children (reading order),
     /// full width. Les métadonnées et la publication (gabarit, fond perdu,

@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>Une expression régulière trop coûteuse (explosion
     /// combinatoire) : le délai par texte est dépassé. La recherche projet

@@ -5,9 +5,9 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using System.Xml;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Exchange
+namespace Marabook.Exchange
 {
     /// <summary>Native .odt reader/writer (ODF). Same declared scope as Docx:
     /// named paragraph styles, run overrides, footnotes, line breaks. Sizes are
@@ -127,10 +127,11 @@ namespace UniversSale.Exchange
             {
                 var style = styles.Find(paragraph.StyleId);
                 var styleName = "US_" + style.Id;
-                if (paragraph.AlignOverride != null || paragraph.PageBreakBefore)
+                if (paragraph.AlignOverride != null || paragraph.PageBreakBefore || paragraph.Indent.HasValue)
                 {
                     // Per-paragraph automatic style deriving from the named one.
-                    var key = "P|" + style.Id + "|" + paragraph.AlignOverride + "|" + paragraph.PageBreakBefore;
+                    var key = "P|" + style.Id + "|" + paragraph.AlignOverride + "|" + paragraph.PageBreakBefore
+                        + "|" + (paragraph.Indent.HasValue ? Pt(paragraph.Indent.Value) : "");
                     string autoName;
                     if (!autoKeys.TryGetValue(key, out autoName))
                     {
@@ -143,6 +144,9 @@ namespace UniversSale.Exchange
                             autoStyles.Append(" fo:text-align=\"").Append(FoAlign(paragraph.AlignOverride)).Append("\"");
                         if (paragraph.PageBreakBefore)
                             autoStyles.Append(" fo:break-before=\"page\"");
+                        if (paragraph.Indent.HasValue) // décalage : bloc uniforme, sans alinéa
+                            autoStyles.Append(" fo:margin-left=\"").Append(Pt(paragraph.Indent.Value))
+                              .Append("\" fo:text-indent=\"0pt\"");
                         autoStyles.Append("/></style:style>");
                     }
                     styleName = autoName;

@@ -5,9 +5,9 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>LE RENDU WIKI d'une fiche (extrait de SheetView au batch 47) :
     /// grand titre, infobox (portrait, champs remplis groupés, champs libres,

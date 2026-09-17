@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>La barre d'objectif à deux teintes du batch 32 — warn pour
     /// ce qui est présent, ok pour ce qui est terminé — sortie de

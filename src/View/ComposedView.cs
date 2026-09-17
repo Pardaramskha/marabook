@@ -6,10 +6,10 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using UniversSale.Model;
-using UniversSale.Print;
+using Marabook.Model;
+using Marabook.Print;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>The home-grown editing engine's view: the document composed by
     /// the 4b motor — real justification ranges, French hyphenation, keeps —
@@ -200,7 +200,9 @@ namespace UniversSale.View
             Focusable = true;
             FocusVisualStyle = null;
 
-            _pages = new StackPanel();
+            // À gauche, pas étiré (17/09) : les slots gardent la largeur du
+            // papier même quand la couche des bulles élargit la colonne.
+            _pages = new StackPanel { HorizontalAlignment = HorizontalAlignment.Left };
             _overlay = new Canvas { IsHitTestVisible = false };
             _bubbleLayer = new Canvas
             {
@@ -277,10 +279,15 @@ namespace UniversSale.View
             }
         }
 
-        /// <summary>On-screen page rectangles (zoom applied), for the rulers.</summary>
+        /// <summary>On-screen page rectangles (zoom applied), for the rulers.
+        /// Mesuré sur la composition (le papier dessiné), jamais sur le slot :
+        /// la couche des bulles d'annotation élargit la colonne, donc les
+        /// slots, et la règle s'étirait au-delà de la feuille (17/09).</summary>
         public List<Rect> PageRects(UIElement reference)
         {
             var result = new List<Rect>();
+            var composition = _engine == null ? null : _engine.Current;
+            if (composition == null) return result;
             foreach (UIElement child in _pages.Children)
             {
                 var element = child as FrameworkElement;
@@ -289,7 +296,7 @@ namespace UniversSale.View
                 {
                     var p0 = element.TranslatePoint(new Point(0, 0), reference);
                     var p1 = element.TranslatePoint(
-                        new Point(element.ActualWidth, element.ActualHeight), reference);
+                        new Point(composition.PageWidthPx, composition.PageHeightPx), reference);
                     result.Add(new Rect(p0, p1));
                 }
                 catch { }
@@ -1840,6 +1847,45 @@ namespace UniversSale.View
                 var paragraph = _item.Document.Paragraphs[p];
                 var style = _styles.Find(paragraph.StyleId);
                 paragraph.AlignOverride = align == style.Align ? null : align;
+                _engine.RecomposeParagraph(p);
+            }
+            AfterEdit(0);
+        }
+
+        /// <summary>Un pas de décalage : 0,5 cm.</summary>
+        public const double IndentStepPx = 5 * 96 / 25.4;
+
+        /// <summary>Décalage des paragraphes de la sélection (ou du paragraphe
+        /// du caret), façon Word (17/09) : « ajouter » pousse le bloc de 0,5 cm
+        /// depuis sa position effective (retrait du style et de la liste
+        /// compris), « retirer » ramène tout au bord de la marge d'un coup —
+        /// alinéa automatique du style et retrait de liste inclus.</summary>
+        public void ApplyIndent(bool add)
+        {
+            PushUndo(false);
+            int pa, pb;
+            if (HasSelection())
+            {
+                int oa, ob;
+                OrderedSelection(out pa, out oa, out pb, out ob);
+            }
+            else { pa = _caretParagraph; pb = _caretParagraph; }
+            // « Retirer » sur des paragraphes déjà tous à la marge : on rend
+            // la main au style (le seul chemin de retour hors annulation).
+            var allFlush = !add;
+            for (var p = pa; p <= pb && allFlush; p++)
+                allFlush = _item.Document.Paragraphs[p].Indent == 0;
+            for (var p = pa; p <= pb; p++)
+            {
+                var paragraph = _item.Document.Paragraphs[p];
+                if (add)
+                {
+                    var style = _styles.Find(paragraph.StyleId);
+                    var current = paragraph.Indent
+                        ?? (style.LeftIndent + (paragraph.ListKind != null ? 24 : 0));
+                    paragraph.Indent = Math.Round((current + IndentStepPx) * 100) / 100;
+                }
+                else paragraph.Indent = allFlush ? (double?)null : 0;
                 _engine.RecomposeParagraph(p);
             }
             AfterEdit(0);

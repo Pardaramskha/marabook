@@ -7,14 +7,14 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using UniversSale.Correction;
-using UniversSale.History;
-using UniversSale.Model;
-using UniversSale.Persistence;
-using UniversSale.Settings;
-using UniversSale.View;
+using Marabook.Correction;
+using Marabook.History;
+using Marabook.Model;
+using Marabook.Persistence;
+using Marabook.Settings;
+using Marabook.View;
 
-namespace UniversSale
+namespace Marabook
 {
     /// <summary>The shell window: Binder (left) | rich editor (center) |
     /// inspector (right), menu bar on top, status bar below.</summary>
@@ -1857,7 +1857,7 @@ namespace UniversSale
         public void ShowWelcome()
         {
             if (_welcome != null) return;
-            // Un peu de couleur au démarrage (13/09) : assetsackground.jpg
+            // Un peu de couleur au démarrage (13/09) : assets/background.jpg
             // à côté de l'exe, en remplissage proportionnel derrière
             // l'accueil — son centre est blanc, l'accueil le recouvre.
             // Absent ou illisible : le voile blanc cassé, simplement.

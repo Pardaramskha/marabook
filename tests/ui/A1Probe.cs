@@ -4,12 +4,12 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
-using UniversSale.Model;
-using UniversSale.Persistence;
-using UniversSale.Settings;
-using UniversSale.View;
+using Marabook.Model;
+using Marabook.Persistence;
+using Marabook.Settings;
+using Marabook.View;
 
-namespace UniversSale.Tests.Ui
+namespace Marabook.Tests.Ui
 {
     /// <summary>Sonde UI d'A1 (batch 26, lot 0.3) — le bug le plus grave du
     /// batch 24 : le corps d'une fiche (SheetView._body, un second EditorView)

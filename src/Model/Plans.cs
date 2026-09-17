@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>Un PLAN (batch 35) : une succession de colonnes, de gauche à
     /// droite ; chaque colonne peut être titrée et reliée à un écrit, le

@@ -8,7 +8,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
-namespace UniversSale
+namespace Marabook
 {
     /// <summary>« Vérifier les mises à jour » — le standard des apps de la
     /// famille Stargazer, porté de Typonanny (13/09/2026) : on interroge la

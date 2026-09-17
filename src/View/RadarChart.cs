@@ -5,9 +5,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>LE RADAR (b47 bis) : la toile d'araignée d'un modèle — un axe
     /// par RadarAxis du modèle, une valeur de 0 à RadarMax par fiche. Dessiné

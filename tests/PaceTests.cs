@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C26 — objectifs et temps (b48) : le rythme d'un livre
     /// (échéance, taille, par jour), les sprints du journal, la moyenne.</summary>

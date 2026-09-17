@@ -6,7 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace UniversSale.Correction.Grammalecte
+namespace Marabook.Correction.Grammalecte
 {
     public enum BridgeState { Idle, Starting, Ready, Unavailable }
 
@@ -164,7 +164,7 @@ namespace UniversSale.Correction.Grammalecte
             var request = new Dictionary<string, object> { { "text", text } };
             if (options != null) request["options"] = options;
             var message = await SendAsync(request, token).ConfigureAwait(false);
-            return ParseErrors(UniversSale.Json.Field(message, "errors"));
+            return ParseErrors(Marabook.Json.Field(message, "errors"));
         }
 
         /// <summary>L'étage STYLE (batch 44) : adverbes en -ment et verbes
@@ -177,7 +177,7 @@ namespace UniversSale.Correction.Grammalecte
             var request = new Dictionary<string, object> { { "style", text } };
             if (options != null) request["options"] = options;
             var message = await SendAsync(request, token).ConfigureAwait(false);
-            return ParseStyleItems(UniversSale.Json.Field(message, "findings"));
+            return ParseStyleItems(Marabook.Json.Field(message, "findings"));
         }
 
         /// <summary>Les synonymes d'un mot TEL QU'ÉCRIT (batch 44), fléchis
@@ -188,7 +188,7 @@ namespace UniversSale.Correction.Grammalecte
         {
             var request = new Dictionary<string, object> { { "synonyms", word } };
             var message = await SendAsync(request, token).ConfigureAwait(false);
-            return ParseSynonymGroups(UniversSale.Json.Field(message, "groups"));
+            return ParseSynonymGroups(Marabook.Json.Field(message, "groups"));
         }
 
         /// <summary>Envoie UNE requête (l'id d'appariement est posé ici) et
@@ -220,7 +220,7 @@ namespace UniversSale.Correction.Grammalecte
                 // inécrivable (type non supporté — erreur de programmation)
                 // échoue seule, sans rien laisser derrière elle.
                 string line;
-                try { line = UniversSale.Json.Write(request); }
+                try { line = Marabook.Json.Write(request); }
                 catch (Exception failure)
                 {
                     source.SetException(failure);
@@ -331,9 +331,9 @@ namespace UniversSale.Correction.Grammalecte
                 if (line == null) break; // le fils est mort
                 if (line.Length == 0) continue;
                 object parsed;
-                try { parsed = UniversSale.Json.Parse(line); }
+                try { parsed = Marabook.Json.Parse(line); }
                 catch { continue; } // trame illisible : ignorée
-                var message = UniversSale.Json.AsObject(parsed);
+                var message = Marabook.Json.AsObject(parsed);
                 if (message == null) continue;
                 if (message.ContainsKey("ready"))
                 {
@@ -341,8 +341,8 @@ namespace UniversSale.Correction.Grammalecte
                     {
                         if (_process != process) continue;
                         _failedStarts = 0;
-                        _version = UniversSale.Json.AsString(
-                            UniversSale.Json.Field(message, "version")) ?? "";
+                        _version = Marabook.Json.AsString(
+                            Marabook.Json.Field(message, "version")) ?? "";
                         SetStateLocked(BridgeState.Ready, "");
                         // La ligne « ready » EST un progrès : réarme.
                         if (_flights.Count > 0) ArmWatchdogLocked();
@@ -351,8 +351,8 @@ namespace UniversSale.Correction.Grammalecte
                     RaiseStateChanged();
                     continue;
                 }
-                var id = UniversSale.Json.AsInt(
-                    UniversSale.Json.Field(message, "id"), -1);
+                var id = Marabook.Json.AsInt(
+                    Marabook.Json.Field(message, "id"), -1);
                 if (id < 0) continue;
                 Flight flight = null;
                 lock (_gate)
@@ -368,8 +368,8 @@ namespace UniversSale.Correction.Grammalecte
                 if (message.ContainsKey("error"))
                 {
                     flight.Source.TrySetException(new InvalidOperationException(
-                        "Grammalecte : " + UniversSale.Json.AsString(
-                            UniversSale.Json.Field(message, "error"))));
+                        "Grammalecte : " + Marabook.Json.AsString(
+                            Marabook.Json.Field(message, "error"))));
                     continue;
                 }
                 flight.Source.TrySetResult(message);
@@ -410,34 +410,34 @@ namespace UniversSale.Correction.Grammalecte
         public static List<BridgeError> ParseErrors(object errorsJson)
         {
             var errors = new List<BridgeError>();
-            var list = UniversSale.Json.AsList(errorsJson);
+            var list = Marabook.Json.AsList(errorsJson);
             if (list == null) return errors;
             foreach (var item in list)
             {
-                var entry = UniversSale.Json.AsObject(item);
+                var entry = Marabook.Json.AsObject(item);
                 if (entry == null) continue;
-                var start = UniversSale.Json.AsInt(
-                    UniversSale.Json.Field(entry, "nStart"), -1);
-                var end = UniversSale.Json.AsInt(
-                    UniversSale.Json.Field(entry, "nEnd"), -1);
+                var start = Marabook.Json.AsInt(
+                    Marabook.Json.Field(entry, "nStart"), -1);
+                var end = Marabook.Json.AsInt(
+                    Marabook.Json.Field(entry, "nEnd"), -1);
                 if (start < 0 || end <= start) continue;
                 var error = new BridgeError
                 {
                     Start = start,
                     End = end,
-                    RuleId = UniversSale.Json.AsString(
-                        UniversSale.Json.Field(entry, "sRuleId")) ?? "",
-                    Option = UniversSale.Json.AsString(
-                        UniversSale.Json.Field(entry, "sType")) ?? "",
-                    Message = UniversSale.Json.AsString(
-                        UniversSale.Json.Field(entry, "sMessage")) ?? ""
+                    RuleId = Marabook.Json.AsString(
+                        Marabook.Json.Field(entry, "sRuleId")) ?? "",
+                    Option = Marabook.Json.AsString(
+                        Marabook.Json.Field(entry, "sType")) ?? "",
+                    Message = Marabook.Json.AsString(
+                        Marabook.Json.Field(entry, "sMessage")) ?? ""
                 };
-                var suggestions = UniversSale.Json.AsList(
-                    UniversSale.Json.Field(entry, "aSuggestions"));
+                var suggestions = Marabook.Json.AsList(
+                    Marabook.Json.Field(entry, "aSuggestions"));
                 if (suggestions != null)
                     foreach (var suggestion in suggestions)
                     {
-                        var text = UniversSale.Json.AsString(suggestion);
+                        var text = Marabook.Json.AsString(suggestion);
                         if (!string.IsNullOrEmpty(text))
                             error.Suggestions.Add(text);
                     }
@@ -451,24 +451,24 @@ namespace UniversSale.Correction.Grammalecte
         public static List<StyleItem> ParseStyleItems(object itemsJson)
         {
             var items = new List<StyleItem>();
-            var list = UniversSale.Json.AsList(itemsJson);
+            var list = Marabook.Json.AsList(itemsJson);
             if (list == null) return items;
             foreach (var entry in list)
             {
-                var obj = UniversSale.Json.AsObject(entry);
+                var obj = Marabook.Json.AsObject(entry);
                 if (obj == null) continue;
-                var start = UniversSale.Json.AsInt(UniversSale.Json.Field(obj, "nStart"), -1);
-                var end = UniversSale.Json.AsInt(UniversSale.Json.Field(obj, "nEnd"), -1);
+                var start = Marabook.Json.AsInt(Marabook.Json.Field(obj, "nStart"), -1);
+                var end = Marabook.Json.AsInt(Marabook.Json.Field(obj, "nEnd"), -1);
                 if (start < 0 || end <= start) continue;
-                var kind = UniversSale.Json.AsString(UniversSale.Json.Field(obj, "kind")) ?? "";
+                var kind = Marabook.Json.AsString(Marabook.Json.Field(obj, "kind")) ?? "";
                 if (kind != "adverb" && kind != "dull") continue;
                 items.Add(new StyleItem
                 {
                     Start = start,
                     End = end,
                     Kind = kind,
-                    Word = UniversSale.Json.AsString(UniversSale.Json.Field(obj, "word")) ?? "",
-                    Lemma = UniversSale.Json.AsString(UniversSale.Json.Field(obj, "lemma")) ?? ""
+                    Word = Marabook.Json.AsString(Marabook.Json.Field(obj, "word")) ?? "",
+                    Lemma = Marabook.Json.AsString(Marabook.Json.Field(obj, "lemma")) ?? ""
                 });
             }
             return items;
@@ -479,22 +479,22 @@ namespace UniversSale.Correction.Grammalecte
         public static List<SynonymGroup> ParseSynonymGroups(object groupsJson)
         {
             var groups = new List<SynonymGroup>();
-            var list = UniversSale.Json.AsList(groupsJson);
+            var list = Marabook.Json.AsList(groupsJson);
             if (list == null) return groups;
             foreach (var entry in list)
             {
-                var obj = UniversSale.Json.AsObject(entry);
+                var obj = Marabook.Json.AsObject(entry);
                 if (obj == null) continue;
                 var group = new SynonymGroup
                 {
-                    Pos = UniversSale.Json.AsString(UniversSale.Json.Field(obj, "pos")) ?? "",
-                    Lemma = UniversSale.Json.AsString(UniversSale.Json.Field(obj, "lemma")) ?? ""
+                    Pos = Marabook.Json.AsString(Marabook.Json.Field(obj, "pos")) ?? "",
+                    Lemma = Marabook.Json.AsString(Marabook.Json.Field(obj, "lemma")) ?? ""
                 };
-                var words = UniversSale.Json.AsList(UniversSale.Json.Field(obj, "words"));
+                var words = Marabook.Json.AsList(Marabook.Json.Field(obj, "words"));
                 if (words != null)
                     foreach (var word in words)
                     {
-                        var text = UniversSale.Json.AsString(word);
+                        var text = Marabook.Json.AsString(word);
                         if (!string.IsNullOrEmpty(text) && !group.Words.Contains(text))
                             group.Words.Add(text);
                     }

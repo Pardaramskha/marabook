@@ -5,9 +5,9 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Le paper flottant de COMPARAISON (batch 38, lot D) : deux
     /// versions d'un écrit lues en ligne, façon révision d'éditeur —

@@ -4,9 +4,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>L'image d'un succès (12/09/2026) : le PNG
     /// assets\achievements\&lt;id&gt;.png à côté de l'exécutable s'il existe

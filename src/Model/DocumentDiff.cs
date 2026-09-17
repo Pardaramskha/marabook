@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>Ce qu'est devenu un paragraphe entre deux versions.</summary>
     public enum ParagraphChange
@@ -282,6 +282,7 @@ namespace UniversSale.Model
         public static bool SameStyle(TextParagraph a, TextParagraph b)
         {
             if (a.StyleId != b.StyleId || a.AlignOverride != b.AlignOverride || a.ListKind != b.ListKind
+                || a.Indent != b.Indent
                 || a.PageBreakBefore != b.PageBreakBefore || a.AllowWidows != b.AllowWidows) return false;
             if (a.Runs.Count != b.Runs.Count) return false;
             for (var i = 0; i < a.Runs.Count; i++)

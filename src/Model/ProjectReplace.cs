@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>Une édition ponctuelle du remplacement projet (batch 37, lot
     /// C) : l'item, le champ (Kind + RefId, ou l'index du paragraphe), et —

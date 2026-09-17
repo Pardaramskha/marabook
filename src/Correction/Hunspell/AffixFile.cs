@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
-namespace UniversSale.Correction.Hunspell
+namespace Marabook.Correction.Hunspell
 {
     /// <summary>Une condition d'affixe compilée : suite d'items (littéral,
     /// classe [xyz], classe niée [^xyz], joker .) — appariée au DÉBUT du

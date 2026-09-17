@@ -7,9 +7,9 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>L'écran d'un PLAN (batch 35) : des colonnes de gauche à
     /// droite (défilement horizontal), chacune titrée et reliable à un

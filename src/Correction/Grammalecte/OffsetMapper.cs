@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace UniversSale.Correction.Grammalecte
+namespace Marabook.Correction.Grammalecte
 {
     /// <summary>La correspondance d'offsets entre le pivot et Grammalecte
     /// (batch 29, lot B.2) — le point dur du pont, traité explicitement :

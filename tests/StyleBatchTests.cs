@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using UniversSale.Correction;
-using UniversSale.Model;
+using Marabook.Correction;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C23 — le batch 45 « style » : la typographie à la frappe
     /// (les garde-fous de TypographyLive), les verbes de dialogue

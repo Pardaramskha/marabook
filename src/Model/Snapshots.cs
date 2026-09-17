@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>D'où vient un instantané : pris à la main, ou automatiquement
     /// avant une opération qui réécrit massivement (passe typographique,
@@ -134,6 +134,8 @@ namespace UniversSale.Model
                 hash = Mix(hash, paragraph.StyleId);
                 hash = Mix(hash, paragraph.AlignOverride);
                 hash = Mix(hash, paragraph.ListKind);
+                hash = Mix(hash, paragraph.Indent.HasValue
+                    ? paragraph.Indent.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : null);
                 foreach (var run in paragraph.Runs)
                 {
                     if (run.Bold == true) hash = Mix(hash, "b");

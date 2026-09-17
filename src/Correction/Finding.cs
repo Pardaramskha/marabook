@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace UniversSale.Correction
+namespace Marabook.Correction
 {
     /// <summary>Catégorie d'un signalement — pilote la couleur de l'ondulé et
     /// les filtres du panneau Correction.</summary>

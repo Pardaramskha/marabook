@@ -7,10 +7,10 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Xps;
 using System.Windows.Xps.Packaging;
-using UniversSale.Model;
-using UniversSale.View;
+using Marabook.Model;
+using Marabook.View;
 
-namespace UniversSale.Print
+namespace Marabook.Print
 {
     /// <summary>Phase 4a: real pagination. Builds a print-ready FlowDocument
     /// from the pivot (page size, margins, columns, hyphenation from the
@@ -205,7 +205,7 @@ namespace UniversSale.Print
                 using (var dc = visual.RenderOpen())
                 {
                     dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, _size.Width, _size.Height));
-                    UniversSale.View.ComposedRenderer.DrawPage(dc, _composition, pageNumber, false);
+                    Marabook.View.ComposedRenderer.DrawPage(dc, _composition, pageNumber, false);
                 }
                 return new DocumentPage(visual, _size,
                     new Rect(_size), new Rect(_size));
@@ -252,7 +252,7 @@ namespace UniversSale.Print
                     if (leftIndex >= 0 && leftIndex < _composition.Pages.Count)
                     {
                         dc.DrawRectangle(null, edge, new Rect(0.5, 0.5, width - 1, height - 1));
-                        UniversSale.View.ComposedRenderer.DrawPage(dc, _composition, leftIndex, false);
+                        Marabook.View.ComposedRenderer.DrawPage(dc, _composition, leftIndex, false);
                     }
                     else
                         dc.DrawRectangle(Brushes.WhiteSmoke, edge,
@@ -261,7 +261,7 @@ namespace UniversSale.Print
                     {
                         dc.DrawRectangle(null, edge, new Rect(width + 0.5, 0.5, width - 1, height - 1));
                         dc.PushTransform(new TranslateTransform(width, 0));
-                        UniversSale.View.ComposedRenderer.DrawPage(dc, _composition, rightIndex, false);
+                        Marabook.View.ComposedRenderer.DrawPage(dc, _composition, rightIndex, false);
                         dc.Pop();
                     }
                     else

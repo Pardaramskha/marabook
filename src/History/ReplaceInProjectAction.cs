@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.History
+namespace Marabook.History
 {
     /// <summary>Le remplacement projet comme UNE action d'historique (batch
     /// 37, lot C) : atomique et annulable en un cran, elle connaît tous les

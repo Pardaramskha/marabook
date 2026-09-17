@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Correction
+namespace Marabook.Correction
 {
     /// <summary>Le détecteur de répétitions — premier étage de l'analyse de
     /// style. Signale un mot qui réapparaît dans un rayon de N mots, fenêtre

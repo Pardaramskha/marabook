@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>Une entrée du dictionnaire personnel (batch 33) — à la manière
     /// d'Antidote : le mot ET sa nature grammaticale, d'où le correcteur tire

@@ -5,12 +5,12 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
-using UniversSale.Model;
-using UniversSale.Persistence;
-using UniversSale.Settings;
-using UniversSale.View;
+using Marabook.Model;
+using Marabook.Persistence;
+using Marabook.Settings;
+using Marabook.View;
 
-namespace UniversSale.Tests.Ui
+namespace Marabook.Tests.Ui
 {
     /// <summary>Sonde du batch 37 — la recherche projet, sur vraie
     /// MainWindow hors écran : le panneau remplace l'inspecteur, les
@@ -293,7 +293,7 @@ namespace UniversSale.Tests.Ui
             Check(chosen.Count == full.Total - 2, "les occurrences retenues excluent l'item décoché (obtenu : " + chosen.Count + ")");
 
             // — Le remplacement, en UNE action.
-            var history = (UniversSale.History.HistoryManager)GetField(window, "_history");
+            var history = (Marabook.History.HistoryManager)GetField(window, "_history");
             var before = history.Count;
             Invoke(window, "RunReplace", new object[] { ReplacePlan.Build(opened, chosen, query, "ibis"), "marabout" });
             DoEvents();

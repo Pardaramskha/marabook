@@ -5,7 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Champ numérique « à la Adobe » : petits boutons ▲▼ verticaux
     /// à gauche d'un champ de valeur. Entrée ou perte de focus applique ;

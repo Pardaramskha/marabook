@@ -1,4 +1,4 @@
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>Metadata and layout template of a Book — a special container
     /// of Écrits whose documents share one nomenclature and one gabarit, and

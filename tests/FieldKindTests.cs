@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C25 — les natures de champ (b47 bis) : la liste, la
     /// normalisation (une nature inconnue vaut texte), les nombres avec

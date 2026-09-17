@@ -1,6 +1,6 @@
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C6 — la recherche pivot (batch 26, lot B.3) : positions
     /// calculées à la main, casse, mot entier, éléments U+FFFC neutres.

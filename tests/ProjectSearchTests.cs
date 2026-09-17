@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using UniversSale.History;
-using UniversSale.Model;
+using Marabook.History;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C16 — la recherche projet (batch 37) : requête compilée
     /// (littéral, regex, casse, mot entier, accents avec offsets d'origine,

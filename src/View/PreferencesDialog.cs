@@ -4,10 +4,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using UniversSale.Model;
-using UniversSale.Settings;
+using Marabook.Model;
+using Marabook.Settings;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Application preferences (Fichier → Préférences…), applied live.
     /// First tab « Personnalisation » : accent color of the whole interface and

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
-namespace UniversSale.Correction.Hunspell
+namespace Marabook.Correction.Hunspell
 {
     /// <summary>Le moteur Hunspell maison (batch 27, lot C) — JAMAIS
     /// d'expansion du lexique : les 87 105 radicaux sont indexés tels quels

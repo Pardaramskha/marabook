@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using UniversSale.Print;
+using Marabook.Print;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C2 — score de césure française sur le corpus. PAS un
     /// pass/fail par mot : un score global (coupures justes − coupures

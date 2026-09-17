@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace UniversSale.Correction.Grammalecte
+namespace Marabook.Correction.Grammalecte
 {
     /// <summary>Une option de Grammalecte telle que les Préférences la
     /// montrent : le NOM DE GRAMMALECTE (jamais une nomenclature à nous —

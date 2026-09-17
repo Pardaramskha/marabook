@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C14 — les plans (batch 35) : colonnes, éléments et notes,
     /// l'échelle d'intensité, le profil du graphique, les liens vers les

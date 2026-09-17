@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Bridge between the pivot model and WPF FlowDocument. The pivot
     /// is the source of truth; the FlowDocument only exists while editing.
@@ -35,6 +35,14 @@ namespace UniversSale.View
                 ApplyParagraphStyle(wpfParagraph, style);
                 if (paragraph.AlignOverride != null)
                     wpfParagraph.TextAlignment = ParseAlign(paragraph.AlignOverride);
+                if (paragraph.Indent.HasValue)
+                {
+                    // Décalage (17/09) : bloc uniforme, sans alinéa.
+                    var margin = wpfParagraph.Margin;
+                    wpfParagraph.Margin = new Thickness(paragraph.Indent.Value, margin.Top,
+                        margin.Right, margin.Bottom);
+                    wpfParagraph.TextIndent = 0;
+                }
                 if (paragraph.PageBreakBefore) MarkPageBreak(wpfParagraph, true);
 
                 foreach (var run in paragraph.Runs)

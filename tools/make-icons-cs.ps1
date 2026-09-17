@@ -6,7 +6,7 @@ $sb = New-Object System.Text.StringBuilder
 [void]$sb.AppendLine("using System.Windows;")
 [void]$sb.AppendLine("using System.Windows.Media;")
 [void]$sb.AppendLine("")
-[void]$sb.AppendLine("namespace UniversSale.View")
+[void]$sb.AppendLine("namespace Marabook.View")
 [void]$sb.AppendLine("{")
 [void]$sb.AppendLine("    /// <summary>The embedded icon set (Phosphor, bold weight): SVG path data")
 [void]$sb.AppendLine("    /// compiled into the exe by tools/make-icons-cs.ps1 from assets/icons —")

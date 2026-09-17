@@ -7,9 +7,9 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>EditorView, partie « ruban » (segmentation b43) : la barre
     /// de format et ses onglets Texte/Gabarit/Composition/Mise en page,
@@ -193,6 +193,24 @@ namespace UniversSale.View
             alignBottom.Children.Add(_bulletBtn);
             alignBottom.Children.Add(_numberBtn);
             alignBottom.Children.Add(_checkBtn);
+            // Décalage du paragraphe (17/09), façon Word : + pousse le bloc de
+            // 0,5 cm, − ramène tout à la marge (alinéa du style et retrait de
+            // liste compris ; une seconde fois : le style reprend la main).
+            var indentAdd = IconButton("space-add", "Ajouter un décalage (0,5 cm depuis la marge)");
+            indentAdd.Margin = new Thickness(7, 0, 1, 0);
+            indentAdd.Click += delegate
+            {
+                if (ComposedActive) { _composed.ApplyIndent(true); _composed.Focus(); }
+            };
+            var indentRemove = IconButton("space-remove",
+                "Retirer le décalage — tout au bord de la marge, alinéa automatique compris "
+                + "(une seconde fois : le style reprend la main)");
+            indentRemove.Click += delegate
+            {
+                if (ComposedActive) { _composed.ApplyIndent(false); _composed.Focus(); }
+            };
+            alignBottom.Children.Add(indentAdd);
+            alignBottom.Children.Add(indentRemove);
             panel.Children.Add(alignRows);
             panel.Children.Add(VerticalRuleTall());
 
@@ -327,15 +345,16 @@ namespace UniversSale.View
             rest.Children.Add(_trackingBox);
 
             // Ribbon: « Texte » (this panel) + « Mise en page » (page setup).
+            // Gabarit RibbonTabs (17/09) : l'axe d'affichage vit dans la rangée
+            // des chips (Tag), le contenu de l'onglet prend toute la largeur —
+            // fini la réserve de 236 px qui rognait les sections de droite.
             var tabs = new TabControl
             {
                 Background = Brushes.Transparent,
                 BorderThickness = new Thickness(0),
-                Padding = new Thickness(0),
-                // Réserve à droite pour l'axe d'affichage (Pages/Brouillon/
-                // Calme) : huit onglets ne passent plus dessous (batch 34).
-                Margin = new Thickness(0, 0, 236, 0)
+                Padding = new Thickness(0)
             };
+            tabs.SetResourceReference(StyleProperty, "RibbonTabs");
             tabs.Items.Add(new TabItem { Header = "Texte", Content = panel });
             tabs.Items.Add(new TabItem { Header = "Insertion", Content = BuildInsertTab() });
             tabs.Items.Add(new TabItem { Header = "Formatage", Content = BuildFormatTab() });
@@ -394,10 +413,20 @@ namespace UniversSale.View
             views.Children.Add(_calmViewBtn);
             UpdateViewButtons();
 
-            var host = new Grid();
-            host.Children.Add(tabs);
-            host.Children.Add(views);
-            bar.Child = host;
+            tabs.Tag = views; // rendu par le gabarit, à droite des chips
+            // Ruban étroit (17/09) : sous 520 px, l'axe d'affichage passe en
+            // icônes seules pour laisser la rangée des chips respirer.
+            var compactViews = false;
+            bar.SizeChanged += delegate
+            {
+                var compact = bar.ActualWidth > 0 && bar.ActualWidth < 520;
+                if (compact == compactViews) return;
+                compactViews = compact;
+                CompactViewToggle(_pagesViewBtn, "files-bold", "Pages", compact);
+                CompactViewToggle(_draftViewBtn, "article-bold", "Brouillon", compact);
+                CompactViewToggle(_calmViewBtn, "book-open-text-bold", "Calme", compact);
+            };
+            bar.Child = tabs;
             _ribbonBar = bar;
             Children.Add(bar);
         }
@@ -407,6 +436,30 @@ namespace UniversSale.View
             var button = Buttons.TextToggle(label, tooltip, Buttons.Compact);
             button.Margin = new Thickness(4, 0, 0, 0);
             return button;
+        }
+
+        /// <summary>Bascule un bouton de l'axe d'affichage entre son libellé
+        /// et une icône seule (ruban étroit) ; l'état d'origine est gardé
+        /// dans Tag pour le retour.</summary>
+        private static void CompactViewToggle(ToggleButton button, string icon, string label, bool compact)
+        {
+            if (button == null) return;
+            var saved = button.Tag as object[];
+            if (compact)
+            {
+                if (saved == null)
+                    button.Tag = saved = new[] { button.Content, button.ToolTip, button.Padding };
+                button.Content = Icons.Make(icon, 14, Chrome.Ink);
+                button.ToolTip = label + " — " + saved[1];
+                button.Padding = new Thickness(7, 0, 7, 0);
+            }
+            else if (saved != null)
+            {
+                button.Content = saved[0];
+                button.ToolTip = saved[1];
+                button.Padding = (Thickness)saved[2];
+                button.Tag = null;
+            }
         }
 
         /// <summary>L'état du sélecteur d'affichage — une seule position
@@ -857,6 +910,20 @@ namespace UniversSale.View
 
 
         // Boutons du ruban à icône seule : CARRÉS (26 × 26, b43).
+        private static Button IconButton(string iconName, string tooltip)
+        {
+            return new Button
+            {
+                Content = Icons.Make(iconName, 14, Chrome.Ink),
+                ToolTip = tooltip,
+                Width = 26,
+                Height = 26,
+                Padding = new Thickness(0),
+                Margin = new Thickness(1, 0, 1, 0),
+                Focusable = false
+            };
+        }
+
         private ToggleButton IconToggle(string iconName, string tooltip)
         {
             return new ToggleButton
@@ -1050,17 +1117,20 @@ namespace UniversSale.View
         /// d'une ligne (26 px) s'y superposent.</summary>
         public const double RibbonHeight = 56;
 
-        private static StackPanel TabPanel()
+        /// <summary>Le panneau d'un onglet (17/09) : une ligne de RibbonHeight
+        /// par défaut ; fenêtre étroite, les sections (entre deux séparateurs)
+        /// descendent d'une ligne au lieu d'être rognées — voir RibbonPanel.</summary>
+        private static RibbonPanel TabPanel()
         {
-            return new StackPanel
+            return new RibbonPanel
             {
-                Orientation = Orientation.Horizontal,
                 Margin = new Thickness(8, 3, 8, 3),
-                Height = RibbonHeight
+                LineHeight = RibbonHeight
             };
         }
 
-        /// <summary>Séparateur vertical courant sur toute la hauteur.</summary>
+        /// <summary>Séparateur vertical courant sur toute la hauteur — et
+        /// frontière de section pour le repli du RibbonPanel.</summary>
         private static Border VerticalRuleTall()
         {
             return new Border
@@ -1069,7 +1139,8 @@ namespace UniversSale.View
                 Height = RibbonHeight - 6,
                 Background = Chrome.Border,
                 Margin = new Thickness(7, 3, 7, 3),
-                VerticalAlignment = VerticalAlignment.Top
+                VerticalAlignment = VerticalAlignment.Top,
+                Tag = RibbonPanel.SeparatorTag
             };
         }
 

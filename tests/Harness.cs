@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>Le harnais maison : trois assertions, une liste de suites, un
     /// code de sortie. Rien de plus — ce n'est pas un framework, c'est un

@@ -4,10 +4,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using UniversSale.History;
-using UniversSale.Model;
+using Marabook.History;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>The Binder ("la Pile"): the left-hand tree of the project.
     /// Owns tree construction, context menus and drag &amp; drop; every mutation
@@ -1040,7 +1040,7 @@ namespace UniversSale.View
 
             var dragged = _dragCandidate;
             _dragCandidate = null;
-            DragDrop.DoDragDrop(_tree, new DataObject("UniversSaleItem", dragged.Id), DragDropEffects.Move);
+            DragDrop.DoDragDrop(_tree, new DataObject("MarabookItem", dragged.Id), DragDropEffects.Move);
         }
 
         private void OnDragOver(object sender, DragEventArgs e)
@@ -1084,7 +1084,7 @@ namespace UniversSale.View
             }
             var target = DropTarget(e);
             if (target == null) return;
-            var dragged = _project.FindById((string)e.Data.GetData("UniversSaleItem"));
+            var dragged = _project.FindById((string)e.Data.GetData("MarabookItem"));
             if (dragged == null) return;
 
             // Containers swallow the drop; on a document the default is sibling
@@ -1114,8 +1114,8 @@ namespace UniversSale.View
         /// <summary>The valid drop target under the cursor, or null.</summary>
         private BinderItem DropTarget(DragEventArgs e)
         {
-            if (!e.Data.GetDataPresent("UniversSaleItem")) return null;
-            var dragged = _project.FindById((string)e.Data.GetData("UniversSaleItem"));
+            if (!e.Data.GetDataPresent("MarabookItem")) return null;
+            var dragged = _project.FindById((string)e.Data.GetData("MarabookItem"));
             var node = NodeFromSource(e.OriginalSource);
             var target = node == null ? null : node.Tag as BinderItem;
             if (dragged == null || target == null || dragged == target) return null;

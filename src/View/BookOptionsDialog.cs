@@ -1,8 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>« Options du livre » (batch 32) : le nom, l'icône de la Pile et
     /// l'objectif — un nombre de chapitres visé, rendu par la barre de

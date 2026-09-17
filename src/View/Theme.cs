@@ -2,7 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Markup;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>The interface theme: modern templates (rounded corners, neutral
     /// palette, indigo accent) applied application-wide. Purely visual — no
@@ -317,10 +317,11 @@ namespace UniversSale.View
     <Setter Property=""CaretBrush"" Value=""{StaticResource Ink}""/>
     <Setter Property=""Background"" Value=""Transparent""/>
     <Setter Property=""BorderThickness"" Value=""0""/>
+    <Setter Property=""VerticalContentAlignment"" Value=""Center""/>
     <Setter Property=""Template"">
       <Setter.Value>
         <ControlTemplate TargetType=""TextBox"">
-          <ScrollViewer x:Name=""PART_ContentHost"" VerticalAlignment=""Center""/>
+          <ScrollViewer x:Name=""PART_ContentHost""/>
         </ControlTemplate>
       </Setter.Value>
     </Setter>
@@ -353,8 +354,11 @@ namespace UniversSale.View
           <Border x:Name=""Bg"" CornerRadius=""6"" Background=""{StaticResource Paper}""
                   BorderBrush=""{StaticResource Border}"" BorderThickness=""1""
                   Padding=""{TemplateBinding Padding}"">
-            <ScrollViewer x:Name=""PART_ContentHost""
-                          VerticalAlignment=""{TemplateBinding VerticalContentAlignment}""/>
+            <!-- Étiré, jamais aligné (17/09) : c'est le TextBoxView qui applique
+                 VerticalContentAlignment. Un ScrollViewer aligné en haut ne
+                 couvrait que les lignes écrites — flèche et clic mort sur le
+                 reste de la zone (synopsis, 4e de couverture, notes…). -->
+            <ScrollViewer x:Name=""PART_ContentHost""/>
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property=""IsMouseOver"" Value=""True"">
@@ -668,6 +672,45 @@ namespace UniversSale.View
     <Setter Property=""Background"" Value=""Transparent""/>
     <Setter Property=""BorderThickness"" Value=""0""/>
     <Setter Property=""Padding"" Value=""4""/>
+  </Style>
+
+  <!-- Les onglets du RUBAN (17/09) : la rangée des chips partage sa ligne
+       avec l'axe d'affichage (Pages/Brouillon/Calme, passé dans Tag), qui
+       se cale à droite ; le contenu de l'onglet, dessous, prend TOUTE la
+       largeur — plus de réserve de 236 px qui rognait les sections de
+       droite, plus rien qui passe sous le sélecteur. Fenêtre étroite : les
+       chips se replient sur deux rangées, le sélecteur reste en haut à
+       droite. -->
+  <Style x:Key=""RibbonTabs"" TargetType=""TabControl"">
+    <Setter Property=""Background"" Value=""Transparent""/>
+    <Setter Property=""BorderThickness"" Value=""0""/>
+    <Setter Property=""Padding"" Value=""0""/>
+    <Setter Property=""Template"">
+      <Setter.Value>
+        <ControlTemplate TargetType=""TabControl"">
+          <Grid>
+            <Grid.RowDefinitions>
+              <RowDefinition Height=""Auto""/>
+              <RowDefinition Height=""*""/>
+            </Grid.RowDefinitions>
+            <Grid Grid.Row=""0"">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width=""*""/>
+                <ColumnDefinition Width=""Auto""/>
+              </Grid.ColumnDefinitions>
+              <!-- WrapPanel et non TabPanel : sur deux rangées, le TabPanel
+                   étire les chips sur toute la largeur. -->
+              <WrapPanel Grid.Column=""0"" IsItemsHost=""True"" KeyboardNavigation.TabIndex=""1""/>
+              <ContentPresenter Grid.Column=""1"" Content=""{TemplateBinding Tag}""
+                                VerticalAlignment=""Top""/>
+            </Grid>
+            <ContentPresenter Grid.Row=""1"" x:Name=""PART_SelectedContentHost""
+                              ContentSource=""SelectedContent""
+                              Margin=""{TemplateBinding Padding}""/>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
   </Style>
 
   <!-- Onglets en CHIP (batch 34) : l'actif est une pastille arrondie à la

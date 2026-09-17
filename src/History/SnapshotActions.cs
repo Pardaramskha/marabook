@@ -1,7 +1,7 @@
 using System;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.History
+namespace Marabook.History
 {
     /// <summary>La restauration d'un instantané comme UNE action d'historique
     /// (batch 38, lot E — le motif de ReplaceInProjectAction) : annulable en

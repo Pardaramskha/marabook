@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
-using UniversSale.Correction;
-using UniversSale.Correction.Hunspell;
-using UniversSale.Model;
+using Marabook.Correction;
+using Marabook.Correction.Hunspell;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C8 — le moteur Hunspell maison (batch 27, lot C.5), trois
     /// étages : 1) AUTO-CONTRÔLE — chaque entrée du .dic doit être acceptée

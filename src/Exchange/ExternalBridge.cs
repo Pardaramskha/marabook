@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 
-namespace UniversSale.Exchange
+namespace Marabook.Exchange
 {
     /// <summary>Bridge to external converters for formats we will never parse by
     /// hand. Binary .doc goes through an installed LibreOffice (headless
@@ -35,7 +35,7 @@ namespace UniversSale.Exchange
                     "Le format .doc (Word 97-2003) nécessite LibreOffice pour être converti.\n" +
                     "Installez LibreOffice (gratuit), ou enregistrez le fichier en .docx depuis Word.");
 
-            var outDir = Path.Combine(Path.GetTempPath(), "UniversSale", "conversions");
+            var outDir = Path.Combine(Path.GetTempPath(), "Marabook", "conversions");
             Directory.CreateDirectory(outDir);
 
             var info = new ProcessStartInfo

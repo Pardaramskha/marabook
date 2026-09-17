@@ -12,7 +12,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>L'écran d'accueil (13/09/2026) : à l'ouverture de l'app SANS
     /// projet, la fenêtre principale reste vide — un voile blanc cassé, pas
@@ -286,6 +286,30 @@ namespace UniversSale.View
 
         /// <summary>Une tuile de projet récent : le nom, le dossier, la date
         /// de dernière modification ; un clic l'ouvre.</summary>
+        /// <summary>L'icône des fichiers .plot (17/09/2026) : assets\plot-file.png
+        /// à côté de l'exe — la même image que assets\plot.ico posée sur
+        /// l'association dans l'Explorateur. Null si absente ou illisible.</summary>
+        internal static FrameworkElement PlotFileIcon(double size)
+        {
+            var path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                System.IO.Path.Combine("assets", "plot-file.png"));
+            if (!File.Exists(path)) return null;
+            try
+            {
+                var image = new System.Windows.Media.Imaging.BitmapImage();
+                image.BeginInit();
+                image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                image.DecodePixelWidth = (int)Math.Ceiling(size * 2);
+                image.UriSource = new Uri(path, UriKind.Absolute);
+                image.EndInit();
+                image.Freeze();
+                var element = new Image { Source = image, Width = size, Height = size };
+                RenderOptions.SetBitmapScalingMode(element, BitmapScalingMode.HighQuality);
+                return element;
+            }
+            catch { return null; }
+        }
+
         private UIElement RecentTile(string path)
         {
             var exists = File.Exists(path);
@@ -293,7 +317,7 @@ namespace UniversSale.View
             tile.Cursor = exists ? Cursors.Hand : Cursors.Arrow;
             tile.Opacity = exists ? 1 : 0.55;
             var column = new StackPanel { Margin = new Thickness(12, 10, 12, 10) };
-            var icon = Icons.Make("folder-bold", 22, Chrome.Accent) as FrameworkElement;
+            var icon = PlotFileIcon(26) ?? Icons.Make("folder-bold", 22, Chrome.Accent) as FrameworkElement;
             if (icon != null)
             {
                 icon.HorizontalAlignment = HorizontalAlignment.Left;

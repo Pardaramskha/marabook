@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C24 — la présence et l'évolution (batch 47) : les noms d'une
     /// fiche (titre, nom, prénom, alias), le comptage en mots entiers,

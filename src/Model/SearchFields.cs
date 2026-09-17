@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>Un champ cherchable d'un item (batch 37) : un paragraphe du
     /// document (offsets pivot), une note de bas de page, une annotation, un

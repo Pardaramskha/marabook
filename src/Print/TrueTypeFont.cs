@@ -4,7 +4,7 @@ using System.IO;
 using System.Text;
 using System.Windows.Media;
 
-namespace UniversSale.Print
+namespace Marabook.Print
 {
     /// <summary>Minimal TrueType parser for PDF embedding (4b-2): the metrics
     /// the font descriptor needs, and a SPARSE glyph subset — unused outlines

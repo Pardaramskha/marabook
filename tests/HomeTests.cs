@@ -2,11 +2,11 @@ using System;
 using System.IO;
 using System.IO.Compression;
 using System.Collections.Generic;
-using UniversSale.History;
-using UniversSale.Model;
-using UniversSale.Persistence;
+using Marabook.History;
+using Marabook.Model;
+using Marabook.Persistence;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C19 — l'Accueil (batch 41) : les récents (ajout, remontée
     /// d'un doublon, plafond à dix, entrées mortes ignorées à l'affichage et
@@ -53,7 +53,7 @@ namespace UniversSale.Tests
         {
             var project = Project.CreateNew();
             project.Category(Project.KeyWritings).Children.Clear(); // même pas l'écrit d'amorce
-            var view = new UniversSale.View.HomeView();
+            var view = new Marabook.View.HomeView();
             view.Load(project);
             var prompts = view.Prompts;
             t.Equal(3, prompts.Count, "trois invites d'état vide sur un projet neuf");

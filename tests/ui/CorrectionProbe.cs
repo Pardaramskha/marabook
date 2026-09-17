@@ -2,12 +2,12 @@ using System;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using UniversSale.Correction;
-using UniversSale.Model;
-using UniversSale.Print;
-using UniversSale.View;
+using Marabook.Correction;
+using Marabook.Model;
+using Marabook.Print;
+using Marabook.View;
 
-namespace UniversSale.Tests.Ui
+namespace Marabook.Tests.Ui
 {
     /// <summary>Sonde du rendu des signalements (batch 26, lot A) : la même
     /// composition, avec des signalements posés, rendue deux fois par

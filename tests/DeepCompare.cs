@@ -3,10 +3,10 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>Comparaison structurelle champ à champ, par réflexion, des
-    /// objets du modèle (namespace UniversSale.Model). C'est elle qui attrape
+    /// objets du modèle (namespace Marabook.Model). C'est elle qui attrape
     /// un champ ajouté au modèle mais oublié par la sérialisation ou par
     /// PivotEdit.Clone : le champ apparaît, le test échoue.</summary>
     public static class DeepCompare
@@ -94,7 +94,7 @@ namespace UniversSale.Tests
                     Walk(listA[i], listB[i], path + "[" + i + "]", skip, diffs, depth + 1);
                 return;
             }
-            if (type.Namespace != null && type.Namespace.StartsWith("UniversSale", StringComparison.Ordinal))
+            if (type.Namespace != null && type.Namespace.StartsWith("Marabook", StringComparison.Ordinal))
             {
                 foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
                 {

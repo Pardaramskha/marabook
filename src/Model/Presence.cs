@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using UniversSale.Correction;
+using Marabook.Correction;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>Une étape de l'évolution d'une fiche (batch 47) : ce qui
     /// change pour le personnage (ou le lieu, l'objet…) dans un écrit donné

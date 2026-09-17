@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
-using UniversSale.Exchange;
-using UniversSale.Model;
+using Marabook.Exchange;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     public class CompileRequest
     {

@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using UniversSale.Correction.Hunspell;
-using UniversSale.Model;
+using Marabook.Correction.Hunspell;
+using Marabook.Model;
 
-namespace UniversSale.Correction
+namespace Marabook.Correction
 {
     /// <summary>Le point de chargement unique du dictionnaire embarqué
     /// (dict/fr-toutesvariantes à côté de l'exe). Chargé UNE fois,

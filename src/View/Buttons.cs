@@ -5,7 +5,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Shapes;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>LE seul endroit où l'on fabrique un bouton (batch 40). Trois
     /// formes — icône seule (carré), texte, icône + texte — à deux hauteurs

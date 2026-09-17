@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using UniversSale.Model;
-using UniversSale.Settings;
+using Marabook.Model;
+using Marabook.Settings;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>L'écran « Dictionnaire » (batch 33) — la vue de la racine du
     /// même nom dans la Pile, entre Fiches et Corbeille : les entrées du

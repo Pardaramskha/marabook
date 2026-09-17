@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>Une entrée de la liste des récents du projet (batch 41,
     /// .plot v18) : l'identifiant d'un item ouvert et le moment de son

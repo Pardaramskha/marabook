@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using UniversSale.History;
-using UniversSale.Model;
+using Marabook.History;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C20 — le pack de correctifs du 12/09/2026 : le tri
     /// alphabétique de la bibliothèque de fiches (accents et casse ignorés,
@@ -24,11 +24,11 @@ namespace UniversSale.Tests
         /// elle est enregistrée, une valeur illisible rendue telle quelle.</summary>
         private static void DisplayDates(Harness t)
         {
-            t.Equal("12/09/2026 19:30", UniversSale.View.Dates.Display("2026-09-12 19:30"), "date et heure");
-            t.Equal("12/09/2026 19:30", UniversSale.View.Dates.Display("2026-09-12 19:30:45"), "les secondes tombent");
-            t.Equal("12/09/2026", UniversSale.View.Dates.Display("2026-09-12"), "date seule");
-            t.Equal("", UniversSale.View.Dates.Display(null), "vide reste vide");
-            t.Equal("hier soir", UniversSale.View.Dates.Display("hier soir"), "une valeur illisible passe telle quelle");
+            t.Equal("12/09/2026 19:30", Marabook.View.Dates.Display("2026-09-12 19:30"), "date et heure");
+            t.Equal("12/09/2026 19:30", Marabook.View.Dates.Display("2026-09-12 19:30:45"), "les secondes tombent");
+            t.Equal("12/09/2026", Marabook.View.Dates.Display("2026-09-12"), "date seule");
+            t.Equal("", Marabook.View.Dates.Display(null), "vide reste vide");
+            t.Equal("hier soir", Marabook.View.Dates.Display("hier soir"), "une valeur illisible passe telle quelle");
         }
 
         private static BinderItem Sheet(string title)
@@ -47,7 +47,7 @@ namespace UniversSale.Tests
             {
                 Sheet("fabien"), second, Sheet("Élise"), first, Sheet("Damien"), Sheet("éric")
             };
-            UniversSale.View.SheetLibraryView.SortByTitle(list);
+            Marabook.View.SheetLibraryView.SortByTitle(list);
             t.Equal("Damien", list[0].Title, "Damien d'abord");
             t.Equal("Élise", list[1].Title, "É compte comme E");
             t.Equal("éric", list[2].Title, "la casse n'ordonne pas");
@@ -55,7 +55,7 @@ namespace UniversSale.Tests
             t.Check(ReferenceEquals(list[4], second) && ReferenceEquals(list[5], first),
                 "les homonymes gardent leur ordre d'arrivée (tri stable)");
             var empty = new List<BinderItem>();
-            UniversSale.View.SheetLibraryView.SortByTitle(empty);
+            Marabook.View.SheetLibraryView.SortByTitle(empty);
             t.Equal(0, empty.Count, "une liste vide reste vide");
         }
 
@@ -84,17 +84,17 @@ namespace UniversSale.Tests
         /// d'union ; la ponctuation et les chiffres séparent.</summary>
         private static void NameWords(Harness t)
         {
-            var words = UniversSale.View.SheetView.NameWords("Keira Varenh");
+            var words = Marabook.View.SheetView.NameWords("Keira Varenh");
             t.Equal(2, words.Count, "deux mots");
             t.Equal("Keira", words[0], "le prénom");
             t.Equal("Varenh", words[1], "le nom");
-            words = UniversSale.View.SheetView.NameWords("Jean-Luc d'Aubigné (le vieux), 3e");
+            words = Marabook.View.SheetView.NameWords("Jean-Luc d'Aubigné (le vieux), 3e");
             t.Equal(5, words.Count, "trait d'union et apostrophe gardés, parenthèses et chiffres écartés");
             t.Equal("Jean-Luc", words[0], "le composé reste entier");
             t.Equal("d'Aubigné", words[1], "l'élision reste attachée");
             t.Equal("e", words[4], "le « e » ordinal reste un mot (à la charge du dictionnaire)");
-            t.Equal(0, UniversSale.View.SheetView.NameWords("  ").Count, "un nom vide n'a pas de mot");
-            t.Equal(0, UniversSale.View.SheetView.NameWords(null).Count, "null non plus");
+            t.Equal(0, Marabook.View.SheetView.NameWords("  ").Count, "un nom vide n'a pas de mot");
+            t.Equal(0, Marabook.View.SheetView.NameWords(null).Count, "null non plus");
         }
     }
 }

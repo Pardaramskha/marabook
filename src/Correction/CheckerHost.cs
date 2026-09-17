@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Correction
+namespace Marabook.Correction
 {
     /// <summary>Le pilote de correction : exécute les vérificateurs actifs,
     /// agrège, trie par position, et filtre — plages NoProof, mots ignorés

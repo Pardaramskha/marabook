@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Correction
+namespace Marabook.Correction
 {
     /// <summary>Les VERBES DE DIALOGUE (b45) — les incises « dit-il »,
     /// « répondit-elle », « lança-t-il » qui suivent les répliques. Ce que

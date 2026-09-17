@@ -7,9 +7,9 @@ using System.Text;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Print
+namespace Marabook.Print
 {
     /// <summary>PDF export options — the « BAT » knobs. Lengths in mm.</summary>
     public class PdfExportOptions
@@ -424,12 +424,12 @@ namespace UniversSale.Print
                         Typeface = new Typeface(
                             new FontFamily(run.FontFamily ?? setup.FooterFont ?? "Times New Roman"),
                             run.Italic == true ? FontStyles.Italic : FontStyles.Normal,
-                            run.Weight != null ? UniversSale.View.FlowConverter.ParseWeight(run.Weight)
+                            run.Weight != null ? Marabook.View.FlowConverter.ParseWeight(run.Weight)
                                 : run.Bold == true ? FontWeights.Bold : FontWeights.Normal,
                             FontStretches.Normal),
                         SizePx = run.FontSize ?? Math.Max(6, decor.SizePt * 4.0 / 3.0),
                         Ink = run.Color != null
-                            ? UniversSale.View.FlowConverter.ParseColor(run.Color) : Colors.Black
+                            ? Marabook.View.FlowConverter.ParseColor(run.Color) : Colors.Black
                     });
                 }
             }

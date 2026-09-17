@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
-using UniversSale.Model;
-using UniversSale.Persistence;
+using Marabook.Model;
+using Marabook.Persistence;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C1 — le test qui compte le plus : un projet exerçant TOUS les
     /// champs du modèle, Save → Load → comparaison structurelle. C'est lui qui
@@ -565,7 +565,8 @@ namespace UniversSale.Tests
             first.Runs.Add(new TextRun { FootnoteId = "note1" });
             document.Paragraphs.Add(first);
 
-            var list = new TextParagraph { ListKind = "bullet", PageBreakBefore = true };
+            first.Indent = 12.5; // décalage (v24)
+            var list = new TextParagraph { ListKind = "bullet", PageBreakBefore = true, Indent = 0 };
             list.Runs.Add(new TextRun { Text = "une puce" });
             document.Paragraphs.Add(list);
             var numbered = new TextParagraph { ListKind = "number" };

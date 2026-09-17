@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 
-namespace UniversSale.Print
+namespace Marabook.Print
 {
     /// <summary>Vertical metrics of a face at a given em size (px).</summary>
     public class FontMetrics

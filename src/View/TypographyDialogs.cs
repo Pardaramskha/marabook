@@ -4,10 +4,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
-using UniversSale.Correction;
-using UniversSale.Settings;
+using Marabook.Correction;
+using Marabook.Settings;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>« Options » de la passe typographique (batch 34) : le
     /// préréglage et les règles de Typonanny, sous leurs libellés

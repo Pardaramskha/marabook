@@ -2,7 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Le remplaçant maison de MessageBox (batch 43) : la boîte
     /// native Win32 ignorait le thème — celle-ci est une Window ordinaire,

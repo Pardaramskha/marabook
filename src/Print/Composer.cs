@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Print
+namespace Marabook.Print
 {
     /// <summary>One positioned drawing piece of a composed line. Coordinates
     /// are line-relative: X across the text column, Y a baseline shift
@@ -572,7 +572,10 @@ namespace UniversSale.Print
             var leading = style.LineHeight > 1
                 ? style.LineHeight
                 : style.FontSize * Math.Max(100, style.AutoLeadingPercent) / 100.0;
-            var leftIndent = style.LeftIndent + (paragraph.ListKind != null ? 24 : 0);
+            // Décalage du paragraphe (17/09) : une valeur remplace retrait
+            // gauche, alinéa et retrait de liste d'un bloc — 0 = à la marge.
+            var leftIndent = paragraph.Indent ?? (style.LeftIndent + (paragraph.ListKind != null ? 24 : 0));
+            var firstLineIndent = paragraph.Indent.HasValue ? 0 : style.FirstLineIndent;
             var baseAvail = Math.Max(40, contentWidth - leftIndent - style.RightIndent);
 
             var index = 0;
@@ -581,7 +584,7 @@ namespace UniversSale.Print
             var consecutiveHyphens = 0;
             while (index < atoms.Count || first)
             {
-                var avail = baseAvail - (first ? style.FirstLineIndent : 0);
+                var avail = baseAvail - (first ? firstLineIndent : 0);
                 var line = FillLine(atoms, ref index, ref cursor, avail, style, ref consecutiveHyphens);
                 line.EndsParagraph = index >= atoms.Count;
                 if (line.EndsParagraph) line.End = layout.FlatLength;
@@ -589,7 +592,7 @@ namespace UniversSale.Print
                 var lineAvail = avail - (line.EndsParagraph ? style.LastLineIndent : 0);
                 if (!line.ForcedBreak) JustifyLine(line, lineAvail, align, style);
 
-                var x = leftIndent + (first ? style.FirstLineIndent : 0);
+                var x = leftIndent + (first ? firstLineIndent : 0);
                 if (align == "center") x += Math.Max(0, (lineAvail - LineWidth(line)) / 2);
                 else if (align == "right") x += Math.Max(0, lineAvail - LineWidth(line));
                 OffsetLine(line, x);

@@ -4,10 +4,10 @@ using System.Diagnostics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using UniversSale.Correction;
-using UniversSale.Model;
+using Marabook.Correction;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C5 — la chaîne de correction, entièrement en console (aucune
     /// dépendance WPF : c'est la condition de conception d'IChecker). Le

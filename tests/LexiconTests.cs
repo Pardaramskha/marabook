@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C11 — le dictionnaire personnel à natures (batch 33) : les
     /// formes que le correcteur accepte d'une entrée (pluriels, féminins,

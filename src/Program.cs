@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Windows;
 
-namespace UniversSale
+namespace Marabook
 {
     public static class Program
     {

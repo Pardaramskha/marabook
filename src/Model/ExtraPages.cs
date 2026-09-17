@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>Fabrique des « pages extra » d'un livre : liminaires (pages de
     /// titre, direction d'anthologie, avertissement), table des matières, page

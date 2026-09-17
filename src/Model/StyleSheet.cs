@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>A named style — character, paragraph, hyphenation and
     /// justification attributes together, InDesign-style. What runs do not

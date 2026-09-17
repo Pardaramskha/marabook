@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     // Extrait de Correction/Typography.cs au batch 38 (lot A) : un
     // utilitaire général — le diff de caractères sert à la passe

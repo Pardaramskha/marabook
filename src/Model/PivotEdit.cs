@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>Editing operations on the pivot model, addressed by flat
     /// offsets: each text character counts 1, and each element run (footnote
@@ -79,6 +79,7 @@ namespace UniversSale.Model
                 StyleId = paragraph.StyleId,
                 AlignOverride = paragraph.AlignOverride,
                 ListKind = paragraph.ListKind,
+                Indent = paragraph.Indent,
                 PageBreakBefore = paragraph.PageBreakBefore,
                 AllowWidows = paragraph.AllowWidows,
                 StartOnRecto = paragraph.StartOnRecto,
@@ -220,7 +221,8 @@ namespace UniversSale.Model
             {
                 StyleId = paragraph.StyleId,
                 AlignOverride = paragraph.AlignOverride,
-                ListKind = paragraph.ListKind
+                ListKind = paragraph.ListKind,
+                Indent = paragraph.Indent
             };
             int runIndex, inner;
             Locate(paragraph, offset, out runIndex, out inner);
@@ -347,6 +349,7 @@ namespace UniversSale.Model
                     StyleId = paragraph.StyleId,
                     AlignOverride = paragraph.AlignOverride,
                     ListKind = paragraph.ListKind,
+                    Indent = paragraph.Indent,
                     PageBreakBefore = paragraph.PageBreakBefore,
                     AllowWidows = paragraph.AllowWidows,
                     // Transitoires de compilation (jamais persistés) — copiés

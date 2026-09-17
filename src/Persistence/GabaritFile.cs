@@ -2,17 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using UniversSale;
-using UniversSale.Model;
+using Marabook;
+using Marabook.Model;
 
-namespace UniversSale.Persistence
+namespace Marabook.Persistence
 {
     /// <summary>Export/import of a page gabarit (.usgab, JSON) — pour copier
     /// une maquette d'un livre ou d'une série à l'autre. Fournit aussi les
     /// (dé)sérialiseurs d'en-tête/pied partagés avec PlotFile.</summary>
     public static class GabaritFile
     {
-        public const string Filter = "Gabarit Univers Sale (*.usgab)|*.usgab|Tous les fichiers (*.*)|*.*";
+        public const string Filter = "Gabarit Marabook (*.usgab)|*.usgab|Tous les fichiers (*.*)|*.*";
 
         public static Dictionary<string, object> BuildHeaderFooter(HeaderFooter value)
         {
@@ -124,7 +124,7 @@ namespace UniversSale.Persistence
         {
             var root = Json.AsObject(Json.Parse(File.ReadAllText(path, Encoding.UTF8)));
             if (root == null || Json.AsString(Json.Field(root, "type")) != "usgab")
-                throw new InvalidDataException("Ce fichier n'est pas un gabarit Univers Sale.");
+                throw new InvalidDataException("Ce fichier n'est pas un gabarit Marabook.");
             return new BinderItem
             {
                 Kind = ItemKind.PageTemplate,

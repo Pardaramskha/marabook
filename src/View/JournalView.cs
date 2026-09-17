@@ -5,9 +5,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Le « Journal perso » : les statistiques d'écriture du projet
     /// (mots nets du jour, 7 jours, 30 jours, série, total), un graphique des

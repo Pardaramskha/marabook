@@ -5,7 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Le « soulèvement » d'une carte au survol (batch 35) : léger
     /// agrandissement autour du centre, translation vers le haut compensée

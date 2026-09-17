@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Exchange
+namespace Marabook.Exchange
 {
     /// <summary>Markdown import/export. Deliberately plain: #/## headings map to
     /// Titre 1/2, &gt; to Citation, **bold**, *italic*, ~~strike~~, [^n]

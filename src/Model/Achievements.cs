@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>Un succès (12/09/2026) : identité stable (le nom de fichier
     /// de son image, assets/achievements/&lt;Id&gt;.png), nom, description.

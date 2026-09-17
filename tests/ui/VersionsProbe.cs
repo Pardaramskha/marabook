@@ -5,12 +5,12 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
-using UniversSale.Model;
-using UniversSale.Persistence;
-using UniversSale.Settings;
-using UniversSale.View;
+using Marabook.Model;
+using Marabook.Persistence;
+using Marabook.Settings;
+using Marabook.View;
 
-namespace UniversSale.Tests.Ui
+namespace Marabook.Tests.Ui
 {
     /// <summary>Sonde du batch 38 — les versions d'écrits, sur vraie
     /// MainWindow hors écran : le panneau Versions dans la colonne de droite,
@@ -148,7 +148,7 @@ namespace UniversSale.Tests.Ui
             // — L'avertissement du document ouvert, puis la restauration (sans modale), annulable.
             var warning = (string)Invoke2(window, "RestoreWarning", new object[] { item, snapshot });
             Check(warning.Contains("historique d'annulation") && warning.Contains("Départ"), "l'avertissement du document ouvert est prêt (« " + warning + " »)");
-            var history = (UniversSale.History.HistoryManager)GetField(window, "_history");
+            var history = (Marabook.History.HistoryManager)GetField(window, "_history");
             var historyBefore = history.Count;
             Invoke(window, "RestoreSnapshot", new object[] { snapshot, false });
             DoEvents();

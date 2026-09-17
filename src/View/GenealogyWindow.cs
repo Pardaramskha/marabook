@@ -6,9 +6,9 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Le paper flottant de généalogie (batch 36) : l'arbre d'une
     /// fiche, dessiné en diagramme — le personnage au centre, ses ascendants

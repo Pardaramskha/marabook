@@ -7,9 +7,9 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>La fiche (refonte batch 34, onglets batch 36) — des « papers »
     /// (cadres arrondis à ombre légère) répartis sur deux onglets : « Général »

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Exchange
+namespace Marabook.Exchange
 {
     public class CompileOptions
     {
@@ -88,6 +88,7 @@ namespace UniversSale.Exchange
                         StyleId = paragraph.StyleId,
                         AlignOverride = paragraph.AlignOverride,
                         ListKind = paragraph.ListKind,
+                        Indent = paragraph.Indent,
                         PageBreakBefore = paragraph.PageBreakBefore,
                         AllowWidows = paragraph.AllowWidows,
                         Decor = decor
@@ -152,6 +153,7 @@ namespace UniversSale.Exchange
                 {
                     StyleId = source.StyleId,
                     AlignOverride = source.AlignOverride,
+                    Indent = source.Indent,
                     PageBreakBefore = source.PageBreakBefore
                 };
                 copy.Runs.Add(new TextRun

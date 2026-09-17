@@ -1,8 +1,8 @@
 using System.Collections.Generic;
-using UniversSale.Correction;
-using UniversSale.Model;
+using Marabook.Correction;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C7 — le tokeniseur unique (batch 27, lot A) : des phrases
     /// françaises réelles, les tokens attendus écrits à la main. C'est le

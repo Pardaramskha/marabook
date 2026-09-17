@@ -4,9 +4,9 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>L'ÉPINGLÉ SUR LE CÔTÉ (batch 47) : un écrit ou une fiche lu en
     /// MIROIR dans la colonne de droite pendant qu'on travaille ailleurs —

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace UniversSale.Print
+namespace Marabook.Print
 {
     /// <summary>Algorithmic French hyphenation for the composer: syllable
     /// boundaries from vowel/consonant structure (V-CV, VC-CV with the usual

@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Edits one header/footer line: text with tokens, font, size,
     /// bold/italic, alignment. Vider le texte supprime l'en-tête/le pied.</summary>

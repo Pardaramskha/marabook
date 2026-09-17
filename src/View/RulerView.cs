@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>A centimeter ruler band overlaid on the editing surface.
     /// Horizontal: graduations across the page width. Vertical: graduations

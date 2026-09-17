@@ -7,17 +7,17 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using UniversSale.Settings;
-using UniversSale.View;
+using Marabook.Settings;
+using Marabook.View;
 
-namespace UniversSale.Tests.Ui
+namespace Marabook.Tests.Ui
 {
     /// <summary>Sonde de l'écran d'accueil (13/09) : une MainWindow lancée
     /// SANS projet, hors écran — l'accueil apparaît, la fenêtre reste voilée
     /// et désactivée dessous, l'accueil refuse de se fermer à la main, puis
     /// Release le retire et l'interface revient. Rendus PNG de l'accueil et
     /// de la fenêtre voilée. settings.json n'est pas touché (sauvegardé
-    /// puis restauré). À lancer à la main (/main:UniversSale.Tests.Ui.WelcomeProbe).</summary>
+    /// puis restauré). À lancer à la main (/main:Marabook.Tests.Ui.WelcomeProbe).</summary>
     public static class WelcomeProbe
     {
         private static int _failures;
@@ -104,8 +104,8 @@ namespace UniversSale.Tests.Ui
                 var dir = Path.Combine(Path.GetTempPath(), "marabook-ui-tests-accueil");
                 Directory.CreateDirectory(dir);
                 var path = Path.Combine(dir, "accueil.plot");
-                var project = UniversSale.Model.Project.CreateNew();
-                UniversSale.Persistence.PlotFile.Save(project, path);
+                var project = Marabook.Model.Project.CreateNew();
+                Marabook.Persistence.PlotFile.Save(project, path);
                 var second = new MainWindow
                 {
                     WindowStartupLocation = WindowStartupLocation.Manual,

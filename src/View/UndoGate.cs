@@ -2,7 +2,7 @@ using System;
 using System.Reflection;
 using System.Windows.Controls;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Pauses the RichTextBox's undo recording while the pagination
     /// engine adjusts paragraph margins — those are presentation, not content,

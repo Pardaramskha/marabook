@@ -1,8 +1,8 @@
 using System;
-using UniversSale.Model;
-using UniversSale.Settings;
+using Marabook.Model;
+using Marabook.Settings;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C18 — la colonne de droite (batch 39) : un seul champ pour
     /// les panneaux qui s'y excluent. La migration des quatre anciens

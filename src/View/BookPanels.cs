@@ -3,9 +3,9 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Le panneau « Métadonnées » d'un livre (batch 32) : sous-titre,
     /// auteur, éditeur, collection, ISBN, année. Vit dans l'inspecteur, déplié

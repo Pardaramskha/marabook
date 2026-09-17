@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Correction.Grammalecte
+namespace Marabook.Correction.Grammalecte
 {
     /// <summary>Le vérificateur de STYLE morphologique (batch 44) — deuxième
     /// étage du style après les répétitions : les ADVERBES EN -MENT et les

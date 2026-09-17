@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C17 — les versions d'écrits (batch 38) : le diff à deux
     /// niveaux (paragraphes alignés, caractères sur les modifiés seulement),

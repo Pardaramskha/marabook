@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C3 — l'algèbre d'édition du pivot, prouvée : insertion,
     /// suppression, scission/fusion, format aux bornes exactes, purges — et
@@ -83,7 +83,8 @@ namespace UniversSale.Tests
             {
                 StyleId = "special",
                 AlignOverride = "center",
-                ListKind = "bullet"
+                ListKind = "bullet",
+                Indent = 20
             };
             p.Runs.Add(new TextRun { Text = "unedeux", Italic = true });
             var tail = PivotEdit.Split(p, 3);
@@ -93,6 +94,7 @@ namespace UniversSale.Tests
             t.Equal("special", tail.StyleId, "la queue hérite du style");
             t.Equal("center", tail.AlignOverride, "et de l'alignement");
             t.Equal("bullet", tail.ListKind, "et de la liste");
+            t.Equal((double?)20.0, tail.Indent, "et du décalage");
 
             PivotEdit.MergeInto(p, tail);
             t.Equal(1, p.Runs.Count, "fusion : les runs identiques se recollent");

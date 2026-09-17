@@ -1,4 +1,4 @@
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>One header or footer line, applied to every page of a
     /// document (or to the rectos/versos of a page gabarit). The text may

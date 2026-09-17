@@ -1,7 +1,7 @@
 using System;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Settings
+namespace Marabook.Settings
 {
     /// <summary>Qui occupe la colonne de droite (batch 39). Les panneaux
     /// s'y excluent — Général (l'inspecteur), Correction, Recherche,

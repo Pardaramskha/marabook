@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
-using UniversSale.Correction;
-using UniversSale.Correction.Grammalecte;
-using UniversSale.Model;
+using Marabook.Correction;
+using Marabook.Correction.Grammalecte;
+using Marabook.Model;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C9 — la correspondance des offsets du pont Grammalecte
     /// (batch 29, lot B.2), SEULE : des réponses JSON enregistrées en dur
@@ -118,12 +118,12 @@ namespace UniversSale.Tests
                 + "\"aSuggestions\": [\"à\"], \"URL\": \"\"},"
                 + "{\"nStart\": -2, \"nEnd\": 1, \"sRuleId\": \"difforme\"},"
                 + "{\"pas\": \"une erreur\"}]}";
-            var parsed = UniversSale.Json.Parse(line);
-            var id = UniversSale.Json.AsInt(
-                UniversSale.Json.Field(parsed, "id"), -1);
+            var parsed = Marabook.Json.Parse(line);
+            var id = Marabook.Json.AsInt(
+                Marabook.Json.Field(parsed, "id"), -1);
             t.Equal(7, id, "l'id d'appariement revient TEL QUEL");
             var errors = GrammalecteBridge.ParseErrors(
-                UniversSale.Json.Field(parsed, "errors"));
+                Marabook.Json.Field(parsed, "errors"));
             t.Equal(1, errors.Count,
                 "les entrées difformes sont sautées, jamais devinées");
             t.Equal("g2__conf_a_à__b2_a1_1", errors[0].RuleId, "sRuleId conservé");
@@ -157,7 +157,7 @@ namespace UniversSale.Tests
                 + "\"sType\": \"conf\", \"sMessage\": \"Exemple.\", "
                 + "\"aSuggestions\": []}]";
             var errors = GrammalecteBridge.ParseErrors(
-                UniversSale.Json.Parse(fixture));
+                Marabook.Json.Parse(fixture));
             var findings = GrammarChecker.ToFindings(errors, mapper);
             // Batch 33 — une règle TYPOGRAPHIQUE (sType « typo », « nbsp »…)
             // signale en Typographie, les autres en Grammaire ; et le jeu

@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Threading;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>La portée d'une recherche : le document courant, le livre ou
     /// dossier courant (et tout ce qu'il contient), le projet entier.</summary>

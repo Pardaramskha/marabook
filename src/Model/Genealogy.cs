@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>La place d'une nature de relation dans l'arbre généalogique
     /// (batch 36) : la ligne directe (parents, enfants…), les collatéraux

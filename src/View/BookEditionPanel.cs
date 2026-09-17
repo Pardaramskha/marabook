@@ -4,9 +4,9 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Le panneau « Édition » d'un livre (batch 43) : genre, public
     /// cible, thématiques (étiquettes), synopsis (sorti de l'onglet Général),

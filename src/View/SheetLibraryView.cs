@@ -5,10 +5,10 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using UniversSale.History;
-using UniversSale.Model;
+using Marabook.History;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>La bibliothèque de fiches (batch 31) — la vue de la catégorie
     /// « Fiches » de la Pile : une RANGÉE par catégorie de fiches, séparées

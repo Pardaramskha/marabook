@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Correction
+namespace Marabook.Correction
 {
     /// <summary>La portée d'un vérificateur — elle décide du cache du pilote
     /// (batch 27, lot B). POUR LE PROCHAIN VÉRIFICATEUR, sans réfléchir :

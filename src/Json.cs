@@ -10,7 +10,7 @@ using System.Text;
 // List<object>, string, number (double), true/false/null. Writes the exact
 // mirror, compatible with any standard JSON reader.
 
-namespace UniversSale
+namespace Marabook
 {
     /// <summary>Raised on malformed JSON — including nesting beyond
     /// Json.MaxDepth, which would otherwise be a StackOverflowException:

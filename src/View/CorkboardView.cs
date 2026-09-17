@@ -5,11 +5,11 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
-using UniversSale.Correction;
-using UniversSale.History;
-using UniversSale.Model;
+using Marabook.Correction;
+using Marabook.History;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>The corkboard: one index card per child of the selected folder
     /// (or category). Card text is read-only: notes first, else the start of
@@ -932,7 +932,7 @@ namespace UniversSale.View
             // lui, fait entrer la carte dans la partie.
             box.DragOver += delegate(object sender, DragEventArgs e)
             {
-                e.Effects = e.Data.GetDataPresent("UniversSaleCard")
+                e.Effects = e.Data.GetDataPresent("MarabookCard")
                     ? DragDropEffects.Move : DragDropEffects.None;
                 e.Handled = true;
                 if (e.Effects != DragDropEffects.Move) return;
@@ -943,7 +943,7 @@ namespace UniversSale.View
             box.Drop += delegate(object sender, DragEventArgs e)
             {
                 HideDropBar();
-                var dragged = FindChild((string)e.Data.GetData("UniversSaleCard"));
+                var dragged = FindChild((string)e.Data.GetData("MarabookCard"));
                 if (dragged == null || dragged == folderRef
                     || folderRef.IsDescendantOf(dragged)) return;
                 var edge = BoxEdge(box, e.GetPosition(box));
@@ -989,14 +989,14 @@ namespace UniversSale.View
             legend.AllowDrop = true;
             legend.DragOver += delegate(object sender, DragEventArgs e)
             {
-                e.Effects = e.Data.GetDataPresent("UniversSaleCard") ? DragDropEffects.Move : DragDropEffects.None;
+                e.Effects = e.Data.GetDataPresent("MarabookCard") ? DragDropEffects.Move : DragDropEffects.None;
                 if (e.Effects == DragDropEffects.Move) ShowDropBar(box, false);
                 e.Handled = true;
             };
             legend.Drop += delegate(object sender, DragEventArgs e)
             {
                 HideDropBar();
-                var dragged = FindChild((string)e.Data.GetData("UniversSaleCard"));
+                var dragged = FindChild((string)e.Data.GetData("MarabookCard"));
                 if (dragged == null || dragged == folderRef || folderRef.IsDescendantOf(dragged)) return;
                 MoveBeside(dragged, folderRef, false);
                 e.Handled = true;
@@ -1464,7 +1464,7 @@ namespace UniversSale.View
             card.MouseMove += OnCardMouseMove;
             card.DragOver += delegate(object sender, DragEventArgs e)
             {
-                e.Effects = e.Data.GetDataPresent("UniversSaleCard")
+                e.Effects = e.Data.GetDataPresent("MarabookCard")
                     ? DragDropEffects.Move : DragDropEffects.None;
                 e.Handled = true;
                 if (e.Effects == DragDropEffects.Move) ShowDropBar(card, false);
@@ -1500,12 +1500,12 @@ namespace UniversSale.View
                 Math.Abs(position.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
             var dragged = _dragCandidate;
             _dragCandidate = null;
-            DragDrop.DoDragDrop(this, new DataObject("UniversSaleCard", dragged.Id), DragDropEffects.Move);
+            DragDrop.DoDragDrop(this, new DataObject("MarabookCard", dragged.Id), DragDropEffects.Move);
         }
 
         private void OnBoardDragOver(object sender, DragEventArgs e)
         {
-            e.Effects = e.Data.GetDataPresent("UniversSaleCard") ? DragDropEffects.Move : DragDropEffects.None;
+            e.Effects = e.Data.GetDataPresent("MarabookCard") ? DragDropEffects.Move : DragDropEffects.None;
             e.Handled = true;
             // Espace vide : le dépôt enverra la carte en fin de liste.
             if (e.Effects == DragDropEffects.Move)
@@ -1518,7 +1518,7 @@ namespace UniversSale.View
         private void DropOnCard(BinderItem target, DragEventArgs e)
         {
             HideDropBar();
-            var dragged = FindChild((string)e.Data.GetData("UniversSaleCard"));
+            var dragged = FindChild((string)e.Data.GetData("MarabookCard"));
             if (dragged == null || dragged == target
                 || target.IsDescendantOf(dragged)) return;
             // Le dépôt insère AVANT la carte visée, dans SON parent — une carte
@@ -1538,7 +1538,7 @@ namespace UniversSale.View
         private void OnBoardDrop(object sender, DragEventArgs e)
         {
             HideDropBar();
-            var dragged = FindChild((string)e.Data.GetData("UniversSaleCard"));
+            var dragged = FindChild((string)e.Data.GetData("MarabookCard"));
             if (dragged == null || _folder.IsDescendantOf(dragged)) return;
             // Espace vide : en fin de liste du tableau (une carte d'une partie
             // en SORT).

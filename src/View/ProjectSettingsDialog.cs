@@ -2,9 +2,9 @@ using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Project settings: author (also used by the compiler's title
     /// page) and the scene separator (text, font, size in points) inserted by

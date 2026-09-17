@@ -2,7 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Threading;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>L'ouverture des dialogues (13/09/2026) — contre le « flash »
     /// à l'apparition d'une fenêtre. Mesuré au crochet WinEvent : un

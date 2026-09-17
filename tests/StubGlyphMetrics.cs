@@ -1,6 +1,6 @@
-using UniversSale.Print;
+using Marabook.Print;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>Métriques fixes et déterministes pour tester la coupure de
     /// ligne et la pagination SANS dépendre des polices installées : chaque

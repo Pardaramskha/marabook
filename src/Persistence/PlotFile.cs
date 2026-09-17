@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Persistence
+namespace Marabook.Persistence
 {
     /// <summary>Reads/writes .plot files: a ZIP archive holding manifest.json
     /// (version, metadata, Binder tree), styles.json (the project style sheet)
@@ -16,8 +16,8 @@ namespace UniversSale.Persistence
     public static class PlotFile
     {
         public const string Extension = ".plot";
-        public const string OpenFilter = "Projets Univers Sale (*.plot)|*.plot|Tous les fichiers (*.*)|*.*";
-        public const string SaveFilter = "Projet Univers Sale (*.plot)|*.plot|Tous les fichiers (*.*)|*.*";
+        public const string OpenFilter = "Projets Marabook (*.plot)|*.plot|Tous les fichiers (*.*)|*.*";
+        public const string SaveFilter = "Projet Marabook (*.plot)|*.plot|Tous les fichiers (*.*)|*.*";
         // DOCTRINE DU FORMAT — tout changement de format passe par ici :
         //   1. incrémenter FormatVersion ;
         //   2. documenter ci-dessous ce que la version AJOUTE ;
@@ -106,7 +106,9 @@ namespace UniversSale.Persistence
         //      d'un livre ("book" : deadline « yyyy-MM-dd », sizeGoal, sizeUnit
         //      "words"|"chars" — omis aux défauts) ; sprints du journal
         //      ("journal" : "sprints" : [{d, m, e, w, g}]).
-        private const int FormatVersion = 23;
+        // v24: décalage d'un paragraphe ("indent" : retrait gauche uniforme en
+        //      px, omis quand le style décide ; 0 = tout au bord de la marge).
+        private const int FormatVersion = 24;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -652,6 +654,7 @@ namespace UniversSale.Persistence
                 if (paragraph.StyleId != "body") p["style"] = paragraph.StyleId;
                 if (paragraph.AlignOverride != null) p["align"] = paragraph.AlignOverride;
                 if (paragraph.ListKind != null) p["list"] = paragraph.ListKind;
+                if (paragraph.Indent.HasValue) p["indent"] = paragraph.Indent.Value;
                 if (paragraph.PageBreakBefore) p["pb"] = true;
                 if (paragraph.AllowWidows) p["wo"] = true; // veuves/orphelines autorisées ici
                 var runs = new List<object>();
@@ -729,7 +732,7 @@ namespace UniversSale.Persistence
                 var manifestEntry = archive.GetEntry("manifest.json");
                 if (manifestEntry == null)
                     throw new InvalidDataException(
-                        "Le fichier ne contient pas de manifest.json : ce n'est pas un projet Univers Sale valide.");
+                        "Le fichier ne contient pas de manifest.json : ce n'est pas un projet Marabook valide.");
 
                 var manifest = Json.AsObject(Json.Parse(ReadEntry(manifestEntry)));
                 if (manifest == null)
@@ -1354,6 +1357,8 @@ namespace UniversSale.Persistence
                     paragraph.StyleId = Json.AsString(Json.Field(p, "style")) ?? "body";
                     paragraph.AlignOverride = Json.AsString(Json.Field(p, "align"));
                     paragraph.ListKind = Json.AsString(Json.Field(p, "list"));
+                    var indent = Json.Field(p, "indent");
+                    paragraph.Indent = indent == null ? (double?)null : Math.Max(0, Json.AsDouble(indent, 0));
                     paragraph.PageBreakBefore = Json.AsBool(Json.Field(p, "pb"), false);
                     paragraph.AllowWidows = Json.AsBool(Json.Field(p, "wo"), false);
                     var runs = Json.AsList(Json.Field(p, "runs"));

@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Correction
+namespace Marabook.Correction
 {
     /// <summary>Les options de la passe typographique (batch 34) — le port
     /// de Typonanny (Unhinged Stargazer Hub), mêmes règles, mêmes noms.

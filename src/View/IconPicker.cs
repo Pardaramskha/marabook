@@ -4,14 +4,14 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Per-item Binder icons. Icon tokens: null (default per kind),
     /// "svg:&lt;name&gt;" or "svg:&lt;name&gt;:#RRGGBB" (embedded Phosphor icon,
     /// tintable), "glyph:&lt;char&gt;" (legacy Segoe MDL2), "file:&lt;name&gt;"
-    /// (user image in %APPDATA%\Univers Sale\icons — app-local by design).</summary>
+    /// (user image in %APPDATA%\Marabook\icons — app-local by design).</summary>
     public static class ItemIcons
     {
         private static readonly Dictionary<string, ImageSource> _fileCache

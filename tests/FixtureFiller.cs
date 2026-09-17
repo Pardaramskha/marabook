@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>Remplissage réflexif de la fixture C1 (batch 26, durci au
     /// batch 27 lot 0.5) : tout champ public SCALAIRE encore à sa valeur de
@@ -18,7 +18,7 @@ namespace UniversSale.Tests
     /// 2. Un type NON GÉRÉ fait ÉCHOUER le filler (enum, int?, long, float,
     ///    DateTime, string[], List&lt;int&gt;, dictionnaires de scalaires…) sauf
     ///    exclusion explicite dans NoFill — c'était le trou résiduel du
-    ///    verrou. Les types du MODÈLE (classes UniversSale.*, listes et
+    ///    verrou. Les types du MODÈLE (classes Marabook.*, listes et
     ///    dictionnaires de modèles, byte[]) restent délégués à la fixture
     ///    manuelle + DeepCompare : un Fill récursif serait une fausse bonne
     ///    idée (sous-objets légitimement null, cycles via Parent, ids
@@ -175,7 +175,7 @@ namespace UniversSale.Tests
         private static bool IsModelType(Type type)
         {
             return type.IsClass && type.Namespace != null
-                && type.Namespace.StartsWith("UniversSale", StringComparison.Ordinal);
+                && type.Namespace.StartsWith("Marabook", StringComparison.Ordinal);
         }
     }
 }

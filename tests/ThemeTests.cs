@@ -1,9 +1,9 @@
 using System;
 using System.Windows.Media;
-using UniversSale.Settings;
-using UniversSale.View;
+using Marabook.Settings;
+using Marabook.View;
 
-namespace UniversSale.Tests
+namespace Marabook.Tests
 {
     /// <summary>C12 — le thème (batch 34) : les deux palettes SE PARSENT.
     /// Theme.Switch avale toute erreur XAML pour garder l'application

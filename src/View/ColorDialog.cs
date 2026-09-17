@@ -3,7 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Custom color picker: a base grid, RGB sliders and a hex box,
     /// live preview. Returns "#RRGGBB" or null. Chosen colors are stored per

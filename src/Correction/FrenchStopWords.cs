@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace UniversSale.Correction
+namespace Marabook.Correction
 {
     /// <summary>Les mots-outils que le détecteur de répétitions ne signale
     /// jamais. PRINCIPE (batch 27, lot 0.2) : SEULS LES MOTS GRAMMATICAUX —

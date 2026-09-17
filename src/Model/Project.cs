@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace UniversSale.Model
+namespace Marabook.Model
 {
     /// <summary>An image embedded in the project (sheet portraits, inline text
     /// images). Bytes are written verbatim to the .plot zip.</summary>

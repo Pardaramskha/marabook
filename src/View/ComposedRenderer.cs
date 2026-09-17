@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Media;
-using UniversSale.Model;
-using UniversSale.Print;
+using Marabook.Model;
+using Marabook.Print;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Draws one composed page — lines placed by the engine, pieces
     /// drawn through translations (no copies). Shared by the editable
@@ -219,7 +219,7 @@ namespace UniversSale.View
         /// <summary>One header/footer line: tokens expanded, aligned on the
         /// text column. Rich zones (gabarits marqués au texte) rendent leurs
         /// runs stylés ; gapMm écarte du bloc de texte (0 = centré marge).</summary>
-        private static void DrawDecor(DrawingContext dc, UniversSale.Model.HeaderFooter decor,
+        private static void DrawDecor(DrawingContext dc, Marabook.Model.HeaderFooter decor,
             Composition composition, int index, string title, string book, double left,
             double contentWidth, bool isHeader, double top, double height, double bottom,
             PageSetup setup, double gapMm)
@@ -233,7 +233,7 @@ namespace UniversSale.View
                 if (decor.Rich.AlignOverride != null) align = decor.Rich.AlignOverride;
                 foreach (var run in decor.Rich.Runs)
                 {
-                    var text = new UniversSale.Model.HeaderFooter { Text = run.Text }
+                    var text = new Marabook.Model.HeaderFooter { Text = run.Text }
                         .Expand(folio, pages, title, book);
                     if (text.Length == 0) continue;
                     var typeface = new Typeface(

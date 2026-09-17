@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.Correction
+namespace Marabook.Correction
 {
     /// <summary>Le BILAN DE STYLE d'un écrit (b45) — des mesures qu'un auteur
     /// comprend sans vocabulaire de linguiste : combien de phrases, de quelle

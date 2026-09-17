@@ -9,9 +9,9 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using UniversSale.Model;
+using Marabook.Model;
 
-namespace UniversSale.View
+namespace Marabook.View
 {
     /// <summary>Le panneau de RECHERCHE du projet (batch 37, lot B) — le
     /// troisième panneau de la colonne de droite, de la même famille que

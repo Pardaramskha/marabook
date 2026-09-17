@@ -6,13 +6,13 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
-using UniversSale.Correction;
-using UniversSale.Correction.Grammalecte;
-using UniversSale.Model;
-using UniversSale.Settings;
-using UniversSale.View;
+using Marabook.Correction;
+using Marabook.Correction.Grammalecte;
+using Marabook.Model;
+using Marabook.Settings;
+using Marabook.View;
 
-namespace UniversSale.Tests.Ui
+namespace Marabook.Tests.Ui
 {
     /// <summary>Sonde de l'étage style morphologique (batch 44) : le
     /// dialogue « Options du correcteur » avec ses sous-options (construit,
