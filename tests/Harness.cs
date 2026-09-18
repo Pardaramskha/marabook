@@ -109,7 +109,9 @@ namespace Marabook.Tests
                 PaceTests.Run,           // C26 — objectifs et temps (b48)
                 LinksTests.Run,          // C27 — les [[liens]] du texte (18/09)
                 RecoveryTests.Run,       // C28 — sauvegarde de secours (18/09)
-                LexiconExchangeTests.Run // C29 — import/export du dictionnaire (18/09)
+                LexiconExchangeTests.Run, // C29 — import/export du dictionnaire (18/09)
+                DocxCommentsTests.Run,   // C30 — commentaires Word ↔ annotations (b49)
+                NameExtractorTests.Run   // C31 — extraction de personnages (b49)
             };
             foreach (var suite in suites)
             {

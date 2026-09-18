@@ -29,35 +29,134 @@ namespace Marabook.Exchange
 
         // ------------------------------------------------------- export
 
+        /// <summary>commentsAuthor (b49) : les annotations non résolues
+        /// partent en COMMENTAIRES WORD sous ce nom (l'auteur du projet,
+        /// sinon l'utilisateur de la machine).</summary>
         public static void Export(TextDocument document, StyleSheet styles, string path,
-            PageSetup setup = null)
+            PageSetup setup = null, string commentsAuthor = null)
         {
             var hasLists = false;
             foreach (var paragraph in document.Paragraphs)
                 if (paragraph.ListKind != null) { hasLists = true; break; }
             var hasFooter = setup != null && setup.FooterPageNumbers;
             var hasSettings = setup != null && setup.Hyphenation;
+            var comments = CollectComments(document);
 
             using (var stream = new FileStream(path, FileMode.Create))
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Create))
             {
                 WriteEntry(zip, "[Content_Types].xml",
-                    ContentTypes(document.Footnotes.Count > 0, hasLists, hasFooter, hasSettings));
+                    ContentTypes(document.Footnotes.Count > 0, hasLists, hasFooter, hasSettings, comments.Count > 0));
                 WriteEntry(zip, "_rels/.rels",
                     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
                     "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
                     "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>" +
                     "</Relationships>");
                 WriteEntry(zip, "word/_rels/document.xml.rels",
-                    DocumentRels(document.Footnotes.Count > 0, hasLists, hasFooter, hasSettings));
+                    DocumentRels(document.Footnotes.Count > 0, hasLists, hasFooter, hasSettings, comments.Count > 0));
                 WriteEntry(zip, "word/styles.xml", StylesXml(styles));
+                if (comments.Count > 0)
+                    WriteEntry(zip, "word/comments.xml", CommentsXml(comments, commentsAuthor));
                 if (document.Footnotes.Count > 0)
                     WriteEntry(zip, "word/footnotes.xml", FootnotesXml(document));
                 if (hasLists) WriteEntry(zip, "word/numbering.xml", NumberingXml());
                 if (hasFooter) WriteEntry(zip, "word/footer1.xml", FooterXml(setup));
                 if (hasSettings) WriteEntry(zip, "word/settings.xml", SettingsXml(styles));
-                WriteEntry(zip, "word/document.xml", DocumentXml(document, styles, setup, hasFooter));
+                WriteEntry(zip, "word/document.xml", DocumentXml(document, styles, setup, hasFooter, comments));
             }
+        }
+
+        // ------------------------------------------------------- commentaires (b49)
+
+        /// <summary>Une annotation qui part en commentaire : son numéro Word
+        /// et le premier/dernier run qu'elle couvre.</summary>
+        private sealed class ExportComment
+        {
+            public int Number;
+            public Annotation Annotation;
+            public int FirstParagraph = -1, FirstRun, LastParagraph = -1, LastRun;
+        }
+
+        /// <summary>Les annotations NON RÉSOLUES portées par au moins un run,
+        /// dans l'ordre du texte.</summary>
+        private static List<ExportComment> CollectComments(TextDocument document)
+        {
+            var list = new List<ExportComment>();
+            var byId = new Dictionary<string, ExportComment>();
+            for (var p = 0; p < document.Paragraphs.Count; p++)
+                for (var r = 0; r < document.Paragraphs[p].Runs.Count; r++)
+                {
+                    var run = document.Paragraphs[p].Runs[r];
+                    if (run.AnnotationId == null) continue;
+                    ExportComment comment;
+                    if (!byId.TryGetValue(run.AnnotationId, out comment))
+                    {
+                        var annotation = document.FindAnnotation(run.AnnotationId);
+                        if (annotation == null || annotation.Resolved) continue;
+                        comment = new ExportComment
+                        {
+                            Number = list.Count,
+                            Annotation = annotation,
+                            FirstParagraph = p,
+                            FirstRun = r
+                        };
+                        byId[run.AnnotationId] = comment;
+                        list.Add(comment);
+                    }
+                    comment.LastParagraph = p;
+                    comment.LastRun = r;
+                }
+            return list;
+        }
+
+        private static string CommentsXml(List<ExportComment> comments, string author)
+        {
+            author = (author ?? "").Trim();
+            if (author.Length == 0)
+            {
+                try { author = Environment.UserName; } catch { }
+                if (string.IsNullOrEmpty(author)) author = "Marabook";
+            }
+            var initials = new StringBuilder();
+            foreach (var word in author.Split(new[] { ' ', '-' }, StringSplitOptions.RemoveEmptyEntries))
+                if (initials.Length < 3) initials.Append(char.ToUpperInvariant(word[0]));
+            var sb = new StringBuilder();
+            sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+              .Append("<w:comments ").Append(W).Append(">");
+            foreach (var comment in comments)
+            {
+                sb.Append("<w:comment w:id=\"").Append(comment.Number)
+                  .Append("\" w:author=\"").Append(Esc(author))
+                  .Append("\" w:date=\"").Append(CommentMerge.ToIsoDate(comment.Annotation.Created))
+                  .Append("\" w:initials=\"").Append(Esc(initials.ToString())).Append("\">");
+                var lines = (comment.Annotation.Text ?? "").Replace("\r\n", "\n").Split('\n');
+                foreach (var line in lines)
+                    sb.Append("<w:p><w:r><w:t xml:space=\"preserve\">").Append(Esc(line)).Append("</w:t></w:r></w:p>");
+                sb.Append("</w:comment>");
+            }
+            sb.Append("</w:comments>");
+            return sb.ToString();
+        }
+
+        /// <summary>Un run du corps : saut de ligne, appel de note, ou texte
+        /// avec ses propriétés ; les images sortent du périmètre docx.</summary>
+        private static string RunXml(TextRun run, Dictionary<string, int> noteIds)
+        {
+            if (run.IsLineBreak) return "<w:r><w:br/></w:r>";
+            if (run.ImageId != null) return ""; // images: out of docx scope (PLAN §3)
+            if (run.FootnoteId != null)
+            {
+                int id;
+                return noteIds.TryGetValue(run.FootnoteId, out id)
+                    ? "<w:r><w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr>"
+                        + "<w:footnoteReference w:id=\"" + id + "\"/></w:r>"
+                    : "";
+            }
+            var sb = new StringBuilder("<w:r>");
+            var props = RunProps(run);
+            if (props.Length > 0) sb.Append("<w:rPr>").Append(props).Append("</w:rPr>");
+            sb.Append("<w:t xml:space=\"preserve\">").Append(Esc(run.Text)).Append("</w:t></w:r>");
+            return sb.ToString();
         }
 
         private static void WriteEntry(ZipArchive zip, string name, string content)
@@ -83,7 +182,7 @@ namespace Marabook.Exchange
             return sb.ToString();
         }
 
-        private static string ContentTypes(bool footnotes, bool lists, bool footer, bool settings)
+        private static string ContentTypes(bool footnotes, bool lists, bool footer, bool settings, bool comments = false)
         {
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
@@ -100,11 +199,13 @@ namespace Marabook.Exchange
                 sb.Append("<Override PartName=\"/word/footer1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml\"/>");
             if (settings)
                 sb.Append("<Override PartName=\"/word/settings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml\"/>");
+            if (comments)
+                sb.Append("<Override PartName=\"/word/comments.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml\"/>");
             sb.Append("</Types>");
             return sb.ToString();
         }
 
-        private static string DocumentRels(bool footnotes, bool lists, bool footer, bool settings)
+        private static string DocumentRels(bool footnotes, bool lists, bool footer, bool settings, bool comments = false)
         {
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
@@ -118,6 +219,8 @@ namespace Marabook.Exchange
                 sb.Append("<Relationship Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer\" Target=\"footer1.xml\"/>");
             if (settings)
                 sb.Append("<Relationship Id=\"rId5\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings\" Target=\"settings.xml\"/>");
+            if (comments)
+                sb.Append("<Relationship Id=\"rId6\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments\" Target=\"comments.xml\"/>");
             sb.Append("</Relationships>");
             return sb.ToString();
         }
@@ -236,7 +339,7 @@ namespace Marabook.Exchange
         }
 
         private static string DocumentXml(TextDocument document, StyleSheet styles,
-            PageSetup setup, bool footer)
+            PageSetup setup, bool footer, List<ExportComment> comments)
         {
             // Footnote id by note id (docx numbers them 2+).
             var noteIds = new Dictionary<string, int>();
@@ -246,8 +349,9 @@ namespace Marabook.Exchange
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
               .Append("<w:document ").Append(W).Append(" ").Append(R).Append("><w:body>");
-            foreach (var paragraph in document.Paragraphs)
+            for (var pIndex = 0; pIndex < document.Paragraphs.Count; pIndex++)
             {
+                var paragraph = document.Paragraphs[pIndex];
                 var isRule = false;
                 foreach (var probe in paragraph.Runs) if (probe.IsRule) { isRule = true; break; }
 
@@ -266,22 +370,18 @@ namespace Marabook.Exchange
                       .Append("\" w:firstLine=\"0\"/>");
                 sb.Append("</w:pPr>");
                 if (isRule) { sb.Append("</w:p>"); continue; } // the border IS the rule
-                foreach (var run in paragraph.Runs)
+                for (var r = 0; r < paragraph.Runs.Count; r++)
                 {
-                    if (run.IsLineBreak) { sb.Append("<w:r><w:br/></w:r>"); continue; }
-                    if (run.ImageId != null) continue; // images: out of docx scope (PLAN §3)
-                    if (run.FootnoteId != null)
-                    {
-                        int id;
-                        if (noteIds.TryGetValue(run.FootnoteId, out id))
-                            sb.Append("<w:r><w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr>")
-                              .Append("<w:footnoteReference w:id=\"").Append(id).Append("\"/></w:r>");
-                        continue;
-                    }
-                    sb.Append("<w:r>");
-                    var props = RunProps(run);
-                    if (props.Length > 0) sb.Append("<w:rPr>").Append(props).Append("</w:rPr>");
-                    sb.Append("<w:t xml:space=\"preserve\">").Append(Esc(run.Text)).Append("</w:t></w:r>");
+                    // Les commentaires (b49) : la plage ouvre avant le premier
+                    // run annoté, se ferme après le dernier, l'appel suit.
+                    foreach (var comment in comments)
+                        if (comment.FirstParagraph == pIndex && comment.FirstRun == r)
+                            sb.Append("<w:commentRangeStart w:id=\"").Append(comment.Number).Append("\"/>");
+                    sb.Append(RunXml(paragraph.Runs[r], noteIds));
+                    foreach (var comment in comments)
+                        if (comment.LastParagraph == pIndex && comment.LastRun == r)
+                            sb.Append("<w:commentRangeEnd w:id=\"").Append(comment.Number).Append("\"/>")
+                              .Append("<w:r><w:commentReference w:id=\"").Append(comment.Number).Append("\"/></w:r>");
                 }
                 sb.Append("</w:p>");
             }
@@ -363,6 +463,46 @@ namespace Marabook.Exchange
         /// missing from the project's sheet are created there (merge).</summary>
         public static TextDocument Import(string path, StyleSheet projectStyles)
         {
+            List<DocxComment> ignored;
+            return ImportWithComments(path, projectStyles, out ignored);
+        }
+
+        /// <summary>L'état d'une lecture (b49) : les commentaires du fichier,
+        /// ceux dont la plage est ouverte, et les annotations créées pour eux.</summary>
+        private sealed class ImportContext
+        {
+            public Dictionary<string, DocxComment> Comments = new Dictionary<string, DocxComment>();
+            public readonly List<string> Active = new List<string>();
+            public readonly Dictionary<string, Annotation> Annotations = new Dictionary<string, Annotation>();
+            public readonly List<DocxComment> Used = new List<DocxComment>();
+            public TextDocument Document;
+
+            /// <summary>L'annotation d'un commentaire, créée à sa première plage.</summary>
+            public Annotation AnnotationFor(string commentId)
+            {
+                Annotation annotation;
+                if (Annotations.TryGetValue(commentId, out annotation)) return annotation;
+                DocxComment comment;
+                if (!Comments.TryGetValue(commentId, out comment)) return null;
+                annotation = new Annotation
+                {
+                    Text = CommentMerge.Label(comment.Author, comment.Text),
+                    Created = CommentMerge.ToCreated(comment.Date)
+                };
+                Annotations[commentId] = annotation;
+                Document.Annotations.Add(annotation);
+                Used.Add(comment);
+                return annotation;
+            }
+        }
+
+        /// <summary>Lit le document ET ses commentaires Word (b49) : chaque
+        /// commentaire devient une annotation sur les runs de sa plage ;
+        /// la liste rend en plus le passage commenté et son paragraphe
+        /// (l'empreinte pour CommentMerge).</summary>
+        public static TextDocument ImportWithComments(string path, StyleSheet projectStyles,
+            out List<DocxComment> comments)
+        {
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read))
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Read))
             {
@@ -377,10 +517,20 @@ namespace Marabook.Exchange
                 var ns = Ns(xml);
                 var document = new TextDocument();
                 foreach (var note in footnotes.Values) document.Footnotes.Add(note);
+                var ctx = new ImportContext { Comments = ReadComments(zip), Document = document };
 
                 var body = xml.SelectSingleNode("//w:body", ns);
-                if (body != null) ReadBlock(body, ns, document, projectStyles, styleMap, footnotes, numbering);
+                if (body != null) ReadBlock(body, ns, document, projectStyles, styleMap, footnotes, numbering, ctx);
                 if (document.Paragraphs.Count == 0) document.Paragraphs.Add(new TextParagraph());
+
+                comments = new List<DocxComment>();
+                foreach (var comment in ctx.Used)
+                {
+                    int first;
+                    comment.Anchor = CommentMerge.AnchorOf(document, ctx.Annotations[comment.Id].Id, out first);
+                    comment.ParagraphIndex = first;
+                    comments.Add(comment);
+                }
 
                 // Keep only referenced notes, in reference order.
                 var ordered = new List<Footnote>();
@@ -480,6 +630,37 @@ namespace Marabook.Exchange
             return map;
         }
 
+        /// <summary>word/comments.xml (b49) : id → auteur, date, texte (les
+        /// paragraphes du commentaire joints par un saut de ligne).</summary>
+        private static Dictionary<string, DocxComment> ReadComments(ZipArchive zip)
+        {
+            var comments = new Dictionary<string, DocxComment>();
+            var entry = zip.GetEntry("word/comments.xml");
+            if (entry == null) return comments;
+            var xml = LoadXml(entry);
+            var ns = Ns(xml);
+            foreach (XmlNode node in xml.SelectNodes("//w:comment", ns))
+            {
+                var id = Attr(node, "w:id");
+                if (id == null) continue;
+                var lines = new List<string>();
+                foreach (XmlNode p in node.SelectNodes(".//w:p", ns))
+                {
+                    var sb = new StringBuilder();
+                    foreach (XmlNode textNode in p.SelectNodes(".//w:t", ns)) sb.Append(textNode.InnerText);
+                    lines.Add(sb.ToString());
+                }
+                comments[id] = new DocxComment
+                {
+                    Id = id,
+                    Author = Attr(node, "w:author") ?? "",
+                    Date = Attr(node, "w:date") ?? "",
+                    Text = string.Join("\n", lines.ToArray()).Trim()
+                };
+            }
+            return comments;
+        }
+
         private static Dictionary<string, Footnote> ReadFootnotes(ZipArchive zip)
         {
             var notes = new Dictionary<string, Footnote>();
@@ -537,22 +718,23 @@ namespace Marabook.Exchange
         private static void ReadBlock(XmlNode container, XmlNamespaceManager ns,
             TextDocument document, StyleSheet projectStyles,
             Dictionary<string, string> styleMap, Dictionary<string, Footnote> footnotes,
-            Dictionary<string, string> numbering)
+            Dictionary<string, string> numbering, ImportContext ctx)
         {
             foreach (XmlNode child in container.ChildNodes)
             {
                 if (child.LocalName == "p")
-                    document.Paragraphs.Add(ReadParagraph(child, ns, projectStyles, styleMap, footnotes, numbering));
+                    document.Paragraphs.Add(ReadParagraph(child, ns, projectStyles, styleMap, footnotes, numbering, ctx));
                 else if (child.LocalName == "tbl" || child.LocalName == "tc"
                     || child.LocalName == "tr" || child.LocalName == "sdt"
                     || child.LocalName == "sdtContent")
-                    ReadBlock(child, ns, document, projectStyles, styleMap, footnotes, numbering); // flatten
+                    ReadBlock(child, ns, document, projectStyles, styleMap, footnotes, numbering, ctx); // flatten
             }
         }
 
         private static TextParagraph ReadParagraph(XmlNode p, XmlNamespaceManager ns,
             StyleSheet projectStyles, Dictionary<string, string> styleMap,
-            Dictionary<string, Footnote> footnotes, Dictionary<string, string> numbering)
+            Dictionary<string, Footnote> footnotes, Dictionary<string, string> numbering,
+            ImportContext ctx)
         {
             var paragraph = new TextParagraph();
             var pPr = p.SelectSingleNode("w:pPr", ns);
@@ -579,7 +761,7 @@ namespace Marabook.Exchange
                 paragraph.ListKind = numbering.TryGetValue(numId, out kind) ? kind : "bullet";
             }
 
-            ReadRuns(p, ns, paragraph, style, footnotes);
+            ReadRuns(p, ns, paragraph, style, footnotes, ctx);
 
             // An empty paragraph carrying only a bottom border is a horizontal rule.
             if (paragraph.Runs.Count == 0 && pPr != null
@@ -589,17 +771,47 @@ namespace Marabook.Exchange
         }
 
         private static void ReadRuns(XmlNode container, XmlNamespaceManager ns,
-            TextParagraph paragraph, ParagraphStyle style, Dictionary<string, Footnote> footnotes)
+            TextParagraph paragraph, ParagraphStyle style, Dictionary<string, Footnote> footnotes,
+            ImportContext ctx)
         {
             foreach (XmlNode child in container.ChildNodes)
             {
                 if (child.LocalName == "hyperlink" || child.LocalName == "smartTag"
                     || child.LocalName == "ins")
                 {
-                    ReadRuns(child, ns, paragraph, style, footnotes);
+                    ReadRuns(child, ns, paragraph, style, footnotes, ctx);
+                    continue;
+                }
+                // Les plages de commentaires (b49) : ouverte, tout run lu
+                // jusqu'à sa fermeture porte l'annotation du commentaire.
+                if (child.LocalName == "commentRangeStart")
+                {
+                    var id = Attr(child, "w:id");
+                    if (id != null && ctx.Comments.ContainsKey(id) && !ctx.Active.Contains(id)) ctx.Active.Add(id);
+                    continue;
+                }
+                if (child.LocalName == "commentRangeEnd")
+                {
+                    var id = Attr(child, "w:id");
+                    if (id != null) ctx.Active.Remove(id);
                     continue;
                 }
                 if (child.LocalName != "r") continue;
+
+                var commentReference = child.SelectSingleNode("w:commentReference", ns);
+                if (commentReference != null)
+                {
+                    // Un appel sans plage (commentaire posé sur un point) :
+                    // le run qui précède le porte, faute de mieux.
+                    var id = Attr(commentReference, "w:id");
+                    if (id != null && !ctx.Annotations.ContainsKey(id) && paragraph.Runs.Count > 0)
+                    {
+                        var last = paragraph.Runs[paragraph.Runs.Count - 1];
+                        var annotation = PivotEdit.IsElement(last) ? null : ctx.AnnotationFor(id);
+                        if (annotation != null && last.AnnotationId == null) last.AnnotationId = annotation.Id;
+                    }
+                    continue;
+                }
 
                 var reference = child.SelectSingleNode("w:footnoteReference", ns);
                 if (reference != null)
@@ -618,20 +830,27 @@ namespace Marabook.Exchange
                     else if (part.LocalName == "tab") sb.Append('\t');
                     else if (part.LocalName == "br")
                     {
-                        FlushRun(paragraph, sb, child, ns, style);
+                        FlushRun(paragraph, sb, child, ns, style, ctx);
                         paragraph.Runs.Add(new TextRun { IsLineBreak = true });
                     }
                 }
-                FlushRun(paragraph, sb, child, ns, style);
+                FlushRun(paragraph, sb, child, ns, style, ctx);
             }
         }
 
         private static void FlushRun(TextParagraph paragraph, StringBuilder sb,
-            XmlNode r, XmlNamespaceManager ns, ParagraphStyle style)
+            XmlNode r, XmlNamespaceManager ns, ParagraphStyle style, ImportContext ctx)
         {
             if (sb.Length == 0) return;
             var run = new TextRun { Text = sb.ToString() };
             sb.Length = 0;
+            // Dans une plage de commentaire (b49) : le premier ouvert gagne
+            // (un run ne porte qu'une annotation).
+            if (ctx != null && ctx.Active.Count > 0)
+            {
+                var annotation = ctx.AnnotationFor(ctx.Active[0]);
+                if (annotation != null) run.AnnotationId = annotation.Id;
+            }
 
             var rPr = r.SelectSingleNode("w:rPr", ns);
             if (rPr != null)

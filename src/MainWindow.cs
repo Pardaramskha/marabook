@@ -289,6 +289,8 @@ namespace Marabook
             var importMenu = new MenuItem { Header = "Importer" };
             importMenu.Items.Add(Entry("import-docs", "Des documents…", ImportDocuments));
             importMenu.Items.Add(Entry("import-scrivener", "Un projet Scrivener…", ImportScrivener));
+            importMenu.Items.Add(new Separator());
+            importMenu.Items.Add(Entry(null, "Les commentaires d'un document relu (.docx)…", ImportReviewedComments, TextActive)); // b49
             file.Items.Add(importMenu);
             var exportMenu = new MenuItem { Header = "Exporter" };
             exportMenu.Items.Add(Entry("export-item", "L'écrit sélectionné…", ExportCurrentItem, TextOrSheetActive));
@@ -324,6 +326,8 @@ namespace Marabook
             _versionsMenu.IsCheckable = true;
             edit.Items.Add(_versionsMenu);
             edit.Items.Add(Entry("session-goal", "Lancer un sprint…", StartSprint));
+            edit.Items.Add(Entry(null, "Extraire les personnages de l'écrit…",
+                delegate { ExtractCharacters(_current); }, TextActive)); // b49
             edit.Items.Add(new Separator());
             edit.Items.Add(Entry("new-text", "Nouvel écrit", delegate { _binder.NewText(null); }));
             edit.Items.Add(Entry("new-sheet", "Nouvelle fiche", delegate { _binder.NewSheet(null); }));
@@ -1135,6 +1139,15 @@ namespace Marabook
                     : restore != null
                         ? (undone ? "Restauration annulée." : "Version « " + restore.SnapshotLabel + " » restaurée — Ctrl+Z pour annuler.")
                         : (undone ? "Restauration du paragraphe annulée." : "Paragraphe restauré — Ctrl+Z pour annuler."));
+                return;
+            }
+            // Un document remplacé d'un bloc (b49 : commentaires relus) :
+            // la vue ouverte recharge depuis le pivot.
+            var replaced = action as History.ReplaceDocumentAction;
+            if (replaced != null)
+            {
+                if (_current == replaced.Item) ReloadCurrentView();
+                MarkDirty();
                 return;
             }
             var replace = action as History.ReplaceInProjectAction;
@@ -2609,6 +2622,9 @@ namespace Marabook
             if (errors.Count > 0)
                 MessageDialog.Show(this, "Documents non importés :\n\n" + string.Join("\n", errors.ToArray()),
                     AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            // Les personnages du texte importé (b49) : proposés, jamais imposés.
+            if (items.Count > 0)
+                OfferCharacters(items, items.Count == 1 ? items[0].Title : items.Count + " documents importés", false);
         }
 
         private TextDocument ImportOneDocument(string path)
@@ -2701,7 +2717,7 @@ namespace Marabook
             try
             {
                 var ext = Path.GetExtension(path).ToLowerInvariant();
-                if (ext == ".docx") Exchange.Docx.Export(document, _project.Styles, path, _project.Page);
+                if (ext == ".docx") Exchange.Docx.Export(document, _project.Styles, path, _project.Page, _project.Author); // annotations → commentaires Word (b49)
                 else if (ext == ".odt")
                     Exchange.Odt.Export(Exchange.Compiler.FlattenLists(document), _project.Styles, path);
                 else if (ext == ".rtf")
