@@ -87,6 +87,21 @@ namespace Marabook.Tests
             t.Check(!RightPanels.Available(RightPanel.Pinned, true, true, ItemKind.Text, false, true), "épinglé, colonne masquée : indisponible");
             t.Check(!RightPanels.DescribesCurrent(RightPanel.Pinned), "l'épinglé est un outil (après le filet)");
 
+            // — Le Lexique (18/09) : un onglet seulement quand il est demandé
+            //   (épinglé ou ouvert pour une définition), en queue, partout.
+            t.Equal("inspector,correction,search,versions,pinned,lexicon", Join(RightPanels.Offered(ItemKind.Text, false, true)), "un écrit, Lexique demandé : l'onglet en queue");
+            t.Equal("search,pinned,lexicon", Join(RightPanels.Offered(ItemKind.Category, false, true)), "une racine, Lexique demandé");
+            t.Equal("inspector,search,pinned,lexicon", Join(RightPanels.Offered(null, false, true)), "rien de sélectionné, Lexique demandé");
+            t.Check(ReferenceEquals(RightPanels.Offered(ItemKind.Text, false, true), RightPanels.Offered(ItemKind.Text, false, true)), "le tableau est le même d'un appel à l'autre (le rail compare par référence)");
+            t.Check(!RightPanels.Available(RightPanel.Lexicon, false, true, ItemKind.Text), "Lexique sans épingle ni définition : indisponible");
+            t.Check(RightPanels.Available(RightPanel.Lexicon, false, true, ItemKind.Text, false, false, true), "Lexique demandé, sur un écrit");
+            t.Check(RightPanels.Available(RightPanel.Lexicon, false, true, null, false, false, true), "Lexique demandé, sans élément courant");
+            t.Check(RightPanels.Available(RightPanel.Lexicon, false, true, ItemKind.Category, false, false, true), "Lexique demandé, sur une racine");
+            t.Check(!RightPanels.Available(RightPanel.Lexicon, true, true, ItemKind.Text, false, false, true), "Lexique, colonne masquée : indisponible");
+            t.Check(!RightPanels.Available(RightPanel.Lexicon, false, false, ItemKind.Text, false, false, true), "Lexique sans projet : indisponible");
+            t.Check(!RightPanels.DescribesCurrent(RightPanel.Lexicon), "le Lexique est un outil (après le filet)");
+            t.Equal(RightPanel.Lexicon, RightPanels.Parse("lexicon"), "le nom « lexicon » se relit");
+
             // — Transitions du rail : ouvrir, changer, replier sur l'actif.
             t.Equal(RightPanel.Search, RightPanels.Toggle(RightPanel.None, RightPanel.Search), "colonne repliée, clic Recherche : ouvre");
             t.Equal(RightPanel.Versions, RightPanels.Toggle(RightPanel.Search, RightPanel.Versions), "Recherche active, clic Versions : change");

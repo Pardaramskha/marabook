@@ -520,6 +520,10 @@ namespace Marabook.Print
             public bool Underline, Strike;
             public Brush Highlight;
             public double Tracking; // approche (em/1000)
+            // Marque de [[lien]] masquée (18/09) : occupe ses offsets plats
+            // (le curseur les traverse), aucune largeur, rien de dessiné —
+            // le texte masqué de Word.
+            public bool IsHidden;
         }
 
         private ComposedParagraphLayout ComposeParagraph(TextParagraph paragraph,
@@ -617,6 +621,10 @@ namespace Marabook.Print
 
             var offset = 0;
             var notesSeen = 0;
+            // Les [[liens]] du paragraphe (18/09) : leurs marques se masquent
+            // ou s'affichent, leur texte se met en évidence — sur les offsets
+            // plats, un lien pouvant chevaucher plusieurs runs.
+            var linkSpans = Links.Spans(PivotEdit.FlatText(paragraph));
             foreach (var run in paragraph.Runs)
             {
                 if (run.IsLineBreak)
@@ -658,16 +666,53 @@ namespace Marabook.Print
                     offset++;
                     continue;
                 }
-                AddTextAtoms(atoms, run.Text, style, run, false, offset);
+                AddRunAtoms(atoms, run, style, offset, linkSpans);
                 offset += run.Text.Length;
             }
             return atoms;
         }
 
+        /// <summary>Le texte d'un run, découpé sur les plages de [[liens]] :
+        /// une marque devient un atome masqué (liens cachés) ou du texte
+        /// estompé (liens montrés) ; le texte d'un lien montré prend la
+        /// teinte d'accent, cliquable à vue.</summary>
+        private void AddRunAtoms(List<Atom> atoms, TextRun run, ParagraphStyle style,
+            int offset, List<LinkSpan> spans)
+        {
+            var text = run.Text;
+            if (string.IsNullOrEmpty(text)) return;
+            if (spans.Count == 0) { AddTextAtoms(atoms, text, style, run, false, offset); return; }
+            var runEnd = offset + text.Length;
+            var pos = offset;
+            var shown = Settings.AppSettings.ShowLinks;
+            foreach (var span in spans)
+            {
+                var start = Math.Max(span.Start, pos);
+                var end = Math.Min(span.End, runEnd);
+                if (end <= start) continue;
+                if (start > pos)
+                    AddTextAtoms(atoms, text.Substring(pos - offset, start - pos), style, run, false, pos);
+                var part = text.Substring(start - offset, end - start);
+                if (span.IsMark && !shown)
+                    atoms.Add(new Atom { IsHidden = true, SourceStart = start, SourceLength = end - start });
+                else if (span.IsMark)
+                    AddTextAtoms(atoms, part, style, run, false, start, View.Chrome.FaintText, null);
+                else if (shown)
+                    AddTextAtoms(atoms, part, style, run, false, start, View.Chrome.AccentStrong, View.Chrome.AccentTint);
+                else
+                    AddTextAtoms(atoms, part, style, run, false, start);
+                pos = end;
+            }
+            if (pos < runEnd)
+                AddTextAtoms(atoms, text.Substring(pos - offset), style, run, false, pos);
+        }
+
         /// <summary>sourceBase &lt; 0 = decoration (list prefix): occupies no
-        /// flat offsets, the caret skips it.</summary>
+        /// flat offsets, the caret skips it. inkOverride / highlightOverride :
+        /// la teinte d'un lien montré, par-dessus le run et le style.</summary>
         private void AddTextAtoms(List<Atom> atoms, string text, ParagraphStyle style,
-            TextRun run, bool superscript, int sourceBase)
+            TextRun run, bool superscript, int sourceBase,
+            Brush inkOverride = null, Brush highlightOverride = null)
         {
             if (string.IsNullOrEmpty(text)) return;
             var family = run != null && run.FontFamily != null ? run.FontFamily : style.FontFamily;
@@ -701,6 +746,8 @@ namespace Marabook.Print
                 if (annotation != null && !annotation.Resolved)
                     highlight = View.Chrome.AnnotationTint;
             }
+            if (inkOverride != null) ink = inkOverride;
+            if (highlightOverride != null) highlight = highlightOverride;
             var tracking = run != null && run.Tracking.HasValue ? run.Tracking.Value : 0;
 
             var spaceWidth = MeasureText(" ", font, size, tracking);
@@ -772,6 +819,21 @@ namespace Marabook.Print
             {
                 var atom = atoms[index];
 
+                if (atom.IsHidden)
+                {
+                    // Marque de lien masquée : une pièce sans glyphe ni
+                    // largeur, dont les offsets restent adressables (le
+                    // curseur y passe, la ligne ne bouge pas).
+                    line.Pieces.Add(new ComposedPiece
+                    {
+                        Origin = new Point(x, 0),
+                        SourceStart = atom.SourceStart,
+                        SourceLength = atom.SourceLength
+                    });
+                    index++;
+                    cursor = Advance(cursor, atom);
+                    continue;
+                }
                 if (atom.IsForcedBreak)
                 {
                     index++;

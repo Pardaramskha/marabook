@@ -18,7 +18,7 @@ namespace Marabook
 {
     /// <summary>The shell window: Binder (left) | rich editor (center) |
     /// inspector (right), menu bar on top, status bar below.</summary>
-    public class MainWindow : Window
+    public partial class MainWindow : Window
     {
         public const string AppName = "Marabook";
         public const string AppVersion = "0.42.0-alpha";
@@ -163,12 +163,13 @@ namespace Marabook
             root.Children.Add(_statusBar);
             root.Children.Add(BuildContent());
             // Les toasts de succès (12/09) : par-dessus tout, en bas à droite.
+            // L'hôte reste cliquable (18/09 : les toasts à boutons du secours
+            // y vivent aussi) ; un toast de succès se déclare inerte lui-même.
             _toastHost = new StackPanel
             {
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, 24, 44),
-                IsHitTestVisible = false
+                Margin = new Thickness(0, 0, 24, 44)
             };
             var shell = new Grid();
             shell.Children.Add(root);
@@ -189,6 +190,7 @@ namespace Marabook
                 // Lancée sans .plot (ni argument, ni fichier ouvert avant
                 // l'affichage) : l'accueil, et rien d'autre.
                 if (_path == null) ShowWelcome();
+                OfferRecoveries(); // un arrêt brutal la dernière fois ? (18/09)
                 AppSettings.NoteUsage(DateTime.Now);
                 ScheduleAchievementCheck();
                 _minuteTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMinutes(1) };
@@ -222,6 +224,7 @@ namespace Marabook
             _autosaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(2) };
             _autosaveTimer.Tick += delegate { Autosave(); };
             _autosaveTimer.Start();
+            StartRecoveryTimer(); // le secours, toutes les 30 s s'il y a du neuf (18/09)
 
             // Boutons latéraux de la souris = panneau précédent/suivant
             // (batch 28). Pas de repli clavier : le rebind arrive bientôt.
@@ -540,6 +543,7 @@ namespace Marabook
             _editor = new EditorView { Visibility = Visibility.Collapsed };
             _editor.Edited += OnEditorEdited;
             _editor.LinkClicked += NavigateToTitle;
+            _editor.DefinitionRequested += ShowDefinition; // clic droit › « Afficher la définition » (18/09)
             _editor.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
             _editor.PageSetupChanged += delegate
             {
@@ -638,7 +642,9 @@ namespace Marabook
                 if (projectScope) MarkDirty(); else AppSettings.Save();
                 _editor.RefreshProofing();
                 ScheduleAchievementCheck();
+                if (_lexiconPanel != null) _lexiconPanel.Refresh();
             };
+            _dictionaryView.LexiconPinToggled += SetLexiconPinned; // menu options (18/09)
             _editor.LexiconChanged += delegate
             {
                 if (_dictionaryView.Visibility == Visibility.Visible) _dictionaryView.Refresh();
@@ -913,6 +919,9 @@ namespace Marabook
             _pinnedHost = new Border { Child = _pinnedPanel };
             Grid.SetColumn(_pinnedHost, 4);
             grid.Children.Add(_pinnedHost);
+            // Le LEXIQUE (18/09) : la définition d'un mot du dictionnaire
+            // personnel, même colonne (MainWindow.Lexicon.cs).
+            BuildLexiconPanel(grid);
             _pinTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
             _pinTimer.Tick += delegate { _pinTimer.Stop(); RefreshSidePin(); };
             _binder.IsSidePinned = delegate(BinderItem item) { return item != null && item == _sidePin; };
@@ -1658,7 +1667,11 @@ namespace Marabook
             _journalView.Clear();
             _pinnedPanel.SetProject(project, project.Styles);
             _binder.LoadProject(project, _history);
+            _dictionaryView.Load(project); // le Lexique du rail édite par lui (18/09)
+            _lexiconPanel.Show(null, true);
+            _lexiconShown = false;
             ResolveSidePin();
+            BeginRecovery(); // la session de secours (18/09)
             // Chauffe le cache de mots : les comptes existants deviennent la
             // référence des deltas du journal (rien n'est crédité à l'ouverture).
             ProjectWords();
@@ -2007,6 +2020,7 @@ namespace Marabook
                 CommitActive();
                 PlotFile.Save(_project, _path);
                 _dirty = false;
+                DropRecovery(); // le .plot complet est à jour : le secours est périmé (18/09)
                 AppSettings.AddRecentFile(_path);
                 AppSettings.Save();
                 UpdateRecentMenu();
@@ -2088,6 +2102,7 @@ namespace Marabook
             if (_welcome != null) _welcome.Release();
             // Quitter n'attend jamais la correction différée (batch 29).
             _editor.ShutdownProofing();
+            EndRecovery(); // fermeture propre : témoin et secours retirés (18/09)
             AppSettings.BinderWidth = _binderCol.Width.Value > 0 ? _binderCol.Width.Value : AppSettings.BinderWidth;
             RememberRightWidth();
             AppSettings.Save();
@@ -2540,6 +2555,7 @@ namespace Marabook
 
         private void MarkDirty()
         {
+            _recoveryDirty = true; // le secours suit chaque modification (18/09)
             if (_dirty) return;
             _dirty = true;
             if (_dirtySince == null) _dirtySince = DateTime.Now; // « Vivre dangereusement »
@@ -2678,6 +2694,9 @@ namespace Marabook
                 FileName = SafeFileName(defaultName)
             };
             if (dialog.ShowDialog(this) != true) return;
+            // Les [[liens]] restent dans l'application (18/09) : à l'export,
+            // les marques tombent, les mots restent tels quels.
+            document = Links.Strip(document);
             var path = dialog.FileName;
             try
             {
@@ -2784,7 +2803,7 @@ namespace Marabook
             {
                 name = _current.Title;
                 if (_current.Page != null) setup = _current.Page;
-                return _current.Document;
+                return Links.Strip(_current.Document); // marques de [[liens]] retirées (18/09)
             }
             if (_current != null && _current.IsContainer)
             {
@@ -2792,12 +2811,12 @@ namespace Marabook
                 // A book's pages follow its gabarit, whatever the project says.
                 if (_current.Kind == ItemKind.Book && _current.Book != null)
                     setup = _current.Book.Template;
-                return Exchange.Compiler.Build(_project, _current, new Exchange.CompileOptions
+                return Links.Strip(Exchange.Compiler.Build(_project, _current, new Exchange.CompileOptions
                 {
                     TitlePage = false,
                     ChapterHeadings = false,
                     PageBreakPerText = true
-                });
+                }));
             }
             MessageDialog.Show(this,
                 "Sélectionnez un écrit, une fiche ou un dossier à mettre en pages.",
@@ -2933,7 +2952,7 @@ namespace Marabook
             if (_pageCountCache.TryGetValue(text.Id, out pages)) return pages;
             try
             {
-                var composition = Print.Composer.Compose(text.Document,
+                var composition = Print.Composer.Compose(Links.Strip(text.Document),
                     _project.Styles, text.Page ?? _project.Page, _project);
                 pages = Math.Max(1, composition.Pages.Count);
             }
@@ -3694,6 +3713,7 @@ namespace Marabook
                 Padding = new Thickness(12, 10, 16, 10),
                 Margin = new Thickness(0, 8, 0, 0),
                 Opacity = 0,
+                IsHitTestVisible = false, // un succès ne bloque jamais un clic dessous
                 Child = row,
                 Effect = new System.Windows.Media.Effects.DropShadowEffect
                 {
@@ -3812,6 +3832,8 @@ namespace Marabook
                 _editionHost.Visibility = shown == RightPanel.Edition ? Visibility.Visible : Visibility.Collapsed;
             if (_pinnedHost != null)
                 _pinnedHost.Visibility = shown == RightPanel.Pinned ? Visibility.Visible : Visibility.Collapsed;
+            if (_lexiconHost != null)
+                _lexiconHost.Visibility = shown == RightPanel.Lexicon ? Visibility.Visible : Visibility.Collapsed;
             var anyRight = shown != RightPanel.None;
             _inspectorSplit.Visibility = anyRight ? Visibility.Visible : Visibility.Collapsed;
             _inspectorCol.Width = anyRight
@@ -3834,7 +3856,7 @@ namespace Marabook
 
         private bool IsPanelAvailable(RightPanel panel)
         {
-            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, CurrentKind(), CurrentIsHomeRoot(), _sidePin != null);
+            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, CurrentKind(), CurrentIsHomeRoot(), _sidePin != null, HasLexiconPanel);
         }
 
         /// <summary>La nature de l'élément courant, null sans sélection — ce
@@ -3975,6 +3997,8 @@ namespace Marabook
                     icon = "book-bold"; name = "Édition du livre"; break;
                 case RightPanel.Pinned:
                     icon = "push-pin-bold"; name = "Épinglé au rail"; break;
+                case RightPanel.Lexicon:
+                    icon = "pile-dictionnaire"; name = "Lexique — la définition d'un mot du dictionnaire personnel"; break;
                 default:
                     icon = "book-open-text-bold"; name = "Publication du livre"; break;
             }
@@ -4053,7 +4077,7 @@ namespace Marabook
             var railOn = !_journalOpen && !_calmMode;
             _rail.Visibility = railOn ? Visibility.Visible : Visibility.Collapsed;
             _railCol.Width = new GridLength(railOn ? RailWidth : 0);
-            var offered = RightPanels.Offered(CurrentKind(), CurrentIsHomeRoot());
+            var offered = RightPanels.Offered(CurrentKind(), CurrentIsHomeRoot(), HasLexiconPanel);
             if (!ReferenceEquals(offered, _railOffered)) RebuildRailTabs(offered);
             UpdatePinTip();
             var shown = ShownRightPanel();
@@ -4453,30 +4477,16 @@ namespace Marabook
                 return;
             }
 
-            // Outgoing: parse [[...]] in this item's own text.
-            var outgoing = new List<string>();
-            var text = _current.SearchText();
-            var cursor = 0;
-            while (true)
-            {
-                var open = text.IndexOf("[[", cursor, StringComparison.Ordinal);
-                var close = open < 0 ? -1 : text.IndexOf("]]", open + 2, StringComparison.Ordinal);
-                if (open < 0 || close < 0) break;
-                var title = text.Substring(open + 2, close - open - 2).Trim();
-                if (title.Length > 0 && title.Length < 120 && !outgoing.Contains(title))
-                    outgoing.Add(title);
-                cursor = close + 2;
-            }
-            foreach (var title in outgoing)
+            // Outgoing: the [[targets]] of this item's own text (« [[Cible|texte]] » compris, 18/09).
+            foreach (var title in Links.Targets(_current.SearchText()))
                 _linksPanel.Children.Add(LinkRow("arrow-right-bold", title, title, _project.FindByTitle(title) != null));
 
-            // Incoming: items whose text contains [[this title]].
-            var marker = "[[" + _current.Title + "]]";
+            // Incoming: items whose text links to this title.
             foreach (var item in _project.AllItems())
             {
                 if (item == _current || item.IsCategory) continue;
                 if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet) continue;
-                if (item.SearchText().IndexOf(marker, StringComparison.CurrentCultureIgnoreCase) < 0) continue;
+                if (!Links.LinksTo(item.SearchText(), _current.Title)) continue;
                 _linksPanel.Children.Add(LinkRow("arrow-up-left-bold", item.Title, item.Title, true));
             }
 

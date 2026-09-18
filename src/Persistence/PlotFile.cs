@@ -116,7 +116,11 @@ namespace Marabook.Persistence
 
         // ------------------------------------------------------- writing
 
-        public static void Save(Project project, string path)
+        /// <summary>textsOnly (18/09) : la sauvegarde de SECOURS — manifeste,
+        /// styles, modèles et textes seulement ; ni images, ni fichiers de
+        /// recherche, ni instantanés (ce qui pèse et se retrouve dans le .plot
+        /// d'origine). Un tel fichier se rouvre comme un .plot ordinaire.</summary>
+        public static void Save(Project project, string path, bool textsOnly = false)
         {
             var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
             if (string.IsNullOrEmpty(project.CreatedAt)) project.CreatedAt = now;
@@ -146,7 +150,7 @@ namespace Marabook.Persistence
                 WriteEntry(archive, "sheets/templates.json", Json.Write(BuildTemplates(project)));
                 foreach (var kv in project.Images)
                 {
-                    if (kv.Value.Bytes == null) continue;
+                    if (kv.Value.Bytes == null || textsOnly) continue;
                     var imageEntry = archive.CreateEntry("images/" + kv.Key + (kv.Value.Extension ?? ""));
                     using (var imageStream = imageEntry.Open())
                         imageStream.Write(kv.Value.Bytes, 0, kv.Value.Bytes.Length);
@@ -156,7 +160,7 @@ namespace Marabook.Persistence
                     if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
                         WriteEntry(archive, "texts/" + item.Id + ".json",
                             Json.Write(BuildDocument(item.Document)));
-                    if (item.Kind == ItemKind.Media && item.MediaBytes != null)
+                    if (item.Kind == ItemKind.Media && item.MediaBytes != null && !textsOnly)
                     {
                         var media = archive.CreateEntry("research/" + item.Id + (item.MediaExtension ?? ""));
                         using (var mediaStream = media.Open())
@@ -167,6 +171,7 @@ namespace Marabook.Persistence
                 // écrit tel quel — jamais resérialisé, jamais purgé ici.
                 foreach (var snapshot in project.Snapshots)
                 {
+                    if (textsOnly) break;
                     // Compression rapide : un instantané se relit rarement, et
                     // c'est le deflate qui coûte à chaque sauvegarde (A3).
                     var entry = archive.CreateEntry("snapshots/" + snapshot.ItemId + "/" + snapshot.Id + ".json",
@@ -181,7 +186,7 @@ namespace Marabook.Persistence
             }
 
             if (File.Exists(path))
-                File.Replace(tempPath, path, path + ".bak");
+                File.Replace(tempPath, path, textsOnly ? null : path + ".bak"); // pas de .bak pour le secours
             else
                 File.Move(tempPath, path);
         }

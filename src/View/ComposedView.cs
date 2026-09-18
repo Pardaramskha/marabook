@@ -179,6 +179,7 @@ namespace Marabook.View
 
         public event Action Edited;
         public event Action<string> LinkClicked;
+        public event Action<LexiconEntry, bool> DefinitionRequested; // « Afficher la définition » (18/09), portée projet
         public event Action<int, int> PageInfoChanged;
         public event Action SelectionStateChanged; // caret/sélection ont bougé
         public event Action<string> NoteEditingStarted; // id de la note ouverte en place
@@ -879,7 +880,9 @@ namespace Marabook.View
                 if (marker != null) { EditNote(marker); e.Handled = true; return; }
             }
 
-            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            // Les liens (18/09) : montrés, un simple clic les suit ; masqués,
+            // Ctrl+clic comme toujours.
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 || Settings.AppSettings.ShowLinks)
             {
                 var title = WikiLinkAt(paragraph, offset);
                 if (title != null)
@@ -890,6 +893,9 @@ namespace Marabook.View
                     return;
                 }
             }
+            // Marques masquées : un clic dedans se pose au bord visible.
+            if (!Settings.AppSettings.ShowLinks)
+                offset = Links.SnapOutOfHidden(PivotEdit.FlatText(_item.Document.Paragraphs[paragraph]), offset);
 
             if (e.ClickCount == 2)
             {
@@ -1131,6 +1137,36 @@ namespace Marabook.View
                 };
             }
 
+            // — La définition d'un mot du dictionnaire personnel (18/09) :
+            // ouvre le panneau Lexique du rail. Le projet d'abord, puis le
+            // dictionnaire de tous les projets ; les formes fléchies comptent.
+            if (word != null && word.Length >= 2)
+            {
+                var projectScope = true;
+                var entry = _project == null ? null : LexiconEntry.FindByForm(_project.Lexicon, word);
+                if (entry == null)
+                {
+                    entry = LexiconEntry.FindByForm(Settings.AppSettings.Lexicon, word);
+                    projectScope = false;
+                }
+                if (entry != null)
+                {
+                    var entryRef = entry;
+                    var scopeRef = projectScope;
+                    var define = new MenuItem
+                    {
+                        Header = "Afficher la définition de « " + entry.Word + " »",
+                        ToolTip = "Dans le panneau Lexique de la colonne de droite"
+                    };
+                    define.Click += delegate
+                    {
+                        var handler = DefinitionRequested;
+                        if (handler != null) handler(entryRef, scopeRef);
+                    };
+                    menu.Items.Add(define);
+                }
+            }
+
             // — La césure du mot (batch 25).
             if (word != null && word.Length >= 2)
             {
@@ -1229,12 +1265,24 @@ namespace Marabook.View
 
         private void OnMouseMoveDrag(object sender, MouseEventArgs e)
         {
+            if (!_mouseSelecting && Settings.AppSettings.ShowLinks) UpdateLinkCursor(e);
             if (!_mouseSelecting || e.LeftButton != MouseButtonState.Pressed) return;
             int paragraph, offset;
             if (!HitTestPosition(e, out paragraph, out offset)) return;
             _caretParagraph = paragraph;
             _caretOffset = offset;
             UpdateCaretVisual();
+        }
+
+        /// <summary>Liens montrés : la main sur un lien, le I ailleurs — posé
+        /// sur la page survolée (c'est elle qui porte le curseur d'écriture).</summary>
+        private void UpdateLinkCursor(MouseEventArgs e)
+        {
+            var page = e.OriginalSource as PageElement;
+            if (page == null || _item == null) return;
+            int paragraph, offset;
+            var over = HitTestPosition(e, out paragraph, out offset) && WikiLinkAt(paragraph, offset) != null;
+            page.Cursor = over ? Cursors.Hand : Cursors.IBeam;
         }
 
         private bool HitTestPosition(MouseEventArgs e, out int paragraph, out int offset)
@@ -1271,16 +1319,27 @@ namespace Marabook.View
             return true;
         }
 
+        /// <summary>La cible du [[lien]] sous l'offset (marques comprises,
+        /// « [[Cible|texte]] » rend Cible), sinon null.</summary>
         private string WikiLinkAt(int paragraphIndex, int offset)
         {
             var text = PivotEdit.FlatText(_item.Document.Paragraphs[paragraphIndex]);
-            var open = text.LastIndexOf("[[", Math.Min(offset, Math.Max(0, text.Length - 1)),
-                StringComparison.Ordinal);
-            if (open < 0) return null;
-            var close = text.IndexOf("]]", open + 2, StringComparison.Ordinal);
-            if (close < 0 || close + 1 < offset) return null;
-            var title = text.Substring(open + 2, close - open - 2).Trim();
-            return title.Length > 0 && title.Length < 120 ? title : null;
+            var link = Links.At(text, offset);
+            return link == null || offset >= link.End ? null : link.Target;
+        }
+
+        /// <summary>Le texte de la sélection quand elle tient dans un seul
+        /// paragraphe (l'expression qui portera un [[lien]]), sinon null.</summary>
+        public string SelectedPlainText()
+        {
+            if (_item == null || !HasSelection()) return null;
+            int pa, oa, pb, ob;
+            OrderedSelection(out pa, out oa, out pb, out ob);
+            if (pa != pb) return null;
+            var text = PivotEdit.FlatText(_item.Document.Paragraphs[pa]);
+            var from = Math.Min(oa, text.Length);
+            var to = Math.Min(ob, text.Length);
+            return text.Substring(from, Math.Max(0, to - from)).Replace("￼", "");
         }
 
         private void SelectWordAt(int paragraphIndex, int offset)
@@ -1499,7 +1558,8 @@ namespace Marabook.View
                 }
             }
             else
-                _caretOffset = target;
+                _caretOffset = Settings.AppSettings.ShowLinks ? target
+                    : Links.SkipHidden(PivotEdit.FlatText(paragraph), target, direction);
         }
 
         private void MoveWord(int direction)

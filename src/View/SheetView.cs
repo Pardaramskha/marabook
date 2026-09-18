@@ -288,6 +288,12 @@ namespace Marabook.View
             _mirrorToggle.Checked += delegate { SetMirror(true); };
             modes.Children.Add(_editToggle);
             modes.Children.Add(_mirrorToggle);
+            // Tout à droite (18/09) : « i » — ce que le texte libre accepte
+            // (markdown, vue wiki, prévisualisation) et où en lire plus.
+            var info = Buttons.Icon("info-bold", "À propos du texte libre", Buttons.Compact, Buttons.Look.Calm);
+            info.Margin = new Thickness(8, 0, 0, 0);
+            info.Click += delegate { InfoDialog.ShowMarkdownHelp(Window.GetWindow(this)); };
+            modes.Children.Add(info);
             DockPanel.SetDock(modes, Dock.Right);
             toolRow.Children.Add(modes);
             toolRow.Children.Add(toolbar);
@@ -1803,7 +1809,9 @@ namespace Marabook.View
         }
 
         public void InsertFootnote() { } // les fiches n'ont pas de notes de bas de page
-        public void InsertWikiLink(string title) { InsertAtCaret("[[" + title + "]]"); }
+        /// <summary>Le [[lien]] garde l'expression sélectionnée comme texte
+        /// (« [[Cible|expression]] », 18/09).</summary>
+        public void InsertWikiLink(string title) { InsertAtCaret(Links.Markup(title, _bodyBox.SelectedText)); }
         public void InsertImage() { InsertAtCaret("![description](adresse)"); }
         public void InsertRule() { InsertAtCaret("\n---\n"); }
         public void InsertSeparator() { InsertAtCaret("\n***\n"); }

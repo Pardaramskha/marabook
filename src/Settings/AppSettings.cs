@@ -93,6 +93,11 @@ namespace Marabook.Settings
         public static bool WhitePaperInDark; // keep white pages under the dark theme
         public static bool StatsExpanded;    // « Statistiques » accordion of the inspector
         public static bool ShowAnnotations = true; // teintes + bulles de révision
+        // Les [[liens]] du texte (18/09) : marques visibles et texte du lien
+        // en évidence, ou marques masquées (défaut). Jamais persisté : chaque
+        // session repart cachée, l'insertion d'un lien les montre.
+        public static bool ShowLinks;
+        public static bool LexiconPinned; // le panneau Lexique tient un onglet du rail (18/09)
         public static bool ProofEnabled = true; // vérification continue (Révision)
         public static int SnapshotCap = 20;        // instantanés gardés par item (b38, 5–100)
         public static bool DailySnapshot = true;   // capture à la première modification du jour (b38)
@@ -247,6 +252,7 @@ namespace Marabook.Settings
                 WhitePaperInDark = Json.AsBool(Json.Field(root, "whitePaperInDark"), false);
                 StatsExpanded = Json.AsBool(Json.Field(root, "statsExpanded"), false);
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
+                LexiconPinned = Json.AsBool(Json.Field(root, "lexiconPinned"), false);
                 ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
                 SnapshotCap = (int)Json.AsDouble(Json.Field(root, "snapshotCap"), 20);
                 if (SnapshotCap < 5) SnapshotCap = 5;
@@ -350,6 +356,7 @@ namespace Marabook.Settings
                 root["whitePaperInDark"] = WhitePaperInDark;
                 root["statsExpanded"] = StatsExpanded;
                 root["showAnnotations"] = ShowAnnotations;
+                root["lexiconPinned"] = LexiconPinned;
                 root["proofEnabled"] = ProofEnabled;
                 root["snapshotCap"] = SnapshotCap;
                 root["dailySnapshot"] = DailySnapshot;

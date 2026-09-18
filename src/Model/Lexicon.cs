@@ -190,6 +190,20 @@ namespace Marabook.Model
                 if (string.Equals(entry.Word, word, StringComparison.Ordinal)) return entry;
             return null;
         }
+
+        /// <summary>L'entrée dont le mot OU une forme acceptée (pluriel,
+        /// féminin, conjugaison) est ce mot, casse ignorée — ce qu'un clic
+        /// droit sur « dragons » doit retrouver (18/09). Le mot exact prime.</summary>
+        public static LexiconEntry FindByForm(List<LexiconEntry> entries, string word)
+        {
+            if (entries == null || string.IsNullOrEmpty(word)) return null;
+            foreach (var entry in entries)
+                if (string.Equals(entry.Word, word, StringComparison.OrdinalIgnoreCase)) return entry;
+            foreach (var entry in entries)
+                foreach (var form in entry.Forms())
+                    if (string.Equals(form, word, StringComparison.OrdinalIgnoreCase)) return entry;
+            return null;
+        }
     }
 
     /// <summary>Les règles de flexion du dictionnaire personnel — le

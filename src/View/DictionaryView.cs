@@ -43,6 +43,14 @@ namespace Marabook.View
                 Buttons.Bar, Buttons.Look.Primary);
             newEntry.Click += delegate { NewEntry(true); };
             left.Children.Add(newEntry);
+            // Le menu options (18/09) : l'épingle du Lexique au rail, et
+            // l'import/export de dictionnaires (fichiers d'autres apps).
+            var options = Buttons.Icon("dots-three-vertical-bold",
+                "Options : Lexique au rail, importer ou exporter un dictionnaire",
+                Buttons.Bar, Buttons.Look.Calm);
+            options.Margin = new Thickness(6, 0, 0, 0);
+            options.Click += delegate { OpenOptionsMenu(options); };
+            left.Children.Add(options);
             toolbar.Children.Add(left);
             Children.Add(toolbar);
 
@@ -286,6 +294,134 @@ namespace Marabook.View
         {
             var handler = Changed;
             if (handler != null) handler(projectScope);
+        }
+
+        // ---------------------------------------------------------- options (18/09)
+
+        public event Action<bool> LexiconPinToggled; // le Lexique au rail, depuis le menu options
+
+        /// <summary>Édite une entrée (le crayon du panneau Lexique) : rend
+        /// l'entrée éditée et la portée choisie, ou null si annulé.</summary>
+        public LexiconEntry Edit(LexiconEntry entry, ref bool projectScope)
+        {
+            var scope = projectScope;
+            var edited = LexiconEntryDialog.Ask(Window.GetWindow(this), entry, ref scope);
+            if (edited == null) return null;
+            var list = Target(projectScope);
+            if (list != null) list.Remove(entry);
+            AddEntry(edited, scope);
+            if (scope != projectScope) RaiseChanged(projectScope); // l'ancienne portée a changé aussi
+            projectScope = scope;
+            return edited;
+        }
+
+        private void OpenOptionsMenu(Button anchor)
+        {
+            var menu = new ContextMenu
+            {
+                PlacementTarget = anchor,
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom
+            };
+            var pin = new MenuItem
+            {
+                Header = "Épingler le Lexique au rail",
+                IsCheckable = true,
+                IsChecked = AppSettings.LexiconPinned,
+                ToolTip = "Un onglet permanent dans la colonne de droite : la définition "
+                    + "du mot choisi par clic droit › « Afficher la définition »"
+            };
+            pin.Click += delegate
+            {
+                var handler = LexiconPinToggled;
+                if (handler != null) handler(pin.IsChecked);
+            };
+            menu.Items.Add(pin);
+            menu.Items.Add(new Separator());
+            var import = new MenuItem
+            {
+                Header = "Importer un dictionnaire…",
+                ToolTip = "Un fichier Marabook (.json) ou une liste de mots (.txt, .dic de Word, "
+                    + "LibreOffice, Hunspell, Scrivener…) — les mots déjà présents sont gardés"
+            };
+            var importProject = new MenuItem { Header = "Dans le dictionnaire du projet" };
+            importProject.Click += delegate { ImportInto(true); };
+            var importAll = new MenuItem { Header = "Dans le dictionnaire de tous les projets" };
+            importAll.Click += delegate { ImportInto(false); };
+            import.Items.Add(importProject);
+            import.Items.Add(importAll);
+            menu.Items.Add(import);
+            var export = new MenuItem
+            {
+                Header = "Exporter un dictionnaire…",
+                ToolTip = "Fichier Marabook (.json, natures et définitions), liste de mots (.txt) "
+                    + "ou dictionnaire personnel Word (.dic)"
+            };
+            var exportProject = new MenuItem { Header = "Le dictionnaire du projet" };
+            exportProject.Click += delegate { ExportFrom(true); };
+            var exportAll = new MenuItem { Header = "Le dictionnaire de tous les projets" };
+            exportAll.Click += delegate { ExportFrom(false); };
+            export.Items.Add(exportProject);
+            export.Items.Add(exportAll);
+            menu.Items.Add(export);
+            menu.IsOpen = true;
+        }
+
+        private void ImportInto(bool projectScope)
+        {
+            var list = Target(projectScope);
+            if (list == null) return;
+            var owner = Window.GetWindow(this);
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = LexiconExchange.ImportFilter,
+                Title = projectScope ? "Importer dans le dictionnaire du projet"
+                    : "Importer dans le dictionnaire de tous les projets"
+            };
+            if (dialog.ShowDialog(owner) != true) return;
+            try
+            {
+                var read = LexiconExchange.Read(dialog.FileName);
+                var added = LexiconExchange.Import(list, read);
+                Rebuild();
+                if (added > 0) RaiseChanged(projectScope);
+                var kept = read.Count - added;
+                MessageDialog.Show(owner,
+                    (added == 0 ? "Aucun mot nouveau" : added == 1 ? "1 mot ajouté" : added + " mots ajoutés")
+                    + (projectScope ? " au dictionnaire du projet" : " au dictionnaire de tous les projets")
+                    + (kept > 0 ? " (" + kept + " déjà présent" + (kept > 1 ? "s" : "") + ", gardé" + (kept > 1 ? "s" : "") + " tel" + (kept > 1 ? "s" : "") + " quel" + (kept > 1 ? "s" : "") + ")" : "")
+                    + ".", MainWindow.AppName, MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception error)
+            {
+                MessageDialog.Show(owner, "Import impossible :\n" + error.Message,
+                    MainWindow.AppName, MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void ExportFrom(bool projectScope)
+        {
+            var list = Target(projectScope);
+            if (list == null) return;
+            var owner = Window.GetWindow(this);
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter = LexiconExchange.ExportFilter,
+                FileName = (projectScope && _project != null ? _project.Name : "Marabook") + " - dictionnaire.json",
+                Title = projectScope ? "Exporter le dictionnaire du projet"
+                    : "Exporter le dictionnaire de tous les projets"
+            };
+            if (dialog.ShowDialog(owner) != true) return;
+            try
+            {
+                LexiconExchange.Export(list, dialog.FileName);
+                MessageDialog.Show(owner, "Export terminé :\n" + dialog.FileName,
+                    MainWindow.AppName, MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception error)
+            {
+                MessageDialog.Show(owner, "Export impossible :\n" + error.Message,
+                    MainWindow.AppName, MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 

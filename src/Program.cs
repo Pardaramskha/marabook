@@ -31,6 +31,20 @@ namespace Marabook
             var application = new Application();
             View.Theme.Apply(application);
             var window = new MainWindow();
+            // Le filet du secours (18/09) : une erreur non rattrapée écrit
+            // la sauvegarde de secours et s'explique, sans emporter la
+            // fenêtre ; une erreur fatale hors fil d'interface écrit au moins
+            // le secours avant la chute.
+            application.DispatcherUnhandledException += delegate(object sender,
+                System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+            {
+                window.OnCrash(e.Exception);
+                e.Handled = true;
+            };
+            AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e)
+            {
+                window.OnFatal(e.ExceptionObject as Exception);
+            };
             if (args.Length > 0 && File.Exists(args[0]))
                 window.OpenFile(args[0]);
             application.Run(window);

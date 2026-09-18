@@ -56,14 +56,25 @@ namespace Marabook.View
             // dessine le panneau, rayon 16.
             AllowsTransparency = true;
             Background = Brushes.Transparent;
-            Content = new Border
+            // Les toasts à boutons (18/09 : rapport d'arrêt brutal) vivent
+            // ici tant que l'accueil couvre la fenêtre principale.
+            _noticeHost = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 20, 20)
+            };
+            var root = new Grid();
+            root.Children.Add(new Border
             {
                 Background = Chrome.RaisedBg,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(16),
                 Child = Build()
-            };
+            });
+            root.Children.Add(_noticeHost);
+            Content = root;
             Closing += delegate(object sender, System.ComponentModel.CancelEventArgs e)
             {
                 if (!_release) e.Cancel = true; // jamais fermée à la main
@@ -72,6 +83,14 @@ namespace Marabook.View
             shell.SizeChanged += delegate { Fit(); };
             shell.LocationChanged += delegate { Fit(); };
             shell.StateChanged += delegate { Fit(); };
+        }
+
+        private readonly StackPanel _noticeHost;
+
+        /// <summary>Un toast à boutons (NoticeToast) en bas à droite de l'accueil.</summary>
+        public void ShowNotice(Border toast)
+        {
+            NoticeToast.Show(_noticeHost, toast);
         }
 
         /// <summary>Un projet est ouvert (ou l'app se ferme) : l'accueil se

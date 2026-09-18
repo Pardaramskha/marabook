@@ -352,9 +352,13 @@ namespace Marabook.View
                 }
                 else if (m.Groups["wiki"].Success)
                 {
+                    // « [[Cible|texte]] » (18/09) : la cible d'un côté, les
+                    // mots affichés de l'autre — comme dans les écrits.
                     var run = CloneStyle(style);
-                    run.WikiTarget = m.Groups["wiki"].Value.Trim();
-                    run.Text = run.WikiTarget;
+                    var inner = m.Groups["wiki"].Value;
+                    var pipe = inner.IndexOf('|');
+                    run.WikiTarget = (pipe < 0 ? inner : inner.Substring(0, pipe)).Trim();
+                    run.Text = pipe < 0 || inner.Length == pipe + 1 ? run.WikiTarget : inner.Substring(pipe + 1);
                     into.Add(run);
                 }
                 else if (m.Groups["linkurl"].Success)

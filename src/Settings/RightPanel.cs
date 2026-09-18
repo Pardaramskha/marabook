@@ -19,7 +19,8 @@ namespace Marabook.Settings
         Metadata,    // livre : sous-titre, auteur, éditeur, ISBN… (b32, sorti de l'inspecteur au b39)
         Publication, // livre : gabarit et « Publier… » (idem)
         Edition,     // livre : genre, public, thématiques, synopsis, accroche, 4e de couverture (b43)
-        Pinned       // l'écrit ou la fiche ÉPINGLÉ SUR LE CÔTÉ, lu en miroir (b47)
+        Pinned,      // l'écrit ou la fiche ÉPINGLÉ SUR LE CÔTÉ, lu en miroir (b47)
+        Lexicon      // la définition d'un mot du dictionnaire personnel (18/09) — épinglable au rail
     }
 
     /// <summary>Les règles pures autour du panneau de droite — sans WPF,
@@ -35,6 +36,21 @@ namespace Marabook.Settings
             { RightPanel.Inspector, RightPanel.Search, RightPanel.Pinned };
         private static readonly RightPanel[] ForCategory =
             { RightPanel.Search, RightPanel.Pinned };
+        // Le Lexique (18/09) n'a d'onglet que demandé : épinglé au rail, ou
+        // ouvert le temps d'une définition. Mêmes tableaux, un onglet de plus
+        // en queue — des instances fixes, le rail compare par référence.
+        private static readonly RightPanel[] ForTextLexicon = Append(ForText, RightPanel.Lexicon);
+        private static readonly RightPanel[] ForBookLexicon = Append(ForBook, RightPanel.Lexicon);
+        private static readonly RightPanel[] ForOthersLexicon = Append(ForOthers, RightPanel.Lexicon);
+        private static readonly RightPanel[] ForCategoryLexicon = Append(ForCategory, RightPanel.Lexicon);
+
+        private static RightPanel[] Append(RightPanel[] source, RightPanel extra)
+        {
+            var result = new RightPanel[source.Length + 1];
+            Array.Copy(source, result, source.Length);
+            result[source.Length] = extra;
+            return result;
+        }
 
         /// <summary>Le nom persisté dans settings.json (« rightPanel »).</summary>
         public static string Name(RightPanel panel)
@@ -49,6 +65,7 @@ namespace Marabook.Settings
                 case RightPanel.Publication: return "publication";
                 case RightPanel.Edition: return "edition";
                 case RightPanel.Pinned: return "pinned";
+                case RightPanel.Lexicon: return "lexicon";
                 default: return "none";
             }
         }
@@ -67,6 +84,7 @@ namespace Marabook.Settings
                 case "publication": return RightPanel.Publication;
                 case "edition": return RightPanel.Edition;
                 case "pinned": return RightPanel.Pinned;
+                case "lexicon": return RightPanel.Lexicon;
                 default: return RightPanel.Inspector;
             }
         }
@@ -91,17 +109,17 @@ namespace Marabook.Settings
         /// leur Général ne montrait rien), sauf l'Accueil qui garde son
         /// Général (les raccourcis « Commencer ») ; tout le reste (fiches,
         /// plans, dossiers, niveau projet) a Général et Recherche.</summary>
-        public static RightPanel[] Offered(ItemKind? kind, bool homeRoot = false)
+        public static RightPanel[] Offered(ItemKind? kind, bool homeRoot = false, bool lexicon = false)
         {
-            if (kind == ItemKind.Text) return ForText;
-            if (kind == ItemKind.Book) return ForBook;
-            if (kind == ItemKind.Category && !homeRoot) return ForCategory;
-            return ForOthers;
+            if (kind == ItemKind.Text) return lexicon ? ForTextLexicon : ForText;
+            if (kind == ItemKind.Book) return lexicon ? ForBookLexicon : ForBook;
+            if (kind == ItemKind.Category && !homeRoot) return lexicon ? ForCategoryLexicon : ForCategory;
+            return lexicon ? ForOthersLexicon : ForOthers;
         }
 
-        public static bool Offers(ItemKind? kind, RightPanel panel, bool homeRoot = false)
+        public static bool Offers(ItemKind? kind, RightPanel panel, bool homeRoot = false, bool lexicon = false)
         {
-            return Array.IndexOf(Offered(kind, homeRoot), panel) >= 0;
+            return Array.IndexOf(Offered(kind, homeRoot, lexicon), panel) >= 0;
         }
 
         /// <summary>Général, Métadonnées et Publication DÉCRIVENT l'élément
@@ -119,11 +137,14 @@ namespace Marabook.Settings
         /// sans élément courant (« on cherche avant d'avoir cliqué », b37) ;
         /// l'épinglé (b47) ne demande qu'une épingle posée, élément courant
         /// ou non.</summary>
-        public static bool Available(RightPanel panel, bool columnHidden, bool hasProject, ItemKind? kind, bool homeRoot = false, bool hasPin = false)
+        public static bool Available(RightPanel panel, bool columnHidden, bool hasProject, ItemKind? kind, bool homeRoot = false, bool hasPin = false, bool hasLexicon = false)
         {
             if (columnHidden || !hasProject) return false;
-            if (!Offers(kind, panel, homeRoot)) return false;
+            if (!Offers(kind, panel, homeRoot, panel == RightPanel.Lexicon)) return false;
             if (panel == RightPanel.Pinned) return hasPin;
+            // Le Lexique (18/09) : épinglé au rail ou ouvert pour une
+            // définition — élément courant ou non, comme l'épinglé.
+            if (panel == RightPanel.Lexicon) return hasLexicon;
             return panel == RightPanel.Search || kind != null;
         }
 

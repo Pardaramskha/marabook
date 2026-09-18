@@ -106,7 +106,10 @@ namespace Marabook.Tests
                 StyleBatchTests.Run,     // C23 — b45 : frappe typographique, incises, racines, bilan
                 PresenceTests.Run,       // C24 — présence et évolution (b47)
                 FieldKindTests.Run,      // C25 — natures de champ (b47 bis)
-                PaceTests.Run            // C26 — objectifs et temps (b48)
+                PaceTests.Run,           // C26 — objectifs et temps (b48)
+                LinksTests.Run,          // C27 — les [[liens]] du texte (18/09)
+                RecoveryTests.Run,       // C28 — sauvegarde de secours (18/09)
+                LexiconExchangeTests.Run // C29 — import/export du dictionnaire (18/09)
             };
             foreach (var suite in suites)
             {

@@ -150,6 +150,7 @@ namespace Marabook.View
 
         public event Action Edited; // any content or footnote change
         public event Action<string> LinkClicked; // Ctrl+click on a [[wiki link]]
+        public event Action<LexiconEntry, bool> DefinitionRequested; // clic droit › « Afficher la définition » (18/09)
 
         public EditorView()
         {
@@ -525,14 +526,22 @@ namespace Marabook.View
             panel.Children.Add(VerticalRuleTall());
 
             var link = OneLine("connection", "Lien vers une fiche",
-                "Insère un [[lien]] vers une fiche ou un écrit (Ctrl+K) — "
-                + "Ctrl+clic sur le lien pour l'ouvrir");
+                "Insère un [[lien]] vers une fiche ou un écrit (Ctrl+K) : l'expression "
+                + "sélectionnée reste le texte du lien — Ctrl+clic sur le lien pour l'ouvrir");
             link.Click += delegate
             {
                 var handler = LinkRequested;
                 if (handler != null) handler();
             };
-            panel.Children.Add(link);
+            // Afficher/Masquer les liens (18/09) : montrés, les marques
+            // [[…]] apparaissent et le texte du lien est en évidence, un
+            // clic l'ouvre ; masqués (défaut), le texte seul, Ctrl+clic.
+            _linksBtn = OneLineToggle("apercu", "Afficher les liens",
+                "Montrer les marques [[…]] des liens et leur texte en évidence — "
+                + "un clic sur un lien l'ouvre ; masqués, seul Ctrl+clic l'ouvre");
+            _linksBtn.IsChecked = Settings.AppSettings.ShowLinks;
+            _linksBtn.Click += delegate { SetShowLinks(_linksBtn.IsChecked == true); };
+            panel.Children.Add(Stacked(link, _linksBtn));
             panel.Children.Add(VerticalRuleTall());
 
             var pageBreak = OneLine("file-arrow-down-bold", "Saut de page",
@@ -1724,6 +1733,11 @@ namespace Marabook.View
                 var handler = LinkClicked;
                 if (handler != null) handler(title);
             };
+            _composed.DefinitionRequested += delegate(LexiconEntry entry, bool projectScope)
+            {
+                var handler = DefinitionRequested;
+                if (handler != null) handler(entry, projectScope);
+            };
             _composed.PageInfoChanged += delegate(int page, int total)
             {
                 var handler = PageInfoChanged;
@@ -2152,13 +2166,29 @@ namespace Marabook.View
 
         // ============================================================= wiki links
 
-        /// <summary>Inserts a styled [[link]] at the caret, immediately clickable.</summary>
+        /// <summary>Insère un [[lien]] au curseur : l'expression sélectionnée
+        /// reste le texte du lien (« [[Cible|expression]] »), jamais
+        /// remplacée par le nom de la fiche. Insérer un lien les montre.</summary>
         public void InsertWikiLink(string title)
         {
             if (_item == null || string.IsNullOrEmpty(title) || !ComposedActive) return;
-            _composed.TypeText("[[" + title + "]]");
+            _composed.TypeText(Links.Markup(title, _composed.SelectedPlainText()));
+            if (!Settings.AppSettings.ShowLinks) SetShowLinks(true);
             _composed.Focus();
         }
+
+        private ToggleButton _linksBtn;
+
+        /// <summary>Afficher/Masquer les liens (18/09) : réglage de session,
+        /// bouton du ruban, recomposition de la surface.</summary>
+        public void SetShowLinks(bool shown)
+        {
+            Settings.AppSettings.ShowLinks = shown;
+            if (_linksBtn != null) _linksBtn.IsChecked = shown;
+            if (ComposedActive) _composed.RefreshComposition();
+        }
+
+        public bool ShowLinks { get { return Settings.AppSettings.ShowLinks; } }
 
         // ============================================================= footnotes
 
