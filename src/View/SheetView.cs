@@ -29,6 +29,10 @@ namespace Marabook.View
         private readonly TabControl _tabs;         // Général | Texte libre (b36) | Radar (b47 bis, si le modèle l'active)
         private readonly TabItem _radarTab;
         private readonly StackPanel _radarHost;
+        // Les modules (DLC, 22/09) : un bouton « Créer une fiche X » dans le
+        // bandeau tant que la fiche n'en a pas, un onglet par fiche créée.
+        private readonly StackPanel _moduleButtons;
+        private readonly List<TabItem> _moduleTabs = new List<TabItem>();
         private Canvas _radarCanvas;
         private Border _dictDot;                   // indicateur de dictionnaire (12/09)
         private TextBlock _dictState;
@@ -111,6 +115,8 @@ namespace Marabook.View
             bannerRow.Children.Add(back);
 
             var rightTools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            _moduleButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            rightTools.Children.Add(_moduleButtons);
             _previewToggle = new ToggleButton
             {
                 Content = "📖  Mode wiki",
@@ -418,7 +424,7 @@ namespace Marabook.View
             return new DropShadowEffect { BlurRadius = 10, ShadowDepth = 1, Opacity = 0.14, Color = Colors.Black };
         }
 
-        private static Border Paper(string caption, UIElement content, UIElement action)
+        internal static Border Paper(string caption, UIElement content, UIElement action)
         {
             var stack = new StackPanel();
             var head = new Grid { Margin = new Thickness(0, 0, 0, 8) };
@@ -1670,6 +1676,7 @@ namespace Marabook.View
             RebuildPresence();
             RebuildEvolution();
             RebuildRadar();
+            RebuildModules();
             RefreshPortrait();
             _bodyBox.Text = item.Document.ToPlainText();
             // La pile d'annulation du TextBox repart de zéro avec le texte
@@ -1705,7 +1712,63 @@ namespace Marabook.View
             _presencePanel.Children.Clear();
             _evolutionPanel.Children.Clear();
             RebuildRadar();
+            RebuildModules();
             SyncGenealogy();
+        }
+
+        // ================================================== modules (DLC, 22/09)
+
+        /// <summary>Les modules qui visent la catégorie de la fiche : un
+        /// onglet par fiche de module déjà créée, sinon un bouton « Créer une
+        /// fiche X » dans le bandeau. Sans module installé : rien.</summary>
+        private void RebuildModules()
+        {
+            foreach (var tab in _moduleTabs)
+            {
+                if (_tabs.SelectedItem == tab) _tabs.SelectedIndex = 0;
+                _tabs.Items.Remove(tab);
+            }
+            _moduleTabs.Clear();
+            _moduleButtons.Children.Clear();
+            if (_item == null) return;
+            foreach (var module in Modules.ForSheet(_project, _item))
+            {
+                var moduleRef = module;
+                if (Modules.HasSheet(module, _item))
+                {
+                    var view = new ModuleSheetView();
+                    view.Load(module, _item, NotifyEdited);
+                    var tab = new TabItem
+                    {
+                        Header = module.Tab,
+                        Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = view, Cursor = Cursors.Arrow }
+                    };
+                    _tabs.Items.Add(tab);
+                    _moduleTabs.Add(tab);
+                    continue;
+                }
+                var create = new Button
+                {
+                    Content = Icons.Label("plus-bold", module.Button, 13, Chrome.Ink),
+                    Padding = new Thickness(12, 4, 12, 4),
+                    Margin = new Thickness(0, 0, 8, 0),
+                    ToolTip = module.Title + " — la fiche avancée du module " + module.Name + ", dans un nouvel onglet"
+                };
+                create.Click += delegate { CreateModuleSheet(moduleRef); };
+                _moduleButtons.Children.Add(create);
+            }
+        }
+
+        /// <summary>« Créer une fiche X » : la fiche naît vide, l'onglet
+        /// s'ouvre dessus, le projet est modifié.</summary>
+        public void CreateModuleSheet(ModuleInfo module)
+        {
+            if (_item == null || module == null || Modules.HasSheet(module, _item)) return;
+            Modules.ValuesOf(module, _item, true);
+            NotifyEdited();
+            RebuildModules();
+            foreach (var tab in _moduleTabs)
+                if ((string)tab.Header == module.Tab) { _tabs.SelectedItem = tab; break; }
         }
 
         // ================================================== radar (b47 bis)

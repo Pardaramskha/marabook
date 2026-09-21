@@ -197,6 +197,17 @@ namespace Marabook
                 _minuteTimer.Tick += delegate { ScheduleAchievementCheck(); };
                 _minuteTimer.Start();
             };
+            // Un module (DLC) installé ou retiré pendant la session (22/09) :
+            // la fiche ouverte gagne ou perd son bouton et son onglet, la
+            // bibliothèque ses puces, les succès se recomptent.
+            Modules.Changed += delegate
+            {
+                if (_current != null && _current.Kind == ItemKind.Sheet && _sheetView.Visibility == Visibility.Visible)
+                    _sheetView.LoadItem(_current, _project.FindTemplate(_current.TemplateId));
+                if (_project != null) _sheetLibrary.Refresh();
+                if (_journalView.Visibility == Visibility.Visible) _journalView.RefreshAchievements();
+                ScheduleAchievementCheck();
+            };
             _editor.CalmRequested += ToggleCalmMode;
             // Les menus se grisent selon la vue affichée (13/09).
             _editor.IsVisibleChanged += delegate { RefreshMenuAvailability(); };
@@ -3669,6 +3680,7 @@ namespace Marabook
                     && !string.Equals(gesture ?? "", action.DefaultGesture ?? "", StringComparison.OrdinalIgnoreCase))
                     facts.ShortcutsChanged++;
             }
+            facts.ModuleHolds = Modules.Holding(_project); // succès des modules (DLC)
             var earned = Achievements.Earned(facts, AppSettings.Achievements.Keys);
             foreach (var id in earned) UnlockAchievement(id);
         }

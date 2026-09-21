@@ -121,7 +121,10 @@ namespace Marabook.Persistence
         //      ("extraKind" : ExtraPages.Kind*, absent = libre ; les pages
         //      dynamiques — table des matières, index, notes de fin, glossaire
         //      — s'y reconnaissent).
-        private const int FormatVersion = 26;
+        // v27: MODULES (DLC, 22/09) — les fiches de module d'une fiche
+        //      ("modules" : {idModule: {idChamp: valeur}}, une entrée présente
+        //      même vide = fiche de module créée ; omis sans module).
+        private const int FormatVersion = 27;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -497,6 +500,18 @@ namespace Marabook.Persistence
                     foreach (var kv in item.FieldValues)
                         if (!string.IsNullOrEmpty(kv.Value)) fields[kv.Key] = kv.Value;
                     if (fields.Count > 0) node["fields"] = fields;
+                }
+                if (item.ModuleValues.Count > 0) // v27
+                {
+                    var modules = new Dictionary<string, object>();
+                    foreach (var module in item.ModuleValues)
+                    {
+                        var values = new Dictionary<string, object>();
+                        foreach (var kv in module.Value)
+                            if (!string.IsNullOrEmpty(kv.Value)) values[kv.Key] = kv.Value;
+                        modules[module.Key] = values;
+                    }
+                    node["modules"] = modules;
                 }
                 if (item.FreeInfo.Count > 0)
                 {
@@ -1276,6 +1291,17 @@ namespace Marabook.Persistence
                 if (fields != null)
                     foreach (var kv in fields)
                         if (kv.Value is string) item.FieldValues[kv.Key] = (string)kv.Value;
+                var modules = Json.AsObject(Json.Field(obj, "modules")); // v27
+                if (modules != null)
+                    foreach (var module in modules)
+                    {
+                        var values = new Dictionary<string, string>();
+                        var moduleNode = Json.AsObject(module.Value);
+                        if (moduleNode != null)
+                            foreach (var kv in moduleNode)
+                                if (kv.Value is string) values[kv.Key] = (string)kv.Value;
+                        item.ModuleValues[module.Key] = values;
+                    }
                 var info = Json.AsList(Json.Field(obj, "info"));
                 if (info != null)
                     foreach (var infoEntry in info)

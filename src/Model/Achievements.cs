@@ -11,6 +11,7 @@ namespace Marabook.Model
     public class Achievement
     {
         public string Id, Name, Description;
+        public string ModuleId; // succès apporté par un module (DLC) : son image vit dans son dossier
 
         public Achievement(string id, string name, string description)
         {
@@ -58,6 +59,7 @@ namespace Marabook.Model
         public int MaxSnapshots;       // sur un seul écrit
         public bool BookWithImage;
         public int MaxTemplatesApplied; // gabarits distincts appliqués dans un livre (≥ 4 créés)
+        public HashSet<string> ModuleHolds; // succès de modules (DLC) dont la règle tient (Modules.Holding)
         public bool OddBook;           // format hors défaut ET fond perdu différent
         public int WordsAtMaxZoom;     // mots écrits à 300 %
         public double OpenHours;       // heures depuis le lancement
@@ -81,7 +83,40 @@ namespace Marabook.Model
         public const string About = "enfin-quelqu-un";
         public const string OldSchool = "a-l-ancienne";
 
-        public static readonly Achievement[] All =
+        /// <summary>Les succès de Marabook, puis ceux des modules installés
+        /// (DLC, 22/09) intercalés AVANT les paliers de fin (« Obtenez cinq
+        /// succès… ») — l'Empereur les exige aussi.</summary>
+        public static Achievement[] All
+        {
+            get
+            {
+                if (_all == null)
+                {
+                    var list = new List<Achievement>();
+                    foreach (var achievement in Builtin)
+                    {
+                        if (IsTier(achievement.Id) && _module.Count > 0) { list.AddRange(_module); _module = new List<Achievement>(_module); }
+                        list.Add(achievement);
+                    }
+                    // Sans palier (impossible) : les succès de module en queue.
+                    foreach (var extra in _module) if (!list.Contains(extra)) list.Add(extra);
+                    _all = list.ToArray();
+                }
+                return _all;
+            }
+        }
+
+        private static Achievement[] _all;
+        private static List<Achievement> _module = new List<Achievement>();
+
+        /// <summary>Les modules (ré)installés : leurs succès remplacent les précédents.</summary>
+        public static void SetModuleAchievements(List<Achievement> achievements)
+        {
+            _module = achievements ?? new List<Achievement>();
+            _all = null;
+        }
+
+        public static readonly Achievement[] Builtin =
         {
             new Achievement(FirstProject, "Le début d'une belle aventure", "Créez votre premier projet."),
 
@@ -252,7 +287,7 @@ namespace Marabook.Model
                 case "besoin-de-lunettes": return f.WordsAtMaxZoom >= 100;
                 case "pensez-a-vous-etirer": return f.OpenHours > 8;
                 case "inner-peace": return f.WordsInCalm >= 5000;
-                default: return false;
+                default: return f.ModuleHolds != null && f.ModuleHolds.Contains(id); // succès d'un module (DLC)
             }
         }
 

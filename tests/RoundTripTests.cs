@@ -463,6 +463,8 @@ namespace Marabook.Tests
             sheet.RadarValues[template.RadarAxes[2].Id] = 6;
             sheet.Evolution.Add(new EvolutionEntry { TextId = chapter.Id, Note = "perd une plume" });
             sheet.Evolution.Add(new EvolutionEntry { Note = "étape libre" });
+            sheet.ModuleValues["fpdm"] = new System.Collections.Generic.Dictionary<string, string> { { "origin", "Un nom de roi" }, { "food.0", "Pain" } }; // fiche de module (DLC, v27)
+            sheet.ModuleValues["vide"] = new System.Collections.Generic.Dictionary<string, string>(); // créée, encore vide : l'entrée survit
             project.SidePinId = sheet.Id;
             // — Les récents (batch 41, v18) : deux items ouverts, le plus
             // récent en tête ; l'épingle du chapitre est remplie par le

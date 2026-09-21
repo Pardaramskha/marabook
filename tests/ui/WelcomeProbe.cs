@@ -86,6 +86,9 @@ namespace Marabook.Tests.Ui
                     Check(welcome.ActualWidth >= window.ActualWidth * 0.75 && welcome.ActualHeight >= window.ActualHeight * 0.75,
                         "l'accueil prend la majeure partie de la fenêtre (" + (int)welcome.ActualWidth + "×" + (int)welcome.ActualHeight + ")");
                     Check(FindButton(welcome, "Ouvrir un projet…") != null, "« Ouvrir un projet… » à côté de « Derniers projets »");
+                    // Le bloc DLC (22/09) sous les projets : une tuile par module du catalogue.
+                    Check(FindText(welcome, "DLC") != null && FindText(welcome, "FPDM") != null,
+                        "le bloc « DLC » liste FPDM sous les projets récents");
                     RenderPng(welcome, Path.Combine(Path.GetTempPath(), "marabook-b44-accueil.png")); // la fenêtre entière : un Content rendu seul garde son décalage de marge
                     RenderPng((FrameworkElement)window.Content, Path.Combine(Path.GetTempPath(), "marabook-b44-accueil-fond.png"));
                     // Fermeture à la main : refusée.
@@ -164,6 +167,19 @@ namespace Marabook.Tests.Ui
             Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle,
                 new Action(delegate { frame.Continue = false; }));
             Dispatcher.PushFrame(frame);
+        }
+
+        private static TextBlock FindText(DependencyObject root, string text)
+        {
+            var block = root as TextBlock;
+            if (block != null && block.Text == text) return block;
+            var count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < count; i++)
+            {
+                var found = FindText(System.Windows.Media.VisualTreeHelper.GetChild(root, i), text);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         private static Button FindButton(DependencyObject root, string label)

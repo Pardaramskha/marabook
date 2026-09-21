@@ -10,6 +10,7 @@ namespace Marabook
         public static void Main(string[] args)
         {
             Settings.AppSettings.Load();
+            Model.Modules.Load(); // les DLC installés (22/09) : sans module, rien ne change
             // Tooltips réactifs façon web : apparition rapide, ré-apparition
             // immédiate en balayant une barre d'outils (fenêtre BetweenShow).
             System.Windows.Controls.ToolTipService.InitialShowDelayProperty

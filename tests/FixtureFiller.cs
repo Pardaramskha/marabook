@@ -75,8 +75,10 @@ namespace Marabook.Tests
             "BinderItem.Kind",              // enum : détermine le jeu de clés
             "BinderItem.FieldValues",       // Dictionary<string,string> — la
                                             //   fiche héroïne l'exerce
-            "BinderItem.RadarValues"        // Dictionary<string,double> — la fiche
+            "BinderItem.RadarValues",       // Dictionary<string,double> — la fiche
                                             //   héroïne l'exerce (b47 bis, v22)
+            "BinderItem.ModuleValues"       // Dictionary<string,Dictionary<string,string>> —
+                                            //   la fiche héroïne l'exerce (DLC, v27)
         };
 
         /// <summary>Remplit les scalaires encore à leur défaut de l'objet

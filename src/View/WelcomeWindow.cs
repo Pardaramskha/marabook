@@ -79,7 +79,7 @@ namespace Marabook.View
             {
                 if (!_release) e.Cancel = true; // jamais fermée à la main
             };
-            Loaded += delegate { Fit(); StartUpdateCheck(); };
+            Loaded += delegate { Fit(); StartUpdateCheck(); ModuleStore.CheckOnline(Dispatcher); };
             shell.SizeChanged += delegate { Fit(); };
             shell.LocationChanged += delegate { Fit(); };
             shell.StateChanged += delegate { Fit(); };
@@ -219,8 +219,103 @@ namespace Marabook.View
             _tiles = tiles;
             center.Children.Add(tiles);
             center.Children.Add(BuildLoading());
+            center.Children.Add(BuildModules());
             root.Children.Add(center);
             return root;
+        }
+
+        // ------------------------------------------------------- modules (DLC)
+
+        private WrapPanel _modules;
+
+        /// <summary>Le bloc « DLC » sous les projets (22/09) : une tuile par
+        /// module du catalogue — nom, une ligne, et l'état : installé (sa
+        /// version), disponible, ou ce qui empêche de le savoir. Cliquer
+        /// ouvre la fiche du module (ce qu'il apporte, Installer).</summary>
+        private UIElement BuildModules()
+        {
+            var block = new StackPanel { Margin = new Thickness(0, 18, 0, 0) };
+            var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 0, 0, 6) };
+            titleRow.Children.Add(new TextBlock
+            {
+                Text = "DLC",
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Chrome.SoftText,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            titleRow.Children.Add(new TextBlock
+            {
+                Text = "des modules qui ajoutent des fonctions à Marabook — installés ici, gérés dans Préférences › DLC",
+                FontSize = 11,
+                Foreground = Chrome.FaintText,
+                Margin = new Thickness(10, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            block.Children.Add(titleRow);
+            _modules = new WrapPanel();
+            block.Children.Add(_modules);
+            RefreshModules();
+            ModuleStore.Changed += RefreshModules;
+            Closed += delegate { ModuleStore.Changed -= RefreshModules; };
+            return block;
+        }
+
+        private void RefreshModules()
+        {
+            if (_modules == null) return;
+            _modules.Children.Clear();
+            foreach (var state in ModuleStore.Refresh())
+            {
+                var stateRef = state;
+                var tile = Tile();
+                tile.Width = 236;
+                tile.Cursor = Cursors.Hand;
+                tile.ToolTip = state.Source.Title.Length > 0 ? state.Source.Title : state.Source.Name;
+                var column = new StackPanel { Margin = new Thickness(14, 10, 14, 10) };
+                var head = new DockPanel();
+                var dot = new Border
+                {
+                    Width = 9,
+                    Height = 9,
+                    CornerRadius = new CornerRadius(4.5),
+                    Background = state.IsInstalled ? Chrome.Accent : Chrome.Border,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(8, 1, 0, 0),
+                    ToolTip = state.IsInstalled ? "Installé" : "Non installé"
+                };
+                DockPanel.SetDock(dot, Dock.Right);
+                head.Children.Add(dot);
+                head.Children.Add(new TextBlock
+                {
+                    Text = state.Source.Name,
+                    FontSize = 14,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = Chrome.Ink,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
+                column.Children.Add(head);
+                column.Children.Add(new TextBlock
+                {
+                    Text = state.Source.Features.Count > 0 ? state.Source.Features[0] : state.Source.Title,
+                    FontSize = 11,
+                    Foreground = Chrome.SoftText,
+                    TextWrapping = TextWrapping.Wrap,
+                    Height = 30,
+                    Margin = new Thickness(0, 3, 0, 0)
+                });
+                column.Children.Add(new TextBlock
+                {
+                    Text = state.Label,
+                    FontSize = 11,
+                    Foreground = state.IsInstalled ? Chrome.Accent : Chrome.FaintText,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(0, 6, 0, 0)
+                });
+                tile.Child = column;
+                tile.MouseLeftButtonUp += delegate { ModuleDialog.Show(this, stateRef); };
+                _modules.Children.Add(tile);
+            }
         }
 
         // ------------------------------------------------------- chargement

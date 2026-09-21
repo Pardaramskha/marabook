@@ -87,6 +87,11 @@ namespace Marabook.View
                 Header = "Raccourcis",
                 Content = Scrolled(BuildShortcutsTab())
             });
+            tabs.Items.Add(new TabItem
+            {
+                Header = "DLC",
+                Content = Scrolled(BuildModulesTab())
+            });
 
             var layout = new DockPanel();
             var buttons = new StackPanel
@@ -103,6 +108,112 @@ namespace Marabook.View
             layout.Children.Add(tabs);
 
             Content = layout;
+        }
+
+        // ------------------------------------------------------------ DLC (22/09)
+
+        private StackPanel _modulesPanel;
+
+        /// <summary>Onglet « DLC » : les modules du catalogue et ceux installés
+        /// depuis un fichier — leur état, « Détails… » (la fiche : ce qu'il
+        /// apporte, Installer / Désinstaller), et « Installer depuis un
+        /// fichier .mdlc… » pour un paquet obtenu autrement.</summary>
+        private UIElement BuildModulesTab()
+        {
+            var panel = new StackPanel { Margin = new Thickness(16, 14, 16, 14) };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Les modules (DLC) ajoutent des fonctions à Marabook : une fiche avancée, des succès… Ils s'installent depuis GitHub ou depuis un paquet .mdlc, sans redémarrage ; désinstallés, les projets gardent leurs valeurs.",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 12)
+            });
+            _modulesPanel = new StackPanel();
+            panel.Children.Add(_modulesPanel);
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0) };
+            var fromFile = Buttons.Text("Installer depuis un fichier .mdlc…", "Un paquet de module obtenu autrement que par GitHub", Buttons.Bar, Buttons.Look.Outline);
+            fromFile.Click += delegate { InstallModuleFromFile(); };
+            actions.Children.Add(fromFile);
+            var check = Buttons.Text("Vérifier les versions", "Interroge GitHub pour chaque module du catalogue", Buttons.Bar, Buttons.Look.Outline);
+            check.Margin = new Thickness(8, 0, 0, 0);
+            check.Click += delegate
+            {
+                foreach (var state in ModuleStore.States) state.Checked = false;
+                ModuleStore.CheckOnline(Dispatcher);
+                RefreshModules();
+            };
+            actions.Children.Add(check);
+            panel.Children.Add(actions);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Dossier des modules : " + Modules.Root,
+                Foreground = Chrome.FaintText,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 12, 0, 0)
+            });
+            RefreshModules();
+            ModuleStore.CheckOnline(Dispatcher);
+            ModuleStore.Changed += RefreshModules;
+            Closed += delegate { ModuleStore.Changed -= RefreshModules; };
+            return panel;
+        }
+
+        private void RefreshModules()
+        {
+            if (_modulesPanel == null) return;
+            _modulesPanel.Children.Clear();
+            foreach (var state in ModuleStore.Refresh())
+            {
+                var stateRef = state;
+                var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+                var details = Buttons.Text(state.IsInstalled ? "Gérer…" : "Détails…",
+                    "La fiche du module : ce qu'il apporte, installer ou désinstaller", Buttons.Compact, Buttons.Look.Outline);
+                details.Margin = new Thickness(12, 0, 0, 0);
+                details.VerticalAlignment = VerticalAlignment.Center;
+                details.Click += delegate { ModuleDialog.Show(this, stateRef); };
+                DockPanel.SetDock(details, Dock.Right);
+                row.Children.Add(details);
+                var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                var name = new TextBlock { FontSize = 13, Foreground = Chrome.Ink };
+                name.Inlines.Add(new System.Windows.Documents.Run(state.Source.Name) { FontWeight = FontWeights.SemiBold });
+                if (state.Source.Title.Length > 0)
+                    name.Inlines.Add(new System.Windows.Documents.Run("  " + state.Source.Title) { Foreground = Chrome.SoftText, FontSize = 12 });
+                text.Children.Add(name);
+                text.Children.Add(new TextBlock
+                {
+                    Text = state.Label,
+                    FontSize = 11,
+                    Foreground = state.IsInstalled ? Chrome.Accent : Chrome.SoftText,
+                    Margin = new Thickness(0, 2, 0, 0)
+                });
+                row.Children.Add(text);
+                _modulesPanel.Children.Add(row);
+            }
+            if (_modulesPanel.Children.Count == 0)
+                _modulesPanel.Children.Add(new TextBlock { Text = "Aucun module connu.", Foreground = Chrome.SoftText, FontSize = 12 });
+        }
+
+        private void InstallModuleFromFile()
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Installer un module",
+                Filter = "Module Marabook (*.mdlc)|*.mdlc",
+                CheckFileExists = true
+            };
+            if (dialog.ShowDialog(this) != true) return;
+            try
+            {
+                var module = ModuleStore.InstallFromFile(dialog.FileName);
+                MessageDialog.Show(this, module.Name + (module.Version.Length > 0 ? " " + module.Version : "") + " est installé — prêt, sans redémarrage.",
+                    "Modules", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception failure)
+            {
+                MessageDialog.Show(this, "Installation impossible : " + failure.Message, "Modules", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         private static ScrollViewer Scrolled(UIElement content)

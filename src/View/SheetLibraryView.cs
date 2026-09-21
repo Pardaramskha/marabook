@@ -501,6 +501,26 @@ namespace Marabook.View
                     ToolTip = "Cette fiche n'utilise pas le modèle de base "
                         + "de la catégorie"
                 });
+            // — la puce d'une fiche de module (DLC, 22/09) : « Fiche FPDM »
+            foreach (var module in Modules.ForSheet(_project, sheet))
+                if (Modules.HasSheet(module, sheet))
+                {
+                    var complete = Modules.IsComplete(module, sheet);
+                    grid.Children.Add(new Border
+                    {
+                        Width = 10,
+                        Height = 10,
+                        CornerRadius = new CornerRadius(5),
+                        Background = Chrome.Accent,
+                        BorderBrush = Chrome.PaperBg,
+                        BorderThickness = new Thickness(1.5),
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        VerticalAlignment = VerticalAlignment.Top,
+                        Margin = new Thickness(6, 6, 0, 0),
+                        ToolTip = "Fiche " + module.Name + (complete ? " — complète" : " — " + Modules.FilledCount(module, sheet) + " / " + module.ValueIds().Count + " champs")
+                    });
+                    break;
+                }
             layout.Children.Add(grid);
 
             layout.Children.Add(new TextBlock

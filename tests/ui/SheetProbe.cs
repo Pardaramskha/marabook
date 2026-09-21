@@ -278,6 +278,66 @@ namespace Marabook.Tests.Ui
             }
             dialog.Close();
             DoEvents();
+
+            // — Un module (DLC, 22/09) installé dans un dossier de sonde
+            //   (jamais celui de l'utilisateur) : le vrai paquet FPDM du dépôt
+            //   voisin s'il est là, sinon un module de démonstration. La fiche
+            //   Personnage gagne le bouton, le clic crée l'onglet et ses
+            //   champs ; la bibliothèque marque la fiche d'une puce.
+            var moduleRoot = Path.Combine(Path.GetTempPath(), "marabook-sonde-dlc-" + Guid.NewGuid().ToString("N"));
+            Modules.RootOverride = moduleRoot;
+            try
+            {
+                var real = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\marabook-dlc-fpdm\fpdm.mdlc"));
+                var package = real;
+                if (!File.Exists(real))
+                {
+                    package = Path.Combine(moduleRoot, "demo.mdlc");
+                    Directory.CreateDirectory(moduleRoot);
+                    Modules.Pack("{\"id\":\"demo\",\"name\":\"Démo\",\"sheet\":{\"categories\":[\"Personnage\"],\"papers\":[{\"title\":\"Général\",\"fields\":[{\"id\":\"a\",\"label\":\"Champ A\",\"hint\":\"indication\"}]}]}}", null, package);
+                }
+                Modules.Load();
+                Check(Modules.Installed.Count == 0, "sans module installé, rien");
+                sheetView.LoadItem(sheet, characterTemplate);
+                DoEvents();
+                var moduleButtons = (StackPanel)GetField(sheetView, "_moduleButtons");
+                Check(moduleButtons.Children.Count == 0 && tabs.Items.Count == 3, "…ni bouton ni onglet de module sur la fiche");
+                var module = ModuleStore.InstallFromFile(package); // Modules.Changed → la fenêtre recharge la fiche
+                DoEvents();
+                Check(Modules.IsInstalled(module.Id) && moduleButtons.Children.Count == 1,
+                    "module « " + module.Name + " » installé : le bouton « " + module.Button + " » est au bandeau de la fiche Personnage");
+                var libraryCardsBefore = CountModuleDots(library);
+                sheetView.CreateModuleSheet(module);
+                DoEvents();
+                Check(tabs.Items.Count == 4 && (string)((TabItem)tabs.Items[3]).Header == module.Tab && tabs.SelectedIndex == 3,
+                    "le clic crée la fiche de module : un onglet « " + module.Tab + " » s'ouvre");
+                Check(moduleButtons.Children.Count == 0, "…et le bouton disparaît");
+                var moduleView = FindModuleView((DependencyObject)((TabItem)tabs.Items[3]).Content);
+                var boxes = moduleView == null ? 0 : CountTextBoxes(moduleView);
+                Check(moduleView != null && boxes == module.ValueIds().Count,
+                    "l'onglet porte une zone par valeur attendue (" + boxes + " / " + module.ValueIds().Count + ")");
+                var firstBox = FirstTextBox(moduleView);
+                firstBox.Text = "Sonde";
+                DoEvents();
+                Check(Modules.FilledCount(module, sheet) == 1, "la frappe va dans la fiche de module (1 valeur remplie)");
+                Snapshot((FrameworkElement)sheetView, Path.Combine(Path.GetTempPath(), "marabook-2209-fiche-module.png"));
+                Invoke(window, "OnBinderSelection", new object[] { sheet.Parent });
+                DoEvents();
+                Check(CountModuleDots(library) == libraryCardsBefore + 1, "la bibliothèque marque la fiche d'une puce de module");
+                Invoke(window, "OnBinderSelection", new object[] { sheet });
+                DoEvents();
+                Modules.Uninstall(module.Id);
+                DoEvents();
+                Check(tabs.Items.Count == 3 && sheet.ModuleValues.ContainsKey(module.Id),
+                    "désinstallé : l'onglet s'en va, la fiche garde ses valeurs");
+                sheet.ModuleValues.Clear();
+            }
+            finally
+            {
+                Modules.RootOverride = null;
+                Modules.Load();
+                try { Directory.Delete(moduleRoot, true); } catch { }
+            }
             sheet.Evolution.Clear();
             sheet.RadarValues.Clear();
             characterTemplate.Tracking = false;
@@ -305,6 +365,40 @@ namespace Marabook.Tests.Ui
 
             window.Close();
             DoEvents();
+        }
+
+        /// <summary>Les puces de module des cartes de la bibliothèque (le
+        /// Border rond à gauche, infobulle « Fiche … »).</summary>
+        private static int CountModuleDots(DependencyObject root)
+        {
+            var count = 0;
+            var border = root as Border;
+            if (border != null && border.ToolTip is string && ((string)border.ToolTip).StartsWith("Fiche ")) count++;
+            foreach (var child in LogicalTreeHelper.GetChildren(root))
+                if (child is DependencyObject) count += CountModuleDots((DependencyObject)child);
+            return count;
+        }
+
+        private static ModuleSheetView FindModuleView(DependencyObject root)
+        {
+            if (root is ModuleSheetView) return (ModuleSheetView)root;
+            foreach (var child in LogicalTreeHelper.GetChildren(root))
+            {
+                var found = child is DependencyObject ? FindModuleView((DependencyObject)child) : null;
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private static TextBox FirstTextBox(DependencyObject root)
+        {
+            if (root is TextBox) return (TextBox)root;
+            foreach (var child in LogicalTreeHelper.GetChildren(root))
+            {
+                var found = child is DependencyObject ? FirstTextBox((DependencyObject)child) : null;
+                if (found != null) return found;
+            }
+            return null;
         }
 
         private static int CountTextBoxes(DependencyObject root)

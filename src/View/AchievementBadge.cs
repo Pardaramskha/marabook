@@ -20,9 +20,18 @@ namespace Marabook.View
                 Path.Combine("assets", Path.Combine("achievements", id + ".png")));
         }
 
+        /// <summary>L'image d'un succès de module (DLC) : achievements\&lt;id&gt;.png
+        /// dans le dossier du module installé.</summary>
+        public static string ModuleImagePath(string moduleId, string id)
+        {
+            return Path.Combine(Modules.DirOf(moduleId), Path.Combine("achievements", id + ".png"));
+        }
+
         public static FrameworkElement Build(Achievement achievement, bool unlocked, double size)
         {
-            var path = ImagePath(achievement.Id);
+            var path = achievement.ModuleId != null
+                ? ModuleImagePath(achievement.ModuleId, achievement.Id)
+                : ImagePath(achievement.Id);
             BitmapSource source = null;
             if (File.Exists(path))
             {

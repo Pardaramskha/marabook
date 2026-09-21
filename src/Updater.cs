@@ -36,6 +36,7 @@ namespace Marabook
         {
             public string Version = "";  // « 0.43.0 »
             public string ZipUrl = "";   // l'archive portable Windows de la release
+            public string AssetApiUrl = ""; // l'asset par l'API (dépôt privé : avec jeton, Accept octet-stream)
             public string PageUrl = "";  // la page de la release
             public string Notes = "";    // le texte de la release (Markdown brut)
         }
@@ -72,6 +73,13 @@ namespace Marabook
         /// <summary>La dernière release publiée. Lève une exception parlante sinon.</summary>
         public static Info Latest()
         {
+            return LatestOf(Repository, PortableZip);
+        }
+
+        /// <summary>La dernière release d'un dépôt quelconque (les modules,
+        /// 22/09) et l'URL de l'asset au nom donné. Même chemin, mêmes messages.</summary>
+        public static Info LatestOf(string repository, string assetName)
+        {
             ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; // TLS 1.2
             string json;
             using (var client = new WebClient())
@@ -84,7 +92,7 @@ namespace Marabook
                 client.Encoding = Encoding.UTF8;
                 try
                 {
-                    json = client.DownloadString("https://api.github.com/repos/" + Repository + "/releases/latest");
+                    json = client.DownloadString("https://api.github.com/repos/" + repository + "/releases/latest");
                 }
                 catch (WebException failure)
                 {
@@ -102,12 +110,22 @@ namespace Marabook
                 PageUrl = Field(json, "html_url"),
                 Notes = Field(json, "body")
             };
-            foreach (Match match in Regex.Matches(json, "\"browser_download_url\"\\s*:\\s*\"([^\"]+)\""))
-                if (match.Groups[1].Value.EndsWith("/" + PortableZip, StringComparison.OrdinalIgnoreCase))
+            // L'asset au nom voulu : son URL de téléchargement, et son URL
+            // d'API (le champ « url » du même objet asset, qui précède).
+            foreach (Match match in Regex.Matches(json, "\"url\"\\s*:\\s*\"([^\"]+/releases/assets/[0-9]+)\"[^{}]*?\"browser_download_url\"\\s*:\\s*\"([^\"]+)\""))
+                if (match.Groups[2].Value.EndsWith("/" + assetName, StringComparison.OrdinalIgnoreCase))
                 {
-                    info.ZipUrl = match.Groups[1].Value;
+                    info.AssetApiUrl = match.Groups[1].Value;
+                    info.ZipUrl = match.Groups[2].Value;
                     break;
                 }
+            if (info.ZipUrl.Length == 0)
+                foreach (Match match in Regex.Matches(json, "\"browser_download_url\"\\s*:\\s*\"([^\"]+)\""))
+                    if (match.Groups[1].Value.EndsWith("/" + assetName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        info.ZipUrl = match.Groups[1].Value;
+                        break;
+                    }
             if (info.Version.Length == 0) throw new Exception("Réponse GitHub illisible");
             return info;
         }

@@ -84,6 +84,10 @@ namespace Marabook.Model
         public string TemplateId;
         public string CategoryId; // catégorie de fiches (batch 31), null = sans
         public Dictionary<string, string> FieldValues = new Dictionary<string, string>();
+        // Les fiches de MODULE (DLC, 22/09, .plot v27) : par id de module,
+        // ses valeurs par id de champ. Une entrée présente (même vide) = la
+        // fiche du module a été créée pour cet élément.
+        public Dictionary<string, Dictionary<string, string>> ModuleValues = new Dictionary<string, Dictionary<string, string>>();
         public List<InfoEntry> FreeInfo = new List<InfoEntry>();
         public List<SheetRelation> Relations = new List<SheetRelation>(); // fiches (batch 34)
         public List<EvolutionEntry> Evolution = new List<EvolutionEntry>(); // fiches : les étapes liées aux écrits (batch 47)
