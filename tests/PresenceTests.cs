@@ -62,6 +62,22 @@ namespace Marabook.Tests
             var order = Presence.Writings(project);
             t.Equal("Un,Deux,Trois", Titles(order), "les écrits dans l'ordre de la Pile, sans page extra ni corbeille");
 
+            // — Le suivi (21/09) : rien sans l'activer sur le modèle ; puis
+            //   l'amplitude — vide = tous les écrits, sinon l'écrit, son
+            //   groupe ou son livre.
+            t.Equal(0, Presence.Of(sheet, template, project).Count, "modèle sans suivi : aucune présence");
+            t.Check(!Presence.Tracks(template) && !Presence.Tracks(null), "Tracks : faux sans suivi, faux sans modèle");
+            template.Tracking = true;
+            template.TrackingScope.Add(book.Id);
+            t.Equal("Un,Deux", Titles(Presence.Writings(project, template)), "amplitude = le livre : ses écrits seulement");
+            t.Check(Presence.InScope(one, template) && !Presence.InScope(three, template), "InScope : dans le livre oui, hors livre non");
+            t.Equal("Un", Titles(Presence.Of(sheet, template, project)), "la présence suit l'amplitude");
+            template.TrackingScope.Clear();
+            template.TrackingScope.Add(three.Id);
+            t.Equal("Trois", Titles(Presence.Of(sheet, template, project)), "amplitude = un écrit seul");
+            template.TrackingScope.Clear();
+            t.Equal("Un,Deux,Trois", Titles(Presence.Writings(project, template)), "amplitude vide = tous les écrits");
+
             var rows = Presence.Of(sheet, template, project);
             t.Equal(2, rows.Count, "deux écrits nomment la fiche");
             t.Equal("Un", rows[0].Text.Title, "le premier dans l'ordre du récit");
@@ -82,16 +98,27 @@ namespace Marabook.Tests
             t.Equal("Léa Martin,Martin", Titles(present), "dans « Trois » : Léa Martin (2) avant Martin (1), la fiche jetée ignorée");
             t.Equal(0, Presence.In(three, project, delegate(BinderItem s) { return false; }).Count, "le filtre écarte tout");
             t.Equal(0, Presence.In(two, project, null).Count, "« Deux » ne nomme personne");
+            template.TrackingScope.Add(book.Id);
+            t.Equal(0, Presence.In(three, project, null).Count, "« Trois » hors amplitude : personne n'y est suivi");
+            template.TrackingScope.Clear();
+            template.Tracking = false;
+            t.Equal(0, Presence.In(three, project, null).Count, "suivi désactivé : personne n'est présent nulle part");
+            template.Tracking = true;
 
-            // — Les étapes : triées par l'ordre du récit, les libres et les
-            //   orphelines après, dans leur ordre de saisie ; StepIn.
+            // — Les étapes (21/09) : l'ordre du récit pour les étapes liées ;
+            //   une libre (ou orpheline) reste juste après l'étape liée qui la
+            //   précède à la saisie — en tête s'il n'y en a pas ; StepIn.
+            sheet.Evolution.Add(new EvolutionEntry { Note = "libre 0" });
             sheet.Evolution.Add(new EvolutionEntry { TextId = three.Id, Note = "se révèle" });
             sheet.Evolution.Add(new EvolutionEntry { Note = "libre 1" });
             sheet.Evolution.Add(new EvolutionEntry { TextId = one.Id, Note = "dort" });
             sheet.Evolution.Add(new EvolutionEntry { TextId = "disparu", Note = "orpheline" });
-            sheet.Evolution.Add(new EvolutionEntry { Note = "libre 2" });
+            sheet.Evolution.Add(new EvolutionEntry { Note = "libre 2", Title = "Enfance" });
             var steps = Presence.OrderedSteps(sheet, project);
-            t.Equal("dort|se révèle|libre 1|orpheline|libre 2", Notes(steps), "étapes dans l'ordre du récit, puis les autres dans l'ordre de saisie");
+            t.Equal("libre 0|dort|orpheline|libre 2|se révèle|libre 1", Notes(steps), "étapes : le récit pour les liées, les libres collées à celle qu'elles suivent");
+            t.Equal("Enfance", steps[3].Label(project), "l'étiquette d'une étape libre : son titre");
+            t.Equal("Un", steps[1].Label(project), "l'étiquette d'une étape liée : le titre de l'écrit");
+            t.Equal("", steps[2].Label(project), "orpheline sans titre : rien");
             t.Equal("se révèle", Presence.StepIn(sheet, three.Id).Note, "l'étape d'un écrit");
             t.Check(Presence.StepIn(sheet, two.Id) == null, "pas d'étape pour « Deux »");
             sheet.Evolution.Add(new EvolutionEntry { TextId = two.Id, Note = "   " });

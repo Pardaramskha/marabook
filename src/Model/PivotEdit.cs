@@ -80,6 +80,7 @@ namespace Marabook.Model
                 AlignOverride = paragraph.AlignOverride,
                 ListKind = paragraph.ListKind,
                 Indent = paragraph.Indent,
+                FirstIndent = paragraph.FirstIndent,
                 PageBreakBefore = paragraph.PageBreakBefore,
                 AllowWidows = paragraph.AllowWidows,
                 StartOnRecto = paragraph.StartOnRecto,
@@ -350,6 +351,7 @@ namespace Marabook.Model
                     AlignOverride = paragraph.AlignOverride,
                     ListKind = paragraph.ListKind,
                     Indent = paragraph.Indent,
+                    FirstIndent = paragraph.FirstIndent,
                     PageBreakBefore = paragraph.PageBreakBefore,
                     AllowWidows = paragraph.AllowWidows,
                     // Transitoires de compilation (jamais persistés) — copiés

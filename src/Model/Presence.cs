@@ -12,7 +12,17 @@ namespace Marabook.Model
     {
         public string Id = Guid.NewGuid().ToString("N");
         public string TextId;      // l'écrit où ça se passe, null = libre
+        public string Title = "";  // le nom d'une étape libre (21/09, v25) — « Enfance », « Après la guerre »
         public string Note = "";
+
+        /// <summary>Ce qui nomme l'étape à l'affichage : l'écrit lié (son
+        /// titre), sinon le titre libre, sinon rien.</summary>
+        public string Label(Project project)
+        {
+            var text = project == null || TextId == null ? null : project.FindById(TextId);
+            if (text != null) return text.Title;
+            return (Title ?? "").Trim();
+        }
     }
 
     /// <summary>Une ligne de présence : l'écrit, le nombre d'occurrences des
@@ -139,14 +149,44 @@ namespace Marabook.Model
             }
         }
 
-        /// <summary>La présence d'une fiche : un rang par écrit où l'un de ses
-        /// noms apparaît, dans l'ordre du récit.</summary>
+        /// <summary>L'AMPLITUDE DU SUIVI (21/09) : un écrit est suivi quand
+        /// l'amplitude du modèle est vide (tous les écrits) ou qu'elle nomme
+        /// l'écrit lui-même, son groupe ou son livre (un ancêtre quelconque).</summary>
+        public static bool InScope(BinderItem text, SheetTemplate template)
+        {
+            if (template == null || template.TrackingScope.Count == 0) return true;
+            for (var item = text; item != null; item = item.Parent)
+                if (template.TrackingScope.Contains(item.Id)) return true;
+            return false;
+        }
+
+        /// <summary>Les écrits suivis par un modèle : ceux du récit, dans
+        /// l'amplitude de son suivi.</summary>
+        public static List<BinderItem> Writings(Project project, SheetTemplate template)
+        {
+            var list = new List<BinderItem>();
+            foreach (var text in Writings(project))
+                if (InScope(text, template)) list.Add(text);
+            return list;
+        }
+
+        /// <summary>Une fiche dont le modèle suit les noms (21/09) : sans
+        /// modèle, ou modèle sans suivi, rien n'est compté nulle part.</summary>
+        public static bool Tracks(SheetTemplate template)
+        {
+            return template != null && template.Tracking;
+        }
+
+        /// <summary>La présence d'une fiche : un rang par écrit suivi où l'un
+        /// de ses noms apparaît, dans l'ordre du récit. Vide si le modèle ne
+        /// suit pas les noms.</summary>
         public static List<PresenceRow> Of(BinderItem sheet, SheetTemplate template, Project project)
         {
             var rows = new List<PresenceRow>();
+            if (!Tracks(template)) return rows;
             var names = NamesOf(sheet, template);
             if (names.Count == 0) return rows;
-            foreach (var text in Writings(project))
+            foreach (var text in Writings(project, template))
             {
                 var count = CountIn(text.Document.ToPlainText(), names);
                 if (count == 0) continue;
@@ -172,7 +212,10 @@ namespace Marabook.Model
                 if (item.Kind != ItemKind.Sheet) continue;
                 if (trash != null && (item == trash || item.IsDescendantOf(trash))) continue;
                 if (filter != null && !filter(item)) continue;
-                var count = CountIn(plain, NamesOf(item, project.FindTemplate(item.TemplateId)));
+                // Le suivi du modèle et son amplitude (21/09) valent ici aussi.
+                var template = project.FindTemplate(item.TemplateId);
+                if (!Tracks(template) || !InScope(text, template)) continue;
+                var count = CountIn(plain, NamesOf(item, template));
                 if (count == 0) continue;
                 var row = new PresenceRow { Text = item, Count = count };
                 ranks[row] = order++;
@@ -195,9 +238,12 @@ namespace Marabook.Model
             return null;
         }
 
-        /// <summary>Les étapes dans l'ordre du récit : celles liées à un écrit
-        /// suivent l'ordre de la Pile, les libres (ou liées à un écrit
-        /// disparu) viennent après, dans leur ordre de saisie.</summary>
+        /// <summary>Les étapes dans l'ordre du récit — LE MÊME partout (fiche
+        /// et wiki, 21/09) : celles liées à un écrit suivent l'ordre de la
+        /// Pile ; une étape libre (ou liée à un écrit disparu) reste où
+        /// l'auteur l'a mise, c'est-à-dire juste après l'étape liée qui la
+        /// précède à la saisie (en tête s'il n'y en a pas) — plus jamais
+        /// reléguée tout en bas.</summary>
         public static List<EvolutionEntry> OrderedSteps(BinderItem sheet, Project project)
         {
             var steps = new List<EvolutionEntry>();
@@ -206,12 +252,13 @@ namespace Marabook.Model
             var writings = Writings(project);
             for (var i = 0; i < writings.Count; i++) rank[writings[i].Id] = i;
             var indexed = new List<KeyValuePair<int, EvolutionEntry>>();
+            var anchor = -1;
             for (var i = 0; i < sheet.Evolution.Count; i++)
             {
                 var entry = sheet.Evolution[i];
                 int r;
-                var key = entry.TextId != null && rank.TryGetValue(entry.TextId, out r) ? r : int.MaxValue;
-                indexed.Add(new KeyValuePair<int, EvolutionEntry>(key, entry));
+                if (entry.TextId != null && rank.TryGetValue(entry.TextId, out r)) anchor = r;
+                indexed.Add(new KeyValuePair<int, EvolutionEntry>(anchor, entry));
             }
             // Tri stable : à rang égal, l'ordre de saisie.
             for (var i = 1; i < indexed.Count; i++)

@@ -137,6 +137,25 @@ namespace Marabook.Tests
             var shifted = engine.Current.Paragraphs[1].Lines;
             t.Equal(37.8, shifted[0].Pieces[0].Origin.X, "décalage 37,8 : la première ligne suit, sans alinéa");
             t.Equal(37.8, shifted[1].Pieces[0].Origin.X, "décalage 37,8 : la deuxième ligne aussi");
+
+            // — La première ligne seule (21/09) : un alinéa recréé sur un bloc
+            //   à la marge, puis un retrait suspendu (le bloc décalé, la
+            //   première ligne restée à la marge — elle déborde du bloc).
+            document.Paragraphs[1].Indent = 0;
+            document.Paragraphs[1].FirstIndent = 18.9;
+            engine.ComposeAll();
+            var alinea = engine.Current.Paragraphs[1].Lines;
+            t.Equal(18.9, alinea[0].Pieces[0].Origin.X, "première ligne seule : l'alinéa recréé à 18,9");
+            t.Equal(0.0, alinea[1].Pieces[0].Origin.X, "première ligne seule : la suite reste à la marge");
+            document.Paragraphs[1].Indent = 37.8;
+            document.Paragraphs[1].FirstIndent = 0;
+            engine.ComposeAll();
+            var hanging = engine.Current.Paragraphs[1].Lines;
+            t.Equal(0.0, hanging[0].Pieces[0].Origin.X, "retrait suspendu : la première ligne à la marge");
+            t.Equal(37.8, hanging[1].Pieces[0].Origin.X, "retrait suspendu : les suivantes décalées");
+            document.Paragraphs[0].FirstIndent = 0; // sans Indent : l'alinéa du style effacé, le bloc au style
+            engine.ComposeAll();
+            t.Equal(0.0, engine.Current.Paragraphs[0].Lines[0].Pieces[0].Origin.X, "FirstIndent 0 sans décalage de bloc : plus d'alinéa du style");
         }
 
         /// <summary>Le bouton « Césure » du document (PageSetup.Hyphenation)

@@ -213,6 +213,80 @@ namespace Marabook.Tests.Ui
             toggle.IsChecked = false;
             DoEvents();
 
+            // — Sections extras (21/09) : désactivées par défaut, ni Suivi ni
+            //   Évolution sur la fiche ; activées sur le modèle, les deux
+            //   papers viennent, le filtre du suivi dit « Tout le livre », une
+            //   étape libre a son champ de nom ; le wiki rend des papers
+            //   séparés (Relations, Évolution et présence, graph).
+            var presencePaper = (Border)GetField(sheetView, "_presencePaper");
+            var evolutionPaper = (Border)GetField(sheetView, "_evolutionPaper");
+            Check(presencePaper.Parent == null && evolutionPaper.Parent == null,
+                "sections extras désactivées par défaut : ni Suivi ni Évolution sur la fiche");
+            var characterTemplate = opened.FindTemplate(sheet.TemplateId);
+            characterTemplate.Tracking = true;
+            characterTemplate.Evolution = true;
+            sheetView.LoadItem(sheet, characterTemplate);
+            DoEvents();
+            Check(presencePaper.Parent != null && evolutionPaper.Parent != null,
+                "suivi et évolution activés sur le modèle : les deux papers sont là");
+            var filter = (ComboBox)GetField(sheetView, "_presenceFilter");
+            Check(filter.Items.Count >= 1 && filter.SelectedIndex == 0
+                && (string)((ComboBoxItem)filter.Items[0]).Content == "Tout le livre",
+                "le filtre du suivi propose « Tout le livre » par défaut (entrées : " + filter.Items.Count + ")");
+            Invoke(sheetView, "AddStep", null);
+            DoEvents();
+            var evolutionPanel = (StackPanel)GetField(sheetView, "_evolutionPanel");
+            Check(sheet.Evolution.Count == 1 && sheet.Evolution[0].TextId == null && CountTextBoxes(evolutionPanel) == 2,
+                "une étape libre : un champ pour la nommer et un pour la note (zones : " + CountTextBoxes(evolutionPanel) + ")");
+            sheet.Evolution[0].Title = "Enfance";
+            sheet.Evolution[0].Note = "grandit sur les hauts plateaux";
+            characterTemplate.Radar = true;
+            foreach (var axisName in SheetTemplate.DefaultRadarAxes) characterTemplate.RadarAxes.Add(new RadarAxis { Name = axisName });
+            sheet.RadarValues[characterTemplate.RadarAxes[0].Id] = 4;
+            foreach (var field in characterTemplate.Fields)
+                if (field.Name == "Prénom") sheet.FieldValues[field.Id] = "Kal"; // un champ rempli : l'infobox a de quoi paraître
+            sheetView.LoadItem(sheet, characterTemplate);
+            DoEvents();
+            Check(tabs.Items.Count == 3 && (string)((TabItem)tabs.Items[2]).Header == SheetTemplate.DefaultRadarName,
+                "le graph statistique activé : un troisième onglet « " + SheetTemplate.DefaultRadarName + " »");
+            toggle.IsChecked = true;
+            DoEvents();
+            var wikiPage = preview.Content as FrameworkElement;
+            var wikiPapers = CountFrames(wikiPage);
+            Check(wikiPapers == 4, "le wiki rend quatre papers : infobox, Relations, Évolution et présence, graph (obtenu : " + wikiPapers + ")");
+            Snapshot(wikiPage, Path.Combine(Path.GetTempPath(), "marabook-2109-wiki.png"));
+            toggle.IsChecked = false;
+            DoEvents();
+            // L'éditeur de modèles, onglet « Sections extras », rendu hors écran.
+            var dialogCtor = typeof(TemplatesDialog).GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance)[0];
+            var dialog = (Window)dialogCtor.Invoke(new object[] { window, opened.Templates, opened });
+            dialog.WindowStartupLocation = WindowStartupLocation.Manual;
+            dialog.Left = -2600;
+            dialog.Top = 0;
+            dialog.Show();
+            DoEvents();
+            var dialogTabs = FindTabControl(dialog);
+            Check(dialogTabs != null && dialogTabs.Items.Count == 4
+                && (string)((TabItem)dialogTabs.Items[1]).Header == "Sections extras"
+                && (string)((TabItem)dialogTabs.Items[3]).Header == "Graph statistique",
+                "l'éditeur de modèles : Sections, Sections extras, Champs, Graph statistique");
+            if (dialogTabs != null)
+            {
+                dialogTabs.SelectedIndex = 1;
+                DoEvents();
+                Snapshot((FrameworkElement)dialog.Content, Path.Combine(Path.GetTempPath(), "marabook-2109-modeles-extras.png"));
+            }
+            dialog.Close();
+            DoEvents();
+            sheet.Evolution.Clear();
+            sheet.RadarValues.Clear();
+            characterTemplate.Tracking = false;
+            characterTemplate.Evolution = false;
+            characterTemplate.Radar = false;
+            characterTemplate.RadarAxes.Clear();
+            sheetView.LoadItem(sheet, characterTemplate);
+            DoEvents();
+
             // — Frappe + Ctrl+S : la source et la catégorie sur le disque.
             body.CaretIndex = body.Text.Length;
             body.SelectedText = "\nSONDE-B31";
@@ -231,6 +305,40 @@ namespace Marabook.Tests.Ui
 
             window.Close();
             DoEvents();
+        }
+
+        private static int CountTextBoxes(DependencyObject root)
+        {
+            var count = root is TextBox ? 1 : 0;
+            foreach (var child in LogicalTreeHelper.GetChildren(root))
+                if (child is DependencyObject) count += CountTextBoxes((DependencyObject)child);
+            return count;
+        }
+
+        /// <summary>Les papers du wiki en mode page : la colonne de droite
+        /// (le StackPanel de 250 px) et ce qu'elle empile.</summary>
+        private static int CountFrames(DependencyObject root)
+        {
+            if (root == null) return 0;
+            var stack = root as StackPanel;
+            if (stack != null && Math.Abs(stack.Width - 250) < 0.5) return stack.Children.Count;
+            foreach (var child in LogicalTreeHelper.GetChildren(root))
+            {
+                var found = child is DependencyObject ? CountFrames((DependencyObject)child) : 0;
+                if (found > 0) return found;
+            }
+            return 0;
+        }
+
+        private static TabControl FindTabControl(DependencyObject root)
+        {
+            if (root is TabControl) return (TabControl)root;
+            foreach (var child in LogicalTreeHelper.GetChildren(root))
+            {
+                var found = child is DependencyObject ? FindTabControl((DependencyObject)child) : null;
+                if (found != null) return found;
+            }
+            return null;
         }
 
         /// <summary>Compte les cartes de la bibliothèque (les Border cliquables

@@ -365,9 +365,15 @@ namespace Marabook.Exchange
                 if (paragraph.PageBreakBefore) sb.Append("<w:pageBreakBefore/>");
                 if (paragraph.AlignOverride != null)
                     sb.Append("<w:jc w:val=\"").Append(Jc(paragraph.AlignOverride)).Append("\"/>");
-                if (paragraph.Indent.HasValue) // décalage : bloc uniforme, sans alinéa
-                    sb.Append("<w:ind w:left=\"").Append(Twips(paragraph.Indent.Value))
-                      .Append("\" w:firstLine=\"0\"/>");
+                if (paragraph.Indent.HasValue || paragraph.FirstIndent.HasValue) // décalage du bloc et/ou de la première ligne
+                {
+                    double left, first;
+                    paragraph.EffectiveIndents(style, out left, out first);
+                    sb.Append("<w:ind w:left=\"").Append(Twips(left));
+                    if (first >= left) sb.Append("\" w:firstLine=\"").Append(Twips(first - left));
+                    else sb.Append("\" w:hanging=\"").Append(Twips(left - first));
+                    sb.Append("\"/>");
+                }
                 sb.Append("</w:pPr>");
                 if (isRule) { sb.Append("</w:p>"); continue; } // the border IS the rule
                 for (var r = 0; r < paragraph.Runs.Count; r++)
@@ -746,11 +752,32 @@ namespace Marabook.Exchange
             var jc = Attr(pPr == null ? null : pPr.SelectSingleNode("w:jc", ns), "w:val");
             if (jc != null && FromJc(jc) != style.Align) paragraph.AlignOverride = FromJc(jc);
             // Retrait gauche posé sur le paragraphe lui-même : notre décalage.
-            var indLeft = Attr(pPr == null ? null : pPr.SelectSingleNode("w:ind", ns), "w:left");
+            var ind = pPr == null ? null : pPr.SelectSingleNode("w:ind", ns);
+            var indLeft = Attr(ind, "w:left");
             double indTwips;
             if (indLeft != null && double.TryParse(indLeft, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out indTwips))
                 paragraph.Indent = Math.Max(0, PxFromTwips(indTwips));
+            // La première ligne posée sur le paragraphe lui-même (21/09) :
+            // alinéa (firstLine) ou retrait suspendu (hanging), depuis le bloc.
+            var firstLine = Attr(ind, "w:firstLine");
+            var hanging = Attr(ind, "w:hanging");
+            double firstTwips;
+            if (firstLine != null && double.TryParse(firstLine, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out firstTwips))
+                paragraph.FirstIndent = Math.Max(0, (paragraph.Indent ?? style.LeftIndent) + PxFromTwips(firstTwips));
+            else if (hanging != null && double.TryParse(hanging, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out firstTwips))
+                paragraph.FirstIndent = Math.Max(0, (paragraph.Indent ?? style.LeftIndent) - PxFromTwips(firstTwips));
+            if (paragraph.FirstIndent.HasValue)
+            {
+                // Rien à garder si c'est déjà ce que le style (ou le bloc) donne.
+                double left, first;
+                var saved = paragraph.FirstIndent;
+                paragraph.FirstIndent = null;
+                paragraph.EffectiveIndents(style, out left, out first);
+                if (Math.Abs(first - saved.Value) > 0.5) paragraph.FirstIndent = saved;
+            }
             if (pPr != null && pPr.SelectSingleNode("w:pageBreakBefore", ns) != null)
                 paragraph.PageBreakBefore = true;
 

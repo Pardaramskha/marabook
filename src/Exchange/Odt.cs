@@ -127,11 +127,14 @@ namespace Marabook.Exchange
             {
                 var style = styles.Find(paragraph.StyleId);
                 var styleName = "US_" + style.Id;
-                if (paragraph.AlignOverride != null || paragraph.PageBreakBefore || paragraph.Indent.HasValue)
+                var shifted = paragraph.Indent.HasValue || paragraph.FirstIndent.HasValue;
+                double left = 0, first = 0;
+                if (shifted) paragraph.EffectiveIndents(style, out left, out first);
+                if (paragraph.AlignOverride != null || paragraph.PageBreakBefore || shifted)
                 {
                     // Per-paragraph automatic style deriving from the named one.
                     var key = "P|" + style.Id + "|" + paragraph.AlignOverride + "|" + paragraph.PageBreakBefore
-                        + "|" + (paragraph.Indent.HasValue ? Pt(paragraph.Indent.Value) : "");
+                        + "|" + (shifted ? Pt(left) + "/" + Pt(first) : "");
                     string autoName;
                     if (!autoKeys.TryGetValue(key, out autoName))
                     {
@@ -144,9 +147,9 @@ namespace Marabook.Exchange
                             autoStyles.Append(" fo:text-align=\"").Append(FoAlign(paragraph.AlignOverride)).Append("\"");
                         if (paragraph.PageBreakBefore)
                             autoStyles.Append(" fo:break-before=\"page\"");
-                        if (paragraph.Indent.HasValue) // décalage : bloc uniforme, sans alinéa
-                            autoStyles.Append(" fo:margin-left=\"").Append(Pt(paragraph.Indent.Value))
-                              .Append("\" fo:text-indent=\"0pt\"");
+                        if (shifted) // décalage du bloc et/ou de la première ligne (21/09)
+                            autoStyles.Append(" fo:margin-left=\"").Append(Pt(left))
+                              .Append("\" fo:text-indent=\"").Append(Pt(first - left)).Append("\"");
                         autoStyles.Append("/></style:style>");
                     }
                     styleName = autoName;

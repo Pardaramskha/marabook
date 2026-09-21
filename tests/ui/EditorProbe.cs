@@ -453,6 +453,62 @@ namespace Marabook.Tests.Ui
             Check(composed.Undo(), "…en un cran d'annulation");
             Check(target.Document.ToPlainText().Contains("\"salut\""), "Ctrl+Z rend le texte d'avant la passe");
 
+            // — Le décalage par lignes (21/09) : le caret sur la première
+            //   ligne, seule la première ligne bouge (un alinéa recréé) ; le
+            //   Ctrl+Z de la fenêtre (DoUndo) le défait en un cran.
+            Button indentAdd = null, indentRemove = null;
+            foreach (var button in FindButtons(ribbon))
+            {
+                var tip = button.ToolTip as string;
+                if (tip != null && tip.StartsWith("Ajouter un décalage")) indentAdd = button;
+                if (tip != null && tip.StartsWith("Retirer le décalage")) indentRemove = button;
+            }
+            Check(indentAdd != null && indentRemove != null, "les deux boutons de décalage sont au ruban");
+            // Un premier paragraphe sur plusieurs lignes : on l'allonge.
+            composed.PlaceCaret(0, PivotEdit.FlatLength(target.Document.Paragraphs[0]), false);
+            composed.TypeText(" Une phrase assez longue pour que le paragraphe passe sur plusieurs lignes de la page composée, encore un peu, et encore, jusqu'au retour à la ligne, et même au-delà pour être sûr.");
+            DoEvents();
+            composed.PlaceCaret(0, 0, false);
+            var firstParagraph = target.Document.Paragraphs[0];
+            var indentBefore = firstParagraph.Indent;
+            var firstBefore = firstParagraph.FirstIndent;
+            double leftBefore, firstXBefore;
+            firstParagraph.EffectiveIndents(opened.Styles.Find(firstParagraph.StyleId), out leftBefore, out firstXBefore);
+            indentAdd.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            DoEvents();
+            double leftAfter, firstXAfter;
+            firstParagraph.EffectiveIndents(opened.Styles.Find(firstParagraph.StyleId), out leftAfter, out firstXAfter);
+            var lines = ((Print.Composition)GetProperty(composed, "CurrentComposition")).Paragraphs[0].Lines.Count;
+            Check(Math.Abs(firstXAfter - firstXBefore - ComposedView.IndentStepPx) < 0.01,
+                "« Ajouter un décalage » pousse la première ligne d'un pas (obtenu : " + (firstXAfter - firstXBefore) + ")");
+            Check(lines > 1 && Math.Abs(leftAfter - leftBefore) < 0.01,
+                "…et laisse les lignes suivantes en place (paragraphe de " + lines + " ligne(s))");
+            Check(composed.CanUndo, "le décalage a laissé un cran d'annulation");
+            Invoke(window, "DoUndo", new object[0]);
+            DoEvents();
+            firstParagraph = target.Document.Paragraphs[0]; // l'annulation remet les paragraphes de l'instantané
+            Check(firstParagraph.Indent == indentBefore && firstParagraph.FirstIndent == firstBefore,
+                "Ctrl+Z (DoUndo) rend le paragraphe d'avant le décalage");
+            indentRemove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            DoEvents();
+            firstParagraph = target.Document.Paragraphs[0];
+            firstParagraph.EffectiveIndents(opened.Styles.Find(firstParagraph.StyleId), out leftAfter, out firstXAfter);
+            Check(firstXAfter == 0, "« Retirer le décalage » ramène la première ligne à la marge");
+            Invoke(window, "DoUndo", new object[0]);
+            DoEvents();
+            // Le caret sur la dernière ligne : le bloc bouge, la première reste.
+            firstParagraph = target.Document.Paragraphs[0];
+            composed.PlaceCaret(0, PivotEdit.FlatLength(firstParagraph), false);
+            firstParagraph.EffectiveIndents(opened.Styles.Find(firstParagraph.StyleId), out leftBefore, out firstXBefore);
+            indentAdd.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            DoEvents();
+            firstParagraph.EffectiveIndents(opened.Styles.Find(firstParagraph.StyleId), out leftAfter, out firstXAfter);
+            Check(Math.Abs(leftAfter - leftBefore - ComposedView.IndentStepPx) < 0.01 && Math.Abs(firstXAfter - firstXBefore) < 0.01,
+                "sur la dernière ligne : les lignes suivantes se décalent, la première reste (retrait suspendu)");
+            Invoke(window, "DoUndo", new object[0]); // le décalage
+            Invoke(window, "DoUndo", new object[0]); // la phrase ajoutée
+            DoEvents();
+
             // — La fiche refondue : papers, relation, retour.
             BinderItem kaladinItem = null;
             foreach (var item in opened.AllItems()) if (item.Title == "Kaladin") kaladinItem = item;

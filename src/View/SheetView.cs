@@ -41,9 +41,14 @@ namespace Marabook.View
         // Les papers de l'onglet Général (batch 42) : l'image, une section
         // par nom (« » = Informations), les relations si le modèle les veut.
         private readonly Border _imagePaper, _relationsPaper;
-        // Troisième colonne (batch 47) : où la fiche apparaît, et ses étapes.
+        // Troisième colonne (batch 47) : où la fiche apparaît, et ses étapes —
+        // deux SECTIONS EXTRAS (21/09) que le modèle active ; le suivi se
+        // filtre par écrit, groupe ou livre depuis l'en-tête de son paper.
         private readonly Border _presencePaper, _evolutionPaper;
         private readonly StackPanel _presencePanel, _evolutionPanel;
+        private readonly ComboBox _presenceFilter;
+        private string _presenceFilterId;   // null = toute l'amplitude ; sinon l'id d'un écrit, groupe ou livre
+        private bool _syncingFilter, _showTracking, _showEvolution;
         private readonly Grid _papersGrid;
         private readonly StackPanel[] _columns;
         private readonly Dictionary<string, StackPanel> _sectionPanels = new Dictionary<string, StackPanel>();
@@ -212,7 +217,21 @@ namespace Marabook.View
             // Présence dans les écrits (b47) : dérivée, jamais saisie — les
             // écrits où le titre, le nom, le prénom ou un alias apparaissent.
             _presencePanel = new StackPanel();
-            _presencePaper = Paper("Présence dans les écrits", _presencePanel, null);
+            _presenceFilter = new ComboBox
+            {
+                MinWidth = 150,
+                MaxWidth = 220,
+                FontSize = 12,
+                ToolTip = "Filtrer le suivi : toute l'amplitude, ou un livre, un groupe, un écrit"
+            };
+            _presenceFilter.SelectionChanged += delegate
+            {
+                if (_syncingFilter || _item == null) return;
+                var entry = _presenceFilter.SelectedItem as ComboBoxItem;
+                _presenceFilterId = entry == null ? null : entry.Tag as string;
+                RebuildPresence();
+            };
+            _presencePaper = Paper("Suivi", _presencePanel, _presenceFilter);
             // Évolution (b47) : les étapes du personnage, chacune liée à un
             // écrit (ou libre), dans l'ordre du récit.
             _evolutionPanel = new StackPanel();
@@ -486,6 +505,11 @@ namespace Marabook.View
             }
             _showRelations = (_template != null && _template.Relations)
                 || (_item != null && _item.Relations.Count > 0);
+            // Les sections extras (21/09) : le suivi si le modèle le veut ;
+            // l'évolution de même, ou si la fiche porte déjà des étapes.
+            _showTracking = _template != null && _template.Tracking;
+            _showEvolution = (_template != null && _template.Evolution)
+                || (_item != null && _item.Evolution.Count > 0);
             // Sans paper Relations, pas de généalogie (batch 43).
             _genealogyButton.IsEnabled = _showRelations;
             _genealogyButton.ToolTip = _showRelations
@@ -526,8 +550,11 @@ namespace Marabook.View
             // La troisième colonne (b47) : Présence puis Évolution ; en deux
             // colonnes ils suivent les relations, en une ils ferment la pile.
             var third = wantMode == 3 ? _columns[2] : second;
-            third.Children.Add(_presencePaper);
-            third.Children.Add(_evolutionPaper);
+            if (_showTracking) third.Children.Add(_presencePaper);
+            if (_showEvolution) third.Children.Add(_evolutionPaper);
+            // Sans section extra, la troisième colonne se ferme.
+            if (wantMode == 3 && !_showTracking && !_showEvolution)
+                _papersGrid.ColumnDefinitions[2].Width = new GridLength(0);
         }
 
         // ================================================== présence + évolution (b47)
@@ -539,11 +566,16 @@ namespace Marabook.View
         {
             _presencePanel.Children.Clear();
             if (_item == null) return;
+            FillPresenceFilter();
             var rows = Presence.Of(_item, _template, _project);
+            var chosen = _presenceFilterId == null || _project == null ? null : _project.FindById(_presenceFilterId);
+            if (chosen != null)
+                rows.RemoveAll(delegate(PresenceRow row) { return row.Text != chosen && !row.Text.IsDescendantOf(chosen); });
             if (rows.Count == 0)
             {
                 _presencePanel.Children.Add(Hint(Presence.NamesOf(_item, _template).Count == 0
                     ? "Donnez un nom à la fiche : ses apparitions dans les écrits se compteront ici."
+                    : chosen != null ? "Aucun écrit de « " + chosen.Title + " » ne nomme cette fiche."
                     : "Aucun écrit ne nomme cette fiche pour l'instant (titre, nom, prénom, alias)."));
                 return;
             }
@@ -580,7 +612,62 @@ namespace Marabook.View
             }
         }
 
-        /// <summary>Les étapes, dans l'ordre du récit (les libres après).</summary>
+        /// <summary>L'en-tête du suivi (21/09) : « Tout le livre » (ou
+        /// l'amplitude du modèle quand elle est réduite), puis la Pile des
+        /// écrits suivis — les livres et groupes qui en contiennent, les
+        /// écrits — indentés par profondeur. Le choix tient d'une fiche à
+        /// l'autre tant que l'élément existe encore.</summary>
+        private void FillPresenceFilter()
+        {
+            _syncingFilter = true;
+            _presenceFilter.Items.Clear();
+            var scope = _template == null ? new List<string>() : _template.TrackingScope;
+            var all = "Tout le livre";
+            if (scope.Count > 0)
+            {
+                var only = scope.Count == 1 && _project != null ? _project.FindById(scope[0]) : null;
+                all = only != null ? only.Title : "Amplitude du suivi";
+            }
+            _presenceFilter.Items.Add(new ComboBoxItem { Content = all, Tag = null });
+            var root = _project == null ? null : _project.Category(Project.KeyWritings);
+            var tracked = new HashSet<BinderItem>(Presence.Writings(_project, _template));
+            if (root != null) AddFilterRows(root, 0, tracked);
+            var index = 0;
+            for (var i = 1; i < _presenceFilter.Items.Count; i++)
+                if ((string)((ComboBoxItem)_presenceFilter.Items[i]).Tag == _presenceFilterId) index = i;
+            if (index == 0) _presenceFilterId = null;
+            _presenceFilter.SelectedIndex = index;
+            _syncingFilter = false;
+        }
+
+        /// <summary>Ajoute les entrées du filtre sous un conteneur ; rend vrai
+        /// si un écrit suivi y figure (un conteneur vide n'est pas listé).</summary>
+        private bool AddFilterRows(BinderItem parent, int depth, HashSet<BinderItem> tracked)
+        {
+            var any = false;
+            foreach (var child in parent.Children)
+            {
+                var kind = child.Kind;
+                if (kind != ItemKind.Book && kind != ItemKind.Folder && kind != ItemKind.Text) continue;
+                if (kind == ItemKind.Text && !tracked.Contains(child)) continue;
+                var entry = new ComboBoxItem
+                {
+                    Content = child.Title,
+                    Tag = child.Id,
+                    Padding = new Thickness(6 + depth * 14, 2, 6, 2),
+                    FontWeight = kind == ItemKind.Text ? FontWeights.Normal : FontWeights.SemiBold
+                };
+                var marker = _presenceFilter.Items.Count;
+                _presenceFilter.Items.Add(entry);
+                if (kind == ItemKind.Text) { any = true; continue; }
+                if (AddFilterRows(child, depth + 1, tracked)) any = true;
+                else _presenceFilter.Items.RemoveAt(marker);
+            }
+            return any;
+        }
+
+        /// <summary>Les étapes, dans l'ordre du récit — le même que le wiki
+        /// (Presence.OrderedSteps), rebâti dès qu'une étape change d'écrit.</summary>
         private void RebuildEvolution()
         {
             _evolutionPanel.Children.Clear();
@@ -589,13 +676,14 @@ namespace Marabook.View
             foreach (var step in Presence.OrderedSteps(_item, _project))
                 _evolutionPanel.Children.Add(EvolutionRow(step, writings));
             if (_item.Evolution.Count == 0)
-                _evolutionPanel.Children.Add(Hint("Aucune étape — ce qui change pour cette fiche, écrit par écrit : « perd son bras », « apprend la vérité »…"));
+                _evolutionPanel.Children.Add(Hint("Aucune étape — ce qui change pour cette fiche, écrit par écrit ou en étape libre nommée : « perd son bras », « apprend la vérité »…"));
         }
 
         private const string FreeStepEntry = "— étape libre —";
 
         /// <summary>Une étape : l'écrit (sélecteur dans l'ordre de la Pile,
-        /// « Livre › Titre » dans un livre, ou libre), la croix, la note.</summary>
+        /// « Livre › Titre » dans un livre, ou libre — et alors un champ pour
+        /// la nommer, 21/09), la croix, la note.</summary>
         private UIElement EvolutionRow(EvolutionEntry step, List<BinderItem> writings)
         {
             var row = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
@@ -609,7 +697,14 @@ namespace Marabook.View
             };
             DockPanel.SetDock(remove, Dock.Right);
             head.Children.Add(remove);
-            var combo = new ComboBox { ToolTip = "L'écrit où cette étape se joue" };
+            var free = step.TextId == null;
+            var combo = new ComboBox { ToolTip = "L'écrit où cette étape se joue, ou une étape libre à nommer" };
+            if (free)
+            {
+                // Étape libre : le sélecteur se resserre, le nom prend la place.
+                combo.Width = 150;
+                DockPanel.SetDock(combo, Dock.Left);
+            }
             combo.Items.Add(FreeStepEntry);
             var selected = 0;
             for (var i = 0; i < writings.Count; i++)
@@ -631,8 +726,34 @@ namespace Marabook.View
                 if (index < 0 || index > writings.Count) return;
                 step.TextId = index == 0 ? null : writings[index - 1].Id;
                 NotifyEdited();
+                // L'étape reprend sa place dans l'ordre du récit et sa forme
+                // (nom libre ou non) — après le geste, hors du sélecteur.
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    if (_item == null || !_item.Evolution.Contains(step)) return;
+                    RebuildEvolution();
+                    Control focus;
+                    if (step.TextId == null && _fieldBoxes.TryGetValue("evolution-title:" + step.Id, out focus)) focus.Focus();
+                }), System.Windows.Threading.DispatcherPriority.Input);
             };
             head.Children.Add(combo);
+            if (free)
+            {
+                var title = new TextBox
+                {
+                    Text = step.Title ?? "",
+                    Margin = new Thickness(6, 0, 0, 0),
+                    ToolTip = "Le nom de cette étape libre : « Enfance », « Après la guerre »…"
+                };
+                _fieldBoxes["evolution-title:" + step.Id] = title;
+                title.TextChanged += delegate
+                {
+                    if (_loading || _item == null) return;
+                    step.Title = title.Text;
+                    NotifyEdited();
+                };
+                head.Children.Add(title);
+            }
             row.Children.Add(head);
             var note = new TextBox
             {
@@ -660,8 +781,8 @@ namespace Marabook.View
             _item.Evolution.Add(step);
             RebuildEvolution();
             NotifyEdited();
-            Control box;
-            if (_fieldBoxes.TryGetValue("evolution:" + step.Id, out box)) box.Focus();
+            Control box; // une étape naît libre : son nom d'abord
+            if (_fieldBoxes.TryGetValue("evolution-title:" + step.Id, out box)) box.Focus();
         }
 
         // ================================================== champs

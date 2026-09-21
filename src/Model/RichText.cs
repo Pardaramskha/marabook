@@ -59,7 +59,24 @@ namespace Marabook.Model
         // remplace les trois — 0 ramène tout au bord de la marge, alinéa
         // du style compris. Persisté (.plot v24, clé "indent").
         public double? Indent;
+        // Décalage de la PREMIÈRE LIGNE seule (21/09) : sa position depuis
+        // la marge, en px — le retrait du ruban posé le caret sur la première
+        // ligne (recréer un alinéa) ou sur les suivantes (retrait suspendu).
+        // Null = elle suit : l'alinéa du style quand Indent est null, le
+        // bloc sinon. Persisté (.plot v25, clé "firstIndent").
+        public double? FirstIndent;
         public List<TextRun> Runs = new List<TextRun>();
+
+        /// <summary>La géométrie effective du paragraphe (21/09), la seule
+        /// règle pour le compositeur, les exports et le ruban : le retrait de
+        /// toutes les lignes depuis la marge (Indent, sinon le style plus les
+        /// 24 px d'une liste) et la position de la première ligne (FirstIndent,
+        /// sinon le bloc quand Indent est posé, sinon l'alinéa du style).</summary>
+        public void EffectiveIndents(ParagraphStyle style, out double left, out double first)
+        {
+            left = Indent ?? (style.LeftIndent + (ListKind != null ? 24 : 0));
+            first = FirstIndent ?? (Indent.HasValue ? left : left + style.FirstLineIndent);
+        }
 
         // Manual page break (Mise en page), also set by the compiler on chapter
         // starts. Persisted in .plot since v4; honored by the docx exporter.

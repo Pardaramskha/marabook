@@ -298,7 +298,7 @@ namespace Marabook.View
         /// modèles édités remplacent ceux du projet, la bibliothèque se redessine.</summary>
         private void EditTemplates()
         {
-            var edited = TemplatesDialog.Show(Window.GetWindow(this), _project.Templates);
+            var edited = TemplatesDialog.Show(Window.GetWindow(this), _project.Templates, _project);
             if (edited == null) return;
             _project.Templates = edited;
             NotifyChanged();

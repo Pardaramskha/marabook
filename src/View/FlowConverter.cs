@@ -35,13 +35,15 @@ namespace Marabook.View
                 ApplyParagraphStyle(wpfParagraph, style);
                 if (paragraph.AlignOverride != null)
                     wpfParagraph.TextAlignment = ParseAlign(paragraph.AlignOverride);
-                if (paragraph.Indent.HasValue)
+                if (paragraph.Indent.HasValue || paragraph.FirstIndent.HasValue)
                 {
-                    // Décalage (17/09) : bloc uniforme, sans alinéa.
+                    // Décalage (17/09, première ligne 21/09) : le bloc en marge
+                    // gauche, la première ligne par l'alinéa (négatif = suspendu).
+                    double left, first;
+                    paragraph.EffectiveIndents(style, out left, out first);
                     var margin = wpfParagraph.Margin;
-                    wpfParagraph.Margin = new Thickness(paragraph.Indent.Value, margin.Top,
-                        margin.Right, margin.Bottom);
-                    wpfParagraph.TextIndent = 0;
+                    wpfParagraph.Margin = new Thickness(left, margin.Top, margin.Right, margin.Bottom);
+                    wpfParagraph.TextIndent = first - left;
                 }
                 if (paragraph.PageBreakBefore) MarkPageBreak(wpfParagraph, true);
 

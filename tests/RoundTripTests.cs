@@ -526,6 +526,7 @@ namespace Marabook.Tests
             FixtureFiller.Fill(sheet);
             FixtureFiller.Fill(sheet.FreeInfo[0]);
             FixtureFiller.Fill(sheet.Relations[1]);
+            FixtureFiller.Fill(sheet.Evolution[1], "TextId"); // l'étape libre : son titre (v25)
             FixtureFiller.Fill(plan);
             FixtureFiller.Fill(plan.Plan);
             FixtureFiller.Fill(plan.Plan.Columns[1]);

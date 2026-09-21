@@ -22,7 +22,14 @@ namespace Marabook.View
         private readonly TextBox _nameBox;
         private readonly StackPanel _sectionsPanel, _fieldsPanel;
         private readonly CheckBox _relationsCheck;
-        // Le radar (b47 bis) : activé par modèle, ses axes et son échelle.
+        // Les sections extras (21/09) : le suivi des noms et son amplitude
+        // (une case par écrit, groupe ou livre de la Pile), l'évolution.
+        private readonly Project _project;
+        private readonly CheckBox _trackingCheck, _evolutionCheck;
+        private readonly RadioButton _scopeAll, _scopeSome;
+        private readonly StackPanel _scopePanel;
+        // Le graph statistique (b47 bis, « radar » jusqu'au 21/09) : activé
+        // par modèle, ses axes et son échelle.
         private readonly CheckBox _radarCheck;
         private readonly TextBox _radarName;
         private readonly SpinnerField _radarMax;
@@ -34,8 +41,9 @@ namespace Marabook.View
                                            // when SelectionChanged commits the name
         private bool _accepted, _syncing;
 
-        private TemplatesDialog(Window owner, List<SheetTemplate> source)
+        private TemplatesDialog(Window owner, List<SheetTemplate> source, Project project)
         {
+            _project = project;
             _templates = new List<SheetTemplate>();
             foreach (var template in source) _templates.Add(template.Clone());
 
@@ -122,6 +130,47 @@ namespace Marabook.View
             });
             tabs.Items.Add(new TabItem { Header = "Sections", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = sectionsDock } });
 
+            // — Sections extras (21/09) : deux sous-onglets, Suivi (la traque
+            //   des noms dans les écrits, avec son amplitude) et Évolution (la
+            //   section des étapes). Désactivées par défaut.
+            var extras = new TabControl();
+            var trackingDock = new DockPanel();
+            var trackingHead = new StackPanel();
+            _trackingCheck = new CheckBox
+            {
+                Content = "Activer le suivi",
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            _trackingCheck.Checked += delegate { if (_current != null && !_syncing) { _current.Tracking = true; RebuildScope(); } };
+            _trackingCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Tracking = false; RebuildScope(); } };
+            trackingHead.Children.Add(_trackingCheck);
+            trackingHead.Children.Add(Note("La fiche compte ses noms (titre, nom, prénom, alias) dans les écrits : le paper « Suivi » de la fiche et la présence du wiki.", 12));
+            trackingHead.Children.Add(new TextBlock { Text = "Amplitude du suivi", Foreground = Chrome.Ink, FontWeight = FontWeights.SemiBold, FontSize = 13, Margin = new Thickness(0, 0, 0, 4) });
+            trackingHead.Children.Add(new TextBlock { Text = "L'échelle où les noms sont cherchés — tous les écrits, ou seulement certains écrits, groupes ou livres de la Pile.", Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) });
+            _scopeAll = new RadioButton { Content = "Tous les écrits", GroupName = "scope", Margin = new Thickness(0, 0, 0, 4) };
+            _scopeSome = new RadioButton { Content = "Seulement ces écrits, groupes ou livres :", GroupName = "scope", Margin = new Thickness(0, 0, 0, 4) };
+            _scopeAll.Checked += delegate { if (_current != null && !_syncing) { _current.TrackingScope.Clear(); RebuildScope(); } };
+            _scopeSome.Checked += delegate { if (_current != null && !_syncing) RebuildScope(); };
+            trackingHead.Children.Add(_scopeAll);
+            trackingHead.Children.Add(_scopeSome);
+            DockPanel.SetDock(trackingHead, Dock.Top);
+            trackingDock.Children.Add(trackingHead);
+            _scopePanel = new StackPanel { Margin = new Thickness(18, 0, 0, 0) };
+            trackingDock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _scopePanel });
+            extras.Items.Add(new TabItem { Header = "Suivi", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = trackingDock } });
+            var evolutionStack = new StackPanel();
+            _evolutionCheck = new CheckBox
+            {
+                Content = "Activer l'évolution",
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            _evolutionCheck.Checked += delegate { if (_current != null && !_syncing) _current.Evolution = true; };
+            _evolutionCheck.Unchecked += delegate { if (_current != null && !_syncing) _current.Evolution = false; };
+            evolutionStack.Children.Add(_evolutionCheck);
+            evolutionStack.Children.Add(Note("Le paper des étapes de la fiche, écrit par écrit ou en étapes libres nommées (« perd son bras », « apprend la vérité »…). Une fiche qui porte déjà des étapes les garde, section désactivée ou non.", 0));
+            extras.Items.Add(new TabItem { Header = "Évolution", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = evolutionStack } });
+            tabs.Items.Add(new TabItem { Header = "Sections extras", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = extras } });
+
             // — Champs : nom, nature, section.
             var fieldsDock = new DockPanel();
             var addField = Buttons.IconText("plus-bold", "Ajouter un champ", null, Buttons.Bar, Buttons.Look.Outline);
@@ -148,14 +197,15 @@ namespace Marabook.View
             });
             tabs.Items.Add(new TabItem { Header = "Champs", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = fieldsDock } });
 
-            // — Radar (b47 bis) : optionnel par modèle, désactivé par défaut ;
-            //   activé, la fiche gagne un onglet « Radar ». Axes et échelle libres.
+            // — Graph statistique (b47 bis, « radar » jusqu'au 21/09) :
+            //   optionnel par modèle, désactivé par défaut ; activé, la fiche
+            //   gagne un onglet « Statistiques ». Axes et échelle libres.
             var radarDock = new DockPanel();
             var radarHead = new StackPanel();
             _radarCheck = new CheckBox
             {
-                Content = "Activer le radar sur ce modèle — la fiche gagne un onglet « Radar » (toile à un axe par ligne ci-dessous)",
-                Margin = new Thickness(0, 0, 0, 10)
+                Content = "Activer le graph statistique",
+                Margin = new Thickness(0, 0, 0, 4)
             };
             _radarCheck.Checked += delegate
             {
@@ -167,9 +217,10 @@ namespace Marabook.View
             };
             _radarCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Radar = false; RebuildAxes(); } };
             radarHead.Children.Add(_radarCheck);
+            radarHead.Children.Add(Note("La fiche gagne un onglet « " + SheetTemplate.DefaultRadarName + " » (ou le nom choisi) : une toile à un axe par ligne ci-dessous.", 10));
             var radarNameRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
-            radarNameRow.Children.Add(new TextBlock { Text = "Nom du radar", Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
-            _radarName = new TextBox { Width = 220, ToolTip = "Le nom de l'onglet et de la section : « Radar », « Traits », « Aptitudes »…" };
+            radarNameRow.Children.Add(new TextBlock { Text = "Nom du graph", Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            _radarName = new TextBox { Width = 220, ToolTip = "Le nom de l'onglet et de la section : « " + SheetTemplate.DefaultRadarName + " », « Traits », « Aptitudes »…" };
             _radarName.TextChanged += delegate { if (_current != null && !_syncing) _current.RadarName = _radarName.Text; };
             radarNameRow.Children.Add(_radarName);
             radarHead.Children.Add(radarNameRow);
@@ -195,7 +246,7 @@ namespace Marabook.View
             radarDock.Children.Add(_addAxis);
             _axesPanel = new StackPanel();
             radarDock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _axesPanel });
-            tabs.Items.Add(new TabItem { Header = "Radar", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = radarDock } });
+            tabs.Items.Add(new TabItem { Header = "Graph statistique", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = radarDock } });
             right.Children.Add(tabs);
             Grid.SetColumn(right, 2);
             root.Children.Add(right);
@@ -220,11 +271,18 @@ namespace Marabook.View
             FillList(null);
         }
 
-        public static List<SheetTemplate> Show(Window owner, List<SheetTemplate> source)
+        public static List<SheetTemplate> Show(Window owner, List<SheetTemplate> source, Project project)
         {
-            var dialog = new TemplatesDialog(owner, source);
+            var dialog = new TemplatesDialog(owner, source, project);
             Dialogs.ShowModal(dialog);
             return dialog._accepted ? dialog._templates : null;
+        }
+
+        /// <summary>L'explication sous une case à cocher, repliée (le libellé
+        /// d'un CheckBox, lui, ne revient pas à la ligne).</summary>
+        private static TextBlock Note(string text, double bottom)
+        {
+            return new TextBlock { Text = text, Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(22, 0, 0, bottom) };
         }
 
         private static TextBlock HeadLabel(string text, int column)
@@ -277,10 +335,74 @@ namespace Marabook.View
             _radarCheck.IsEnabled = template != null;
             _radarMax.Value = template == null ? 5 : template.RadarMax;
             _radarName.Text = template == null ? "" : template.RadarName;
+            _trackingCheck.IsChecked = template != null && template.Tracking;
+            _trackingCheck.IsEnabled = template != null;
+            _evolutionCheck.IsChecked = template != null && template.Evolution;
+            _evolutionCheck.IsEnabled = template != null;
+            var some = template != null && template.TrackingScope.Count > 0;
+            _scopeAll.IsChecked = !some;
+            _scopeSome.IsChecked = some;
             _syncing = false;
             RebuildSections();
             RebuildFields();
             RebuildAxes();
+            RebuildScope();
+        }
+
+        // ------------------------------------------------------------ suivi (21/09)
+
+        /// <summary>L'amplitude du suivi : la Pile des écrits en cases à
+        /// cocher (livres, groupes, écrits — pages extra exclues), indentées
+        /// par profondeur. Une case cochée couvre tout ce qu'elle contient :
+        /// ses descendants se grisent. Sans suivi, tout est grisé.</summary>
+        private void RebuildScope()
+        {
+            _scopePanel.Children.Clear();
+            var on = _current != null && _current.Tracking;
+            _scopeAll.IsEnabled = on;
+            _scopeSome.IsEnabled = on;
+            if (_current == null) return;
+            var listing = on && _scopeSome.IsChecked == true;
+            var root = _project == null ? null : _project.Category(Project.KeyWritings);
+            if (root != null) AddScopeRows(root, 0, listing, false);
+            if (_scopePanel.Children.Count == 0)
+                _scopePanel.Children.Add(new TextBlock { Text = "Aucun écrit dans la Pile.", Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(2, 4, 0, 0) });
+        }
+
+        private void AddScopeRows(BinderItem parent, int depth, bool enabled, bool covered)
+        {
+            foreach (var child in parent.Children)
+            {
+                var kind = child.Kind;
+                if (kind != ItemKind.Book && kind != ItemKind.Folder && kind != ItemKind.Text) continue;
+                if (child.IsExtraPage || child.IsToc) continue;
+                var itemRef = child;
+                var chosen = _current.TrackingScope.Contains(child.Id);
+                var box = new CheckBox
+                {
+                    Content = child.Title,
+                    IsChecked = chosen || covered,
+                    IsEnabled = enabled && !covered,
+                    Margin = new Thickness(depth * 18, 0, 0, 3),
+                    Foreground = kind == ItemKind.Text ? Chrome.Ink : Chrome.SoftText,
+                    FontWeight = kind == ItemKind.Text ? FontWeights.Normal : FontWeights.SemiBold,
+                    ToolTip = kind == ItemKind.Book ? "Un livre : tous ses écrits" : kind == ItemKind.Folder ? "Un groupe : tous ses écrits" : "Un écrit"
+                };
+                box.Checked += delegate
+                {
+                    if (_syncing || _current == null) return;
+                    if (!_current.TrackingScope.Contains(itemRef.Id)) _current.TrackingScope.Add(itemRef.Id);
+                    RebuildScope();
+                };
+                box.Unchecked += delegate
+                {
+                    if (_syncing || _current == null) return;
+                    _current.TrackingScope.Remove(itemRef.Id);
+                    RebuildScope();
+                };
+                _scopePanel.Children.Add(box);
+                AddScopeRows(child, depth + 1, enabled, covered || chosen);
+            }
         }
 
         // ------------------------------------------------------------ radar (b47 bis)

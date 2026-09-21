@@ -10,12 +10,15 @@ using Marabook.Model;
 namespace Marabook.View
 {
     /// <summary>LE RENDU WIKI d'une fiche (extrait de SheetView au batch 47) :
-    /// grand titre, infobox (portrait, champs remplis groupés, champs libres,
-    /// relations, évolution, présence), corps markdown. Deux mises en page :
-    /// « page » = l'infobox à droite du corps (le mode wiki de la fiche) ;
-    /// « colonne » = tout empilé (l'épinglé de la colonne de droite, b47).
-    /// Lecture seule par nature : rien ici n'écrit dans la fiche, sauf le
-    /// basculement d'une case à cocher du corps, rendu au demandeur.</summary>
+    /// grand titre, corps markdown, et des PAPERS de même dessin (21/09) —
+    /// l'infobox (portrait, champs remplis groupés, champs libres), puis
+    /// Relations, « Évolution et présence », et le graph statistique, dans cet
+    /// ordre, chacun seulement s'il a quelque chose à dire. Deux mises en
+    /// page : « page » = les papers en colonne à droite du corps (le mode
+    /// wiki de la fiche) ; « colonne » = tout empilé (l'épinglé de la colonne
+    /// de droite, b47). Lecture seule par nature : rien ici n'écrit dans la
+    /// fiche, sauf le basculement d'une case à cocher du corps, rendu au
+    /// demandeur.</summary>
     public static class SheetWiki
     {
         public static UIElement Build(BinderItem item, SheetTemplate template, Project project, string body,
@@ -31,38 +34,32 @@ namespace Marabook.View
                 Padding = column ? new Thickness(16, 14, 16, 16) : new Thickness(28),
                 MaxWidth = column ? double.PositiveInfinity : 900
             };
-            var infobox = BuildInfobox(item, template, project, navigate);
-            var infoboxFrame = infobox.Children.Count == 0 ? null : new Border
-            {
-                Background = Chrome.BarBgLight,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(12),
-                VerticalAlignment = VerticalAlignment.Top,
-                Child = infobox
-            };
+            var papers = BuildPapers(item, template, project, navigate);
             if (column)
             {
-                // En colonne : le titre, l'infobox, puis le corps — empilés.
+                // En colonne : le titre, les papers, puis le corps — empilés.
                 var stack = new StackPanel();
                 stack.Children.Add(BuildHead(item, template, project, true));
-                if (infoboxFrame != null)
+                for (var i = 0; i < papers.Count; i++)
                 {
-                    infoboxFrame.Margin = new Thickness(0, 10, 0, 12);
-                    stack.Children.Add(infoboxFrame);
+                    papers[i].Margin = new Thickness(0, 10, 0, i == papers.Count - 1 ? 12 : 0);
+                    stack.Children.Add(papers[i]);
                 }
                 stack.Children.Add(BuildBody(body, linkClicked, taskToggled));
                 page.Child = stack;
                 return page;
             }
             var layout = new DockPanel { LastChildFill = true };
-            if (infoboxFrame != null)
+            if (papers.Count > 0)
             {
-                infoboxFrame.Width = 250;
-                infoboxFrame.Margin = new Thickness(20, 6, 0, 0);
-                DockPanel.SetDock(infoboxFrame, Dock.Right);
-                layout.Children.Add(infoboxFrame);
+                var side = new StackPanel { Width = 250, Margin = new Thickness(20, 6, 0, 0), VerticalAlignment = VerticalAlignment.Top };
+                foreach (var paper in papers)
+                {
+                    paper.Margin = new Thickness(0, 0, 0, 10);
+                    side.Children.Add(paper);
+                }
+                DockPanel.SetDock(side, Dock.Right);
+                layout.Children.Add(side);
             }
             var main = new StackPanel();
             main.Children.Add(BuildHead(item, template, project, false));
@@ -107,10 +104,41 @@ namespace Marabook.View
             };
         }
 
+        // ================================================================ papers
+
+        /// <summary>Les papers, dans l'ordre : infobox, Relations, « Évolution
+        /// et présence », graph statistique — vides écartés.</summary>
+        private static List<Border> BuildPapers(BinderItem item, SheetTemplate template, Project project, Action<BinderItem> navigate)
+        {
+            var papers = new List<Border>();
+            var infobox = BuildInfobox(item, template, project, navigate);
+            if (infobox.Children.Count > 0) papers.Add(Frame(infobox));
+            var relations = BuildRelations(item, project, navigate);
+            if (relations != null) papers.Add(Frame(relations));
+            var story = BuildEvolutionPresence(item, template, project, navigate);
+            if (story != null) papers.Add(Frame(story));
+            var graph = BuildGraph(item, template);
+            if (graph != null) papers.Add(Frame(graph));
+            return papers;
+        }
+
+        /// <summary>Le cadre commun des papers : le dessin de l'infobox.</summary>
+        private static Border Frame(StackPanel content)
+        {
+            return new Border
+            {
+                Background = Chrome.BarBgLight,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(12),
+                VerticalAlignment = VerticalAlignment.Top,
+                Child = content
+            };
+        }
+
         /// <summary>L'infobox : portrait, champs de modèle remplis (par
-        /// groupe), champs libres, relations (NOM (nature), le nom cliquable
-        /// vers une fiche), l'évolution (écrit — note) et la présence
-        /// (écrits où les noms apparaissent, avec le compte) — b47.</summary>
+        /// groupe), champs libres.</summary>
         private static StackPanel BuildInfobox(BinderItem item, SheetTemplate template, Project project, Action<BinderItem> navigate)
         {
             var infobox = new StackPanel();
@@ -135,62 +163,86 @@ namespace Marabook.View
             foreach (var entry in item.FreeInfo)
                 if (!string.IsNullOrEmpty(entry.Value))
                     AddRow(infobox, entry.Title, entry.Kind, entry.Value, project, navigate);
-            // Le radar (b47 bis) : la toile en petit, si le modèle l'active
-            // et que la fiche a une valeur.
-            if (template != null && template.ShowsRadar && RadarChart.HasValues(template, item.RadarValues))
+            return infobox;
+        }
+
+        /// <summary>Relations : NOM (nature), le nom cliquable vers une fiche.
+        /// Null sans relation à montrer.</summary>
+        private static StackPanel BuildRelations(BinderItem item, Project project, Action<BinderItem> navigate)
+        {
+            if (item.Relations.Count == 0) return null;
+            var paper = new StackPanel();
+            paper.Children.Add(PaperCaption("Relations"));
+            foreach (var relation in item.Relations)
             {
-                infobox.Children.Add(GroupCaption(template.RadarLabel));
-                var canvas = new Canvas { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 2) };
-                RadarChart.Draw(canvas, template, item.RadarValues, 220, true);
-                infobox.Children.Add(canvas);
-            }
-            if (item.Relations.Count > 0)
-            {
-                infobox.Children.Add(GroupCaption("Relations"));
-                foreach (var relation in item.Relations)
-                {
-                    var target = project == null || relation.TargetId == null ? null : project.FindById(relation.TargetId);
-                    var label = target != null ? target.Title : relation.Name;
-                    var kind = RelationKinds.Canonical(relation.Kind);
-                    if (label.Length == 0 && kind.Length == 0) continue;
-                    var line = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
-                    line.Inlines.Add(Anchor(label, target, navigate));
-                    if (kind.Length > 0)
-                        line.Inlines.Add(new Run((label.Length > 0 ? " (" : "(") + kind + ")") { Foreground = Chrome.SoftText });
-                    infobox.Children.Add(line);
-                }
-            }
-            // Évolution (b47) : une ligne par étape, dans l'ordre du récit.
-            var steps = Presence.OrderedSteps(item, project);
-            var any = false;
-            foreach (var step in steps)
-            {
-                if (step.Note.Trim().Length == 0) continue;
-                if (!any) { infobox.Children.Add(GroupCaption("Évolution")); any = true; }
-                var text = project == null || step.TextId == null ? null : project.FindById(step.TextId);
+                var target = project == null || relation.TargetId == null ? null : project.FindById(relation.TargetId);
+                var label = target != null ? target.Title : relation.Name;
+                var kind = RelationKinds.Canonical(relation.Kind);
+                if (label.Length == 0 && kind.Length == 0) continue;
                 var line = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
-                if (text != null)
-                {
-                    line.Inlines.Add(Anchor(text.Title, text, navigate));
-                    line.Inlines.Add(new Run(" — ") { Foreground = Chrome.SoftText });
-                }
-                line.Inlines.Add(new Run(step.Note.Trim()) { Foreground = Chrome.Ink });
-                infobox.Children.Add(line);
+                line.Inlines.Add(Anchor(label, target, navigate));
+                if (kind.Length > 0)
+                    line.Inlines.Add(new Run((label.Length > 0 ? " (" : "(") + kind + ")") { Foreground = Chrome.SoftText });
+                paper.Children.Add(line);
             }
-            // Présence (b47) : les écrits où un nom de la fiche apparaît.
+            return paper.Children.Count > 1 ? paper : null;
+        }
+
+        /// <summary>« Évolution et présence » (b47, groupées au 21/09) : les
+        /// étapes dans l'ordre du récit (le même que la fiche — écrit ou nom
+        /// libre, puis la note), et les écrits suivis où un nom de la fiche
+        /// apparaît, avec le compte. Null si rien des deux.</summary>
+        private static StackPanel BuildEvolutionPresence(BinderItem item, SheetTemplate template, Project project, Action<BinderItem> navigate)
+        {
+            var paper = new StackPanel();
+            var showSteps = (template != null && template.Evolution) || item.Evolution.Count > 0;
+            if (showSteps)
+            {
+                var any = false;
+                foreach (var step in Presence.OrderedSteps(item, project))
+                {
+                    var label = step.Label(project);
+                    var note = step.Note.Trim();
+                    if (label.Length == 0 && note.Length == 0) continue;
+                    if (!any) { paper.Children.Add(PaperCaption("Évolution")); any = true; }
+                    var text = project == null || step.TextId == null ? null : project.FindById(step.TextId);
+                    var line = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+                    if (label.Length > 0)
+                    {
+                        line.Inlines.Add(text != null ? Anchor(label, text, navigate) : new Run(label) { Foreground = Chrome.Ink, FontWeight = FontWeights.SemiBold });
+                        if (note.Length > 0) line.Inlines.Add(new Run(" — ") { Foreground = Chrome.SoftText });
+                    }
+                    if (note.Length > 0) line.Inlines.Add(new Run(note) { Foreground = Chrome.Ink });
+                    paper.Children.Add(line);
+                }
+            }
             var rows = Presence.Of(item, template, project);
             if (rows.Count > 0)
             {
-                infobox.Children.Add(GroupCaption("Présence"));
+                paper.Children.Add(GroupCaption("Présence"));
+                if (paper.Children.Count == 1) ((TextBlock)paper.Children[0]).Margin = new Thickness(0);
                 foreach (var row in rows)
                 {
                     var line = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
                     line.Inlines.Add(Anchor(row.Text.Title, row.Text, navigate));
                     line.Inlines.Add(new Run(" · " + row.Count) { Foreground = Chrome.SoftText });
-                    infobox.Children.Add(line);
+                    paper.Children.Add(line);
                 }
             }
-            return infobox;
+            return paper.Children.Count > 0 ? paper : null;
+        }
+
+        /// <summary>Le graph statistique (b47 bis) : la toile en petit, si le
+        /// modèle l'active et que la fiche a une valeur. Null sinon.</summary>
+        private static StackPanel BuildGraph(BinderItem item, SheetTemplate template)
+        {
+            if (template == null || !template.ShowsRadar || !RadarChart.HasValues(template, item.RadarValues)) return null;
+            var paper = new StackPanel();
+            paper.Children.Add(PaperCaption(template.RadarLabel));
+            var canvas = new Canvas { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 2) };
+            RadarChart.Draw(canvas, template, item.RadarValues, 220, true);
+            paper.Children.Add(canvas);
+            return paper;
         }
 
         private static Run Anchor(string label, BinderItem target, Action<BinderItem> navigate)
@@ -204,6 +256,14 @@ namespace Marabook.View
         public static TextBlock GroupCaption(string text)
         {
             return new TextBlock { Text = text, FontSize = 11, FontWeight = FontWeights.Bold, Foreground = Chrome.Accent, Margin = new Thickness(0, 8, 0, 0) };
+        }
+
+        /// <summary>La légende de tête d'un paper : sans l'écart du haut.</summary>
+        private static TextBlock PaperCaption(string text)
+        {
+            var caption = GroupCaption(text);
+            caption.Margin = new Thickness(0);
+            return caption;
         }
 
         /// <summary>Une ligne de l'infobox selon la nature (b47 bis) : une note

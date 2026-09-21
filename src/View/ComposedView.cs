@@ -1915,40 +1915,78 @@ namespace Marabook.View
         /// <summary>Un pas de décalage : 0,5 cm.</summary>
         public const double IndentStepPx = 5 * 96 / 25.4;
 
-        /// <summary>Décalage des paragraphes de la sélection (ou du paragraphe
-        /// du caret), façon Word (17/09) : « ajouter » pousse le bloc de 0,5 cm
-        /// depuis sa position effective (retrait du style et de la liste
-        /// compris), « retirer » ramène tout au bord de la marge d'un coup —
-        /// alinéa automatique du style et retrait de liste inclus.</summary>
+        /// <summary>Décalage, façon Word mais PAR LIGNES (17/09, 21/09) : il ne
+        /// touche que les lignes de la sélection (ou celle du caret). Sur la
+        /// première ligne seule, c'est l'alinéa qui bouge (recréer un alinéa) ;
+        /// sur les suivantes seules, le bloc bouge et la première reste
+        /// (retrait suspendu) ; sur les deux, tout le paragraphe. « Ajouter »
+        /// pousse de 0,5 cm depuis la position effective (retrait du style et
+        /// de la liste compris), « retirer » ramène au bord de la marge d'un
+        /// coup — alinéa automatique et retrait de liste inclus. Un cran
+        /// d'annulation.</summary>
         public void ApplyIndent(bool add)
         {
             PushUndo(false);
-            int pa, pb;
-            if (HasSelection())
-            {
-                int oa, ob;
-                OrderedSelection(out pa, out oa, out pb, out ob);
-            }
-            else { pa = _caretParagraph; pb = _caretParagraph; }
-            // « Retirer » sur des paragraphes déjà tous à la marge : on rend
-            // la main au style (le seul chemin de retour hors annulation).
+            int pa, oa, pb, ob;
+            if (HasSelection()) OrderedSelection(out pa, out oa, out pb, out ob);
+            else { pa = pb = _caretParagraph; oa = ob = _caretOffset; }
+            var document = _item.Document;
+            // « Retirer » sur des paragraphes déjà tous à la marge, première
+            // ligne comprise : on rend la main au style (le seul chemin de
+            // retour hors annulation).
             var allFlush = !add;
             for (var p = pa; p <= pb && allFlush; p++)
-                allFlush = _item.Document.Paragraphs[p].Indent == 0;
+                allFlush = document.Paragraphs[p].Indent == 0
+                    && (document.Paragraphs[p].FirstIndent == null || document.Paragraphs[p].FirstIndent == 0);
             for (var p = pa; p <= pb; p++)
             {
-                var paragraph = _item.Document.Paragraphs[p];
-                if (add)
+                var paragraph = document.Paragraphs[p];
+                var style = _styles.Find(paragraph.StyleId);
+                double left, first;
+                paragraph.EffectiveIndents(style, out left, out first);
+                bool coversFirst, coversRest;
+                CoveredLines(p, p == pa ? oa : 0, p == pb ? ob : PivotEdit.FlatLength(paragraph), out coversFirst, out coversRest);
+                if (allFlush)
                 {
-                    var style = _styles.Find(paragraph.StyleId);
-                    var current = paragraph.Indent
-                        ?? (style.LeftIndent + (paragraph.ListKind != null ? 24 : 0));
-                    paragraph.Indent = Math.Round((current + IndentStepPx) * 100) / 100;
+                    paragraph.Indent = null;
+                    paragraph.FirstIndent = null;
                 }
-                else paragraph.Indent = allFlush ? (double?)null : 0;
+                else
+                {
+                    var step = add ? IndentStepPx : 0;
+                    if (coversFirst) first = add ? first + step : 0;
+                    if (coversRest) left = add ? left + step : 0;
+                    paragraph.Indent = Math.Round(left * 100) / 100;
+                    first = Math.Round(first * 100) / 100;
+                    paragraph.FirstIndent = Math.Abs(first - paragraph.Indent.Value) < 0.01 ? (double?)null : first;
+                }
                 _engine.RecomposeParagraph(p);
             }
             AfterEdit(0);
+        }
+
+        /// <summary>Quelles lignes du paragraphe une plage d'offsets couvre :
+        /// la première, et/ou les suivantes. Un paragraphe d'une seule ligne
+        /// couvre les deux (c'est tout le paragraphe qui bouge).</summary>
+        private void CoveredLines(int paragraphIndex, int from, int to, out bool first, out bool rest)
+        {
+            first = true;
+            rest = true;
+            var composition = _engine.Current;
+            if (paragraphIndex < 0 || paragraphIndex >= composition.Paragraphs.Count) return;
+            var lines = composition.Paragraphs[paragraphIndex].Lines;
+            if (lines.Count <= 1) return;
+            var startLine = LineIndexAt(lines, from);
+            var endLine = LineIndexAt(lines, Math.Max(from, to));
+            first = startLine == 0;
+            rest = endLine >= 1;
+        }
+
+        private static int LineIndexAt(List<ComposedLine> lines, int offset)
+        {
+            for (var i = 0; i < lines.Count; i++)
+                if (offset < lines[i].End || i == lines.Count - 1) return i;
+            return lines.Count - 1;
         }
 
         // ============================================================ clipboard

@@ -2763,7 +2763,7 @@ namespace Marabook
         private void OpenTemplatesDialog()
         {
             CommitActive();
-            var edited = TemplatesDialog.Show(this, _project.Templates);
+            var edited = TemplatesDialog.Show(this, _project.Templates, _project);
             if (edited == null) return;
             _project.Templates = edited;
             // Re-render the current sheet: its fields may have changed.

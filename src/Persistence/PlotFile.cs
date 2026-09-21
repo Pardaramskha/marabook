@@ -108,7 +108,15 @@ namespace Marabook.Persistence
         //      ("journal" : "sprints" : [{d, m, e, w, g}]).
         // v24: décalage d'un paragraphe ("indent" : retrait gauche uniforme en
         //      px, omis quand le style décide ; 0 = tout au bord de la marge).
-        private const int FormatVersion = 24;
+        // v25: 21/09 — décalage de la première ligne seule ("firstIndent" : sa
+        //      position depuis la marge en px, omis quand elle suit le bloc ou
+        //      l'alinéa du style) ; SECTIONS EXTRAS d'un modèle de fiche :
+        //      "tracking" : {on, scope:[ids d'écrits/groupes/livres]} (le suivi
+        //      des noms, désactivé par défaut, amplitude vide = tous les
+        //      écrits) et "evolution" : true (la section Évolution, désactivée
+        //      par défaut) ; "title" d'une étape libre d'évolution ; le nom par
+        //      défaut du graph statistique (ex-radar) devient « Statistiques ».
+        private const int FormatVersion = 25;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -527,6 +535,7 @@ namespace Marabook.Persistence
                         var s = new Dictionary<string, object>();
                         s["id"] = step.Id;
                         if (step.TextId != null) s["text"] = step.TextId;
+                        if (!string.IsNullOrEmpty(step.Title)) s["title"] = step.Title; // v25
                         s["note"] = step.Note ?? "";
                         steps.Add(s);
                     }
@@ -615,12 +624,21 @@ namespace Marabook.Persistence
                 if (template.Sections.Count > 0) // v19
                     t["sections"] = new List<object>(template.Sections.ToArray());
                 if (template.Relations) t["relations"] = true; // v19 — omis faux
+                if (template.Tracking || template.TrackingScope.Count > 0) // v25 — le suivi et son amplitude
+                {
+                    var tracking = new Dictionary<string, object>();
+                    tracking["on"] = template.Tracking;
+                    if (template.TrackingScope.Count > 0)
+                        tracking["scope"] = new List<object>(template.TrackingScope.ToArray());
+                    t["tracking"] = tracking;
+                }
+                if (template.Evolution) t["evolution"] = true; // v25 — omis faux
                 if (template.Radar || template.RadarAxes.Count > 0) // v22
                 {
                     var radar = new Dictionary<string, object>();
                     radar["on"] = template.Radar;
                     radar["max"] = template.RadarMax;
-                    if (template.RadarName != "Radar") radar["name"] = template.RadarName;
+                    if (template.RadarName != SheetTemplate.DefaultRadarName) radar["name"] = template.RadarName;
                     var axes = new List<object>();
                     foreach (var axis in template.RadarAxes)
                     {
@@ -660,6 +678,7 @@ namespace Marabook.Persistence
                 if (paragraph.AlignOverride != null) p["align"] = paragraph.AlignOverride;
                 if (paragraph.ListKind != null) p["list"] = paragraph.ListKind;
                 if (paragraph.Indent.HasValue) p["indent"] = paragraph.Indent.Value;
+                if (paragraph.FirstIndent.HasValue) p["firstIndent"] = paragraph.FirstIndent.Value; // v25
                 if (paragraph.PageBreakBefore) p["pb"] = true;
                 if (paragraph.AllowWidows) p["wo"] = true; // veuves/orphelines autorisées ici
                 var runs = new List<object>();
@@ -1063,7 +1082,7 @@ namespace Marabook.Persistence
                     {
                         template.Radar = Json.AsBool(Json.Field(radar, "on"), false);
                         template.RadarMax = Math.Max(SheetTemplate.RadarMaxFloor, Math.Min(SheetTemplate.RadarMaxCeiling, Json.AsInt(Json.Field(radar, "max"), 5)));
-                        template.RadarName = Json.AsString(Json.Field(radar, "name")) ?? "Radar";
+                        template.RadarName = Json.AsString(Json.Field(radar, "name")) ?? SheetTemplate.DefaultRadarName;
                         var axes = Json.AsList(Json.Field(radar, "axes"));
                         if (axes != null)
                             foreach (var axisNode in axes)
@@ -1083,6 +1102,17 @@ namespace Marabook.Persistence
                             if (section is string && ((string)section).Length > 0 && !template.HasSection((string)section))
                                 template.Sections.Add((string)section);
                     template.Relations = Json.AsBool(Json.Field(t, "relations"), false); // v19
+                    var tracking = Json.AsObject(Json.Field(t, "tracking")); // v25
+                    if (tracking != null)
+                    {
+                        template.Tracking = Json.AsBool(Json.Field(tracking, "on"), false);
+                        var scope = Json.AsList(Json.Field(tracking, "scope"));
+                        if (scope != null)
+                            foreach (var scopeId in scope)
+                                if (scopeId is string && ((string)scopeId).Length > 0 && !template.TrackingScope.Contains((string)scopeId))
+                                    template.TrackingScope.Add((string)scopeId);
+                    }
+                    template.Evolution = Json.AsBool(Json.Field(t, "evolution"), false); // v25
                     templates.Add(template);
                 }
             // an empty list is legitimate (user deleted them all)
@@ -1283,6 +1313,7 @@ namespace Marabook.Persistence
                         var stepId = Json.AsString(Json.Field(s, "id"));
                         if (!string.IsNullOrEmpty(stepId)) step.Id = stepId;
                         step.TextId = Json.AsString(Json.Field(s, "text"));
+                        step.Title = Json.AsString(Json.Field(s, "title")) ?? ""; // v25
                         step.Note = Json.AsString(Json.Field(s, "note")) ?? "";
                         item.Evolution.Add(step);
                     }
@@ -1364,6 +1395,8 @@ namespace Marabook.Persistence
                     paragraph.ListKind = Json.AsString(Json.Field(p, "list"));
                     var indent = Json.Field(p, "indent");
                     paragraph.Indent = indent == null ? (double?)null : Math.Max(0, Json.AsDouble(indent, 0));
+                    var firstIndent = Json.Field(p, "firstIndent"); // v25
+                    paragraph.FirstIndent = firstIndent == null ? (double?)null : Math.Max(0, Json.AsDouble(firstIndent, 0));
                     paragraph.PageBreakBefore = Json.AsBool(Json.Field(p, "pb"), false);
                     paragraph.AllowWidows = Json.AsBool(Json.Field(p, "wo"), false);
                     var runs = Json.AsList(Json.Field(p, "runs"));

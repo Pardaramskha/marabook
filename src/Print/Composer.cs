@@ -578,8 +578,11 @@ namespace Marabook.Print
                 : style.FontSize * Math.Max(100, style.AutoLeadingPercent) / 100.0;
             // Décalage du paragraphe (17/09) : une valeur remplace retrait
             // gauche, alinéa et retrait de liste d'un bloc — 0 = à la marge.
-            var leftIndent = paragraph.Indent ?? (style.LeftIndent + (paragraph.ListKind != null ? 24 : 0));
-            var firstLineIndent = paragraph.Indent.HasValue ? 0 : style.FirstLineIndent;
+            // La première ligne a sa propre position (21/09) : alinéa recréé
+            // ou retrait suspendu (négatif = elle déborde à gauche du bloc).
+            double leftIndent, firstX;
+            paragraph.EffectiveIndents(style, out leftIndent, out firstX);
+            var firstLineIndent = firstX - leftIndent;
             var baseAvail = Math.Max(40, contentWidth - leftIndent - style.RightIndent);
 
             var index = 0;
