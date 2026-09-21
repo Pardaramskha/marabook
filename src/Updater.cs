@@ -111,21 +111,18 @@ namespace Marabook
                 Notes = Field(json, "body")
             };
             // L'asset au nom voulu : son URL de téléchargement, et son URL
-            // d'API (le champ « url » du même objet asset, qui précède).
-            foreach (Match match in Regex.Matches(json, "\"url\"\\s*:\\s*\"([^\"]+/releases/assets/[0-9]+)\"[^{}]*?\"browser_download_url\"\\s*:\\s*\"([^\"]+)\""))
-                if (match.Groups[2].Value.EndsWith("/" + assetName, StringComparison.OrdinalIgnoreCase))
+            // d'API — le dernier champ « url …/releases/assets/N » qui la
+            // précède dans le JSON (l'objet asset commence par lui ; son
+            // « uploader » imbriqué interdit une seule expression).
+            var apiUrls = Regex.Matches(json, "\"url\"\\s*:\\s*\"([^\"]+/releases/assets/[0-9]+)\"");
+            foreach (Match match in Regex.Matches(json, "\"browser_download_url\"\\s*:\\s*\"([^\"]+)\""))
+                if (match.Groups[1].Value.EndsWith("/" + assetName, StringComparison.OrdinalIgnoreCase))
                 {
-                    info.AssetApiUrl = match.Groups[1].Value;
-                    info.ZipUrl = match.Groups[2].Value;
+                    info.ZipUrl = match.Groups[1].Value;
+                    foreach (Match api in apiUrls)
+                        if (api.Index < match.Index) info.AssetApiUrl = api.Groups[1].Value;
                     break;
                 }
-            if (info.ZipUrl.Length == 0)
-                foreach (Match match in Regex.Matches(json, "\"browser_download_url\"\\s*:\\s*\"([^\"]+)\""))
-                    if (match.Groups[1].Value.EndsWith("/" + assetName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        info.ZipUrl = match.Groups[1].Value;
-                        break;
-                    }
             if (info.Version.Length == 0) throw new Exception("Réponse GitHub illisible");
             return info;
         }
