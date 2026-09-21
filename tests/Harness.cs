@@ -111,7 +111,8 @@ namespace Marabook.Tests
                 RecoveryTests.Run,       // C28 — sauvegarde de secours (18/09)
                 LexiconExchangeTests.Run, // C29 — import/export du dictionnaire (18/09)
                 DocxCommentsTests.Run,   // C30 — commentaires Word ↔ annotations (b49)
-                NameExtractorTests.Run   // C31 — extraction de personnages (b49)
+                NameExtractorTests.Run,  // C31 — extraction de personnages (b49)
+                ExtraPagesTests.Run      // C32 — liminaires, pages de fin, annexes (b49 suite)
             };
             foreach (var suite in suites)
             {

@@ -116,7 +116,12 @@ namespace Marabook.Persistence
         //      écrits) et "evolution" : true (la section Évolution, désactivée
         //      par défaut) ; "title" d'une étape libre d'évolution ; le nom par
         //      défaut du graph statistique (ex-radar) devient « Statistiques ».
-        private const int FormatVersion = 25;
+        // v26: b49 suite — SECTIONS des pages extra d'un livre ("extraSection" :
+        //      front | back | annex, absent = liminaire) et leur sorte
+        //      ("extraKind" : ExtraPages.Kind*, absent = libre ; les pages
+        //      dynamiques — table des matières, index, notes de fin, glossaire
+        //      — s'y reconnaissent).
+        private const int FormatVersion = 26;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -410,6 +415,8 @@ namespace Marabook.Persistence
             if (item.PageTemplateId != null) node["pageTemplate"] = item.PageTemplateId;
             if (item.IsExtraPage) node["extra"] = true;
             if (item.IsToc) node["toc"] = true;
+            if (item.ExtraSection != null) node["extraSection"] = item.ExtraSection; // v26
+            if (item.ExtraKind != null) node["extraKind"] = item.ExtraKind;          // v26
             if (item.Kind == ItemKind.PageTemplate)
             {
                 if (item.TemplateColor != null) node["chip"] = item.TemplateColor;
@@ -1170,6 +1177,9 @@ namespace Marabook.Persistence
             item.PageTemplateId = Json.AsString(Json.Field(obj, "pageTemplate"));
             item.IsExtraPage = Json.AsBool(Json.Field(obj, "extra"), false);
             item.IsToc = Json.AsBool(Json.Field(obj, "toc"), false);
+            item.ExtraSection = Json.AsString(Json.Field(obj, "extraSection")); // v26
+            item.ExtraKind = Json.AsString(Json.Field(obj, "extraKind"));       // v26 — absents sur une
+                                                                                  // vieille page extra : liminaire (ExtraPages.SectionOf)
             if (item.Kind == ItemKind.PageTemplate)
             {
                 item.TemplateColor = Json.AsString(Json.Field(obj, "chip"));

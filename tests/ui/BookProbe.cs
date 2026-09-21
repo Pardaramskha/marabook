@@ -226,6 +226,26 @@ namespace Marabook.Tests.Ui
             Invoke(window, "OnBinderSelection", new object[] { target });
             DoEvents();
 
+            // — Les trois sections de pages extra (b49) : une préface se place
+            //   en tête, des remerciements après le corps, un index en queue ;
+            //   l'index dynamique se bâtit sans planter sur un projet sans fiche.
+            Invoke(window, "NewBookDocument", new object[] { target, ExtraPages.KindPreface });
+            Invoke(window, "NewBookDocument", new object[] { target, ExtraPages.KindThanks });
+            Invoke(window, "NewBookDocument", new object[] { target, ExtraPages.KindIndex });
+            DoEvents();
+            var order = new System.Collections.Generic.List<string>();
+            foreach (var child in target.Children) order.Add(child.Title);
+            Check(string.Join(",", order.ToArray()) == "Préface,Chapitre 1,Chapitre 2,Chapitre 3,Partie II,Faux-titre,Remerciements,Index",
+                "préface en tête, remerciements après le corps, index en queue (obtenu : " + string.Join(",", order.ToArray()) + ")");
+            var indexPage = target.Children[target.Children.Count - 1];
+            Check(indexPage.IsExtraPage && indexPage.ExtraSection == ExtraPages.SectionAnnex
+                && indexPage.Document.ToPlainText().Contains("INDEX"),
+                "l'index est une annexe, page extra, bâtie dynamiquement");
+            Invoke(window, "OnBinderSelection", new object[] { target });
+            DoEvents();
+            Snapshot((FrameworkElement)GetField(window, "_bookView"),
+                Path.Combine(Path.GetTempPath(), "marabook-2109-livre-sections.png"));
+
             // — Contrôle visuel : l'inspecteur puis le panneau Publication en PNG.
             Snapshot((FrameworkElement)GetField(window, "_inspector"),
                 Path.Combine(Path.GetTempPath(), "marabook-b32-inspector.png"));

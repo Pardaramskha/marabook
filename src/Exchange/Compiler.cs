@@ -89,6 +89,7 @@ namespace Marabook.Exchange
                         AlignOverride = paragraph.AlignOverride,
                         ListKind = paragraph.ListKind,
                         Indent = paragraph.Indent,
+                        FirstIndent = paragraph.FirstIndent,
                         PageBreakBefore = paragraph.PageBreakBefore,
                         AllowWidows = paragraph.AllowWidows,
                         Decor = decor

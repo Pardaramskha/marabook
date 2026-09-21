@@ -20,7 +20,7 @@ namespace Marabook.View
     {
         private readonly WrapPanel _cards;
         private StackPanel _planActions; // racine Plans : « + Nouveau plan » (b35)
-        private StackPanel _bookActions;   // livre : Nouvel écrit / Nouvelle partie / Nouvelle liminaire (14/09)
+        private WrapPanel _bookActions;    // livre : Nouvel écrit / Nouvelle partie / Nouvelle liminaire / page de fin / annexe (14/09, b49) — replié si étroit
         private StackPanel _folderActions; // dossier d'Écrits : Nouvel écrit / Nouveau sous-dossier (14/09)
         private StackPanel _writingsActions; // racine Écrits : Nouvel écrit / dossier / livre (12/09)
         private StackPanel _researchActions; // racine Recherche : Importer des fichiers (12/09)
@@ -107,7 +107,7 @@ namespace Marabook.View
             BuildDocumentActions();
             // Livre (14/09) : « Nouvel écrit » (principal), « Nouvelle partie »,
             // « Nouvelle liminaire » (le menu des pages extra) — tout en haut.
-            _bookActions = new StackPanel
+            _bookActions = new WrapPanel
             {
                 Orientation = Orientation.Horizontal,
                 Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0),
@@ -115,18 +115,31 @@ namespace Marabook.View
             };
             var bookText = Buttons.IconText("plus-bold", "Nouvel écrit",
                 "Un écrit à la fin du livre, au gabarit du livre", Buttons.Bar, Buttons.Look.Primary);
+            bookText.Margin = new Thickness(0, 0, 0, 6);
             bookText.Click += delegate { RequestNewDocument(null); };
             _bookActions.Children.Add(bookText);
             var bookPart = Buttons.IconText("folder-bold", "Nouvelle partie",
                 "Une partie : un dossier indicatif, traversé par la compilation et les folios", Buttons.Bar, Buttons.Look.Outline);
-            bookPart.Margin = new Thickness(8, 0, 0, 0);
+            bookPart.Margin = new Thickness(8, 0, 0, 6);
             bookPart.Click += delegate { RequestNewDocument("folder"); };
             _bookActions.Children.Add(bookPart);
+            // Les trois sections de pages extra (b49) : liminaires avant le
+            // corps, pages de fin après, annexes tout à la fin.
             var bookExtra = Buttons.IconText("file-dashed-bold", "Nouvelle liminaire",
-                "Pages extra : vierge, pages de titre, table des matières, page éditeur…", Buttons.Bar, Buttons.Look.Outline);
-            bookExtra.Margin = new Thickness(8, 0, 0, 0);
-            bookExtra.Click += delegate { OpenExtraMenu(bookExtra); };
+                "Avant le corps : pages de titre, dédicace, épigraphe, préface, avertissement, table des matières…", Buttons.Bar, Buttons.Look.Outline);
+            bookExtra.Margin = new Thickness(8, 0, 0, 6);
+            bookExtra.Click += delegate { OpenExtraMenu(bookExtra, ExtraPages.SectionFront); };
             _bookActions.Children.Add(bookExtra);
+            var bookBack = Buttons.IconText("file-dashed-bold", "Nouvelle page de fin",
+                "Après le corps : postface, remerciements, à propos de l'auteur, achevé d'imprimer…", Buttons.Bar, Buttons.Look.Outline);
+            bookBack.Margin = new Thickness(8, 0, 0, 6);
+            bookBack.Click += delegate { OpenExtraMenu(bookBack, ExtraPages.SectionBack); };
+            _bookActions.Children.Add(bookBack);
+            var bookAnnex = Buttons.IconText("file-dashed-bold", "Nouvelle annexe",
+                "Tout à la fin : glossaire, index, chronologie, bibliographie, notes, cartes…", Buttons.Bar, Buttons.Look.Outline);
+            bookAnnex.Margin = new Thickness(8, 0, 0, 6);
+            bookAnnex.Click += delegate { OpenExtraMenu(bookAnnex, ExtraPages.SectionAnnex); };
+            _bookActions.Children.Add(bookAnnex);
             // Dossier d'Écrits (14/09) : « Nouvel écrit » (principal), « Nouveau sous-dossier ».
             _folderActions = new StackPanel
             {
@@ -670,6 +683,10 @@ namespace Marabook.View
                     extra.Click += delegate
                     {
                         itemRef.IsExtraPage = !itemRef.IsExtraPage;
+                        // Marquée à la main : une liminaire libre ; démarquée :
+                        // une page du récit, sans section ni sorte.
+                        itemRef.ExtraSection = itemRef.IsExtraPage ? ExtraPages.SectionFront : null;
+                        if (!itemRef.IsExtraPage) itemRef.ExtraKind = null;
                         var changed = Changed;
                         if (changed != null) changed();
                     };
@@ -1175,38 +1192,89 @@ namespace Marabook.View
                 Margin = new Thickness(2, 0, 0, 0),
                 ToolTip = "Pages extra : liminaires, table des matières…"
             };
-            arrow.Click += delegate { OpenExtraMenu(arrow); };
+            arrow.Click += delegate { OpenExtraMenu(arrow, null); };
             _documentActions.Children.Add(arrow);
         }
 
-        /// <summary>Le menu des pages extra (« Nouvelle liminaire », 14/09) :
-        /// partie, document vierge, pages de titre, TdM, page éditeur…</summary>
-        private void OpenExtraMenu(UIElement anchor)
+        /// <summary>Le menu des pages extra d'une section (b49) — liminaires,
+        /// pages de fin ou annexes ; section null = les trois à la suite (la
+        /// flèche de « Nouveau document »). Chaque page se place d'elle-même
+        /// dans le livre selon sa section, puis se déplace librement.</summary>
+        private void OpenExtraMenu(UIElement anchor, string section)
         {
+            var menu = new ContextMenu { PlacementTarget = anchor };
+            if (section == null)
             {
-                var menu = new ContextMenu { PlacementTarget = anchor };
                 // Partie : un dossier purement indicatif — la compilation et
                 // les folios l'ignorent, le corkboard l'affiche en boîte.
                 AddExtraEntry(menu, "Dossier (partie)", "folder",
                     "Regroupe des documents dans une boîte du corkboard — sans "
                     + "effet sur la compilation ni les folios");
                 menu.Items.Add(new Separator());
-                AddExtraEntry(menu, "Document vierge", ExtraPages.KindBlank,
+            }
+            if (section == null || section == ExtraPages.SectionFront)
+            {
+                if (section == null) menu.Items.Add(new MenuItem { Header = "Liminaires", IsEnabled = false });
+                AddExtraEntry(menu, "Page vierge", ExtraPages.KindBlank,
                     "Page vierge au gabarit intérieur du livre");
                 AddExtraEntry(menu, "Pages de titre", ExtraPages.KindTitle,
                     "Deux gardes vierges, faux-titre, page de titre et copyright");
+                AddExtraEntry(menu, "Dédicace", ExtraPages.KindDedication,
+                    "Une ligne au tiers de la page, verso vierge");
+                AddExtraEntry(menu, "Épigraphe", ExtraPages.KindEpigraph,
+                    "La citation qui ouvre le livre, avec sa source, verso vierge");
+                AddExtraEntry(menu, "Préface ou avant-propos", ExtraPages.KindPreface,
+                    "Un texte d'ouverture signé (par un tiers ou par vous)");
+                AddExtraEntry(menu, "Note de l'auteur", ExtraPages.KindAuthorNote,
+                    "Quelques mots sur la genèse et les partis pris du livre");
                 AddExtraEntry(menu, "Page de direction d'anthologie", ExtraPages.KindDirection,
                     "Direction du recueil et auteurs participants, verso vierge");
                 AddExtraEntry(menu, "Page d'avertissement", ExtraPages.KindWarning,
                     "Avertissement de contenu, verso vierge");
                 AddExtraEntry(menu, "Table des matières", ExtraPages.KindToc,
-                    "Collecte les documents du livre — mise à jour dynamique");
+                    "Collecte les écrits du récit avec leurs folios — mise à jour dynamique ; "
+                    + "liminaires, pages de fin et annexes n'y figurent pas");
                 AddExtraEntry(menu, "Page éditeur", ExtraPages.KindPublisher,
                     "Présentation de la maison d'édition");
                 AddExtraEntry(menu, "Page soutien", ExtraPages.KindSupport,
                     "Mention des soutiens du livre");
-                menu.IsOpen = true;
             }
+            if (section == null || section == ExtraPages.SectionBack)
+            {
+                if (section == null) { menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = "Pages de fin", IsEnabled = false }); }
+                AddExtraEntry(menu, "Page vierge", ExtraPages.KindBlankBack,
+                    "Page vierge après le corps du livre");
+                AddExtraEntry(menu, "Postface", ExtraPages.KindPostface,
+                    "Un texte de clôture signé, le livre refermé");
+                AddExtraEntry(menu, "Remerciements", ExtraPages.KindThanks,
+                    "Merci à celles et ceux qui ont accompagné le livre");
+                AddExtraEntry(menu, "À propos de l'auteur", ExtraPages.KindAboutAuthor,
+                    "Présentation de l'auteur·ice et de ses autres ouvrages");
+                AddExtraEntry(menu, "Table des matières", ExtraPages.KindTocBack,
+                    "La table des matières en fin d'ouvrage, à la française — mise à jour dynamique");
+                AddExtraEntry(menu, "Achevé d'imprimer", ExtraPages.KindColophon,
+                    "Le colophon : imprimeur, dépôt légal, pays d'impression");
+            }
+            if (section == null || section == ExtraPages.SectionAnnex)
+            {
+                if (section == null) { menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = "Annexes", IsEnabled = false }); }
+                AddExtraEntry(menu, "Annexe vierge", ExtraPages.KindBlankAnnex,
+                    "Page vierge tout à la fin du livre");
+                AddExtraEntry(menu, "Glossaire", ExtraPages.KindGlossary,
+                    "Les mots du Dictionnaire du projet qui ont une définition — mise à jour dynamique");
+                AddExtraEntry(menu, "Index des personnages et des lieux", ExtraPages.KindIndex,
+                    "Les fiches Personnage et Lieu nommées dans le livre, avec les folios — mise à jour dynamique");
+                AddExtraEntry(menu, "Chronologie", ExtraPages.KindChronology,
+                    "Les dates du récit, une par ligne");
+                AddExtraEntry(menu, "Bibliographie", ExtraPages.KindBibliography,
+                    "Les ouvrages cités ou consultés");
+                AddExtraEntry(menu, "Notes de fin", ExtraPages.KindEndnotes,
+                    "Les notes de bas de page des écrits, rassemblées par écrit — mise à jour dynamique "
+                    + "(elles restent aussi en bas de page)");
+                AddExtraEntry(menu, "Cartes et illustrations", ExtraPages.KindIllustrations,
+                    "Une page d'accueil pour vos cartes et images");
+            }
+            menu.IsOpen = true;
         }
 
         private void AddExtraEntry(ContextMenu menu, string label, string kind, string tip)
@@ -1390,6 +1458,17 @@ namespace Marabook.View
                     Margin = new Thickness(0, 0, 10, 0)
                 });
             }
+            // Une page extra dit sa section (b49) : Liminaire, Page de fin, Annexe.
+            if (item.Kind == ItemKind.Text && (item.IsExtraPage || item.IsToc))
+                footer.Children.Add(new TextBlock
+                {
+                    Text = ExtraPages.SectionLabel(ExtraPages.SectionOf(item) ?? ExtraPages.SectionFront),
+                    Foreground = Chrome.FaintText,
+                    FontSize = 10,
+                    FontStyle = FontStyles.Italic,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 10, 0)
+                });
             var annotationCount = item.Kind == ItemKind.Text
                 ? item.Document.AnnotationOrder(false).Count : 0;
             if (annotationCount > 0)

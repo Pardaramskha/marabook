@@ -2286,7 +2286,7 @@ namespace Marabook
                 // (books stamp their gabarit on their documents), and a book
                 // document opens at its REAL folio in the book, with its
                 // header/footer decor (menu Gabarit ou gabarit de pages).
-                if (item.IsToc) RegenerateToc(item); // table des matières à jour
+                if (ExtraPages.IsDynamic(item)) RegenerateDynamic(item); // table des matières, index, notes, glossaire à jour
                 _editor.FolioOffset = ComputeFolioOffset(item);
                 _editor.Decor = PageDecor.For(item, _project);
                 _editor.ApplyPageSetup(item.Page ?? _project.Page);
@@ -3149,36 +3149,79 @@ namespace Marabook
                 item = ExtraPages.Create(kind, book, _project);
                 item.Page = book.Book.Template.Clone();
             }
-            _history.Run(new AddItemAction(book, item, -1));
-            if (item.IsToc) RegenerateToc(item);
+            // Une page extra se place d'elle-même selon sa section (b49) :
+            // liminaire en tête, page de fin après le corps, annexe en queue —
+            // l'auteur la déplace ensuite à sa guise.
+            var index = item.IsExtraPage ? ExtraPages.InsertIndex(book, ExtraPages.SectionOf(item)) : -1;
+            _history.Run(new AddItemAction(book, item, index));
+            if (ExtraPages.IsDynamic(item)) RegenerateDynamic(item);
             MarkDirty();
             _pageCountCache.Clear();
             _binder.Rebuild();
             if (_current == book) _bookView.Load(book, _history, _project);
         }
 
-        /// <summary>Rebuilds a dynamic table of contents: every non-extra
-        /// document of the book, in order, with its opening folio.</summary>
-        private void RegenerateToc(BinderItem toc)
+        /// <summary>Rebâtit une page dynamique d'après le livre (b49) : la
+        /// table des matières, l'index, les notes de fin ou le glossaire.</summary>
+        private void RegenerateDynamic(BinderItem page)
         {
-            var book = toc.EnclosingBook();
+            var book = page.EnclosingBook();
             if (book == null || book.Book == null) return;
-            var texts = new List<BinderItem>();
-            CollectBookTexts(book, texts);
-            var entries = new List<ExtraPages.TocEntry>();
-            foreach (var text in texts)
-            {
-                if (text.IsExtraPage || text == toc) continue;
-                entries.Add(new ExtraPages.TocEntry
-                {
-                    Title = text.Title,
-                    Folio = ComputeFolioOffset(text) + 1
-                });
-            }
             ExtraPages.EnsureStyle(_project);
-            ExtraPages.FillToc(toc.Document, entries,
-                ExtraPages.LinesFor(book.Book.Template, _project));
-            _pageCountCache.Remove(toc.Id); // son nombre de pages a pu changer
+            var lines = ExtraPages.LinesFor(book.Book.Template, _project);
+            var story = new List<BinderItem>();
+            BookProgress.StoryTexts(book, story); // le récit seul : ni liminaire, ni page de fin, ni annexe
+            if (page.IsToc || page.ExtraKind == ExtraPages.KindToc)
+            {
+                var entries = new List<ExtraPages.TocEntry>();
+                foreach (var text in story)
+                    entries.Add(new ExtraPages.TocEntry { Title = text.Title, Folio = ComputeFolioOffset(text) + 1 });
+                ExtraPages.FillToc(page.Document, entries, lines);
+            }
+            else if (page.ExtraKind == ExtraPages.KindIndex)
+            {
+                // Les fiches Personnage et Lieu, par leurs noms (Presence), avec
+                // le folio d'ouverture de chaque écrit qui les nomme.
+                var entries = new List<ExtraPages.IndexEntry>();
+                foreach (var sheet in _project.AllItems())
+                {
+                    if (sheet.Kind != ItemKind.Sheet || sheet.IsDescendantOf(_project.Trash)) continue;
+                    var category = _project.SheetCategoryOf(sheet);
+                    if (category == null) continue;
+                    var isCharacter = Achievements.IsCharacterCategory(category.Name);
+                    var isPlace = category.Name.Trim().ToLowerInvariant().StartsWith("lieu");
+                    if (!isCharacter && !isPlace) continue;
+                    var names = Presence.NamesOf(sheet, _project.FindTemplate(sheet.TemplateId));
+                    if (names.Count == 0) continue;
+                    var entry = new ExtraPages.IndexEntry { Name = sheet.Title, Category = isCharacter ? "Personnages" : "Lieux" };
+                    foreach (var text in story)
+                        if (Presence.CountIn(text.Document.ToPlainText(), names) > 0)
+                            entry.Folios.Add(ComputeFolioOffset(text) + 1);
+                    if (entry.Folios.Count > 0) entries.Add(entry);
+                }
+                ExtraPages.FillIndex(page.Document, entries, lines);
+            }
+            else if (page.ExtraKind == ExtraPages.KindEndnotes)
+            {
+                var chapters = new List<ExtraPages.EndnoteChapter>();
+                foreach (var text in story)
+                {
+                    var chapter = new ExtraPages.EndnoteChapter { Title = text.Title };
+                    foreach (var note in text.Document.Footnotes) chapter.Notes.Add(note.Text);
+                    chapters.Add(chapter);
+                }
+                ExtraPages.FillEndnotes(page.Document, chapters, lines);
+            }
+            else if (page.ExtraKind == ExtraPages.KindGlossary)
+            {
+                var entries = new List<ExtraPages.GlossaryEntry>();
+                foreach (var word in _project.Lexicon)
+                    if (!string.IsNullOrEmpty(word.Definition) && word.Definition.Trim().Length > 0)
+                        entries.Add(new ExtraPages.GlossaryEntry { Word = word.Word, Definition = word.Definition.Trim() });
+                ExtraPages.FillGlossary(page.Document, entries, lines);
+            }
+            else return;
+            _pageCountCache.Remove(page.Id); // son nombre de pages a pu changer
         }
 
         // ============================================================= gabarits de pages
@@ -3313,9 +3356,9 @@ namespace Marabook
         {
             if (book == null || book.Book == null) return;
             CommitActive();
-            // Tables des matières à jour avant compilation.
+            // Pages dynamiques (table des matières, index, notes, glossaire) à jour avant compilation.
             foreach (var item in _project.AllItems())
-                if (item.IsToc && item.EnclosingBook() == book) RegenerateToc(item);
+                if (ExtraPages.IsDynamic(item) && item.EnclosingBook() == book) RegenerateDynamic(item);
             // Pas de page de titre générée : sa personnalisation arrive — le
             // PDF publié n'est que le contenu, chaque document sur un recto.
             var document = Exchange.Compiler.Build(_project, book, new Exchange.CompileOptions

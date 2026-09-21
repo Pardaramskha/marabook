@@ -113,6 +113,14 @@ namespace Marabook.Model
         // récit — sans folio par défaut, exclues de la table des matières.
         public bool IsExtraPage;
         public bool IsToc; // table des matières, régénérée dynamiquement
+        // La SECTION d'une page extra (b49, .plot v26) : liminaire (« front »,
+        // avant le corps), page de fin (« back », après le corps) ou annexe
+        // (« annex », tout à la fin) — ExtraPages.Section*. Null sur une page
+        // du récit ; une vieille page extra sans section est une liminaire.
+        // La SORTE (ExtraPages.Kind*) dit ce qu'elle est : les pages
+        // dynamiques (index, notes de fin, glossaire) s'y reconnaissent.
+        public string ExtraSection;
+        public string ExtraKind;
 
         // PageTemplate items only: color chip + the four recto/verso slots.
         public string TemplateColor; // "#RRGGBB", null = pas de pastille
