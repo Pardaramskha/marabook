@@ -63,6 +63,7 @@ namespace Marabook.Settings
             new ActionDefinition("preferences", "Fichier", "Préférences de l'application", null),
             new ActionDefinition("print-preview", "Fichier", "Aperçu des pages", "Ctrl+Alt+P"),
             new ActionDefinition("print", "Fichier", "Imprimer", "Ctrl+P"),
+            new ActionDefinition("export-epub", "Fichier", "Créer un EPUB", null),
             new ActionDefinition("session-goal", "Écriture", "Lancer un sprint", null),
             new ActionDefinition("toggle-binder", "Affichage", "Afficher la Pile", "Ctrl+D1"),
             new ActionDefinition("toggle-inspector", "Affichage", "Afficher l'inspecteur", "Ctrl+D2"),

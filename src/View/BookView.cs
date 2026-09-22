@@ -45,6 +45,7 @@ namespace Marabook.View
         public event Action<BinderItem> CopyTemplateRequested;   // gabarit
         public event Action<BinderItem, string> NewDocumentRequested; // livre, sorte extra
         public event Action<BinderItem> PublishRequested;        // « Publier… »
+        public event Action<BinderItem> EpubRequested;           // « Créer un EPUB… » (22/09)
         public event Action StylesChanged;                       // l'onglet Styles a édité la feuille
 
         public BookView()
@@ -90,6 +91,8 @@ namespace Marabook.View
             _publication = new BookPublicationTab();
             _publication.PublishRequested += delegate(BinderItem book)
             { var h = PublishRequested; if (h != null) h(book); };
+            _publication.EpubRequested += delegate(BinderItem book)
+            { var h = EpubRequested; if (h != null) h(book); };
             _publicationTab = Tab("book-open-text-bold", "Publication", Scrolled(_publication));
             _tabs.Items.Add(_publicationTab);
 

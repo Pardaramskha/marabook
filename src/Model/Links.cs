@@ -152,7 +152,8 @@ namespace Marabook.Model
             var copy = new TextDocument
             {
                 Footnotes = document.Footnotes,
-                Annotations = document.Annotations
+                Annotations = document.Annotations,
+                LineSpacing = document.LineSpacing // l'interligne du document (22/09)
             };
             foreach (var paragraph in document.Paragraphs)
                 copy.Paragraphs.Add(Strip(paragraph));

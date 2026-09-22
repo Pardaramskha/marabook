@@ -25,6 +25,7 @@ namespace Marabook.View
         private readonly Grid _sizes;
 
         public event Action<BinderItem> PublishRequested;
+        public event Action<BinderItem> EpubRequested; // « Créer un EPUB » (22/09)
 
         public BookPublicationTab()
         {
@@ -44,9 +45,13 @@ namespace Marabook.View
                 if (handler != null && _item != null) handler(_item);
             };
             actions.Children.Add(publish);
-            var epub = Buttons.IconText("book-open-text-bold", "Créer un EPUB", "À venir : le livre en EPUB, pour économiser du papier", Buttons.Bar, Buttons.Look.Outline);
-            epub.IsEnabled = false;
+            var epub = Buttons.IconText("book-open-text-bold", "Créer un EPUB…", "Le livre en EPUB 3, pour les liseuses — titre, métadonnées et couverture au dialogue", Buttons.Bar, Buttons.Look.Outline);
             epub.Margin = new Thickness(8, 0, 0, 0);
+            epub.Click += delegate
+            {
+                var handler = EpubRequested;
+                if (handler != null && _item != null) handler(_item);
+            };
             actions.Children.Add(epub);
             Children.Add(actions);
 

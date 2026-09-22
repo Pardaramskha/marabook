@@ -298,6 +298,7 @@ namespace Marabook
             exportMenu.Items.Add(Entry("export-item", "L'écrit sélectionné…", ExportCurrentItem, TextOrSheetActive));
             exportMenu.Items.Add(Entry("compile", "Compiler le manuscrit…", CompileManuscript));
             exportMenu.Items.Add(Entry("export-pdf", "PDF prêt à imprimer…", ExportPdf, TextOrSheetActive));
+            exportMenu.Items.Add(Entry("export-epub", "EPUB du livre ou de l'écrit…", ExportEpubCurrent, TextOrBookActive)); // 22/09
             file.Items.Add(exportMenu);
             file.Items.Add(new Separator());
             file.Items.Add(Entry(null, "Quitter", Close));
@@ -699,6 +700,7 @@ namespace Marabook
             };
             // La page livre (22/09) : Publier et l'onglet Styles.
             _bookView.PublishRequested += PublishBook;
+            _bookView.EpubRequested += ExportEpub;
             _bookView.StylesChanged += delegate { ApplyStyleSheet(); MarkDirty(); };
             _bookView.ExportRequested += ExportItem;
             _bookView.RenameRequested += delegate(BinderItem item)
@@ -2883,6 +2885,58 @@ namespace Marabook
 
         /// <summary>4b-2 : the home-grown print-ready PDF (embedded subset
         /// fonts, trim/bleed boxes, crop marks) — no printer driver involved.</summary>
+        // ============================================================= EPUB (22/09)
+
+        private bool TextOrBookActive()
+        {
+            return _current != null && (_current.Kind == ItemKind.Text || _current.Kind == ItemKind.Book);
+        }
+
+        private void ExportEpubCurrent()
+        {
+            if (TextOrBookActive()) ExportEpub(_current);
+        }
+
+        /// <summary>« Créer un EPUB » : le plan (écrits, pages dynamiques
+        /// écartées, couverture), le dialogue (titre pré-rempli, métadonnées,
+        /// couverture), le fichier « Titre.epub », et le dossier ouvert.</summary>
+        private void ExportEpub(BinderItem root)
+        {
+            if (root == null || _project == null) return;
+            CommitActive();
+            var plan = Exchange.Epub.Plan(_project, root);
+            if (plan.Chapters.Count == 0)
+            {
+                MessageDialog.Show(this, "Rien à mettre dans l'EPUB : le livre n'a aucun écrit.", "EPUB", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            bool openFolder;
+            var options = View.EpubExportDialog.Ask(this, plan, Exchange.Epub.DefaultOptions(_project, root), out openFolder);
+            if (options == null) return;
+            var title = options.Title.Length > 0 ? options.Title : root.Title;
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter = "EPUB (*.epub)|*.epub",
+                FileName = SafeFileName(title) + ".epub",
+                Title = "Créer l'EPUB"
+            };
+            if (dialog.ShowDialog(this) != true) return;
+            try
+            {
+                Exchange.Epub.Write(dialog.FileName, _project, plan, options);
+                UnlockAchievement(Achievements.GenZ); // « Gen Zer »
+                if (openFolder)
+                {
+                    try { System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + dialog.FileName + "\""); }
+                    catch { }
+                }
+            }
+            catch (Exception error)
+            {
+                MessageDialog.Show(this, "EPUB impossible : " + error.Message, "EPUB", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
         private void ExportPdf()
         {
             string name;
