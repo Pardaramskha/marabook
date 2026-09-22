@@ -78,6 +78,10 @@ namespace Marabook.Tests
                 foreach (var action in AppSettings.Actions) if (action.Category == AppSettings.EditorCategory) editorActions++;
                 t.Check(editorActions == 15, "quinze actions dans la catégorie Éditeur des Préférences — " + editorActions);
                 t.Check(AppSettings.Definition("compile").Name == "Compiler les écrits", "« Compiler les écrits » (ex-manuscrit)");
+                // Le fichier VERSION (release.ps1, installeur) suit AppVersion.
+                var versionFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "VERSION");
+                t.Check(File.Exists(versionFile) && File.ReadAllText(versionFile).Trim() == MainWindow.AppVersion,
+                    "VERSION vaut MainWindow.AppVersion (" + MainWindow.AppVersion + ")");
             }
             finally
             {

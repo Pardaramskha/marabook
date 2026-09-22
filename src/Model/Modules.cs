@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -175,7 +175,7 @@ namespace Marabook.Model
         /// « Vérifier les versions » sont grisés. « Installer depuis un
         /// fichier .mdlc » et la désinstallation restent. À passer à true
         /// quand les dépôts des modules publient leurs paquets.</summary>
-        public const bool DownloadsEnabled = false;
+        public static readonly bool DownloadsEnabled = false; // readonly, pas const : le code qui en dépend reste compilé sans avertissement
 
         /// <summary>Après une installation ou un retrait : la fiche ouverte et
         /// les succès se rafraîchissent.</summary>

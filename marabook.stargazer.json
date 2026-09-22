@@ -1,0 +1,8 @@
+{
+  "id": "marabook",
+  "nom": "Marabook",
+  "description": "Traitement de texte et construction narrative pour les romans : pages composées, livres et gabarits d'impression, fiches wiki, plans, correction (orthographe, grammaire, typographie, style), export docx/odt/RTF/EPUB/PDF. Fichiers .plot.",
+  "logo": "assets/marabook.png",
+  "exe": "Marabook.exe",
+  "motsCles": ["roman", "écriture", "traitement de texte", "manuscrit", "livre", "mise en page", "PAO", "fiches", "plan", "correcteur", "epub", "scrivener", "plot"]
+}

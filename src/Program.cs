@@ -10,6 +10,7 @@ namespace Marabook
         public static void Main(string[] args)
         {
             Settings.AppSettings.Load();
+            FileAssociation.EnsureRegistered(); // les .plot s'ouvrent d'un double-clic si rien ne les ouvrait (22/09)
             Model.Modules.Load(); // les DLC installés (22/09) : sans module, rien ne change
             // Tooltips réactifs façon web : apparition rapide, ré-apparition
             // immédiate en balayant une barre d'outils (fenêtre BetweenShow).

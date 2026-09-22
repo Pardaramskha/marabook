@@ -5039,6 +5039,8 @@ namespace Marabook
                 "cartes mentales (module), échanges docx/odt/RTF/Markdown/Scrivener,\n" +
                 "EPUB, PDF, impression, correction (orthographe, grammaire, typographie, style),\n" +
                 "versions, secours, succès.\n\n" +
+                "© 2026 Rémi Escamilla — logiciel libre sous licence GNU GPL v3 ou ultérieure\n" +
+                "(fichier LICENSE ; sources : " + Updater.RepositoryUrl + ").\n\n" +
                 "Ressources embarquées :\n" +
                 "• Dictionnaire orthographique français « toutes variantes » v7.7\n" +
                 "  par Olivier R. — licence MPL-2.0 — https://grammalecte.net/\n" +

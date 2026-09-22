@@ -17,3 +17,6 @@ PLAN.md
 B49-LIMINAIRES.md
 COMPARATIF.md
 TEXTES-UI.md
+
+# Release (tools\release.ps1) : archive portable + installeur
+dist/
