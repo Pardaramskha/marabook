@@ -2723,6 +2723,21 @@ namespace Marabook.View
             AfterEdit(0);
         }
 
+        /// <summary>Repose sur le paragraphe du caret les écarts locaux qu'un
+        /// ApplyStyle vient d'effacer (la suite d'un paragraphe coupé par un
+        /// séparateur, revue 22/09). Même cran d'annulation.</summary>
+        public void RestoreOverrides(string align, double? indent, double? firstIndent)
+        {
+            if (_item == null || (align == null && !indent.HasValue && !firstIndent.HasValue)) return;
+            if (_caretParagraph < 0 || _caretParagraph >= _item.Document.Paragraphs.Count) return;
+            var paragraph = _item.Document.Paragraphs[_caretParagraph];
+            paragraph.AlignOverride = align;
+            paragraph.Indent = indent;
+            paragraph.FirstIndent = firstIndent;
+            _engine.RecomposeParagraph(_caretParagraph);
+            AfterEdit(0);
+        }
+
         /// <summary>Le paragraphe du caret (null hors document).</summary>
         public TextParagraph CaretParagraph
         {

@@ -243,6 +243,14 @@ namespace Marabook.View
 
         // ============================================================ styles (22/09)
 
+        /// <summary>La feuille du projet a été remplacée (dialogue des styles,
+        /// Préférences) : l'onglet Styles repart de la nouvelle — sinon il
+        /// éditerait une feuille orpheline (revue 22/09).</summary>
+        public void RefreshStyles()
+        {
+            BuildStylesTab();
+        }
+
         /// <summary>L'onglet Styles : l'outil de gestion des styles sur la
         /// feuille du projet, à la portée de ce livre (les globaux et les
         /// siens), puis le séparateur de texte — le global, ou celui du livre

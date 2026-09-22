@@ -24,6 +24,8 @@ namespace Marabook
         public const string AppVersion = "0.43.0-beta";
 
         private Project _project;
+        /// <summary>Le .plot passé en argument, ouvert au Loaded (revue 22/09).</summary>
+        public string PendingOpen;
         private string _path;
         private bool _dirty;
         private readonly HistoryManager _history = new HistoryManager();
@@ -182,9 +184,27 @@ namespace Marabook
             Content = shell;
             Loaded += delegate
             {
-                // Lancée sans .plot (ni argument, ni fichier ouvert avant
-                // l'affichage) : l'accueil, et rien d'autre.
+                // Le .plot reçu en argument s'ouvre ICI, la fenêtre affichée :
+                // ses dialogues (réserves, secours) veulent un propriétaire
+                // visible — avant Run, ils faisaient tomber l'application
+                // (revue 22/09).
+                if (PendingOpen != null)
+                {
+                    var pending = PendingOpen;
+                    PendingOpen = null;
+                    OpenFile(pending);
+                }
+                // Lancée sans .plot (ni argument, ni fichier ouvert) : l'accueil, et rien d'autre.
                 if (_path == null) ShowWelcome();
+                if (AppSettings.LoadNotice.Length > 0)
+                {
+                    var notice = AppSettings.LoadNotice;
+                    AppSettings.LoadNotice = "";
+                    Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate
+                    {
+                        MessageDialog.Show(this, notice, AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }));
+                }
                 OfferRecoveries(); // un arrêt brutal la dernière fois ? (18/09)
                 AppSettings.NoteUsage(DateTime.Now);
                 Extensions.ModuleRegistry.Attach(this); // les modules à code reçoivent leur hôte (22/09)
@@ -203,7 +223,7 @@ namespace Marabook
                 if (_project != null) _sheetLibrary.Refresh();
                 if (_journalView.Visibility == Visibility.Visible) _journalView.RefreshAchievements();
                 // Une carte mentale ouverte suit l'arrivée ou le départ du module (22/09).
-                if (_current != null && _current.Kind == ItemKind.MindMap) { _mindMapEditor = null; ShowMindMap(_current); }
+                if (_current != null && _current.Kind == ItemKind.MindMap) { CommitMindMap(); _mindMapEditor = null; ShowMindMap(_current); }
                 RefreshOpenCorkboards();
                 ScheduleAchievementCheck();
             };
@@ -1653,7 +1673,11 @@ namespace Marabook
         private void LoadProject(Project project, string path)
         {
             // Les styles globaux (22/09) : le projet se met d'accord avec les
-            // réglages avant que quiconque lise sa feuille.
+            // réglages avant que quiconque lise sa feuille. S'il a POUSSÉ ses
+            // styles vers les réglages, il est marqué modifié : son empreinte
+            // doit atteindre le .plot, sans quoi il repousserait à chaque
+            // ouverture (revue 22/09). Tirer ne salit pas : relire n'est pas
+            // modifier, et tirer à nouveau est sans effet.
             GlobalStyles.Sync(project);
             _project = project;
             _path = path;
@@ -1695,6 +1719,7 @@ namespace Marabook
             UpdateTitle();
             UpdateStats();
             UpdateInspector();
+            if (GlobalStyles.LastSyncPushed) MarkDirty();
             // Batch 30 : les textes se préparent dès l'ouverture, par
             // tranches oisives — le premier clic sur un chapitre est chaud.
             StartTextWarmup();
@@ -2014,9 +2039,19 @@ namespace Marabook
             return dialog.ShowDialog(owner ?? this) == true ? dialog.FileName : null;
         }
 
+        private bool _autosaveWarned; // un seul avertissement par panne de sauvegarde automatique
+
         private void DoSave()
         {
-            if (_path == null) { DoSaveAs(); return; }
+            SaveProject(false);
+        }
+
+        /// <summary>silent : la sauvegarde automatique — un échec (fichier
+        /// verrouillé par OneDrive, un antivirus…) se dit une fois, en toast,
+        /// pas en boîte modale toutes les deux minutes (revue 22/09).</summary>
+        private void SaveProject(bool silent) // un seul « DoSave » : les sondes le cherchent par réflexion
+        {
+            if (_path == null) { if (!silent) DoSaveAs(); return; }
             if (_project.ReadOnlyNewerFormat)
             {
                 MessageDialog.Show(this,
@@ -2045,9 +2080,19 @@ namespace Marabook
                 _dirtySince = null;
                 UnlockAchievement(Achievements.FirstProject); // le premier projet enregistré
                 ScheduleAchievementCheck(); // « Damn boi, he thicc! »
+                _autosaveWarned = false;
             }
             catch (Exception error)
             {
+                if (silent)
+                {
+                    if (_autosaveWarned) return;
+                    _autosaveWarned = true;
+                    ShowNotice(NoticeToast.Build("warning-bold", "Sauvegarde automatique impossible",
+                        error.Message + "\n\nLe secours continue d'écrire vos textes ; réessayez Fichier › Enregistrer quand le fichier sera libre.",
+                        "Enregistrer maintenant", delegate { SaveProject(false); }, "Plus tard", null));
+                    return;
+                }
                 MessageDialog.Show(this,
                     "Impossible d'enregistrer le projet :\n" + error.Message,
                     AppName, MessageBoxButton.OK, MessageBoxImage.Error);
@@ -2081,7 +2126,7 @@ namespace Marabook
         private void Autosave()
         {
             if (_project.ReadOnlyNewerFormat) return; // never write a newer format
-            if (_dirty && _path != null) DoSave();
+            if (_dirty && _path != null) SaveProject(true);
         }
 
         /// <summary>True when it is safe to drop the current project.</summary>
@@ -2801,10 +2846,12 @@ namespace Marabook
             var request = CompileDialog.Show(this, _project);
             if (request == null) return;
             var manuscript = Exchange.Compiler.Build(_project, request.Root, request.Options);
-            ExportDocument(manuscript, _project.Name);
+            ExportDocument(manuscript, _project.Name, request.Root);
         }
 
-        private void ExportDocument(TextDocument document, string defaultName)
+        /// <summary>scope : l'élément dont le séparateur de scène fait foi (la
+        /// racine compilée) — sinon l'élément ouvert (revue 22/09).</summary>
+        private void ExportDocument(TextDocument document, string defaultName, BinderItem scope = null)
         {
             var dialog = new Microsoft.Win32.SaveFileDialog
             {
@@ -2819,7 +2866,7 @@ namespace Marabook
             try
             {
                 var ext = Path.GetExtension(path).ToLowerInvariant();
-                var exportStyles = _project.Styles.EffectiveFor(_current); // le séparateur du livre (22/09)
+                var exportStyles = _project.Styles.EffectiveFor(scope ?? _current); // le séparateur du livre (22/09)
                 var commentsAuthor = Defaults.Or(_project.Author, Defaults.Author); // Préférences › Auteur (22/09)
                 if (ext == ".docx") Exchange.Docx.Export(document, exportStyles, path, _project.Page, commentsAuthor); // annotations → commentaires Word (b49)
                 else if (ext == ".odt")
@@ -2858,6 +2905,7 @@ namespace Marabook
             if (edited == null) return;
             _project.Styles = edited;
             ApplyStyleSheet();
+            if (_bookView.Visibility == Visibility.Visible) _bookView.RefreshStyles(); // feuille remplacée (revue 22/09)
             MarkDirty();
         }
 
@@ -4388,6 +4436,7 @@ namespace Marabook
                     _editor.Reload();
                     _sheetView.SetStyleSheet(_project.Styles);
                     _sheetView.ReloadBody();
+                    if (_bookView.Visibility == Visibility.Visible) _bookView.RefreshStyles(); // styles ajoutés/retirés (revue 22/09)
                     MarkDirty();
                 }
             };
@@ -4986,9 +5035,10 @@ namespace Marabook
             MessageDialog.Show(this,
                 AppName + " " + AppVersion + "\n\n" +
                 "Traitement de texte et construction narrative.\n" +
-                "Alpha : éditeur riche paginé, fiches wiki, corkboard, échanges\n" +
-                "docx/odt/RTF/Markdown/Scrivener, aperçu des pages, impression,\n" +
-                "correction (répétitions, orthographe, grammaire).\n\n" +
+                "Bêta : pages composées, livres et gabarits, fiches wiki, plans,\n" +
+                "cartes mentales (module), échanges docx/odt/RTF/Markdown/Scrivener,\n" +
+                "EPUB, PDF, impression, correction (orthographe, grammaire, typographie, style),\n" +
+                "versions, secours, succès.\n\n" +
                 "Ressources embarquées :\n" +
                 "• Dictionnaire orthographique français « toutes variantes » v7.7\n" +
                 "  par Olivier R. — licence MPL-2.0 — https://grammalecte.net/\n" +

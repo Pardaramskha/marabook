@@ -147,23 +147,24 @@ namespace Marabook
             var url = state.Latest.ZipUrl;
             var apiUrl = state.Latest.AssetApiUrl;
             var asset = state.Source.Asset;
+            var temp = Path.Combine(Path.GetTempPath(), "marabook-" + Guid.NewGuid().ToString("N") + "-" + asset);
+            // Le téléchargement seul est en fond ; l'installation (chargement
+            // de la DLL, Initialize du module, Changed vers les vues) se fait
+            // sur le Dispatcher — revue 22/09.
             Task.Factory.StartNew(delegate
             {
-                var temp = Path.Combine(Path.GetTempPath(), "marabook-" + Guid.NewGuid().ToString("N") + "-" + asset);
-                try
-                {
-                    Download(url, apiUrl, temp);
-                    Modules.Install(temp);
-                }
-                finally
-                {
-                    try { File.Delete(temp); } catch { }
-                }
+                Download(url, apiUrl, temp);
             }).ContinueWith(delegate(Task task)
             {
                 var failure = task.Exception == null ? null : task.Exception.GetBaseException().Message;
                 dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate
                 {
+                    if (failure == null)
+                    {
+                        try { Modules.Install(temp); }
+                        catch (Exception error) { failure = error.Message; }
+                    }
+                    try { File.Delete(temp); } catch { }
                     state.Busy = false;
                     state.Message = failure ?? "";
                     Refresh();

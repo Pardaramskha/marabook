@@ -115,16 +115,27 @@ namespace Marabook.Exchange
             var styles = project.Styles.EffectiveFor(plan.Root);
             var writer = new Builder(project, plan, options, styles);
             writer.Build();
-            if (File.Exists(path)) File.Delete(path);
             // Le zip est écrit à la main : ZipArchive (.NET 4) laisse le
             // « mimetype » en méthode Deflate même sans compression, et
             // l'EPUB exige la méthode Stored pour ce premier fichier.
-            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
+            // Fichier temporaire puis bascule : un échec à mi-course ne
+            // détruit pas l'EPUB précédent (revue 22/09).
+            var temp = path + ".tmp";
+            try
             {
-                var zip = new ZipWriter(stream);
-                zip.Add("mimetype", Encoding.ASCII.GetBytes(Mimetype), false);
-                foreach (var file in writer.Files) zip.Add(file.Key, file.Value, true);
-                zip.Finish();
+                using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write))
+                {
+                    var zip = new ZipWriter(stream);
+                    zip.Add("mimetype", Encoding.ASCII.GetBytes(Mimetype), false);
+                    foreach (var file in writer.Files) zip.Add(file.Key, file.Value, true);
+                    zip.Finish();
+                }
+                if (File.Exists(path)) File.Delete(path);
+                File.Move(temp, path);
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { }
             }
             return plan.Chapters.Count;
         }
@@ -595,7 +606,9 @@ namespace Marabook.Exchange
                 if (run.Underline == true) decorations += " underline";
                 if (run.Strike == true) decorations += " line-through";
                 if (decorations.Length > 0) sb.Append("text-decoration:").Append(decorations).Append("; ");
-                if (run.FontFamily != null) sb.Append("font-family: ").Append(FontFamilyCss(run.FontFamily)).Append("; ");
+                // En attribut style="…", les guillemets doubles couperaient
+                // l'attribut : apostrophes (revue 22/09).
+                if (run.FontFamily != null) sb.Append("font-family: ").Append(FontFamilyCss(run.FontFamily).Replace("\"", "'")).Append("; ");
                 if (run.FontSize.HasValue) sb.Append("font-size: ").Append(Pt(run.FontSize.Value)).Append("pt; ");
                 if (run.Color != null) sb.Append("color: ").Append(run.Color).Append("; ");
                 if (run.Highlight != null) sb.Append("background-color: ").Append(run.Highlight).Append("; ");

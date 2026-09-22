@@ -138,7 +138,9 @@ namespace Marabook.Model
 
         /// <summary>Drops images no item references anymore (called at save so
         /// deleted pictures do not bloat the .plot forever).</summary>
-        public void PurgeUnusedImages()
+        /// <summary>Les images citées par un item ou un run (revue 22/09 :
+        /// la sauvegarde n'écrit que celles-là, sans purger la mémoire).</summary>
+        public HashSet<string> UsedImageIds()
         {
             var used = new HashSet<string>();
             foreach (var item in AllItems())
@@ -149,6 +151,12 @@ namespace Marabook.Model
                     foreach (var run in paragraph.Runs)
                         if (run.ImageId != null) used.Add(run.ImageId);
             }
+            return used;
+        }
+
+        public void PurgeUnusedImages()
+        {
+            var used = UsedImageIds();
             var stale = new List<string>();
             foreach (var id in Images.Keys)
                 if (!used.Contains(id)) stale.Add(id);

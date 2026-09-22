@@ -2073,14 +2073,21 @@ namespace Marabook.View
             var text = separator.Content ?? "***";
             int before, beforeOffset;
             _composed.GetCaret(out before, out beforeOffset);
-            var previous = before < _item.Document.Paragraphs.Count ? _item.Document.Paragraphs[before].StyleId : "body";
+            var origin = before < _item.Document.Paragraphs.Count ? _item.Document.Paragraphs[before] : null;
+            var previous = origin != null ? origin.StyleId : "body";
             if (previous == StyleSheet.SeparatorId) previous = "body";
+            // Les écarts locaux du paragraphe coupé (alignement, décalage)
+            // reviennent sur sa suite — ApplyStyle les efface (revue 22/09).
+            var align = origin == null ? null : origin.AlignOverride;
+            var indent = origin == null ? null : origin.Indent;
+            var firstIndent = origin == null ? null : origin.FirstIndent;
 
             _composed.InsertParagraphBreak();
             _composed.ApplyStyle(StyleSheet.SeparatorId);
             _composed.TypeText(text);
             _composed.InsertParagraphBreak();
             _composed.ApplyStyle(previous);
+            _composed.RestoreOverrides(align, indent, firstIndent);
             _composed.Focus();
         }
 

@@ -25,13 +25,25 @@ namespace Marabook.Settings
 
         /// <summary>Synchronise le projet ouvert avec la feuille globale.
         /// Rend vrai si la feuille du projet a changé (l'éditeur se recharge).</summary>
+        /// <summary>La dernière synchronisation a poussé des styles du projet
+        /// vers les réglages (l'empreinte du projet doit alors être
+        /// enregistrée, sinon il repousserait à chaque ouverture).</summary>
+        public static bool LastSyncPushed;
+
         public static bool Sync(Project project)
         {
+            LastSyncPushed = false;
             if (project == null || project.Styles == null) return false;
+            if (project.ReadOnlyNewerFormat) return false; // lecture seule : ni pousser ni tirer (revue 22/09)
             if (AppSettings.GlobalStyles == null)
             {
+                // Réglages vierges (nouveau poste, settings.json perdu) : le
+                // projet ouvert sème, quelle que soit son empreinte — sans quoi
+                // un projet déjà estampillé tirerait les défauts par-dessus ses
+                // styles personnalisés (revue 22/09).
                 AppSettings.GlobalStyles = StyleSheet.CreateDefault();
                 AppSettings.GlobalStylesStamp = NewStamp();
+                project.GlobalStylesStamp = "";
             }
             var settings = AppSettings.GlobalStyles;
             var changed = false;
@@ -47,6 +59,14 @@ namespace Marabook.Settings
                     if (!style.IsGlobal) continue;
                     var global = Find(settings, style.Id);
                     var reference = Find(defaults, style.Id);
+                    if (reference != null)
+                    {
+                        // La sentinelle de césure (2 dans les projets persistés
+                        // d'avant le batch 24, 3 au défaut) n'est pas une
+                        // personnalisation (revue 22/09).
+                        reference = reference.Clone();
+                        reference.HyphenMinAfter = style.HyphenMinAfter;
+                    }
                     var customized = reference == null || !SameStyle(style, reference);
                     if (customized)
                     {
@@ -62,6 +82,7 @@ namespace Marabook.Settings
                     }
                 }
                 changed |= AdoptMissing(project, settings);
+                LastSyncPushed = pushed;
                 if (pushed) AppSettings.GlobalStylesStamp = NewStamp();
                 project.GlobalStylesStamp = AppSettings.GlobalStylesStamp;
                 if (Persist) AppSettings.Save();
@@ -75,9 +96,12 @@ namespace Marabook.Settings
                 if (own == null) { project.Styles.Styles.Add(global.Clone()); changed = true; }
                 else if (own.IsGlobal && !SameStyle(own, global)) { Copy(global, own); changed = true; }
             }
+            // Un style global disparu des réglages quitte le projet — sauf s'il
+            // y est encore employé : il reste, à ce projet (revue 22/09).
             var stale = new List<ParagraphStyle>();
             foreach (var style in project.Styles.Styles)
-                if (style.IsGlobal && Find(settings, style.Id) == null && style.Id != "body" && style.Id != Model.ExtraPages.StyleId) stale.Add(style);
+                if (style.IsGlobal && Find(settings, style.Id) == null && style.Id != "body" && style.Id != Model.ExtraPages.StyleId
+                    && !InUse(project, style.Id)) stale.Add(style);
             foreach (var style in stale) { project.Styles.Styles.Remove(style); changed = true; }
             project.GlobalStylesStamp = AppSettings.GlobalStylesStamp;
             return changed;
@@ -120,6 +144,18 @@ namespace Marabook.Settings
             var sheet = AppSettings.GlobalStyles.Clone();
             if (sheet.Find("body") == null || sheet.Find("body").Id != "body") sheet.Styles.Insert(0, StyleSheet.CreateDefault().Body);
             return sheet;
+        }
+
+        /// <summary>Un paragraphe du projet porte ce style.</summary>
+        public static bool InUse(Project project, string styleId)
+        {
+            foreach (var item in project.AllItems())
+            {
+                if (item.Document == null) continue;
+                foreach (var paragraph in item.Document.Paragraphs)
+                    if (paragraph.StyleId == styleId) return true;
+            }
+            return false;
         }
 
         private static bool AdoptMissing(Project project, StyleSheet settings)

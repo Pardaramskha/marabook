@@ -33,8 +33,15 @@ namespace Marabook.View
                 var style = styles.Find(paragraph.StyleId);
                 var wpfParagraph = new Paragraph();
                 ApplyParagraphStyle(wpfParagraph, style);
-                if (style.LineHeight > 1 && Math.Abs(document.LineSpacing - 1) > 0.001) // interligne du document (22/09)
-                    wpfParagraph.LineHeight = style.LineHeight * document.LineSpacing;
+                // Interligne du document (22/09) : sur l'interligne fixe du
+                // style, ou sur l'automatique (comme le compositeur) — revue 22/09.
+                if (Math.Abs(document.LineSpacing - 1) > 0.001)
+                {
+                    var leading = style.LineHeight > 1
+                        ? style.LineHeight
+                        : style.FontSize * Math.Max(100, style.AutoLeadingPercent) / 100.0;
+                    wpfParagraph.LineHeight = leading * document.LineSpacing;
+                }
                 if (paragraph.AlignOverride != null)
                     wpfParagraph.TextAlignment = ParseAlign(paragraph.AlignOverride);
                 if (paragraph.Indent.HasValue || paragraph.FirstIndent.HasValue)

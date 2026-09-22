@@ -28,6 +28,8 @@ namespace Marabook
         private bool _recoveryDirty;      // modifié depuis la dernière écriture du secours
         private bool _inCrash;            // une erreur pendant le secours du plantage : on n'insiste pas
         private DateTime _lastCrashDialog = DateTime.MinValue;
+        private DateTime _lastCrashLog = DateTime.MinValue;
+        private string _lastCrashKey = ""; // type + message : la même erreur en boucle n'écrit qu'un rapport par dix secondes
 
         private void StartRecoveryTimer()
         {
@@ -132,7 +134,7 @@ namespace Marabook
                 try { RecoveryStore.End(session, true); } catch { } // témoin consommé, secours gardé
                 MessageDialog.Show(this,
                     "Sauvegarde de secours de « " + session.ProjectName + " » ouverte.\n\n"
-                    + "Elle ne contient que les textes : images, fichiers de recherche et versions "
+                    + "Elle ne contient que les textes et les cartes mentales : images, fichiers de recherche et versions "
                     + "sont restés dans le .plot d'origine"
                     + (session.ProjectPath != null ? " (" + session.ProjectPath + ")" : "") + ".\n\n"
                     + "Enregistrez-la où vous voulez (Fichier › Enregistrer), par exemple par-dessus "
@@ -218,6 +220,13 @@ namespace Marabook
 
         private void LogCrash(Exception error)
         {
+            // Une erreur qui se répète à chaque passe de rendu écrirait un
+            // rapport par seconde : la même (type + message) n'est journalisée
+            // qu'une fois par dix secondes (revue 22/09).
+            var key = error == null ? "?" : error.GetType().FullName + "|" + error.Message;
+            if (key == _lastCrashKey && (DateTime.Now - _lastCrashLog).TotalSeconds < 10) return;
+            _lastCrashKey = key;
+            _lastCrashLog = DateTime.Now;
             CrashReport.Write(error, AppVersion, CrashContext());
             try
             {

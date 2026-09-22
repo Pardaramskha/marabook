@@ -138,7 +138,7 @@ namespace Marabook.Exchange
             }
             if (!needed) return document;
 
-            var output = new TextDocument { Footnotes = document.Footnotes };
+            var output = new TextDocument { Footnotes = document.Footnotes, Annotations = document.Annotations, LineSpacing = document.LineSpacing };
             var number = 0;
             foreach (var paragraph in document.Paragraphs)
             {
@@ -178,7 +178,7 @@ namespace Marabook.Exchange
                 if (needed) break;
             }
             if (!needed) return document;
-            var output = new TextDocument { Footnotes = document.Footnotes };
+            var output = new TextDocument { Footnotes = document.Footnotes, Annotations = document.Annotations, LineSpacing = document.LineSpacing };
             foreach (var paragraph in document.Paragraphs)
                 output.Paragraphs.Add(FlattenRulesIn(paragraph));
             return output;

@@ -155,7 +155,11 @@ namespace Marabook.Persistence
             // Write to a temporary file first, then swap in atomically so a crash
             // mid-save can never corrupt the project. The previous version becomes .bak.
             var tempPath = path + ".tmp";
-            project.PurgeUnusedImages();
+            // Les images que plus rien ne cite ne sont pas écrites — mais elles
+            // restent en mémoire : un Ctrl+Z après une sauvegarde automatique
+            // les retrouve intactes (revue 22/09 ; la purge en mémoire cassait
+            // l'image restaurée).
+            var usedImages = project.UsedImageIds();
 
             // Deux items de même id créeraient deux entrées texts/<id>.json :
             // le zip les accepte, GetEntry n'en relit qu'une — un document
@@ -176,7 +180,7 @@ namespace Marabook.Persistence
                 WriteEntry(archive, "sheets/templates.json", Json.Write(BuildTemplates(project)));
                 foreach (var kv in project.Images)
                 {
-                    if (kv.Value.Bytes == null || textsOnly) continue;
+                    if (kv.Value.Bytes == null || textsOnly || !usedImages.Contains(kv.Key)) continue;
                     var imageEntry = archive.CreateEntry("images/" + kv.Key + (kv.Value.Extension ?? ""));
                     using (var imageStream = imageEntry.Open())
                         imageStream.Write(kv.Value.Bytes, 0, kv.Value.Bytes.Length);
@@ -192,7 +196,9 @@ namespace Marabook.Persistence
                         using (var mediaStream = media.Open())
                             mediaStream.Write(item.MediaBytes, 0, item.MediaBytes.Length);
                     }
-                    if (item.Kind == ItemKind.MindMap && item.MapBytes != null && !textsOnly) // v29
+                    // Les cartes mentales suivent aussi le secours (quelques Ko,
+                    // à la différence des médias) — revue 22/09.
+                    if (item.Kind == ItemKind.MindMap && item.MapBytes != null) // v29
                     {
                         var map = archive.CreateEntry("maps/" + item.Id + ".tea");
                         using (var mapStream = map.Open())
@@ -1403,7 +1409,15 @@ namespace Marabook.Persistence
                             item.MapBytes = buffer.ToArray();
                         }
                     }
-                    catch { } // une carte illisible reste absente ; l'item survit
+                    catch (Exception error)
+                    {
+                        // Comme un média : l'item survit, mais on le dit — sans
+                        // MapBytes, la sauvegarde suivante perdrait la carte en
+                        // silence (revue 22/09).
+                        item.LoadDamaged = true;
+                        Warn(warnings, "Carte mentale « " + item.Title + " » illisible ("
+                            + error.Message + ") : n'enregistrez pas par-dessus sans l'avoir réimportée.");
+                    }
             }
             if (item.Kind == ItemKind.Media)
             {

@@ -185,10 +185,17 @@ namespace Marabook
             using (var client = new WebClient())
             {
                 client.Headers[HttpRequestHeader.UserAgent] = "Marabook";
+                // Un jeton ne s'envoie qu'à l'API de l'asset : l'URL publique
+                // redirige vers un stockage qui refuse l'en-tête d'autorisation
+                // (revue 22/09 ; même logique que ModuleStore.Download).
                 var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-                if (!string.IsNullOrEmpty(token))
+                if (!string.IsNullOrEmpty(token) && !string.IsNullOrEmpty(info.AssetApiUrl))
+                {
                     client.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
-                client.DownloadFile(info.ZipUrl, zip);
+                    client.Headers[HttpRequestHeader.Accept] = "application/octet-stream";
+                    client.DownloadFile(info.AssetApiUrl, zip);
+                }
+                else client.DownloadFile(info.ZipUrl, zip);
             }
             var content = Path.Combine(temp, "contenu");
             Extract(zip, content);

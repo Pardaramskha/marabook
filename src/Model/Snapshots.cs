@@ -156,6 +156,7 @@ namespace Marabook.Model
                 hash = Mix(hash, annotation.Text);
                 hash = Mix(hash, annotation.Resolved ? "r" : "o");
             }
+            hash = Mix(hash, document.LineSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture)); // v28 (revue 22/09)
             return unchecked((long)hash);
         }
 

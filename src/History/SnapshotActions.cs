@@ -58,6 +58,7 @@ namespace Marabook.History
             target.Footnotes.AddRange(copy.Footnotes);
             target.Annotations.Clear();
             target.Annotations.AddRange(copy.Annotations);
+            target.LineSpacing = source.LineSpacing; // v28 (revue 22/09)
         }
     }
 

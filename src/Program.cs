@@ -47,7 +47,7 @@ namespace Marabook
                 window.OnFatal(e.ExceptionObject as Exception);
             };
             if (args.Length > 0 && File.Exists(args[0]))
-                window.OpenFile(args[0]);
+                window.PendingOpen = args[0]; // ouvert au Loaded, fenêtre visible (revue 22/09)
             application.Run(window);
         }
 

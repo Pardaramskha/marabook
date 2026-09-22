@@ -117,7 +117,8 @@ namespace Marabook.Tests
                 StyleScopeTests.Run,     // C34 — styles à portée, séparateur, styles globaux (22/09)
                 EpubTests.Run,           // C35 — EPUB (22/09)
                 MindMapTests.Run,        // C36 — cartes mentales (22/09)
-                FinalTests.Run           // C37 — rapports de plantage, raccourcis de l'éditeur, succès (22/09)
+                FinalTests.Run,          // C37 — rapports de plantage, raccourcis de l'éditeur, succès (22/09)
+                ReviewTests.Run          // C38 — revue du 22/09 : styles globaux, réglages, .plot, exports
             };
             foreach (var suite in suites)
             {

@@ -161,6 +161,16 @@ namespace Marabook.View
             };
             actions.Children.Add(check);
             panel.Children.Add(actions);
+            if (Modules.LastLoadError.Length > 0)
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "Un module n'a pas pu être chargé au lancement : " + Modules.LastLoadError
+                        + "\nVérifiez son dossier (module.json, DLL bloquée par Windows : clic droit › Propriétés › Débloquer).",
+                    Foreground = Chrome.Warn,
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 12, 0, 0)
+                });
             panel.Children.Add(new TextBlock
             {
                 Text = "Dossier des modules : " + Modules.Root,

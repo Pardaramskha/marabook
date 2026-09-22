@@ -61,7 +61,7 @@ namespace Marabook.Settings
             new ActionDefinition("insert-separator", "Format", "Séparateur de scène", null),
             new ActionDefinition("page-break", "Mise en page", "Saut de page", "Ctrl+Return"),
             new ActionDefinition("preferences", "Fichier", "Préférences de l'application", null),
-            new ActionDefinition("print-preview", "Fichier", "Aperçu des pages", "Ctrl+Alt+P"),
+            new ActionDefinition("print-preview", "Composition", "Aperçu des pages", "Ctrl+Alt+P"), // le ruban, plus le menu (22/09)
             new ActionDefinition("print", "Fichier", "Imprimer", "Ctrl+P"),
             new ActionDefinition("export-epub", "Fichier", "Créer un EPUB", null),
             new ActionDefinition("session-goal", "Écriture", "Lancer un sprint", null),
@@ -250,8 +250,16 @@ namespace Marabook.Settings
                 RecentFiles.RemoveAt(RecentFiles.Count - 1);
         }
 
+        /// <summary>Les tests : un autre fichier que celui de l'utilisateur.</summary>
+        public static string PathOverride;
+
+        /// <summary>Ce que le lancement doit dire une fois : réglages repris
+        /// de la copie de secours, ou illisibles et mis de côté.</summary>
+        public static string LoadNotice = "";
+
         private static string SettingsPath()
         {
+            if (!string.IsNullOrEmpty(PathOverride)) return PathOverride;
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             var folder = Path.Combine(appData, "Marabook");
             Directory.CreateDirectory(folder);
@@ -283,14 +291,36 @@ namespace Marabook.Settings
             Model.Defaults.Collection = DefaultCollection ?? "";
         }
 
+        /// <summary>Lit settings.json ; s'il est illisible (écriture coupée,
+        /// disque plein), la copie de secours .bak ; si tout échoue, le fichier
+        /// fautif est mis de côté (.corrompu-date) plutôt qu'écrasé par des
+        /// défauts à la prochaine sauvegarde (revue 22/09).</summary>
         public static void Load()
+        {
+            LoadNotice = "";
+            var path = SettingsPath();
+            if (!File.Exists(path) && !File.Exists(path + ".bak")) return;
+            if (TryLoad(path)) return;
+            if (TryLoad(path + ".bak"))
+            {
+                LoadNotice = "Le fichier des réglages était illisible : les réglages ont été repris de sa copie de secours (dernier enregistrement précédent).";
+                return;
+            }
+            if (File.Exists(path))
+            {
+                var aside = path + ".corrompu-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+                try { File.Move(path, aside); } catch { }
+                LoadNotice = "Le fichier des réglages était illisible et sa copie de secours aussi : ils ont été mis de côté (" + Path.GetFileName(aside) + ") et les réglages repartent des défauts. Dictionnaire personnel global, raccourcis et succès sont à retrouver dans ce fichier.";
+            }
+        }
+
+        private static bool TryLoad(string path)
         {
             try
             {
-                var path = SettingsPath();
-                if (!File.Exists(path)) return;
+                if (!File.Exists(path)) return false;
                 var root = Json.AsObject(Json.Parse(File.ReadAllText(path, Encoding.UTF8)));
-                if (root == null) return;
+                if (root == null) return false;
 
                 var shortcuts = Json.AsObject(Json.Field(root, "shortcuts"));
                 if (shortcuts != null)
@@ -414,8 +444,9 @@ namespace Marabook.Settings
                     foreach (var pair in blank)
                         if (pair.Value is string) BlankSince[pair.Key] = (string)pair.Value;
                 }
+                return true;
             }
-            catch { }
+            catch { return false; }
         }
 
         public static void Save()
@@ -481,7 +512,14 @@ namespace Marabook.Settings
                 if (WordsInCalm > 0) root["wordsInCalm"] = WordsInCalm;
                 if (BlankSince.Count > 0)
                     root["blankSince"] = new Dictionary<string, object>(ToObjectDict(BlankSince));
-                File.WriteAllText(SettingsPath(), Json.Write(root), new UTF8Encoding(false));
+                // Fichier temporaire puis bascule : une coupure en pleine
+                // écriture laisse l'ancien fichier intact, et le précédent
+                // devient .bak (revue 22/09).
+                var path = SettingsPath();
+                var temp = path + ".tmp";
+                File.WriteAllText(temp, Json.Write(root), new UTF8Encoding(false));
+                if (File.Exists(path)) File.Replace(temp, path, path + ".bak");
+                else File.Move(temp, path);
             }
             catch { }
         }
