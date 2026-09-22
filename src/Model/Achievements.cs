@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -93,13 +93,13 @@ namespace Marabook.Model
                 if (_all == null)
                 {
                     var list = new List<Achievement>();
+                    var placed = false; // une seule fois, avant le PREMIER palier (« Petit nerd »)
                     foreach (var achievement in Builtin)
                     {
-                        if (IsTier(achievement.Id) && _module.Count > 0) { list.AddRange(_module); _module = new List<Achievement>(_module); }
+                        if (!placed && IsTier(achievement.Id)) { AddModules(list); placed = true; }
                         list.Add(achievement);
                     }
-                    // Sans palier (impossible) : les succès de module en queue.
-                    foreach (var extra in _module) if (!list.Contains(extra)) list.Add(extra);
+                    if (!placed) AddModules(list); // sans palier (impossible) : en queue
                     _all = list.ToArray();
                 }
                 return _all;
@@ -108,6 +108,28 @@ namespace Marabook.Model
 
         private static Achievement[] _all;
         private static List<Achievement> _module = new List<Achievement>();
+
+        /// <summary>Les succès de module, chacun une fois : un identifiant déjà
+        /// pris (par Marabook ou par un autre module) est ignoré.</summary>
+        private static void AddModules(List<Achievement> list)
+        {
+            foreach (var extra in _module)
+            {
+                var taken = false;
+                foreach (var known in list) if (known.Id == extra.Id) { taken = true; break; }
+                if (!taken) list.Add(extra);
+            }
+        }
+
+        /// <summary>Les succès obtenus qui existent encore : ceux d'un module
+        /// retiré restent dans les réglages (il peut revenir) mais ne comptent
+        /// plus — ni dans le compteur, ni pour les paliers.</summary>
+        public static int CountKnown(ICollection<string> unlocked)
+        {
+            var count = 0;
+            foreach (var achievement in All) if (unlocked.Contains(achievement.Id)) count++;
+            return count;
+        }
 
         /// <summary>Les modules (ré)installés : leurs succès remplacent les précédents.</summary>
         public static void SetModuleAchievements(List<Achievement> achievements)
@@ -310,7 +332,7 @@ namespace Marabook.Model
                 if (IsTier(achievement.Id) || unlocked.Contains(achievement.Id)) continue;
                 if (Holds(achievement.Id, facts)) earned.Add(achievement.Id);
             }
-            var count = unlocked.Count + earned.Count;
+            var count = CountKnown(unlocked) + earned.Count;
             AddTier("petit-nerd", 5, ref count, unlocked, earned);
             AddTier("poisson-panerd", 20, ref count, unlocked, earned);
             AddTier("nerdinator", 50, ref count, unlocked, earned);

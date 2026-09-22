@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using Marabook.Model;
@@ -73,6 +73,12 @@ namespace Marabook.Tests
                 var indexTier = all.FindIndex(delegate(Achievement a) { return a.Id == "petit-nerd"; });
                 t.Check(indexUn >= 0 && indexTier > indexUn && all[indexUn].ModuleId == "demo", "les succès du module s'intercalent avant les paliers, marqués de leur module");
                 t.Check(Achievements.Find("demo-cinq") != null, "Find voit un succès de module");
+                var copies = all.FindAll(delegate(Achievement a) { return a.ModuleId == "demo"; }).Count;
+                t.Equal(3, copies, "les succès du module sont là UNE fois chacun (bug du 22/09 : répétés avant chaque palier)");
+                var beforeFirstTier = all.FindIndex(delegate(Achievement a) { return a.Id == "demo-cinq"; }) < indexTier;
+                t.Check(beforeFirstTier && all.Count == Achievements.Builtin.Length + 3, "tous avant « Petit nerd », et la liste ne grossit que de trois");
+                var orphan = new List<string> { "demo-un", "demo-cinq", "demo-tout" };
+                t.Equal(3, Achievements.CountKnown(orphan), "trois succès de module obtenus comptent tant que le module est là");
 
                 // — La fiche de module sur une fiche Personnage.
                 var project = Project.CreateNew();
@@ -137,6 +143,8 @@ namespace Marabook.Tests
                 // — Retrait : plus de module, plus de succès de module.
                 Modules.Uninstall("demo");
                 t.Check(!Modules.IsInstalled("demo") && Achievements.Find("demo-un") == null, "désinstallé : listé nulle part");
+                t.Check(Achievements.All.Length == Achievements.Builtin.Length && Achievements.CountKnown(orphan) == 0,
+                    "désinstallé : la liste revient aux succès de Marabook, les succès de module obtenus ne comptent plus");
                 t.Check(sheet.ModuleValues.ContainsKey("demo"), "…mais la fiche garde ses valeurs");
 
                 // — Le vrai FPDM, si le dépôt voisin est là.

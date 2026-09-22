@@ -409,7 +409,7 @@ namespace Marabook.View
             if (_achievementsPanel == null) return;
             _achievementsPanel.Children.Clear();
             var unlocked = Settings.AppSettings.Achievements;
-            _achievementsCount.Text = unlocked.Count + " / " + Achievements.All.Length;
+            _achievementsCount.Text = Achievements.CountKnown(unlocked.Keys) + " / " + Achievements.All.Length;
             foreach (var achievement in Achievements.All)
             {
                 string date;
