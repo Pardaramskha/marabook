@@ -174,6 +174,40 @@ namespace Marabook.View
             alignTop.Children.Add(_alignCenter);
             alignTop.Children.Add(_alignRight);
             alignTop.Children.Add(_alignJustify);
+            // L'interligne du document (22/09) : un multiplicateur de la
+            // valeur d'interligne des styles — 1, 1,25, 1,5, 1,75, 2.
+            var leadingIcon = Icons.Make("interligne", 14, Chrome.SoftText) as FrameworkElement;
+            if (leadingIcon != null)
+            {
+                leadingIcon.ToolTip = "Interligne";
+                leadingIcon.VerticalAlignment = VerticalAlignment.Center;
+                leadingIcon.Margin = new Thickness(6, 0, 3, 0);
+                alignTop.Children.Add(leadingIcon);
+            }
+            _leadingCombo = new ComboBox
+            {
+                Width = 58,
+                Height = Buttons.Compact,
+                VerticalAlignment = VerticalAlignment.Center,
+                Focusable = false,
+                ToolTip = "Interligne du document — multiplie la valeur d'interligne de chaque style de paragraphe"
+            };
+            foreach (var factor in LeadingFactors)
+                _leadingCombo.Items.Add(new ComboBoxItem { Content = factor.ToString("0.##", System.Globalization.CultureInfo.GetCultureInfo("fr-FR")), Tag = factor });
+            _leadingCombo.SelectedIndex = 0;
+            _leadingCombo.SelectionChanged += delegate
+            {
+                if (_syncingPage || _item == null || _item.Document == null) return;
+                var chosen = _leadingCombo.SelectedItem as ComboBoxItem;
+                if (chosen == null) return;
+                var value = (double)chosen.Tag;
+                if (Math.Abs(_item.Document.LineSpacing - value) < 0.001) return;
+                _item.Document.LineSpacing = value;
+                if (ComposedActive) _composed.RefreshComposition();
+                var handler = DocumentSettingChanged;
+                if (handler != null) handler();
+            };
+            alignTop.Children.Add(_leadingCombo);
 
             _bulletBtn = IconToggle("list-bullets", "Liste à puces");
             _bulletBtn.Click += delegate
@@ -725,6 +759,11 @@ namespace Marabook.View
         private ToggleButton _guidesBtn, _lineNumbersBtn, _hyphenBtn, _folioBtn;
         private ToggleButton _marksBtn;
         private bool _syncingPage;
+        private ComboBox _leadingCombo; // l'interligne du document (22/09)
+        private static readonly double[] LeadingFactors = { 1, 1.25, 1.5, 1.75, 2 };
+
+        /// <summary>Un réglage du document (l'interligne) a changé : le projet est modifié.</summary>
+        public event Action DocumentSettingChanged;
 
         /// <summary>Onglet « Mise en page » (13/09) : marges, taille et
         /// colonnes en haut à gauche ; guides et numéros de ligne superposés ;

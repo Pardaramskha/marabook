@@ -560,6 +560,7 @@ namespace Marabook
             _editor.LinkClicked += NavigateToTitle;
             _editor.DefinitionRequested += ShowDefinition; // clic droit › « Afficher la définition » (18/09)
             _editor.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
+            _editor.DocumentSettingChanged += MarkDirty; // l'interligne du document (22/09)
             _editor.PageSetupChanged += delegate
             {
                 _sheetView.ApplyPageSetup(_project.Page);

@@ -576,6 +576,8 @@ namespace Marabook.Print
             var leading = style.LineHeight > 1
                 ? style.LineHeight
                 : style.FontSize * Math.Max(100, style.AutoLeadingPercent) / 100.0;
+            // L'interligne du document (22/09) multiplie celui du style.
+            if (_document.LineSpacing > 0) leading *= _document.LineSpacing;
             // Décalage du paragraphe (17/09) : une valeur remplace retrait
             // gauche, alinéa et retrait de liste d'un bloc — 0 = à la marge.
             // La première ligne a sa propre position (21/09) : alinéa recréé

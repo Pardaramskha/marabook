@@ -104,6 +104,7 @@ namespace Marabook.Tests
             WidowControl(t);
             OrphanControl(t);
             IndentOverride(t);
+            DocumentLeading(t);
         }
 
         /// <summary>Le décalage d'un paragraphe (17/09) remplace d'un bloc
@@ -223,6 +224,20 @@ namespace Marabook.Tests
             var lines2 = engine2.Current.Paragraphs[0].Lines;
             t.Equal(1, lines2.Count, "mot incoupable : placé en débordement (dernier recours)");
             t.Equal(48, lines2[0].End, "tout le mot est sur la ligne");
+        }
+
+        /// <summary>L'interligne du document (22/09) : le multiplicateur
+        /// s'applique à la valeur d'interligne du style, ligne par ligne.</summary>
+        private static void DocumentLeading(Harness t)
+        {
+            var single = Compose(Document("Une ligne."));
+            t.Equal(20.0, single.Current.Paragraphs[0].Lines[0].Height, "interligne 1 : la valeur du style (20 px)");
+            var document = Document("Une ligne.");
+            document.LineSpacing = 1.5;
+            var wide = Compose(document);
+            t.Equal(30.0, wide.Current.Paragraphs[0].Lines[0].Height, "interligne 1,5 : 30 px");
+            document.LineSpacing = 2;
+            t.Equal(40.0, Compose(document).Current.Paragraphs[0].Lines[0].Height, "interligne 2 : 40 px");
         }
 
         private static void WidowControl(Harness t)

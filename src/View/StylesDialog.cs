@@ -159,7 +159,7 @@ namespace Marabook.View
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(6, 0, 0, 0)
             });
-            form.Children.Add(FormRow("Interligne", leadingRow));
+            form.Children.Add(FormRow("Valeur d'interligne", leadingRow));
 
             _ligaturesCheck = new CheckBox { Content = "Ligatures", VerticalAlignment = VerticalAlignment.Center };
             form.Children.Add(FormRow("", _ligaturesCheck));
@@ -254,7 +254,7 @@ namespace Marabook.View
             }
             form.Children.Add(grid);
 
-            form.Children.Add(FormRow("Interligne auto (%)", _autoLeadingBox = Small()));
+            form.Children.Add(FormRow("Valeur d'interligne auto (%)", _autoLeadingBox = Small()));
             form.Children.Add(new TextBlock
             {
                 Text = "Copie d'InDesign : ces plages guident le compositeur de\n" +

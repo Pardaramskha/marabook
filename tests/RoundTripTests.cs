@@ -598,6 +598,7 @@ namespace Marabook.Tests
 
             // Filler réflexif sur un exemplaire de chaque type du pivot
             // (voir BuildFullProject) — les champs déjà exercés sont intacts.
+            document.LineSpacing = 1.5; // l'interligne du document (v28)
             FixtureFiller.Fill(first);
             FixtureFiller.Fill(first.Runs[0]);
             FixtureFiller.Fill(document.Footnotes[0]);

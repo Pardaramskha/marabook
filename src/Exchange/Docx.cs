@@ -363,6 +363,11 @@ namespace Marabook.Exchange
                 if (isRule)
                     sb.Append("<w:pBdr><w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"1\" w:color=\"auto\"/></w:pBdr>");
                 if (paragraph.PageBreakBefore) sb.Append("<w:pageBreakBefore/>");
+                if (Math.Abs(document.LineSpacing - 1) > 0.001) // interligne du document (22/09)
+                {
+                    var leading = style.LineHeight > 1 ? style.LineHeight : style.FontSize * Math.Max(100, style.AutoLeadingPercent) / 100.0;
+                    sb.Append("<w:spacing w:line=\"").Append(Twips(leading * document.LineSpacing)).Append("\" w:lineRule=\"atLeast\"/>");
+                }
                 if (paragraph.AlignOverride != null)
                     sb.Append("<w:jc w:val=\"").Append(Jc(paragraph.AlignOverride)).Append("\"/>");
                 if (paragraph.Indent.HasValue || paragraph.FirstIndent.HasValue) // décalage du bloc et/ou de la première ligne

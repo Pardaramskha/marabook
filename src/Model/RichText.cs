@@ -120,6 +120,10 @@ namespace Marabook.Model
         public List<TextParagraph> Paragraphs = new List<TextParagraph>();
         public List<Footnote> Footnotes = new List<Footnote>();
         public List<Annotation> Annotations = new List<Annotation>();
+        // L'INTERLIGNE DU DOCUMENT (22/09, v28) : un multiplicateur de la
+        // valeur d'interligne de chaque style de paragraphe — 1 (simple),
+        // 1,25, 1,5, 1,75, 2 (double). Le ruban Texte le règle par écrit.
+        public double LineSpacing = 1;
 
         public static TextDocument FromPlainText(string text)
         {

@@ -124,7 +124,14 @@ namespace Marabook.Persistence
         // v27: MODULES (DLC, 22/09) — les fiches de module d'une fiche
         //      ("modules" : {idModule: {idChamp: valeur}}, une entrée présente
         //      même vide = fiche de module créée ; omis sans module).
-        private const int FormatVersion = 27;
+        // v28: REFONTE du 22/09 — l'interligne du document ("leading" à la
+        //      racine d'un document : multiplicateur, omis à 1) ; la portée
+        //      d'un style ("scope" : global | book | document, "owner" = id du
+        //      livre ou de l'écrit, "content" = texte d'un style séparateur) ;
+        //      le séparateur de scène du projet (separatorText/Font/SizePt)
+        //      migre en style « separator » ; l'auteur par défaut et le
+        //      séparateur global vivent dans settings.json.
+        private const int FormatVersion = 28;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -730,6 +737,7 @@ namespace Marabook.Persistence
                 paragraphs.Add(p);
             }
             root["paragraphs"] = paragraphs;
+            if (Math.Abs(document.LineSpacing - 1) > 0.001) root["leading"] = document.LineSpacing; // v28
             if (document.Footnotes.Count > 0)
             {
                 var notes = new List<object>();
@@ -1419,6 +1427,8 @@ namespace Marabook.Persistence
         {
             var document = new TextDocument();
             var root = Json.Parse(json);
+            document.LineSpacing = Json.AsDouble(Json.Field(root, "leading"), 1); // v28
+            if (document.LineSpacing <= 0) document.LineSpacing = 1;
             var paragraphs = Json.AsList(Json.Field(root, "paragraphs"));
             if (paragraphs != null)
                 foreach (var entry in paragraphs)

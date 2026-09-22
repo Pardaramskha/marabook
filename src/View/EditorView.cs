@@ -357,6 +357,14 @@ namespace Marabook.View
             _syncingPage = true;
             try
             {
+                if (_leadingCombo != null)
+                {
+                    var current = _item != null && _item.Document != null ? _item.Document.LineSpacing : 1;
+                    var best = 0;
+                    for (var i = 1; i < LeadingFactors.Length; i++)
+                        if (Math.Abs(LeadingFactors[i] - current) < Math.Abs(LeadingFactors[best] - current)) best = i;
+                    _leadingCombo.SelectedIndex = best;
+                }
                 var page = _pageSetup;
                 _marginsCombo.SelectedIndex =
                     Near(page.MarginTopMm, 20) && Near(page.MarginBottomMm, 20)

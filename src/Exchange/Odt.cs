@@ -130,11 +130,13 @@ namespace Marabook.Exchange
                 var shifted = paragraph.Indent.HasValue || paragraph.FirstIndent.HasValue;
                 double left = 0, first = 0;
                 if (shifted) paragraph.EffectiveIndents(style, out left, out first);
-                if (paragraph.AlignOverride != null || paragraph.PageBreakBefore || shifted)
+                var spaced = Math.Abs(document.LineSpacing - 1) > 0.001; // interligne du document (22/09)
+                var leading = style.LineHeight > 1 ? style.LineHeight : style.FontSize * Math.Max(100, style.AutoLeadingPercent) / 100.0;
+                if (paragraph.AlignOverride != null || paragraph.PageBreakBefore || shifted || spaced)
                 {
                     // Per-paragraph automatic style deriving from the named one.
                     var key = "P|" + style.Id + "|" + paragraph.AlignOverride + "|" + paragraph.PageBreakBefore
-                        + "|" + (shifted ? Pt(left) + "/" + Pt(first) : "");
+                        + "|" + (shifted ? Pt(left) + "/" + Pt(first) : "") + "|" + (spaced ? Pt(leading * document.LineSpacing) : "");
                     string autoName;
                     if (!autoKeys.TryGetValue(key, out autoName))
                     {
@@ -150,6 +152,8 @@ namespace Marabook.Exchange
                         if (shifted) // décalage du bloc et/ou de la première ligne (21/09)
                             autoStyles.Append(" fo:margin-left=\"").Append(Pt(left))
                               .Append("\" fo:text-indent=\"").Append(Pt(first - left)).Append("\"");
+                        if (spaced)
+                            autoStyles.Append(" style:line-height-at-least=\"").Append(Pt(leading * document.LineSpacing)).Append("\"");
                         autoStyles.Append("/></style:style>");
                     }
                     styleName = autoName;
