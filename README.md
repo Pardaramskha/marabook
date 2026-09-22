@@ -34,24 +34,31 @@ Le système de mise à jour automatique vous préviendra lorsqu'un patch sera di
 
 ## Fonctionnalités principales
 
-* Une **pile **pour réunir tous vos écrits en dossiers ou en livres prêts à l'impression.
+* Une **pile** pour réunir tous vos écrits en dossiers ou en livres prêts à l'impression.
 * **Un éditeur de texte** approfondi à plusieurs vues calibré sur un format livre imprimable avec gestionnaire de styles et pagination continue.
-* Un **gestionnaire d'édition et de maquette **incluant marges, fonds perdus, veuves et orphelines, typographies standard de l'imprimerie française et checklist de pages liminaires.
-* Un **correcteur ortho-typographique **associé au **détecteur de répétitions **et de **faiblesses grammaticales **(adverbes, verbes ternes...)
-* Un **tableau de recherche **multimédia pour vos idées et liens.
-* Un **gestionnaire de fiches informatives **"façon wikipedia" entièrement personnalisable, par catégories ouvertes et interconnectées.
-* Un** créateur visuel de plan **et de structure narrative avec graphs d'intensité pour mesurer la rythmique de vos oeuvres.
-* Un **correcteur typographique **en un clic pour le Bon A Tirer prêt pour l'imprimerie.
-* Un** dictionnaire personnalisable **connecté à votre correcteur.
-* Une **compatibilité avec les applications voisines **(Word, OpenOffice, Scrievener, supporte l'export vers certains sous-formats InDesign).
+* Un **gestionnaire d'édition et de maquette** incluant marges, fonds perdus, veuves et orphelines, typographies standard de l'imprimerie française et checklist de pages liminaires.
+* Un **correcteur ortho-typographique** associé au **détecteur de répétitions** et de **faiblesses grammaticales**(adverbes, verbes ternes...)
+* Un **tableau de recherche** multimédia pour vos idées et liens.
+* Un **gestionnaire de fiches informatives** "façon wikipedia" entièrement personnalisable, par catégories ouvertes et interconnectées.
+* Un** créateur visuel de plan** et de structure narrative avec graphs d'intensité pour mesurer la rythmique de vos oeuvres.
+* Un **correcteur typographique** en un clic pour le Bon A Tirer prêt pour l'imprimerie.
+* Un** dictionnaire personnalisable** connecté à votre correcteur.
+* Une **compatibilité avec les applications voisines** (Word, OpenOffice, Scrievener, supporte l'export vers certains sous-formats InDesign).
 * Un compteur de stats, des objectifs journaliers, un système d'achievments pour rigoler, et des barres de progression par projet.
-* (à venir) un **publicateur d'EPUB**.
+* Un **publicateur d'EPUB**.
+* Un **système d'édition avancé** qui permet de paramétrer un BAT aux normes d'impression pour la plupart des petits imprimeurs numériques. 
+* Des **DLC** pour celles et ceux qui veulent vraiment se faire du mal sur le worldbuilding.
+* Près d'une centaine de succès dévérouillables si vous êtes des proovers et voulez flex comme des gros mascus.
 
-**NOTE IMPORTANTE** : Tout se fait hors-ligne. Le téléchargement des dictionnaires se fait au lancement, mais MArabook est un logiciel libre portable sans besoin de connexion, sans machine-learning ou accompagnement IA. Vos fichiers et vos idées sont à vous et à vous seul.
+**NOTE IMPORTANTE** : Tout se fait hors-ligne. Le téléchargement des dictionnaires se fait au lancement, mais Marabook est un logiciel libre portable sans besoin de connexion, sans machine-learning ou accompagnement IA. Vos fichiers et vos idées sont à vous et à vous seul.
 
 ## Prix
 
 Non, lol.
+
+## Licence
+
+Marabook est un logiciel libre, publié sous licence **GNU GPL v3 ou ultérieure** (voir [LICENSE](LICENSE)) : vous pouvez l'utiliser, l'étudier, le modifier et le redistribuer, à condition que vos versions restent libres aux mêmes conditions. Les ressources embarquées gardent leurs propres licences (Grammalecte GPL-3.0+, dictionnaire MPL-2.0, Python PSF, icônes Phosphor MIT — détail dans [APPROVISIONNEMENT.md](APPROVISIONNEMENT.md)).
 
 ## Installation
 
@@ -62,7 +69,7 @@ Choisissez votre système d'exploitation, téléchargez, installez, et c'est par
 >
 > Qui a 300 balles à lâcher par an pour un certificat d'authentification de l'app ? Pas moi, en tous cas. Lorsque vous téléchargerez ou installerez l'app, vous aurez probablement un avertissement. Soyez fermes avec lui !
 
-Marabook n'est actuellement pas disponible sur Mac ou téléphone.
+Marabook n'est actuellement pas disponible sur Mac, Linux ou téléphone.
 
 ## Référence des dépendances
 
@@ -75,6 +82,6 @@ Ce logiciel utilise le formidable travail d'autres ingés et grands nerds de lit
 
 Ces éléments sont téléchargés à l'installation, et sont la seule partie du logiciel qui nécessite une connexion web.
 
-<p align="center">
-  <a href="https://github.com/Pardaramskha/unhinged-stargazer-hub"><img src="assets/downloads/stargazer-link.png" alt="Disponible à l'installation modulaire dans la suite Stargazer"></a>
-</p>
+## Patch notes
+
+* Version ALPHA: première release du logiciel au public
