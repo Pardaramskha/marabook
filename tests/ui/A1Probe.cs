@@ -108,6 +108,9 @@ namespace Marabook.Tests.Ui
             Console.WriteLine();
             Console.WriteLine("== Sonde des succès (22/09)");
             _failures += AchievementsProbe.Run();
+            Console.WriteLine();
+            Console.WriteLine("== Sonde des cartes mentales (22/09, le vrai DLC Mental-o s'il est bâti)");
+            _failures += MindMapProbe.Run();
         }
 
         private static void Run(string path)

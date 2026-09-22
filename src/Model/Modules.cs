@@ -134,6 +134,23 @@ namespace Marabook.Model
                     "Une phénoménale perte de temps pour les plus pointilleux",
                     "De nouveaux succès"
                 }
+            },
+            // Mental-o en DLC (22/09) : un module À CODE — sa DLL apporte les
+            // cartes mentales (racine « Cartes mentales », éditeur, tuiles).
+            new ModuleSource
+            {
+                Id = "mental-o",
+                Name = "Mental-o",
+                Title = "Cartes mentales",
+                Repository = "Pardaramskha/marabook-dlc-mental-o",
+                Asset = "mental-o.mdlc",
+                Features =
+                {
+                    "Une racine « Cartes mentales » dans la Pile : vos cartes vivent dans le projet",
+                    "Le canevas de Mental-o à la sauce Marabook : boîtes, liens, groupes, images, notes",
+                    "Chaque carte en tuile sur le corkboard, import et export des .tea",
+                    "Trois succès"
+                }
             }
         };
 
@@ -277,6 +294,7 @@ namespace Marabook.Model
                 if (Directory.Exists(Root))
                     foreach (var dir in Directory.GetDirectories(Root))
                     {
+                        if (IsCondemned(dir)) continue; // désinstallé, DLL encore verrouillée
                         var manifest = Path.Combine(dir, Manifest);
                         if (!File.Exists(manifest)) continue;
                         try
@@ -341,15 +359,28 @@ namespace Marabook.Model
             // prochain lancement.
             Extensions.ModuleRegistry.Unregister(id);
             try { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
-            catch (IOException) { PendingRemoval.Add(id); }
-            catch (UnauthorizedAccessException) { PendingRemoval.Add(id); }
+            catch (IOException) { MarkForRemoval(dir); }
+            catch (UnauthorizedAccessException) { MarkForRemoval(dir); }
             Load();
             RaiseChanged();
         }
 
-        /// <summary>Les modules dont la DLL, verrouillée, empêche la
-        /// suppression du dossier : retirés au prochain lancement.</summary>
-        public static readonly List<string> PendingRemoval = new List<string>();
+        /// <summary>Un module dont la DLL, verrouillée, empêche la suppression
+        /// du dossier : un marqueur le condamne, le prochain lancement l'efface
+        /// (et Load l'ignore d'ici là).</summary>
+        public const string RemovalMarker = ".retirer";
+
+        private static void MarkForRemoval(string dir)
+        {
+            try { File.WriteAllText(Path.Combine(dir, RemovalMarker), DateTime.Now.ToString("s")); } catch { }
+        }
+
+        private static bool IsCondemned(string dir)
+        {
+            if (!File.Exists(Path.Combine(dir, RemovalMarker))) return false;
+            try { Directory.Delete(dir, true); } catch { }
+            return true;
+        }
 
         /// <summary>Charge la DLL d'un module à code et l'enregistre (une
         /// seule fois par session : recharger la même DLL n'a pas de sens).</summary>

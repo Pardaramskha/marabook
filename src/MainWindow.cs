@@ -4432,6 +4432,7 @@ namespace Marabook
                                : _current.Kind == ItemKind.Book ? "Livre"
                                : _current.Kind == ItemKind.PageTemplate ? "Gabarit de pages"
                                : _current.Kind == ItemKind.Plan ? "Plan"
+                               : _current.Kind == ItemKind.MindMap ? "Carte mentale"
                                : "Écrit";
                 _synopsisBox.Text = _current.Synopsis ?? "";
                 _synopsisBox.IsEnabled = !_current.IsCategory;
