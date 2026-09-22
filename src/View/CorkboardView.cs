@@ -25,6 +25,10 @@ namespace Marabook.View
         private StackPanel _writingsActions; // racine Écrits : Nouvel écrit / dossier / livre (12/09)
         private StackPanel _researchActions; // racine Recherche : Importer des fichiers (12/09)
         private BinderItem _folder;
+        // La page livre (22/09) a deux corkboards : « Textes » (les écrits et
+        // leurs boutons) et « Gabarits & Format » (les gabarits seuls).
+        public bool BookTexts = true;
+        public bool BookTemplates = true;
         private HistoryManager _history;
         private Project _project; // image store lookups
 
@@ -750,7 +754,7 @@ namespace Marabook.View
             _cards.Children.Clear();
             _templateCards.Children.Clear();
             if (_folder == null) return;
-            _bookActions.Visibility = _folder.Kind == ItemKind.Book ? Visibility.Visible : Visibility.Collapsed;
+            _bookActions.Visibility = _folder.Kind == ItemKind.Book && BookTexts ? Visibility.Visible : Visibility.Collapsed;
             _folderActions.Visibility = _folder.Kind == ItemKind.Folder && _folder.RootCategory().CategoryKey == Project.KeyWritings
                 ? Visibility.Visible : Visibility.Collapsed;
             _planActions.Visibility = IsRoot(Project.KeyPlans) ? Visibility.Visible : Visibility.Collapsed;
@@ -760,7 +764,7 @@ namespace Marabook.View
             // Livres (14/09) : deux SECTIONS titrées comme les catégories de
             // fiches — « Gabarits » (les cartes de gabarit et leurs boutons),
             // puis « Écrits » (les documents et les parties).
-            if (_folder.Kind == ItemKind.Book)
+            if (_folder.Kind == ItemKind.Book && BookTemplates)
             {
                 var gabarits = 0;
                 foreach (var child in _folder.Children)
@@ -770,6 +774,17 @@ namespace Marabook.View
                     if (child.Kind == ItemKind.PageTemplate)
                         _cards.Children.Add(BuildTemplateCard(child));
                 _cards.Children.Add(BuildTemplateActions());
+            }
+            if (_folder.Kind == ItemKind.Book && !BookTexts)
+            {
+                // L'onglet Gabarits & Format : rien que les gabarits.
+                _filterToggle.Visibility = Visibility.Collapsed;
+                _filterBar.Visibility = Visibility.Collapsed;
+                UpdateFolderBoxWidths();
+                return;
+            }
+            if (_folder.Kind == ItemKind.Book && BookTemplates)
+            {
                 var texts = 0;
                 foreach (var child in _folder.Children)
                     if (child.Kind != ItemKind.PageTemplate) texts++;
@@ -1145,23 +1160,16 @@ namespace Marabook.View
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(8, 4, 8, 4)
             };
-            var create = new Button
-            {
-                Content = "Nouveau gabarit…",
-                Padding = new Thickness(8, 3, 8, 3),
-                Margin = new Thickness(0, 0, 6, 0),
-                ToolTip = "Deux pages en vis-à-vis aux marges du livre — en-têtes et "
-                    + "pieds recto/verso marqués aux outils texte"
-            };
+            // « Nouveau gabarit » est le bouton principal de l'onglet
+            // Gabarits & Format (22/09).
+            var create = Buttons.IconText("plus-bold", "Nouveau gabarit…",
+                "Deux pages en vis-à-vis aux marges du livre — en-têtes et "
+                    + "pieds recto/verso marqués aux outils texte", Buttons.Bar, Buttons.Look.Primary);
+            create.Margin = new Thickness(0, 0, 8, 0);
             create.Click += delegate
             { var h = NewTemplateRequested; if (h != null && _folder != null) h(_folder); };
             panel.Children.Add(create);
-            var import = new Button
-            {
-                Content = "Importer…",
-                Padding = new Thickness(8, 3, 8, 3),
-                ToolTip = "Ajouter un gabarit .usgab à ce livre"
-            };
+            var import = Buttons.IconText("file-arrow-down-bold", "Importer…", "Ajouter un gabarit .usgab à ce livre", Buttons.Bar, Buttons.Look.Outline);
             import.Click += delegate
             { var h = ImportTemplateRequested; if (h != null && _folder != null) h(_folder); };
             panel.Children.Add(import);

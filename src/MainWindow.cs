@@ -93,14 +93,6 @@ namespace Marabook
         private BookProgressBar _bookBar; // la barre (b32), partagée avec l'Accueil (b41)
         private TextBlock _progressLabel;
         private ColumnDefinition _progPresent, _progRest, _progDone, _progUndone;
-        // Métadonnées / Publication d'un livre (batch 32) : depuis le batch
-        // 39, deux panneaux de la colonne de droite (onglets du rail), plus
-        // deux boutons dans l'inspecteur.
-        private BookMetadataPanel _bookMeta;
-        private BookPublicationPanel _bookPub;
-        private BookEditionPanel _bookEdition;
-        private Border _metadataHost, _publicationHost, _editionHost;
-        private BinderItem _bookPanelsItem;   // livre chargé dans les panneaux
         private StackPanel _statsSection;
         private System.Windows.Shapes.Path _statsChevron;
         private StackPanel _statusSection;   // état du texte + couleur de carte
@@ -704,8 +696,10 @@ namespace Marabook
             _bookView.Changed += delegate
             {
                 MarkDirty(); UpdateInspector(); _binder.Rebuild();
-                _bookPub.Sync(); // alerte de divergence à jour
             };
+            // La page livre (22/09) : Publier et l'onglet Styles.
+            _bookView.PublishRequested += PublishBook;
+            _bookView.StylesChanged += delegate { ApplyStyleSheet(); MarkDirty(); };
             _bookView.ExportRequested += ExportItem;
             _bookView.RenameRequested += delegate(BinderItem item)
             { _binder.RenameQuiet(item); RefreshOpenCorkboards(); UpdateInspector(); };
@@ -865,29 +859,8 @@ namespace Marabook
             _inspector = BuildInspector();
             Grid.SetColumn(_inspector, 4);
             grid.Children.Add(_inspector);
-            // Métadonnées et Publication d'un livre (b32) : deux panneaux de
-            // la même colonne depuis le b39, offerts par le rail sur un livre.
-            _bookMeta = new BookMetadataPanel();
-            _bookPub = new BookPublicationPanel();
-            _metadataHost = ToolHost("Métadonnées", _bookMeta);
-            Grid.SetColumn(_metadataHost, 4);
-            grid.Children.Add(_metadataHost);
-            _publicationHost = ToolHost("Publication", _bookPub);
-            Grid.SetColumn(_publicationHost, 4);
-            grid.Children.Add(_publicationHost);
-            // Les panneaux du livre (batch 32) : une frappe modifie le modèle
-            // sans repasser par UpdateInspector (qui les resynchroniserait
-            // sous le curseur) ; la Pile suit (puce de divergence, cartes).
-            _bookMeta.Changed += delegate { MarkDirty(); _binder.Rebuild(); };
-            _bookPub.Changed += delegate { MarkDirty(); _binder.Rebuild(); RefreshOpenCorkboards(); };
-            _bookPub.PublishRequested += PublishBook;
-            // Édition d'un livre (batch 43) : genre, public, thématiques,
-            // synopsis, accroche, quatrième de couverture — même colonne.
-            _bookEdition = new BookEditionPanel();
-            _editionHost = ToolHost("Édition", _bookEdition);
-            Grid.SetColumn(_editionHost, 4);
-            grid.Children.Add(_editionHost);
-            _bookEdition.Changed += delegate { MarkDirty(); };
+            // Métadonnées, Publication et Édition d'un livre ont quitté la
+            // colonne de droite le 22/09 : ce sont les onglets de la page livre.
 
             // Le panneau de CORRECTION (batch 28) partage la colonne de
             // droite : ouvert, il REMPLACE l'inspecteur (bascule « Détails
@@ -3907,12 +3880,6 @@ namespace Marabook
                 _searchHost.Visibility = shown == RightPanel.Search ? Visibility.Visible : Visibility.Collapsed;
             if (_versionsHost != null)
                 _versionsHost.Visibility = shown == RightPanel.Versions ? Visibility.Visible : Visibility.Collapsed;
-            if (_metadataHost != null)
-                _metadataHost.Visibility = shown == RightPanel.Metadata ? Visibility.Visible : Visibility.Collapsed;
-            if (_publicationHost != null)
-                _publicationHost.Visibility = shown == RightPanel.Publication ? Visibility.Visible : Visibility.Collapsed;
-            if (_editionHost != null)
-                _editionHost.Visibility = shown == RightPanel.Edition ? Visibility.Visible : Visibility.Collapsed;
             if (_pinnedHost != null)
                 _pinnedHost.Visibility = shown == RightPanel.Pinned ? Visibility.Visible : Visibility.Collapsed;
             if (_lexiconHost != null)
@@ -4074,10 +4041,6 @@ namespace Marabook
                     icon = "magnifying-glass-bold"; name = "Recherche dans le projet"; gesture = AppSettings.Gesture("project-search"); break;
                 case RightPanel.Versions:
                     icon = "git-branch"; name = "Versions de l'écrit"; gesture = AppSettings.Gesture("versions-panel"); break;
-                case RightPanel.Metadata:
-                    icon = "list-dashes-bold"; name = "Métadonnées du livre"; break;
-                case RightPanel.Edition:
-                    icon = "book-bold"; name = "Édition du livre"; break;
                 case RightPanel.Pinned:
                     icon = "push-pin-bold"; name = "Épinglé au rail"; break;
                 case RightPanel.Lexicon:
@@ -4381,7 +4344,6 @@ namespace Marabook
             _inspDates.Text = string.IsNullOrEmpty(_project.CreatedAt) ? ""
                 : "Créé le " + Dates.Display(_project.CreatedAt) + "\nModifié le " + Dates.Display(_project.ModifiedAt);
 
-            UpdateBookSection();
             UpdateBookProgress();
         }
 
@@ -4394,32 +4356,6 @@ namespace Marabook
             button.Margin = new Thickness(0, 0, 0, 6);
             button.Click += delegate { onClick(); };
             return button;
-        }
-
-        /// <summary>Les panneaux Métadonnées / Publication d'un livre (batch
-        /// 32) : chargés au changement de livre seulement — jamais
-        /// resynchronisés pendant la frappe.</summary>
-        private void UpdateBookSection()
-        {
-            var book = _current != null && _current.Kind == ItemKind.Book ? _current : null;
-            if (book == null)
-            {
-                if (_bookPanelsItem != null)
-                {
-                    _bookMeta.Clear();
-                    _bookPub.Clear();
-                    _bookEdition.Clear();
-                    _bookPanelsItem = null;
-                }
-                return;
-            }
-            if (_bookPanelsItem != book)
-            {
-                _bookMeta.Load(book);
-                _bookPub.Load(book, _project);
-                _bookEdition.Load(book);
-                _bookPanelsItem = book;
-            }
         }
 
         /// <summary>La barre d'objectif du livre : orange = chapitres présents,

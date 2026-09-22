@@ -16,9 +16,8 @@ namespace Marabook.Settings
         Correction,
         Search,
         Versions,
-        Metadata,    // livre : sous-titre, auteur, éditeur, ISBN… (b32, sorti de l'inspecteur au b39)
-        Publication, // livre : gabarit et « Publier… » (idem)
-        Edition,     // livre : genre, public, thématiques, synopsis, accroche, 4e de couverture (b43)
+        // Métadonnées, Publication et Édition d'un livre ont quitté le rail
+        // le 22/09 : ce sont les onglets de la page livre (BookView).
         Pinned,      // l'écrit ou la fiche ÉPINGLÉ SUR LE CÔTÉ, lu en miroir (b47)
         Lexicon      // la définition d'un mot du dictionnaire personnel (18/09) — épinglable au rail
     }
@@ -31,7 +30,7 @@ namespace Marabook.Settings
         private static readonly RightPanel[] ForText =
             { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned };
         private static readonly RightPanel[] ForBook =
-            { RightPanel.Inspector, RightPanel.Edition, RightPanel.Metadata, RightPanel.Publication, RightPanel.Search, RightPanel.Pinned };
+            { RightPanel.Inspector, RightPanel.Search, RightPanel.Pinned };
         private static readonly RightPanel[] ForOthers =
             { RightPanel.Inspector, RightPanel.Search, RightPanel.Pinned };
         private static readonly RightPanel[] ForCategory =
@@ -61,9 +60,6 @@ namespace Marabook.Settings
                 case RightPanel.Correction: return "correction";
                 case RightPanel.Search: return "search";
                 case RightPanel.Versions: return "versions";
-                case RightPanel.Metadata: return "metadata";
-                case RightPanel.Publication: return "publication";
-                case RightPanel.Edition: return "edition";
                 case RightPanel.Pinned: return "pinned";
                 case RightPanel.Lexicon: return "lexicon";
                 default: return "none";
@@ -80,9 +76,6 @@ namespace Marabook.Settings
                 case "correction": return RightPanel.Correction;
                 case "search": return RightPanel.Search;
                 case "versions": return RightPanel.Versions;
-                case "metadata": return RightPanel.Metadata;
-                case "publication": return RightPanel.Publication;
-                case "edition": return RightPanel.Edition;
                 case "pinned": return RightPanel.Pinned;
                 case "lexicon": return RightPanel.Lexicon;
                 default: return RightPanel.Inspector;
@@ -122,12 +115,11 @@ namespace Marabook.Settings
             return Array.IndexOf(Offered(kind, homeRoot, lexicon), panel) >= 0;
         }
 
-        /// <summary>Général, Métadonnées et Publication DÉCRIVENT l'élément
-        /// courant ; les autres sont des outils — le filet du rail les sépare.</summary>
+        /// <summary>Général DÉCRIT l'élément courant ; les autres sont des
+        /// outils — le filet du rail les sépare.</summary>
         public static bool DescribesCurrent(RightPanel panel)
         {
-            return panel == RightPanel.Inspector || panel == RightPanel.Edition
-                || panel == RightPanel.Metadata || panel == RightPanel.Publication;
+            return panel == RightPanel.Inspector;
         }
 
         /// <summary>Le panneau est-il disponible dans le contexte ? Règles de

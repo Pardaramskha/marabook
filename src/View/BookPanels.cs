@@ -7,89 +7,12 @@ using Marabook.Model;
 
 namespace Marabook.View
 {
-    /// <summary>Le panneau « Métadonnées » d'un livre (batch 32) : sous-titre,
-    /// auteur, éditeur, collection, ISBN, année. Vit dans l'inspecteur, déplié
-    /// par le bouton du même nom sous les dates ; chaque frappe modifie le
-    /// modèle et lève Changed.</summary>
-    public class BookMetadataPanel : StackPanel
-    {
-        private BinderItem _item;
-        private bool _syncing;
-        private TextBox _subtitle, _author, _publisher, _collection, _isbn, _year;
-
-        public event Action Changed;
-
-        public BookMetadataPanel()
-        {
-            _subtitle = Field("Sous-titre");
-            _author = Field("Auteur (vide = auteur du projet)");
-            _publisher = Field("Éditeur");
-            _collection = Field("Collection");
-            _isbn = Field("ISBN");
-            _year = Field("Année");
-        }
-
-        private TextBox Field(string label)
-        {
-            Children.Add(BookPanelParts.Label(label));
-            var box = new TextBox { Margin = new Thickness(0, 2, 0, 2) };
-            box.TextChanged += delegate
-            {
-                if (_syncing || _item == null) return;
-                PushFields();
-                var handler = Changed;
-                if (handler != null) handler();
-            };
-            Children.Add(box);
-            return box;
-        }
-
-        private void PushFields()
-        {
-            var book = _item.Book;
-            book.Subtitle = _subtitle.Text;
-            book.AuthorOverride = _author.Text;
-            book.Publisher = _publisher.Text;
-            book.Collection = _collection.Text;
-            book.Isbn = _isbn.Text;
-            book.Year = _year.Text;
-        }
-
-        public void Load(BinderItem book)
-        {
-            _item = book;
-            if (book != null && book.Book == null) book.Book = new BookInfo();
-            Sync();
-        }
-
-        public void Clear() { _item = null; }
-
-        public void Sync()
-        {
-            if (_item == null) return;
-            _syncing = true;
-            try
-            {
-                var book = _item.Book;
-                _subtitle.Text = book.Subtitle;
-                _author.Text = book.AuthorOverride;
-                _publisher.Text = book.Publisher;
-                _collection.Text = book.Collection;
-                _isbn.Text = book.Isbn;
-                _year.Text = book.Year;
-            }
-            finally
-            {
-                _syncing = false;
-            }
-        }
-    }
-
-    /// <summary>Le panneau « Publication » d'un livre (batch 32) : le gabarit
-    /// (format des pages, marges, fond perdu), l'alerte de divergence et le
-    /// bouton « Publier… ». Le gabarit est ce que tout document du livre
-    /// hérite.</summary>
-    public class BookPublicationPanel : StackPanel
+    /// <summary>« Format d'impression » d'un livre (22/09 — l'ancien panneau
+    /// Publication du rail, sans le bouton Publier) : le format des pages
+    /// (appliqué à tout nouveau texte), les marges du gabarit, le fond perdu
+    /// et l'alerte de divergence. Vit dans l'onglet Gabarits &amp; Format de
+    /// la page livre. Le gabarit est ce que tout document du livre hérite.</summary>
+    public class BookFormatPanel : StackPanel
     {
         private BinderItem _item;
         private Project _project;
@@ -99,7 +22,6 @@ namespace Marabook.View
         private TextBlock _templateSummary, _divergence;
 
         public event Action Changed;                 // gabarit édité
-        public event Action<BinderItem> PublishRequested;
 
         // Preset gabarits: name, width, height (mm). Margins stay PAO
         // 20/20/30/20; the bleed is per-book.
@@ -113,14 +35,16 @@ namespace Marabook.View
             new object[] { "Personnalisé…", 0.0, 0.0 }
         };
 
-        public BookPublicationPanel()
+        public BookFormatPanel()
         {
-            Children.Add(BookPanelParts.Label("Format des pages :"));
+            var row = new WrapPanel { Orientation = Orientation.Horizontal };
+
+            var formatCol = new StackPanel { Margin = new Thickness(0, 0, 24, 0), Width = 260 };
+            formatCol.Children.Add(BookPanelParts.Label("Format des pages (appliqué à tout nouveau texte) :"));
             _preset = new ComboBox { Margin = new Thickness(0, 2, 0, 6) };
             foreach (var preset in Presets) _preset.Items.Add((string)preset[0]);
             _preset.SelectionChanged += OnPresetChanged;
-            Children.Add(_preset);
-
+            formatCol.Children.Add(_preset);
             _templateSummary = new TextBlock
             {
                 Foreground = Chrome.SoftText,
@@ -128,25 +52,26 @@ namespace Marabook.View
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 6)
             };
-            Children.Add(_templateSummary);
+            formatCol.Children.Add(_templateSummary);
+            row.Children.Add(formatCol);
 
-            var marginsBtn = new Button
-            {
-                Content = "Marges du gabarit…",
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Padding = new Thickness(8, 3, 8, 3),
-                ToolTip = "Nomenclature PAO : de tête (haut), de pied (bas), "
-                    + "petit fond (côté reliure), grand fond (côté extérieur)"
-            };
+            var marginsCol = new StackPanel { Margin = new Thickness(0, 0, 24, 0) };
+            marginsCol.Children.Add(BookPanelParts.Label("Marges du gabarit :"));
+            var marginsBtn = Buttons.Text("Marges du gabarit…", "Nomenclature PAO : de tête (haut), de pied (bas), "
+                    + "petit fond (côté reliure), grand fond (côté extérieur)", Buttons.Compact, Buttons.Look.Outline);
+            marginsBtn.HorizontalAlignment = HorizontalAlignment.Left;
+            marginsBtn.Margin = new Thickness(0, 4, 0, 0);
             marginsBtn.Click += delegate { EditTemplateMargins(); };
-            Children.Add(marginsBtn);
+            marginsCol.Children.Add(marginsBtn);
+            row.Children.Add(marginsCol);
 
-            Children.Add(BookPanelParts.Label("Fond perdu (mm) :"));
+            var bleedCol = new StackPanel();
+            bleedCol.Children.Add(BookPanelParts.Label("Fond perdu (mm) :"));
             _bleed = new TextBox
             {
                 MaxWidth = 70,
                 HorizontalAlignment = HorizontalAlignment.Left,
-                Margin = new Thickness(0, 2, 0, 0)
+                Margin = new Thickness(0, 4, 0, 0)
             };
             _bleed.TextChanged += delegate
             {
@@ -160,51 +85,20 @@ namespace Marabook.View
                     RaiseChanged();
                 }
             };
-            Children.Add(_bleed);
+            bleedCol.Children.Add(_bleed);
+            row.Children.Add(bleedCol);
+            Children.Add(row);
 
             _divergence = new TextBlock
             {
                 Foreground = new SolidColorBrush(Color.FromRgb(230, 126, 34)),
                 FontSize = 12,
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 10, 0, 2),
+                Margin = new Thickness(0, 8, 0, 2),
                 Text = "Des documents ne suivent pas la mise en page du livre "
-                    + "(carte encadrée orange → clic droit pour corriger)."
+                    + "(icône orange à côté de leur titre → clic droit pour corriger)."
             };
             Children.Add(_divergence);
-
-            // NB : le gabarit de bouton du thème peint son propre fond — ne
-            // jamais forcer Background/Foreground ici (bouton « tout blanc »).
-            var publishRow = new StackPanel { Orientation = Orientation.Horizontal };
-            var playIcon = Icons.Make("play-fill", 13, Chrome.Accent) as FrameworkElement;
-            if (playIcon != null)
-            {
-                playIcon.VerticalAlignment = VerticalAlignment.Center;
-                playIcon.Margin = new Thickness(0, 0, 7, 0);
-                publishRow.Children.Add(playIcon);
-            }
-            publishRow.Children.Add(new TextBlock
-            {
-                Text = "Publier…",
-                Foreground = Chrome.Ink,
-                VerticalAlignment = VerticalAlignment.Center
-            });
-            var publish = new Button
-            {
-                Content = publishRow,
-                FontWeight = FontWeights.SemiBold,
-                Padding = new Thickness(14, 5, 14, 5),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Margin = new Thickness(0, 12, 0, 0),
-                ToolTip = "Compiler tout le livre en un PDF prêt à imprimer : pagination "
-                    + "continue, gabarits appliqués, CMJN FOGRA39 par défaut"
-            };
-            publish.Click += delegate
-            {
-                var handler = PublishRequested;
-                if (handler != null && _item != null) handler(_item);
-            };
-            Children.Add(publish);
         }
 
         // ============================================================ gabarit
@@ -257,24 +151,26 @@ namespace Marabook.View
             Sync();
         }
 
-        private bool HasDivergence()
+        /// <summary>Les textes du livre qui ne suivent pas sa mise en page.</summary>
+        public static int DivergentCount(BinderItem book, Project project)
         {
-            if (_item == null || _project == null) return false;
-            return DivergesRecursive(_item, _item.Book.Template);
+            if (book == null || book.Book == null || project == null) return 0;
+            return CountDivergent(book, book.Book.Template, project);
         }
 
-        private bool DivergesRecursive(BinderItem item, PageSetup template)
+        private static int CountDivergent(BinderItem item, PageSetup template, Project project)
         {
+            var count = 0;
             foreach (var child in item.Children)
             {
                 if (child.Kind == ItemKind.Text)
                 {
-                    var effective = child.Page ?? _project.Page;
-                    if (!effective.SameLayout(template)) return true;
+                    var effective = child.Page ?? project.Page;
+                    if (!effective.SameLayout(template)) count++;
                 }
-                if (DivergesRecursive(child, template)) return true;
+                count += CountDivergent(child, template, project);
             }
-            return false;
+            return count;
         }
 
         // ============================================================ lifecycle
@@ -315,7 +211,7 @@ namespace Marabook.View
             {
                 _syncing = false;
             }
-            _divergence.Visibility = HasDivergence() ? Visibility.Visible : Visibility.Collapsed;
+            _divergence.Visibility = DivergentCount(_item, _project) > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void RaiseChanged()
@@ -335,6 +231,19 @@ namespace Marabook.View
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 Margin = new Thickness(0, 4, 0, 0)
+            };
+        }
+
+        /// <summary>Un intertitre de section de la page livre.</summary>
+        public static TextBlock Caption(string text, double topMargin)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                Foreground = Chrome.Ink,
+                FontWeight = FontWeights.SemiBold,
+                FontSize = 13,
+                Margin = new Thickness(0, topMargin, 0, 4)
             };
         }
     }

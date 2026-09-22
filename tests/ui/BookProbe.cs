@@ -129,23 +129,20 @@ namespace Marabook.Tests.Ui
             Check(parent != null && parent.Children.IndexOf(progress) == parent.Children.IndexOf(stats) - 1,
                 "la barre d'objectif est juste au-dessus des statistiques");
 
-            // — Métadonnées et Publication : deux onglets du rail (batch 39),
-            //   plus de boutons dans l'inspecteur ; rien d'ouvert au départ.
+            // — Édition, Gabarits & Format, Styles, Publication : les onglets
+            //   de la page livre (22/09) ; le rail n'a plus d'onglet de livre.
             var tabs = (System.Collections.Generic.Dictionary<Marabook.Settings.RightPanel, Border>)GetField(window, "_railTabs");
-            var metaHost = (Border)GetField(window, "_metadataHost");
-            var pubHost = (Border)GetField(window, "_publicationHost");
-            Check(tabs.ContainsKey(Marabook.Settings.RightPanel.Metadata) && tabs.ContainsKey(Marabook.Settings.RightPanel.Publication)
-                && !tabs.ContainsKey(Marabook.Settings.RightPanel.Correction),
-                "sur un livre, le rail offre Métadonnées et Publication (et pas Correction)");
-            Check(metaHost.Visibility == Visibility.Collapsed && pubHost.Visibility == Visibility.Collapsed,
-                "aucun panneau de livre ouvert au départ");
+            Check(tabs.ContainsKey(Marabook.Settings.RightPanel.Inspector) && tabs.ContainsKey(Marabook.Settings.RightPanel.Search)
+                && !tabs.ContainsKey(Marabook.Settings.RightPanel.Correction) && !tabs.ContainsKey(Marabook.Settings.RightPanel.Versions),
+                "sur un livre, le rail offre Général et Recherche (et pas Correction) — Métadonnées et Publication sont dans la page");
+            var pageTabs = (TabControl)GetField(bookView, "_tabs");
+            Check(pageTabs.Items.Count == 5, "la page livre a cinq onglets : Textes, Édition, Gabarits & Format, Styles, Publication");
 
-            // — Métadonnées : ouverture, frappe → modèle, sans resynchronisation.
-            Invoke(window, "ClickRailTab", new object[] { Marabook.Settings.RightPanel.Metadata });
+            // — Édition : frappe → modèle, sans resynchronisation.
+            bookView.SelectedTab = 1;
             DoEvents();
-            var meta = (BookMetadataPanel)GetField(window, "_bookMeta");
-            Check(metaHost.Visibility == Visibility.Visible && Marabook.Settings.AppSettings.RightPanel == Marabook.Settings.RightPanel.Metadata,
-                "« Métadonnées » ouvre le panneau des métadonnées à droite");
+            var meta = (BookEditionTab)GetField(bookView, "_edition");
+            Check(pageTabs.SelectedIndex == 1 && meta.IsVisible, "« Édition » montre les métadonnées et la présentation du livre");
             var subtitle = (TextBox)GetField(meta, "_subtitle");
             subtitle.Focus();
             subtitle.Text = "Tome";
@@ -161,33 +158,34 @@ namespace Marabook.Tests.Ui
                 "le curseur n'a pas été déplacé par une resynchronisation");
             Check((bool)GetField(window, "_dirty"), "le projet est marqué modifié");
 
-            // — Publication remplace Métadonnées ; recliquer l'actif replie.
-            Invoke(window, "ClickRailTab", new object[] { Marabook.Settings.RightPanel.Publication });
+            // — Gabarits & Format : le fond perdu tapé atteint le modèle.
+            bookView.SelectedTab = 2;
             DoEvents();
-            Check(pubHost.Visibility == Visibility.Visible && metaHost.Visibility == Visibility.Collapsed,
-                "« Publication » ouvre son panneau et remplace l'autre");
-            var pub = (BookPublicationPanel)GetField(window, "_bookPub");
-            var bleed = (TextBox)GetField(pub, "_bleed");
+            var format = (BookFormatPanel)GetField(bookView, "_format");
+            var bleed = (TextBox)GetField(format, "_bleed");
             bleed.Text = "4";
             DoEvents();
             Check(Near(target.Book.BleedMm, 4), "le fond perdu tapé atteint le modèle");
-            Invoke(window, "ClickRailTab", new object[] { Marabook.Settings.RightPanel.Publication });
-            DoEvents();
-            Check(pubHost.Visibility == Visibility.Collapsed && Marabook.Settings.AppSettings.RightPanel == Marabook.Settings.RightPanel.None,
-                "recliquer l'onglet actif replie la colonne");
 
-            // — Sur un écrit, le rail change et un panneau de livre cède la place au Général.
-            Invoke(window, "ClickRailTab", new object[] { Marabook.Settings.RightPanel.Metadata });
+            // — Publication : la check-list et les tailles se bâtissent à l'affichage.
+            bookView.SelectedTab = 4;
             DoEvents();
+            var publication = (BookPublicationTab)GetField(bookView, "_publication");
+            var checklist = (StackPanel)GetField(publication, "_checklist");
+            Check(checklist.Children.Count >= 6, "la check-list de publication est bâtie (" + checklist.Children.Count + " lignes)");
+
+            // — Sur un écrit, la barre d'objectif disparaît ; de retour sur le
+            //   livre, l'onglet où l'on était est retenu.
             Invoke(window, "OnBinderSelection", new object[] { target.Children[0] });
             DoEvents();
-            Check(!tabs.ContainsKey(Marabook.Settings.RightPanel.Metadata) && progress.Visibility == Visibility.Collapsed
-                && Marabook.Settings.AppSettings.RightPanel == Marabook.Settings.RightPanel.Inspector && metaHost.Visibility == Visibility.Collapsed,
-                "sur un écrit : ni onglets de livre ni barre d'objectif, Général reprend la colonne");
+            Check(progress.Visibility == Visibility.Collapsed && bookView.Visibility != Visibility.Visible,
+                "sur un écrit : ni page livre ni barre d'objectif");
             Invoke(window, "OnBinderSelection", new object[] { target });
             DoEvents();
-            Check(tabs.ContainsKey(Marabook.Settings.RightPanel.Metadata) && tabs.ContainsKey(Marabook.Settings.RightPanel.Publication),
-                "de retour sur le livre, les onglets Métadonnées et Publication reviennent");
+            Check(bookView.Visibility == Visibility.Visible && bookView.SelectedTab == 4,
+                "de retour sur le livre, l'onglet Publication est retenu");
+            bookView.SelectedTab = 0;
+            DoEvents();
 
             // — « Options du livre » : une action, annulable ; la barre suit.
             var history = (HistoryManager)GetField(window, "_history");
@@ -246,12 +244,17 @@ namespace Marabook.Tests.Ui
             Snapshot((FrameworkElement)GetField(window, "_bookView"),
                 Path.Combine(Path.GetTempPath(), "marabook-2109-livre-sections.png"));
 
-            // — Contrôle visuel : l'inspecteur puis le panneau Publication en PNG.
+            // — Contrôle visuel : l'inspecteur puis les onglets de la page livre en PNG.
             Snapshot((FrameworkElement)GetField(window, "_inspector"),
                 Path.Combine(Path.GetTempPath(), "marabook-b32-inspector.png"));
-            Invoke(window, "ClickRailTab", new object[] { Marabook.Settings.RightPanel.Publication });
+            for (var tab = 1; tab <= 4; tab++)
+            {
+                bookView.SelectedTab = tab;
+                DoEvents();
+                Snapshot(bookView, Path.Combine(Path.GetTempPath(), "marabook-2209-livre-onglet-" + tab + ".png"));
+            }
+            bookView.SelectedTab = 0;
             DoEvents();
-            Snapshot(pubHost, Path.Combine(Path.GetTempPath(), "marabook-b39-publication.png"));
 
             // — Enregistrement : objectif, sous-titre, fond perdu sur le disque.
             Invoke(window, "DoSave", null);

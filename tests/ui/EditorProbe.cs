@@ -238,7 +238,7 @@ namespace Marabook.Tests.Ui
             Invoke(window, "OnBinderSelection", new object[] { bookItem });
             DoEvents();
             var bookView = (BookView)GetField(window, "_bookView");
-            var corkboard = (CorkboardView)GetField(bookView, "_corkboard");
+            var corkboard = (CorkboardView)GetField(bookView, "_texts"); // l'onglet Textes de la page livre (22/09)
             var cards = (List<Border>)Invoke(corkboard, "AllCards", null);
             Check(cards.Count == 3, "trois cartes-chapitres au tableau du livre (dont une dans la partie)");
             var partItem = bookItem.Children[2];

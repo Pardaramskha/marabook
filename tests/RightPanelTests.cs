@@ -40,18 +40,17 @@ namespace Marabook.Tests
 
             // — Les onglets offerts selon la nature de l'élément courant.
             t.Equal("inspector,correction,search,versions,pinned", Join(RightPanels.Offered(ItemKind.Text)), "un écrit : Général, Correction, Recherche, Versions, Épinglé");
-            t.Equal("inspector,edition,metadata,publication,search,pinned", Join(RightPanels.Offered(ItemKind.Book)), "un livre : Général, Édition, Métadonnées, Publication, Recherche, Épinglé");
+            t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Book)), "un livre : Général, Recherche, Épinglé — Édition, Métadonnées et Publication sont des onglets de la page livre (22/09)");
             t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Sheet)), "une fiche : Général et Recherche (plus de Versions, b43), Épinglé");
             foreach (var kind in new[] { ItemKind.Media, ItemKind.Plan, ItemKind.Folder, ItemKind.PageTemplate })
                 t.Equal("inspector,search,pinned", Join(RightPanels.Offered(kind)), kind + " : Général et Recherche seulement (et l'épinglé)");
             t.Equal("search,pinned", Join(RightPanels.Offered(ItemKind.Category)), "une racine de la Pile : Recherche seule (b43), et l'épinglé");
             t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Category, true)), "l'Accueil garde son Général (les raccourcis)");
             t.Equal("inspector,search,pinned", Join(RightPanels.Offered(null)), "rien de sélectionné : Général et Recherche");
-            t.Check(RightPanels.DescribesCurrent(RightPanel.Edition), "Édition décrit l'élément");
-            t.Check(RightPanels.DescribesCurrent(RightPanel.Inspector) && RightPanels.DescribesCurrent(RightPanel.Metadata)
-                && RightPanels.DescribesCurrent(RightPanel.Publication) && !RightPanels.DescribesCurrent(RightPanel.Search)
+            t.Check(RightPanels.DescribesCurrent(RightPanel.Inspector) && !RightPanels.DescribesCurrent(RightPanel.Search)
                 && !RightPanels.DescribesCurrent(RightPanel.Correction) && !RightPanels.DescribesCurrent(RightPanel.Versions),
-                "le filet sépare ce qui décrit l'élément (Général, Métadonnées, Publication) des outils");
+                "le filet sépare ce qui décrit l'élément (Général) des outils");
+            t.Equal(RightPanel.Inspector, RightPanels.Parse("metadata"), "l'ancien nom « metadata » d'un settings.json d'avant le 22/09 vaut l'inspecteur");
 
             // — Disponibilité : offert pour la nature ET un élément courant
             //   (sauf Recherche, qui vit sans), un projet, colonne visible.
@@ -60,10 +59,6 @@ namespace Marabook.Tests
             t.Check(RightPanels.Available(RightPanel.Correction, false, true, ItemKind.Text), "Correction sur un écrit");
             t.Check(!RightPanels.Available(RightPanel.Correction, false, true, ItemKind.Book), "Correction sur un livre : indisponible (pas offerte)");
             t.Check(!RightPanels.Available(RightPanel.Correction, false, true, null), "Correction sans élément courant : indisponible");
-            t.Check(RightPanels.Available(RightPanel.Metadata, false, true, ItemKind.Book) && RightPanels.Available(RightPanel.Publication, false, true, ItemKind.Book),
-                "Métadonnées et Publication sur un livre");
-            t.Check(!RightPanels.Available(RightPanel.Metadata, false, true, ItemKind.Text) && !RightPanels.Available(RightPanel.Publication, false, true, ItemKind.Sheet),
-                "…et nulle part ailleurs");
             t.Check(RightPanels.Available(RightPanel.Search, false, true, null), "Recherche sans élément courant : disponible (on cherche avant d'avoir cliqué)");
             t.Check(RightPanels.Available(RightPanel.Search, false, true, ItemKind.Plan), "Recherche sur un plan");
             t.Check(RightPanels.Available(RightPanel.Versions, false, true, ItemKind.Text) && !RightPanels.Available(RightPanel.Versions, false, true, ItemKind.Sheet),
