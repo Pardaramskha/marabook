@@ -20,6 +20,7 @@ namespace Marabook.View
     {
         private readonly WrapPanel _cards;
         private StackPanel _planActions; // racine Plans : « + Nouveau plan » (b35)
+        private StackPanel _mindMapActions; // racine Cartes mentales (22/09)
         private WrapPanel _bookActions;    // livre : Nouvel écrit / Nouvelle partie / Nouvelle liminaire / page de fin / annexe (14/09, b49) — replié si étroit
         private StackPanel _folderActions; // dossier d'Écrits : Nouvel écrit / Nouveau sous-dossier (14/09)
         private StackPanel _writingsActions; // racine Écrits : Nouvel écrit / dossier / livre (12/09)
@@ -170,6 +171,22 @@ namespace Marabook.View
                 "Un plan : colonnes, briques d'intensité, notes", Buttons.Bar, Buttons.Look.Primary); // principal (14/09)
             newPlan.Click += delegate { RequestNewDocument("plan"); };
             _planActions.Children.Add(newPlan);
+            // Racine Cartes mentales (22/09) : une carte neuve, un .tea importé.
+            _mindMapActions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0),
+                Visibility = Visibility.Collapsed
+            };
+            var newMap = Buttons.IconText("plus-bold", "Nouvelle carte mentale",
+                "Une carte Mental-o : boîtes, liens, groupes — vit dans le projet", Buttons.Bar, Buttons.Look.Primary);
+            newMap.Click += delegate { RequestNewDocument("mindmap"); };
+            _mindMapActions.Children.Add(newMap);
+            var importMap = Buttons.IconText("file-arrow-down-bold", "Importer un .tea…",
+                "Une carte faite dans Mental-o entre telle quelle dans le projet", Buttons.Bar, Buttons.Look.Outline);
+            importMap.Margin = new Thickness(8, 0, 0, 0);
+            importMap.Click += delegate { RequestNewDocument("mindmap-import"); };
+            _mindMapActions.Children.Add(importMap);
             // Racine Écrits (12/09) : un bouton principal et deux secondaires.
             _writingsActions = new StackPanel
             {
@@ -207,6 +224,7 @@ namespace Marabook.View
             layout.Children.Add(_bookActions);
             layout.Children.Add(_folderActions);
             layout.Children.Add(_planActions);
+            layout.Children.Add(_mindMapActions);
             layout.Children.Add(_writingsActions);
             layout.Children.Add(_researchActions);
             layout.Children.Add(BuildFilterHeader());
@@ -758,6 +776,7 @@ namespace Marabook.View
             _folderActions.Visibility = _folder.Kind == ItemKind.Folder && _folder.RootCategory().CategoryKey == Project.KeyWritings
                 ? Visibility.Visible : Visibility.Collapsed;
             _planActions.Visibility = IsRoot(Project.KeyPlans) ? Visibility.Visible : Visibility.Collapsed;
+            _mindMapActions.Visibility = IsRoot(Project.KeyMindMaps) ? Visibility.Visible : Visibility.Collapsed;
             _writingsActions.Visibility = IsRoot(Project.KeyWritings) ? Visibility.Visible : Visibility.Collapsed;
             _researchActions.Visibility = IsRoot(Project.KeyResearch) ? Visibility.Visible : Visibility.Collapsed;
 
@@ -838,6 +857,10 @@ namespace Marabook.View
                             ? "(livre sans document)"
                         : IsRoot(Project.KeyPlans)
                             ? "(aucun plan — clic droit sur « Plans » dans la Pile, ou « + Nouveau plan »)"
+                        : IsRoot(Project.KeyMindMaps)
+                            ? (Extensions.ModuleRegistry.MindMaps == null
+                                ? "(les cartes mentales demandent le module Mental-o — Préférences › DLC)"
+                                : "(aucune carte — « Nouvelle carte mentale », ou importez un .tea)")
                         : IsRoot(Project.KeyWritings)
                             ? "(rien encore — « Nouvel écrit » ou « Nouveau livre » pour commencer)"
                         : IsRoot(Project.KeyResearch)
@@ -1435,6 +1458,22 @@ namespace Marabook.View
                 if (item.Plan != null) foreach (var column in item.Plan.Columns) bricks += column.Entries.Count;
                 text = columns == 0 ? "Plan vide"
                     : columns + (columns > 1 ? " colonnes" : " colonne") + " · " + bricks + (bricks > 1 ? " briques" : " brique");
+            }
+            if (item.Kind == ItemKind.MindMap)
+            {
+                // Une tuile de carte mentale (22/09) : la vignette du module
+                // (boîtes et liens en schéma) si le module est là, puis le
+                // résumé lu par Marabook lui-même.
+                var summary = MindMaps.Inspect(item.MapBytes);
+                var provider = Extensions.ModuleRegistry.MindMaps;
+                var thumbnail = provider == null || item.MapBytes == null ? null : provider.Thumbnail(item.MapBytes, 186, 96);
+                if (thumbnail != null)
+                {
+                    thumbnail.Margin = new Thickness(0, 0, 0, 6);
+                    body.Children.Add(thumbnail);
+                }
+                text = summary.Label + (summary.Preview.Length > 0 ? "\n" + summary.Preview : "");
+                if (provider == null) text += "\n(module Mental-o absent : Préférences › DLC)";
             }
             if (text.Length == 0 && item.Kind == ItemKind.Text && !imageOnly)
             {

@@ -115,7 +115,8 @@ namespace Marabook.Tests
                 ExtraPagesTests.Run,     // C32 — liminaires, pages de fin, annexes (b49 suite)
                 ModulesTests.Run,        // C33 — modules (DLC, 22/09)
                 StyleScopeTests.Run,     // C34 — styles à portée, séparateur, styles globaux (22/09)
-                EpubTests.Run            // C35 — EPUB (22/09)
+                EpubTests.Run,           // C35 — EPUB (22/09)
+                MindMapTests.Run         // C36 — cartes mentales (22/09)
             };
             foreach (var suite in suites)
             {

@@ -131,7 +131,10 @@ namespace Marabook.Persistence
         //      le séparateur de scène du projet (separatorText/Font/SizePt)
         //      migre en style « separator » ; l'auteur par défaut et le
         //      séparateur global vivent dans settings.json.
-        private const int FormatVersion = 28;
+        // v29: CARTES MENTALES (22/09) — la racine "mindmaps" (« Cartes
+        //      mentales »), les items de kind "mindmap" dont le .tea complet
+        //      de Mental-o est une entrée maps/<id>.tea de l'archive.
+        private const int FormatVersion = 29;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -188,6 +191,12 @@ namespace Marabook.Persistence
                         var media = archive.CreateEntry("research/" + item.Id + (item.MediaExtension ?? ""));
                         using (var mediaStream = media.Open())
                             mediaStream.Write(item.MediaBytes, 0, item.MediaBytes.Length);
+                    }
+                    if (item.Kind == ItemKind.MindMap && item.MapBytes != null && !textsOnly) // v29
+                    {
+                        var map = archive.CreateEntry("maps/" + item.Id + ".tea");
+                        using (var mapStream = map.Open())
+                            mapStream.Write(item.MapBytes, 0, item.MapBytes.Length);
                     }
                 }
                 // Les instantanés (v17) : une entrée chacun, JSON du document
@@ -415,6 +424,7 @@ namespace Marabook.Persistence
                          : item.Kind == ItemKind.Media ? "media"
                          : item.Kind == ItemKind.Book ? "book"
                          : item.Kind == ItemKind.Plan ? "plan"
+                         : item.Kind == ItemKind.MindMap ? "mindmap"
                          : item.Kind == ItemKind.PageTemplate ? "pagetpl" : "text";
             if (item.CategoryKey != null) node["category"] = item.CategoryKey;
             if (item.Page != null) node["page"] = BuildPageSetup(item.Page);
@@ -955,6 +965,7 @@ namespace Marabook.Persistence
                 EnsureCategory(project, "Recherche", Project.KeyResearch);
                 EnsureCategory(project, "Fiches", Project.KeySheets);
                 EnsureCategory(project, "Plans", Project.KeyPlans, Project.KeyDictionary); // b35, après Fiches
+                EnsureCategory(project, "Cartes mentales", Project.KeyMindMaps, Project.KeyDictionary); // 22/09, après Plans
                 EnsureCategory(project, "Dictionnaire", Project.KeyDictionary); // b33, avant la Corbeille
                 EnsureCategory(project, "Corbeille", Project.KeyTrash);
 
@@ -1206,6 +1217,7 @@ namespace Marabook.Persistence
                       : kind == "media" ? ItemKind.Media
                       : kind == "book" ? ItemKind.Book
                       : kind == "plan" ? ItemKind.Plan
+                      : kind == "mindmap" ? ItemKind.MindMap
                       : kind == "pagetpl" ? ItemKind.PageTemplate : ItemKind.Text;
 
             var ownPage = Json.AsObject(Json.Field(obj, "page"));
@@ -1378,6 +1390,21 @@ namespace Marabook.Persistence
                     }
             }
 
+            if (item.Kind == ItemKind.MindMap) // v29 : le .tea tel quel
+            {
+                var map = archive.GetEntry("maps/" + item.Id + ".tea");
+                if (map != null)
+                    try
+                    {
+                        using (var mapStream = map.Open())
+                        using (var buffer = new MemoryStream())
+                        {
+                            mapStream.CopyTo(buffer);
+                            item.MapBytes = buffer.ToArray();
+                        }
+                    }
+                    catch { } // une carte illisible reste absente ; l'item survit
+            }
             if (item.Kind == ItemKind.Media)
             {
                 item.MediaExtension = Json.AsString(Json.Field(obj, "mediaExt"));

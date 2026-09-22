@@ -13,7 +13,8 @@ namespace Marabook.Model
         Book,     // Écrits only: metadata + gabarit + « Publier »
         PageTemplate, // gabarit de pages d'un livre : deux pages vis-à-vis,
                       // en-têtes/pieds recto-verso, pastille de couleur
-        Plan          // racine Plans : colonnes, éléments d'intensité, notes (batch 35)
+        Plan,         // racine Plans : colonnes, éléments d'intensité, notes (batch 35)
+        MindMap       // racine Cartes mentales : un .tea de Mental-o dans le .plot (22/09, module à code)
     }
 
     /// <summary>Les états d'avancement d'un texte : clés stables persistées,
@@ -102,6 +103,9 @@ namespace Marabook.Model
 
         // Plans only (batch 35): colonnes, briques, liens.
         public PlanInfo Plan;
+        // Une carte mentale (22/09, v29) : le .tea complet de Mental-o, tel
+        // quel — l'éditeur vit dans le module, Marabook garde les octets.
+        public byte[] MapBytes;
 
         // Texts only: the document's own page setup. Null = project default.
         // Documents created inside a book copy the book's gabarit here.

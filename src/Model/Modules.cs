@@ -54,6 +54,11 @@ namespace Marabook.Model
         public string Tab = "";                              // l'onglet de la fiche
         public List<ModulePaper> Papers = new List<ModulePaper>();
         public List<ModuleAchievement> Achievements = new List<ModuleAchievement>();
+        // Un module À CODE (22/09) : la DLL du paquet et le type qui
+        // implémente Marabook.Extensions.IMarabookModule — null sinon.
+        public string EntryAssembly;
+        public string EntryType;
+        public bool HasCode { get { return !string.IsNullOrEmpty(EntryAssembly) && !string.IsNullOrEmpty(EntryType); } }
 
         /// <summary>Tous les identifiants de valeur que la fiche attend —
         /// un par champ, ou un par colonne d'un champ à colonnes.</summary>
@@ -94,6 +99,10 @@ namespace Marabook.Model
         /// suivi et évolution activés (une étape au moins), portrait, et la
         /// fiche de module complète.</summary>
         public const string SheetComplete = "sheet-complete";
+        /// <summary>« mindmaps » : au moins N cartes mentales dans le projet (22/09).</summary>
+        public const string MindMaps = "mindmaps";
+        /// <summary>« mindmap-nodes » : une carte d'au moins N boîtes (22/09).</summary>
+        public const string MindMapNodes = "mindmap-nodes";
     }
 
     /// <summary>LES MODULES (DLC, 22/09/2026) : des paquets .mdlc (un zip :
@@ -164,6 +173,12 @@ namespace Marabook.Model
             if (module.Id.Length == 0) throw new Exception("module.json sans identifiant");
             if (module.Name.Length == 0) module.Name = module.Id;
             module.Features.AddRange(Json.AsStringList(Json.Field(root, "features")));
+            var entry = Json.AsObject(Json.Field(root, "entry")); // module à code (22/09)
+            if (entry != null)
+            {
+                module.EntryAssembly = Json.AsString(Json.Field(entry, "assembly"));
+                module.EntryType = Json.AsString(Json.Field(entry, "type"));
+            }
             var sheet = Json.AsObject(Json.Field(root, "sheet"));
             if (sheet != null)
             {
@@ -264,7 +279,12 @@ namespace Marabook.Model
                     {
                         var manifest = Path.Combine(dir, Manifest);
                         if (!File.Exists(manifest)) continue;
-                        try { Installed.Add(Parse(File.ReadAllText(manifest, Encoding.UTF8))); }
+                        try
+                        {
+                            var module = Parse(File.ReadAllText(manifest, Encoding.UTF8));
+                            Installed.Add(module);
+                            if (module.HasCode) LoadCode(dir, module);
+                        }
                         catch { }
                     }
             }
@@ -315,9 +335,37 @@ namespace Marabook.Model
         public static void Uninstall(string id)
         {
             var dir = DirOf(id);
-            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+            // La DLL d'un module à code reste chargée jusqu'au redémarrage
+            // (un AppDomain ne décharge pas) : le module se retire du
+            // registre, ses fichiers partent — sauf verrouillés, alors au
+            // prochain lancement.
+            Extensions.ModuleRegistry.Unregister(id);
+            try { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+            catch (IOException) { PendingRemoval.Add(id); }
+            catch (UnauthorizedAccessException) { PendingRemoval.Add(id); }
             Load();
             RaiseChanged();
+        }
+
+        /// <summary>Les modules dont la DLL, verrouillée, empêche la
+        /// suppression du dossier : retirés au prochain lancement.</summary>
+        public static readonly List<string> PendingRemoval = new List<string>();
+
+        /// <summary>Charge la DLL d'un module à code et l'enregistre (une
+        /// seule fois par session : recharger la même DLL n'a pas de sens).</summary>
+        private static readonly HashSet<string> _loadedAssemblies = new HashSet<string>();
+
+        private static void LoadCode(string dir, ModuleInfo module)
+        {
+            if (Extensions.ModuleRegistry.Find(module.Id) != null) return;
+            var path = Path.GetFullPath(Path.Combine(dir, module.EntryAssembly.Replace('/', '\\')));
+            if (!File.Exists(path)) throw new FileNotFoundException("DLL du module introuvable", path);
+            var assembly = System.Reflection.Assembly.LoadFrom(path); // la même DLL rend le même assembly
+            _loadedAssemblies.Add(path);
+            var type = assembly.GetType(module.EntryType, true);
+            var instance = Activator.CreateInstance(type) as Extensions.IMarabookModule;
+            if (instance == null) throw new InvalidOperationException(module.EntryType + " n'est pas un IMarabookModule");
+            Extensions.ModuleRegistry.Register(module.Id, instance);
         }
 
         private static void RaiseChanged()
@@ -426,10 +474,23 @@ namespace Marabook.Model
                     complete++;
                     if (!fullSheet && IsSheetComplete(project, item)) fullSheet = true;
                 }
+                // Les cartes mentales (22/09) : nombre de cartes, plus grosse carte.
+                var maps = 0;
+                var biggest = 0;
+                foreach (var item in project.AllItems())
+                {
+                    if (item.Kind != ItemKind.MindMap) continue;
+                    if (project.Trash != null && item.IsDescendantOf(project.Trash)) continue;
+                    maps++;
+                    var summary = MindMaps.Inspect(item.MapBytes);
+                    if (summary.Nodes > biggest) biggest = summary.Nodes;
+                }
                 foreach (var a in module.Achievements)
                 {
                     if (a.Rule == ModuleRules.AdvancedComplete && complete >= a.Count) holding.Add(a.Id);
                     else if (a.Rule == ModuleRules.SheetComplete && fullSheet) holding.Add(a.Id);
+                    else if (a.Rule == ModuleRules.MindMaps && maps >= a.Count) holding.Add(a.Id);
+                    else if (a.Rule == ModuleRules.MindMapNodes && biggest >= a.Count) holding.Add(a.Id);
                 }
             }
             return holding;

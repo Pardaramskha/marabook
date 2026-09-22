@@ -66,6 +66,7 @@ namespace Marabook.Tests
             // --- spécifiques à un Kind : persistés seulement pour l'item
             //     du bon Kind, qui les exerce à la main.
             "BinderItem.MediaExtension",    // média — « Carnet scanné »
+            "BinderItem.MapBytes",          // carte mentale — « Carte des lieux » (v29)
             "BinderItem.TemplateColor",     // gabarit de pages
             "BinderItem.HeaderGapMm",       // gabarit de pages
             "BinderItem.FooterGapMm",       // gabarit de pages

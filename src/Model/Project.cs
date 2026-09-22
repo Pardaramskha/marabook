@@ -21,6 +21,7 @@ namespace Marabook.Model
         public const string KeySheets = "sheets";
         public const string KeyDictionary = "dictionary"; // batch 33 : le dictionnaire personnel
         public const string KeyPlans = "plans";           // batch 35 : les plans
+        public const string KeyMindMaps = "mindmaps";     // 22/09 : les cartes mentales (module Mental-o)
         public const string KeyTrash = "trash";
 
         public string Name = "Sans titre";
@@ -286,6 +287,7 @@ namespace Marabook.Model
             project.Roots.Add(MakeCategory("Recherche", KeyResearch));
             project.Roots.Add(MakeCategory("Fiches", KeySheets));
             project.Roots.Add(MakeCategory("Plans", KeyPlans));
+            project.Roots.Add(MakeCategory("Cartes mentales", KeyMindMaps)); // 22/09
             project.Roots.Add(MakeCategory("Dictionnaire", KeyDictionary));
             project.Roots.Add(MakeCategory("Corbeille", KeyTrash));
 

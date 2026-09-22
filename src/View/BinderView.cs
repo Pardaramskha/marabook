@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -665,6 +666,13 @@ namespace Marabook.View
                 AddMenu(menu, "Nouveau plan", delegate { NewPlan(item); });
                 return menu;
             }
+            // La racine Cartes mentales (22/09) ne reçoit que des cartes.
+            if (item.IsCategory && item.CategoryKey == Project.KeyMindMaps)
+            {
+                AddMenu(menu, "Nouvelle carte mentale", delegate { NewMindMap(item); });
+                AddMenu(menu, "Importer une carte (.tea)…", delegate { ImportMindMapDialog(item); });
+                return menu;
+            }
 
             if (item.CanHaveChildren)
             {
@@ -704,6 +712,11 @@ namespace Marabook.View
                     AddMenu(menu, "Nouvel import…", delegate { ImportMediaDialog(parent); });
                 else if (item.Kind == ItemKind.Plan)
                     AddMenu(menu, "Nouveau plan", delegate { NewPlan(null); });
+                else if (item.Kind == ItemKind.MindMap)
+                {
+                    AddMenu(menu, "Nouvelle carte mentale", delegate { NewMindMap(null); });
+                    AddMenu(menu, "Exporter la carte (.tea)…", delegate { ExportMindMap(item); });
+                }
             }
             if (!item.IsCategory)
             {
@@ -746,7 +759,7 @@ namespace Marabook.View
         {
             if (item == null) return false;
             var what = item.Kind == ItemKind.Book ? "le livre" : item.Kind == ItemKind.Folder ? "le dossier"
-                : item.Kind == ItemKind.Sheet ? "la fiche" : item.Kind == ItemKind.Plan ? "le plan"
+                : item.Kind == ItemKind.Sheet ? "la fiche" : item.Kind == ItemKind.Plan ? "le plan" : item.Kind == ItemKind.MindMap ? "la carte"
                 : item.Kind == ItemKind.PageTemplate ? "le gabarit" : item.Kind == ItemKind.Media ? "le document" : "l'écrit";
             var answer = MessageDialog.Show(Window.GetWindow(this),
                 "Envoyer " + what + " « " + item.Title + " » à la corbeille ?"
@@ -793,6 +806,74 @@ namespace Marabook.View
             if (title == null) return;
             var item = new BinderItem { Kind = ItemKind.Plan, Title = title, Plan = new PlanInfo() };
             RunAndSelect(new AddItemAction(root, item, -1), item.Id, root.Id);
+        }
+
+        // ============================================================ cartes mentales (22/09)
+
+        /// <summary>Une carte neuve : le module Mental-o fabrique le .tea vierge.</summary>
+        public void NewMindMap(BinderItem parent)
+        {
+            var root = _project.Category(Project.KeyMindMaps);
+            if (root == null) return;
+            var provider = Extensions.ModuleRegistry.MindMaps;
+            if (provider == null)
+            {
+                MessageDialog.Show(Window.GetWindow(this),
+                    "Les cartes mentales demandent le module Mental-o : Préférences › DLC.",
+                    "Cartes mentales", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            var title = InputDialog.Ask(Window.GetWindow(this), "Nouvelle carte mentale", "Nom de la carte :", "Nouvelle carte");
+            if (title == null) return;
+            var item = new BinderItem { Kind = ItemKind.MindMap, Title = title, MapBytes = provider.NewMap(title) };
+            RunAndSelect(new AddItemAction(root, item, -1), item.Id, root.Id);
+        }
+
+        /// <summary>Un .tea de Mental-o entre tel quel dans le projet.</summary>
+        public void ImportMindMapDialog(BinderItem parent)
+        {
+            var root = _project.Category(Project.KeyMindMaps);
+            if (root == null) return;
+            var dialog = new Microsoft.Win32.OpenFileDialog { Multiselect = true, Filter = MindMaps.OpenFilter };
+            if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+            var items = new List<BinderItem>();
+            foreach (var path in dialog.FileNames)
+            {
+                try
+                {
+                    var bytes = File.ReadAllBytes(path);
+                    if (!MindMaps.Inspect(bytes).Readable) throw new InvalidDataException("ce n'est pas une carte Mental-o");
+                    items.Add(new BinderItem { Kind = ItemKind.MindMap, Title = Path.GetFileNameWithoutExtension(path), MapBytes = bytes });
+                }
+                catch (Exception error)
+                {
+                    MessageDialog.Show(Window.GetWindow(this), "Import impossible de « " + Path.GetFileName(path) + "» : " + error.Message,
+                        "Cartes mentales", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            if (items.Count == 0) return;
+            RunAndSelect(new AddItemsAction(root, items), items[items.Count - 1].Id, root.Id);
+        }
+
+        /// <summary>La carte redevient un .tea ouvrable dans Mental-o.</summary>
+        public void ExportMindMap(BinderItem item)
+        {
+            if (item == null || item.Kind != ItemKind.MindMap || item.MapBytes == null) return;
+            var dialog = new Microsoft.Win32.SaveFileDialog { Filter = MindMaps.SaveFilter, FileName = SafeName(item.Title) + MindMaps.Extension };
+            if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+            try { File.WriteAllBytes(dialog.FileName, item.MapBytes); }
+            catch (Exception error)
+            {
+                MessageDialog.Show(Window.GetWindow(this), "Export impossible : " + error.Message, "Cartes mentales", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private static string SafeName(string name)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var c in name ?? "")
+                sb.Append(Array.IndexOf(Path.GetInvalidFileNameChars(), c) >= 0 ? '_' : c);
+            return sb.Length == 0 ? "carte" : sb.ToString();
         }
 
         public void NewText(BinderItem parent)
@@ -1128,6 +1209,9 @@ namespace Marabook.View
             // La racine Plans n'accepte que des plans, et un plan ne sort pas de sa racine (b35).
             if ((target.RootCategory().CategoryKey == Project.KeyPlans) != (dragged.Kind == ItemKind.Plan)) return null;
             if (dragged.Kind == ItemKind.Plan && !target.IsCategory) return null;
+            // Même règle pour les cartes mentales (22/09).
+            if ((target.RootCategory().CategoryKey == Project.KeyMindMaps) != (dragged.Kind == ItemKind.MindMap)) return null;
+            if (dragged.Kind == ItemKind.MindMap && !target.IsCategory) return null;
             if (!target.CanHaveChildren && target.Parent == null) return null;
             return target;
         }

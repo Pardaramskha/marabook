@@ -18,7 +18,7 @@ namespace Marabook
 {
     /// <summary>The shell window: Binder (left) | rich editor (center) |
     /// inspector (right), menu bar on top, status bar below.</summary>
-    public partial class MainWindow : Window
+    public partial class MainWindow : Window, Extensions.IModuleHost
     {
         public const string AppName = "Marabook";
         public const string AppVersion = "0.42.0-alpha";
@@ -41,6 +41,9 @@ namespace Marabook
         private View.HomeView _homeView;             // racine « Accueil » (b41)
         private bool _restoringSelection;            // sélection initiale à l'ouverture : pas de récent réécrit (A2)
         private View.PlanView _planView;             // un plan (b35)
+        private Grid _mindMapHost;                   // une carte mentale : l'éditeur du module Mental-o (22/09)
+        private Extensions.IMindMapEditor _mindMapEditor;
+        private BinderItem _mindMapItem;             // la carte chargée dans l'éditeur
         private TextBlock _inspPlanLink;             // « Plan : … » d'un livre/dossier (b35)
         private StackPanel _planSection;             // options d'un plan (b35)
         private TextBox _planColumnWord;
@@ -184,6 +187,7 @@ namespace Marabook
                 if (_path == null) ShowWelcome();
                 OfferRecoveries(); // un arrêt brutal la dernière fois ? (18/09)
                 AppSettings.NoteUsage(DateTime.Now);
+                Extensions.ModuleRegistry.Attach(this); // les modules à code reçoivent leur hôte (22/09)
                 ScheduleAchievementCheck();
                 _minuteTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMinutes(1) };
                 _minuteTimer.Tick += delegate { ScheduleAchievementCheck(); };
@@ -198,6 +202,9 @@ namespace Marabook
                     _sheetView.LoadItem(_current, _project.FindTemplate(_current.TemplateId));
                 if (_project != null) _sheetLibrary.Refresh();
                 if (_journalView.Visibility == Visibility.Visible) _journalView.RefreshAchievements();
+                // Une carte mentale ouverte suit l'arrivée ou le départ du module (22/09).
+                if (_current != null && _current.Kind == ItemKind.MindMap) { _mindMapEditor = null; ShowMindMap(_current); }
+                RefreshOpenCorkboards();
                 ScheduleAchievementCheck();
             };
             _editor.CalmRequested += ToggleCalmMode;
@@ -690,6 +697,8 @@ namespace Marabook
                 if (root != null) _binder.SelectItem(root.Id);
             };
             center.Children.Add(_planView);
+            _mindMapHost = new Grid { Visibility = Visibility.Collapsed, Background = Chrome.WindowBg };
+            center.Children.Add(_mindMapHost);
 
             _bookView = new BookView { Visibility = Visibility.Collapsed };
             _bookView.PageCounter = PageCountOf; // filtres du corkboard du livre
@@ -2112,8 +2121,92 @@ namespace Marabook
 
         // ============================================================= editing
 
+        // ============================================================= cartes mentales (22/09)
+
+        /// <summary>La carte dans l'éditeur du module — ou, sans module, une
+        /// tuile qui invite à l'installer. Un seul éditeur par session.</summary>
+        private void ShowMindMap(BinderItem item)
+        {
+            var provider = Extensions.ModuleRegistry.MindMaps;
+            if (provider == null)
+            {
+                _mindMapEditor = null;
+                _mindMapItem = null;
+                _mindMapHost.Children.Clear();
+                _mindMapHost.Children.Add(MindMapPlaceholder(item));
+                return;
+            }
+            if (_mindMapEditor == null)
+            {
+                _mindMapEditor = provider.CreateEditor();
+                _mindMapEditor.Changed += delegate { MarkDirty(); ScheduleAchievementCheck(); };
+            }
+            if (_mindMapHost.Children.Count != 1 || _mindMapHost.Children[0] != _mindMapEditor.View)
+            {
+                _mindMapHost.Children.Clear();
+                _mindMapHost.Children.Add(_mindMapEditor.View);
+            }
+            _mindMapItem = item;
+            _mindMapEditor.Load(item.Id, item.Title, item.MapBytes);
+        }
+
+        /// <summary>Les octets de la carte modifiée reviennent dans son élément
+        /// (avant un enregistrement, un changement de vue, une tuile).</summary>
+        private void CommitMindMap()
+        {
+            if (_mindMapEditor == null || _mindMapItem == null || !_mindMapEditor.IsDirty) return;
+            try { _mindMapItem.MapBytes = _mindMapEditor.Save(_mindMapItem.MapBytes); }
+            catch (Exception error) { MessageDialog.Show(this, "La carte n'a pas pu être enregistrée : " + error.Message, "Cartes mentales", MessageBoxButton.OK, MessageBoxImage.Warning); }
+        }
+
+        private UIElement MindMapPlaceholder(BinderItem item)
+        {
+            var panel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 460 };
+            panel.Children.Add(new TextBlock
+            {
+                Text = item.Title,
+                Foreground = Chrome.Ink,
+                FontSize = 18,
+                FontWeight = FontWeights.SemiBold,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+            panel.Children.Add(new TextBlock
+            {
+                Text = MindMaps.Inspect(item.MapBytes).Label + "\n\nCette carte mentale s'ouvre avec le module Mental-o. Installez-le depuis Préférences › DLC ; la carte est gardée telle quelle en attendant.",
+                Foreground = Chrome.SoftText,
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center
+            });
+            var open = Buttons.Text("Ouvrir les Préférences…", "Préférences › DLC : installer Mental-o", Buttons.Bar, Buttons.Look.Primary);
+            open.HorizontalAlignment = HorizontalAlignment.Center;
+            open.Margin = new Thickness(0, 14, 0, 0);
+            open.Click += delegate { OpenPreferences(); };
+            panel.Children.Add(open);
+            return panel;
+        }
+
+        // --- l'hôte que Marabook prête aux modules à code (IModuleHost)
+        public event Action ThemeChanged;
+        Window Extensions.IModuleHost.MainWindow { get { return this; } }
+        bool Extensions.IModuleHost.DarkTheme { get { return AppSettings.DarkTheme; } }
+        MessageBoxResult Extensions.IModuleHost.Message(string text, string title, MessageBoxButton buttons, MessageBoxImage image)
+        {
+            return MessageDialog.Show(this, text, title, buttons, image);
+        }
+        string Extensions.IModuleHost.Ask(string title, string prompt, string initial)
+        {
+            return InputDialog.Ask(this, title, prompt, initial ?? "");
+        }
+        void Extensions.IModuleHost.MarkDirty() { MarkDirty(); }
+        void Extensions.IModuleHost.NavigateTo(string itemId)
+        {
+            if (!string.IsNullOrEmpty(itemId) && _project != null && _project.FindById(itemId) != null) _binder.SelectItem(itemId);
+        }
+
         private void CommitActive()
         {
+            CommitMindMap(); // les octets de la carte ouverte (22/09)
             // L'éditeur d'écrits n'a rien à rincer : les pages composées
             // écrivent directement dans le pivot (le classique et son Commit
             // ont disparu le 13/09).
@@ -2253,6 +2346,8 @@ namespace Marabook
             _homeView.Visibility = Visibility.Collapsed;
             _planView.Visibility = Visibility.Collapsed;
             _planView.Clear();
+            CommitMindMap(); // la carte quittée rend ses octets (22/09)
+            _mindMapHost.Visibility = Visibility.Collapsed;
             _corkboard.Visibility = Visibility.Collapsed;
             _bookView.Visibility = Visibility.Collapsed;
             _bookView.Clear();
@@ -2301,6 +2396,14 @@ namespace Marabook
                 _bookView.Load(item, _history, _project);
                 _bookView.Visibility = Visibility.Visible;
                 _bookView.Focus(); // le focus logique quitte la Pile
+                return;
+            }
+            if (item != null && item.Kind == ItemKind.MindMap)
+            {
+                _editor.Clear();
+                _sheetView.Clear();
+                ShowMindMap(item);
+                _mindMapHost.Visibility = Visibility.Visible;
                 return;
             }
             if (item != null && item.Kind == ItemKind.Plan)
@@ -3176,6 +3279,8 @@ namespace Marabook
         private void NewBookDocument(BinderItem book, string kind)
         {
             if (kind == "plan") { _binder.NewPlan(book); return; } // racine Plans (b35)
+            if (kind == "mindmap") { _binder.NewMindMap(book); return; } // racine Cartes mentales (22/09)
+            if (kind == "mindmap-import") { _binder.ImportMindMapDialog(book); RefreshOpenCorkboards(); return; }
             // Les boutons de tête des racines Écrits et Recherche (12/09).
             if (kind == "root-text") { _binder.NewText(book); return; }
             if (kind == "root-folder") { _binder.NewFolder(book); return; }
@@ -4234,6 +4339,8 @@ namespace Marabook
             Chrome.Toggle(AppSettings.DarkTheme);
             Theme.Switch(Application.Current, AppSettings.DarkTheme);
             if (_darkMenu != null) _darkMenu.IsChecked = AppSettings.DarkTheme; // le commutateur des Préférences (22/09)
+            var themeHandler = ThemeChanged; // les modules à code suivent le thème (22/09)
+            if (themeHandler != null) themeHandler();
         }
 
         private void OpenPreferences()
@@ -4782,6 +4889,13 @@ namespace Marabook
                 var stats = TextStats.Compute(_sheetView.BodyPlainText());
                 _statusRight.Text = stats.ShortLabel();
                 _inspStats.Text = "";
+            }
+            else if (_current != null && _current.Kind == ItemKind.MindMap)
+            {
+                CommitMindMap();
+                var summary = MindMaps.Inspect(_current.MapBytes);
+                _statusRight.Text = summary.Label;
+                _inspStats.Text = summary.Label;
             }
             else if (_current != null && _current.Kind == ItemKind.Book)
             {

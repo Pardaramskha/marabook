@@ -503,6 +503,11 @@ namespace Marabook.Tests
                 MediaBytes = Encoding.UTF8.GetBytes("contenu du média")
             };
             research.Children.Add(media);
+            // — Une carte mentale (v29) : le .tea tel quel dans le .plot.
+            project.Category(Project.KeyMindMaps).Children.Add(new BinderItem
+            {
+                Kind = ItemKind.MindMap, Title = "Carte des lieux", MapBytes = MindMapTests.SampleTea(3, 2, 1)
+            });
 
             // Remplissage RÉFLEXIF par-dessus la fixture manuelle (lot 0.1,
             // batch 26) : tout champ scalaire resté à son défaut reçoit une
