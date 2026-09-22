@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Reflection;
 using System.Windows;
@@ -105,6 +105,9 @@ namespace Marabook.Tests.Ui
             Console.WriteLine();
             Console.WriteLine("== Sonde style morphologique (b44)");
             _failures += StyleProbe.Run();
+            Console.WriteLine();
+            Console.WriteLine("== Sonde des succès (22/09)");
+            _failures += AchievementsProbe.Run();
         }
 
         private static void Run(string path)

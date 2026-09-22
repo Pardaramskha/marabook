@@ -1,6 +1,8 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using Marabook.Model;
+using Marabook.Persistence;
 using Marabook.Settings;
 
 namespace Marabook.Tests
@@ -24,6 +26,61 @@ namespace Marabook.Tests
             Tiers(t);
             BlankPage(t);
             UsageStreak(t);
+            Fixture(t);
+        }
+
+        /// <summary>Le projet « tout succès » (22/09) : d'un coup, tous les
+        /// succès mesurables sur le projet, rien d'autre, et il survit à
+        /// l'aller-retour par le .plot (c'est le fichier remis à Rémi).</summary>
+        private static void Fixture(Harness t)
+        {
+            var project = AchievementFixture.Build();
+            var earned = EarnedOn(project);
+            var missing = new List<string>();
+            foreach (var id in AchievementFixture.ExpectedOnOpen) if (!earned.Contains(id)) missing.Add(id);
+            t.Check(missing.Count == 0, "le projet « tout succès » gagne ses " + AchievementFixture.ExpectedOnOpen.Length + " succès d'un coup"
+                + (missing.Count > 0 ? " — manquent : " + string.Join(", ", missing.ToArray()) : ""));
+            var unexpected = new List<string>();
+            foreach (var id in earned)
+                if (Array.IndexOf(AchievementFixture.ExpectedOnOpen, id) < 0 && !Achievements.IsTier(id)) unexpected.Add(id);
+            t.Check(unexpected.Count == 0, "…et rien d'autre" + (unexpected.Count > 0 ? " — en trop : " + string.Join(", ", unexpected.ToArray()) : ""));
+            t.Check(earned.Contains("petit-nerd") && earned.Contains("poisson-panerd") && !earned.Contains("nerdinator"),
+                "quarante d'un coup : Petit nerd et Poisson panerd tombent, pas Nerdinator");
+            var complete = AchievementFixture.Find(project, "Livre complet (à publier en PDF)");
+            var minimal = AchievementFixture.Find(project, "Livre minimaliste (à publier en PDF)");
+            t.Check(Achievements.IsBookComplete(project, complete) && Achievements.IsMinimalist(minimal),
+                "le livre complet est complet, le minimaliste est minimaliste (à publier en PDF pour les gagner)");
+            var sixth = AchievementFixture.Find(project, AchievementFixture.SixthBook);
+            t.Equal(5, Achievements.ChapterCount(sixth), "le sixième livre a ses cinq chapitres pour la boulette");
+            var withoutCharacters = EarnedOn(AchievementFixture.BuildWithoutCharacters());
+            t.Check(withoutCharacters.Contains("une-vie-a-peindre") && !withoutCharacters.Contains("profiler"), "le projet sans personnage : une vie à peindre");
+
+            var dir = Path.Combine(Path.GetTempPath(), "marabook-tests-c21-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var path = Path.Combine(dir, "succes.plot");
+                AchievementFixture.Save(project, path);
+                var loaded = PlotFile.Load(path);
+                var again = EarnedOn(loaded);
+                var lost = new List<string>();
+                foreach (var id in AchievementFixture.ExpectedOnOpen) if (!again.Contains(id)) lost.Add(id);
+                t.Check(lost.Count == 0, "relu depuis le .plot, rien ne se perd" + (lost.Count > 0 ? " — perdus : " + string.Join(", ", lost.ToArray()) : ""));
+                t.Equal(10, SnapshotStore.Of(loaded, AchievementFixture.Find(loaded, "Écrit à dix versions").Id).Count, "les dix versions sont dans le .plot");
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch { }
+            }
+        }
+
+        /// <summary>Les succès qu'un projet gagne à froid, le pavé compté à 120 pages.</summary>
+        private static List<string> EarnedOn(Project project)
+        {
+            var facts = Achievements.Gather(project,
+                delegate(BinderItem item) { return item.Title == AchievementFixture.BigTextTitle ? 120 : 1; },
+                null, new Dictionary<string, string>(), DateTime.Now);
+            return Achievements.Earned(facts, new List<string>());
         }
 
         private static void Catalog(Harness t)
