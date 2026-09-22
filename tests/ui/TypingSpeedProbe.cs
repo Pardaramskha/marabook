@@ -109,6 +109,9 @@ namespace Marabook.Tests.Ui
                 Console.WriteLine();
                 Console.WriteLine("== (C) Le même, caret au milieu (paragraphe 150)");
                 Measure(window, composed, normalItem, 150, 10);
+                Console.WriteLine();
+                Console.WriteLine("== (D) Le rendu paresseux au défilement");
+                ScrollCheck(composed);
             }
             finally
             {
@@ -186,6 +189,31 @@ namespace Marabook.Tests.Ui
             DoEvents();
             clock.Stop();
             Console.WriteLine("   RunCheck (la passe de correction synchrone) : " + checkOnly + " ms de calcul + " + clock.ElapsedMilliseconds + " ms de rendu des ondulés");
+        }
+
+        /// <summary>Les pages loin de la fenêtre sont dessinées en papier nu
+        /// et notées périmées ; le défilement les redessine à l'approche.</summary>
+        private static void ScrollCheck(ComposedView composed)
+        {
+            var pages = (System.Windows.Controls.StackPanel)GetField(composed, "_pages");
+            Func<int, bool> stale = delegate(int k)
+            {
+                var slot = pages.Children[k];
+                var page = slot.GetType().GetField("Page").GetValue(slot);
+                return (bool)page.GetType().GetField("Stale").GetValue(page);
+            };
+            composed.ScrollToVerticalOffset(0);
+            DoEvents();
+            Console.WriteLine("   en haut : page 0 " + (stale(0) ? "PÉRIMÉE (anormal)" : "dessinée") + ", page 200 " + (stale(200) ? "périmée (attendu)" : "DESSINÉE (anormal)"));
+            var target = composed.ExtentHeight * 200.0 / pages.Children.Count;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            composed.ScrollToVerticalOffset(target);
+            DoEvents();
+            clock.Stop();
+            Console.WriteLine("   après un saut à la page 200 (" + clock.ElapsedMilliseconds + " ms) : page 200 " + (stale(200) ? "PÉRIMÉE (anormal)" : "dessinée") + ", page 0 " + (stale(0) ? "périmée (attendu)" : "dessinée"));
+            composed.ScrollToVerticalOffset(0);
+            DoEvents();
+            Console.WriteLine("   de retour en haut : page 0 " + (stale(0) ? "PÉRIMÉE (anormal)" : "dessinée"));
         }
 
         /// <summary>N frappes d'une lettre, chacune suivie d'un tour de

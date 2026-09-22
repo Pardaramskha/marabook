@@ -105,6 +105,7 @@ namespace Marabook.Tests
             OrphanControl(t);
             IndentOverride(t);
             DocumentLeading(t);
+            IncrementalStats(t);
         }
 
         /// <summary>Le décalage d'un paragraphe (17/09) remplace d'un bloc
@@ -238,6 +239,32 @@ namespace Marabook.Tests
             t.Equal(30.0, wide.Current.Paragraphs[0].Lines[0].Height, "interligne 1,5 : 30 px");
             document.LineSpacing = 2;
             t.Equal(40.0, Compose(document).Current.Paragraphs[0].Lines[0].Height, "interligne 2 : 40 px");
+        }
+
+        /// <summary>Les statistiques par la composition (22/09) valent celles
+        /// du texte plat entier — sauts de ligne, notes, images et filets
+        /// compris — et un paragraphe recomposé se recompte seul.</summary>
+        private static void IncrementalStats(Harness t)
+        {
+            var document = Document("Il l'a dit, dit-il.", "Second paragraphe avec un saut", "Troisième.");
+            document.Paragraphs[1].Runs.Add(new TextRun { IsLineBreak = true });
+            document.Paragraphs[1].Runs.Add(new TextRun { Text = "de ligne et une note" });
+            var note = new Footnote { Text = "Une note" };
+            document.Footnotes.Add(note);
+            document.Paragraphs[1].Runs.Add(new TextRun { Text = "1", FootnoteId = note.Id });
+            document.Paragraphs[2].Runs.Add(new TextRun { IsRule = true });
+            var engine = Compose(document);
+            var whole = Correction.TextStats.Compute(document.ToPlainText());
+            var incremental = engine.Current.Stats();
+            t.Check(incremental != null && incremental.Words == whole.Words && incremental.Sec == whole.Sec && incremental.NoSpaces == whole.NoSpaces,
+                "les comptes par paragraphe valent le compte du texte entier (" + incremental.Words + " mots, " + incremental.Sec + " SEC)");
+            t.Check(engine.Current.Paragraphs[0].Words >= 0 && engine.Current.Paragraphs[2].Words >= 0, "…et restent posés sur les paragraphes");
+            document.Paragraphs[0].Runs[0].Text = "Il l'a dit, dit-il, encore et encore.";
+            engine.RecomposeParagraph(0);
+            t.Check(engine.Current.Paragraphs[0].Words < 0 && engine.Current.Paragraphs[1].Words >= 0, "un paragraphe recomposé oublie son compte, les autres le gardent");
+            var again = engine.Current.Stats();
+            t.Equal(Correction.TextStats.Compute(document.ToPlainText()).Words, again.Words, "…et le total suit la modification");
+            t.Equal(1, Correction.TextStats.From(3, 10, 8).ReadingMinutes, "From dérive les minutes de lecture");
         }
 
         private static void WidowControl(Harness t)

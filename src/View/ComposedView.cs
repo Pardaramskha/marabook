@@ -204,6 +204,9 @@ namespace Marabook.View
             // À gauche, pas étiré (17/09) : les slots gardent la largeur du
             // papier même quand la couche des bulles élargit la colonne.
             _pages = new StackPanel { HorizontalAlignment = HorizontalAlignment.Left };
+            // Les pages hors écran ne se dessinent pas (22/09) : celles qui
+            // entrent dans la fenêtre au défilement se redessinent alors.
+            ScrollChanged += delegate { RefreshStalePages(); };
             _overlay = new Canvas { IsHitTestVisible = false };
             _bubbleLayer = new Canvas
             {
@@ -620,11 +623,42 @@ namespace Marabook.View
             return pageIndex * (_engine.Current.PageHeightPx + PageGapPx);
         }
 
+        // ============================================================ rendu paresseux (22/09)
+
+        /// <summary>La page est-elle dans la fenêtre, à une page près ? Mesuré
+        /// sur 280 pages : chaque frappe au milieu du document redessinait
+        /// les 190 pages suivantes (1,7 s), la passe de correction toutes
+        /// (3 s) — pour des pages que personne ne voit. Une page loin de la
+        /// fenêtre ne dessine que son papier et se note PÉRIMÉE ; le
+        /// défilement la redessine quand elle approche.</summary>
+        private bool IsPageNear(FrameworkElement page)
+        {
+            try
+            {
+                if (page.ActualHeight <= 0) return true;
+                var top = page.TranslatePoint(new Point(0, 0), this).Y;
+                var bottom = page.TranslatePoint(new Point(0, page.ActualHeight), this).Y;
+                var margin = Math.Max(ViewportHeight, bottom - top);
+                return bottom >= -margin && top <= ViewportHeight + margin;
+            }
+            catch { return true; }
+        }
+
+        private void RefreshStalePages()
+        {
+            for (var k = 0; k < _pages.Children.Count; k++)
+            {
+                var page = ((PageSlot)_pages.Children[k]).Page;
+                if (page.Stale && IsPageNear(page)) page.InvalidateVisual();
+            }
+        }
+
         private sealed class PageElement : FrameworkElement
         {
             private static readonly Brush PageShadow = FrozenShadow();
             private readonly ComposedView _owner;
             private readonly int _index;
+            public bool Stale; // dessinée en papier nu, loin de la fenêtre (22/09)
 
             private static Brush FrozenShadow()
             {
@@ -662,6 +696,8 @@ namespace Marabook.View
                 if (!_owner._calmLook) dc.DrawRectangle(PageShadow, null, new Rect(2, 4, w, h));
                 dc.DrawRectangle(Chrome.PaperBg, new Pen(Chrome.Border, 1),
                     new Rect(0.5, 0.5, w - 1, h - 1));
+                if (!_owner.IsPageNear(this)) { Stale = true; return; } // rendu paresseux (22/09)
+                Stale = false;
                 ComposedRenderer.DrawPage(dc, composition, _index, true);
             }
         }

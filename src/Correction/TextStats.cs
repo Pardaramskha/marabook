@@ -17,6 +17,17 @@ namespace Marabook.Correction
         public double Sheets;
         public int ReadingMinutes;
 
+        /// <summary>Les comptes depuis des sommes par paragraphe (22/09) —
+        /// Sec ignore les retours, les mots ne chevauchent jamais un retour :
+        /// la somme des paragraphes vaut le compte du document entier.</summary>
+        public static TextStats From(int words, int sec, int noSpaces)
+        {
+            var stats = new TextStats { Words = words, Sec = sec, NoSpaces = noSpaces };
+            stats.Sheets = stats.Sec / 1500.0;
+            stats.ReadingMinutes = (int)Math.Ceiling(stats.Words / 220.0);
+            return stats;
+        }
+
         public static TextStats Compute(string text)
         {
             var stats = new TextStats();

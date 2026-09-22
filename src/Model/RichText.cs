@@ -67,6 +67,26 @@ namespace Marabook.Model
         public double? FirstIndent;
         public List<TextRun> Runs = new List<TextRun>();
 
+        /// <summary>Le texte plat du paragraphe, aux règles de
+        /// TextDocument.ToPlainText : marqueurs de notes, images et filets
+        /// omis, saut de ligne = retour.</summary>
+        public string ToPlainText()
+        {
+            var sb = new StringBuilder();
+            AppendPlainText(sb);
+            return sb.ToString();
+        }
+
+        public void AppendPlainText(StringBuilder sb)
+        {
+            foreach (var run in Runs)
+            {
+                if (run.FootnoteId != null || run.ImageId != null || run.IsRule) continue;
+                if (run.IsLineBreak) { sb.Append('\n'); continue; }
+                sb.Append(run.Text);
+            }
+        }
+
         /// <summary>La géométrie effective du paragraphe (21/09), la seule
         /// règle pour le compositeur, les exports et le ruban : le retrait de
         /// toutes les lignes depuis la marge (Indent, sinon le style plus les
@@ -142,19 +162,16 @@ namespace Marabook.Model
         }
 
         /// <summary>Body text only (footnote markers and note texts excluded) —
-        /// used for statistics and search indexing.</summary>
+        /// used for statistics and search indexing. Le texte d'un paragraphe
+        /// seul suit les mêmes règles (TextParagraph.ToPlainText) : les
+        /// statistiques se comptent paragraphe par paragraphe (22/09).</summary>
         public string ToPlainText()
         {
             var sb = new StringBuilder();
             for (var i = 0; i < Paragraphs.Count; i++)
             {
                 if (i > 0) sb.Append('\n');
-                foreach (var run in Paragraphs[i].Runs)
-                {
-                    if (run.FootnoteId != null || run.ImageId != null || run.IsRule) continue;
-                    if (run.IsLineBreak) { sb.Append('\n'); continue; }
-                    sb.Append(run.Text);
-                }
+                Paragraphs[i].AppendPlainText(sb);
             }
             return sb.ToString();
         }

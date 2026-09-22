@@ -1963,6 +1963,29 @@ namespace Marabook.View
             return _item == null ? "" : _item.Document.ToPlainText();
         }
 
+        /// <summary>Les statistiques de l'écrit ouvert depuis sa composition
+        /// (22/09) : incrémentales — un paragraphe modifié se recompte, les
+        /// autres gardent leur compte. Null si rien n'est composé.</summary>
+        public Correction.TextStats CompositionStats()
+        {
+            if (_item == null || !ComposedActive) return null;
+            var composition = _composed.CurrentComposition;
+            return composition == null ? null : composition.Stats();
+        }
+
+        /// <summary>Le nombre de pages de l'écrit ouvert tel qu'il s'imprime
+        /// (22/09) : celui de la composition à l'écran, sauf en Brouillon ou
+        /// en mode calme (une autre feuille) — null alors.</summary>
+        public int? PrintPageCount
+        {
+            get
+            {
+                if (_item == null || !ComposedActive || _draftView || _calm) return null;
+                var composition = _composed.CurrentComposition;
+                return composition == null ? (int?)null : composition.Pages.Count;
+            }
+        }
+
         private void NotifyEdited()
         {
             var handler = Edited;

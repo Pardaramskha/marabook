@@ -76,6 +76,10 @@ namespace Marabook.Print
         public bool PageBreakBefore;
         public bool StartOnRecto; // books: chapter opens on an odd folio
         public int FlatLength;
+        // Les comptes du paragraphe (22/09), posés à la demande par
+        // Composition.Stats et gardés tant que le paragraphe n'est pas
+        // recomposé : les statistiques deviennent incrémentales.
+        public int Words = -1, Sec, NoSpaces;
 
         // Footnote markers of this paragraph: flat offset and global marker
         // index (document order) — pagination maps lines to their notes.
@@ -148,6 +152,32 @@ namespace Marabook.Print
 
         /// <summary>The source pivot (composed paragraphs match its list 1:1).</summary>
         public TextDocument Source;
+
+        /// <summary>Les statistiques du document, paragraphe par paragraphe
+        /// (22/09) : seuls les paragraphes recomposés depuis le dernier appel
+        /// se recomptent — exactement les comptes de TextStats.Compute sur le
+        /// texte plat entier. Null sans document.</summary>
+        public Correction.TextStats Stats()
+        {
+            if (Source == null || Source.Paragraphs.Count != Paragraphs.Count) return null;
+            int words = 0, sec = 0, noSpaces = 0;
+            for (var i = 0; i < Paragraphs.Count; i++)
+            {
+                var layout = Paragraphs[i];
+                if (layout == null) return null;
+                if (layout.Words < 0)
+                {
+                    var single = Correction.TextStats.Compute(Source.Paragraphs[i].ToPlainText());
+                    layout.Words = single.Words;
+                    layout.Sec = single.Sec;
+                    layout.NoSpaces = single.NoSpaces;
+                }
+                words += layout.Words;
+                sec += layout.Sec;
+                noSpaces += layout.NoSpaces;
+            }
+            return Correction.TextStats.From(words, sec, noSpaces);
+        }
 
         /// <summary>The decor governing a page: its first paragraph's chapter
         /// decor (compiled books), else the document's.</summary>
