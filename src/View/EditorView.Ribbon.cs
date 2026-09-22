@@ -107,7 +107,7 @@ namespace Marabook.View
                 Padding = new Thickness(0),
                 Margin = new Thickness(1, 0, 1, 0),
                 Focusable = false,
-                Content = Icons.Make("variante-caractere", 14, Chrome.Ink)
+                Content = Icons.Make("font-variant", 14, Chrome.Ink)
             };
             var weightMenu = new ContextMenu { Placement = PlacementMode.Bottom, PlacementTarget = weightBtn };
             weightBtn.ContextMenu = weightMenu;
@@ -175,7 +175,7 @@ namespace Marabook.View
             alignTop.Children.Add(_alignRight);
             alignTop.Children.Add(_alignJustify);
 
-            _bulletBtn = IconToggle("list", "Liste à puces");
+            _bulletBtn = IconToggle("list-bullets", "Liste à puces");
             _bulletBtn.Click += delegate
             {
                 if (ComposedActive) { _composed.ApplyList("bullet"); _composed.Focus(); }
@@ -253,16 +253,33 @@ namespace Marabook.View
 
             var separatorBtn = new Button
             {
-                ToolTip = "Séparateur de scène (texte et police : Fichier → Paramètres du projet)",
+                ToolTip = "Séparateur de scène (style : Préférences → Styles globaux, ou l'onglet Styles du livre)",
                 Width = 26,
                 Height = 26,
                 Padding = new Thickness(0),
                 Margin = new Thickness(1, 0, 1, 0),
                 Focusable = false,
-                Content = Icons.Make("symbol", 14, Chrome.Ink)
+                Content = Icons.Make("scene-ellipsis", 14, Chrome.Ink)
             };
             separatorBtn.Click += delegate { InsertSeparator(); };
             restBottom.Children.Add(separatorBtn);
+            // Le point médian (22/09) : un bouton à côté du séparateur, et le
+            // raccourci « :: » de la typographie à la frappe.
+            var middleDotBtn = new Button
+            {
+                ToolTip = "Point médian (raccourci : « :: »)",
+                Width = 26,
+                Height = 26,
+                Padding = new Thickness(0),
+                Margin = new Thickness(1, 0, 1, 0),
+                Focusable = false,
+                Content = Icons.Make("point-median", 14, Chrome.Ink)
+            };
+            middleDotBtn.Click += delegate
+            {
+                if (ComposedActive) { _composed.TypeText("·"); _composed.Focus(); }
+            };
+            restBottom.Children.Add(middleDotBtn);
 
             panel.Children.Add(VerticalRuleTall());
             // Les caractères d'impression : un grand carré (13/09), puis

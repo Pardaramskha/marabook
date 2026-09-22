@@ -551,13 +551,10 @@ namespace Marabook.View
                 var item = card.Tag as BinderItem;
                 if (item == null) continue;
                 var selected = _selected.Contains(item.Id);
-                // Le liseré orange de divergence de gabarit garde la priorité.
-                // PIÈGE (batch 33) : la divergence se RECALCULE depuis le
-                // modèle — la sonder à la couleur de la bordure confondait
-                // l'accent « Orange » des préférences avec le liseré, et la
-                // carte précédente gardait son contour pour toujours.
-                if (!IsDivergent(item))
-                    card.BorderBrush = selected ? (Brush)Chrome.Accent : Chrome.Border;
+                // La divergence de gabarit n'est plus un liseré (22/09) mais
+                // une icône d'alerte à côté du titre : la bordure ne dit que
+                // la sélection.
+                card.BorderBrush = selected ? (Brush)Chrome.Accent : Chrome.Border;
                 card.BorderThickness = new Thickness(selected ? 2 : 1);
                 card.Margin = new Thickness(selected ? 7 : 8);
             }
@@ -1359,13 +1356,30 @@ namespace Marabook.View
                     titleLeft.Children.Add(badge);
                 }
             }
+            // Un texte qui ne suit pas la mise en page du livre (22/09) : une
+            // icône « danger » orange à côté du titre — le liseré orange de
+            // la carte était trop discret.
+            var enclosing = _folder == null ? null : _folder.EnclosingBook();
+            var divergent = enclosing != null && enclosing.Book != null && item.Kind == ItemKind.Text
+                && _project != null && IsDivergent(item);
+            if (divergent)
+            {
+                var warning = Icons.Make("warning-fill", 12, new SolidColorBrush(Color.FromRgb(230, 126, 34))) as FrameworkElement;
+                if (warning != null)
+                {
+                    warning.VerticalAlignment = VerticalAlignment.Center;
+                    warning.Margin = new Thickness(0, 0, 5, 0);
+                    warning.ToolTip = "Ce document ne suit pas la mise en page du livre (clic droit : appliquer le gabarit du livre).";
+                    titleLeft.Children.Add(warning);
+                }
+            }
             titleLeft.Children.Add(new TextBlock
             {
                 Text = item.Title,
                 Foreground = Chrome.Ink,
                 FontWeight = FontWeights.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxWidth = 150
+                MaxWidth = divergent ? 133 : 150
             });
             titleRow.Children.Add(titleLeft);
             titleBar.Child = titleRow;
@@ -1556,14 +1570,8 @@ namespace Marabook.View
             if (book != null && book.Book != null && item.Kind == ItemKind.Text
                 && _project != null)
             {
-                if (IsDivergent(item))
-                {
-                    card.BorderBrush = new SolidColorBrush(Color.FromRgb(230, 126, 34));
-                    card.ToolTip = "Ce document ne suit pas le gabarit du livre.";
-                    // « Appliquer le gabarit du livre » vit désormais dans le
-                    // menu commun de la carte (14/09) : un ContextMenu propre
-                    // cachait les épingles et le reste.
-                }
+                // « Appliquer le gabarit du livre » vit dans le menu commun de
+                // la carte (14/09) ; l'alerte est l'icône du titre (22/09).
             }
             CardLift.Attach(card); // soulèvement au survol (b35)
             return card;

@@ -87,6 +87,7 @@ namespace Marabook.View
             Rule("Guillemets français « » °", "quotes", options.Quotes, live.Quotes);
             Rule("Tirets de dialogue — °", "dialogueDashes", options.DialogueDashes, live.DialogueDashes);
             Rule("Intervalles 1914–1918 °", "ranges", options.Ranges, live.Ranges);
+            Rule("Point médian auteur::ice → auteur·ice", "middleDot", options.MiddleDot, live.MiddleDot);
             Rule("Insécables de ponctuation ; ! ? : « » °", "noBreakPunctuation", options.NoBreakPunctuation, live.NoBreakPunctuation);
             Rule("Insécables d'unités 10 %, 10 €, 12 kg °", "noBreakUnits", options.NoBreakUnits, live.NoBreakUnits);
             Rule("Milliers en fine 10 000 °", "thousands", options.Thousands, live.Thousands);

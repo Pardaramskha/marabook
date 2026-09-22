@@ -962,7 +962,8 @@ namespace Marabook.View
     <Setter Property=""Template"">
       <Setter.Value>
         <ControlTemplate TargetType=""ToolTip"">
-          <Grid Margin=""4,3,4,3"">
+          <Grid Margin=""4,3,4,3"" UseLayoutRounding=""True"" SnapsToDevicePixels=""True""
+                TextOptions.TextFormattingMode=""Display"">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width=""Auto""/>
               <ColumnDefinition Width=""Auto""/>
@@ -974,22 +975,26 @@ namespace Marabook.View
             </Grid.RowDefinitions>
             <Path x:Name=""ArrowTop"" Grid.Row=""0"" Data=""M0,5 L5,0 10,5 Z""
                   Fill=""#E8616161"" HorizontalAlignment=""Center""
-                  Margin=""0,0,0,-0.5""/>
-            <Border Grid.Row=""1"" CornerRadius=""4"" Background=""#E8616161""
-                    Padding=""8,4,8,5"">
+                  Margin=""0,0,0,-1""/>
+            <!-- L'ombre est portée par un cadre VIDE derrière le texte (22/09) :
+                 un Effect force le rendu intermédiaire de tout son sous-arbre
+                 et éteint ClearType — c'était le texte flou des infobulles. -->
+            <Border Grid.Row=""1"" CornerRadius=""4"" Background=""#E8616161"">
               <Border.Effect>
                 <DropShadowEffect Color=""Black"" Opacity=""0.18"" BlurRadius=""5"" ShadowDepth=""1""/>
               </Border.Effect>
+            </Border>
+            <Border Grid.Row=""1"" Padding=""8,4,8,5"">
               <ContentPresenter TextBlock.Foreground=""#FFFFFF""/>
             </Border>
             <Path x:Name=""ArrowBottom"" Grid.Row=""2"" Data=""M0,0 L5,5 10,0 Z""
                   Fill=""#E8616161"" HorizontalAlignment=""Center""
-                  Margin=""0,-0.5,0,0"" Visibility=""Collapsed""/>
+                  Margin=""0,-1,0,0"" Visibility=""Collapsed""/>
             <!-- Tag=beside (bulle posée à GAUCHE de sa cible — les onglets
                  du rail, b39) : la flèche pointe vers la droite, centrée. -->
             <Path x:Name=""ArrowRight"" Grid.Row=""1"" Grid.Column=""1"" Data=""M0,0 L5,5 0,10 Z""
                   Fill=""#E8616161"" VerticalAlignment=""Center""
-                  Margin=""-0.5,0,0,0"" Visibility=""Collapsed""/>
+                  Margin=""-1,0,0,0"" Visibility=""Collapsed""/>
           </Grid>
           <ControlTemplate.Triggers>
             <Trigger Property=""Tag"" Value=""above"">

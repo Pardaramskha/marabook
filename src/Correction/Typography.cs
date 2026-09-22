@@ -20,6 +20,7 @@ namespace Marabook.Correction
         public bool Quotes = true;       // "…" → « … » °
         public bool DialogueDashes = true; // - / -- en tête → — °
         public bool Ranges = true;       // 1914-1918 → 1914–1918 °
+        public bool MiddleDot = true;    // :: → · (point médian, 22/09)
         public bool NoBreakPunctuation = true; // ; ! ? : « » °
         public bool NoBreakUnits = true; // 10 %, 10 €, 12 kg °
         public bool Thousands = true;    // 10 000 en fine °
@@ -45,7 +46,7 @@ namespace Marabook.Correction
             var node = new Dictionary<string, object>();
             node["preset"] = Preset;
             node["spaces"] = Spaces; node["apostrophes"] = Apostrophes; node["ellipses"] = Ellipses;
-            node["quotes"] = Quotes; node["dialogueDashes"] = DialogueDashes; node["ranges"] = Ranges;
+            node["quotes"] = Quotes; node["dialogueDashes"] = DialogueDashes; node["ranges"] = Ranges; node["middleDot"] = MiddleDot;
             node["noBreakPunctuation"] = NoBreakPunctuation; node["noBreakUnits"] = NoBreakUnits;
             node["thousands"] = Thousands; node["ligaturesOe"] = LigaturesOe; node["ligaturesAe"] = LigaturesAe;
             node["dimensions"] = Dimensions; node["ordinals"] = Ordinals; node["flagCapitals"] = FlagCapitals;
@@ -64,6 +65,7 @@ namespace Marabook.Correction
             o.Quotes = Json.AsBool(Json.Field(node, "quotes"), o.Quotes);
             o.DialogueDashes = Json.AsBool(Json.Field(node, "dialogueDashes"), o.DialogueDashes);
             o.Ranges = Json.AsBool(Json.Field(node, "ranges"), o.Ranges);
+            o.MiddleDot = Json.AsBool(Json.Field(node, "middleDot"), o.MiddleDot);
             o.NoBreakPunctuation = Json.AsBool(Json.Field(node, "noBreakPunctuation"), o.NoBreakPunctuation);
             o.NoBreakUnits = Json.AsBool(Json.Field(node, "noBreakUnits"), o.NoBreakUnits);
             o.Thousands = Json.AsBool(Json.Field(node, "thousands"), o.Thousands);
@@ -253,6 +255,13 @@ namespace Marabook.Correction
             {
                 work = Replace(work, @"(?<![\d\-–])(\d{1,4})-(\d{1,4})(?![\d\-–])", "$1–$2", out n, null);
                 r.Count("intervalles (demi-cadratin)", n);
+            }
+            // (4c) point médian : deux deux-points, comme deux traits d'union
+            // font un tiret (22/09) — « auteur::ice » → « auteur·ice ».
+            if (o.MiddleDot)
+            {
+                work = Replace(work, @"::", "·", out n, null);
+                r.Count("points médians", n);
             }
             // (5a) insécables de ponctuation
             if (o.NoBreakPunctuation && !o.Minimal)

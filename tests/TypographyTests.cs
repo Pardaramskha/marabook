@@ -39,6 +39,7 @@ namespace Marabook.Tests
             t.Equal("— Viens, dit-il.", Clean("- Viens, dit-il."), "tiret de dialogue en tête, suivi d'une insécable");
             t.Equal("— Viens.", Clean("-- Viens."), "double tiret de dialogue");
             t.Equal("1914–1918", Clean("1914-1918"), "intervalle en demi-cadratin");
+            t.Equal("auteur·ice et lect·eur·ice", Clean("auteur::ice et lect::eur::ice"), "deux deux-points : point médian (22/09)");
             t.Equal("Oui" + Fine + "! Non" + Fine + "?", Clean("Oui ! Non?"), "fine avant ! et ? (posée ou ajoutée)");
             t.Equal("Note" + Nbsp + ": suite", Clean("Note : suite"), "pleine avant : (in)");
             t.Equal("10" + Nbsp + "% et 12" + Nbsp + "kg", Clean("10 % et 12 kg"), "insécables d'unités");
