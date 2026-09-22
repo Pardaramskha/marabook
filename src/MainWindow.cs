@@ -21,7 +21,7 @@ namespace Marabook
     public partial class MainWindow : Window, Extensions.IModuleHost
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.42.0-alpha";
+        public const string AppVersion = "0.43.0-beta";
 
         private Project _project;
         private string _path;
@@ -292,7 +292,9 @@ namespace Marabook
             file.Items.Add(new Separator());
             file.Items.Add(Entry("preferences", "Préférences…", OpenPreferences));
             file.Items.Add(new Separator());
-            file.Items.Add(Entry("print-preview", "Aperçu des pages", ShowPrintPreview, TextOrSheetActive));
+            // « Aperçu des pages » a quitté le menu (22/09) : il vit dans le
+            // ruban (onglet Composition) ; son raccourci reste à la fenêtre.
+            AddGesture("print-preview", delegate { if (TextOrSheetActive()) ShowPrintPreview(); });
             file.Items.Add(Entry("print", "Imprimer…", PrintCurrent, TextOrSheetActive));
             file.Items.Add(new Separator());
             var importMenu = new MenuItem { Header = "Importer" };
@@ -303,7 +305,7 @@ namespace Marabook
             file.Items.Add(importMenu);
             var exportMenu = new MenuItem { Header = "Exporter" };
             exportMenu.Items.Add(Entry("export-item", "L'écrit sélectionné…", ExportCurrentItem, TextOrSheetActive));
-            exportMenu.Items.Add(Entry("compile", "Compiler le manuscrit…", CompileManuscript));
+            exportMenu.Items.Add(Entry("compile", "Compiler les écrits…", CompileManuscript));
             exportMenu.Items.Add(Entry("export-pdf", "PDF prêt à imprimer…", ExportPdf, TextOrSheetActive));
             exportMenu.Items.Add(Entry("export-epub", "EPUB du livre ou de l'écrit…", ExportEpubCurrent, TextOrBookActive)); // 22/09
             file.Items.Add(exportMenu);
@@ -322,22 +324,25 @@ namespace Marabook
             _searchMenu = Entry("project-search", "Rechercher dans le projet…", OpenSearchPanel);
             _searchMenu.IsCheckable = true;
             edit.Items.Add(_searchMenu);
-            edit.Items.Add(Entry("search-next", "Occurrence suivante", delegate
+            // Occurrence suivante / précédente ont quitté le menu (22/09) :
+            // F3 / Maj+F3 restent des gestes de la fenêtre, au service du
+            // panneau de recherche.
+            AddGesture("search-next", delegate
             {
                 if (AppSettings.RightPanel != RightPanel.Search) { OpenSearchPanel(); return; }
                 _searchPanel.Next();
-            }));
-            edit.Items.Add(Entry("search-previous", "Occurrence précédente", delegate
+            });
+            AddGesture("search-previous", delegate
             {
                 if (AppSettings.RightPanel != RightPanel.Search) { OpenSearchPanel(); return; }
                 _searchPanel.Previous();
-            }));
+            });
             _versionsMenu = Entry("versions-panel", "Versions de l'écrit…", OpenVersionsPanel, TextActive);
             _versionsMenu.IsCheckable = true;
             edit.Items.Add(_versionsMenu);
             edit.Items.Add(Entry("session-goal", "Lancer un sprint…", StartSprint));
-            edit.Items.Add(Entry(null, "Extraire les personnages de l'écrit…",
-                delegate { ExtractCharacters(_current); }, TextActive)); // b49
+            edit.Items.Add(Entry(null, "Indexeur de noms propres…",
+                delegate { ExtractCharacters(_current); }, TextActive)); // b49, renommé le 22/09
             edit.Items.Add(new Separator());
             edit.Items.Add(Entry("new-text", "Nouvel écrit", delegate { _binder.NewText(null); }));
             edit.Items.Add(Entry("new-sheet", "Nouvelle fiche", delegate { _binder.NewSheet(null); }));
@@ -388,6 +393,10 @@ namespace Marabook
             // --- Aide ---
             var help = new MenuItem { Header = "Aid_e" };
             help.Items.Add(Entry(null, "Vérifier les mises à jour…", CheckUpdates));
+            help.Items.Add(Entry(null, "Rapports de plantage…", ShowCrashReports));
+            help.Items.Add(new Separator());
+            help.Items.Add(Entry(null, "Réinitialiser les succès…", ResetAchievements));
+            help.Items.Add(new Separator());
             help.Items.Add(Entry(null, "À propos de Marabook…", ShowAbout));
             menu.Items.Add(help);
 
@@ -744,11 +753,6 @@ namespace Marabook
             _journalView = new JournalView { Visibility = Visibility.Collapsed };
             _journalView.Changed += delegate { MarkDirty(); CheckDailyGoal(); };
             _journalView.SprintRequested += StartSprint; // « Démarrer un sprint » de la carte Sprints (14/09)
-            _journalView.AchievementToggleRequested += delegate(string id, bool unlock)
-            {
-                if (unlock) UnlockAchievement(id);
-                else RevokeAchievement(id);
-            };
             center.Children.Add(_journalView);
 
             // Sortie du mode calme : une pastille discrète en haut à droite des
@@ -3880,6 +3884,23 @@ namespace Marabook
             var count = _editor.SpellingFindingCount;
             if (count > 100) _deepCleanCandidates.Add(_current.Id);
             else if (count == 0 && _deepCleanCandidates.Remove(_current.Id)) UnlockAchievement(Achievements.DeepClean);
+        }
+
+        /// <summary>Aide › Réinitialiser les succès (22/09) : tous les succès
+        /// reverrouillés et les compteurs qui ne servent qu'à eux remis à
+        /// zéro — l'état d'origine, sur confirmation.</summary>
+        private void ResetAchievements()
+        {
+            var answer = MessageDialog.Show(this,
+                "Réinitialiser les succès ?\n\nTous les succès obtenus seront reverrouillés, sur tous vos projets, "
+                + "et leurs compteurs (jours d'usage, suppressions, mots en mode calme…) repartent de zéro. "
+                + "Ils se regagnent ensuite normalement.",
+                AppName, MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (answer != MessageBoxResult.Yes) return;
+            AppSettings.ResetAchievements();
+            AppSettings.Save();
+            if (_journalView.Visibility == Visibility.Visible) _journalView.RefreshAchievements();
+            MessageDialog.Show(this, "Les succès sont réinitialisés.", AppName, MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void RevokeAchievement(string id)

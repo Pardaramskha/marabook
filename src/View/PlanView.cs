@@ -817,7 +817,10 @@ namespace Marabook.View
             var left = 190.0;
             var right = width - 20;
             var top = 20.0;
-            var bottom = height - 70;
+            // Les noms de colonnes se lisent à la verticale (22/09) : la
+            // bande du bas leur laisse la place.
+            var captionLength = Math.Max(60, Math.Min(150, height * 0.32));
+            var bottom = height - captionLength - 20;
             var profile = PlanIntensity.Profile(plan.Plan);
             var columns = plan.Plan.Columns;
 
@@ -855,16 +858,21 @@ namespace Marabook.View
                 Canvas.SetLeft(dot, x - 5);
                 Canvas.SetTop(dot, y - 5);
                 canvas.Children.Add(dot);
+                // Tourné d'un quart de tour vers la gauche : le nom se lit de
+                // bas en haut, sa fin (à droite avant rotation) touche l'axe.
                 var caption = new TextBlock
                 {
                     Text = columns[i].Title.Length == 0 ? "(sans titre)" : columns[i].Title,
                     FontSize = 11,
                     Foreground = Chrome.Ink,
-                    Width = Math.Max(60, step == 0 ? 120 : step - 6),
-                    TextAlignment = TextAlignment.Center,
-                    TextTrimming = TextTrimming.CharacterEllipsis
+                    Width = captionLength,
+                    Height = 16,
+                    TextAlignment = TextAlignment.Right,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    LayoutTransform = new RotateTransform(-90),
+                    ToolTip = columns[i].Title
                 };
-                Canvas.SetLeft(caption, x - caption.Width / 2);
+                Canvas.SetLeft(caption, x - 8);
                 Canvas.SetTop(caption, bottom + 10);
                 canvas.Children.Add(caption);
             }

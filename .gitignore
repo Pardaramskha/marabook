@@ -11,3 +11,9 @@ MarabookUiTests.exe
 
 # Caches de bytecode du Python embarque (crees au premier lancement)
 __pycache__/
+
+# Notes de travail (hors depot depuis le 22/09) : plans, batchs, comparatifs, textes a relire
+PLAN.md
+B49-LIMINAIRES.md
+COMPARATIF.md
+TEXTES-UI.md

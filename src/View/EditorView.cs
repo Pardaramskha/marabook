@@ -1718,6 +1718,15 @@ namespace Marabook.View
         {
             _composed = new ComposedView { Visibility = Visibility.Collapsed };
             _composed.Edited += delegate { NotifyEdited(); };
+            _composed.MarksRequested += delegate
+            {
+                // Le raccourci « Caractères d'impression » (22/09) : même
+                // chemin que le clic sur le bouton du ruban.
+                if (_marksBtn == null) return;
+                _marksBtn.IsChecked = !(_marksBtn.IsChecked == true);
+                var handler = MarksToggled;
+                if (handler != null) handler(_marksBtn.IsChecked == true);
+            };
             _composed.NoteEditingStarted += delegate(string id) { _lastNoteId = id; };
             _composed.FindingIgnoreHere += delegate(Correction.Finding finding)
             {

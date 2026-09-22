@@ -1488,6 +1488,11 @@ namespace Marabook.View
             }
             if (_bubbleLayer.IsKeyboardFocusWithin) return; // le clavier est à la bulle (b34)
             if (_item == null) return;
+            // Les gestes de l'éditeur (22/09) : gras, italique, alignements,
+            // listes, décalages, point médian, saut de page… — la table des
+            // raccourcis (Préférences › Raccourcis › Éditeur) décide.
+            var action = Settings.AppSettings.EditorActionFor(e.Key == Key.System ? e.SystemKey : e.Key, Keyboard.Modifiers);
+            if (action != null && RunEditorAction(action)) { e.Handled = true; return; }
             var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
             var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
             var handled = true;
@@ -1504,8 +1509,7 @@ namespace Marabook.View
                 case Key.Back: Backspace(); break;
                 case Key.Delete: ForwardDelete(); break;
                 case Key.Return:
-                    if (ctrl) TogglePageBreak();
-                    else if (shift) InsertLineBreak();
+                    if (shift) InsertLineBreak();
                     else InsertParagraphBreak();
                     break;
                 case Key.Escape:
@@ -1519,14 +1523,47 @@ namespace Marabook.View
                 case Key.C: if (ctrl) CopySelection(false); else handled = false; break;
                 case Key.X: if (ctrl) CopySelection(true); else handled = false; break;
                 case Key.V: if (ctrl) Paste(); else handled = false; break;
-                case Key.B: if (ctrl) ToggleBold(); else handled = false; break;
-                case Key.I: if (ctrl) ToggleItalic(); else handled = false; break;
-                case Key.U: if (ctrl) ToggleUnderline(); else handled = false; break;
                 case Key.Z: if (ctrl) Undo(); else handled = false; break;
                 case Key.Y: if (ctrl) Redo(); else handled = false; break;
                 default: handled = false; break;
             }
             if (handled) e.Handled = true;
+        }
+
+        /// <summary>Le ¶ demandé au clavier : l'éditeur qui héberge la surface
+        /// bascule son bouton (et le réglage) — la surface ne le possède pas.</summary>
+        public event Action MarksRequested;
+
+        /// <summary>Exécute une action de la table des raccourcis de l'éditeur
+        /// (public : la coquille et les sondes). Rend false si l'action n'est
+        /// pas de son ressort.</summary>
+        public bool RunEditorAction(string id)
+        {
+            switch (id)
+            {
+                case "bold": ToggleBold(); return true;
+                case "italic": ToggleItalic(); return true;
+                case "underline": ToggleUnderline(); return true;
+                case "strike": ToggleStrike(); return true;
+                case "align-left": ApplyAlign("left"); return true;
+                case "align-center": ApplyAlign("center"); return true;
+                case "align-right": ApplyAlign("right"); return true;
+                case "align-justify": ApplyAlign("justify"); return true;
+                case "list-bullets": ApplyList("bullet"); return true;
+                case "list-numbers": ApplyList("number"); return true;
+                case "check-box": TypeText("☐ "); return true;
+                case "indent-add": ApplyIndent(true); return true;
+                case "indent-remove": ApplyIndent(false); return true;
+                case "middle-dot": TypeText("·"); return true;
+                case "page-break": TogglePageBreak(); return true;
+                case "formatting-marks":
+                    {
+                        var handler = MarksRequested;
+                        if (handler != null) handler();
+                        return true;
+                    }
+            }
+            return false;
         }
 
         /// <summary>Public for tests and the shell: place the caret.</summary>

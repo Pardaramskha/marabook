@@ -134,7 +134,9 @@ namespace Marabook.View
             var panel = TabPanel();
             panel.Children.Add(new TextBlock
             {
-                Text = "Les modules (DLC) ajoutent des fonctions à Marabook : une fiche avancée, des succès… Ils s'installent depuis GitHub ou depuis un paquet .mdlc, sans redémarrage ; désinstallés, les projets gardent leurs valeurs.",
+                Text = Modules.DownloadsEnabled
+                    ? "Les modules (DLC) ajoutent des fonctions à Marabook : une fiche avancée, des succès… Ils s'installent depuis GitHub ou depuis un paquet .mdlc, sans redémarrage ; désinstallés, les projets gardent leurs valeurs."
+                    : "Les modules (DLC) ajoutent des fonctions à Marabook : une fiche avancée, des cartes mentales, des succès… Leur téléchargement arrivera dans une prochaine version ; un paquet .mdlc obtenu autrement s'installe déjà, sans redémarrage.",
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 TextWrapping = TextWrapping.Wrap,
@@ -146,8 +148,11 @@ namespace Marabook.View
             var fromFile = Buttons.Text("Installer depuis un fichier .mdlc…", "Un paquet de module obtenu autrement que par GitHub", Buttons.Bar, Buttons.Look.Outline);
             fromFile.Click += delegate { InstallModuleFromFile(); };
             actions.Children.Add(fromFile);
-            var check = Buttons.Text("Vérifier les versions", "Interroge GitHub pour chaque module du catalogue", Buttons.Bar, Buttons.Look.Outline);
+            var check = Buttons.Text("Vérifier les versions",
+                Modules.DownloadsEnabled ? "Interroge GitHub pour chaque module du catalogue" : "Dans une prochaine version",
+                Buttons.Bar, Buttons.Look.Outline);
             check.Margin = new Thickness(8, 0, 0, 0);
+            check.IsEnabled = Modules.DownloadsEnabled;
             check.Click += delegate
             {
                 foreach (var state in ModuleStore.States) state.Checked = false;
@@ -630,6 +635,19 @@ namespace Marabook.View
                 sync();
                 var handler = ShortcutsChanged;
                 if (handler != null) handler();
+                // Un doublon n'est pas interdit, mais dit (22/09) : le premier
+                // atteint l'emporte — dans l'éditeur, son geste passe avant
+                // ceux de la fenêtre.
+                if (gesture.Length == 0) return;
+                foreach (var other in AppSettings.Actions)
+                {
+                    if (other.Id == action.Id || AppSettings.Gesture(other.Id) != gesture) continue;
+                    MessageDialog.Show(this,
+                        AppSettings.DisplayGesture(gesture) + " est déjà le raccourci de « " + other.Name + " » (" + other.Category + ").\n\n"
+                        + "Les deux le gardent ; le premier atteint l'emporte. Changez l'un des deux si cela gêne.",
+                        "Raccourcis", MessageBoxButton.OK, MessageBoxImage.Information);
+                    break;
+                }
             };
             box.PreviewMouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
             {

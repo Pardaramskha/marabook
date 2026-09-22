@@ -329,7 +329,7 @@ namespace Marabook.View
             achievements.Children.Add(new TextBlock
             {
                 Text = "Ils se gagnent une fois pour toutes, sur tous vos projets. "
-                    + "Les boutons « Obtenir / Retirer » sont là pour le développement.",
+                    + "Aide › Réinitialiser les succès pour tout reverrouiller.",
                 Foreground = Chrome.SoftText,
                 FontSize = 11,
                 TextWrapping = TextWrapping.Wrap,
@@ -399,9 +399,6 @@ namespace Marabook.View
         private StackPanel _achievementsPanel;
         private TextBlock _achievementsCount;
 
-        /// <summary>Bouton de développement « Obtenir / Retirer » : (id, obtenir).</summary>
-        public event Action<string, bool> AchievementToggleRequested;
-
         /// <summary>Redessine la liste depuis les réglages globaux : grisés
         /// tant que verrouillés, en couleurs (avec la date) une fois obtenus.</summary>
         public void RefreshAchievements()
@@ -420,22 +417,6 @@ namespace Marabook.View
                 badge.VerticalAlignment = VerticalAlignment.Top;
                 DockPanel.SetDock(badge, Dock.Left);
                 row.Children.Add(badge);
-
-                var buttons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-                var idRef = achievement.Id;
-                var toggle = Buttons.Text(earned ? "Retirer" : "Obtenir",
-                    earned ? "Développement : reverrouiller ce succès" : "Développement : débloquer ce succès (avec l'animation)",
-                    Buttons.Compact, Buttons.Look.Outline);
-                toggle.Margin = new Thickness(12, 0, 0, 0);
-                var earnedRef = earned;
-                toggle.Click += delegate
-                {
-                    var handler = AchievementToggleRequested;
-                    if (handler != null) handler(idRef, !earnedRef);
-                };
-                buttons.Children.Add(toggle);
-                DockPanel.SetDock(buttons, Dock.Right);
-                row.Children.Add(buttons);
 
                 var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
                 text.Children.Add(new TextBlock

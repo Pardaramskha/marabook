@@ -129,7 +129,8 @@ namespace Marabook.View
         {
             if (_item == null) return;
             var template = _item.Book.Template;
-            var values = NumbersDialog.Ask(Window.GetWindow(this), "Marges du gabarit (cm)",
+            // En millimètres (22/09), comme partout où l'on parle de marges.
+            var values = NumbersDialog.Ask(Window.GetWindow(this), "Marges du gabarit (mm)",
                 new[]
                 {
                     "De tête (marge haute)",
@@ -139,14 +140,14 @@ namespace Marabook.View
                 },
                 new[]
                 {
-                    template.MarginTopMm / 10, template.MarginBottomMm / 10,
-                    template.MarginLeftMm / 10, template.MarginRightMm / 10
-                }, 0.5, 10);
+                    template.MarginTopMm, template.MarginBottomMm,
+                    template.MarginLeftMm, template.MarginRightMm
+                }, 5, 100);
             if (values == null) return;
-            template.MarginTopMm = values[0] * 10;
-            template.MarginBottomMm = values[1] * 10;
-            template.MarginLeftMm = values[2] * 10;
-            template.MarginRightMm = values[3] * 10;
+            template.MarginTopMm = values[0];
+            template.MarginBottomMm = values[1];
+            template.MarginLeftMm = values[2];
+            template.MarginRightMm = values[3];
             RaiseChanged();
             Sync();
         }

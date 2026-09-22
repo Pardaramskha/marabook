@@ -170,6 +170,13 @@ namespace Marabook.Model
 
         public static readonly List<ModuleInfo> Installed = new List<ModuleInfo>();
 
+        /// <summary>Première release (22/09) : les modules ne se téléchargent
+        /// pas encore — le catalogue n'interroge pas GitHub, « Installer » et
+        /// « Vérifier les versions » sont grisés. « Installer depuis un
+        /// fichier .mdlc » et la désinstallation restent. À passer à true
+        /// quand les dépôts des modules publient leurs paquets.</summary>
+        public const bool DownloadsEnabled = false;
+
         /// <summary>Après une installation ou un retrait : la fiche ouverte et
         /// les succès se rafraîchissent.</summary>
         public static event Action Changed;

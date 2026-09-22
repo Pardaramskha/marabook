@@ -105,13 +105,25 @@ namespace Marabook.View
             Children.Add(_tabs);
         }
 
+        /// <summary>Un onglet du livre : l'en-tête (icône + libellé) suit la
+        /// sélection — BLANC sur la pastille d'accent quand il est actif
+        /// (22/09), encre sinon. Icons.Label fige sa couleur, le déclencheur
+        /// du thème ne peut pas l'atteindre : l'en-tête est refait.</summary>
         private static TabItem Tab(string icon, string label, UIElement content)
         {
-            return new TabItem
+            var item = new TabItem
             {
                 Header = Icons.Label(icon, label, 13, Chrome.Ink),
                 Content = content
             };
+            Action sync = delegate
+            {
+                item.Header = Icons.Label(icon, label, 13, item.IsSelected ? Brushes.White : Chrome.Ink);
+            };
+            item.AddHandler(System.Windows.Controls.Primitives.Selector.SelectedEvent, new RoutedEventHandler(delegate { sync(); }));
+            item.AddHandler(System.Windows.Controls.Primitives.Selector.UnselectedEvent, new RoutedEventHandler(delegate { sync(); }));
+            item.Loaded += delegate { sync(); };
+            return item;
         }
 
         private static ScrollViewer Scrolled(UIElement content)

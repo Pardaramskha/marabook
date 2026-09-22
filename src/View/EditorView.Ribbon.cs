@@ -80,7 +80,7 @@ namespace Marabook.View
                 Width = 140,
                 Margin = new Thickness(0, 0, 6, 0),
                 IsEditable = true,
-                ToolTip = "Police — tapez un nom puis Entrée pour une police hors liste"
+                ToolTip = "Police"
             };
             foreach (var family in ListFonts()) _fontCombo.Items.Add(family);
             _fontCombo.SelectionChanged += OnFontComboChanged;
@@ -99,7 +99,7 @@ namespace Marabook.View
                 Width = 52,
                 Margin = new Thickness(0, 0, 10, 0),
                 IsEditable = true,
-                ToolTip = "Taille (points) — tapez une valeur libre puis Entrée"
+                ToolTip = "Taille"
             };
             foreach (var size in new[] { 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 28, 32, 36, 48, 72 })
                 _sizeCombo.Items.Add(size);
@@ -115,7 +115,7 @@ namespace Marabook.View
             // Variantes de caractère (Fin, Normal, Moyen, Demi-gras, Gras, Noir).
             var weightBtn = new Button
             {
-                ToolTip = "Variantes de caractère (graisse)",
+                ToolTip = "Variantes de caractère",
                 Width = 26,
                 Height = 26,
                 Padding = new Thickness(0),
@@ -132,17 +132,17 @@ namespace Marabook.View
             };
             typeTop.Children.Add(weightBtn);
 
-            _boldBtn = FormatToggle("G", "Gras (Ctrl+B)", true, false, false, false);
+            _boldBtn = FormatToggle("G", "Gras", true, false, false, false);
             _boldBtn.Click += delegate
             {
                 if (ComposedActive) { _composed.ToggleBold(); _composed.Focus(); }
             };
-            _italicBtn = FormatToggle("I", "Italique (Ctrl+I)", false, true, false, false);
+            _italicBtn = FormatToggle("I", "Italique", false, true, false, false);
             _italicBtn.Click += delegate
             {
                 if (ComposedActive) { _composed.ToggleItalic(); _composed.Focus(); }
             };
-            _underBtn = FormatToggle("S", "Souligné (Ctrl+U)", false, false, true, false);
+            _underBtn = FormatToggle("S", "Souligné", false, false, true, false);
             _underBtn.Click += delegate
             {
                 if (ComposedActive) { _composed.ToggleUnderline(); _composed.Focus(); }
@@ -204,7 +204,7 @@ namespace Marabook.View
                 Height = Buttons.Compact,
                 VerticalAlignment = VerticalAlignment.Center,
                 Focusable = false,
-                ToolTip = "Interligne du document — multiplie la valeur d'interligne de chaque style de paragraphe"
+                ToolTip = "Interligne"
             };
             foreach (var factor in LeadingFactors)
                 _leadingCombo.Items.Add(new ComboBoxItem { Content = factor.ToString("0.##", System.Globalization.CultureInfo.GetCultureInfo("fr-FR")), Tag = factor });
@@ -233,7 +233,7 @@ namespace Marabook.View
             {
                 if (ComposedActive) { _composed.ApplyList("number"); _composed.Focus(); }
             };
-            _checkBtn = IconToggle("list-check", "Case à cocher (☐ → ☑ → retirer)");
+            _checkBtn = IconToggle("list-check", "Case à cocher");
             _checkBtn.Click += delegate
             {
                 if (ComposedActive) _composed.TypeText("☐ ");
@@ -244,15 +244,13 @@ namespace Marabook.View
             // Décalage du paragraphe (17/09), façon Word : + pousse le bloc de
             // 0,5 cm, − ramène tout à la marge (alinéa du style et retrait de
             // liste compris ; une seconde fois : le style reprend la main).
-            var indentAdd = IconButton("space-add", "Ajouter un décalage (0,5 cm depuis la marge)");
+            var indentAdd = IconButton("space-add", "Ajouter un décalage");
             indentAdd.Margin = new Thickness(7, 0, 1, 0);
             indentAdd.Click += delegate
             {
                 if (ComposedActive) { _composed.ApplyIndent(true); _composed.Focus(); }
             };
-            var indentRemove = IconButton("space-remove",
-                "Retirer le décalage — tout au bord de la marge, alinéa automatique compris "
-                + "(une seconde fois : le style reprend la main)");
+            var indentRemove = IconButton("space-remove", "Retirer le décalage");
             indentRemove.Click += delegate
             {
                 if (ComposedActive) { _composed.ApplyIndent(false); _composed.Focus(); }
@@ -301,7 +299,7 @@ namespace Marabook.View
 
             var separatorBtn = new Button
             {
-                ToolTip = "Séparateur de scène (style : Préférences → Styles globaux, ou l'onglet Styles du livre)",
+                ToolTip = "Séparateur de scène",
                 Width = 26,
                 Height = 26,
                 Padding = new Thickness(0),
@@ -332,8 +330,7 @@ namespace Marabook.View
             panel.Children.Add(VerticalRuleTall());
             // Les caractères d'impression : un grand carré (13/09), puis
             // l'approche dans sa propre section, centrée verticalement.
-            _marksBtn = BigSquareToggle("paragraph", "Caractères d'impression",
-                "Afficher les caractères d'impression (¶ espaces · insécables ° tabulations →)");
+            _marksBtn = BigSquareToggle("paragraph", "Caractères d'impression", "Caractères d'impression");
             _marksBtn.Click += delegate
             {
                 var handler = MarksToggled;
@@ -358,8 +355,7 @@ namespace Marabook.View
             {
                 kerningIcon.VerticalAlignment = VerticalAlignment.Center;
                 kerningIcon.Margin = new Thickness(2, 0, 4, 0);
-                kerningIcon.ToolTip = "Approche : espacement entre les caractères, en millièmes "
-                    + "de cadratin — valeur de la sélection, pas de 5 aux flèches";
+                kerningIcon.ToolTip = "Approche";
                 rest.Children.Add(kerningIcon);
             }
             var spinner = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
@@ -394,8 +390,7 @@ namespace Marabook.View
                 Margin = new Thickness(1, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
                 Text = "0",
-                ToolTip = "Approche de la sélection (millièmes de cadratin, −100 à 400) — "
-                    + "Entrée pour appliquer ; vide = mixte"
+                ToolTip = "Approche"
             };
             _trackingBox.KeyDown += delegate(object sender, KeyEventArgs e)
             {
@@ -450,7 +445,7 @@ namespace Marabook.View
                 FontSize = 11,
                 Focusable = false,
                 Visibility = Visibility.Collapsed,
-                ToolTip = "Ouvrir le plan dont une colonne raconte cet écrit"
+                ToolTip = "Plan"
             };
             _planBtn.Click += delegate
             {
@@ -459,16 +454,13 @@ namespace Marabook.View
                 if (plan != null && handler != null) handler(plan);
             };
             views.Children.Add(_planBtn);
-            _pagesViewBtn = ViewToggle("Pages",
-                "La page réelle : marges, folios, gabarits");
+            _pagesViewBtn = ViewToggle("Pages", "Pages");
             _pagesViewBtn.Click += delegate { SetDraftView(false); };
             views.Children.Add(_pagesViewBtn);
-            _draftViewBtn = ViewToggle("Brouillon",
-                "Colonne continue sans décor de page ni folio — écrire au fil de l'eau");
+            _draftViewBtn = ViewToggle("Brouillon", "Brouillon");
             _draftViewBtn.Click += delegate { SetDraftView(true); };
             views.Children.Add(_draftViewBtn);
-            _calmViewBtn = ViewToggle("Calme",
-                "Ne garder que le texte (Échap pour revenir)");
+            _calmViewBtn = ViewToggle("Calme", "Calme");
             _calmViewBtn.Click += delegate
             {
                 UpdateViewButtons(); // l'état réel suivra SetCalm
@@ -515,7 +507,7 @@ namespace Marabook.View
                 if (saved == null)
                     button.Tag = saved = new[] { button.Content, button.ToolTip, button.Padding };
                 button.Content = Icons.Make(icon, 14, Chrome.Ink);
-                button.ToolTip = label + " — " + saved[1];
+                button.ToolTip = label;
                 button.Padding = new Thickness(7, 0, 7, 0);
             }
             else if (saved != null)
@@ -616,13 +608,9 @@ namespace Marabook.View
         private UIElement BuildDecorTab()
         {
             var panel = TabPanel();
-            var header = OneLine("sort-descending-bold", "Éditer l'en-tête…",
-                "Ligne d'en-tête sur toutes les pages du document "
-                + "(jetons : {page}, {pages}, {titre})");
+            var header = OneLine("sort-descending-bold", "Éditer l'en-tête…", "Éditer l'en-tête");
             header.Click += delegate { EditHeaderFooter(true); };
-            var footer = OneLine("sort-ascending-bold", "Éditer le pied de page…",
-                "Pied de page sur toutes les pages — c'est ici que se "
-                + "règle le look des numéros de page ({page})");
+            var footer = OneLine("sort-ascending-bold", "Éditer le pied de page…", "Éditer le pied de page");
             footer.Click += delegate { EditHeaderFooter(false); };
             panel.Children.Add(Stacked(header, footer));
             panel.Children.Add(VerticalRuleTall());
@@ -752,26 +740,22 @@ namespace Marabook.View
 
         /// <summary>Onglet « Composition » (13/09) : l'aperçu en grand carré
         /// dans sa section ; Imprimer et PDF prêt à imprimer superposés ;
-        /// l'export. « Compiler le manuscrit » a quitté le ruban (menu
+        /// l'export. « Compiler les écrits » a quitté le ruban (menu
         /// Fichier, Ctrl+Maj+E).</summary>
         private UIElement BuildCompositionTab()
         {
             var panel = TabPanel();
-            var preview = BigSquare("book-open-text-bold", "Aperçu des pages",
-                "Les pages exactes, prêtes à relire (Ctrl+Alt+P)");
+            var preview = BigSquare("book-open-text-bold", "Aperçu des pages", "Aperçu des pages");
             preview.Click += delegate { var handler = PreviewRequested; if (handler != null) handler(); };
             panel.Children.Add(preview);
             panel.Children.Add(VerticalRuleTall());
-            var print = OneLine("printer-bold", "Imprimer",
-                "Impression ou PDF via « Microsoft Print to PDF » (Ctrl+P)");
+            var print = OneLine("printer-bold", "Imprimer", "Imprimer");
             print.Click += delegate { var handler = PrintRequested; if (handler != null) handler(); };
-            var pdf = OneLine("document-file", "PDF prêt à imprimer…",
-                "PDF maison : polices incorporées, fond perdu, traits de coupe");
+            var pdf = OneLine("document-file", "PDF prêt à imprimer…", "PDF prêt à imprimer");
             pdf.Click += delegate { var handler = PdfRequested; if (handler != null) handler(); };
             panel.Children.Add(Stacked(print, pdf));
             panel.Children.Add(VerticalRuleTall());
-            var export = OneLine("file-arrow-down-bold", "Exporter l'écrit…",
-                "docx, odt, RTF, Markdown, texte (Ctrl+E)");
+            var export = OneLine("file-arrow-down-bold", "Exporter l'écrit…", "Exporter l'écrit");
             export.Click += delegate { var handler = ExportRequested; if (handler != null) handler(); };
             panel.Children.Add(export);
             return panel;
@@ -819,13 +803,12 @@ namespace Marabook.View
                 Height = Buttons.Compact,
                 Margin = new Thickness(4, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Top,
-                ToolTip = "Nomenclature PAO : de tête (haut), de pied (bas), "
-                    + "petit fond (côté reliure), grand fond (côté extérieur)"
+                ToolTip = "Marges"
             };
             Grid.SetColumn(_marginsCombo, 1);
             _marginsCombo.Items.Add("Livre (20/20/30/20)");
-            _marginsCombo.Items.Add("Uniformes (2,5 cm)");
-            _marginsCombo.Items.Add("Étroites (1,27 cm)");
+            _marginsCombo.Items.Add("Uniformes (25 mm)");
+            _marginsCombo.Items.Add("Étroites (12,7 mm)");
             _marginsCombo.Items.Add("Personnalisées…");
             _marginsCombo.SelectionChanged += OnMarginsComboChanged;
             pageGrid.Children.Add(_marginsCombo);
@@ -865,7 +848,7 @@ namespace Marabook.View
                 Height = Buttons.Compact,
                 Margin = new Thickness(4, 0, 4, 0),
                 VerticalAlignment = VerticalAlignment.Top,
-                ToolTip = "Colonnes — appliquées à l'export et à l'impression"
+                ToolTip = "Colonnes"
             };
             _columnsCombo.Items.Add(1);
             _columnsCombo.Items.Add(2);
@@ -879,15 +862,14 @@ namespace Marabook.View
             setup.Children.Add(_columnsCombo);
 
             panel.Children.Add(VerticalRuleTall());
-            _guidesBtn = OneLineToggle("margins", "Marges", "Cadres de marges sur chaque page");
+            _guidesBtn = OneLineToggle("margins", "Marges", "Marges");
             _guidesBtn.Click += delegate
             {
                 if (_project == null) return;
                 _pageSetup.ShowMarginGuides = _guidesBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
-            _lineNumbersBtn = OneLineToggle("list-numbers-bold", "Numéros de ligne",
-                "Numéros de ligne à l'export Word et à l'impression");
+            _lineNumbersBtn = OneLineToggle("list-numbers-bold", "Numéros de ligne", "Numéros de ligne");
             _lineNumbersBtn.Click += delegate
             {
                 if (_project == null) return;
@@ -897,15 +879,14 @@ namespace Marabook.View
             panel.Children.Add(Stacked(_guidesBtn, _lineNumbersBtn));
 
             panel.Children.Add(VerticalRuleTall());
-            _hyphenBtn = OneLineToggle("minus", "Césure", "Coupure des mots en fin de ligne");
+            _hyphenBtn = OneLineToggle("minus", "Césure", "Césure");
             _hyphenBtn.Click += delegate
             {
                 if (_project == null) return;
                 _pageSetup.Hyphenation = _hyphenBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
-            _folioBtn = OneLineToggle("numbered", "Folio",
-                "Numéro de page centré en pied de page (aperçu, impression, export Word)");
+            _folioBtn = OneLineToggle("numbered", "Folio", "Folio");
             _folioBtn.Click += delegate
             {
                 if (_project == null) return;
@@ -936,7 +917,8 @@ namespace Marabook.View
             else if (_marginsCombo.SelectedIndex == 2) SetMarginsMm(page, 12.7, 12.7, 12.7, 12.7);
             else
             {
-                var values = NumbersDialog.Ask(Window.GetWindow(this), "Marges (cm)",
+                // En millimètres (22/09), comme partout où l'on parle de marges.
+                var values = NumbersDialog.Ask(Window.GetWindow(this), "Marges (mm)",
                     new[]
                     {
                         "De tête (marge haute)",
@@ -944,10 +926,10 @@ namespace Marabook.View
                         "Petit fond (côté reliure)",
                         "Grand fond (côté extérieur)"
                     },
-                    new[] { page.MarginTopMm / 10, page.MarginBottomMm / 10, page.MarginLeftMm / 10, page.MarginRightMm / 10 },
-                    0.5, 10);
+                    new[] { page.MarginTopMm, page.MarginBottomMm, page.MarginLeftMm, page.MarginRightMm },
+                    5, 100);
                 if (values == null) { SyncPageTab(); return; }
-                SetMarginsMm(page, values[0] * 10, values[1] * 10, values[2] * 10, values[3] * 10);
+                SetMarginsMm(page, values[0], values[1], values[2], values[3]);
             }
             AfterPageSetupEdit();
         }

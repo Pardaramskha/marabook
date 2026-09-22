@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using Marabook.Model;
 using Marabook.Persistence;
+using Marabook.Settings;
 using Marabook.View;
 
 namespace Marabook
@@ -166,7 +168,8 @@ namespace Marabook
                     "Marabook a rencontré une erreur inattendue :\n" + (error == null ? "?" : error.Message)
                     + "\n\nUne sauvegarde de secours des textes vient d'être écrite. Enregistrez votre "
                     + "projet dès que possible ; si l'application se comporte étrangement, quittez-la "
-                    + "et relancez-la — le secours sera proposé au lancement s'il le faut.",
+                    + "et relancez-la — le secours sera proposé au lancement s'il le faut."
+                    + "\n\nUn rapport de plantage a été écrit : Aide › Rapports de plantage, à joindre à votre signalement.",
                     AppName, MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             catch { }
@@ -188,8 +191,34 @@ namespace Marabook
             finally { _inCrash = false; }
         }
 
-        private static void LogCrash(Exception error)
+        /// <summary>Aide › Rapports de plantage.</summary>
+        private void ShowCrashReports()
         {
+            CrashReportsDialog.Show(this);
+        }
+
+        /// <summary>Ce que le rapport dit du moment (jamais le texte des
+        /// écrits) : le projet, l'élément ouvert, le thème, les modules.</summary>
+        private List<string> CrashContext()
+        {
+            var lines = new List<string>();
+            try
+            {
+                lines.Add("Projet : " + (_project == null ? "(aucun)" : _project.Name));
+                lines.Add("Élément ouvert : " + (_current == null ? "(aucun)" : _current.Kind.ToString()));
+                lines.Add("Thème : " + (AppSettings.DarkTheme ? "sombre" : "clair") + ", zoom " + AppSettings.Zoom + " %");
+                var modules = new StringBuilder();
+                foreach (var module in Modules.Installed)
+                    modules.Append(modules.Length > 0 ? ", " : "").Append(module.Id).Append(module.Version.Length > 0 ? " " + module.Version : "");
+                lines.Add("Modules : " + (modules.Length > 0 ? modules.ToString() : "(aucun)"));
+            }
+            catch { }
+            return lines;
+        }
+
+        private void LogCrash(Exception error)
+        {
+            CrashReport.Write(error, AppVersion, CrashContext());
             try
             {
                 var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Marabook");

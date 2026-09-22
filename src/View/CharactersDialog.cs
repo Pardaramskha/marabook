@@ -6,28 +6,41 @@ using Marabook.Model;
 
 namespace Marabook.View
 {
-    /// <summary>« Personnages détectés » (b49) : les noms propres relevés
-    /// dans un texte importé, à cocher — une fiche Personnage par nom
-    /// retenu. Rien n'est créé sans un clic sur le bouton principal.</summary>
+    /// <summary>Un nom retenu par l'indexeur et la catégorie de fiche qu'il
+    /// recevra.</summary>
+    public class NameChoice
+    {
+        public string Name = "";
+        public SheetCategory Category;
+    }
+
+    /// <summary>L'« Indexeur de noms propres » (b49, refondu le 22/09) : les
+    /// noms propres relevés dans un texte, à cocher, chacun avec la NATURE de
+    /// la fiche à créer (Personnage, Lieu, Objet… — les catégories du projet).
+    /// Rien n'est créé sans un clic sur le bouton principal.</summary>
     public class CharactersDialog : Window
     {
         private readonly List<CheckBox> _boxes = new List<CheckBox>();
+        private readonly List<ComboBox> _kinds = new List<ComboBox>();
         private readonly List<NameCandidate> _candidates;
+        private readonly List<SheetCategory> _categories;
         private readonly Button _create;
         private bool _accepted;
 
-        private CharactersDialog(Window owner, string sourceTitle, List<NameCandidate> candidates)
+        private CharactersDialog(Window owner, string sourceTitle, List<NameCandidate> candidates,
+            List<SheetCategory> categories, SheetCategory preferred)
         {
             _candidates = candidates;
-            Title = "Personnages détectés";
+            _categories = categories;
+            Title = "Indexeur de noms propres";
             if (owner != null)
             {
                 Owner = owner;
                 WindowStartupLocation = WindowStartupLocation.CenterOwner;
             }
-            Width = 560;
-            Height = 520;
-            MinWidth = 420;
+            Width = 620;
+            Height = 540;
+            MinWidth = 480;
             MinHeight = 320;
             ShowInTaskbar = false;
             Background = Chrome.RaisedBg;
@@ -36,7 +49,7 @@ namespace Marabook.View
             var intro = new TextBlock
             {
                 Text = "Ces noms reviennent dans « " + sourceTitle + " » sans figurer parmi vos fiches. "
-                    + "Cochez ceux qui sont des personnages : une fiche Personnage sera créée pour chacun.",
+                    + "Cochez ceux qui méritent une fiche et choisissez sa nature : une fiche sera créée pour chacun.",
                 Foreground = Chrome.Ink,
                 FontSize = 13,
                 TextWrapping = TextWrapping.Wrap,
@@ -70,6 +83,7 @@ namespace Marabook.View
             buttons.Children.Add(right);
             root.Children.Add(buttons);
 
+            var preferredIndex = preferred == null ? 0 : Math.Max(0, categories.IndexOf(preferred));
             var list = new StackPanel();
             foreach (var candidate in candidates)
             {
@@ -80,6 +94,24 @@ namespace Marabook.View
                 _boxes.Add(box);
                 DockPanel.SetDock(box, Dock.Left);
                 row.Children.Add(box);
+
+                // La nature de la fiche, à droite : les catégories du projet,
+                // Personnage (ou la première) proposée.
+                var kind = new ComboBox
+                {
+                    Width = 150,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(12, 0, 0, 0),
+                    ToolTip = "Nature de la fiche à créer"
+                };
+                foreach (var category in categories) kind.Items.Add(category.Name);
+                kind.SelectedIndex = categories.Count > 0 ? preferredIndex : -1;
+                var boxRef = box;
+                kind.SelectionChanged += delegate { if (boxRef.IsChecked != true) boxRef.IsChecked = true; };
+                _kinds.Add(kind);
+                DockPanel.SetDock(kind, Dock.Right);
+                row.Children.Add(kind);
+
                 var texts = new StackPanel();
                 var head = new TextBlock { TextWrapping = TextWrapping.Wrap };
                 head.Inlines.Add(new System.Windows.Documents.Run(candidate.Name)
@@ -123,16 +155,27 @@ namespace Marabook.View
             _create.IsEnabled = count > 0;
         }
 
-        /// <summary>Les noms retenus, ou null si rien n'est à créer.</summary>
-        public static List<string> Ask(Window owner, string sourceTitle, List<NameCandidate> candidates)
+        /// <summary>Les noms retenus avec leur catégorie, ou null si rien n'est
+        /// à créer. preferred : la catégorie proposée d'office (Personnage).</summary>
+        public static List<NameChoice> Ask(Window owner, string sourceTitle, List<NameCandidate> candidates,
+            List<SheetCategory> categories, SheetCategory preferred)
         {
             if (candidates == null || candidates.Count == 0) return null;
-            var dialog = new CharactersDialog(owner, sourceTitle, candidates);
+            if (categories == null) categories = new List<SheetCategory>();
+            var dialog = new CharactersDialog(owner, sourceTitle, candidates, categories, preferred);
             Dialogs.ShowModal(dialog);
             if (!dialog._accepted) return null;
-            var chosen = new List<string>();
+            var chosen = new List<NameChoice>();
             for (var i = 0; i < dialog._boxes.Count; i++)
-                if (dialog._boxes[i].IsChecked == true) chosen.Add(dialog._candidates[i].Name);
+            {
+                if (dialog._boxes[i].IsChecked != true) continue;
+                var index = dialog._kinds[i].SelectedIndex;
+                chosen.Add(new NameChoice
+                {
+                    Name = dialog._candidates[i].Name,
+                    Category = index >= 0 && index < categories.Count ? categories[index] : preferred
+                });
+            }
             return chosen.Count == 0 ? null : chosen;
         }
     }

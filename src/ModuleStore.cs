@@ -98,6 +98,13 @@ namespace Marabook
         public static void CheckOnline(Dispatcher dispatcher)
         {
             Refresh();
+            if (!Modules.DownloadsEnabled)
+            {
+                // Première release : pas de réseau, l'état le dit.
+                foreach (var state in States)
+                    if (!state.Checked) { state.Checked = true; state.Message = "Téléchargeable dans une prochaine version"; }
+                return;
+            }
             foreach (var state in States)
             {
                 if (state.Source.Repository.Length == 0 || state.Checked) continue;

@@ -68,7 +68,7 @@ namespace Marabook
 
         // ------------------------------------------------------------ personnages
 
-        /// <summary>Édition › Extraire les personnages de l'écrit.</summary>
+        /// <summary>Édition › Indexeur de noms propres (renommé le 22/09).</summary>
         private void ExtractCharacters(BinderItem item)
         {
             if (_project == null || item == null || item.Kind != ItemKind.Text) return;
@@ -94,7 +94,7 @@ namespace Marabook
                         AppName, MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
-            var chosen = CharactersDialog.Ask(this, sourceTitle, candidates);
+            var chosen = CharactersDialog.Ask(this, sourceTitle, candidates, _project.SheetCategories, PreferredCharacterCategory());
             if (chosen == null) return;
             CreateCharacterSheets(chosen);
         }
@@ -112,24 +112,31 @@ namespace Marabook
             return names;
         }
 
-        /// <summary>Une fiche par nom, dans la catégorie Personnage (sinon la
-        /// première), en un cran d'annulation.</summary>
-        private void CreateCharacterSheets(List<string> names)
+        /// <summary>La catégorie proposée d'office : Personnage, sinon la première.</summary>
+        private SheetCategory PreferredCharacterCategory()
+        {
+            foreach (var category in _project.SheetCategories)
+                if (string.Equals(category.Name, "Personnage", StringComparison.CurrentCultureIgnoreCase)) return category;
+            return _project.SheetCategories.Count > 0 ? _project.SheetCategories[0] : null;
+        }
+
+        /// <summary>Une fiche par nom, dans la catégorie choisie pour lui
+        /// (22/09), en un cran d'annulation.</summary>
+        private void CreateCharacterSheets(List<NameChoice> choices)
         {
             var sheets = _project.Category(Project.KeySheets);
-            SheetCategory home = null;
-            foreach (var category in _project.SheetCategories)
-                if (string.Equals(category.Name, "Personnage", StringComparison.CurrentCultureIgnoreCase)) { home = category; break; }
-            if (home == null && _project.SheetCategories.Count > 0) home = _project.SheetCategories[0];
             var items = new List<BinderItem>();
-            foreach (var name in names)
+            foreach (var choice in choices)
+            {
+                var home = choice.Category ?? PreferredCharacterCategory();
                 items.Add(new BinderItem
                 {
                     Kind = ItemKind.Sheet,
-                    Title = name,
+                    Title = choice.Name,
                     CategoryId = home != null ? home.Id : null,
                     TemplateId = home != null ? home.TemplateId : null
                 });
+            }
             if (items.Count == 0) return;
             _history.Run(new History.AddItemsAction(sheets, items));
             MarkDirty();

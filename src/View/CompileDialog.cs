@@ -26,7 +26,7 @@ namespace Marabook.View
         private CompileDialog(Window owner, Project project)
         {
             _project = project;
-            Title = "Compiler le manuscrit";
+            Title = "Compiler les écrits";
             Owner = owner;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             SizeToContent = SizeToContent.WidthAndHeight;

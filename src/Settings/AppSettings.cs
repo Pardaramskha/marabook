@@ -52,7 +52,7 @@ namespace Marabook.Settings
             new ActionDefinition("import-docs", "Fichier", "Importer des documents", null),
             new ActionDefinition("import-scrivener", "Fichier", "Importer un projet Scrivener", null),
             new ActionDefinition("export-item", "Fichier", "Exporter l'écrit sélectionné", "Ctrl+E"),
-            new ActionDefinition("compile", "Fichier", "Compiler le manuscrit", "Ctrl+Shift+E"),
+            new ActionDefinition("compile", "Fichier", "Compiler les écrits", "Ctrl+Shift+E"),
             new ActionDefinition("export-pdf", "Fichier", "Exporter en PDF prêt à imprimer", null),
             new ActionDefinition("styles", "Format", "Gérer les styles", null),
             new ActionDefinition("insert-footnote", "Format", "Note de bas de page", "Ctrl+Shift+N"),
@@ -69,7 +69,48 @@ namespace Marabook.Settings
             new ActionDefinition("toggle-inspector", "Affichage", "Afficher l'inspecteur", "Ctrl+D2"),
             new ActionDefinition("dark-theme", "Affichage", "Thème sombre", "Ctrl+Shift+L"),
             new ActionDefinition("toggle-rulers", "Affichage", "Règles", "Ctrl+R"),
+            // L'éditeur (22/09) : les gestes de la surface composée, jusque-là
+            // câblés (Ctrl+B/I/U), et des fonctions sans raccourci auxquelles
+            // on peut en donner un. Résolus par EditorActionFor à la frappe.
+            new ActionDefinition("bold", EditorCategory, "Gras", "Ctrl+B"),
+            new ActionDefinition("italic", EditorCategory, "Italique", "Ctrl+I"),
+            new ActionDefinition("underline", EditorCategory, "Souligné", "Ctrl+U"),
+            new ActionDefinition("strike", EditorCategory, "Barré", null),
+            new ActionDefinition("align-left", EditorCategory, "Aligner à gauche", null),
+            new ActionDefinition("align-center", EditorCategory, "Centrer", null),
+            new ActionDefinition("align-right", EditorCategory, "Aligner à droite", null),
+            new ActionDefinition("align-justify", EditorCategory, "Justifier", null),
+            new ActionDefinition("list-bullets", EditorCategory, "Liste à puces", null),
+            new ActionDefinition("list-numbers", EditorCategory, "Liste numérotée", null),
+            new ActionDefinition("check-box", EditorCategory, "Case à cocher", null),
+            new ActionDefinition("indent-add", EditorCategory, "Ajouter un décalage", null),
+            new ActionDefinition("indent-remove", EditorCategory, "Retirer le décalage", null),
+            new ActionDefinition("middle-dot", EditorCategory, "Point médian", null),
+            new ActionDefinition("formatting-marks", EditorCategory, "Caractères d'impression", null),
         };
+
+        /// <summary>La catégorie des actions que la surface composée résout
+        /// elle-même (plus le saut de page, de « Mise en page »).</summary>
+        public const string EditorCategory = "Éditeur";
+
+        /// <summary>L'action de l'éditeur que cette touche déclenche, selon
+        /// les raccourcis personnalisés puis les défauts — null si aucune.
+        /// Les modificateurs doivent correspondre exactement (Ctrl+B ne
+        /// répond pas à Ctrl+Maj+B).</summary>
+        public static string EditorActionFor(Key key, ModifierKeys modifiers)
+        {
+            if (key == Key.None) return null;
+            modifiers &= ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt;
+            foreach (var action in Actions)
+            {
+                if (action.Category != EditorCategory && action.Id != "page-break") continue;
+                Key wanted;
+                ModifierKeys wantedModifiers;
+                if (!ParseGesture(Gesture(action.Id), out wanted, out wantedModifiers)) continue;
+                if (wanted == key && wantedModifiers == modifiers) return action.Id;
+            }
+            return null;
+        }
 
         public static Dictionary<string, string> Shortcuts = new Dictionary<string, string>();
         public static bool DarkTheme;
@@ -171,6 +212,20 @@ namespace Marabook.Settings
         public static int WordsInCalm;     // mots écrits en mode calme
         // Écrits vierges : id → premier jour vu vierge (« Page blanche »).
         public static Dictionary<string, string> BlankSince = new Dictionary<string, string>();
+
+        /// <summary>L'état d'origine des succès (Aide › Réinitialiser les
+        /// succès, 22/09) : la liste vidée, et les compteurs qui n'existent
+        /// que pour eux remis à zéro. L'appelant enregistre.</summary>
+        public static void ResetAchievements()
+        {
+            Achievements.Clear();
+            PermanentlyDeleted = 0;
+            UsageLastDay = null;
+            UsageStreak = 0;
+            WordsAtMaxZoom = 0;
+            WordsInCalm = 0;
+            BlankSince.Clear();
+        }
 
         /// <summary>À chaque lancement : prolonge la série de jours d'usage
         /// consécutifs, ou la fait repartir de un.</summary>

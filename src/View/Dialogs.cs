@@ -32,6 +32,13 @@ namespace Marabook.View
         public static void Prepare(Window window)
         {
             if (window == null) return;
+            // Le trait noir en bas et à droite de certains dialogues (22/09) :
+            // un contenu mesuré à une hauteur fractionnaire (214,92) donne un
+            // HWND arrondi au pixel supérieur dont le dernier rang n'est
+            // jamais peint — le compositeur y laisse du noir. La disposition
+            // arrondie au pixel rend la taille entière.
+            window.UseLayoutRounding = true;
+            window.SnapsToDevicePixels = true;
             Presize(window);
             window.SourceInitialized += delegate
             {

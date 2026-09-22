@@ -69,7 +69,9 @@ namespace Marabook.View
             panel.Children.Add(_status);
 
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
-            _install = Buttons.Text("Installer", "Télécharge le paquet publié sur GitHub et l'installe", Buttons.Bar, Buttons.Look.Primary);
+            _install = Buttons.Text("Installer",
+                Modules.DownloadsEnabled ? "Télécharge le paquet publié sur GitHub et l'installe" : "Téléchargeable dans une prochaine version",
+                Buttons.Bar, Buttons.Look.Primary);
             _install.Click += delegate { Install(); };
             buttons.Children.Add(_install);
             _remove = Buttons.Text("Désinstaller", "Retire le module ; les valeurs saisies restent dans le projet", Buttons.Bar, Buttons.Look.Outline);
@@ -104,7 +106,7 @@ namespace Marabook.View
         private void Sync()
         {
             _status.Text = "État : " + _state.Label;
-            _install.IsEnabled = _state.IsAvailable && !_state.Busy && (!_state.IsInstalled || _state.HasUpdate);
+            _install.IsEnabled = Modules.DownloadsEnabled && _state.IsAvailable && !_state.Busy && (!_state.IsInstalled || _state.HasUpdate);
             _install.Content = _state.HasUpdate ? "Mettre à jour" : "Installer";
             _remove.IsEnabled = _state.IsInstalled && !_state.Busy;
         }
