@@ -303,7 +303,7 @@ namespace Marabook.Model
                             Installed.Add(module);
                             if (module.HasCode) LoadCode(dir, module);
                         }
-                        catch { }
+                        catch (Exception error) { LastLoadError = error.GetType().Name + " : " + error.Message; }
                     }
             }
             catch { }
@@ -386,9 +386,32 @@ namespace Marabook.Model
         /// seule fois par session : recharger la même DLL n'a pas de sens).</summary>
         private static readonly HashSet<string> _loadedAssemblies = new HashSet<string>();
 
+        /// <summary>Le dernier échec de chargement d'un module (manifeste ou DLL) — pour les sondes et le panneau DLC.</summary>
+        public static string LastLoadError = "";
+
+        private static bool _resolverInstalled;
+
+        /// <summary>La DLL d'un module est compilée contre « Marabook » ; si le
+        /// processus hôte porte un autre nom d'assembly (les exécutables de
+        /// tests, qui compilent les mêmes sources), le chargeur reçoit
+        /// l'assembly courant à la place — sans quoi le premier échec de
+        /// chargement de type serait mémorisé par le CLR pour la session.</summary>
+        private static void EnsureResolver()
+        {
+            if (_resolverInstalled) return;
+            _resolverInstalled = true;
+            var self = typeof(Modules).Assembly;
+            if (self.GetName().Name == "Marabook") return;
+            AppDomain.CurrentDomain.AssemblyResolve += delegate(object sender, ResolveEventArgs args)
+            {
+                return args.Name == "Marabook" || args.Name.StartsWith("Marabook,", StringComparison.Ordinal) ? self : null;
+            };
+        }
+
         private static void LoadCode(string dir, ModuleInfo module)
         {
             if (Extensions.ModuleRegistry.Find(module.Id) != null) return;
+            EnsureResolver();
             var path = Path.GetFullPath(Path.Combine(dir, module.EntryAssembly.Replace('/', '\\')));
             if (!File.Exists(path)) throw new FileNotFoundException("DLL du module introuvable", path);
             var assembly = System.Reflection.Assembly.LoadFrom(path); // la même DLL rend le même assembly

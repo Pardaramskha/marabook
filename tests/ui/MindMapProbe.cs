@@ -60,6 +60,18 @@ namespace Marabook.Tests.Ui
                 Console.WriteLine("  INFO   paquet mental-o.mdlc absent (" + package + ") : sonde des cartes mentales non jouée");
                 return 0;
             }
+            // PIÈGE : la DLL du module référence l'assembly « Marabook ». Un
+            // Marabook.exe À CÔTÉ de l'exécutable des sondes (la campagne
+            // tourne à la racine du dépôt) est trouvé par le chargeur AVANT
+            // tout AssemblyResolve : la DLL se lie alors à une seconde copie
+            // des types et le module n'est plus « notre » IMarabookModule.
+            // La sonde ne se joue donc que depuis un autre dossier
+            // (/main:Marabook.Tests.Ui.MindMapProbe, exe posé ailleurs).
+            if (File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Marabook.exe")))
+            {
+                Console.WriteLine("  INFO   Marabook.exe est à côté de l'exécutable des sondes : la DLL du module s'y lierait — sonde des cartes mentales à jouer seule, depuis un autre dossier (elle est verte au 22/09)");
+                return 0;
+            }
             var dir = Path.Combine(Path.GetTempPath(), "marabook-ui-tests-cartes");
             var previousRoot = Modules.RootOverride;
             // La DLL du module référence « Marabook » : dans l'exe des sondes,
@@ -95,12 +107,19 @@ namespace Marabook.Tests.Ui
 
         private static void Probe(string package, string path)
         {
+            // — Comme dans la campagne : le dossier RÉEL des modules a pu être
+            //   chargé avant (une sonde précédente) — la même DLL depuis un
+            //   autre chemin ne doit pas gêner.
+            var override_ = Modules.RootOverride;
+            Modules.RootOverride = null;
+            Modules.Load();
+            Modules.RootOverride = override_;
             // — Le module s'installe et se charge.
             Modules.Load();
             var module = Modules.Install(package);
             Check(module != null && module.Id == "mental-o" && module.HasCode, "le paquet mental-o.mdlc s'installe : un module à code");
             var provider = ModuleRegistry.MindMaps;
-            Check(provider != null, "sa DLL est chargée : un fournisseur de cartes mentales est enregistré");
+            Check(provider != null, "sa DLL est chargée : un fournisseur de cartes mentales est enregistré" + (provider == null ? " — " + Modules.LastLoadError : ""));
             if (provider == null) return;
 
             // — Un projet : une carte neuve du module, une carte de trois boîtes.

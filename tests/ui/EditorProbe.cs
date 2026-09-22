@@ -127,9 +127,10 @@ namespace Marabook.Tests.Ui
             // — La Pile : Dictionnaire entre Fiches et Corbeille.
             var roots = opened.Roots;
             var dictionary = opened.Category(Project.KeyDictionary);
-            Check(dictionary != null && roots.IndexOf(dictionary) == roots.IndexOf(opened.Category(Project.KeyPlans)) + 1
+            Check(dictionary != null && roots.IndexOf(dictionary) == roots.IndexOf(opened.Category(Project.KeyMindMaps)) + 1
+                && roots.IndexOf(opened.Category(Project.KeyMindMaps)) == roots.IndexOf(opened.Category(Project.KeyPlans)) + 1
                 && roots.IndexOf(dictionary) == roots.IndexOf(opened.Trash) - 1,
-                "la racine Dictionnaire est entre Plans et Corbeille");
+                "la racine Dictionnaire est entre Cartes mentales (après Plans, 22/09) et Corbeille");
 
             // — L'écrit : notes en place.
             BinderItem target = null;
