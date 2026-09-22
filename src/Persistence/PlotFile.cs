@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -309,9 +309,7 @@ namespace Marabook.Persistence
             manifest["version"] = FormatVersion;
             manifest["name"] = project.Name;
             manifest["author"] = project.Author;
-            manifest["separatorText"] = project.SeparatorText;
-            if (project.SeparatorFont != null) manifest["separatorFont"] = project.SeparatorFont;
-            manifest["separatorSizePt"] = project.SeparatorSizePt;
+            if (project.GlobalStylesStamp.Length > 0) manifest["globalStylesStamp"] = project.GlobalStylesStamp; // v28
             if (project.CustomColors.Count > 0)
                 manifest["customColors"] = new List<object>(project.CustomColors.ToArray());
             if (project.HyphenExceptions.Count > 0)
@@ -582,7 +580,7 @@ namespace Marabook.Persistence
             return node;
         }
 
-        private static Dictionary<string, object> BuildStyles(StyleSheet sheet)
+        public static Dictionary<string, object> BuildStyles(StyleSheet sheet)
         {
             var root = new Dictionary<string, object>();
             var list = new List<object>();
@@ -591,6 +589,9 @@ namespace Marabook.Persistence
                 var s = new Dictionary<string, object>();
                 s["id"] = style.Id;
                 s["name"] = style.Name;
+                if (style.Scope != ParagraphStyle.ScopeGlobal) s["scope"] = style.Scope; // v28
+                if (style.OwnerId != null) s["owner"] = style.OwnerId;
+                if (style.Content != null) s["content"] = style.Content;
                 s["font"] = style.FontFamily;
                 s["size"] = style.FontSize;
                 if (style.Bold) s["bold"] = true;
@@ -803,9 +804,12 @@ namespace Marabook.Persistence
                     project.ReadOnlyNewerFormat = true;
                 project.Name = Json.AsString(Json.Field(manifest, "name")) ?? "Sans titre";
                 project.Author = Json.AsString(Json.Field(manifest, "author")) ?? "";
-                project.SeparatorText = Json.AsString(Json.Field(manifest, "separatorText")) ?? "***";
-                project.SeparatorFont = Json.AsString(Json.Field(manifest, "separatorFont"));
-                project.SeparatorSizePt = Json.AsDouble(Json.Field(manifest, "separatorSizePt"), 12);
+                project.GlobalStylesStamp = Json.AsString(Json.Field(manifest, "globalStylesStamp")) ?? "";
+                // Le séparateur de scène d'avant la v28 (texte, police, taille
+                // du manifeste) devient le style « separator » s'il manque.
+                var legacySeparatorText = Json.AsString(Json.Field(manifest, "separatorText"));
+                var legacySeparatorFont = Json.AsString(Json.Field(manifest, "separatorFont"));
+                var legacySeparatorSize = Json.AsDouble(Json.Field(manifest, "separatorSizePt"), 0);
                 var customColors = Json.AsList(Json.Field(manifest, "customColors"));
                 if (customColors != null)
                     foreach (var entry in customColors)
@@ -895,6 +899,7 @@ namespace Marabook.Persistence
                         Warn(warnings, "Feuille de styles illisible ("
                             + error.Message + ") : styles par défaut appliqués.");
                     }
+                project.Styles.EnsureSeparator(legacySeparatorText, legacySeparatorFont, legacySeparatorSize); // v28
 
                 var templatesEntry = archive.GetEntry("sheets/templates.json");
                 if (templatesEntry != null)
@@ -999,10 +1004,17 @@ namespace Marabook.Persistence
                 return reader.ReadToEnd();
         }
 
-        private static StyleSheet ReadStyles(string json)
+        public static StyleSheet ReadStyles(string json)
+        {
+            return ReadStylesNode(Json.Parse(json));
+        }
+
+        /// <summary>La feuille depuis son nœud JSON ({"styles": […]}) — le
+        /// même pour styles.json et pour les styles globaux de settings.json.</summary>
+        public static StyleSheet ReadStylesNode(object root)
         {
             var sheet = new StyleSheet();
-            var list = Json.AsList(Json.Field(Json.Parse(json), "styles"));
+            var list = Json.AsList(Json.Field(root, "styles"));
             if (list != null)
                 foreach (var entry in list)
                 {
@@ -1012,6 +1024,9 @@ namespace Marabook.Persistence
                     var id = Json.AsString(Json.Field(s, "id"));
                     if (!string.IsNullOrEmpty(id)) style.Id = id;
                     style.Name = Json.AsString(Json.Field(s, "name")) ?? "Style";
+                    style.Scope = Json.AsString(Json.Field(s, "scope")) ?? ParagraphStyle.ScopeGlobal; // v28
+                    style.OwnerId = Json.AsString(Json.Field(s, "owner"));
+                    style.Content = Json.AsString(Json.Field(s, "content"));
                     style.FontFamily = Json.AsString(Json.Field(s, "font")) ?? "Georgia";
                     style.FontSize = Json.AsDouble(Json.Field(s, "size"), 15);
                     style.Bold = Json.AsBool(Json.Field(s, "bold"), false);

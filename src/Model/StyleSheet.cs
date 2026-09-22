@@ -13,8 +13,34 @@ namespace Marabook.Model
     /// 4b print composer.</summary>
     public class ParagraphStyle
     {
+        public const string ScopeGlobal = "global";     // Préférences › Styles globaux : tous les projets
+        public const string ScopeBook = "book";         // l'onglet Styles d'un livre
+        public const string ScopeDocument = "document"; // un seul écrit
+
         public string Id = Guid.NewGuid().ToString("N");
         public string Name = "Style";
+
+        // --- Portée (22/09, v28) ---
+        public string Scope = ScopeGlobal;
+        public string OwnerId;   // id du livre (book) ou de l'écrit (document) ; null en global
+        // Un style SÉPARATEUR (22/09) : ce texte est inséré d'un clic depuis
+        // le bouton du ruban, dans un paragraphe qui porte ce style. Null pour
+        // un style de paragraphe ordinaire.
+        public string Content;
+
+        public bool IsSeparator { get { return Content != null; } }
+        public bool IsGlobal { get { return Scope != ScopeBook && Scope != ScopeDocument; } }
+
+        /// <summary>Vrai si ce style vaut pour l'écrit donné : global, du
+        /// livre qui le contient, ou du document lui-même.</summary>
+        public bool AppliesTo(BinderItem item)
+        {
+            if (IsGlobal) return true;
+            if (item == null) return false;
+            if (Scope == ScopeDocument) return OwnerId == item.Id;
+            var book = item.Kind == ItemKind.Book ? item : item.EnclosingBook();
+            return book != null && OwnerId == book.Id;
+        }
 
         // --- Caractère ---
         public string FontFamily = "Times New Roman";
@@ -69,6 +95,11 @@ namespace Marabook.Model
     /// fallback for unknown style ids (e.g. a style deleted after use).</summary>
     public class StyleSheet
     {
+        /// <summary>L'identifiant du séparateur de scène global : le
+        /// paragraphe d'un séparateur porte toujours cet id, le livre peut le
+        /// remplacer (EffectiveFor).</summary>
+        public const string SeparatorId = "separator";
+
         public List<ParagraphStyle> Styles = new List<ParagraphStyle>();
 
         public ParagraphStyle Body { get { return Find("body"); } }
@@ -80,6 +111,83 @@ namespace Marabook.Model
             foreach (var style in Styles)
                 if (style.Id == "body") return style;
             return Styles.Count > 0 ? Styles[0] : null;
+        }
+
+        /// <summary>Les styles offerts à un écrit, séparateurs exclus :
+        /// globaux, ceux de son livre, les siens.</summary>
+        public List<ParagraphStyle> VisibleFor(BinderItem item)
+        {
+            var list = new List<ParagraphStyle>();
+            foreach (var style in Styles)
+                if (!style.IsSeparator && style.AppliesTo(item)) list.Add(style);
+            return list;
+        }
+
+        /// <summary>Le séparateur de scène en vigueur pour un écrit : celui
+        /// de son livre s'il en a un, sinon le global ; un séparateur de
+        /// secours si le projet n'en a aucun.</summary>
+        public ParagraphStyle SeparatorFor(BinderItem item)
+        {
+            var book = item == null ? null : item.Kind == ItemKind.Book ? item : item.EnclosingBook();
+            if (book != null)
+                foreach (var style in Styles)
+                    if (style.IsSeparator && style.Scope == ParagraphStyle.ScopeBook && style.OwnerId == book.Id) return style;
+            foreach (var style in Styles)
+                if (style.IsSeparator && style.IsGlobal) return style;
+            return DefaultSeparator();
+        }
+
+        /// <summary>La feuille telle qu'un écrit la voit : la même, sauf si
+        /// son livre remplace le séparateur global — alors une copie où le
+        /// séparateur du livre prend l'id « separator » (les paragraphes
+        /// déjà insérés suivent le nouveau format).</summary>
+        public StyleSheet EffectiveFor(BinderItem item)
+        {
+            var separator = SeparatorFor(item);
+            if (separator.Scope != ParagraphStyle.ScopeBook) return this;
+            var copy = new StyleSheet();
+            foreach (var style in Styles)
+            {
+                if (style.Id == SeparatorId) continue;
+                if (style == separator)
+                {
+                    var swapped = style.Clone();
+                    swapped.Id = SeparatorId;
+                    copy.Styles.Add(swapped);
+                }
+                else copy.Styles.Add(style);
+            }
+            return copy;
+        }
+
+        /// <summary>Le séparateur global, créé s'il manque (projets d'avant
+        /// la v28 : depuis les anciens réglages du projet).</summary>
+        public ParagraphStyle EnsureSeparator(string text, string font, double sizePt)
+        {
+            foreach (var style in Styles)
+                if (style.IsSeparator && style.IsGlobal) return style;
+            var separator = DefaultSeparator();
+            if (!string.IsNullOrEmpty(text)) separator.Content = text;
+            if (!string.IsNullOrEmpty(font)) separator.FontFamily = font;
+            if (sizePt > 0) separator.FontSize = sizePt * 4.0 / 3.0;
+            Styles.Add(separator);
+            return separator;
+        }
+
+        public static ParagraphStyle DefaultSeparator()
+        {
+            return new ParagraphStyle
+            {
+                Id = SeparatorId,
+                Name = "Séparateur de scène",
+                Content = "***",
+                Align = "center",
+                FirstLineIndent = 0,
+                SpaceBefore = 12,
+                SpaceAfter = 12,
+                HyphenationEnabled = false,
+                KeepWithPrevious = false
+            };
         }
 
         public StyleSheet Clone()
@@ -133,6 +241,7 @@ namespace Marabook.Model
                 SpaceAfter = 8,
                 FirstLineIndent = 0
             });
+            sheet.Styles.Add(DefaultSeparator()); // le séparateur de scène (22/09)
             return sheet;
         }
     }

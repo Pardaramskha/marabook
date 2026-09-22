@@ -60,7 +60,6 @@ namespace Marabook.Settings
             new ActionDefinition("insert-rule", "Format", "Ligne horizontale", null),
             new ActionDefinition("insert-separator", "Format", "Séparateur de scène", null),
             new ActionDefinition("page-break", "Mise en page", "Saut de page", "Ctrl+Return"),
-            new ActionDefinition("project-settings", "Fichier", "Paramètres du projet", null),
             new ActionDefinition("preferences", "Fichier", "Préférences de l'application", null),
             new ActionDefinition("print-preview", "Fichier", "Aperçu des pages", "Ctrl+Alt+P"),
             new ActionDefinition("print", "Fichier", "Imprimer", "Ctrl+P"),
@@ -90,6 +89,16 @@ namespace Marabook.Settings
         // le mode classique (RichTextBox) a été retiré le 13/09.
         public static bool DraftView; // axe d'affichage : Brouillon plutôt que Pages
         public static string AccentColor;    // "#RRGGBB", null = default indigo
+        // Les styles globaux (22/09) : la feuille de Préférences › Styles
+        // globaux (séparateur de scène compris) et son empreinte — null tant
+        // qu'aucun projet ne l'a semée (Settings.GlobalStyles).
+        public static Model.StyleSheet GlobalStyles;
+        public static string GlobalStylesStamp = "";
+        // Préférences › Auteur (22/09) : l'auteur·ice par défaut des documents
+        // qui ne sont pas des livres, et les métadonnées générales par défaut.
+        public static string DefaultAuthor = "";
+        public static string DefaultPublisher = "";
+        public static string DefaultCollection = "";
         public static bool WhitePaperInDark; // keep white pages under the dark theme
         public static bool StatsExpanded;    // « Statistiques » accordion of the inspector
         public static bool ShowAnnotations = true; // teintes + bulles de révision
@@ -209,6 +218,15 @@ namespace Marabook.Settings
             return definition == null ? null : definition.DefaultGesture;
         }
 
+        /// <summary>Les défauts de l'auteur, recopiés vers le modèle (qui ne
+        /// lit jamais les réglages).</summary>
+        public static void PublishDefaults()
+        {
+            Model.Defaults.Author = DefaultAuthor ?? "";
+            Model.Defaults.Publisher = DefaultPublisher ?? "";
+            Model.Defaults.Collection = DefaultCollection ?? "";
+        }
+
         public static void Load()
         {
             try
@@ -249,6 +267,13 @@ namespace Marabook.Settings
                 ShowRulers = Json.AsBool(Json.Field(root, "rulers"), false);
                 DraftView = Json.AsBool(Json.Field(root, "draftView"), false);
                 AccentColor = Json.AsString(Json.Field(root, "accentColor"));
+                var globalStyles = Json.Field(root, "globalStyles");
+                GlobalStyles = globalStyles != null ? Persistence.PlotFile.ReadStylesNode(globalStyles) : null;
+                GlobalStylesStamp = Json.AsString(Json.Field(root, "globalStylesStamp")) ?? "";
+                DefaultAuthor = Json.AsString(Json.Field(root, "defaultAuthor")) ?? "";
+                DefaultPublisher = Json.AsString(Json.Field(root, "defaultPublisher")) ?? "";
+                DefaultCollection = Json.AsString(Json.Field(root, "defaultCollection")) ?? "";
+                PublishDefaults();
                 WhitePaperInDark = Json.AsBool(Json.Field(root, "whitePaperInDark"), false);
                 StatsExpanded = Json.AsBool(Json.Field(root, "statsExpanded"), false);
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
@@ -353,6 +378,12 @@ namespace Marabook.Settings
                 root["rulers"] = ShowRulers;
                 root["draftView"] = DraftView;
                 if (AccentColor != null) root["accentColor"] = AccentColor;
+                if (GlobalStyles != null) root["globalStyles"] = Persistence.PlotFile.BuildStyles(GlobalStyles);
+                if (GlobalStylesStamp.Length > 0) root["globalStylesStamp"] = GlobalStylesStamp;
+                if (DefaultAuthor.Length > 0) root["defaultAuthor"] = DefaultAuthor;
+                if (DefaultPublisher.Length > 0) root["defaultPublisher"] = DefaultPublisher;
+                if (DefaultCollection.Length > 0) root["defaultCollection"] = DefaultCollection;
+                PublishDefaults();
                 root["whitePaperInDark"] = WhitePaperInDark;
                 root["statsExpanded"] = StatsExpanded;
                 root["showAnnotations"] = ShowAnnotations;

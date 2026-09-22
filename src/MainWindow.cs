@@ -291,7 +291,6 @@ namespace Marabook
             file.Items.Add(Entry("save", "Enregistrer", DoSave));
             file.Items.Add(Entry("save-as", "Enregistrer sous…", DoSaveAs));
             file.Items.Add(new Separator());
-            file.Items.Add(Entry("project-settings", "Paramètres du projet…", OpenProjectSettings));
             file.Items.Add(Entry("preferences", "Préférences…", OpenPreferences));
             file.Items.Add(new Separator());
             file.Items.Add(Entry("print-preview", "Aperçu des pages", ShowPrintPreview, TextOrSheetActive));
@@ -1665,6 +1664,9 @@ namespace Marabook
 
         private void LoadProject(Project project, string path)
         {
+            // Les styles globaux (22/09) : le projet se met d'accord avec les
+            // réglages avant que quiconque lise sa feuille.
+            GlobalStyles.Sync(project);
             _project = project;
             _path = path;
             _current = null;
@@ -2709,7 +2711,6 @@ namespace Marabook
             CommitActive();
             var request = CompileDialog.Show(this, _project);
             if (request == null) return;
-            MarkDirty(); // the dialog may have set the author
             var manuscript = Exchange.Compiler.Build(_project, request.Root, request.Options);
             ExportDocument(manuscript, _project.Name);
         }
@@ -2729,11 +2730,13 @@ namespace Marabook
             try
             {
                 var ext = Path.GetExtension(path).ToLowerInvariant();
-                if (ext == ".docx") Exchange.Docx.Export(document, _project.Styles, path, _project.Page, _project.Author); // annotations → commentaires Word (b49)
+                var exportStyles = _project.Styles.EffectiveFor(_current); // le séparateur du livre (22/09)
+                var commentsAuthor = Defaults.Or(_project.Author, Defaults.Author); // Préférences › Auteur (22/09)
+                if (ext == ".docx") Exchange.Docx.Export(document, exportStyles, path, _project.Page, commentsAuthor); // annotations → commentaires Word (b49)
                 else if (ext == ".odt")
-                    Exchange.Odt.Export(Exchange.Compiler.FlattenLists(document), _project.Styles, path);
+                    Exchange.Odt.Export(Exchange.Compiler.FlattenLists(document), exportStyles, path);
                 else if (ext == ".rtf")
-                    Exchange.Rtf.Export(Exchange.Compiler.FlattenRules(document), _project.Styles, path, _project);
+                    Exchange.Rtf.Export(Exchange.Compiler.FlattenRules(document), exportStyles, path, _project);
                 else if (ext == ".md")
                     File.WriteAllText(path, Exchange.MarkdownExchange.Export(document), new System.Text.UTF8Encoding(false));
                 else
@@ -2762,14 +2765,23 @@ namespace Marabook
         private void OpenStylesDialog()
         {
             CommitActive();
-            var edited = StylesDialog.Show(this, _project.Styles);
+            var edited = StylesDialog.Show(this, _project.Styles, StyleScopeContext.ForItem(_project, _current));
             if (edited == null) return;
             _project.Styles = edited;
-            _editor.SetStyleSheet(edited);
-            _editor.Reload();
-            _sheetView.SetStyleSheet(edited);
-            _sheetView.ReloadBody();
+            ApplyStyleSheet();
             MarkDirty();
+        }
+
+        /// <summary>La feuille du projet a changé (dialogue, onglet Styles du
+        /// livre, Préférences) : les styles globaux remontent aux réglages,
+        /// l'éditeur et les fiches se rechargent.</summary>
+        private void ApplyStyleSheet()
+        {
+            GlobalStyles.Push(_project);
+            _editor.SetStyleSheet(_project.Styles);
+            _editor.Reload();
+            _sheetView.SetStyleSheet(_project.Styles);
+            _sheetView.ReloadBody();
         }
 
         private void OpenTemplatesDialog()
@@ -2805,10 +2817,9 @@ namespace Marabook
             else if (what == "separator") { if (sheet) _sheetView.InsertSeparator(); else _editor.InsertSeparator(); }
         }
 
-        private void OpenProjectSettings()
-        {
-            if (View.ProjectSettingsDialog.Show(this, _project)) MarkDirty();
-        }
+        // « Paramètres du projet » a disparu le 22/09 : l'auteur vit dans
+        // Préférences › Auteur (et par livre), le séparateur de scène est un
+        // style (Préférences › Styles globaux, ou l'onglet Styles du livre).
 
         // ============================================================= printing (phase 4a)
 
@@ -2864,7 +2875,7 @@ namespace Marabook
                     ? ComputeFolioOffset(_current) : 0;
                 var decor = _current != null && _current.Kind == ItemKind.Text
                     ? PageDecor.For(_current, _project) : null;
-                Print.Printing.ShowPreview(this, document, _project.Styles, _project,
+                Print.Printing.ShowPreview(this, document, _project.Styles.EffectiveFor(_current), _project,
                     name, setup, offset, decor);
             }
             catch (Exception error)
@@ -2886,7 +2897,7 @@ namespace Marabook
                     ? ComputeFolioOffset(_current) : 0;
                 var decor = _current != null && _current.Kind == ItemKind.Text
                     ? PageDecor.For(_current, _project) : null;
-                Print.Printing.Print(document, _project.Styles, _project,
+                Print.Printing.Print(document, _project.Styles.EffectiveFor(_current), _project,
                     AppName + " — " + name, setup, offset, decor);
                 UnlockAchievement(Achievements.OldSchool); // « À l'ancienne »
             }
@@ -2920,12 +2931,12 @@ namespace Marabook
         /// fichier temporaire et l'ouvre dans la visionneuse du système —
         /// boîtes, fond perdu, traits et imposition compris.</summary>
         private bool PreviewPdf(TextDocument document, PageSetup setup, string name,
-            Print.PdfExportOptions options, PageDecor decor, int folioOffset)
+            Print.PdfExportOptions options, PageDecor decor, int folioOffset, StyleSheet styles = null)
         {
             try
             {
                 var composition = Print.Composer.Compose(
-                    document, _project.Styles, setup, _project);
+                    document, styles ?? _project.Styles.EffectiveFor(_current), setup, _project);
                 composition.DefaultDecor = decor;
                 composition.FolioOffset = folioOffset;
                 var path = Path.Combine(Path.GetTempPath(),
@@ -2981,7 +2992,7 @@ namespace Marabook
             try
             {
                 var composition = Print.Composer.Compose(Links.Strip(text.Document),
-                    _project.Styles, text.Page ?? _project.Page, _project);
+                    _project.Styles.EffectiveFor(text), text.Page ?? _project.Page, _project);
                 pages = Math.Max(1, composition.Pages.Count);
             }
             catch { pages = 1; }
@@ -3382,10 +3393,10 @@ namespace Marabook
             });
             var options = View.PdfExportDialog.Ask(this, book.Title, true, book.Book.BleedMm,
                 delegate(Print.PdfExportOptions o)
-                { return PreviewPdf(document, book.Book.Template, book.Title, o, null, 0); });
+                { return PreviewPdf(document, book.Book.Template, book.Title, o, null, 0, _project.Styles.EffectiveFor(book)); });
             if (options == null) return;
             // « Complétionniste » (12/09) : le PDF d'un livre fini à 100 %.
-            if (WritePdf(document, book.Book.Template, book.Title, options))
+            if (WritePdf(document, book.Book.Template, book.Title, options, null, 0, _project.Styles.EffectiveFor(book)))
             {
                 if (Achievements.IsBookComplete(_project, book)) UnlockAchievement(Achievements.Completionist);
                 if (Achievements.IsMinimalist(book)) UnlockAchievement(Achievements.Minimalist);
@@ -3394,7 +3405,7 @@ namespace Marabook
 
         /// <summary>True quand le fichier a été écrit (dialogue confirmé, pas d'erreur).</summary>
         private bool WritePdf(TextDocument document, PageSetup setup, string name,
-            Print.PdfExportOptions options, PageDecor decor = null, int folioOffset = 0)
+            Print.PdfExportOptions options, PageDecor decor = null, int folioOffset = 0, StyleSheet styles = null)
         {
             var dialog = new Microsoft.Win32.SaveFileDialog
             {
@@ -3406,7 +3417,7 @@ namespace Marabook
             try
             {
                 var composition = Print.Composer.Compose(
-                    document, _project.Styles, setup, _project);
+                    document, styles ?? _project.Styles.EffectiveFor(_current), setup, _project);
                 composition.DefaultDecor = decor;
                 composition.FolioOffset = folioOffset;
                 Print.PdfWriter.Write(dialog.FileName, composition, options);
@@ -4198,6 +4209,7 @@ namespace Marabook
         {
             Chrome.Toggle(AppSettings.DarkTheme);
             Theme.Switch(Application.Current, AppSettings.DarkTheme);
+            if (_darkMenu != null) _darkMenu.IsChecked = AppSettings.DarkTheme; // le commutateur des Préférences (22/09)
         }
 
         private void OpenPreferences()
@@ -4213,6 +4225,20 @@ namespace Marabook
                 ScheduleAchievementCheck(); // « Sur-stimulation »
             };
             dialog.ShortcutsChanged += RefreshShortcuts;
+            // Styles globaux édités dans les Préférences (22/09) : le projet
+            // ouvert les reprend aussitôt.
+            dialog.GlobalStylesChanged += delegate
+            {
+                if (_project == null) return;
+                if (GlobalStyles.PushFromSettings(_project))
+                {
+                    _editor.SetStyleSheet(_project.Styles);
+                    _editor.Reload();
+                    _sheetView.SetStyleSheet(_project.Styles);
+                    _sheetView.ReloadBody();
+                    MarkDirty();
+                }
+            };
             Dialogs.ShowModal(dialog);
         }
 

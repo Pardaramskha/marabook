@@ -445,6 +445,7 @@ namespace Marabook.Model
             var weekAgo = now.AddDays(-7).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var authors = new HashSet<string>();
             if (Filled(project.Author)) authors.Add(Correction.FrenchTokenizer.Fold(project.Author.Trim()));
+            if (Filled(Defaults.Author)) authors.Add(Correction.FrenchTokenizer.Fold(Defaults.Author.Trim())); // l'auteur par défaut (22/09)
             var seen = new HashSet<string>();
 
             foreach (var item in project.AllItems())

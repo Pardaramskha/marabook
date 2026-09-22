@@ -331,7 +331,7 @@ namespace Marabook.View
                 var plain = _draftView || _calm;
                 _composed.FolioOffset = plain ? 0 : FolioOffset;
                 _composed.Decor = plain ? null : Decor;
-                _composed.Attach(_item, _styles,
+                _composed.Attach(_item, _styles.EffectiveFor(_item), // le séparateur du livre, s'il en a un (22/09)
                     _calm ? CalmSetup(_pageSetup) : _draftView ? DraftSetup(_pageSetup) : _pageSetup,
                     _project);
                 _composed.Visibility = Visibility.Visible;
@@ -1824,20 +1824,45 @@ namespace Marabook.View
         public void SetStyleSheet(StyleSheet styles)
         {
             _styles = styles;
+            RefreshStyleCombo();
+        }
+
+        /// <summary>Le combo des styles pour l'écrit ouvert (22/09) : les
+        /// globaux, ceux de son livre, les siens — jamais les séparateurs —
+        /// chacun dans sa police, avec l'icône de sa portée.</summary>
+        private void RefreshStyleCombo()
+        {
+            if (_styles == null || _styleCombo == null) return;
             _syncing = true;
             _styleCombo.Items.Clear();
-            foreach (var style in styles.Styles)
-                _styleCombo.Items.Add(new ComboBoxItem
+            foreach (var style in _styles.VisibleFor(_item))
+            {
+                var label = new TextBlock
                 {
-                    // Each entry previews its style's font — nothing else.
-                    Content = new TextBlock
-                    {
-                        Text = style.Name,
-                        FontFamily = new FontFamily(style.FontFamily)
-                    },
-                    Tag = style.Id
-                });
+                    Text = style.Name,
+                    FontFamily = new FontFamily(style.FontFamily),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                var row = new StackPanel { Orientation = Orientation.Horizontal };
+                var icon = StylesPanel.ScopeIcon(style, 10);
+                if (icon != null) row.Children.Add(icon);
+                row.Children.Add(label);
+                _styleCombo.Items.Add(new ComboBoxItem { Content = row, Tag = style.Id });
+            }
             _syncing = false;
+        }
+
+        /// <summary>Le libellé d'une entrée du combo des styles.</summary>
+        private static TextBlock StyleLabelOf(ComboBoxItem entry)
+        {
+            var row = entry == null ? null : entry.Content as StackPanel;
+            if (row == null) return null;
+            foreach (var child in row.Children)
+            {
+                var label = child as TextBlock;
+                if (label != null) return label;
+            }
+            return null;
         }
 
         /// <summary>Binds the editor to the open project (image store).</summary>
@@ -1878,6 +1903,7 @@ namespace Marabook.View
             // paragraphes de l'ancien document n'ont plus de sens (lot A).
             _checkHost.CancelDeferred();
             _item = item;
+            RefreshStyleCombo(); // les styles de CET écrit (portées, 22/09)
             SyncPageTab();
             HideSearch();
             AttachComposed();
@@ -2003,33 +2029,26 @@ namespace Marabook.View
             _composed.InsertElementAtCaret(new TextRun { IsRule = true });
         }
 
-        /// <summary>Inserts the project's scene separator ("***" by default,
-        /// centered; text/font/size live in the project settings): its own
-        /// centered paragraph, then a clean continuation one.</summary>
+        /// <summary>Insère le séparateur de scène (22/09) : un paragraphe
+        /// portant le STYLE « separator » (celui du livre s'il en a un, sinon
+        /// le global) et son contenu, puis un paragraphe de suite dans le
+        /// style d'avant. Rien n'est posé en écart local : changer le style
+        /// change tous les séparateurs déjà insérés.</summary>
         public void InsertSeparator()
         {
             if (_item == null || !ComposedActive) return;
-            var text = _project == null || string.IsNullOrEmpty(_project.SeparatorText)
-                ? "***" : _project.SeparatorText;
-            var font = _project != null && _project.SeparatorFont != null
-                ? _project.SeparatorFont : _styles.Body.FontFamily;
-            var sizePt = _project != null ? _project.SeparatorSizePt : 12;
+            var separator = _styles.SeparatorFor(_item);
+            var text = separator.Content ?? "***";
+            int before, beforeOffset;
+            _composed.GetCaret(out before, out beforeOffset);
+            var previous = before < _item.Document.Paragraphs.Count ? _item.Document.Paragraphs[before].StyleId : "body";
+            if (previous == StyleSheet.SeparatorId) previous = "body";
 
             _composed.InsertParagraphBreak();
-            int paragraph, offset;
-            _composed.GetCaret(out paragraph, out offset);
+            _composed.ApplyStyle(StyleSheet.SeparatorId);
             _composed.TypeText(text);
-            _composed.PlaceCaret(paragraph, 0, false);
-            _composed.PlaceCaret(paragraph, text.Length, true);
-            _composed.ApplyFont(font);
-            _composed.ApplySizePx(Math.Max(6, sizePt * 4.0 / 3.0));
-            _composed.PlaceCaret(paragraph, text.Length, false);
-            _composed.ApplyAlign("center");
             _composed.InsertParagraphBreak();
-            int after, afterOffset;
-            _composed.GetCaret(out after, out afterOffset);
-            var style = _styles.Find(_item.Document.Paragraphs[after].StyleId);
-            _composed.ApplyAlign(style.Align); // clears the inherited centering
+            _composed.ApplyStyle(previous);
             _composed.Focus();
         }
 

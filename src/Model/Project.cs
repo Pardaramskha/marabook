@@ -33,11 +33,15 @@ namespace Marabook.Model
         public bool ReadOnlyNewerFormat;
         public int LoadedFormatVersion;
 
-        // Scene separator (Format bar + project settings). A null font means
-        // "use the body style's font".
-        public string SeparatorText = "***";
-        public string SeparatorFont;
-        public double SeparatorSizePt = 12;
+        // Le séparateur de scène est un STYLE depuis le 22/09 (v28) :
+        // StyleSheet.SeparatorId, remplaçable par livre. Les anciens champs
+        // separatorText/Font/SizePt du manifeste migrent au chargement.
+
+        // L'empreinte de la feuille de styles globaux avec laquelle ce projet
+        // a été synchronisé pour la dernière fois (22/09) : différente de
+        // celle des réglages = les styles globaux ont changé ailleurs, le
+        // projet les reprend à l'ouverture (Settings.GlobalStyles).
+        public string GlobalStylesStamp = "";
 
         // Custom text/highlight colors, shared by the whole project (hex).
         public List<string> CustomColors = new List<string>();

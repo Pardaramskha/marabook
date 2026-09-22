@@ -10,17 +10,16 @@ using Marabook.Settings;
 namespace Marabook.View
 {
     /// <summary>Application preferences (Fichier → Préférences…), applied live.
-    /// First tab « Personnalisation » : accent color of the whole interface and
-    /// the « white paper under the dark theme » option. Everything is stored in
-    /// AppSettings (per user, all projects).</summary>
+    /// Onglets (22/09) : Personnalisation (accent, mode sombre, papier blanc),
+    /// Édition, Correction, Styles globaux (la feuille de tous les projets et
+    /// le séparateur de scène global), Auteur (l'auteur·ice et les métadonnées
+    /// par défaut), Raccourcis, DLC. Tous les onglets ont la même largeur.
+    /// Everything is stored in AppSettings (per user, all projects).</summary>
     public class PreferencesDialog : Window
     {
         /// <summary>Raised whenever appearance changed — the main window
         /// re-applies Chrome + Theme and refreshes what needs it.</summary>
         public event Action AppearanceChanged;
-
-        /// <summary>Le mode de compatibilité a changé : la fenêtre principale
-        /// recharge le document ouvert sur la bonne surface.</summary>
 
         /// <summary>Un dictionnaire personnel a changé : l'éditeur doit
         /// oublier ses verdicts en cache et revérifier.</summary>
@@ -30,10 +29,14 @@ namespace Marabook.View
         /// fenêtre principale reconstruit menus et KeyBindings.</summary>
         public event Action ShortcutsChanged;
 
+        /// <summary>Les styles globaux ont été édités (22/09) : le projet
+        /// ouvert les reprend.</summary>
+        public event Action GlobalStylesChanged;
+
         private readonly Model.Project _project; // null : aucun projet ouvert
 
         private readonly WrapPanel _swatches;
-        private CheckBox _whitePaper;
+        private CheckBox _whitePaper, _darkCheck;
 
         // Accents proposés : l'indigo maison puis des teintes sages, toutes
         // lisibles en clair comme en sombre (le pas sombre est dérivé).
@@ -59,39 +62,21 @@ namespace Marabook.View
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             // Taille UNIQUE pour tous les onglets (b43) — fini la fenêtre qui
             // change de taille à chaque onglet.
-            Width = 720;
-            Height = 640;
+            Width = 760;
+            Height = 660;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
             Background = Chrome.RaisedBg;
 
             var tabs = new TabControl { Margin = new Thickness(10) };
-            _swatches = new WrapPanel { MaxWidth = 330 };
-            tabs.Items.Add(new TabItem
-            {
-                Header = "Personnalisation",
-                Content = Scrolled(BuildPersonalizationTab())
-            });
-            tabs.Items.Add(new TabItem
-            {
-                Header = "Édition",
-                Content = Scrolled(BuildEditingTab())
-            });
-            tabs.Items.Add(new TabItem
-            {
-                Header = "Correction",
-                Content = Scrolled(BuildProofingTab())
-            });
-            tabs.Items.Add(new TabItem
-            {
-                Header = "Raccourcis",
-                Content = Scrolled(BuildShortcutsTab())
-            });
-            tabs.Items.Add(new TabItem
-            {
-                Header = "DLC",
-                Content = Scrolled(BuildModulesTab())
-            });
+            _swatches = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Left };
+            tabs.Items.Add(Tab("Personnalisation", BuildPersonalizationTab()));
+            tabs.Items.Add(Tab("Édition", BuildEditingTab()));
+            tabs.Items.Add(Tab("Correction", BuildProofingTab()));
+            tabs.Items.Add(Tab("Styles globaux", BuildGlobalStylesTab()));
+            tabs.Items.Add(Tab("Auteur", BuildAuthorTab()));
+            tabs.Items.Add(Tab("Raccourcis", BuildShortcutsTab()));
+            tabs.Items.Add(Tab("DLC", BuildModulesTab()));
 
             var layout = new DockPanel();
             var buttons = new StackPanel
@@ -110,6 +95,32 @@ namespace Marabook.View
             Content = layout;
         }
 
+        /// <summary>Un onglet : son contenu occupe toute la largeur et toute la
+        /// hauteur de la fenêtre (22/09 — Édition et Correction se serraient
+        /// au milieu, bornés par un MaxWidth).</summary>
+        private static TabItem Tab(string header, UIElement content)
+        {
+            var host = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+            host.Children.Add(content);
+            return new TabItem
+            {
+                Header = header,
+                Content = new ScrollViewer
+                {
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                    VerticalContentAlignment = VerticalAlignment.Stretch,
+                    Content = host
+                }
+            };
+        }
+
+        private static StackPanel TabPanel()
+        {
+            return new StackPanel { Margin = new Thickness(16, 12, 16, 12), HorizontalAlignment = HorizontalAlignment.Stretch };
+        }
+
         // ------------------------------------------------------------ DLC (22/09)
 
         private StackPanel _modulesPanel;
@@ -120,7 +131,7 @@ namespace Marabook.View
         /// fichier .mdlc… » pour un paquet obtenu autrement.</summary>
         private UIElement BuildModulesTab()
         {
-            var panel = new StackPanel { Margin = new Thickness(16, 14, 16, 14) };
+            var panel = TabPanel();
             panel.Children.Add(new TextBlock
             {
                 Text = "Les modules (DLC) ajoutent des fonctions à Marabook : une fiche avancée, des succès… Ils s'installent depuis GitHub ou depuis un paquet .mdlc, sans redémarrage ; désinstallés, les projets gardent leurs valeurs.",
@@ -216,21 +227,114 @@ namespace Marabook.View
             }
         }
 
-        private static ScrollViewer Scrolled(UIElement content)
+        // ------------------------------------------------------ styles globaux (22/09)
+
+        /// <summary>Onglet « Styles globaux » : l'outil de gestion des styles
+        /// sur la feuille de tous les projets (portée globale seulement), et
+        /// le séparateur de scène global en dessous. Chaque édition est
+        /// enregistrée et poussée au projet ouvert.</summary>
+        private UIElement BuildGlobalStylesTab()
         {
-            return new ScrollViewer
+            var panel = TabPanel();
+            if (AppSettings.GlobalStyles == null)
             {
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                Content = content
+                AppSettings.GlobalStyles = _project != null ? GlobalStyles.ForNewProject() : StyleSheet.CreateDefault();
+            }
+            var sheet = AppSettings.GlobalStyles;
+            panel.Children.Add(Caption("Styles de paragraphe globaux"));
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Ces styles valent pour tous les projets. Un livre ou un écrit peut y ajouter les siens (portée « livre » ou « document ») depuis l'onglet Styles du livre ou Format › Gérer les styles.",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 8)
+            });
+            var styles = new StylesPanel(sheet, StyleScopeContext.GlobalOnly()) { Height = 380 };
+            styles.Changed += delegate { RaiseGlobalStylesChanged(); };
+            panel.Children.Add(styles);
+
+            panel.Children.Add(Caption("Séparateur de texte global", 18));
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Le paragraphe inséré par le bouton « Séparateur de scène » du ruban Texte. Un livre peut le remplacer par le sien (onglet Styles du livre).",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 8)
+            });
+            var separator = new SeparatorEditor(sheet.EnsureSeparator(null, null, 0));
+            separator.Changed += delegate { RaiseGlobalStylesChanged(); };
+            panel.Children.Add(separator);
+            return panel;
+        }
+
+        private void RaiseGlobalStylesChanged()
+        {
+            AppSettings.Save();
+            var handler = GlobalStylesChanged;
+            if (handler != null) handler();
+        }
+
+        // ------------------------------------------------------ auteur (22/09)
+
+        /// <summary>Onglet « Auteur » : le nom appliqué par défaut aux documents
+        /// qui ne sont pas des livres (compilation, commentaires Word,
+        /// liminaires sans auteur de livre), et les métadonnées générales qui
+        /// pré-remplissent chaque nouveau livre.</summary>
+        private UIElement BuildAuthorTab()
+        {
+            var panel = TabPanel();
+            panel.Children.Add(Caption("Auteur·ice par défaut"));
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Le nom signé sur ce qui n'est pas un livre : la compilation d'écrits, les commentaires exportés vers Word, les pages liminaires d'un livre qui ne nomme pas son auteur·ice. Chaque livre peut nommer le sien dans son onglet Édition.",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 8)
+            });
+            panel.Children.Add(AuthorRow("Nom", AppSettings.DefaultAuthor, delegate(string value) { AppSettings.DefaultAuthor = value; }));
+
+            panel.Children.Add(Caption("Métadonnées par défaut", 18));
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Pré-remplies dans chaque nouveau livre ; modifiables ensuite livre par livre.",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 8)
+            });
+            panel.Children.Add(AuthorRow("Éditeur", AppSettings.DefaultPublisher, delegate(string value) { AppSettings.DefaultPublisher = value; }));
+            panel.Children.Add(AuthorRow("Collection", AppSettings.DefaultCollection, delegate(string value) { AppSettings.DefaultCollection = value; }));
+            return panel;
+        }
+
+        private static DockPanel AuthorRow(string label, string value, Action<string> store)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+            var caption = new TextBlock { Text = label, Width = 110, Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center };
+            DockPanel.SetDock(caption, Dock.Left);
+            row.Children.Add(caption);
+            var box = new TextBox { Text = value ?? "", MaxWidth = 360, HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 300 };
+            box.LostKeyboardFocus += delegate
+            {
+                var text = box.Text.Trim();
+                if (text == (value ?? "")) return;
+                value = text;
+                store(text);
+                AppSettings.PublishDefaults();
+                AppSettings.Save();
             };
+            row.Children.Add(box);
+            return row;
         }
 
         /// <summary>Onglet « Édition » : les versions d'écrits (le mode de
         /// compatibilité classique a disparu le 13/09).</summary>
         private UIElement BuildEditingTab()
         {
-            var panel = new StackPanel { Margin = new Thickness(12, 10, 12, 10), MaxWidth = 420 };
+            var panel = TabPanel();
             // Les dictionnaires personnels ont quitté ce volet (batch 34) :
             // l'écran « Dictionnaire » de la Pile tient ce rôle, avec les
             // natures grammaticales et les formes acceptées.
@@ -250,9 +354,9 @@ namespace Marabook.View
                 AppSettings.Save();
             };
             panel.Children.Add(daily);
-            var capRow = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
+            var capRow = new DockPanel { Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
             var capBox = new TextBox { Width = 56, Text = AppSettings.SnapshotCap.ToString(), ToolTip = "Entre " + Model.SnapshotStore.MinCap + " et " + Model.SnapshotStore.MaxCap };
-            DockPanel.SetDock(capBox, Dock.Right);
+            DockPanel.SetDock(capBox, Dock.Left);
             capBox.LostKeyboardFocus += delegate
             {
                 int value;
@@ -269,7 +373,7 @@ namespace Marabook.View
                 Text = "Instantanés gardés par écrit (les automatiques sont évincés d'abord)",
                 VerticalAlignment = VerticalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 8, 0)
+                Margin = new Thickness(8, 0, 8, 0)
             });
             panel.Children.Add(capRow);
             return panel;
@@ -284,7 +388,7 @@ namespace Marabook.View
         /// rallumable, en connaissance de cause.</summary>
         private UIElement BuildProofingTab()
         {
-            var panel = new StackPanel { Margin = new Thickness(12, 10, 12, 10), MaxWidth = 440 };
+            var panel = TabPanel();
             panel.Children.Add(Caption("Grammaire (Grammalecte)"));
             var master = new CheckBox
             {
@@ -354,10 +458,12 @@ namespace Marabook.View
                 };
                 options.Children.Add(check);
             }
+            // La liste des options occupe le reste de l'onglet (22/09) — plus
+            // de boîte de 260 px au milieu.
             panel.Children.Add(new ScrollViewer
             {
                 Content = options,
-                Height = 260,
+                Height = 400,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 Margin = new Thickness(0, 2, 0, 0)
             });
@@ -366,7 +472,7 @@ namespace Marabook.View
 
         private UIElement BuildPersonalizationTab()
         {
-            var panel = new StackPanel { Margin = new Thickness(12, 10, 12, 10) };
+            var panel = TabPanel();
 
             panel.Children.Add(Caption("Couleur d'accent"));
             panel.Children.Add(new TextBlock
@@ -407,12 +513,27 @@ namespace Marabook.View
             panel.Children.Add(custom);
 
             panel.Children.Add(Caption("Mode sombre", 18));
+            // Le commutateur (22/09) : le raccourci Ctrl+Maj+L et le menu
+            // Affichage font la même chose, mais personne ne les apprend.
+            _darkCheck = new CheckBox
+            {
+                Content = "Mode sombre",
+                IsChecked = AppSettings.DarkTheme,
+                Margin = new Thickness(0, 6, 0, 0),
+                ToolTip = "Aussi : Affichage › Thème sombre (" + AppSettings.DisplayGesture(AppSettings.Gesture("dark-theme") ?? "") + ")"
+            };
+            _darkCheck.Click += delegate
+            {
+                AppSettings.DarkTheme = _darkCheck.IsChecked == true;
+                RaiseAppearanceChanged();
+            };
+            panel.Children.Add(_darkCheck);
             _whitePaper = new CheckBox
             {
                 Content = "Garder le papier blanc malgré le mode sombre",
                 IsChecked = AppSettings.WhitePaperInDark,
                 Margin = new Thickness(0, 6, 0, 0),
-                ToolTip = "L'interface reste sombre mais les pages (mode classique, fiches, gabarits)\n"
+                ToolTip = "L'interface reste sombre mais les pages (fiches, gabarits)\n"
                     + "gardent leur papier blanc et leur encre noire, comme à l'impression."
             };
             _whitePaper.Click += delegate
@@ -442,7 +563,7 @@ namespace Marabook.View
         /// AppSettings.Shortcuts (settings.json), appliquées aussitôt.</summary>
         private UIElement BuildShortcutsTab()
         {
-            var panel = new StackPanel { Margin = new Thickness(12, 10, 16, 12) };
+            var panel = TabPanel();
             panel.Children.Add(new TextBlock
             {
                 Text = "Cliquez un champ puis tapez la combinaison voulue. "
@@ -469,6 +590,10 @@ namespace Marabook.View
         {
             var row = new DockPanel { Margin = new Thickness(0, 3, 0, 0) };
 
+            // Le champ n'est PAS focusable tant qu'on ne l'a pas cliqué (22/09) :
+            // à l'arrivée sur l'onglet, WPF donnait le clavier au premier champ
+            // de la page, qui passait en captation (« Tapez… ») sans qu'on
+            // l'ait demandé — même piège que les champs libres des fiches.
             var box = new TextBox
             {
                 Width = 150,
@@ -476,6 +601,8 @@ namespace Marabook.View
                 IsReadOnlyCaretVisible = false,
                 TextAlignment = TextAlignment.Center,
                 Cursor = Cursors.Hand,
+                Focusable = false,
+                IsTabStop = false,
                 ToolTip = "Cliquer puis taper la combinaison — Retour arrière : aucun raccourci"
             };
             var reset = new Button
@@ -504,6 +631,12 @@ namespace Marabook.View
                 var handler = ShortcutsChanged;
                 if (handler != null) handler();
             };
+            box.PreviewMouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                box.Focusable = true;
+                box.Focus();
+                e.Handled = true;
+            };
             box.PreviewKeyDown += delegate(object sender, KeyEventArgs e)
             {
                 e.Handled = true;
@@ -519,7 +652,7 @@ namespace Marabook.View
                 store(gesture + key);
             };
             box.GotKeyboardFocus += delegate { box.Text = "Tapez…"; };
-            box.LostKeyboardFocus += delegate { sync(); };
+            box.LostKeyboardFocus += delegate { sync(); box.Focusable = false; };
             reset.Click += delegate
             {
                 AppSettings.Shortcuts.Remove(action.Id);

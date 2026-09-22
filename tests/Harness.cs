@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace Marabook.Tests
@@ -113,7 +113,8 @@ namespace Marabook.Tests
                 DocxCommentsTests.Run,   // C30 — commentaires Word ↔ annotations (b49)
                 NameExtractorTests.Run,  // C31 — extraction de personnages (b49)
                 ExtraPagesTests.Run,     // C32 — liminaires, pages de fin, annexes (b49 suite)
-                ModulesTests.Run         // C33 — modules (DLC, 22/09)
+                ModulesTests.Run,        // C33 — modules (DLC, 22/09)
+                StyleScopeTests.Run      // C34 — styles à portée, séparateur, styles globaux (22/09)
             };
             foreach (var suite in suites)
             {

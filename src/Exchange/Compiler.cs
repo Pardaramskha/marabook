@@ -111,7 +111,7 @@ namespace Marabook.Exchange
                     else if (!options.PageBreakPerText && !first
                         && !string.IsNullOrEmpty(options.Separator))
                     {
-                        var separator = new TextParagraph { StyleId = "body", AlignOverride = "center" };
+                        var separator = new TextParagraph { StyleId = StyleSheet.SeparatorId }; // le style séparateur (22/09)
                         separator.Runs.Add(new TextRun { Text = options.Separator });
                         output.Paragraphs.Insert(startIndex, separator);
                     }

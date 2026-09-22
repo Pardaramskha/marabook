@@ -693,6 +693,7 @@ namespace Marabook.Model
         {
             if (info.AuthorOverride.Length > 0) return info.AuthorOverride;
             if (project != null && project.Author.Length > 0) return project.Author;
+            if (Defaults.Author.Trim().Length > 0) return Defaults.Author.Trim(); // Préférences › Auteur (22/09)
             return "Nom de l'auteur·ice";
         }
 

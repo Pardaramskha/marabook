@@ -2625,6 +2625,9 @@ namespace Marabook.View
             AfterEdit(0);
         }
 
+        /// <summary>Applique un style aux paragraphes de la sélection — et
+        /// EFFACE leurs écarts locaux (alignement, décalage, alinéa) : le
+        /// style reprend la main, comme dans InDesign (22/09).</summary>
         public void ApplyStyle(string styleId)
         {
             PushUndo(false);
@@ -2637,10 +2640,31 @@ namespace Marabook.View
             else { pa = _caretParagraph; pb = _caretParagraph; }
             for (var p = pa; p <= pb; p++)
             {
-                _item.Document.Paragraphs[p].StyleId = styleId;
+                var paragraph = _item.Document.Paragraphs[p];
+                paragraph.StyleId = styleId;
+                paragraph.AlignOverride = null;
+                paragraph.Indent = null;
+                paragraph.FirstIndent = null;
                 _engine.RecomposeParagraph(p);
             }
             AfterEdit(0);
+        }
+
+        /// <summary>Le paragraphe du caret (null hors document).</summary>
+        public TextParagraph CaretParagraph
+        {
+            get
+            {
+                if (_item == null || _item.Document == null || _caretParagraph >= _item.Document.Paragraphs.Count) return null;
+                return _item.Document.Paragraphs[_caretParagraph];
+            }
+        }
+
+        /// <summary>Un paragraphe qui s'écarte de son style : alignement,
+        /// décalage ou alinéa posés à la main — le « + » du ruban (22/09).</summary>
+        public static bool HasOverrides(TextParagraph paragraph)
+        {
+            return paragraph != null && (paragraph.AlignOverride != null || paragraph.Indent.HasValue || paragraph.FirstIndent.HasValue);
         }
 
         public void ApplyList(string kind) // "bullet" | "number" | null, toggles

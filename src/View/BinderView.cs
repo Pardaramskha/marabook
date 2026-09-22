@@ -829,6 +829,7 @@ namespace Marabook.View
             var title = InputDialog.Ask(Window.GetWindow(this), "Nouveau livre", "Titre du livre :", "Nouveau livre");
             if (title == null) return;
             var item = new BinderItem { Kind = ItemKind.Book, Title = title, Book = new BookInfo() };
+            Defaults.Seed(item.Book); // éditeur et collection par défaut (Préférences › Auteur, 22/09)
             RunAndSelect(new AddItemAction(parent, item, -1), item.Id, parent.Id);
         }
 

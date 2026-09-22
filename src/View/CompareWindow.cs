@@ -176,7 +176,7 @@ namespace Marabook.View
             _synthetic = new BinderItem { Kind = ItemKind.Text, Title = "Comparaison — " + _item.Title, Document = document };
             _composed.Detach();
             _composed.SetZoom(Settings.AppSettings.Zoom / 100.0);
-            _composed.Attach(_synthetic, _project.Styles, _item.Page ?? _project.Page, _project);
+            _composed.Attach(_synthetic, _project.Styles.EffectiveFor(_item), _item.Page ?? _project.Page, _project);
             if (CurrentChange != null) Reveal(CurrentChange);
         }
 

@@ -276,9 +276,7 @@ namespace Marabook.Tests
         {
             var project = Project.CreateNew();
             project.Author = "Autrice d'essai";
-            project.SeparatorText = "· · ·";
-            project.SeparatorFont = "Georgia";
-            project.SeparatorSizePt = 14;
+            project.GlobalStylesStamp = "20260922-abc"; // v28
             project.CustomColors.Add("#AA3366");
             project.CustomColors.Add("#004488");
             project.HyphenExceptions.Add("Marabout");
@@ -322,7 +320,14 @@ namespace Marabook.Tests
                 JustifyLetterMin = -2, JustifyLetterOpt = 1, JustifyLetterMax = 4,
                 JustifyGlyphMin = 97, JustifyGlyphOpt = 99, JustifyGlyphMax = 103,
                 AutoLeadingPercent = 130, KeepWithPrevious = false,
-                KeepNextLines = 2, KeepLinesTogether = true
+                KeepNextLines = 2, KeepLinesTogether = true,
+                Scope = ParagraphStyle.ScopeBook, OwnerId = "livre-1" // portée (v28)
+            });
+            // Un séparateur de livre (v28) : contenu, portée, propriétaire.
+            project.Styles.Styles.Add(new ParagraphStyle
+            {
+                Id = "sep-livre", Name = "Séparateur du livre", Content = "~ ~ ~",
+                Scope = ParagraphStyle.ScopeBook, OwnerId = "livre-1", Align = "center"
             });
 
             var template = new SheetTemplate { Name = "Créature" };

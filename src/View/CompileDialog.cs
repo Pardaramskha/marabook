@@ -21,7 +21,6 @@ namespace Marabook.View
         private readonly ComboBox _scopeCombo;
         private readonly CheckBox _titlePageCheck, _headingsCheck, _numberCheck, _pageBreakCheck;
         private readonly TextBox _authorBox;
-        private readonly ComboBox _separatorCombo;
         private bool _accepted;
 
         private CompileDialog(Window owner, Project project)
@@ -58,7 +57,10 @@ namespace Marabook.View
             };
             DockPanel.SetDock(authorLabel, Dock.Left);
             authorRow.Children.Add(authorLabel);
-            _authorBox = new TextBox { Text = project.Author ?? "" };
+            // L'auteur·ice : celui du projet s'il en a un (anciens projets),
+            // sinon Préférences › Auteur (22/09) — le dialogue n'écrit plus
+            // dans le projet.
+            _authorBox = new TextBox { Text = Defaults.Or(project.Author, Defaults.Author) };
             authorRow.Children.Add(_authorBox);
             panel.Children.Add(authorRow);
 
@@ -71,23 +73,14 @@ namespace Marabook.View
             _pageBreakCheck = Check("Chaque écrit commence sur une nouvelle page", true);
             panel.Children.Add(_pageBreakCheck);
 
-            var separatorRow = new DockPanel { Margin = new Thickness(22, 2, 0, 0) };
-            var separatorLabel = new TextBlock
+            panel.Children.Add(new TextBlock
             {
-                Text = "Sinon, séparateur :",
+                Text = "Sinon, le séparateur de scène (Préférences › Styles globaux, ou celui du livre) les sépare.",
                 Foreground = Chrome.SoftText,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 0)
-            };
-            DockPanel.SetDock(separatorLabel, Dock.Left);
-            separatorRow.Children.Add(separatorLabel);
-            _separatorCombo = new ComboBox();
-            _separatorCombo.Items.Add("***");
-            _separatorCombo.Items.Add("· · ·");
-            _separatorCombo.Items.Add("(ligne vide)");
-            _separatorCombo.SelectedIndex = 0;
-            separatorRow.Children.Add(_separatorCombo);
-            panel.Children.Add(separatorRow);
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(22, 2, 0, 0)
+            });
 
             var buttons = new StackPanel
             {
@@ -139,16 +132,14 @@ namespace Marabook.View
             var root = chosen == null ? null : project.FindById((string)chosen.Tag);
             if (root == null) return null;
 
-            var separator = dialog._separatorCombo.SelectedIndex == 0 ? "***"
-                          : dialog._separatorCombo.SelectedIndex == 1 ? "· · ·" : "";
-            project.Author = dialog._authorBox.Text.Trim();
+            var separator = project.Styles.SeparatorFor(root).Content ?? "***";
             return new CompileRequest
             {
                 Root = root,
                 Options = new CompileOptions
                 {
                     TitlePage = dialog._titlePageCheck.IsChecked == true,
-                    Author = project.Author,
+                    Author = dialog._authorBox.Text.Trim(),
                     ChapterHeadings = dialog._headingsCheck.IsChecked == true,
                     NumberChapters = dialog._numberCheck.IsChecked == true,
                     PageBreakPerText = dialog._pageBreakCheck.IsChecked == true,

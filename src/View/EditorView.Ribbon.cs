@@ -40,6 +40,20 @@ namespace Marabook.View
 
             _styleCombo = new ComboBox { Width = 120, Margin = new Thickness(0, 0, 2, 0) };
             _styleCombo.SelectionChanged += OnStyleComboChanged;
+            // Réappliquer le style courant (« Corps + » → « Corps ») : la liste
+            // se referme sur le même item, SelectionChanged ne dit rien.
+            _styleCombo.DropDownClosed += delegate
+            {
+                if (_syncing || _item == null || !ComposedActive) return;
+                var chosen = _styleCombo.SelectedItem as ComboBoxItem;
+                if (chosen == null || !ComposedView.HasOverrides(_composed.CaretParagraph)) return;
+                var paragraph = _composed.CaretParagraph;
+                if (paragraph != null && paragraph.StyleId == (string)chosen.Tag)
+                {
+                    _composed.ApplyStyle((string)chosen.Tag);
+                    _composed.Focus();
+                }
+            };
             typeTop.Children.Add(_styleCombo);
 
             var manageStyles = new Button
@@ -658,6 +672,16 @@ namespace Marabook.View
                 foreach (ComboBoxItem candidate in _styleCombo.Items)
                     if ((string)candidate.Tag == styleId) { match = candidate; break; }
                 _styleCombo.SelectedItem = match;
+                // Le suffixe « + » (22/09) : le paragraphe s'écarte de son style
+                // (alignement, décalage, alinéa posés à la main) — resélectionner
+                // le style efface ces écarts.
+                var overridden = ComposedView.HasOverrides(_composed.CaretParagraph);
+                foreach (ComboBoxItem candidate in _styleCombo.Items)
+                {
+                    var label = StyleLabelOf(candidate);
+                    var style = _styles.Find((string)candidate.Tag);
+                    if (label != null && style != null) label.Text = style.Name + (candidate == match && overridden ? " +" : "");
+                }
                 _fontCombo.SelectedItem = fontFamily;
                 if (fontFamily != null && _fontCombo.SelectedItem == null)
                     _fontCombo.Text = fontFamily;

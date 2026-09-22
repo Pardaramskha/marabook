@@ -1998,7 +1998,12 @@ namespace Marabook.View
         public void InsertWikiLink(string title) { InsertAtCaret(Links.Markup(title, _bodyBox.SelectedText)); }
         public void InsertImage() { InsertAtCaret("![description](adresse)"); }
         public void InsertRule() { InsertAtCaret("\n---\n"); }
-        public void InsertSeparator() { InsertAtCaret("\n***\n"); }
+        public void InsertSeparator()
+        {
+            // Le contenu du séparateur global (22/09) — une fiche n'est dans aucun livre.
+            var separator = _styles == null ? null : _styles.SeparatorFor(null);
+            InsertAtCaret("\n" + (separator == null || separator.Content == null ? "***" : separator.Content) + "\n");
+        }
 
         private void InsertAtCaret(string text)
         {
