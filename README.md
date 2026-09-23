@@ -9,6 +9,9 @@
 
 # Marabook
 
+!\[my badge\](https://badgen.net/badge/langage/débridé/red)
+!\[my badge\](https://badgen.net/badge/version/beta/blue)
+
 Auteurs, éditeurs, ceci est le dernier logiciel dont vous aurez besoin. 
 
 Et c'est gratos.
@@ -26,23 +29,23 @@ Ce logiciel a été créé pour aider ma maison d'édition associative à approc
 >
 > Je suis ingé logiciel web, et ça se limite à ça. Ce logiciel a été créé en grande partie avec le support de l'IA, puis débuggué manuellement et vérifié sous toutes les coutures. Ce projet est un projet fun, non pas un projet à visée performative ou professionnelle - traitez-le en conséquence, et continuez d'avoir un usage prudent et raisonnable des outils d'intelligence artificielle.
 
-## ⚠ Notes sur la version alpha
+## ⚠ Notes sur la version beta
 
-Ce logiciel n'est pas encore terminé. Vous avez actuellement une version alpha de celui-ci, demandant encore de nombreux tests et de nombreuses améliorations. Certaines fonctionnalités peuvent avoir bugs et plantages, ce pourquoi je vous encourage à rapporter les moindres soucis que vous repéreriez au cours de votre utilisation.
+Ce logiciel n'est pas encore terminé. Vous avez actuellement une version beta de celui-ci, demandant encore de nombreux tests et de nombreuses améliorations. Certaines fonctionnalités peuvent avoir bugs et plantages, ce pourquoi je vous encourage à rapporter les moindres soucis que vous repéreriez au cours de votre utilisation.
 
 Le système de mise à jour automatique vous préviendra lorsqu'un patch sera disponible. Des notes de patch sont accessibles en bas de ce LISEZ-MOI. 
 
 ## Fonctionnalités principales
 
 * Une **pile** pour réunir tous vos écrits en dossiers ou en livres prêts à l'impression.
-* **Un éditeur de texte** approfondi à plusieurs vues calibré sur un format livre imprimable avec gestionnaire de styles et pagination continue.
+* Un **éditeur de texte** approfondi à plusieurs vues calibré sur un format livre imprimable avec gestionnaire de styles et pagination continue.
 * Un **gestionnaire d'édition et de maquette** incluant marges, fonds perdus, veuves et orphelines, typographies standard de l'imprimerie française et checklist de pages liminaires.
 * Un **correcteur ortho-typographique** associé au **détecteur de répétitions** et de **faiblesses grammaticales**(adverbes, verbes ternes...)
 * Un **tableau de recherche** multimédia pour vos idées et liens.
 * Un **gestionnaire de fiches informatives** "façon wikipedia" entièrement personnalisable, par catégories ouvertes et interconnectées.
-* Un** créateur visuel de plan** et de structure narrative avec graphs d'intensité pour mesurer la rythmique de vos oeuvres.
+* Un **créateur visuel de plan** et de structure narrative avec graphs d'intensité pour mesurer la rythmique de vos oeuvres.
 * Un **correcteur typographique** en un clic pour le Bon A Tirer prêt pour l'imprimerie.
-* Un** dictionnaire personnalisable** connecté à votre correcteur.
+* Un **dictionnaire personnalisable** connecté à votre correcteur.
 * Une **compatibilité avec les applications voisines** (Word, OpenOffice, Scrievener, supporte l'export vers certains sous-formats InDesign).
 * Un compteur de stats, des objectifs journaliers, un système d'achievments pour rigoler, et des barres de progression par projet.
 * Un **publicateur d'EPUB**.
@@ -82,6 +85,17 @@ Ce logiciel utilise le formidable travail d'autres ingés et grands nerds de lit
 
 Ces éléments sont téléchargés à l'installation, et sont la seule partie du logiciel qui nécessite une connexion web.
 
+## Feuille de route
+
+Pour les versions suivantes, certaines améliorations sont déjà prévues :
+
+* La sortie de deux DLC : FPDM et Mental-O
+* Amélioration de l'interface du correcteur ortho-styllistique
+* Amélioration de la vue comparative
+* Amélioration de l'expérience de défilement globale
+* Un tutoriel pour les dbéutant.e.s
+* Une petite refonte des textes pour qu'ils vous insultent encore plus
+
 ## Patch notes
 
-* Version ALPHA: première release du logiciel au public
+* Version BETA: première release du logiciel au public
