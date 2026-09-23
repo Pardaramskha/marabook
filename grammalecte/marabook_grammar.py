@@ -75,6 +75,13 @@ import grammalecte
 def main():
     checker = grammalecte.GrammarChecker("fr")
     engine = checker.getGCEngine()
+    # Le second regard (23/09) : les faux positifs connus de Grammalecte
+    # (accord par-dessus un complément, participe nominalisé après « de »)
+    # sont retirés ici, avec les analyses du même dictionnaire.
+    import marabook_filters
+    from grammalecte.graphspell.tokenizer import Tokenizer
+    spell = checker.getSpellChecker()
+    tokenizer = Tokenizer("fr")
     print(json.dumps({"ready": True, "version": engine.version}), flush=True)
     for line in sys.stdin:
         line = line.strip()
@@ -102,7 +109,8 @@ def main():
             text = request.get("text", "")
             options = request.get("options") or None
             errors = []
-            for error in engine.parse(text, "FR", dOptions=options):
+            for error in marabook_filters.keep(spell, tokenizer, text,
+                                               list(engine.parse(text, "FR", dOptions=options))):
                 errors.append({
                     "nStart": error.get("nStart"),
                     "nEnd": error.get("nEnd"),
