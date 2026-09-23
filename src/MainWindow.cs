@@ -21,7 +21,7 @@ namespace Marabook
     public partial class MainWindow : Window, Extensions.IModuleHost
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.43.0-beta";
+        public const string AppVersion = "0.43.1-beta";
 
         private Project _project;
         /// <summary>Le .plot passé en argument, ouvert au Loaded (revue 22/09).</summary>
