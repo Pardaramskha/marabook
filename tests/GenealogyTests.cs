@@ -52,12 +52,28 @@ namespace Marabook.Tests
             var template = SheetDefaults.TemplateFor("Personnage");
             var sheet = new BinderItem { Kind = ItemKind.Sheet, TemplateId = template.Id };
             t.Equal('n', RelationKinds.GenderOf(sheet, template), "genre non renseigné : neutre");
+            SheetField birthGender = null, gender = null;
             foreach (var field in template.Fields)
-                if (field.Name == "Genre") sheet.FieldValues[field.Id] = "Femme";
-            t.Equal('f', RelationKinds.GenderOf(sheet, template), "le champ Genre du modèle est lu");
+            {
+                if (field.Name == SheetDefaults.FieldBirthGender) birthGender = field;
+                if (field.Name == SheetDefaults.FieldGender) gender = field;
+            }
+            t.Check(birthGender != null && gender != null
+                && birthGender.Kind == FieldKinds.Choice && gender.Kind == FieldKinds.Choice
+                && string.Join("|", gender.Options.ToArray()) == "Masculin|Féminin|Neutre|Autre",
+                "le modèle porte deux champs de genre à choix (23/09)");
+            sheet.FieldValues[birthGender.Id] = "Féminin";
+            t.Equal('f', RelationKinds.GenderOf(sheet, template), "le genre de naissance est lu…");
+            sheet.FieldValues[gender.Id] = "Masculin";
+            t.Equal('m', RelationKinds.GenderOf(sheet, template), "…mais le genre « si différent » prime : c'est lui qui conjugue");
             var free = new BinderItem { Kind = ItemKind.Sheet };
             free.FreeInfo.Add(new InfoEntry { Title = "Genre", Value = "Homme" });
-            t.Equal('m', RelationKinds.GenderOf(free, null), "…ou un champ libre « Genre »");
+            t.Equal('m', RelationKinds.GenderOf(free, null), "…ou un champ libre « Genre » (nom d'avant)");
+            var legacy = new SheetTemplate();
+            legacy.Fields.Add(new SheetField { Name = "Sexe" });
+            var legacySheet = new BinderItem { Kind = ItemKind.Sheet };
+            legacySheet.FieldValues[legacy.Fields[0].Id] = "Femme";
+            t.Equal('f', RelationKinds.GenderOf(legacySheet, legacy), "un modèle d'avant à champ « Sexe » se lit toujours");
         }
 
         private static void Reciprocals(Harness t)
@@ -119,7 +135,7 @@ namespace Marabook.Tests
         {
             var sheet = new BinderItem { Kind = ItemKind.Sheet, Title = title, TemplateId = template.Id };
             foreach (var field in template.Fields)
-                if (field.Name == "Genre") sheet.FieldValues[field.Id] = gender;
+                if (field.Name == SheetDefaults.FieldGender) sheet.FieldValues[field.Id] = gender;
             return sheet;
         }
 
@@ -223,38 +239,85 @@ namespace Marabook.Tests
             return names;
         }
 
+        /// <summary>Le modèle Personnage tel que livré du b36 au 22/09.</summary>
+        private static SheetTemplate RecentCharacter()
+        {
+            var t = new SheetTemplate { Name = "Personnage", Relations = true };
+            t.Sections.Add(SheetDefaults.GroupLooks);
+            string[] infos = { "Nom", "Prénom", "Alias", "Genre", "Date de naissance", "Âge", "Lieu de naissance", "Affiliation", "Religion", "Magie" };
+            foreach (var name in infos) t.Fields.Add(new SheetField { Name = name });
+            string[] looks = { "Taille", "Poids", "Peau", "Yeux", "Traits", "Particularités" };
+            foreach (var name in looks) t.Fields.Add(new SheetField { Name = name, Group = SheetDefaults.GroupLooks, Kind = name == "Particularités" ? "multiline" : "text" });
+            return t;
+        }
+
+        private static SheetField Field(SheetTemplate template, string name)
+        {
+            foreach (var field in template.Fields) if (field.Name == name) return field;
+            return null;
+        }
+
         private static void Migration(Harness t)
         {
-            // — Le modèle neuf.
+            // — Le modèle neuf (liste du 23/09).
             var fresh = SheetDefaults.TemplateFor("Personnage");
-            var infos = Names(fresh, SheetDefaults.GroupInfos);
-            t.Equal(SheetDefaults.FieldAge, infos[infos.IndexOf(SheetDefaults.FieldBirthDate) + 1], "Âge juste sous la date de naissance");
-            t.Equal(string.Join("|", SheetDefaults.CharacterLooks), string.Join("|", Names(fresh, SheetDefaults.GroupLooks).ToArray()), "apparence par défaut : Taille, Poids, Peau, Yeux, Traits, Particularités");
-            t.Check(!SheetDefaults.UpgradeCharacterTemplate(fresh, new List<BinderItem>()), "le modèle neuf n'a rien à migrer");
+            t.Equal(string.Join("|", SheetDefaults.CharacterInfos), string.Join("|", Names(fresh, SheetDefaults.GroupInfos).ToArray()), "infos par défaut : Nom … Affiliation, dans l'ordre de la liste");
+            t.Equal(string.Join("|", SheetDefaults.CharacterLooks), string.Join("|", Names(fresh, SheetDefaults.GroupLooks).ToArray()), "apparence par défaut : Taille … Particularités");
+            t.Equal(string.Join("|", SheetDefaults.CharacterPersonality), string.Join("|", Names(fresh, SheetDefaults.GroupPersonality).ToArray()), "personnalité par défaut : En un mot, Voix, Gestuelle, Sociabilité");
+            t.Check(fresh.Sections.Count == 2 && fresh.Sections[0] == SheetDefaults.GroupLooks && fresh.Sections[1] == SheetDefaults.GroupPersonality && fresh.Relations,
+                "sections Apparence puis Personnalité, paper Relations");
+            t.Equal("multiline", Field(fresh, "Particularités").Kind, "Particularités reste multiligne");
+            t.Check(!SheetDefaults.UpgradeCharacterTemplate(fresh), "le modèle neuf n'a rien à migrer");
+            foreach (var name in new[] { "Lieu", "Événement", "Système", "Peuple", "Bestiaire", "Pays / Gouvernement", "Faction / Organisation" })
+            {
+                var simple = SheetDefaults.TemplateFor(name);
+                t.Check(simple != null && simple.Fields.Count > 0 && simple.Sections.Count == 0 && !simple.Relations && Field(simple, "Description") == null,
+                    "« " + name + " » : des champs dans Infos seulement, sans Description ni Relations");
+            }
+            t.Check(Field(SheetDefaults.TemplateFor("Bestiaire"), "Domestique").Kind == FieldKinds.Choice
+                && Field(SheetDefaults.TemplateFor("Lieu"), "Échelle").Options.Count == 7
+                && Field(SheetDefaults.TemplateFor("Événement"), "Participants").Kind == FieldKinds.List,
+                "les natures de la liste : choix (Échelle, Type, Domestique), liste (Participants)");
 
-            // — Un modèle d'avant, sans valeur dans Cheveux : renommage, insertion, retrait.
-            var old = OldCharacter();
-            SheetField skin = null;
-            foreach (var field in old.Fields) if (field.Name == "Couleur de peau") skin = field;
+            // — Le modèle du 22/09 : renommages à id constant, genre en choix, ordre, Personnalité.
+            var recent = RecentCharacter();
+            var skin = Field(recent, "Peau"); var genre = Field(recent, "Genre"); var faith = Field(recent, "Religion");
             var skinId = skin.Id;
-            t.Check(SheetDefaults.UpgradeCharacterTemplate(old, new List<BinderItem>()), "un modèle d'avant est migré");
-            infos = Names(old, SheetDefaults.GroupInfos);
-            t.Equal(SheetDefaults.FieldAge, infos[infos.IndexOf("Date de naissance") + 1], "Âge inséré sous la date de naissance");
-            t.Equal(string.Join("|", SheetDefaults.CharacterLooks), string.Join("|", Names(old, SheetDefaults.GroupLooks).ToArray()), "l'apparence est alignée (Cheveux et Sexe de naissance vides retirés)");
-            t.Equal(skinId, skin.Id, "« Couleur de peau » → « Peau » garde son id (les valeurs suivent)");
-            t.Equal("Peau", skin.Name, "…renommée");
-            t.Check(!SheetDefaults.UpgradeCharacterTemplate(old, new List<BinderItem>()), "idempotente");
+            t.Check(SheetDefaults.UpgradeCharacterTemplate(recent), "un modèle d'avant est migré");
+            t.Equal(string.Join("|", SheetDefaults.CharacterInfos), string.Join("|", Names(recent, SheetDefaults.GroupInfos).ToArray()), "les infos prennent la liste et l'ordre du 23/09");
+            t.Equal(string.Join("|", SheetDefaults.CharacterLooks), string.Join("|", Names(recent, SheetDefaults.GroupLooks).ToArray()), "l'apparence aussi (Couleur des cheveux ajoutée)");
+            t.Equal(string.Join("|", SheetDefaults.CharacterPersonality), string.Join("|", Names(recent, SheetDefaults.GroupPersonality).ToArray()), "la Personnalité est créée");
+            t.Check(skin.Id == skinId && skin.Name == "Teinte de peau", "« Peau » → « Teinte de peau », même id (les valeurs suivent)");
+            t.Check(faith.Name == "Croyance" && Field(recent, "Capacités/Magie") != null, "Religion → Croyance, Magie → Capacités/Magie");
+            t.Check(genre.Name == SheetDefaults.FieldBirthGender && genre.Kind == FieldKinds.Choice && genre.Options.Count == 4,
+                "« Genre » (texte) devient « Genre de naissance », un choix à quatre options");
+            t.Check(Field(recent, SheetDefaults.FieldGender) != genre && Field(recent, SheetDefaults.FieldGender).Kind == FieldKinds.Choice,
+                "« Genre (si différent) » est créé à côté");
+            t.Check(recent.HasSection(SheetDefaults.GroupPersonality) && recent.Sections.Count == 2, "la section Personnalité est ajoutée");
+            t.Check(!SheetDefaults.UpgradeCharacterTemplate(recent), "idempotente");
 
-            // — Un modèle d'avant dont une fiche a rempli Cheveux : le champ reste, en queue.
-            var kept = OldCharacter();
-            SheetField hair = null;
-            foreach (var field in kept.Fields) if (field.Name == "Cheveux") hair = field;
-            var sheet = new BinderItem { Kind = ItemKind.Sheet, TemplateId = kept.Id };
-            sheet.FieldValues[hair.Id] = "roux";
-            SheetDefaults.UpgradeCharacterTemplate(kept, new List<BinderItem> { sheet });
-            var looks = Names(kept, SheetDefaults.GroupLooks);
-            t.Equal("Cheveux", looks[looks.Count - 1], "un champ rempli n'est jamais retiré (en queue d'apparence)");
-            t.Equal(7, looks.Count, "…les six par défaut, puis lui");
+            // — Le modèle du batch 31 (groupes Infos/Physique, Sexe de naissance ET Genre) :
+            // Sexe de naissance → Genre de naissance, Genre → Genre (si différent), Cheveux → Couleur des cheveux.
+            var old = OldCharacter();
+            var sex = Field(old, "Sexe de naissance"); var oldGenre = Field(old, "Genre"); var hair = Field(old, "Cheveux");
+            t.Check(SheetDefaults.UpgradeCharacterTemplate(old), "un modèle du b31 est migré");
+            t.Check(sex.Name == SheetDefaults.FieldBirthGender && sex.Group == "" && oldGenre.Name == SheetDefaults.FieldGender,
+                "Sexe de naissance → Genre de naissance (passé en Infos), Genre → Genre (si différent)");
+            t.Check(hair.Name == "Couleur des cheveux" && hair.Group == SheetDefaults.GroupLooks, "Cheveux → Couleur des cheveux, même id");
+            t.Equal(string.Join("|", SheetDefaults.CharacterInfos), string.Join("|", Names(old, SheetDefaults.GroupInfos).ToArray()), "infos alignées (Âge inséré, groupe « Infos » → section par défaut)");
+            t.Equal(string.Join("|", SheetDefaults.CharacterLooks), string.Join("|", Names(old, SheetDefaults.GroupLooks).ToArray()), "apparence alignée (« Physique » → « Apparence »)");
+            t.Check(old.Relations && old.HasSection(SheetDefaults.GroupLooks) && old.HasSection(SheetDefaults.GroupPersonality), "sections et Relations posées");
+            t.Check(!SheetDefaults.UpgradeCharacterTemplate(old), "idempotente aussi");
+
+            // — Un champ maison n'est jamais retiré : il suit les champs par défaut.
+            var custom = RecentCharacter();
+            custom.Fields.Insert(2, new SheetField { Name = "Devise" });
+            custom.Fields.Add(new SheetField { Name = "Cicatrices", Group = SheetDefaults.GroupLooks });
+            SheetDefaults.UpgradeCharacterTemplate(custom);
+            var infos = Names(custom, SheetDefaults.GroupInfos);
+            var looks = Names(custom, SheetDefaults.GroupLooks);
+            t.Check(infos[infos.Count - 1] == "Devise" && infos.Count == SheetDefaults.CharacterInfos.Length + 1, "un champ maison d'Infos passe en queue d'Infos");
+            t.Check(looks[looks.Count - 1] == "Cicatrices" && looks.Count == SheetDefaults.CharacterLooks.Length + 1, "un champ maison d'Apparence, en queue d'Apparence");
 
             // — Par le projet : la catégorie Personnage, et rien sans elle.
             var project = Project.CreateNew();

@@ -271,22 +271,31 @@ namespace Marabook.Model
         public string TemplateId; // modèle de base des nouvelles fiches
     }
 
-    /// <summary>Les sept catégories livrées et leurs modèles par défaut —
-    /// volontairement sobres (« sans trop en mettre ») ; le détail viendra
-    /// au fil de l'usage. Sert aussi de source à la migration des projets
-    /// d'avant les catégories (PlotFile).</summary>
+    /// <summary>Les catégories livrées et leurs modèles par défaut — la liste
+    /// de Rémi du 23/09/2026 (refonte des fiches). Chaque modèle porte sa
+    /// section « Infos » (le groupe vide) ; le Personnage y ajoute
+    /// « Apparence » et « Personnalité ». Pas de champ « Description » : le
+    /// corps markdown de la fiche est là pour ça. Sert aussi de source aux
+    /// migrations (PlotFile : catégories d'avant la v11, Personnage d'avant
+    /// la v30).</summary>
     public static class SheetDefaults
     {
+        /// <summary>Le libellé de la section par défaut (groupe vide) :
+        /// « Infos » depuis le 23/09 (« Informations » du b42 au 22/09).</summary>
+        public const string DefaultSectionLabel = "Infos";
+
         /// <summary>La section « Apparence » (batch 42 : elle porte son nom —
         /// « Physique » était la clé d'avant, migrée au chargement).</summary>
         public const string GroupLooks = "Apparence";
+        /// <summary>La section « Personnalité » du Personnage (23/09).</summary>
+        public const string GroupPersonality = "Personnalité";
         public const string LegacyGroupLooks = "Physique";
         public const string LegacyGroupInfos = "Infos";
 
         public static readonly string[] CategoryNames =
         {
-            "Personnage", "Lieu", "Magie", "Objet",
-            "Peuple", "Gouvernement", "Environnement"
+            "Personnage", "Lieu", "Événement", "Système",
+            "Peuple", "Bestiaire", "Pays / Gouvernement", "Faction / Organisation"
         };
 
         /// <summary>Le modèle par défaut d'une catégorie livrée (null pour un
@@ -297,141 +306,173 @@ namespace Marabook.Model
             {
                 case "Personnage": return Character();
                 case "Lieu": return Simple("Lieu",
-                    F("Région"), F("Climat"), F("Population"),
-                    M("Description"));
-                case "Magie": return Simple("Magie",
-                    F("Source"), F("Coût"), F("Limites"),
-                    M("Description"));
-                case "Objet": return Simple("Objet",
-                    F("Type"), F("Propriétaire"), F("Origine"),
-                    M("Description"));
+                    Choice("Échelle", GroupInfos, "Continent", "Pays", "Région", "Environnement", "Ville", "Village", "Autre"),
+                    S("Population"), S("Climat"));
+                case "Événement": return Simple("Événement",
+                    S("Date"), S("Lieu"), Kind("Participants", FieldKinds.List));
+                case "Système": return Simple("Système",
+                    Choice("Type", GroupInfos, "Magie", "Technologie", "Anomalie", "Autre"),
+                    S("Provenance"), S("Ressource"), S("Accessibilité"), S("Limites"));
                 case "Peuple": return Simple("Peuple",
-                    F("Territoire"), F("Langue"), F("Coutumes"),
-                    M("Description"));
-                case "Gouvernement": return Simple("Gouvernement",
-                    F("Type de régime"), F("Dirigeant"), F("Siège"),
-                    M("Description"));
-                case "Environnement": return Simple("Environnement",
-                    F("Type"), F("Faune"), F("Flore"),
-                    M("Description"));
+                    S("Territoire"), S("Langue"));
+                case "Bestiaire": return Simple("Bestiaire",
+                    Choice("Type", GroupInfos, "Animal", "Créature", "Artificiel", "Autre"),
+                    S("Provenance"), S("Longévité"), S("Organisation sociale"),
+                    Choice("Domestique", GroupInfos, "Oui", "Non", "Autre"));
+                case "Pays / Gouvernement": return Simple("Pays / Gouvernement",
+                    S("Type de régime"), S("Dirigeant"), S("Siège"), S("Fondation"));
+                case "Faction / Organisation": return Simple("Faction / Organisation",
+                    S("Type"), S("Affiliation"), S("Direction"), S("Création"), S("Fin"),
+                    Choice("Échelle", GroupInfos, "Locale", "Régionale", "Nationale", "Multinationale", "Mondiale", "Universelle"));
                 default: return null;
             }
         }
 
-        /// <summary>Le groupe des champs d'état civil du personnage : depuis le
-        /// batch 42, la section par défaut « Informations » (groupe vide).</summary>
+        /// <summary>Le groupe des champs d'état civil du personnage : la
+        /// section par défaut « Infos » (groupe vide).</summary>
         public const string GroupInfos = "";
 
-        // IMPORTANT (batch 36) : « Âge », sous la date de naissance. Champ
-        // texte libre pour l'instant — on y revient vite (calcul depuis la
-        // date de naissance et la date du récit, âge à chaque scène…). Tout
-        // ce qui touche l'âge doit passer par ce nom : FieldAge.
+        // IMPORTANT (batch 36) : « Âge ». Champ texte libre pour l'instant —
+        // on y revient vite (calcul depuis la date de naissance et la date du
+        // récit, âge à chaque scène…). Tout ce qui touche l'âge doit passer
+        // par ce nom : FieldAge.
         public const string FieldAge = "Âge";
         public const string FieldBirthDate = "Date de naissance";
+        // LE GENRE (23/09) : deux champs à choix — le genre de naissance, et
+        // le genre « si différent ». Ce dernier, s'il est renseigné, est LE
+        // point de référence de la conjugaison des relations (RelationKinds
+        // .GenderOf) ; sinon le genre de naissance.
+        public const string FieldBirthGender = "Genre de naissance";
+        public const string FieldGender = "Genre (si différent)";
+        public static readonly string[] GenderOptions = { "Masculin", "Féminin", "Neutre", "Autre" };
 
-        /// <summary>Les champs d'apparence par défaut du personnage (batch 36),
-        /// dans l'ordre : Taille, Poids, Peau, Yeux, Traits, Particularités
-        /// (multiligne). Sert au modèle neuf ET à la migration v16.</summary>
+        /// <summary>Les champs d'infos par défaut du personnage, dans l'ordre (23/09).</summary>
+        public static readonly string[] CharacterInfos =
+        {
+            "Nom", "Prénom", "Alias", FieldAge, FieldBirthDate, "Lieu de naissance",
+            FieldBirthGender, FieldGender, "Lieu de résidence", "Croyance", "Capacités/Magie", "Affiliation"
+        };
+
+        /// <summary>Les champs d'apparence par défaut du personnage, dans
+        /// l'ordre (b36, refondu le 23/09) ; Particularités est multiligne.</summary>
         public static readonly string[] CharacterLooks =
-            { "Taille", "Poids", "Peau", "Yeux", "Traits", "Particularités" };
+            { "Taille", "Poids", "Couleur des yeux", "Couleur des cheveux", "Teinte de peau", "Traits", "Particularités" };
 
-        /// <summary>Le modèle Personnage, en deux groupes : « Infos » (l'état
-        /// civil, le genre, l'âge) et « Physique » (batch 31, refondu b36).</summary>
+        /// <summary>Les champs de personnalité par défaut du personnage (23/09).</summary>
+        public static readonly string[] CharacterPersonality =
+            { "En un mot", "Voix", "Gestuelle", "Sociabilité" };
+
+        /// <summary>Un champ par défaut : son nom, sa section, sa nature, ses
+        /// options, et les NOMS D'AVANT qu'il remplace à la migration (un
+        /// champ existant ainsi nommé est renommé, même id : les valeurs des
+        /// fiches suivent).</summary>
+        private class FieldSpec
+        {
+            public string Name, Group = GroupInfos, Kind = FieldKinds.Text;
+            public string[] Options = new string[0], Legacy = new string[0];
+
+            public SheetField Make()
+            {
+                var field = new SheetField { Name = Name, Group = Group, Kind = Kind };
+                field.Options.AddRange(Options);
+                return field;
+            }
+        }
+
+        /// <summary>Le modèle Personnage, champ par champ, avec les noms
+        /// d'avant : la seule définition — le modèle neuf ET la migration.
+        /// « Sexe de naissance » (b31) précède « Genre » comme source du genre
+        /// de naissance : un modèle qui a les deux garde « Genre » pour le
+        /// genre « si différent ».</summary>
+        private static List<FieldSpec> CharacterSpecs()
+        {
+            return new List<FieldSpec>
+            {
+                S("Nom"), S("Prénom"), S("Alias"), S(FieldAge), S(FieldBirthDate), S("Lieu de naissance"),
+                Choice(FieldBirthGender, GroupInfos, GenderOptions, "Sexe de naissance", "Genre", "Sexe"),
+                Choice(FieldGender, GroupInfos, GenderOptions, "Genre"),
+                S("Lieu de résidence"),
+                S("Croyance", GroupInfos, "Religion"),
+                S("Capacités/Magie", GroupInfos, "Magie", "Capacités"),
+                S("Affiliation"),
+                S("Taille", GroupLooks), S("Poids", GroupLooks),
+                S("Couleur des yeux", GroupLooks, "Yeux"),
+                S("Couleur des cheveux", GroupLooks, "Cheveux"),
+                S("Teinte de peau", GroupLooks, "Peau", "Couleur de peau"),
+                S("Traits", GroupLooks),
+                Kind("Particularités", FieldKinds.Multiline, GroupLooks),
+                S("En un mot", GroupPersonality), S("Voix", GroupPersonality),
+                S("Gestuelle", GroupPersonality), S("Sociabilité", GroupPersonality)
+            };
+        }
+
+        /// <summary>Le modèle Personnage : Infos, Apparence, Personnalité,
+        /// et le paper Relations.</summary>
         private static SheetTemplate Character()
         {
             var t = new SheetTemplate { Name = "Personnage", Relations = true };
-            t.Sections.Add(GroupLooks); // Informations (implicite) + Apparence
-            t.Fields.Add(G("Nom", GroupInfos));
-            t.Fields.Add(G("Prénom", GroupInfos));
-            t.Fields.Add(G("Alias", GroupInfos));
-            t.Fields.Add(G("Genre", GroupInfos));
-            t.Fields.Add(G(FieldBirthDate, GroupInfos));
-            t.Fields.Add(G(FieldAge, GroupInfos)); // IMPORTANT : voir FieldAge
-            t.Fields.Add(G("Lieu de naissance", GroupInfos));
-            t.Fields.Add(G("Affiliation", GroupInfos));
-            t.Fields.Add(G("Religion", GroupInfos));
-            t.Fields.Add(G("Magie", GroupInfos));
-            foreach (var name in CharacterLooks)
-            {
-                var field = G(name, GroupLooks);
-                if (name == "Particularités") field.Kind = "multiline";
-                t.Fields.Add(field);
-            }
+            t.Sections.Add(GroupLooks);
+            t.Sections.Add(GroupPersonality);
+            foreach (var spec in CharacterSpecs()) t.Fields.Add(spec.Make());
             return t;
         }
 
-        /// <summary>Migration v16 du modèle Personnage d'un projet existant :
-        /// « Âge » sous la date de naissance, l'apparence alignée sur
-        /// CharacterLooks (« Couleur de peau » renommée « Peau » — même id, les
-        /// valeurs suivent ; « Cheveux » et « Sexe de naissance » ne sont
-        /// retirés que si AUCUNE fiche ne les a remplis, sinon ils restent en
-        /// queue d'apparence). Idempotente. Rend vrai si le modèle a changé.</summary>
-        public static bool UpgradeCharacterTemplate(SheetTemplate template, IEnumerable<BinderItem> sheets)
+        /// <summary>Migration v30 (23/09 ; absorbe la v16) du modèle Personnage
+        /// d'un projet existant : chaque champ par défaut est retrouvé par son
+        /// nom ou un nom d'avant (renommé, même id — les valeurs suivent ; un
+        /// « Genre » texte devient un choix, sa valeur d'avant reste proposée),
+        /// sinon créé ; les champs par défaut prennent l'ordre livré, les
+        /// champs maison suivent, jamais retirés ; sections Apparence et
+        /// Personnalité, paper Relations. Idempotente. Rend vrai si changé.</summary>
+        public static bool UpgradeCharacterTemplate(SheetTemplate template)
         {
             if (template == null) return false;
             var changed = false;
             var fields = template.Fields;
 
             // — Les groupes d'avant les sections (b42) : « Physique » →
-            //   « Apparence », « Infos » → Informations — même appelée seule.
+            //   « Apparence », « Infos » → la section par défaut.
             foreach (var field in fields)
             {
                 var migrated = MigrateGroup(field.Group);
                 if (migrated != field.Group) { field.Group = migrated; changed = true; }
             }
             if (!template.HasSection(GroupLooks)) { template.Sections.Add(GroupLooks); changed = true; }
+            if (!template.HasSection(GroupPersonality)) { template.Sections.Add(GroupPersonality); changed = true; }
+            if (!template.Relations) { template.Relations = true; changed = true; }
 
-            // — Âge, juste sous la date de naissance.
-            if (FindField(fields, FieldAge) == null)
+            var rebuilt = new List<SheetField>();
+            foreach (var spec in CharacterSpecs())
             {
-                var birth = FindField(fields, FieldBirthDate);
-                var age = G(FieldAge, birth != null && birth.Group.Length > 0 ? birth.Group : GroupInfos);
-                fields.Insert(birth != null ? fields.IndexOf(birth) + 1 : fields.Count, age);
-                changed = true;
-            }
-
-            // — Apparence : renommage, complément, ordre.
-            var skin = FindField(fields, "Couleur de peau");
-            if (skin != null && FindField(fields, "Peau") == null) { skin.Name = "Peau"; changed = true; }
-            var looks = new List<SheetField>();
-            foreach (var name in CharacterLooks)
-            {
-                var field = FindField(fields, name);
+                var field = FindField(fields, spec.Name, rebuilt);
+                foreach (var legacy in spec.Legacy)
+                {
+                    if (field != null) break;
+                    field = FindField(fields, legacy, rebuilt);
+                }
                 if (field == null)
                 {
-                    field = G(name, GroupLooks);
-                    if (name == "Particularités") field.Kind = "multiline";
+                    field = spec.Make();
                     changed = true;
                 }
-                else if (!string.Equals(field.Group, GroupLooks, StringComparison.CurrentCultureIgnoreCase))
+                else
                 {
-                    field.Group = GroupLooks; // « transféré » vers l'apparence
-                    changed = true;
+                    if (field.Name != spec.Name) { field.Name = spec.Name; changed = true; }
+                    if (!string.Equals(field.Group, spec.Group, StringComparison.CurrentCultureIgnoreCase))
+                    { field.Group = spec.Group; changed = true; }
+                    if (spec.Kind == FieldKinds.Choice && FieldKinds.Normalize(field.Kind) == FieldKinds.Text && field.Options.Count == 0)
+                    {
+                        field.Kind = FieldKinds.Choice;
+                        field.Options.AddRange(spec.Options);
+                        changed = true;
+                    }
                 }
-                looks.Add(field);
+                rebuilt.Add(field);
             }
-            var rest = new List<SheetField>();
             foreach (var field in fields)
-            {
-                if (looks.Contains(field)) continue;
-                var stale = string.Equals(field.Group, GroupLooks, StringComparison.CurrentCultureIgnoreCase)
-                    && (FieldIs(field, "Cheveux") || FieldIs(field, "Sexe de naissance"))
-                    && !AnyValue(field, sheets);
-                if (stale) { changed = true; continue; }
-                rest.Add(field);
-            }
-            // L'apparence en bloc, à la place du premier champ d'apparence.
-            var firstLooks = rest.FindIndex(delegate(SheetField f)
-            { return string.Equals(f.Group, GroupLooks, StringComparison.CurrentCultureIgnoreCase); });
-            var rebuilt = new List<SheetField>();
-            for (var i = 0; i < rest.Count; i++)
-            {
-                if (i == firstLooks) rebuilt.AddRange(looks);
-                rebuilt.Add(rest[i]);
-            }
-            if (firstLooks < 0) rebuilt.AddRange(looks);
-            for (var i = 0; i < rebuilt.Count; i++)
-                if (i >= fields.Count || !ReferenceEquals(fields[i], rebuilt[i])) { changed = true; break; }
+                if (!rebuilt.Contains(field)) rebuilt.Add(field);
+            for (var i = 0; i < rebuilt.Count && !changed; i++)
+                if (i >= fields.Count || !ReferenceEquals(fields[i], rebuilt[i])) changed = true;
             if (changed)
             {
                 fields.Clear();
@@ -440,9 +481,12 @@ namespace Marabook.Model
             return changed;
         }
 
-        private static SheetField FindField(List<SheetField> fields, string name)
+        /// <summary>Le champ de ce nom (casse et espaces ignorés) qui n'a pas
+        /// déjà été pris par un champ par défaut, ou null.</summary>
+        private static SheetField FindField(List<SheetField> fields, string name, List<SheetField> taken)
         {
-            foreach (var field in fields) if (FieldIs(field, name)) return field;
+            foreach (var field in fields)
+                if (FieldIs(field, name) && !taken.Contains(field)) return field;
             return null;
         }
 
@@ -451,37 +495,41 @@ namespace Marabook.Model
             return string.Equals(field.Name.Trim(), name, StringComparison.CurrentCultureIgnoreCase);
         }
 
-        private static bool AnyValue(SheetField field, IEnumerable<BinderItem> sheets)
-        {
-            if (sheets == null) return false;
-            foreach (var sheet in sheets)
-            {
-                string value;
-                if (sheet.FieldValues.TryGetValue(field.Id, out value) && !string.IsNullOrEmpty(value)) return true;
-            }
-            return false;
-        }
-
-        private static SheetTemplate Simple(string name, params SheetField[] fields)
+        private static SheetTemplate Simple(string name, params FieldSpec[] specs)
         {
             var template = new SheetTemplate { Name = name };
-            template.Fields.AddRange(fields);
+            foreach (var spec in specs) template.Fields.Add(spec.Make());
             return template;
         }
 
-        private static SheetField F(string name)
+        private static FieldSpec S(string name)
         {
-            return new SheetField { Name = name };
+            return new FieldSpec { Name = name };
         }
 
-        private static SheetField M(string name)
+        private static FieldSpec S(string name, string group, params string[] legacy)
         {
-            return new SheetField { Name = name, Kind = "multiline" };
+            return new FieldSpec { Name = name, Group = group, Legacy = legacy };
         }
 
-        private static SheetField G(string name, string group)
+        private static FieldSpec Kind(string name, string kind)
         {
-            return new SheetField { Name = name, Group = group };
+            return new FieldSpec { Name = name, Kind = kind };
+        }
+
+        private static FieldSpec Kind(string name, string kind, string group)
+        {
+            return new FieldSpec { Name = name, Kind = kind, Group = group };
+        }
+
+        private static FieldSpec Choice(string name, string group, params string[] options)
+        {
+            return new FieldSpec { Name = name, Group = group, Kind = FieldKinds.Choice, Options = options };
+        }
+
+        private static FieldSpec Choice(string name, string group, string[] options, params string[] legacy)
+        {
+            return new FieldSpec { Name = name, Group = group, Kind = FieldKinds.Choice, Options = options, Legacy = legacy };
         }
 
         /// <summary>Migration v19 (batch 42) des modèles et des fiches d'un

@@ -15,7 +15,7 @@ namespace Marabook.View
     /// les valeurs des fiches, supprimer les laisse dormantes.</summary>
     public class TemplatesDialog : Window
     {
-        private const string DefaultSectionLabel = "Informations";
+        private const string DefaultSectionLabel = SheetDefaults.DefaultSectionLabel;
 
         private readonly List<SheetTemplate> _templates;
         private readonly ListBox _list;

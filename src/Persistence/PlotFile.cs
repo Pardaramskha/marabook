@@ -134,7 +134,15 @@ namespace Marabook.Persistence
         // v29: CARTES MENTALES (22/09) — la racine "mindmaps" (« Cartes
         //      mentales »), les items de kind "mindmap" dont le .tea complet
         //      de Mental-o est une entrée maps/<id>.tea de l'archive.
-        private const int FormatVersion = 29;
+        // v30: REFONTE DES FICHES (23/09) — rien de neuf dans le JSON ; le
+        //      modèle de base Personnage d'un .plot d'avant est réaligné au
+        //      chargement (SheetDefaults.UpgradeCharacterTemplate : Infos /
+        //      Apparence / Personnalité, renommages à id constant, genre de
+        //      naissance et genre « si différent » en choix) — une seule fois,
+        //      gardé par la version lue. Les autres catégories d'un projet
+        //      existant ne bougent pas ; un projet neuf reçoit les huit
+        //      catégories de la liste du 23/09.
+        private const int FormatVersion = 30;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -999,13 +1007,15 @@ namespace Marabook.Persistence
                 // migré ici (défauts + adoption des modèles par nom), et les
                 // fiches orphelines rejoignent la catégorie de leur modèle.
                 project.EnsureSheetCategories();
-                // Batch 36 : le modèle Personnage d'un .plot d'avant la v16
-                // reçoit « Âge » et l'apparence par défaut — une fois.
                 // Batch 42 : sections de fiche — « Physique » → « Apparence »,
-                // « Infos » → Informations, sections dérivées, Relations au
-                // seul Personnage — une fois, gardé par la version lue.
+                // « Infos » → la section par défaut, sections dérivées,
+                // Relations au seul Personnage — une fois, gardé par la
+                // version lue.
+                // 23/09 (v30, absorbe la v16 du batch 36) : le modèle
+                // Personnage d'un .plot d'avant reçoit ses champs par défaut
+                // (Infos / Apparence / Personnalité) — une fois.
                 if (project.LoadedFormatVersion < 19) SheetDefaults.UpgradeSections(project);
-                if (project.LoadedFormatVersion < 16) project.UpgradeCharacterTemplate();
+                if (project.LoadedFormatVersion < 30) project.UpgradeCharacterTemplate();
                 return project;
             }
         }

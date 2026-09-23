@@ -507,7 +507,7 @@ namespace Marabook.View
                 var add = AddButton("Ajouter un champ");
                 var nameRef = name;
                 add.Click += delegate { AddFreeField(nameRef); };
-                _sectionPapers.Add(Paper(name.Length == 0 ? "Informations" : name, panel, add));
+                _sectionPapers.Add(Paper(name.Length == 0 ? SheetDefaults.DefaultSectionLabel : name, panel, add));
             }
             _showRelations = (_template != null && _template.Relations)
                 || (_item != null && _item.Relations.Count > 0);

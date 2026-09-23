@@ -163,28 +163,35 @@ namespace Marabook.Model
             return info == null ? RelationLane.Other : info.Lane;
         }
 
-        /// <summary>Le genre d'une fiche, lu dans son champ « Genre » (ou
-        /// « Sexe ») : 'm' (homme, masculin, garçon, mâle…), 'f' (femme,
-        /// féminin, fille…), sinon 'n'.</summary>
+        /// <summary>Les noms de champ où lire le genre, par priorité (23/09) :
+        /// « Genre (si différent) » est LE point de référence, puis « Genre de
+        /// naissance », puis les noms d'avant (« Genre », « Sexe »…).</summary>
+        private static readonly string[] GenderFieldKeys =
+        {
+            Key(SheetDefaults.FieldGender), Key(SheetDefaults.FieldBirthGender),
+            "genre", "sexe", "sexe de naissance"
+        };
+
+        /// <summary>Le genre d'une fiche, lu dans ses champs de genre (le
+        /// modèle d'abord, puis les champs libres — GenderFieldKeys) : 'm'
+        /// (homme, masculin, garçon, mâle…), 'f' (femme, féminin, fille…),
+        /// sinon 'n'.</summary>
         public static char GenderOf(BinderItem sheet, SheetTemplate template)
         {
             if (sheet == null) return 'n';
-            string value = null;
-            if (template != null)
-                foreach (var field in template.Fields)
-                {
-                    var name = Key(field.Name);
-                    if (name != "genre" && name != "sexe" && name != "sexe de naissance") continue;
-                    string v;
-                    if (sheet.FieldValues.TryGetValue(field.Id, out v) && !string.IsNullOrEmpty(v)) { value = v; break; }
-                }
-            if (value == null)
+            foreach (var key in GenderFieldKeys)
+            {
+                if (template != null)
+                    foreach (var field in template.Fields)
+                    {
+                        string v;
+                        if (Key(field.Name) == key && sheet.FieldValues.TryGetValue(field.Id, out v) && !string.IsNullOrEmpty(v))
+                            return GenderOfValue(v);
+                    }
                 foreach (var entry in sheet.FreeInfo)
-                {
-                    var name = Key(entry.Title);
-                    if ((name == "genre" || name == "sexe") && !string.IsNullOrEmpty(entry.Value)) { value = entry.Value; break; }
-                }
-            return GenderOfValue(value);
+                    if (Key(entry.Title) == key && !string.IsNullOrEmpty(entry.Value)) return GenderOfValue(entry.Value);
+            }
+            return 'n';
         }
 
         public static char GenderOfValue(string value)

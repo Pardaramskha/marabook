@@ -56,8 +56,9 @@ namespace Marabook.Tests
             var infos = 0; var looks = 0;
             foreach (var field in character.Fields)
                 if (field.Group.Length == 0) infos++; else if (field.Group == SheetDefaults.GroupLooks) looks++;
-            t.Check(infos == 10 && looks == SheetDefaults.CharacterLooks.Length,
-                "« Infos » a rejoint Informations, « Physique » est devenu « Apparence » (" + infos + " / " + looks + ")");
+            t.Check(infos == SheetDefaults.CharacterInfos.Length
+                && looks == SheetDefaults.CharacterLooks.Length + SheetDefaults.CharacterPersonality.Length,
+                "« Infos » a rejoint la section par défaut, « Physique » est devenu « Apparence » (" + infos + " / " + looks + ")");
             t.Check(character.Relations, "le paper Relations reste au Personnage");
             t.Check(!place.Relations, "…et pas aux autres modèles livrés");
             t.Check(place.Sections.Count == 1 && place.Sections[0] == "Folklore",
@@ -206,9 +207,11 @@ namespace Marabook.Tests
         private static void CategoriesSeed(Harness t)
         {
             var project = Project.CreateNew();
-            t.Equal(7, project.SheetCategories.Count,
-                "un projet neuf porte les sept catégories livrées");
-            t.Equal(7, project.Templates.Count, "et leurs sept modèles");
+            t.Equal(SheetDefaults.CategoryNames.Length, project.SheetCategories.Count,
+                "un projet neuf porte les huit catégories livrées (liste du 23/09)");
+            t.Equal(SheetDefaults.CategoryNames.Length, project.Templates.Count, "et leurs huit modèles");
+            t.Equal("Personnage|Lieu|Événement|Système|Peuple|Bestiaire|Pays / Gouvernement|Faction / Organisation",
+                string.Join("|", SheetDefaults.CategoryNames), "…dans l'ordre de la liste");
             foreach (var category in project.SheetCategories)
                 t.Check(project.FindTemplate(category.TemplateId) != null,
                     "catégorie « " + category.Name + " » : modèle de base présent");
@@ -227,7 +230,7 @@ namespace Marabook.Tests
             // catégorie livrée, l'autre non), une fiche sur chacun, aucune
             // catégorie. La migration doit adopter « Lieu » tel quel (mêmes
             // champs, mêmes ids — les valeurs des fiches survivent), créer
-            // les six autres, et faire du modèle inconnu sa propre catégorie.
+            // les sept autres, et faire du modèle inconnu sa propre catégorie.
             var project = new Project();
             project.Roots.Add(new BinderItem
             {
@@ -261,8 +264,8 @@ namespace Marabook.Tests
 
             project.EnsureSheetCategories();
 
-            t.Equal(8, project.SheetCategories.Count,
-                "7 catégories livrées + 1 personnalisée (Vaisseau)");
+            t.Equal(SheetDefaults.CategoryNames.Length + 1, project.SheetCategories.Count,
+                "8 catégories livrées + 1 personnalisée (Vaisseau)");
             SheetCategory place = null, ship = null;
             foreach (var category in project.SheetCategories)
             {
@@ -282,7 +285,7 @@ namespace Marabook.Tests
 
             // Idempotence : un second appel ne crée RIEN de plus.
             project.EnsureSheetCategories();
-            t.Equal(8, project.SheetCategories.Count,
+            t.Equal(SheetDefaults.CategoryNames.Length + 1, project.SheetCategories.Count,
                 "la migration est idempotente");
         }
 

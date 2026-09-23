@@ -255,17 +255,12 @@ namespace Marabook.Model
             return null;
         }
 
-        /// <summary>Migration v16 (batch 36) : « Âge » et l'apparence par
-        /// défaut sur le modèle Personnage — voir
-        /// SheetDefaults.UpgradeCharacterTemplate. Rend vrai si changé.</summary>
+        /// <summary>Migration v30 (23/09 ; v16 avant) : les champs par défaut
+        /// du modèle Personnage — voir SheetDefaults.UpgradeCharacterTemplate.
+        /// Rend vrai si changé.</summary>
         public bool UpgradeCharacterTemplate()
         {
-            var template = CharacterTemplate();
-            if (template == null) return false;
-            var sheets = new List<BinderItem>();
-            foreach (var item in AllItems())
-                if (item.Kind == ItemKind.Sheet && item.TemplateId == template.Id) sheets.Add(item);
-            return SheetDefaults.UpgradeCharacterTemplate(template, sheets);
+            return SheetDefaults.UpgradeCharacterTemplate(CharacterTemplate());
         }
 
         /// <summary>First item whose title matches (case- and accent-insensitive),

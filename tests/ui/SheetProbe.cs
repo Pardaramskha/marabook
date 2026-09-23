@@ -95,8 +95,8 @@ namespace Marabook.Tests.Ui
             DoEvents();
 
             var opened = (Project)GetField(window, "_project");
-            Check(opened.SheetCategories.Count == 7,
-                "les 7 catégories ont survécu à l'aller-retour disque (v11)");
+            Check(opened.SheetCategories.Count == SheetDefaults.CategoryNames.Length,
+                "les " + SheetDefaults.CategoryNames.Length + " catégories ont survécu à l'aller-retour disque (v11)");
 
             // — La catégorie « Fiches » ouvre la bibliothèque.
             Invoke(window, "OnBinderSelection",
