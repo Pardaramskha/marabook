@@ -119,7 +119,8 @@ namespace Marabook.Tests
                 MindMapTests.Run,        // C36 — cartes mentales (22/09)
                 FinalTests.Run,          // C37 — rapports de plantage, raccourcis de l'éditeur, succès (22/09)
                 ReviewTests.Run,         // C38 — revue du 22/09 : styles globaux, réglages, .plot, exports
-                ImageImportTests.Run     // C39 — images des documents importés (23/09)
+                ImageImportTests.Run,    // C39 — images des documents importés (23/09)
+                GrammarFilterTests.Run   // C40 — second regard sur Grammalecte (23/09)
             };
             foreach (var suite in suites)
             {
