@@ -259,7 +259,9 @@ namespace Marabook.Exchange
 
         // ------------------------------------------------------- import
 
-        public static TextDocument Import(string path, StyleSheet projectStyles)
+        /// <summary>project (23/09) : le magasin d'images qui reçoit les images
+        /// du document (Pictures/…, draw:frame › draw:image) ; null = ignorées.</summary>
+        public static TextDocument Import(string path, StyleSheet projectStyles, Project project = null)
         {
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read))
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Read))
@@ -267,6 +269,7 @@ namespace Marabook.Exchange
                 var contentEntry = zip.GetEntry("content.xml");
                 if (contentEntry == null)
                     throw new InvalidDataException("content.xml introuvable : .odt invalide.");
+                var images = new ImportedImages(project, zip);
 
                 // Style catalog: named styles (styles.xml) + automatic styles (content.xml).
                 var catalog = new Dictionary<string, OdtStyle>();
@@ -303,7 +306,7 @@ namespace Marabook.Exchange
                 var textRoot = content.SelectSingleNode("//office:body/office:text", ns);
                 if (textRoot != null)
                     foreach (XmlNode child in textRoot.ChildNodes)
-                        ReadTextNode(child, ns, document, projectStyles, catalog, map);
+                        ReadTextNode(child, ns, document, projectStyles, catalog, map, images);
                 if (document.Paragraphs.Count == 0) document.Paragraphs.Add(new TextParagraph());
                 return document;
             }
@@ -430,23 +433,51 @@ namespace Marabook.Exchange
 
         private static void ReadTextNode(XmlNode node, XmlNamespaceManager ns,
             TextDocument document, StyleSheet projectStyles,
-            Dictionary<string, OdtStyle> catalog, Dictionary<string, string> map)
+            Dictionary<string, OdtStyle> catalog, Dictionary<string, string> map,
+            ImportedImages images)
         {
             if (node.LocalName == "p" || node.LocalName == "h")
             {
-                document.Paragraphs.Add(ReadParagraph(node, ns, document, projectStyles, catalog, map));
+                document.Paragraphs.Add(ReadParagraph(node, ns, document, projectStyles, catalog, map, images));
+                return;
+            }
+            // Un cadre posé entre les paragraphes (ancré à la page) : son image
+            // fait un paragraphe à elle seule (23/09).
+            if (node.LocalName == "frame")
+            {
+                var paragraph = new TextParagraph();
+                AddFrameImages(node, paragraph, images);
+                if (paragraph.Runs.Count > 0) document.Paragraphs.Add(paragraph);
                 return;
             }
             if (node.LocalName == "list" || node.LocalName == "list-item"
                 || node.LocalName == "section" || node.LocalName == "table"
                 || node.LocalName == "table-row" || node.LocalName == "table-cell")
                 foreach (XmlNode child in node.ChildNodes)
-                    ReadTextNode(child, ns, document, projectStyles, catalog, map);
+                    ReadTextNode(child, ns, document, projectStyles, catalog, map, images);
+        }
+
+        /// <summary>Les images d'un draw:frame (23/09) : chaque draw:image à
+        /// xlink:href interne (Pictures/…) devient un run image ; une image
+        /// liée hors du fichier (href absolu, http…) n'a pas d'octets.</summary>
+        private static void AddFrameImages(XmlNode frame, TextParagraph paragraph, ImportedImages images)
+        {
+            if (images == null || !images.Enabled) return;
+            var nodes = frame.SelectNodes(".//*[local-name()='image']");
+            if (nodes == null) return;
+            foreach (XmlNode image in nodes)
+            {
+                var href = Attr(image, "href", null);
+                if (string.IsNullOrEmpty(href) || href.Contains(":")) continue;
+                var id = images.Store(ImportedImages.Resolve("", href));
+                if (id != null) paragraph.Runs.Add(new TextRun { ImageId = id });
+            }
         }
 
         private static TextParagraph ReadParagraph(XmlNode p, XmlNamespaceManager ns,
             TextDocument document, StyleSheet projectStyles,
-            Dictionary<string, OdtStyle> catalog, Dictionary<string, string> map)
+            Dictionary<string, OdtStyle> catalog, Dictionary<string, string> map,
+            ImportedImages images)
         {
             var paragraph = new TextParagraph();
             var styleName = Attr(p, "style-name", TextUri);
@@ -466,19 +497,24 @@ namespace Marabook.Exchange
             if (auto != null && auto.Align != null && auto.Align != style.Align)
                 paragraph.AlignOverride = auto.Align;
 
-            ReadInlines(p, ns, paragraph, document, style, catalog);
+            ReadInlines(p, ns, paragraph, document, style, catalog, images);
             return paragraph;
         }
 
         private static void ReadInlines(XmlNode container, XmlNamespaceManager ns,
             TextParagraph paragraph, TextDocument document, ParagraphStyle style,
-            Dictionary<string, OdtStyle> catalog, OdtStyle inheritedSpan = null)
+            Dictionary<string, OdtStyle> catalog, ImportedImages images, OdtStyle inheritedSpan = null)
         {
             foreach (XmlNode child in container.ChildNodes)
             {
                 if (child.NodeType == XmlNodeType.Text)
                 {
                     AddRun(paragraph, child.Value, style, inheritedSpan);
+                    continue;
+                }
+                if (child.LocalName == "frame")
+                {
+                    AddFrameImages(child, paragraph, images);
                     continue;
                 }
                 if (child.LocalName == "line-break")
@@ -511,11 +547,11 @@ namespace Marabook.Exchange
                     OdtStyle span = null;
                     var name = Attr(child, "style-name", TextUri);
                     if (name != null) catalog.TryGetValue(name, out span);
-                    ReadInlines(child, ns, paragraph, document, style, catalog, span ?? inheritedSpan);
+                    ReadInlines(child, ns, paragraph, document, style, catalog, images, span ?? inheritedSpan);
                     continue;
                 }
                 if (child.LocalName == "a") // hyperlink: keep the text
-                    ReadInlines(child, ns, paragraph, document, style, catalog, inheritedSpan);
+                    ReadInlines(child, ns, paragraph, document, style, catalog, images, inheritedSpan);
             }
         }
 

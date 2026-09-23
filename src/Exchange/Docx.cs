@@ -13,8 +13,11 @@ namespace Marabook.Exchange
     /// dependency. The pivot was modeled on docx semantics precisely so this
     /// mapping stays direct: named paragraph styles, run overrides, footnotes,
     /// line and page breaks. Declared scope (PLAN §3): styles, character
-    /// formatting, footnotes. Images, tables and fields are out of scope —
-    /// tables are flattened to paragraphs on import.</summary>
+    /// formatting, footnotes. Tables and fields are out of scope — tables
+    /// are flattened to paragraphs on import. IMAGES (23/09/2026) : lues à
+    /// l'import quand un projet est fourni (word/media via les relations,
+    /// dessins inline ou ancrés, et les vieux w:pict) ; l'export ne les
+    /// écrit pas encore.</summary>
     public static class Docx
     {
         public const string Filter = "Document Word (*.docx)|*.docx";
@@ -472,14 +475,17 @@ namespace Marabook.Exchange
 
         /// <summary>Imports a .docx into a pivot document. Named paragraph styles
         /// missing from the project's sheet are created there (merge).</summary>
-        public static TextDocument Import(string path, StyleSheet projectStyles)
+        /// <summary>project (23/09) : le magasin d'images qui reçoit les images
+        /// du document ; null = les images sont ignorées (comme avant).</summary>
+        public static TextDocument Import(string path, StyleSheet projectStyles, Project project = null)
         {
             List<DocxComment> ignored;
-            return ImportWithComments(path, projectStyles, out ignored);
+            return ImportWithComments(path, projectStyles, out ignored, project);
         }
 
         /// <summary>L'état d'une lecture (b49) : les commentaires du fichier,
-        /// ceux dont la plage est ouverte, et les annotations créées pour eux.</summary>
+        /// ceux dont la plage est ouverte, et les annotations créées pour eux ;
+        /// (23/09) les relations d'image du document et le magasin qui les reçoit.</summary>
         private sealed class ImportContext
         {
             public Dictionary<string, DocxComment> Comments = new Dictionary<string, DocxComment>();
@@ -487,6 +493,17 @@ namespace Marabook.Exchange
             public readonly Dictionary<string, Annotation> Annotations = new Dictionary<string, Annotation>();
             public readonly List<DocxComment> Used = new List<DocxComment>();
             public TextDocument Document;
+            public ImportedImages Images;
+            public Dictionary<string, string> ImageRels = new Dictionary<string, string>(); // rId → entrée de l'archive
+
+            /// <summary>L'id d'image du projet pour une relation (r:embed,
+            /// r:id), ou null.</summary>
+            public string ImageFor(string relationId)
+            {
+                string entry;
+                if (Images == null || relationId == null || !ImageRels.TryGetValue(relationId, out entry)) return null;
+                return Images.Store(entry);
+            }
 
             /// <summary>L'annotation d'un commentaire, créée à sa première plage.</summary>
             public Annotation AnnotationFor(string commentId)
@@ -512,7 +529,7 @@ namespace Marabook.Exchange
         /// la liste rend en plus le passage commenté et son paragraphe
         /// (l'empreinte pour CommentMerge).</summary>
         public static TextDocument ImportWithComments(string path, StyleSheet projectStyles,
-            out List<DocxComment> comments)
+            out List<DocxComment> comments, Project project = null)
         {
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read))
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Read))
@@ -529,6 +546,11 @@ namespace Marabook.Exchange
                 var document = new TextDocument();
                 foreach (var note in footnotes.Values) document.Footnotes.Add(note);
                 var ctx = new ImportContext { Comments = ReadComments(zip), Document = document };
+                if (project != null)
+                {
+                    ctx.Images = new ImportedImages(project, zip);
+                    ctx.ImageRels = ReadImageRels(zip);
+                }
 
                 var body = xml.SelectSingleNode("//w:body", ns);
                 if (body != null) ReadBlock(body, ns, document, projectStyles, styleMap, footnotes, numbering, ctx);
@@ -855,6 +877,15 @@ namespace Marabook.Exchange
                     continue;
                 }
 
+                // Les images du run (23/09) : chaque dessin (w:drawing inline
+                // ou ancré, dans un mc:AlternateContent ou non) et chaque
+                // vieux w:pict deviennent un run image, à leur place dans le
+                // texte — une même image citée deux fois par le run (Choice +
+                // Fallback) n'entre qu'une fois.
+                if (ctx != null && ctx.Images != null)
+                    foreach (var imageId in ImagesOf(child, ctx))
+                        paragraph.Runs.Add(new TextRun { ImageId = imageId });
+
                 var sb = new StringBuilder();
                 foreach (XmlNode part in child.ChildNodes)
                 {
@@ -868,6 +899,57 @@ namespace Marabook.Exchange
                 }
                 FlushRun(paragraph, sb, child, ns, style, ctx);
             }
+        }
+
+        /// <summary>Les ids d'image d'un run, dans l'ordre et sans doublon :
+        /// les a:blip (r:embed) des dessins DrawingML, puis les v:imagedata
+        /// (r:id) des dessins VML — une image liée hors du fichier (r:link
+        /// seul) n'a pas d'octets, elle est ignorée.</summary>
+        private static List<string> ImagesOf(XmlNode run, ImportContext ctx)
+        {
+            var ids = new List<string>();
+            foreach (var pair in new[] { new[] { "blip", "embed" }, new[] { "imagedata", "id" } })
+            {
+                var nodes = run.SelectNodes(".//*[local-name()='" + pair[0] + "']");
+                if (nodes == null) continue;
+                foreach (XmlNode node in nodes)
+                {
+                    var id = ctx.ImageFor(LocalAttr(node, pair[1]));
+                    if (id != null && !ids.Contains(id)) ids.Add(id);
+                }
+            }
+            return ids;
+        }
+
+        private static string LocalAttr(XmlNode node, string localName)
+        {
+            if (node == null || node.Attributes == null) return null;
+            foreach (XmlAttribute attr in node.Attributes)
+                if (attr.LocalName == localName) return attr.Value;
+            return null;
+        }
+
+        /// <summary>Les relations d'image de word/document.xml : rId → entrée
+        /// de l'archive (word/media/…). Une cible externe (TargetMode
+        /// External) est laissée de côté.</summary>
+        private static Dictionary<string, string> ReadImageRels(ZipArchive zip)
+        {
+            var rels = new Dictionary<string, string>();
+            var entry = zip.GetEntry("word/_rels/document.xml.rels");
+            if (entry == null) return rels;
+            var xml = LoadXml(entry);
+            var nodes = xml.SelectNodes("//*[local-name()='Relationship']");
+            if (nodes == null) return rels;
+            foreach (XmlNode node in nodes)
+            {
+                var type = LocalAttr(node, "Type") ?? "";
+                if (!type.EndsWith("/image", StringComparison.Ordinal)) continue;
+                if (string.Equals(LocalAttr(node, "TargetMode"), "External", StringComparison.OrdinalIgnoreCase)) continue;
+                var id = LocalAttr(node, "Id");
+                var target = ImportedImages.Resolve("word/", LocalAttr(node, "Target"));
+                if (id != null && target != null) rels[id] = target;
+            }
+            return rels;
         }
 
         private static void FlushRun(TextParagraph paragraph, StringBuilder sb,

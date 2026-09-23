@@ -677,8 +677,7 @@ namespace Marabook.Print
                 if (run.ImageId != null)
                 {
                     var stored = _project == null ? null : _project.FindImage(run.ImageId);
-                    var source = stored == null || stored.Bytes == null
-                        ? null : View.MediaView.TryImage(stored.Bytes, 0);
+                    var source = View.ImageCache.For(stored); // décodée une fois, pas à chaque frappe (23/09)
                     if (source != null)
                     {
                         var w = Math.Min(source.Width, 480.0);
