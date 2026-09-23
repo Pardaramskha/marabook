@@ -9,8 +9,8 @@
 
 # Marabook
 
-!\[my badge\](https://badgen.net/badge/langage/débridé/red)
-!\[my badge\](https://badgen.net/badge/version/beta/blue)
+[my badge](https://badgen.net/badge/langage/débridé/red)
+[my badge](https://badgen.net/badge/version/beta/blue)
 
 Auteurs, éditeurs, ceci est le dernier logiciel dont vous aurez besoin. 
 
