@@ -156,8 +156,7 @@ namespace Marabook.View
         /// the bytes are missing), sized to stay inside the page.</summary>
         public static UIElement MakeImageElement(ProjectImage stored)
         {
-            var source = stored == null || stored.Bytes == null
-                ? null : MediaView.TryImage(stored.Bytes, 0);
+            var source = ImageCache.For(stored);
             if (source != null)
                 return new System.Windows.Controls.Image
                 {

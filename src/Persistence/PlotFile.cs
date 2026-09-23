@@ -189,7 +189,15 @@ namespace Marabook.Persistence
                 foreach (var kv in project.Images)
                 {
                     if (kv.Value.Bytes == null || textsOnly || !usedImages.Contains(kv.Key)) continue;
-                    var imageEntry = archive.CreateEntry("images/" + kv.Key + (kv.Value.Extension ?? ""));
+                    // Un PNG, un JPEG ou un GIF est déjà compressé : le
+                    // recompresser coûte des secondes par enregistrement sur
+                    // un projet illustré et ne gagne rien (23/09). PIÈGE .NET 4 :
+                    // NoCompression = Deflate à blocs stockés (pas d'entrée
+                    // Stored), ce qui suffit — c'est la recherche LZ77 qui coûte.
+                    var extension = kv.Value.Extension ?? "";
+                    var packed = extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".gif";
+                    var imageEntry = archive.CreateEntry("images/" + kv.Key + extension,
+                        packed ? CompressionLevel.NoCompression : CompressionLevel.Optimal);
                     using (var imageStream = imageEntry.Open())
                         imageStream.Write(kv.Value.Bytes, 0, kv.Value.Bytes.Length);
                 }

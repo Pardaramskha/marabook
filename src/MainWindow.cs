@@ -2778,14 +2778,15 @@ namespace Marabook
         private TextDocument ImportOneDocument(string path)
         {
             var ext = Path.GetExtension(path).ToLowerInvariant();
-            if (ext == ".docx") return Exchange.Docx.Import(path, _project.Styles);
-            if (ext == ".odt") return Exchange.Odt.Import(path, _project.Styles);
+            // Les images du document entrent dans le magasin du projet (23/09).
+            if (ext == ".docx") return Exchange.Docx.Import(path, _project.Styles, _project);
+            if (ext == ".odt") return Exchange.Odt.Import(path, _project.Styles, _project);
             if (ext == ".rtf") return Exchange.Rtf.Import(path, _project.Styles);
             if (ext == ".md" || ext == ".markdown")
                 return Exchange.MarkdownExchange.Import(File.ReadAllText(path));
             if (ext == ".txt") return TextDocument.FromPlainText(File.ReadAllText(path));
             if (ext == ".doc")
-                return Exchange.Docx.Import(Exchange.ExternalBridge.DocToDocx(path), _project.Styles);
+                return Exchange.Docx.Import(Exchange.ExternalBridge.DocToDocx(path), _project.Styles, _project);
             if (ext == ".gdoc")
             {
                 MessageDialog.Show(this, Exchange.ExternalBridge.GdocGuidance,
