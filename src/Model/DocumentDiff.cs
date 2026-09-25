@@ -426,7 +426,7 @@ namespace Marabook.Model
             {
                 if (source == null) continue;
                 foreach (var note in source.Footnotes)
-                    if (seen.Add(note.Id)) synthetic.Footnotes.Add(new Footnote { Id = note.Id, Text = note.Text });
+                    if (seen.Add(note.Id)) synthetic.Footnotes.Add(note.Clone());
             }
         }
 

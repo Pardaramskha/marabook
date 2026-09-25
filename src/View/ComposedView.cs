@@ -96,7 +96,7 @@ namespace Marabook.View
         // Notes de bas de page éditées EN PLACE (batch 33) : un TextBox posé
         // sur la note, au bas de sa page — plus de panneau du bas.
         private readonly Canvas _noteLayer;
-        private TextBox _noteEditor;
+        private RichTextBox _noteEditor; // riche depuis la 0.50.0 (gras, italique, police dans la note)
         private string _editingNoteId;
         private double _zoom = 1.0;
 
@@ -110,6 +110,18 @@ namespace Marabook.View
         private int _anchorParagraph = -1, _anchorOffset; // -1 = no selection
         private double _caretDesiredX = -1; // column memory for up/down
         private bool _mouseSelecting;
+        // L'auto-sélecteur de mot (0.50.0) : le point EXACT du clic qui a
+        // ouvert le glisser (l'ancre effective peut sauter au bord du mot),
+        // et « mots entiers » quand le glisser suit un double-clic.
+        private int _dragOriginParagraph = -1, _dragOriginOffset;
+        private bool _dragWholeWords;
+        // Le FORMAT D'INSERTION (0.50.0) : ce que prend le prochain caractère
+        // tapé quand un format a été choisi SANS sélection (police, taille,
+        // gras…), ou qu'un paragraphe vient d'être créé ou vidé — le format
+        // du point d'insertion de Word. Il ne vaut qu'à la position où il a
+        // été posé : le caret bouge, il tombe.
+        private TextRun _pendingFormat;
+        private int _pendingParagraph, _pendingOffset;
 
         // Undo: pivot snapshots; typing bursts coalesce.
         private sealed class Snapshot
@@ -249,6 +261,8 @@ namespace Marabook.View
             PreviewMouseLeftButtonUp += delegate
             {
                 _mouseSelecting = false;
+                _dragOriginParagraph = -1;
+                _dragWholeWords = false;
                 ReleaseMouseCapture();
                 // A click without drag leaves no anchor behind — otherwise the
                 // next keystroke would read as a one-character selection and
@@ -509,26 +523,47 @@ namespace Marabook.View
             if (_editingNoteId == id && _noteEditor != null) { _noteEditor.Focus(); return; }
             CloseNoteEditor(false);
             _editingNoteId = id;
-            var body = _styles.Body;
-            _noteEditor = new TextBox
+            // Le champ est RICHE depuis la 0.50.0 : gras, italique, souligné,
+            // police, taille — par les raccourcis du RichTextBox et par le
+            // ruban (les bascules et combos délèguent à la note quand elle a
+            // le clavier). Police et taille de base : le style « Notes de bas
+            // de page » de la feuille, le même que celui du compositeur.
+            var noteStyle = _styles.FootnoteStyle();
+            _noteEditor = new RichTextBox
             {
-                Text = note.Text,
-                FontFamily = new FontFamily(body.FontFamily),
-                FontSize = Math.Max(9, body.FontSize * 0.85),
-                TextWrapping = TextWrapping.Wrap,
+                FontFamily = new FontFamily(noteStyle.FontFamily),
+                FontSize = Math.Max(9, noteStyle.FontSize),
                 AcceptsReturn = false,
+                AcceptsTab = false,
                 Padding = new Thickness(2, 0, 2, 0),
                 BorderBrush = Chrome.Accent,
                 BorderThickness = new Thickness(1),
                 Background = Chrome.PaperBg,
                 Foreground = Chrome.PaperInk,
-                ToolTip = "Note de bas de page — Entrée ou Échap pour fermer"
+                ToolTip = "Note de bas de page — Entrée ou Échap pour fermer ; gras, italique, police depuis le ruban ou les raccourcis"
             };
+            _noteEditor.Document = NoteFlow(note, noteStyle);
             var noteRef = note;
+            var lastKey = note.FormatKey();
             _noteEditor.TextChanged += delegate
             {
-                if (_noteEditor == null || noteRef.Text == _noteEditor.Text) return;
-                noteRef.Text = _noteEditor.Text;
+                if (_noteEditor == null) return;
+                // Le FlowDocument relu en runs (texte ET formats) ; rien ne
+                // bouge si la signature n'a pas changé (la relecture d'une
+                // frappe neutre, le repositionnement).
+                var back = FlowConverter.FromFlow(_noteEditor.Document, NoteSheet(noteStyle), null);
+                var runs = new List<TextRun>();
+                for (var i = 0; i < back.Paragraphs.Count; i++)
+                {
+                    if (i > 0) runs.Add(new TextRun { IsLineBreak = true });
+                    runs.AddRange(back.Paragraphs[i].Runs);
+                }
+                var candidate = new Footnote();
+                candidate.SetRuns(runs);
+                var key = candidate.FormatKey();
+                if (key == lastKey) return;
+                lastKey = key;
+                noteRef.SetRuns(runs);
                 RefreshNotes();
                 PositionNoteEditor();
                 var handler = Edited;
@@ -541,10 +576,98 @@ namespace Marabook.View
             };
             _noteLayer.Children.Add(_noteEditor);
             if (!PositionNoteEditor()) { CloseNoteEditor(false); return; }
-            _noteEditor.CaretIndex = _noteEditor.Text.Length;
+            _noteEditor.CaretPosition = _noteEditor.Document.ContentEnd;
             _noteEditor.Focus();
             var started = NoteEditingStarted;
             if (started != null) started(id);
+        }
+
+        /// <summary>La feuille vue par l'éditeur de note : la note est un
+        /// paragraphe de style « footnote » — et « body » vaut pareil, pour
+        /// un paragraphe que le RichTextBox aurait créé sans étiquette.</summary>
+        private static StyleSheet NoteSheet(ParagraphStyle noteStyle)
+        {
+            var sheet = new StyleSheet();
+            var body = noteStyle.Clone();
+            body.Id = "body";
+            sheet.Styles.Add(body);
+            var footnote = noteStyle.Clone();
+            footnote.Id = StyleSheet.FootnoteId;
+            sheet.Styles.Add(footnote);
+            return sheet;
+        }
+
+        /// <summary>Le corps de la note en FlowDocument pour le RichTextBox :
+        /// ses runs avec leurs formats, sans marges (le numéro « n. » reste
+        /// dessiné par la page, à gauche du champ).</summary>
+        private System.Windows.Documents.FlowDocument NoteFlow(Footnote note, ParagraphStyle noteStyle)
+        {
+            var document = new TextDocument();
+            document.Paragraphs.Add(note.ToParagraph(StyleSheet.FootnoteId));
+            var flow = FlowConverter.ToFlow(document, NoteSheet(noteStyle), _project, false);
+            flow.PagePadding = new Thickness(0);
+            flow.FontFamily = new FontFamily(noteStyle.FontFamily);
+            flow.FontSize = Math.Max(9, noteStyle.FontSize);
+            foreach (var block in flow.Blocks)
+            {
+                var paragraph = block as System.Windows.Documents.Paragraph;
+                if (paragraph == null) continue;
+                paragraph.Margin = new Thickness(0);
+                paragraph.TextIndent = 0;
+                paragraph.LineHeight = double.NaN;
+                paragraph.FontSize = Math.Max(9, noteStyle.FontSize);
+            }
+            return flow;
+        }
+
+        /// <summary>Vrai quand la note ouverte a le clavier : les formats du
+        /// ruban lui reviennent, pas au texte.</summary>
+        private bool NoteEditing
+        {
+            get { return _noteEditor != null && _noteEditor.IsKeyboardFocusWithin; }
+        }
+
+        /// <summary>Rend le clavier à la surface — à la note ouverte s'il y en
+        /// a une (un choix au ruban ne doit pas la refermer), sinon au texte.</summary>
+        public void FocusSurface()
+        {
+            if (_noteEditor != null) _noteEditor.Focus();
+            else Focus();
+        }
+
+        /// <summary>Un format du ruban appliqué à la sélection de la note :
+        /// le setter est joué sur un run témoin, ce qu'il pose est reporté
+        /// sur les propriétés du RichTextBox.</summary>
+        private void ApplyToNoteSelection(Action<TextRun> setter)
+        {
+            var probe = new TextRun();
+            setter(probe);
+            var selection = _noteEditor.Selection;
+            if (probe.FontFamily != null)
+                selection.ApplyPropertyValue(System.Windows.Documents.TextElement.FontFamilyProperty, new FontFamily(probe.FontFamily));
+            if (probe.FontSize.HasValue)
+                selection.ApplyPropertyValue(System.Windows.Documents.TextElement.FontSizeProperty, probe.FontSize.Value);
+            if (probe.Bold.HasValue)
+                selection.ApplyPropertyValue(System.Windows.Documents.TextElement.FontWeightProperty, probe.Bold.Value ? FontWeights.Bold : FontWeights.Normal);
+            if (probe.Italic.HasValue)
+                selection.ApplyPropertyValue(System.Windows.Documents.TextElement.FontStyleProperty, probe.Italic.Value ? FontStyles.Italic : FontStyles.Normal);
+            if (probe.Color != null)
+                selection.ApplyPropertyValue(System.Windows.Documents.TextElement.ForegroundProperty, new SolidColorBrush(FlowConverter.ParseColor(probe.Color)));
+            if (probe.Highlight != null)
+                selection.ApplyPropertyValue(System.Windows.Documents.TextElement.BackgroundProperty, new SolidColorBrush(FlowConverter.ParseColor(probe.Highlight)));
+        }
+
+        /// <summary>Barré dans la note : bascule la décoration sur la sélection.</summary>
+        private void ToggleNoteStrike()
+        {
+            var selection = _noteEditor.Selection;
+            var current = selection.GetPropertyValue(System.Windows.Documents.Inline.TextDecorationsProperty) as TextDecorationCollection;
+            var struck = false;
+            if (current != null)
+                foreach (var decoration in current)
+                    if (decoration.Location == TextDecorationLocation.Strikethrough) struck = true;
+            selection.ApplyPropertyValue(System.Windows.Documents.Inline.TextDecorationsProperty,
+                struck ? new TextDecorationCollection() : TextDecorations.Strikethrough);
         }
 
         /// <summary>Pose (ou repose) l'éditeur de note sur la géométrie
@@ -936,6 +1059,13 @@ namespace Marabook.View
             if (e.ClickCount == 2)
             {
                 SelectWordAt(paragraph, offset);
+                // Glisser depuis un double-clic : la sélection s'étend par
+                // mots entiers (auto-sélecteur, 0.50.0).
+                _dragOriginParagraph = paragraph;
+                _dragOriginOffset = offset;
+                _dragWholeWords = true;
+                _mouseSelecting = true;
+                CaptureMouse();
                 e.Handled = true;
                 UpdateCaretVisual();
                 return;
@@ -950,6 +1080,9 @@ namespace Marabook.View
                 _anchorParagraph = paragraph;
                 _anchorOffset = offset;
             }
+            _dragOriginParagraph = _anchorParagraph;
+            _dragOriginOffset = _anchorOffset;
+            _dragWholeWords = false;
             _caretParagraph = paragraph;
             _caretOffset = offset;
             _caretDesiredX = -1;
@@ -1270,14 +1403,8 @@ namespace Marabook.View
             length = 0;
             word = null;
             var text = PivotEdit.FlatText(_item.Document.Paragraphs[paragraphIndex]);
-            if (text.Length == 0) return false;
-            var i = Math.Min(offset, text.Length - 1);
-            if (!char.IsLetterOrDigit(text[i]) && i > 0) i--;
-            if (!char.IsLetterOrDigit(text[i])) return false;
-            start = i;
-            var end = i;
-            while (start > 0 && char.IsLetterOrDigit(text[start - 1])) start--;
-            while (end < text.Length && char.IsLetterOrDigit(text[end])) end++;
+            int end;
+            if (!PivotEdit.WordBounds(text, offset, out start, out end)) { start = 0; return false; }
             length = end - start;
             word = text.Substring(start, length);
             return true;
@@ -1305,6 +1432,22 @@ namespace Marabook.View
             if (!_mouseSelecting || e.LeftButton != MouseButtonState.Pressed) return;
             int paragraph, offset;
             if (!HitTestPosition(e, out paragraph, out offset)) return;
+            if ((Settings.AppSettings.AutoSelectWord || _dragWholeWords) && _dragOriginParagraph >= 0
+                && _dragOriginParagraph < _item.Document.Paragraphs.Count)
+            {
+                // L'auto-sélecteur de mot (0.50.0) : la règle pure vit dans
+                // PivotEdit.SnapWordSelection ; ici on lui donne les textes
+                // plats des deux paragraphes et on pose ce qu'elle rend.
+                var paragraphs = _item.Document.Paragraphs;
+                var anchorText = PivotEdit.FlatText(paragraphs[_dragOriginParagraph]);
+                var caretText = paragraph == _dragOriginParagraph ? anchorText : PivotEdit.FlatText(paragraphs[paragraph]);
+                int anchor, caret;
+                PivotEdit.SnapWordSelection(anchorText, _dragOriginParagraph, _dragOriginOffset,
+                    caretText, paragraph, offset, _dragWholeWords, out anchor, out caret);
+                _anchorParagraph = _dragOriginParagraph;
+                _anchorOffset = anchor;
+                offset = caret;
+            }
             _caretParagraph = paragraph;
             _caretOffset = offset;
             UpdateCaretVisual();
@@ -1382,12 +1525,16 @@ namespace Marabook.View
         {
             var text = PivotEdit.FlatText(_item.Document.Paragraphs[paragraphIndex]);
             if (text.Length == 0) return;
-            var i = Math.Min(offset, text.Length - 1);
-            if (!char.IsLetterOrDigit(text[i]) && i > 0) i--;
-            var start = i;
-            var end = i;
-            while (start > 0 && char.IsLetterOrDigit(text[start - 1])) start--;
-            while (end < text.Length && char.IsLetterOrDigit(text[end])) end++;
+            int start, end;
+            if (!PivotEdit.WordBounds(text, offset, out start, out end))
+            {
+                // Hors de tout mot (ponctuation, espace) : le caractère seul,
+                // comme avant.
+                var i = Math.Min(offset, text.Length - 1);
+                if (!char.IsLetterOrDigit(text[i]) && i > 0) i--;
+                start = i;
+                end = i;
+            }
             _anchorParagraph = paragraphIndex;
             _anchorOffset = start;
             _caretParagraph = paragraphIndex;
@@ -1415,7 +1562,10 @@ namespace Marabook.View
             if (_item == null) return;
             PushUndo(true);
             DeleteSelectionIfAny();
-            PivotEdit.InsertText(_item.Document.Paragraphs[_caretParagraph], _caretOffset, text);
+            // Le format d'insertion (0.50.0) s'imprime dans le texte tapé, puis
+            // tombe : les caractères suivants héritent du run ainsi créé.
+            PivotEdit.InsertText(_item.Document.Paragraphs[_caretParagraph], _caretOffset, text, PendingFormat());
+            _pendingFormat = null;
             ShiftVetoes(_caretParagraph, _caretOffset, text.Length);
             _caretOffset += text.Length;
             _caretDesiredX = -1;
@@ -1857,6 +2007,10 @@ namespace Marabook.View
             int pa, oa, pb, ob;
             OrderedSelection(out pa, out oa, out pb, out ob);
             var document = _item.Document;
+            // Taper par-dessus une sélection : le texte prend le format du
+            // premier caractère sélectionné (règle de Word), gardé ici en
+            // format d'insertion (0.50.0).
+            var remembered = RunNear(document.Paragraphs[pa], oa);
             if (pa == pb)
             {
                 PivotEdit.DeleteInParagraph(document.Paragraphs[pa], oa, ob);
@@ -1878,6 +2032,7 @@ namespace Marabook.View
             _caretParagraph = pa;
             _caretOffset = oa;
             ClearSelection();
+            if (remembered != null) SetPendingFormat(PivotEdit.CloneFormat(remembered));
             _engine.RecomposeParagraph(pa);
             return true;
         }
@@ -1889,10 +2044,12 @@ namespace Marabook.View
             var document = _item.Document;
             if (_caretOffset > 0)
             {
-                PivotEdit.DeleteInParagraph(document.Paragraphs[_caretParagraph],
-                    _caretOffset - 1, _caretOffset);
+                var paragraph = document.Paragraphs[_caretParagraph];
+                var remembered = RunNear(paragraph, _caretOffset - 1);
+                PivotEdit.DeleteInParagraph(paragraph, _caretOffset - 1, _caretOffset);
                 ShiftVetoes(_caretParagraph, _caretOffset - 1, -1);
                 _caretOffset--;
+                KeepFormatIfEmptied(paragraph, remembered);
                 AfterEdit(_engine.RecomposeParagraph(_caretParagraph));
             }
             else if (_caretParagraph > 0)
@@ -1917,9 +2074,11 @@ namespace Marabook.View
             var length = PivotEdit.FlatLength(document.Paragraphs[_caretParagraph]);
             if (_caretOffset < length)
             {
-                PivotEdit.DeleteInParagraph(document.Paragraphs[_caretParagraph],
-                    _caretOffset, _caretOffset + 1);
+                var paragraph = document.Paragraphs[_caretParagraph];
+                var remembered = RunNear(paragraph, _caretOffset);
+                PivotEdit.DeleteInParagraph(paragraph, _caretOffset, _caretOffset + 1);
                 ShiftVetoes(_caretParagraph, _caretOffset, -1);
+                KeepFormatIfEmptied(paragraph, remembered);
                 AfterEdit(_engine.RecomposeParagraph(_caretParagraph));
             }
             else if (_caretParagraph < document.Paragraphs.Count - 1)
@@ -1938,10 +2097,15 @@ namespace Marabook.View
             DeleteSelectionIfAny();
             ClearVetoes();
             var document = _item.Document;
+            // Le format au caret passe au nouveau paragraphe (0.50.0) : un
+            // retour à la ligne en fin de paragraphe ne rendait aucun run au
+            // suivant, et la frappe y retombait sur la police du style.
+            var carry = ReferenceRun(document.Paragraphs[_caretParagraph]);
             var tail = PivotEdit.Split(document.Paragraphs[_caretParagraph], _caretOffset);
             document.Paragraphs.Insert(_caretParagraph + 1, tail);
             _caretParagraph++;
             _caretOffset = 0;
+            if (carry != null && !HasTextRun(tail)) SetPendingFormat(PivotEdit.CloneFormat(carry));
             AfterEdit(_engine.ParagraphInserted(_caretParagraph));
         }
 
@@ -2119,9 +2283,95 @@ namespace Marabook.View
 
         // ============================================================ formatting
 
+        // ------------------------------------------------ format d'insertion
+
+        /// <summary>Le format d'insertion s'il vaut encore (le caret n'a pas
+        /// bougé depuis qu'il a été posé), sinon null — et il tombe.</summary>
+        private TextRun PendingFormat()
+        {
+            if (_pendingFormat != null
+                && (_pendingParagraph != _caretParagraph || _pendingOffset != _caretOffset))
+                _pendingFormat = null;
+            return _pendingFormat;
+        }
+
+        private void SetPendingFormat(TextRun format)
+        {
+            _pendingFormat = format;
+            _pendingParagraph = _caretParagraph;
+            _pendingOffset = _caretOffset;
+        }
+
+        /// <summary>Le run de référence au caret : le format d'insertion s'il y
+        /// en a un, sinon le run juste avant le caret (règle du traitement de
+        /// texte). Null dans un paragraphe vide sans format posé.</summary>
+        private TextRun ReferenceRun(TextParagraph paragraph)
+        {
+            return PendingFormat() ?? RunAtCaret(paragraph);
+        }
+
+        /// <summary>Le run de texte qui touche un offset (celui qui le contient,
+        /// sinon celui d'avant) — le format à retenir quand on vide un
+        /// paragraphe.</summary>
+        private static TextRun RunNear(TextParagraph paragraph, int offset)
+        {
+            int runIndex, inner;
+            PivotEdit.Locate(paragraph, offset, out runIndex, out inner);
+            if (runIndex < paragraph.Runs.Count && !PivotEdit.IsElement(paragraph.Runs[runIndex]))
+                return paragraph.Runs[runIndex];
+            if (offset > 0)
+            {
+                PivotEdit.Locate(paragraph, offset - 1, out runIndex, out inner);
+                if (runIndex < paragraph.Runs.Count && !PivotEdit.IsElement(paragraph.Runs[runIndex]))
+                    return paragraph.Runs[runIndex];
+            }
+            return null;
+        }
+
+        private static bool HasTextRun(TextParagraph paragraph)
+        {
+            foreach (var run in paragraph.Runs)
+                if (!PivotEdit.IsElement(run)) return true;
+            return false;
+        }
+
+        /// <summary>Un paragraphe qu'une suppression vient de vider garde le
+        /// format de ce qu'il contenait (comme la marque de paragraphe de
+        /// Word) : le prochain caractère tapé le reprend.</summary>
+        private void KeepFormatIfEmptied(TextParagraph paragraph, TextRun remembered)
+        {
+            if (remembered == null || HasTextRun(paragraph)) return;
+            SetPendingFormat(PivotEdit.CloneFormat(remembered));
+        }
+
+        /// <summary>L'état d'une bascule au point d'insertion (sans sélection).</summary>
+        private bool CollapsedFlag(Func<TextRun, ParagraphStyle, bool> predicate)
+        {
+            var paragraph = CaretParagraph;
+            if (paragraph == null) return false;
+            var style = _styles.Find(paragraph.StyleId);
+            return predicate(ReferenceRun(paragraph) ?? new TextRun(), style);
+        }
+
         private void ApplyToSelection(Action<TextRun> setter)
         {
-            if (!HasSelection()) return;
+            if (NoteEditing) { ApplyToNoteSelection(setter); return; } // la note a le clavier (0.50.0)
+            if (!HasSelection())
+            {
+                // Sans sélection (0.50.0) : le format devient celui du point
+                // d'insertion — le prochain caractère tapé le prend, le ruban
+                // le montre tout de suite. Avant, le choix était perdu et le
+                // ruban revenait au style : « la police ne tient pas ».
+                var paragraph = CaretParagraph;
+                if (paragraph == null) return;
+                var reference = ReferenceRun(paragraph);
+                var pending = reference != null ? PivotEdit.CloneFormat(reference) : new TextRun();
+                setter(pending);
+                SetPendingFormat(pending);
+                var stateHandler = SelectionStateChanged;
+                if (stateHandler != null) stateHandler();
+                return;
+            }
             PushUndo(false);
             int pa, oa, pb, ob;
             OrderedSelection(out pa, out oa, out pb, out ob);
@@ -2151,27 +2401,32 @@ namespace Marabook.View
             return true;
         }
 
+        // Les bascules valent aussi SANS sélection (0.50.0) : elles règlent
+        // le format d'insertion, comme Ctrl+B avant de taper dans Word.
         public void ToggleBold()
         {
-            if (!HasSelection()) return;
-            var allBold = SelectionAll(delegate(TextRun run, ParagraphStyle style)
-            { return run.Bold ?? style.Bold; });
+            if (NoteEditing) { System.Windows.Documents.EditingCommands.ToggleBold.Execute(null, _noteEditor); return; }
+            Func<TextRun, ParagraphStyle, bool> isBold = delegate(TextRun run, ParagraphStyle style)
+            { return run.Bold ?? style.Bold; };
+            var allBold = HasSelection() ? SelectionAll(isBold) : CollapsedFlag(isBold);
             ApplyToSelection(delegate(TextRun run) { run.Bold = allBold ? (bool?)false : true; });
         }
 
         public void ToggleItalic()
         {
-            if (!HasSelection()) return;
-            var all = SelectionAll(delegate(TextRun run, ParagraphStyle style)
-            { return run.Italic ?? style.Italic; });
+            if (NoteEditing) { System.Windows.Documents.EditingCommands.ToggleItalic.Execute(null, _noteEditor); return; }
+            Func<TextRun, ParagraphStyle, bool> isItalic = delegate(TextRun run, ParagraphStyle style)
+            { return run.Italic ?? style.Italic; };
+            var all = HasSelection() ? SelectionAll(isItalic) : CollapsedFlag(isItalic);
             ApplyToSelection(delegate(TextRun run) { run.Italic = all ? (bool?)false : true; });
         }
 
         public void ToggleUnderline()
         {
-            if (!HasSelection()) return;
-            var all = SelectionAll(delegate(TextRun run, ParagraphStyle style)
-            { return run.Underline == true; });
+            if (NoteEditing) { System.Windows.Documents.EditingCommands.ToggleUnderline.Execute(null, _noteEditor); return; }
+            Func<TextRun, ParagraphStyle, bool> isUnderlined = delegate(TextRun run, ParagraphStyle style)
+            { return run.Underline == true; };
+            var all = HasSelection() ? SelectionAll(isUnderlined) : CollapsedFlag(isUnderlined);
             ApplyToSelection(delegate(TextRun run) { run.Underline = all ? (bool?)null : true; });
         }
 
@@ -2237,9 +2492,10 @@ namespace Marabook.View
 
         public void ToggleStrike()
         {
-            if (!HasSelection()) return;
-            var all = SelectionAll(delegate(TextRun run, ParagraphStyle style)
-            { return run.Strike == true; });
+            if (NoteEditing) { ToggleNoteStrike(); return; }
+            Func<TextRun, ParagraphStyle, bool> isStruck = delegate(TextRun run, ParagraphStyle style)
+            { return run.Strike == true; };
+            var all = HasSelection() ? SelectionAll(isStruck) : CollapsedFlag(isStruck);
             ApplyToSelection(delegate(TextRun run) { run.Strike = all ? (bool?)null : true; });
         }
 
@@ -2305,6 +2561,80 @@ namespace Marabook.View
             italic = reference != null ? (reference.Italic ?? style.Italic) : style.Italic;
             underline = reference != null && reference.Underline == true;
             strike = reference != null && reference.Strike == true;
+        }
+
+        /// <summary>L'état À TROIS VALEURS de la sélection pour le ruban
+        /// (0.50.0) : chaque attribut vaut vrai/faux si tout le texte
+        /// sélectionné s'accorde, null s'il se mélange — police et taille
+        /// pareil (null = mixte, le combo se vide). Sans sélection : le run
+        /// de référence au caret (format d'insertion compris), jamais mixte.</summary>
+        public void SelectionFormatState(out bool? bold, out bool? italic, out bool? underline,
+            out bool? strike, out string fontFamily, out double? sizePt, out bool mixedFont, out bool mixedSize)
+        {
+            bold = italic = underline = strike = false;
+            fontFamily = null;
+            sizePt = null;
+            mixedFont = mixedSize = false;
+            if (_item == null || _caretParagraph >= _item.Document.Paragraphs.Count) return;
+            int pa, oa, pb, ob;
+            if (HasSelection()) OrderedSelection(out pa, out oa, out pb, out ob);
+            else
+            {
+                var caretParagraph = _item.Document.Paragraphs[_caretParagraph];
+                var style = _styles.Find(caretParagraph.StyleId);
+                var reference = ReferenceRun(caretParagraph) ?? new TextRun();
+                bold = reference.Bold ?? style.Bold;
+                italic = reference.Italic ?? style.Italic;
+                underline = reference.Underline == true;
+                strike = reference.Strike == true;
+                fontFamily = reference.FontFamily ?? style.FontFamily;
+                sizePt = (reference.FontSize ?? style.FontSize) * 0.75;
+                return;
+            }
+            var seen = false;
+            for (var p = pa; p <= pb; p++)
+            {
+                var paragraph = _item.Document.Paragraphs[p];
+                var style = _styles.Find(paragraph.StyleId);
+                var from = p == pa ? oa : 0;
+                var to = p == pb ? ob : PivotEdit.FlatLength(paragraph);
+                var cursor = 0;
+                foreach (var run in paragraph.Runs)
+                {
+                    var length = PivotEdit.IsElement(run) ? 1 : run.Text.Length;
+                    var overlaps = cursor + length > from && cursor < to;
+                    cursor += length;
+                    if (!overlaps || PivotEdit.IsElement(run)) continue;
+                    var runBold = run.Bold ?? style.Bold;
+                    var runItalic = run.Italic ?? style.Italic;
+                    var runUnderline = run.Underline == true;
+                    var runStrike = run.Strike == true;
+                    var runFont = run.FontFamily ?? style.FontFamily;
+                    var runSize = (run.FontSize ?? style.FontSize) * 0.75;
+                    if (!seen)
+                    {
+                        seen = true;
+                        bold = runBold; italic = runItalic; underline = runUnderline; strike = runStrike;
+                        fontFamily = runFont; sizePt = runSize;
+                        continue;
+                    }
+                    if (bold.HasValue && bold.Value != runBold) bold = null;
+                    if (italic.HasValue && italic.Value != runItalic) italic = null;
+                    if (underline.HasValue && underline.Value != runUnderline) underline = null;
+                    if (strike.HasValue && strike.Value != runStrike) strike = null;
+                    if (!mixedFont && !string.Equals(fontFamily, runFont, StringComparison.OrdinalIgnoreCase)) { mixedFont = true; fontFamily = null; }
+                    if (!mixedSize && sizePt.HasValue && Math.Abs(sizePt.Value - runSize) > 0.05) { mixedSize = true; sizePt = null; }
+                }
+            }
+            if (!seen)
+            {
+                // Une sélection sans texte (éléments seuls) : le style du
+                // paragraphe du caret.
+                var style = _styles.Find(_item.Document.Paragraphs[_caretParagraph].StyleId);
+                bold = style.Bold; italic = style.Italic;
+                fontFamily = style.FontFamily;
+                sizePt = style.FontSize * 0.75;
+            }
         }
 
         private TextRun RunAtCaret(TextParagraph paragraph)
@@ -2718,8 +3048,19 @@ namespace Marabook.View
                 paragraph.AlignOverride = null;
                 paragraph.Indent = null;
                 paragraph.FirstIndent = null;
+                // Les écarts de CARACTÈRE que le style définit (police, taille,
+                // graisse) tombent aussi (0.50.0) : le style reprend la main,
+                // « Corps + » redevient « Corps ». Gras, italique, souligné,
+                // couleur — l'emphase — restent.
+                foreach (var run in paragraph.Runs)
+                {
+                    run.FontFamily = null;
+                    run.FontSize = null;
+                    run.Weight = null;
+                }
                 _engine.RecomposeParagraph(p);
             }
+            _pendingFormat = null;
             AfterEdit(0);
         }
 
@@ -2753,6 +3094,20 @@ namespace Marabook.View
         public static bool HasOverrides(TextParagraph paragraph)
         {
             return paragraph != null && (paragraph.AlignOverride != null || paragraph.Indent.HasValue || paragraph.FirstIndent.HasValue);
+        }
+
+        /// <summary>Le « + » du ruban (0.50.0) : les écarts du paragraphe, ou
+        /// une police, une taille ou une graisse posées à la main au point
+        /// d'insertion (format d'insertion compris). Resélectionner le style
+        /// efface tout ça.</summary>
+        public bool CaretHasOverrides()
+        {
+            var paragraph = CaretParagraph;
+            if (HasOverrides(paragraph)) return true;
+            if (paragraph == null) return false;
+            var reference = ReferenceRun(paragraph);
+            return reference != null
+                && (reference.FontFamily != null || reference.FontSize.HasValue || reference.Weight != null);
         }
 
         public void ApplyList(string kind) // "bullet" | "number" | null, toggles
@@ -2819,11 +3174,11 @@ namespace Marabook.View
             styleId = style.Id;
             fontFamily = style.FontFamily;
             var sizePx = style.FontSize;
-            int runIndex, inner;
-            PivotEdit.Locate(paragraph, Math.Max(0, _caretOffset - 1), out runIndex, out inner);
-            if (runIndex < paragraph.Runs.Count && !PivotEdit.IsElement(paragraph.Runs[runIndex]))
+            // Le format d'insertion prime (0.50.0) : le ruban montre la police
+            // qu'on vient de choisir, pas celle du caractère d'avant.
+            var run = ReferenceRun(paragraph);
+            if (run != null)
             {
-                var run = paragraph.Runs[runIndex];
                 if (run.FontFamily != null) fontFamily = run.FontFamily;
                 if (run.FontSize.HasValue) sizePx = run.FontSize.Value;
             }
@@ -2835,12 +3190,8 @@ namespace Marabook.View
             if (_item == null) return null;
             var paragraph = _item.Document.Paragraphs[_caretParagraph];
             var style = _styles.Find(paragraph.StyleId);
-            int runIndex, inner;
-            PivotEdit.Locate(paragraph, Math.Max(0, _caretOffset - 1), out runIndex, out inner);
-            if (runIndex < paragraph.Runs.Count && !PivotEdit.IsElement(paragraph.Runs[runIndex])
-                && paragraph.Runs[runIndex].FontFamily != null)
-                return paragraph.Runs[runIndex].FontFamily;
-            return style.FontFamily;
+            var run = ReferenceRun(paragraph);
+            return run != null && run.FontFamily != null ? run.FontFamily : style.FontFamily;
         }
 
         /// <summary>Weight of the selection (caret char when collapsed):
@@ -2852,6 +3203,12 @@ namespace Marabook.View
             if (HasSelection()) OrderedSelection(out pa, out oa, out pb, out ob);
             else
             {
+                var pending = PendingFormat();
+                if (pending != null)
+                {
+                    var pendingStyle = _styles.Find(_item.Document.Paragraphs[_caretParagraph].StyleId);
+                    return pending.Weight ?? ((pending.Bold ?? pendingStyle.Bold) ? "Bold" : null);
+                }
                 pa = _caretParagraph;
                 pb = _caretParagraph;
                 oa = Math.Max(0, _caretOffset - 1);

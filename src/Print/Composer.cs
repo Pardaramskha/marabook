@@ -391,19 +391,17 @@ namespace Marabook.Print
         // when its displayed number or its text changed.
         private List<string> _noteKeys = new List<string>();
 
-        /// <summary>Texts of the notes in MARKER order (a note can live at a
-        /// different index in Footnotes than its marker rank after cut/paste).</summary>
-        private List<string> NoteTextsInMarkerOrder()
+        /// <summary>The notes in MARKER order (a note can live at a different
+        /// index in Footnotes than its marker rank after cut/paste); a marker
+        /// without a note yields an empty one.</summary>
+        private List<Footnote> NotesInMarkerOrder()
         {
-            var texts = new List<string>();
+            var notes = new List<Footnote>();
             foreach (var paragraph in _document.Paragraphs)
                 foreach (var run in paragraph.Runs)
                     if (run.FootnoteId != null)
-                    {
-                        var note = _document.FindFootnote(run.FootnoteId);
-                        texts.Add(note == null ? "" : note.Text);
-                    }
-            return texts;
+                        notes.Add(_document.FindFootnote(run.FootnoteId) ?? new Footnote());
+            return notes;
         }
 
         /// <summary>Recompose the note layouts whose number or text changed.
@@ -421,12 +419,13 @@ namespace Marabook.Print
                 }
                 return changed;
             }
-            var texts = NoteTextsInMarkerOrder();
+            var notes = NotesInMarkerOrder();
             var layouts = new List<ComposedParagraphLayout>();
             var keys = new List<string>();
-            for (var i = 0; i < texts.Count; i++)
+            for (var i = 0; i < notes.Count; i++)
             {
-                var key = (i + 1) + "|" + texts[i];
+                // La clé porte le numéro, le texte ET les formats (0.50.0).
+                var key = (i + 1) + "|" + notes[i].FormatKey();
                 keys.Add(key);
                 if (i < _noteKeys.Count && _noteKeys[i] == key
                     && i < Current.NoteParagraphs.Count)
@@ -434,29 +433,28 @@ namespace Marabook.Print
                     layouts.Add(Current.NoteParagraphs[i]);
                     continue;
                 }
-                layouts.Add(ComposeNote(i, texts[i]));
+                layouts.Add(ComposeNote(i, notes[i]));
                 changed.Add(i);
             }
-            if (texts.Count < _noteKeys.Count) changed.Add(texts.Count);
+            if (notes.Count < _noteKeys.Count) changed.Add(notes.Count);
             _noteKeys = keys;
             Current.NoteParagraphs = layouts;
             return changed;
         }
 
-        private ComposedParagraphLayout ComposeNote(int index, string text)
+        /// <summary>Le corps d'une note : le style « Notes de bas de page » de
+        /// la feuille (0.50.0 ; avant, le corps à 85 % en dur), ses runs avec
+        /// leurs formats, le numéro devant. Alinéa et espacements verticaux
+        /// n'ont pas cours au bas d'une page.</summary>
+        private ComposedParagraphLayout ComposeNote(int index, Footnote note)
         {
-            var body = _styles.Body;
-            var style = body.Clone();
-            style.FontSize = Math.Max(8, body.FontSize * 0.85);
-            style.LineHeight = body.LineHeight > 1 ? body.LineHeight * 0.85 : 0;
+            var style = _styles.FootnoteStyle().Clone();
             style.FirstLineIndent = 0;
-            style.LeftIndent = 0;
-            style.RightIndent = 0;
             style.LastLineIndent = 0;
             style.SpaceBefore = 0;
             style.SpaceAfter = 0;
-            var paragraph = new TextParagraph();
-            paragraph.Runs.Add(new TextRun { Text = (index + 1) + ". " + text });
+            var paragraph = note.ToParagraph(StyleSheet.FootnoteId);
+            paragraph.Runs.Insert(0, new TextRun { Text = (index + 1) + ". " });
             return ComposeWithStyle(paragraph, style, 0, 0);
         }
 

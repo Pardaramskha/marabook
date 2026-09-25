@@ -152,6 +152,9 @@ namespace Marabook.Settings
         public static bool ProofEnabled = true; // vérification continue (Révision)
         public static int SnapshotCap = 20;        // instantanés gardés par item (b38, 5–100)
         public static bool DailySnapshot = true;   // capture à la première modification du jour (b38)
+        // L'auto-sélecteur de mot (0.50.0) : un cliquer-glisser qui déborde
+        // du mot de départ sélectionne des mots entiers, façon Word.
+        public static bool AutoSelectWord = true;
         // La grammaire (batch 29) : interrupteur maître de Grammalecte, et
         // les choix d'options de l'utilisateur PAR-DESSUS la politique de
         // recouvrement du lot C (clé = nom d'option Grammalecte). Une entrée
@@ -201,6 +204,21 @@ namespace Marabook.Settings
         // projets — le pendant de Project.LearnedWords.
         public static List<Model.LexiconEntry> Lexicon = new List<Model.LexiconEntry>();
         public static List<string> RecentFiles = new List<string>(); // last 5 .plot files
+        // Les dernières polices employées (0.50.0) : la tête de liste du
+        // sélecteur de police, 5 au plus, la plus récente d'abord.
+        public static List<string> RecentFonts = new List<string>();
+
+        public static void NoteRecentFont(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+            RecentFonts.RemoveAll(delegate(string existing)
+            {
+                return string.Equals(existing, name, StringComparison.OrdinalIgnoreCase);
+            });
+            RecentFonts.Insert(0, name);
+            while (RecentFonts.Count > 5) RecentFonts.RemoveAt(RecentFonts.Count - 1);
+            Save();
+        }
         // Les succès (12/09/2026) : GLOBAUX à l'utilisateur, id → date
         // d'obtention « yyyy-MM-dd HH:mm » ; plus les compteurs que le projet
         // ne porte pas (suppressions, jours d'usage consécutifs).
@@ -355,6 +373,7 @@ namespace Marabook.Settings
                 AccentColor = Json.AsString(Json.Field(root, "accentColor"));
                 var globalStyles = Json.Field(root, "globalStyles");
                 GlobalStyles = globalStyles != null ? Persistence.PlotFile.ReadStylesNode(globalStyles) : null;
+                if (GlobalStyles != null) GlobalStyles.EnsureFootnoteStyle(); // réglages d'avant la 0.50.0
                 GlobalStylesStamp = Json.AsString(Json.Field(root, "globalStylesStamp")) ?? "";
                 DefaultAuthor = Json.AsString(Json.Field(root, "defaultAuthor")) ?? "";
                 DefaultPublisher = Json.AsString(Json.Field(root, "defaultPublisher")) ?? "";
@@ -369,6 +388,7 @@ namespace Marabook.Settings
                 if (SnapshotCap < 5) SnapshotCap = 5;
                 if (SnapshotCap > 100) SnapshotCap = 100;
                 DailySnapshot = Json.AsBool(Json.Field(root, "dailySnapshot"), true);
+                AutoSelectWord = Json.AsBool(Json.Field(root, "autoSelectWord"), true);
                 GrammarEnabled = Json.AsBool(Json.Field(root, "grammarEnabled"), true);
                 SpellEnabled = Json.AsBool(Json.Field(root, "spellEnabled"), true);
                 TypographyEnabled = Json.AsBool(Json.Field(root, "typographyEnabled"), false);
@@ -412,6 +432,16 @@ namespace Marabook.Settings
                     foreach (var entry in learnedWords)
                         if (entry is string) words.Add((string)entry);
                     Model.LexiconEntry.MergeWords(Lexicon, words);
+                }
+                var recentFonts = Json.AsList(Json.Field(root, "recentFonts")); // 0.50.0
+                if (recentFonts != null)
+                {
+                    RecentFonts = new List<string>();
+                    foreach (var entry in recentFonts)
+                    {
+                        var name = Json.AsString(entry);
+                        if (!string.IsNullOrEmpty(name) && RecentFonts.Count < 5) RecentFonts.Add(name);
+                    }
                 }
                 var recents = Json.AsList(Json.Field(root, "recentFiles"));
                 if (recents != null)
@@ -478,6 +508,7 @@ namespace Marabook.Settings
                 root["proofEnabled"] = ProofEnabled;
                 root["snapshotCap"] = SnapshotCap;
                 root["dailySnapshot"] = DailySnapshot;
+                root["autoSelectWord"] = AutoSelectWord;
                 root["grammarEnabled"] = GrammarEnabled;
                 root["spellEnabled"] = SpellEnabled;
                 root["typographyEnabled"] = TypographyEnabled;
@@ -503,6 +534,7 @@ namespace Marabook.Settings
                 if (Lexicon.Count > 0)
                     root["lexicon"] = Model.LexiconEntry.ToJsonList(Lexicon);
                 root["recentFiles"] = new List<object>(RecentFiles.ToArray());
+                if (RecentFonts.Count > 0) root["recentFonts"] = new List<object>(RecentFonts.ToArray());
                 if (Achievements.Count > 0)
                     root["achievements"] = new Dictionary<string, object>(ToObjectDict(Achievements));
                 if (PermanentlyDeleted > 0) root["permanentlyDeleted"] = PermanentlyDeleted;

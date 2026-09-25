@@ -100,6 +100,11 @@ namespace Marabook.Model
         /// remplacer (EffectiveFor).</summary>
         public const string SeparatorId = "separator";
 
+        /// <summary>L'identifiant du style des notes de bas de page (0.50.0) :
+        /// un style de paragraphe ordinaire, éditable, que le compositeur et
+        /// les exports emploient pour le corps des notes.</summary>
+        public const string FootnoteId = "footnote";
+
         public List<ParagraphStyle> Styles = new List<ParagraphStyle>();
 
         public ParagraphStyle Body { get { return Find("body"); } }
@@ -174,6 +179,49 @@ namespace Marabook.Model
             return separator;
         }
 
+        /// <summary>Le style des notes de bas de page en vigueur : celui de la
+        /// feuille, sinon (feuille d'avant la 0.50.0 pas encore complétée) le
+        /// défaut dérivé du corps — jamais null.</summary>
+        public ParagraphStyle FootnoteStyle()
+        {
+            foreach (var style in Styles)
+                if (style.Id == FootnoteId) return style;
+            return DefaultFootnote(Body);
+        }
+
+        /// <summary>Le style des notes, créé s'il manque (projets et réglages
+        /// d'avant la 0.50.0) : dérivé du corps tel qu'il est — même police,
+        /// 85 % de la taille, comme le compositeur le faisait en dur.</summary>
+        public ParagraphStyle EnsureFootnoteStyle()
+        {
+            foreach (var style in Styles)
+                if (style.Id == FootnoteId) return style;
+            var footnote = DefaultFootnote(Body);
+            Styles.Add(footnote);
+            return footnote;
+        }
+
+        public static ParagraphStyle DefaultFootnote(ParagraphStyle body)
+        {
+            var reference = body ?? new ParagraphStyle();
+            return new ParagraphStyle
+            {
+                Id = FootnoteId,
+                Name = "Notes de bas de page",
+                FontFamily = reference.FontFamily,
+                FontSize = Math.Max(8, Math.Round(reference.FontSize * 0.85 * 100) / 100),
+                LineHeight = reference.LineHeight > 1 ? Math.Round(reference.LineHeight * 0.85 * 100) / 100 : 0,
+                Color = reference.Color,
+                Ligatures = reference.Ligatures,
+                Align = "justify",
+                FirstLineIndent = 0,
+                SpaceBefore = 0,
+                SpaceAfter = 0,
+                KeepWithPrevious = false,
+                HyphenationEnabled = reference.HyphenationEnabled
+            };
+        }
+
         public static ParagraphStyle DefaultSeparator()
         {
             return new ParagraphStyle
@@ -241,6 +289,7 @@ namespace Marabook.Model
                 SpaceAfter = 8,
                 FirstLineIndent = 0
             });
+            sheet.Styles.Add(DefaultFootnote(sheet.Body)); // les notes de bas de page (0.50.0)
             sheet.Styles.Add(DefaultSeparator()); // le séparateur de scène (22/09)
             return sheet;
         }

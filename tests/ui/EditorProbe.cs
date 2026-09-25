@@ -146,13 +146,25 @@ namespace Marabook.Tests.Ui
             var noteA = target.Document.FindFootnote(order[0]);
             composed.EditNote(order[0]);
             DoEvents();
-            var noteEditor = (TextBox)GetField(composed, "_noteEditor");
-            Check(noteEditor != null && noteEditor.Text == noteA.Text && Canvas.GetTop(noteEditor) > 0,
+            // L'éditeur de note est RICHE depuis la 0.50.0 (RichTextBox).
+            var noteEditor = (RichTextBox)GetField(composed, "_noteEditor");
+            var shown = noteEditor == null ? null : new System.Windows.Documents.TextRange(
+                noteEditor.Document.ContentStart, noteEditor.Document.ContentEnd).Text.TrimEnd('\r', '\n');
+            Check(noteEditor != null && shown == noteA.Text && Canvas.GetTop(noteEditor) > 0,
                 "la note s'ouvre en place, posée sur la page, avec son texte");
-            noteEditor.Text = "Première note, corrigée";
+            new System.Windows.Documents.TextRange(noteEditor.Document.ContentStart, noteEditor.Document.ContentEnd).Text
+                = "Première note, corrigée";
             DoEvents();
             Check(noteA.Text == "Première note, corrigée", "la frappe dans la note atteint le modèle");
             Check((bool)GetField(window, "_dirty"), "le projet est marqué modifié");
+            // Le gras dans la note (0.50.0) : la sélection entière passe en gras
+            // par la commande du RichTextBox, le modèle reçoit un run gras.
+            noteEditor.SelectAll();
+            System.Windows.Documents.EditingCommands.ToggleBold.Execute(null, noteEditor);
+            DoEvents();
+            var anyBold = false;
+            foreach (var run in noteA.Runs) if (run.Bold == true) anyBold = true;
+            Check(anyBold && noteA.Text == "Première note, corrigée", "le gras posé dans la note atteint les runs du modèle, texte intact");
             composed.CloseNoteEditor(true);
             Check(GetField(composed, "_noteEditor") == null, "Entrée/Échap referment l'éditeur de note");
 

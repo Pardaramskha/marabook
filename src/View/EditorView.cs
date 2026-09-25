@@ -50,7 +50,10 @@ namespace Marabook.View
         public event Action<bool> MarksToggled;     // ¶ button
         public event Action StylesRequested;        // « Gestion des styles » button
 
-        private ComboBox _styleCombo, _fontCombo, _sizeCombo;
+        private ComboBox _styleCombo, _sizeCombo;
+        private FontPicker _fontCombo;          // le sélecteur de police partagé (0.50.0)
+        private bool _sizeArrowNav, _sizeDropDownChoice; // la taille : flèches sans ouvrir, choix dans la liste
+        private string _lastAppliedFont;        // l'aperçu puis le choix définitif n'appliquent qu'une fois
         private ToggleButton _boldBtn, _italicBtn, _underBtn, _strikeBtn;
         private ToggleButton _alignLeft, _alignCenter, _alignRight, _alignJustify;
         private ToggleButton _bulletBtn, _numberBtn, _checkBtn;
@@ -336,7 +339,7 @@ namespace Marabook.View
                     _project);
                 _composed.Visibility = Visibility.Visible;
                 _composed.SetFormattingMarks(_showMarks); // l'état du ¶ suit la surface
-                _composed.Focus();
+                _composed.FocusSurface();
                 RebuildAnnotationsPanel();
                 RunCheck(); // la surface composée s'ouvre vérifiée
             }
@@ -1117,6 +1120,21 @@ namespace Marabook.View
             }
         }
 
+        /// <summary>Le correcteur travaille (0.50.0, l'anneau d'activité de
+        /// la fenêtre) : Grammalecte s'initialise ou analyse en différé, des
+        /// synonymes ou des suggestions d'orthographe se préparent — le même
+        /// prédicat que la ligne d'état du panneau Correction.</summary>
+        public bool IsProofingBusy
+        {
+            get
+            {
+                if (_grammarBridge != null && _grammarBridge.State == Correction.Grammalecte.BridgeState.Starting) return true;
+                if (_checkHost != null && _checkHost.PendingDeferred > 0) return true;
+                if (_synonyms != null && _synonyms.PendingCount > 0) return true;
+                return PendingSuggestions > 0;
+            }
+        }
+
         /// <summary>Mots encore en attente de suggestions — l'état « en
         /// préparation » du panneau et de l'indicateur d'ouverture.</summary>
         public int PendingSuggestions
@@ -1443,7 +1461,7 @@ namespace Marabook.View
         {
             if (!ComposedActive) return;
             _composed.GoToAnnotation(id);
-            _composed.Focus();
+            _composed.FocusSurface();
         }
 
         /// <summary>Résout/rouvre : la teinte s'éteint ou revient, l'ancre reste.</summary>
@@ -1951,7 +1969,7 @@ namespace Marabook.View
 
         public void FocusEditor()
         {
-            if (ComposedActive) _composed.Focus();
+            if (ComposedActive) _composed.FocusSurface();
         }
 
         /// <summary>Text undo/redo, claimed by the composed surface when it
@@ -2012,24 +2030,24 @@ namespace Marabook.View
             var style = _styles.Find((string)chosen.Tag);
             if (!ComposedActive) return;
             _composed.ApplyStyle(style.Id);
-            _composed.Focus();
+            _composed.FocusSurface();
         }
 
-        private void OnFontComboChanged(object sender, SelectionChangedEventArgs e)
+        /// <summary>Une police choisie au sélecteur (0.50.0) : appliquée à la
+        /// sélection (ou au format d'insertion) une seule fois par nom —
+        /// l'aperçu des flèches puis le choix définitif ne font qu'un cran
+        /// d'annulation ; le clavier ne repart au texte qu'au choix définitif.</summary>
+        private void OnFontChosen(string name, bool preview)
         {
-            if (_syncing || _item == null || _fontCombo.SelectedItem == null || !ComposedActive) return;
-            _composed.ApplyFont((string)_fontCombo.SelectedItem);
-            _composed.Focus();
-        }
-
-        /// <summary>Police tapée à la main dans la combo éditable.</summary>
-        private void ApplyTypedFont(string name)
-        {
-            if (_item == null) return;
+            if (_syncing || _item == null || !ComposedActive) return;
             name = (name ?? "").Trim();
-            if (name.Length == 0 || !ComposedActive) return;
-            _composed.ApplyFont(name);
-            _composed.Focus();
+            if (name.Length == 0) return;
+            if (name != _lastAppliedFont)
+            {
+                _lastAppliedFont = name;
+                _composed.ApplyFont(name);
+            }
+            if (!preview) _composed.FocusSurface();
         }
 
         /// <summary>Taille personnalisée tapée dans la combo éditable (pt).</summary>
@@ -2043,14 +2061,22 @@ namespace Marabook.View
             sizePt = Math.Max(4, Math.Min(200, sizePt));
             if (!ComposedActive) return;
             _composed.ApplySizePx(sizePt * 4.0 / 3.0);
-            _composed.Focus();
+            _composed.FocusSurface();
         }
 
+        /// <summary>La taille (0.50.0) : la liste ouverte ou les flèches
+        /// appliquent ; l'autocomplétion de la frappe ne fait rien, Entrée
+        /// décide (ApplyTypedSize).</summary>
         private void OnSizeComboChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_syncing || _item == null || _sizeCombo.SelectedItem == null || !ComposedActive) return;
-            _composed.ApplySizePx((int)_sizeCombo.SelectedItem * 4.0 / 3.0); // pt -> px
-            _composed.Focus();
+            if (_sizeArrowNav)
+            {
+                _sizeArrowNav = false; // aperçu : le clavier reste dans le champ
+                _composed.ApplySizePx((int)_sizeCombo.SelectedItem * 4.0 / 3.0); // pt -> px
+                return;
+            }
+            if (_sizeCombo.IsDropDownOpen) { _sizeDropDownChoice = true; return; } // tranché à la fermeture
         }
 
         /// <summary>Inserts a horizontal rule on its own paragraph, below the
@@ -2088,7 +2114,7 @@ namespace Marabook.View
             _composed.InsertParagraphBreak();
             _composed.ApplyStyle(previous);
             _composed.RestoreOverrides(align, indent, firstIndent);
-            _composed.Focus();
+            _composed.FocusSurface();
         }
 
         /// <summary>Inserts an image at the caret; bytes go to the project
@@ -2110,7 +2136,7 @@ namespace Marabook.View
                 var id = _project.AddImage(bytes, System.IO.Path.GetExtension(dialog.FileName));
                 if (!ComposedActive) return;
                 _composed.InsertElementAtCaret(new TextRun { ImageId = id });
-                _composed.Focus();
+                _composed.FocusSurface();
             }
             catch (Exception error)
             {
@@ -2149,7 +2175,7 @@ namespace Marabook.View
             if (_searchBar.Visibility == Visibility.Collapsed) return;
             _searchBar.Visibility = Visibility.Collapsed;
             _searchCurrent = null;
-            if (ComposedActive) _composed.Focus();
+            if (ComposedActive) _composed.FocusSurface();
         }
 
         private StringComparison Comparison()
@@ -2240,7 +2266,7 @@ namespace Marabook.View
             if (_item == null || string.IsNullOrEmpty(title) || !ComposedActive) return;
             _composed.TypeText(Links.Markup(title, _composed.SelectedPlainText()));
             if (!Settings.AppSettings.ShowLinks) SetShowLinks(true);
-            _composed.Focus();
+            _composed.FocusSurface();
         }
 
         private ToggleButton _linksBtn;

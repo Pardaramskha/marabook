@@ -121,7 +121,107 @@ namespace Marabook.Model
     public class Footnote
     {
         public string Id = Guid.NewGuid().ToString("N");
-        public string Text = "";
+
+        // Le corps de la note (0.50.0) : des runs, comme un paragraphe —
+        // gras, italique, police, taille… Avant, une chaîne nue. Text reste
+        // la projection plate (recherche, différentiel, empreinte, markdown) :
+        // la lire concatène les runs, l'écrire remplace tout par un run nu.
+        public List<TextRun> Runs = new List<TextRun>();
+
+        public string Text
+        {
+            get
+            {
+                var sb = new StringBuilder();
+                foreach (var run in Runs)
+                {
+                    if (run.IsLineBreak) { sb.Append('\n'); continue; }
+                    if (run.FootnoteId != null || run.ImageId != null || run.IsRule) continue;
+                    sb.Append(run.Text);
+                }
+                return sb.ToString();
+            }
+            set
+            {
+                Runs.Clear();
+                if (!string.IsNullOrEmpty(value)) Runs.Add(new TextRun { Text = value });
+            }
+        }
+
+        /// <summary>Vrai si un run porte un format (au-delà du texte nu) — la
+        /// persistance n'écrit les runs que dans ce cas.</summary>
+        public bool HasFormatting
+        {
+            get
+            {
+                if (Runs.Count > 1) return true;
+                foreach (var run in Runs)
+                    if (run.Bold.HasValue || run.Italic.HasValue || run.Underline.HasValue || run.Strike.HasValue
+                        || run.Weight != null || run.Tracking.HasValue || run.FontFamily != null || run.FontSize.HasValue
+                        || run.Color != null || run.Highlight != null || run.IsLineBreak)
+                        return true;
+                return false;
+            }
+        }
+
+        /// <summary>Une signature texte + formats — la clé de cache du
+        /// compositeur, qui ne recompose une note que si elle a changé.</summary>
+        public string FormatKey()
+        {
+            var sb = new StringBuilder();
+            foreach (var run in Runs)
+            {
+                if (run.IsLineBreak) { sb.Append("\u0001"); continue; }
+                sb.Append(run.Text).Append('|').Append(run.Bold).Append(run.Italic).Append(run.Underline)
+                  .Append(run.Strike).Append(run.Weight).Append(run.FontFamily).Append(run.FontSize)
+                  .Append(run.Color).Append(run.Highlight).Append(run.Tracking).Append('\u0002');
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Le corps de la note posé dans un paragraphe (copie des runs)
+        /// — ce que composent et exportent les sorties riches.</summary>
+        public TextParagraph ToParagraph(string styleId)
+        {
+            var paragraph = new TextParagraph { StyleId = styleId };
+            foreach (var run in Runs) paragraph.Runs.Add(PivotEdit.CloneRun(run));
+            return paragraph;
+        }
+
+        /// <summary>Remplace le corps par les runs de TEXTE d'un paragraphe
+        /// (les éléments — appels, images, filets — n'ont pas leur place dans
+        /// une note ; un saut de ligne reste).</summary>
+        public void SetRuns(IEnumerable<TextRun> runs)
+        {
+            Runs.Clear();
+            foreach (var run in runs)
+            {
+                if (run.FootnoteId != null || run.ImageId != null || run.IsRule) continue;
+                Runs.Add(PivotEdit.CloneRun(run));
+            }
+        }
+
+        /// <summary>Efface des runs ce que le style des notes dit déjà (police,
+        /// taille, gras, italique) — après un import qui comparait au style du
+        /// paragraphe porteur.</summary>
+        public void NormalizeAgainst(ParagraphStyle style)
+        {
+            if (style == null) return;
+            foreach (var run in Runs)
+            {
+                if (run.FontFamily == style.FontFamily) run.FontFamily = null;
+                if (run.FontSize.HasValue && Math.Abs(run.FontSize.Value - style.FontSize) < 0.1) run.FontSize = null;
+                if (run.Bold.HasValue && run.Bold.Value == style.Bold) run.Bold = null;
+                if (run.Italic.HasValue && run.Italic.Value == style.Italic) run.Italic = null;
+            }
+        }
+
+        public Footnote Clone()
+        {
+            var copy = new Footnote { Id = Id };
+            foreach (var run in Runs) copy.Runs.Add(PivotEdit.CloneRun(run));
+            return copy;
+        }
     }
 
     /// <summary>Une annotation de révision : un commentaire ancré à un passage

@@ -354,8 +354,31 @@ namespace Marabook.View
             // l'écran « Dictionnaire » de la Pile tient ce rôle, avec les
             // natures grammaticales et les formes acceptées.
 
+            // — La sélection à la souris (0.50.0).
+            panel.Children.Add(Caption("Sélection"));
+            var autoWord = new CheckBox
+            {
+                Content = "Auto-sélecteur de mot",
+                IsChecked = AppSettings.AutoSelectWord,
+                Margin = new Thickness(0, 6, 0, 0)
+            };
+            autoWord.Click += delegate
+            {
+                AppSettings.AutoSelectWord = autoWord.IsChecked == true;
+                AppSettings.Save();
+            };
+            panel.Children.Add(autoWord);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Complète la sélection d'un mot lorsque vous n'en sélectionnez qu'une partie",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(22, 4, 0, 0)
+            });
+
             // — Les versions d'écrits (batch 38).
-            panel.Children.Add(Caption("Versions d'écrits"));
+            panel.Children.Add(Caption("Versions d'écrits", 16));
             var daily = new CheckBox
             {
                 Content = "Instantané automatique à la première modification du jour",

@@ -167,47 +167,23 @@ namespace Marabook.Exchange
                     {
                         var note = document.FindFootnote(run.FootnoteId);
                         noteNumber++;
+                        // Le corps de la note (0.50.0) : le style « footnote » de
+                        // la feuille et ses runs avec leurs formats.
                         body.Append("<text:note text:id=\"ftn").Append(noteNumber)
                             .Append("\" text:note-class=\"footnote\"><text:note-citation>")
-                            .Append(noteNumber).Append("</text:note-citation><text:note-body><text:p>")
-                            .Append(Esc(note == null ? "" : note.Text))
-                            .Append("</text:p></text:note-body></text:note>");
+                            .Append(noteNumber).Append("</text:note-citation><text:note-body><text:p text:style-name=\"US_")
+                            .Append(Esc(StyleSheet.FootnoteId)).Append("\">");
+                        if (note != null)
+                            foreach (var noteRun in note.Runs)
+                            {
+                                if (noteRun.IsLineBreak) { body.Append("<text:line-break/>"); continue; }
+                                if (PivotEdit.IsElement(noteRun)) continue;
+                                AppendSpanRun(body, noteRun, autoStyles, autoKeys);
+                            }
+                        body.Append("</text:p></text:note-body></text:note>");
                         continue;
                     }
-                    var spanKey = RunKey(run);
-                    if (spanKey == null)
-                    {
-                        AppendText(body, run.Text);
-                        continue;
-                    }
-                    string spanName;
-                    if (!autoKeys.TryGetValue(spanKey, out spanName))
-                    {
-                        spanName = "T" + (autoKeys.Count + 1);
-                        autoKeys[spanKey] = spanName;
-                        autoStyles.Append("<style:style style:family=\"text\" style:name=\"")
-                          .Append(spanName).Append("\"><style:text-properties");
-                        if (run.Bold.HasValue)
-                            autoStyles.Append(" fo:font-weight=\"").Append(run.Bold.Value ? "bold" : "normal").Append("\"");
-                        if (run.Italic.HasValue)
-                            autoStyles.Append(" fo:font-style=\"").Append(run.Italic.Value ? "italic" : "normal").Append("\"");
-                        if (run.Underline == true)
-                            autoStyles.Append(" style:text-underline-style=\"solid\"");
-                        if (run.Strike == true)
-                            autoStyles.Append(" style:text-line-through-style=\"solid\"");
-                        if (run.FontFamily != null)
-                            autoStyles.Append(" style:font-name=\"").Append(Esc(run.FontFamily)).Append("\"");
-                        if (run.FontSize.HasValue)
-                            autoStyles.Append(" fo:font-size=\"").Append(Pt(run.FontSize.Value)).Append("\"");
-                        if (run.Color != null)
-                            autoStyles.Append(" fo:color=\"").Append(run.Color).Append("\"");
-                        if (run.Highlight != null)
-                            autoStyles.Append(" fo:background-color=\"").Append(run.Highlight).Append("\"");
-                        autoStyles.Append("/></style:style>");
-                    }
-                    body.Append("<text:span text:style-name=\"").Append(spanName).Append("\">");
-                    AppendText(body, run.Text);
-                    body.Append("</text:span>");
+                    AppendSpanRun(body, run, autoStyles, autoKeys);
                 }
                 body.Append("</text:p>");
             }
@@ -219,6 +195,49 @@ namespace Marabook.Exchange
               .Append("<office:body><office:text>").Append(body).Append("</office:text></office:body>")
               .Append("</office:document-content>");
             return sb.ToString();
+        }
+
+        /// <summary>Un run de texte dans le corps : nu, ou dans un text:span
+        /// dont le style automatique (T1, T2…) est créé à la première
+        /// rencontre de cette combinaison de formats. Partagé par les
+        /// paragraphes et le corps des notes (0.50.0).</summary>
+        private static void AppendSpanRun(StringBuilder body, TextRun run,
+            StringBuilder autoStyles, Dictionary<string, string> autoKeys)
+        {
+            var spanKey = RunKey(run);
+            if (spanKey == null)
+            {
+                AppendText(body, run.Text);
+                return;
+            }
+            string spanName;
+            if (!autoKeys.TryGetValue(spanKey, out spanName))
+            {
+                spanName = "T" + (autoKeys.Count + 1);
+                autoKeys[spanKey] = spanName;
+                autoStyles.Append("<style:style style:family=\"text\" style:name=\"")
+                  .Append(spanName).Append("\"><style:text-properties");
+                if (run.Bold.HasValue)
+                    autoStyles.Append(" fo:font-weight=\"").Append(run.Bold.Value ? "bold" : "normal").Append("\"");
+                if (run.Italic.HasValue)
+                    autoStyles.Append(" fo:font-style=\"").Append(run.Italic.Value ? "italic" : "normal").Append("\"");
+                if (run.Underline == true)
+                    autoStyles.Append(" style:text-underline-style=\"solid\"");
+                if (run.Strike == true)
+                    autoStyles.Append(" style:text-line-through-style=\"solid\"");
+                if (run.FontFamily != null)
+                    autoStyles.Append(" style:font-name=\"").Append(Esc(run.FontFamily)).Append("\"");
+                if (run.FontSize.HasValue)
+                    autoStyles.Append(" fo:font-size=\"").Append(Pt(run.FontSize.Value)).Append("\"");
+                if (run.Color != null)
+                    autoStyles.Append(" fo:color=\"").Append(run.Color).Append("\"");
+                if (run.Highlight != null)
+                    autoStyles.Append(" fo:background-color=\"").Append(run.Highlight).Append("\"");
+                autoStyles.Append("/></style:style>");
+            }
+            body.Append("<text:span text:style-name=\"").Append(spanName).Append("\">");
+            AppendText(body, run.Text);
+            body.Append("</text:span>");
         }
 
         private static string RunKey(TextRun run)
@@ -537,7 +556,25 @@ namespace Marabook.Exchange
                 if (child.LocalName == "note")
                 {
                     var noteBody = child.SelectSingleNode("text:note-body", ns);
-                    var note = new Footnote { Text = noteBody == null ? "" : noteBody.InnerText.Trim() };
+                    var note = new Footnote();
+                    if (noteBody != null)
+                    {
+                        // Les runs de la note avec leurs formats (0.50.0), lus
+                        // contre le style du paragraphe porteur puis ramenés au
+                        // style « Notes de bas de page » du projet.
+                        var noteParagraph = new TextParagraph();
+                        var firstBlock = true;
+                        foreach (XmlNode block in noteBody.ChildNodes)
+                        {
+                            if (block.LocalName != "p" && block.LocalName != "h") continue;
+                            if (!firstBlock) noteParagraph.Runs.Add(new TextRun { IsLineBreak = true });
+                            firstBlock = false;
+                            ReadInlines(block, ns, noteParagraph, document, style, catalog, images, inheritedSpan);
+                        }
+                        note.SetRuns(noteParagraph.Runs);
+                        if (note.Runs.Count == 0) note.Text = noteBody.InnerText.Trim();
+                        note.NormalizeAgainst(StyleSheet.DefaultFootnote(style));
+                    }
                     document.Footnotes.Add(note);
                     paragraph.Runs.Add(new TextRun { FootnoteId = note.Id });
                     continue;

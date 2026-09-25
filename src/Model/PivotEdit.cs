@@ -54,6 +54,63 @@ namespace Marabook.Model
             inner = 0;
         }
 
+        /// <summary>Les bornes du mot (lettres/chiffres) que touche l'offset :
+        /// le caractère à l'offset, sinon celui d'avant (un caret en fin de
+        /// mot appartient au mot). Faux hors de tout mot. La seule définition
+        /// du « mot » de la souris (double-clic, auto-sélecteur).</summary>
+        public static bool WordBounds(string text, int offset, out int start, out int end)
+        {
+            start = offset;
+            end = offset;
+            if (string.IsNullOrEmpty(text)) return false;
+            var i = Math.Min(Math.Max(offset, 0), text.Length - 1);
+            if (!char.IsLetterOrDigit(text[i]) && i > 0) i--;
+            if (!char.IsLetterOrDigit(text[i])) return false;
+            start = i;
+            end = i;
+            while (start > 0 && char.IsLetterOrDigit(text[start - 1])) start--;
+            while (end < text.Length && char.IsLetterOrDigit(text[end])) end++;
+            return true;
+        }
+
+        /// <summary>L'auto-sélecteur de mot (0.50.0), la règle pure du
+        /// cliquer-glisser façon Word. L'ancre est le point EXACT du clic
+        /// (paragraphe anchorParagraph), le caret la position brute sous la
+        /// souris. Tant que le caret reste dans le mot de départ, la sélection
+        /// se fait au caractère ; dès qu'il en sort, l'ancre saute au bord
+        /// opposé de son mot et le caret au bord lointain du mot qu'il touche.
+        /// wholeWords (glisser après un double-clic) : des mots entiers même
+        /// à l'intérieur du mot de départ. Rend l'ancre et le caret effectifs
+        /// (offsets, dans leurs paragraphes respectifs).</summary>
+        public static void SnapWordSelection(string anchorText, int anchorParagraph, int anchor,
+            string caretText, int caretParagraph, int caret, bool wholeWords,
+            out int anchorOut, out int caretOut)
+        {
+            anchorOut = anchor;
+            caretOut = caret;
+            int wordStart, wordEnd;
+            if (!WordBounds(anchorText, anchor, out wordStart, out wordEnd))
+            {
+                wordStart = anchor;
+                wordEnd = anchor;
+            }
+            var forward = caretParagraph > anchorParagraph
+                || (caretParagraph == anchorParagraph && caret > anchor);
+            var backward = caretParagraph < anchorParagraph
+                || (caretParagraph == anchorParagraph && caret < anchor);
+            var insideStartWord = caretParagraph == anchorParagraph && caret >= wordStart && caret <= wordEnd;
+            if (insideStartWord && !wholeWords) return;
+            if (!forward && !backward)
+            {
+                if (wholeWords) { anchorOut = wordStart; caretOut = wordEnd; }
+                return;
+            }
+            anchorOut = forward ? wordStart : wordEnd;
+            int caretWordStart, caretWordEnd;
+            if (WordBounds(caretText, caret, out caretWordStart, out caretWordEnd))
+                caretOut = forward ? caretWordEnd : caretWordStart;
+        }
+
         /// <summary>Copies every FORMAT field of a run (not its content).
         /// RÈGLE : tout nouveau champ de format de TextRun doit être ajouté
         /// ici ET dans TextRun.HasSameFormat — sinon il meurt au premier
@@ -140,6 +197,23 @@ namespace Marabook.Model
             var fresh = format != null ? CloneFormat(format) : new TextRun();
             fresh.Text = text;
             paragraph.Runs.Insert(Math.Min(runIndex, paragraph.Runs.Count), fresh);
+        }
+
+        /// <summary>Insère du texte qui porte SON format (0.50.0 : le format
+        /// d'insertion choisi sans sélection — police, taille, gras…), quitte
+        /// à couper en deux le run où tombe le caret. format null = la règle
+        /// ordinaire (hériter du voisin).</summary>
+        public static void InsertText(TextParagraph paragraph, int offset, string text, TextRun format)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            if (format == null) { InsertText(paragraph, offset, text); return; }
+            SplitAt(paragraph, offset);
+            int runIndex, inner;
+            Locate(paragraph, offset, out runIndex, out inner);
+            var fresh = CloneFormat(format);
+            fresh.Text = text;
+            paragraph.Runs.Insert(Math.Min(runIndex, paragraph.Runs.Count), fresh);
+            MergeAdjacent(paragraph);
         }
 
         /// <summary>Inserts an element run (image, rule, break, marker) at the
@@ -372,7 +446,7 @@ namespace Marabook.Model
                 copy.Paragraphs.Add(p);
             }
             foreach (var note in document.Footnotes)
-                copy.Footnotes.Add(new Footnote { Id = note.Id, Text = note.Text });
+                copy.Footnotes.Add(note.Clone()); // runs compris (0.50.0)
             // Les annotations sont clonées pour l'exhaustivité, mais
             // RestoreSnapshot ne restaure QUE Paragraphs et Footnotes : les
             // commentaires de révision vivent hors du flux d'annulation

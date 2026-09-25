@@ -330,12 +330,18 @@ namespace Marabook.Exchange
               .Append("<w:footnotes ").Append(W).Append(">")
               .Append("<w:footnote w:type=\"separator\" w:id=\"0\"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>")
               .Append("<w:footnote w:type=\"continuationSeparator\" w:id=\"1\"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>");
+            var none = new Dictionary<string, int>(); // pas d'appel de note dans une note
             for (var i = 0; i < document.Footnotes.Count; i++)
             {
-                sb.Append("<w:footnote w:id=\"").Append(i + 2).Append("\"><w:p><w:r>")
+                // Le paragraphe porte le style « footnote » de la feuille
+                // (0.50.0, écrit dans styles.xml avec les autres) et ses runs
+                // gardent leurs formats.
+                sb.Append("<w:footnote w:id=\"").Append(i + 2).Append("\"><w:p>")
+                  .Append("<w:pPr><w:pStyle w:val=\"").Append(Esc(StyleSheet.FootnoteId)).Append("\"/></w:pPr><w:r>")
                   .Append("<w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr><w:footnoteRef/></w:r>")
-                  .Append("<w:r><w:t xml:space=\"preserve\"> ")
-                  .Append(Esc(document.Footnotes[i].Text)).Append("</w:t></w:r></w:p></w:footnote>");
+                  .Append("<w:r><w:t xml:space=\"preserve\"> </w:t></w:r>");
+                foreach (var run in document.Footnotes[i].Runs) sb.Append(RunXml(run, none));
+                sb.Append("</w:p></w:footnote>");
             }
             sb.Append("</w:footnotes>");
             return sb.ToString();
@@ -535,7 +541,7 @@ namespace Marabook.Exchange
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Read))
             {
                 var styleMap = ReadStyles(zip, projectStyles);
-                var footnotes = ReadFootnotes(zip);
+                var footnotes = ReadFootnotes(zip, projectStyles);
                 var numbering = ReadNumbering(zip);
                 var documentEntry = zip.GetEntry("word/document.xml");
                 if (documentEntry == null)
@@ -694,23 +700,47 @@ namespace Marabook.Exchange
             return comments;
         }
 
-        private static Dictionary<string, Footnote> ReadFootnotes(ZipArchive zip)
+        /// <summary>Les notes du document, runs et formats compris (0.50.0) :
+        /// chaque w:p de la note est lu comme un paragraphe (les formats se
+        /// mesurent au style « Notes de bas de page » de la feuille cible), les
+        /// paragraphes d'une même note se suivent par un saut de ligne.</summary>
+        private static Dictionary<string, Footnote> ReadFootnotes(ZipArchive zip, StyleSheet projectStyles)
         {
             var notes = new Dictionary<string, Footnote>();
             var entry = zip.GetEntry("word/footnotes.xml");
             if (entry == null) return notes;
             var xml = LoadXml(entry);
             var ns = Ns(xml);
+            var noteStyle = projectStyles != null ? projectStyles.FootnoteStyle() : StyleSheet.DefaultFootnote(null);
+            var noNotes = new Dictionary<string, Footnote>();
+            var noteCtx = new ImportContext(); // ni commentaires ni images dans une note
             foreach (XmlNode noteNode in xml.SelectNodes("//w:footnote", ns))
             {
                 var type = Attr(noteNode, "w:type");
                 if (type == "separator" || type == "continuationSeparator") continue;
                 var id = Attr(noteNode, "w:id");
                 if (id == null) continue;
-                var sb = new StringBuilder();
-                foreach (XmlNode textNode in noteNode.SelectNodes(".//w:t", ns))
-                    sb.Append(textNode.InnerText);
-                notes[id] = new Footnote { Text = sb.ToString().Trim() };
+                var body = new TextParagraph();
+                var first = true;
+                foreach (XmlNode p in noteNode.SelectNodes("w:p", ns))
+                {
+                    if (!first) body.Runs.Add(new TextRun { IsLineBreak = true });
+                    first = false;
+                    ReadRuns(p, ns, body, noteStyle, noNotes, noteCtx);
+                }
+                // L'espace qui suit l'appel de note (w:footnoteRef) ne fait
+                // pas partie du texte.
+                while (body.Runs.Count > 0 && !PivotEdit.IsElement(body.Runs[0]))
+                {
+                    body.Runs[0].Text = body.Runs[0].Text.TrimStart();
+                    if (body.Runs[0].Text.Length > 0) break;
+                    body.Runs.RemoveAt(0);
+                }
+                if (body.Runs.Count > 0 && !PivotEdit.IsElement(body.Runs[body.Runs.Count - 1]))
+                    body.Runs[body.Runs.Count - 1].Text = body.Runs[body.Runs.Count - 1].Text.TrimEnd();
+                var note = new Footnote();
+                note.SetRuns(body.Runs);
+                notes[id] = note;
             }
             return notes;
         }

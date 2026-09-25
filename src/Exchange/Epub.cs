@@ -460,7 +460,16 @@ namespace Marabook.Exchange
                 sb.Append("p.figure { text-align: center; text-indent: 0; margin: 1em 0; }\n");
                 sb.Append("img { max-width: 100%; height: auto; }\n");
                 sb.Append("a.noteref { vertical-align: super; font-size: 0.75em; text-decoration: none; }\n");
-                sb.Append("aside.footnote { font-size: 0.85em; margin-top: 1em; }\n");
+                // Le style « Notes de bas de page » de la feuille (0.50.0) :
+                // sa taille rapportée au corps, sa police, gras/italique.
+                var footnote = _styles.FootnoteStyle();
+                sb.Append("aside.footnote { font-size: ")
+                  .Append(Ratio(footnote.FontSize / Math.Max(1, body.FontSize))).Append("em; margin-top: 1em;");
+                if (footnote.FontFamily != body.FontFamily)
+                    sb.Append(" font-family: ").Append(FontFamilyCss(footnote.FontFamily)).Append(";");
+                if (footnote.Bold) sb.Append(" font-weight: bold;");
+                if (footnote.Italic) sb.Append(" font-style: italic;");
+                sb.Append(" }\n");
                 sb.Append("section.cover { text-align: center; margin: 0; padding: 0; }\n");
                 sb.Append("section.cover img { max-height: 100%; }\n");
                 return sb.ToString();
@@ -534,9 +543,20 @@ namespace Marabook.Exchange
                 {
                     sb.Append("<hr class=\"rule\"/>\n");
                     for (var i = 0; i < notes.Count; i++)
+                    {
                         sb.Append("<aside epub:type=\"footnote\" class=\"footnote\" id=\"fn").Append(i + 1).Append("\"><p>")
-                          .Append("<a href=\"#fnref").Append(i + 1).Append("\">").Append(i + 1).Append(".</a> ")
-                          .Append(Esc(notes[i].Text ?? "")).Append("</p></aside>\n");
+                          .Append("<a href=\"#fnref").Append(i + 1).Append("\">").Append(i + 1).Append(".</a> ");
+                        // Les runs de la note avec leurs formats (0.50.0).
+                        foreach (var run in notes[i].Runs)
+                        {
+                            if (run.IsLineBreak) { sb.Append("<br/>"); continue; }
+                            if (string.IsNullOrEmpty(run.Text)) continue;
+                            var css = RunCss(run);
+                            if (css.Length > 0) sb.Append("<span style=\"").Append(css).Append("\">").Append(Esc(run.Text)).Append("</span>");
+                            else sb.Append(Esc(run.Text));
+                        }
+                        sb.Append("</p></aside>\n");
+                    }
                 }
                 sb.Append("</section>\n</body></html>\n");
                 return sb.ToString();
