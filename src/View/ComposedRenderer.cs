@@ -56,8 +56,10 @@ namespace Marabook.View
         /// mode calme (13/09), comme les guides de marges.</summary>
         public static bool ShowWidowMarks = true;
 
+        /// <summary>hiddenNote : l'index (ordre des appels) de la note en cours
+        /// d'édition, qui n'est pas dessinée ; -1 = toutes (impression, PDF).</summary>
         public static void DrawPage(DrawingContext dc, Composition composition, int index,
-            bool screenExtras)
+            bool screenExtras, int hiddenNote = -1)
         {
             DefaultInk = screenExtras ? (Brush)Chrome.PaperInk : Brushes.Black;
             var setup = composition.Setup;
@@ -88,8 +90,13 @@ namespace Marabook.View
                         left, page.NotesRuleY,
                         Math.Min(160, Math.Max(40, contentWidth / 3)), 0.8));
                 foreach (var placed in page.NoteLines)
+                {
+                    // La note en cours d'édition (0.50.0) n'est pas dessinée :
+                    // le champ posé dessus EST la note, pas un calque par-dessus.
+                    if (placed.ParagraphIndex == hiddenNote) continue;
                     DrawLine(dc, composition.NoteParagraphs[placed.ParagraphIndex].Lines[placed.LineIndex],
                         left, placed.Y, screenExtras);
+                }
             }
 
             if (setup.LineNumbers)

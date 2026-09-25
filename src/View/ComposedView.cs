@@ -97,6 +97,8 @@ namespace Marabook.View
         // sur la note, au bas de sa page — plus de panneau du bas.
         private readonly Canvas _noteLayer;
         private RichTextBox _noteEditor; // riche depuis la 0.50.0 (gras, italique, police dans la note)
+        private TextBlock _noteNumber;   // le « n. » dessiné à part pendant l'édition (la note, elle, ne l'est plus)
+        private int _editingNoteIndex = -1; // index (ordre des appels) de la note ouverte, pour le rendu
         private string _editingNoteId;
         private double _zoom = 1.0;
 
@@ -441,7 +443,7 @@ namespace Marabook.View
                 slot.Page.InvalidateMeasure();
                 slot.Page.InvalidateVisual();
             }
-            PositionNoteEditor();
+            PositionNoteEditor(false); // repose le champ, sans déplacer la vue
         }
 
         // ============================================================ notes en place (b33)
@@ -529,20 +531,33 @@ namespace Marabook.View
             // le clavier). Police et taille de base : le style « Notes de bas
             // de page » de la feuille, le même que celui du compositeur.
             var noteStyle = _styles.FootnoteStyle();
+            // Le champ EST la note (correctif 0.50.0) : la page ne dessine plus
+            // la note ouverte (PageElement passe son index au rendu), le champ
+            // se pose à sa place, sans cadre ni fond — juste un trait d'accent
+            // dessous — et le numéro « n. » est dessiné à part, à gauche.
             _noteEditor = new RichTextBox
             {
                 FontFamily = new FontFamily(noteStyle.FontFamily),
                 FontSize = Math.Max(9, noteStyle.FontSize),
                 AcceptsReturn = false,
                 AcceptsTab = false,
-                Padding = new Thickness(2, 0, 2, 0),
+                Padding = new Thickness(0),
                 BorderBrush = Chrome.Accent,
-                BorderThickness = new Thickness(1),
-                Background = Chrome.PaperBg,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Background = Brushes.Transparent,
                 Foreground = Chrome.PaperInk,
-                ToolTip = "Note de bas de page — Entrée ou Échap pour fermer ; gras, italique, police depuis le ruban ou les raccourcis"
+                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                ToolTip = "Note de bas de page — Entrée, Échap ou un clic sur la page pour fermer ; gras, italique, police depuis le ruban ou les raccourcis"
             };
             _noteEditor.Document = NoteFlow(note, noteStyle);
+            _noteNumber = new TextBlock
+            {
+                FontFamily = _noteEditor.FontFamily,
+                FontSize = _noteEditor.FontSize,
+                Foreground = Chrome.PaperInk,
+                IsHitTestVisible = false
+            };
             var noteRef = note;
             var lastKey = note.FormatKey();
             _noteEditor.TextChanged += delegate
@@ -564,18 +579,31 @@ namespace Marabook.View
                 if (key == lastKey) return;
                 lastKey = key;
                 noteRef.SetRuns(runs);
-                RefreshNotes();
-                PositionNoteEditor();
+                // La vue ne bouge pas pendant la frappe dans la note : la
+                // recomposition ramenait le caret du TEXTE dans la fenêtre et
+                // la page sautait à chaque lettre (correctif 0.50.0).
+                _keepScroll = true;
+                try
+                {
+                    RefreshNotes();
+                    PositionNoteEditor(false);
+                }
+                finally { _keepScroll = false; }
                 var handler = Edited;
                 if (handler != null) handler();
             };
-            _noteEditor.LostKeyboardFocus += delegate
-            {
-                // Fermé par un clic ailleurs (le focus part) — pas par nous.
-                if (_noteEditor != null && !_noteEditor.IsKeyboardFocusWithin) CloseNoteEditor(false);
-            };
+            // Le champ ne demande jamais à la vue de défiler vers lui : c'est
+            // la vue qui décide (à l'ouverture seulement).
+            _noteEditor.RequestBringIntoView += delegate(object sender, RequestBringIntoViewEventArgs e) { e.Handled = true; };
+            // La note reste ouverte quand le clavier part ailleurs (ruban,
+            // onglets, menus) : elle se referme par Entrée, Échap, un clic
+            // sur la page ou le changement d'écrit — plus au moindre clic
+            // hors du champ.
+            _noteLayer.Children.Add(_noteNumber);
             _noteLayer.Children.Add(_noteEditor);
-            if (!PositionNoteEditor()) { CloseNoteEditor(false); return; }
+            _editingNoteIndex = MarkerOrder().IndexOf(id);
+            if (!PositionNoteEditor(true)) { CloseNoteEditor(false); return; }
+            RedrawNotePages();
             _noteEditor.CaretPosition = _noteEditor.Document.ContentEnd;
             _noteEditor.Focus();
             var started = NoteEditingStarted;
@@ -624,7 +652,9 @@ namespace Marabook.View
         /// ruban lui reviennent, pas au texte.</summary>
         private bool NoteEditing
         {
-            get { return _noteEditor != null && _noteEditor.IsKeyboardFocusWithin; }
+            // La note OUVERTE reçoit les formats du ruban, qu'elle ait ou non le
+            // clavier (cliquer un bouton du ruban le lui prend) — correctif 0.50.0.
+            get { return _noteEditor != null; }
         }
 
         /// <summary>Rend le clavier à la surface — à la note ouverte s'il y en
@@ -672,12 +702,13 @@ namespace Marabook.View
 
         /// <summary>Pose (ou repose) l'éditeur de note sur la géométrie
         /// courante de la note. Faux quand la note n'est placée nulle part.</summary>
-        private bool PositionNoteEditor()
+        private bool PositionNoteEditor(bool scrollIntoView)
         {
             if (_noteEditor == null || _engine == null) return false;
             var composition = _engine.Current;
             var index = MarkerOrder().IndexOf(_editingNoteId);
             if (index < 0) return false;
+            _editingNoteIndex = index;
             for (var k = 0; k < composition.Pages.Count; k++)
             {
                 var top = double.MaxValue;
@@ -691,27 +722,41 @@ namespace Marabook.View
                 }
                 if (top == double.MaxValue) continue;
                 var left = composition.LeftPxFor(k);
-                // Le numéro « n. » reste visible à gauche : le champ commence après.
+                // Le numéro « n. » à gauche (dessiné par nous : la page ne
+                // dessine plus la note ouverte), le champ juste après.
+                _noteNumber.Text = (index + 1) + ".";
                 var numberWidth = Math.Max(14, _noteEditor.FontSize * 1.3);
+                Canvas.SetLeft(_noteNumber, left);
+                Canvas.SetTop(_noteNumber, PageTop(k) + top);
                 Canvas.SetLeft(_noteEditor, left + numberWidth);
-                Canvas.SetTop(_noteEditor, PageTop(k) + top - 2);
+                Canvas.SetTop(_noteEditor, PageTop(k) + top);
                 _noteEditor.Width = Math.Max(60, composition.Setup.ContentWidthPx - numberWidth);
-                _noteEditor.MinHeight = Math.Max(16, bottom - top + 4);
-                EnsureCaretVisible(PageTop(k) + top, bottom - top);
+                _noteEditor.MinHeight = Math.Max(16, bottom - top);
+                if (scrollIntoView) EnsureCaretVisible(PageTop(k) + top, bottom - top);
                 return true;
             }
             return false;
+        }
+
+        /// <summary>Redessine les pages : la note ouverte disparaît du rendu,
+        /// ou y revient à la fermeture.</summary>
+        private void RedrawNotePages()
+        {
+            for (var k = 0; k < _pages.Children.Count; k++) PageAt(k).InvalidateVisual();
         }
 
         /// <summary>Referme l'éditeur de note (le texte est déjà dans le
         /// modèle, frappe par frappe).</summary>
         public void CloseNoteEditor(bool refocus)
         {
-            if (_noteEditor == null) { _editingNoteId = null; return; }
+            if (_noteEditor == null) { _editingNoteId = null; _editingNoteIndex = -1; return; }
             var editor = _noteEditor;
             _noteEditor = null;
             _editingNoteId = null;
+            _editingNoteIndex = -1;
             _noteLayer.Children.Remove(editor);
+            if (_noteNumber != null) { _noteLayer.Children.Remove(_noteNumber); _noteNumber = null; }
+            RedrawNotePages(); // la note revient dans le rendu de la page
             if (refocus) Focus();
         }
 
@@ -821,7 +866,7 @@ namespace Marabook.View
                     new Rect(0.5, 0.5, w - 1, h - 1));
                 if (!_owner.IsPageNear(this)) { Stale = true; return; } // rendu paresseux (22/09)
                 Stale = false;
-                ComposedRenderer.DrawPage(dc, composition, _index, true);
+                ComposedRenderer.DrawPage(dc, composition, _index, true, _owner._editingNoteIndex);
             }
         }
 
@@ -1025,6 +1070,9 @@ namespace Marabook.View
             // leurs clics ne sont pas à nous non plus (batch 34 — la bulle
             // se refermait avant d'avoir reçu le focus).
             if (IsInside(e.OriginalSource as DependencyObject, _bubbleLayer)) return;
+            // Un clic sur la page hors du champ de note referme la note ouverte
+            // (correctif 0.50.0 : c'est LE geste de sortie, avec Entrée/Échap).
+            if (_noteEditor != null) CloseNoteEditor(false);
             Focus();
             if (ToggleWidowMarkAt(e)) { e.Handled = true; return; }
             // Clic sur une note au bas de la page : on l'édite en place.

@@ -41,6 +41,11 @@ namespace Marabook.View
 
         public FontPicker()
         {
+            // Le style implicite du thème (bords arrondis, popup, flèche…) est
+            // clé sur typeof(ComboBox) : une classe dérivée ne le reçoit pas
+            // d'elle-même — référence dynamique, qui suit aussi le passage
+            // clair/sombre (correctif 0.50.0).
+            SetResourceReference(StyleProperty, typeof(ComboBox));
             IsEditable = true;
             MaxDropDownHeight = 440;
             ItemTemplateSelector = new RowTemplateSelector();
@@ -271,16 +276,24 @@ namespace Marabook.View
         }
 
         /// <summary>Le nom à gauche (police d'interface), « Marabook » à
-        /// droite dans la police — la liste s'élargit d'autant.</summary>
+        /// droite dans la police. Largeur FIXE (correctif 0.50.0) : une police
+        /// large ou haute ne fait plus respirer la liste — l'exemple est rogné
+        /// à droite et la rangée garde sa hauteur.</summary>
+        public const double RowWidth = 330;
+        private const double NameWidth = 170;
+        private const double RowHeight = 24;
+
         private static DataTemplate BuildRow()
         {
             var row = new FrameworkElementFactory(typeof(DockPanel));
-            row.SetValue(FrameworkElement.MinWidthProperty, 330.0);
+            row.SetValue(FrameworkElement.WidthProperty, RowWidth);
+            row.SetValue(FrameworkElement.HeightProperty, RowHeight);
+            row.SetValue(UIElement.ClipToBoundsProperty, true);
             row.SetValue(DockPanel.LastChildFillProperty, true);
             var name = new FrameworkElementFactory(typeof(TextBlock));
             name.SetBinding(TextBlock.TextProperty, new Binding("Name"));
             name.SetValue(DockPanel.DockProperty, Dock.Left);
-            name.SetValue(FrameworkElement.WidthProperty, 170.0);
+            name.SetValue(FrameworkElement.WidthProperty, NameWidth);
             name.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
             name.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
             row.AppendChild(name);
@@ -289,9 +302,11 @@ namespace Marabook.View
             preview.SetBinding(TextBlock.FontFamilyProperty, new Binding("Family"));
             preview.SetValue(TextBlock.FontSizeProperty, 15.0);
             preview.SetValue(TextBlock.ForegroundProperty, Chrome.SoftText);
-            preview.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Right);
+            preview.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.None);
+            preview.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Left);
             preview.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
-            preview.SetValue(FrameworkElement.MarginProperty, new Thickness(14, 0, 4, 0));
+            preview.SetValue(FrameworkElement.MarginProperty, new Thickness(14, 0, 0, 0));
+            preview.SetValue(UIElement.ClipToBoundsProperty, true);
             row.AppendChild(preview);
             return new DataTemplate { VisualTree = row };
         }

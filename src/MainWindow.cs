@@ -4088,24 +4088,38 @@ namespace Marabook
                     TextWrapping = TextWrapping.Wrap
                 });
             row.Children.Add(text);
-            var toast = new Border
+            // L'ombre vit sur un cadre VIDE dessous (correctif 0.50.0) : un
+            // DropShadowEffect posé sur le cadre qui porte le texte le rend
+            // flou (le piège connu des papers). UseLayoutRounding pour des
+            // bords nets pendant le glissement.
+            var card = new Grid { UseLayoutRounding = true };
+            card.Children.Add(new Border
             {
                 Background = Chrome.RaisedBg,
-                BorderBrush = Chrome.Accent,
-                BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(10),
-                Padding = new Thickness(12, 10, 16, 10),
-                Margin = new Thickness(0, 8, 0, 0),
-                Opacity = 0,
-                IsHitTestVisible = false, // un succès ne bloque jamais un clic dessous
-                Child = row,
                 Effect = new System.Windows.Media.Effects.DropShadowEffect
                 {
                     Color = Colors.Black,
                     Opacity = 0.3,
                     BlurRadius = 14,
                     ShadowDepth = 2
-                },
+                }
+            });
+            card.Children.Add(new Border
+            {
+                Background = Chrome.RaisedBg,
+                BorderBrush = Chrome.Accent,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(12, 10, 16, 10),
+                Child = row
+            });
+            var toast = new Border
+            {
+                Margin = new Thickness(0, 8, 0, 0),
+                Opacity = 0,
+                IsHitTestVisible = false, // un succès ne bloque jamais un clic dessous
+                Child = card,
                 RenderTransform = new TranslateTransform(60, 0)
             };
             _toastHost.Children.Add(toast);

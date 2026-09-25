@@ -165,6 +165,33 @@ namespace Marabook.Tests.Ui
             var anyBold = false;
             foreach (var run in noteA.Runs) if (run.Bold == true) anyBold = true;
             Check(anyBold && noteA.Text == "Première note, corrigée", "le gras posé dans la note atteint les runs du modèle, texte intact");
+            // La frappe dans la note ne fait pas sauter la page (correctif
+            // 0.50.0) : la vue est descendue sur la note, on tape cinq fois,
+            // le défilement ne bouge pas d'un pixel.
+            DoEvents();
+            var offsetBefore = composed.VerticalOffset;
+            for (var i = 0; i < 5; i++)
+            {
+                noteEditor.CaretPosition = noteEditor.Document.ContentEnd;
+                noteEditor.CaretPosition.InsertTextInRun(" mot");
+                DoEvents();
+            }
+            Check(Math.Abs(composed.VerticalOffset - offsetBefore) < 0.5,
+                "taper dans la note ne déplace pas la vue (" + offsetBefore.ToString("0") + " → " + composed.VerticalOffset.ToString("0") + ")");
+            Check(noteA.Text.EndsWith(" mot mot mot mot mot"), "les cinq frappes sont dans le modèle");
+            Check(GetField(composed, "_noteEditor") != null, "la note reste ouverte après la frappe");
+            // Le clavier part ailleurs (un onglet, un bouton du ruban) : la note
+            // reste ouverte et reçoit encore les formats du ruban.
+            var binder = (UIElement)GetField(window, "_binder");
+            binder.Focus();
+            DoEvents();
+            Check(GetField(composed, "_noteEditor") != null, "perdre le clavier ne referme plus la note");
+            noteEditor.SelectAll();
+            composed.ToggleItalic();
+            DoEvents();
+            var anyItalic = false;
+            foreach (var run in noteA.Runs) if (run.Italic == true) anyItalic = true;
+            Check(anyItalic, "le ruban (italique) agit sur la note ouverte même sans le clavier");
             composed.CloseNoteEditor(true);
             Check(GetField(composed, "_noteEditor") == null, "Entrée/Échap referment l'éditeur de note");
 
@@ -242,7 +269,7 @@ namespace Marabook.Tests.Ui
                 "le dictionnaire et sa racine survivent à l'aller-retour disque (v13)");
             BinderItem backText = null;
             foreach (var item in reloaded.AllItems()) if (item.Title == "Chapitre noté") backText = item;
-            Check(backText != null && backText.Document.FindFootnote(order[0]).Text == "Première note, corrigée",
+            Check(backText != null && backText.Document.FindFootnote(order[0]).Text == "Première note, corrigée mot mot mot mot mot",
                 "la note éditée en place est sur le disque");
 
             // — Le tableau du livre : supprimer retire la carte, la sélection ne traîne pas.
