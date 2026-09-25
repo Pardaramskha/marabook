@@ -1,0 +1,146 @@
+# Release automatique de Marabook.
+#
+# Organisation des branches :
+#   main  branche de release : ne reçoit que des fusions de dev
+#   dev   pré-release et bac à sable : toutes les branches de travail
+#         (feat/…, fix/…, hotfix/…) partent de dev et y reviennent
+#   Les branches fusionnées par PR sont supprimées automatiquement
+#   (réglage du dépôt) ; main et dev sont protégées contre la suppression
+#   (ruleset « Branches permanentes »).
+#
+# Ce workflow tourne à chaque poussée sur dev (essai à blanc : compile,
+# teste et fabrique sans rien publier, pour vérifier que la release
+# passerait) et sur main (donc à chaque fusion dev > main), où il publie
+# une release GitHub :
+#   1. lit VERSION (à incrémenter sur dev AVANT de fusionner : si le tag
+#      vVERSION existe déjà, le workflow échoue plutôt que d'écraser)
+#   2. compile et lance les tests (build-tests.bat)
+#   3. fabrique l'archive portable et l'installeur (tools\release.ps1)
+#   4. crée la release vVERSION avec les deux assets à noms stables
+#      (le README et l'Updater pointent releases/latest → jamais en
+#      « pre-release », même avec un suffixe -beta)
+#   5. ne garde que les 3 releases les plus récentes, supprime les
+#      autres (release + tag)
+#
+# Lancement manuel (Actions > Release > Run workflow) : par défaut un
+# essai à blanc ; décocher « dry_run » depuis main pour publier à la main.
+
+name: Release
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Essai à blanc : fabriquer sans publier ni supprimer"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+# Une seule publication à la fois ; sur dev, un nouvel essai remplace le précédent.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# On publie seulement depuis main, et jamais lors d'un essai à blanc
+# (les étapes de publication testent : ref main ET pas de dry_run).
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  KEEP_RELEASES: "3"
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v7
+
+      - name: Lire VERSION
+        id: version
+        shell: pwsh
+        run: |
+          $v = ([IO.File]::ReadAllText('VERSION')).Trim()
+          if ($v -notmatch '^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$') {
+            throw "VERSION doit être de la forme majeure.mineure.correctif[-suffixe] (lu : « $v »)."
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "tag=v$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Version : $v (tag v$v)"
+
+      - name: Vérifier que la release n'existe pas déjà
+        if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
+        shell: pwsh
+        run: |
+          $tag = '${{ steps.version.outputs.tag }}'
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw "La release $tag existe déjà. Incrémentez VERSION (et MainWindow.AppVersion) sur dev avant de fusionner sur main."
+          }
+          $tags = git ls-remote --tags origin "refs/tags/$tag"
+          if ($tags) {
+            throw "Le tag $tag existe déjà sur le dépôt sans release. Supprimez-le ou incrémentez VERSION."
+          }
+          Write-Host "OK : $tag est libre."
+
+      - name: Compiler et lancer les tests
+        shell: cmd
+        run: build-tests.bat
+
+      - name: Fabriquer l'archive portable et l'installeur
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1
+          if ($LASTEXITCODE -ne 0) { throw "tools\release.ps1 a échoué." }
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - name: Conserver les artefacts de l'essai
+        if: ${{ github.ref != 'refs/heads/main' || inputs.dry_run }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: marabook-${{ steps.version.outputs.version }}-essai
+          path: |
+            dist/marabook-windows-portable.zip
+            dist/Marabook-Setup-Windows.exe
+          retention-days: 7
+
+      - name: Publier la release
+        if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
+        shell: pwsh
+        run: |
+          $tag = '${{ steps.version.outputs.tag }}'
+          $version = '${{ steps.version.outputs.version }}'
+          gh release create $tag `
+            'dist/marabook-windows-portable.zip' `
+            'dist/Marabook-Setup-Windows.exe' `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title "Marabook $version" `
+            --generate-notes `
+            --latest
+          if ($LASTEXITCODE -ne 0) { throw "gh release create a échoué." }
+          Write-Host "Release $tag publiée."
+
+      - name: Ne garder que les ${{ env.KEEP_RELEASES }} releases les plus récentes
+        if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
+        shell: pwsh
+        run: |
+          $keep = [int]$env:KEEP_RELEASES
+          $releases = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 `
+            --json tagName,createdAt,isDraft | ConvertFrom-Json
+          $releases = $releases | Where-Object { -not $_.isDraft } |
+            Sort-Object { [DateTime]$_.createdAt } -Descending
+          $aSupprimer = @($releases | Select-Object -Skip $keep)
+          if ($aSupprimer.Count -eq 0) {
+            Write-Host "Rien à supprimer ($($releases.Count) release(s), maximum $keep)."
+            exit 0
+          }
+          foreach ($r in $aSupprimer) {
+            Write-Host "Suppression de la release $($r.tagName) ($($r.createdAt)) et de son tag…"
+            gh release delete $r.tagName --repo $env:GITHUB_REPOSITORY --cleanup-tag --yes
+            if ($LASTEXITCODE -ne 0) { throw "Suppression de $($r.tagName) ratée." }
+          }
+          Write-Host "Conservées : $(($releases | Select-Object -First $keep | ForEach-Object tagName) -join ', ')"
