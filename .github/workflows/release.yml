@@ -8,8 +8,10 @@
 #   (réglage du dépôt) ; main et dev sont protégées contre la suppression
 #   (ruleset « Branches permanentes »).
 #
-# Ce workflow tourne à chaque poussée sur main (donc à chaque fusion
-# dev > main) et publie une release GitHub :
+# Ce workflow tourne à chaque poussée sur dev (essai à blanc : compile,
+# teste et fabrique sans rien publier, pour vérifier que la release
+# passerait) et sur main (donc à chaque fusion dev > main), où il publie
+# une release GitHub :
 #   1. lit VERSION (à incrémenter sur dev AVANT de fusionner : si le tag
 #      vVERSION existe déjà, le workflow échoue plutôt que d'écraser)
 #   2. compile et lance les tests (build-tests.bat)
@@ -21,13 +23,13 @@
 #      autres (release + tag)
 #
 # Lancement manuel (Actions > Release > Run workflow) : par défaut un
-# essai à blanc qui fabrique tout sans rien publier ni supprimer.
+# essai à blanc ; décocher « dry_run » depuis main pour publier à la main.
 
 name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -38,9 +40,13 @@ on:
 permissions:
   contents: write
 
+# Une seule publication à la fois ; sur dev, un nouvel essai remplace le précédent.
 concurrency:
-  group: release
-  cancel-in-progress: false
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# On publie seulement depuis main, et jamais lors d'un essai à blanc
+# (les étapes de publication testent : ref main ET pas de dry_run).
 
 env:
   GH_TOKEN: ${{ github.token }}
@@ -66,7 +72,7 @@ jobs:
           Write-Host "Version : $v (tag v$v)"
 
       - name: Vérifier que la release n'existe pas déjà
-        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
         shell: pwsh
         run: |
           $tag = '${{ steps.version.outputs.tag }}'
@@ -92,7 +98,7 @@ jobs:
           Get-ChildItem dist | Format-Table Name, Length
 
       - name: Conserver les artefacts de l'essai
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        if: ${{ github.ref != 'refs/heads/main' || inputs.dry_run }}
         uses: actions/upload-artifact@v4
         with:
           name: marabook-${{ steps.version.outputs.version }}-essai
@@ -102,7 +108,7 @@ jobs:
           retention-days: 7
 
       - name: Publier la release
-        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
         shell: pwsh
         run: |
           $tag = '${{ steps.version.outputs.tag }}'
@@ -119,7 +125,7 @@ jobs:
           Write-Host "Release $tag publiée."
 
       - name: Ne garder que les ${{ env.KEEP_RELEASES }} releases les plus récentes
-        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
         shell: pwsh
         run: |
           $keep = [int]$env:KEEP_RELEASES
