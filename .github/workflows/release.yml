@@ -57,7 +57,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Récupérer les sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Lire VERSION
         id: version
@@ -99,7 +99,7 @@ jobs:
 
       - name: Conserver les artefacts de l'essai
         if: ${{ github.ref != 'refs/heads/main' || inputs.dry_run }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: marabook-${{ steps.version.outputs.version }}-essai
           path: |
