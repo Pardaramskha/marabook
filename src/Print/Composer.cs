@@ -449,12 +449,25 @@ namespace Marabook.Print
         private ComposedParagraphLayout ComposeNote(int index, Footnote note)
         {
             var style = _styles.FootnoteStyle().Clone();
-            style.FirstLineIndent = 0;
+            // Le numéro en RETRAIT SUSPENDU (correctif 0.50.0) : « n. » dans la
+            // marge du bloc, toutes les lignes du corps alignées après lui —
+            // c'est aussi la géométrie du champ d'édition en place, qui
+            // commence là (layout.Style.LeftIndent) et fait la largeur restante.
+            var prefix = (index + 1) + ". ";
+            var numberWidth = _metrics.AdvanceWidth(style.FontFamily, style.FontSize,
+                style.Bold ? 700 : 400, style.Italic, prefix);
+            style.LeftIndent = numberWidth;
+            style.FirstLineIndent = -numberWidth;
             style.LastLineIndent = 0;
             style.SpaceBefore = 0;
             style.SpaceAfter = 0;
+            // Pas de césure dans les notes : le champ d'édition (WPF) ne coupe
+            // pas les mots comme nous — sans césure, les deux cassent les lignes
+            // au même endroit (gloutons, à la largeur naturelle), et la note
+            // s'édite telle qu'elle paraîtra.
+            style.HyphenationEnabled = false;
             var paragraph = note.ToParagraph(StyleSheet.FootnoteId);
-            paragraph.Runs.Insert(0, new TextRun { Text = (index + 1) + ". " });
+            paragraph.Runs.Insert(0, new TextRun { Text = prefix });
             return ComposeWithStyle(paragraph, style, 0, 0);
         }
 

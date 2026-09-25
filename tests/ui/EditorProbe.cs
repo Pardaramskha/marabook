@@ -192,6 +192,42 @@ namespace Marabook.Tests.Ui
             var anyItalic = false;
             foreach (var run in noteA.Runs) if (run.Italic == true) anyItalic = true;
             Check(anyItalic, "le ruban (italique) agit sur la note ouverte même sans le clavier");
+            // La police de la note (correctif 0.50.0) : par l'API de la surface,
+            // puis par le chemin du ruban (OnFontChosen), et le ruban lit la
+            // note (style « Notes de bas de page », police choisie).
+            noteEditor.SelectAll();
+            composed.ApplyFont("Arial");
+            DoEvents();
+            var arial = false;
+            foreach (var run in noteA.Runs) if (run.FontFamily == "Arial") arial = true;
+            Check(arial, "ApplyFont sur la note ouverte : les runs portent Arial");
+            noteEditor.SelectAll();
+            Invoke(editor, "OnFontChosen", new object[] { "Georgia", false });
+            DoEvents();
+            var georgia = false;
+            foreach (var run in noteA.Runs) if (run.FontFamily == "Georgia") georgia = true;
+            Check(georgia, "le sélecteur du ruban (OnFontChosen) change la police de la note");
+            string caretStyle, caretFont;
+            double caretPt;
+            composed.CaretFormat(out caretStyle, out caretFont, out caretPt);
+            Check(caretStyle == StyleSheet.FootnoteId && caretFont == "Georgia",
+                "le ruban lit la note ouverte : style « footnote », police Georgia (" + caretStyle + ", " + caretFont + ")");
+            // Le champ a la hauteur de la note composée : même géométrie des
+            // deux côtés (pas de « faux débordement »).
+            var noteComposition = composed.CurrentComposition;
+            var noteIndex = composed.MarkerOrder().IndexOf(order[0]);
+            double noteTop = double.MaxValue, noteBottom = double.MinValue;
+            foreach (var notePage in noteComposition.Pages)
+                foreach (var noteLine in notePage.NoteLines)
+                {
+                    if (noteLine.ParagraphIndex != noteIndex) continue;
+                    var lineLayout = noteComposition.NoteParagraphs[noteIndex].Lines[noteLine.LineIndex];
+                    noteTop = Math.Min(noteTop, noteLine.Y);
+                    noteBottom = Math.Max(noteBottom, noteLine.Y + lineLayout.Height);
+                }
+            noteEditor.UpdateLayout();
+            Check(noteTop < noteBottom && Math.Abs(noteEditor.ActualHeight - (noteBottom - noteTop)) <= 3,
+                "le champ de note a la hauteur de la note composée (" + noteEditor.ActualHeight.ToString("0.#") + " vs " + (noteBottom - noteTop).ToString("0.#") + ")");
             composed.CloseNoteEditor(true);
             Check(GetField(composed, "_noteEditor") == null, "Entrée/Échap referment l'éditeur de note");
 
