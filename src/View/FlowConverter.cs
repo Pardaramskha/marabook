@@ -300,6 +300,7 @@ namespace Marabook.View
                 wpfRun.TextDecorations = decorations ?? new TextDecorationCollection();
             if (run.FontFamily != null) wpfRun.FontFamily = new FontFamily(run.FontFamily);
             if (run.FontSize.HasValue) wpfRun.FontSize = run.FontSize.Value;
+            if (run.SmallCaps == true) Typography.SetCapitals(wpfRun, FontCapitals.SmallCaps); // 0.50.0
             if (run.Color != null) wpfRun.Foreground = new SolidColorBrush(ParseColor(run.Color));
             if (run.Highlight != null) wpfRun.Background = new SolidColorBrush(ParseColor(run.Highlight));
             if (annotationTint) wpfRun.Background = Chrome.AnnotationTint;
@@ -605,6 +606,7 @@ namespace Marabook.View
             if (underline) run.Underline = true;
             var strike = HasDecoration(wpfRun.TextDecorations, TextDecorationLocation.Strikethrough);
             if (strike) run.Strike = true;
+            if (Typography.GetCapitals(wpfRun) == FontCapitals.SmallCaps) run.SmallCaps = true; // 0.50.0
 
             var family = wpfRun.FontFamily == null ? null : wpfRun.FontFamily.Source;
             if (family != null && family != style.FontFamily) run.FontFamily = family;

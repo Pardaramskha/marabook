@@ -231,6 +231,23 @@ namespace Marabook.Tests.Ui
             composed.CloseNoteEditor(true);
             Check(GetField(composed, "_noteEditor") == null, "Entrée/Échap referment l'éditeur de note");
 
+            // Petites majuscules et caractères spéciaux (0.50.0) : les deux
+            // carrés sont au ruban ; la bascule sans sélection règle le format
+            // d'insertion, la frappe le prend ; le tiroir insère au caret.
+            Check(FindByToolTip(editor, "Petites majuscules") is System.Windows.Controls.Primitives.ToggleButton,
+                "le ruban a la bascule Petites majuscules");
+            Check(FindByToolTip(editor, "Caractères spéciaux") is Button, "le ruban a le bouton Caractères spéciaux");
+            composed.Focus();
+            composed.ToggleSmallCaps();
+            composed.TypeText("Abc");
+            DoEvents();
+            var firstRun = target.Document.Paragraphs[0].Runs[0];
+            Check(firstRun.SmallCaps == true && firstRun.Text.StartsWith("Abc"), "la frappe après la bascule est en petites majuscules");
+            Check(composed.SmallCapsState() == true, "le ruban lit « petites majuscules » au caret");
+            composed.InsertSpecial("«");
+            DoEvents();
+            Check(PivotEdit.FlatText(target.Document.Paragraphs[0]).StartsWith("Abc«"), "le tiroir insère le caractère au caret");
+
             // — Précédent/suivant : depuis la première, suivant ouvre la seconde.
             editor.NavigateNote(1);
             DoEvents();
@@ -670,6 +687,20 @@ namespace Marabook.Tests.Ui
             {
                 Console.WriteLine("  (rendu PNG impossible : " + error.Message + ")");
             }
+        }
+
+        /// <summary>L'élément du ruban qui porte cette infobulle (0.50.0).</summary>
+        private static FrameworkElement FindByToolTip(DependencyObject root, string tip)
+        {
+            var element = root as FrameworkElement;
+            if (element != null && element.ToolTip is string && (string)element.ToolTip == tip) return element;
+            var count = VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < count; i++)
+            {
+                var found = FindByToolTip(VisualTreeHelper.GetChild(root, i), tip);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         private static List<Button> FindButtons(DependencyObject root)

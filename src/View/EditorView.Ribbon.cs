@@ -32,13 +32,23 @@ namespace Marabook.View
             // deux rangées — les blocs denses s'empilent, les séparateurs
             // verticaux courent sur toute la hauteur.
             var panel = TabPanel();
+            // SECTION 1 (0.50.0) : le style de paragraphe et l'éditeur de styles,
+            // seuls, tout à gauche — le combo en haut, la gestion en bas.
+            var styleRows = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var styleTop = RibbonRow();
+            var styleBottom = RibbonRow();
+            styleRows.Children.Add(styleTop);
+            styleRows.Children.Add(styleBottom);
+            // SECTION 2 : police, taille, variantes en haut ; gras, italique,
+            // souligné, barré, un trait, petites majuscules et caractères
+            // spéciaux en bas.
             var typeRows = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             var typeTop = RibbonRow();
             var typeBottom = RibbonRow();
             typeRows.Children.Add(typeTop);
             typeRows.Children.Add(typeBottom);
 
-            _styleCombo = new ComboBox { Width = 120, Margin = new Thickness(0, 0, 2, 0) };
+            _styleCombo = new ComboBox { Width = 150, Margin = new Thickness(0, 0, 2, 0) };
             _styleCombo.SelectionChanged += OnStyleComboChanged;
             // Réappliquer le style courant (« Corps + » → « Corps ») : la liste
             // se referme sur le même item, SelectionChanged ne dit rien.
@@ -54,24 +64,27 @@ namespace Marabook.View
                     _composed.FocusSurface();
                 }
             };
-            typeTop.Children.Add(_styleCombo);
+            styleTop.Children.Add(_styleCombo);
 
             var manageStyles = new Button
             {
-                Content = new TextBlock { Text = "Aa", FontSize = 12, FontWeight = FontWeights.SemiBold },
+                Content = new TextBlock { Text = "Aa  Gestion des styles…", FontSize = 12, FontWeight = FontWeights.SemiBold },
                 ToolTip = "Gestion des styles…",
-                Width = 26,
+                Width = 150,
                 Height = 26,
-                Padding = new Thickness(0),
-                Margin = new Thickness(0, 0, 6, 0),
-                Focusable = false
+                Padding = new Thickness(6, 0, 6, 0),
+                Margin = new Thickness(0, 0, 2, 0),
+                Focusable = false,
+                HorizontalContentAlignment = HorizontalAlignment.Left
             };
             manageStyles.Click += delegate
             {
                 var handler = StylesRequested;
                 if (handler != null) handler();
             };
-            typeTop.Children.Add(manageStyles);
+            styleBottom.Children.Add(manageStyles);
+            panel.Children.Add(styleRows);
+            panel.Children.Add(VerticalRuleTall());
 
             // Le sélecteur de police partagé (0.50.0) : récentes, trait,
             // alphabet, aperçu « Marabook » ; la frappe n'applique qu'à
@@ -169,6 +182,49 @@ namespace Marabook.View
             typeBottom.Children.Add(_italicBtn);
             typeBottom.Children.Add(_underBtn);
             typeBottom.Children.Add(_strikeBtn);
+            // Un trait de la hauteur des boutons, puis les deux nouveaux
+            // carrés (0.50.0) : petites majuscules (bascule) et le tiroir des
+            // caractères spéciaux.
+            typeBottom.Children.Add(VerticalRule());
+            _smallCapsBtn = new ToggleButton
+            {
+                ToolTip = "Petites majuscules",
+                Width = 26,
+                Height = 26,
+                Padding = new Thickness(0),
+                Margin = new Thickness(1, 0, 1, 0),
+                Focusable = false
+            };
+            DressToggle(_smallCapsBtn, "smallcaps", 14);
+            _smallCapsBtn.Click += delegate
+            {
+                if (ComposedActive) { _composed.ToggleSmallCaps(); _composed.FocusSurface(); }
+            };
+            typeBottom.Children.Add(_smallCapsBtn);
+            var specialBtn = new Button
+            {
+                ToolTip = "Caractères spéciaux",
+                Width = 26,
+                Height = 26,
+                Padding = new Thickness(0),
+                Margin = new Thickness(1, 0, 1, 0),
+                Focusable = false,
+                Content = Icons.Make("special-chars", 14, Chrome.Ink)
+            };
+            _specialDrawer = SpecialCharsDrawer.Build(specialBtn,
+                delegate
+                {
+                    var name = _composed != null && _item != null && ComposedActive ? _composed.GetCaretFontFamily() : null;
+                    return name == null ? null : FontCatalog.FamilyOf(name);
+                },
+                delegate(string text)
+                {
+                    if (!ComposedActive || _item == null) return;
+                    _composed.InsertSpecial(text);
+                    _composed.FocusSurface();
+                });
+            specialBtn.Click += delegate { _specialDrawer.IsOpen = !_specialDrawer.IsOpen; };
+            typeBottom.Children.Add(specialBtn);
             panel.Children.Add(typeRows);
             panel.Children.Add(VerticalRuleTall());
 
@@ -715,6 +771,7 @@ namespace Marabook.View
                 SetToggleState(_italicBtn, italicState);
                 SetToggleState(_underBtn, underlineState);
                 SetToggleState(_strikeBtn, strikeState);
+                if (_smallCapsBtn != null) SetToggleState(_smallCapsBtn, _composed.SmallCapsState());
                 _alignLeft.IsChecked = align == "left";
                 _alignCenter.IsChecked = align == "center";
                 _alignRight.IsChecked = align == "right";

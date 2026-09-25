@@ -52,6 +52,8 @@ namespace Marabook.View
 
         private ComboBox _styleCombo, _sizeCombo;
         private FontPicker _fontCombo;          // le sélecteur de police partagé (0.50.0)
+        private ToggleButton _smallCapsBtn;     // petites majuscules (0.50.0)
+        private System.Windows.Controls.Primitives.Popup _specialDrawer; // le tiroir des caractères spéciaux (0.50.0)
         private bool _sizeArrowNav, _sizeDropDownChoice; // la taille : flèches sans ouvrir, choix dans la liste
         private string _lastAppliedFont;        // l'aperçu puis le choix définitif n'appliquent qu'une fois
         private ToggleButton _boldBtn, _italicBtn, _underBtn, _strikeBtn;

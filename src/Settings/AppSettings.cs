@@ -155,6 +155,20 @@ namespace Marabook.Settings
         // L'auto-sélecteur de mot (0.50.0) : un cliquer-glisser qui déborde
         // du mot de départ sélectionne des mots entiers, façon Word.
         public static bool AutoSelectWord = true;
+        // La vitesse du défilement à la molette (0.50.0) : un multiplicateur
+        // du pas de Windows, 0,25 à 3 — Préférences › Personnalisation.
+        public static double ScrollSpeed = 1;
+        // Les derniers caractères spéciaux insérés (tiroir du ruban, 0.50.0).
+        public static List<string> RecentSpecialChars = new List<string>();
+
+        public static void NoteSpecialChar(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            RecentSpecialChars.Remove(text);
+            RecentSpecialChars.Insert(0, text);
+            while (RecentSpecialChars.Count > 12) RecentSpecialChars.RemoveAt(RecentSpecialChars.Count - 1);
+            Save();
+        }
         // La grammaire (batch 29) : interrupteur maître de Grammalecte, et
         // les choix d'options de l'utilisateur PAR-DESSUS la politique de
         // recouvrement du lot C (clé = nom d'option Grammalecte). Une entrée
@@ -389,6 +403,18 @@ namespace Marabook.Settings
                 if (SnapshotCap > 100) SnapshotCap = 100;
                 DailySnapshot = Json.AsBool(Json.Field(root, "dailySnapshot"), true);
                 AutoSelectWord = Json.AsBool(Json.Field(root, "autoSelectWord"), true);
+                ScrollSpeed = Json.AsDouble(Json.Field(root, "scrollSpeed"), 1);
+                if (ScrollSpeed < 0.25 || ScrollSpeed > 3) ScrollSpeed = 1;
+                var specials = Json.AsList(Json.Field(root, "recentSpecialChars"));
+                if (specials != null)
+                {
+                    RecentSpecialChars = new List<string>();
+                    foreach (var entry in specials)
+                    {
+                        var text = Json.AsString(entry);
+                        if (!string.IsNullOrEmpty(text) && RecentSpecialChars.Count < 12) RecentSpecialChars.Add(text);
+                    }
+                }
                 GrammarEnabled = Json.AsBool(Json.Field(root, "grammarEnabled"), true);
                 SpellEnabled = Json.AsBool(Json.Field(root, "spellEnabled"), true);
                 TypographyEnabled = Json.AsBool(Json.Field(root, "typographyEnabled"), false);
@@ -509,6 +535,8 @@ namespace Marabook.Settings
                 root["snapshotCap"] = SnapshotCap;
                 root["dailySnapshot"] = DailySnapshot;
                 root["autoSelectWord"] = AutoSelectWord;
+                if (Math.Abs(ScrollSpeed - 1) > 0.001) root["scrollSpeed"] = ScrollSpeed;
+                if (RecentSpecialChars.Count > 0) root["recentSpecialChars"] = new List<object>(RecentSpecialChars.ToArray());
                 root["grammarEnabled"] = GrammarEnabled;
                 root["spellEnabled"] = SpellEnabled;
                 root["typographyEnabled"] = TypographyEnabled;

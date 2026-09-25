@@ -626,6 +626,7 @@ namespace Marabook.Exchange
                 if (run.Underline == true) decorations += " underline";
                 if (run.Strike == true) decorations += " line-through";
                 if (decorations.Length > 0) sb.Append("text-decoration:").Append(decorations).Append("; ");
+                if (run.SmallCaps == true) sb.Append("font-variant: small-caps; "); // 0.50.0
                 // En attribut style="…", les guillemets doubles couperaient
                 // l'attribut : apostrophes (revue 22/09).
                 if (run.FontFamily != null) sb.Append("font-family: ").Append(FontFamilyCss(run.FontFamily).Replace("\"", "'")).Append("; ");

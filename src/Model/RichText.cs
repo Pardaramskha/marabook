@@ -13,6 +13,8 @@ namespace Marabook.Model
     {
         public string Text = "";
         public bool? Bold, Italic, Underline, Strike;
+        public bool? SmallCaps;     // petites majuscules (0.50.0) : les bas-de-casse
+                                    // en capitales réduites ; null = non
         public string Weight;       // "Light|Medium|SemiBold|Black"… fine-grained
                                     // variant; wins over Bold when set
         public double? Tracking;    // approche, en millièmes de cadratin
@@ -36,6 +38,7 @@ namespace Marabook.Model
         {
             return Bold == other.Bold && Italic == other.Italic
                 && Underline == other.Underline && Strike == other.Strike
+                && SmallCaps == other.SmallCaps
                 && Weight == other.Weight && Tracking == other.Tracking
                 && FontFamily == other.FontFamily && FontSize == other.FontSize
                 && Color == other.Color && Highlight == other.Highlight
@@ -157,6 +160,7 @@ namespace Marabook.Model
                 if (Runs.Count > 1) return true;
                 foreach (var run in Runs)
                     if (run.Bold.HasValue || run.Italic.HasValue || run.Underline.HasValue || run.Strike.HasValue
+                        || run.SmallCaps.HasValue
                         || run.Weight != null || run.Tracking.HasValue || run.FontFamily != null || run.FontSize.HasValue
                         || run.Color != null || run.Highlight != null || run.IsLineBreak)
                         return true;
@@ -173,7 +177,7 @@ namespace Marabook.Model
             {
                 if (run.IsLineBreak) { sb.Append("\u0001"); continue; }
                 sb.Append(run.Text).Append('|').Append(run.Bold).Append(run.Italic).Append(run.Underline)
-                  .Append(run.Strike).Append(run.Weight).Append(run.FontFamily).Append(run.FontSize)
+                  .Append(run.Strike).Append(run.SmallCaps).Append(run.Weight).Append(run.FontFamily).Append(run.FontSize)
                   .Append(run.Color).Append(run.Highlight).Append(run.Tracking).Append('\u0002');
             }
             return sb.ToString();

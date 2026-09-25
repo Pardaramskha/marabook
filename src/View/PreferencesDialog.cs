@@ -550,6 +550,73 @@ namespace Marabook.View
             custom.Children.Add(reset);
             panel.Children.Add(custom);
 
+            // La vitesse du défilement (0.50.0) : un curseur, et une mini-
+            // fenêtre qui défile à sa droite pour l'essayer tout de suite —
+            // elle passe par le même défilement fluide que le reste.
+            panel.Children.Add(Caption("Défilement", 18));
+            var speedRow = new DockPanel { Margin = new Thickness(0, 6, 0, 0), LastChildFill = true };
+            var preview = new ScrollViewer
+            {
+                Width = 210,
+                Height = 100,
+                Margin = new Thickness(16, 0, 0, 0),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Background = Chrome.PaperBg,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1),
+                ToolTip = "Essayez la molette ici"
+            };
+            var previewLines = new StackPanel { Margin = new Thickness(10, 6, 10, 6) };
+            for (var i = 1; i <= 40; i++)
+                previewLines.Children.Add(new TextBlock
+                {
+                    Text = "Ligne " + i + " — la molette fait défiler ce texte à la vitesse choisie.",
+                    Foreground = Chrome.PaperInk,
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap
+                });
+            preview.Content = previewLines;
+            DockPanel.SetDock(preview, Dock.Right);
+            speedRow.Children.Add(preview);
+            var speedColumn = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var speedLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
+            var speed = new Slider
+            {
+                Minimum = 0.25,
+                Maximum = 3,
+                Value = AppSettings.ScrollSpeed,
+                TickFrequency = 0.25,
+                IsSnapToTickEnabled = true,
+                Width = 260,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                ToolTip = "Vitesse du défilement à la molette : ×0,25 (lent) à ×3 (rapide)"
+            };
+            Action refreshSpeedLabel = delegate
+            {
+                speedLabel.Text = "Vitesse : ×" + AppSettings.ScrollSpeed.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture)
+                    + (Math.Abs(AppSettings.ScrollSpeed - 1) < 0.01 ? " (le pas de Windows)" : "");
+            };
+            speed.ValueChanged += delegate
+            {
+                AppSettings.ScrollSpeed = Math.Round(speed.Value * 4) / 4;
+                refreshSpeedLabel();
+                AppSettings.Save();
+            };
+            refreshSpeedLabel();
+            speedColumn.Children.Add(speed);
+            speedColumn.Children.Add(speedLabel);
+            speedColumn.Children.Add(new TextBlock
+            {
+                Text = "Le défilement à la molette est fluide partout ; ce réglage en change le pas.",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+            speedRow.Children.Add(speedColumn);
+            panel.Children.Add(speedRow);
+
             panel.Children.Add(Caption("Mode sombre", 18));
             // Le commutateur (22/09) : le raccourci Ctrl+Maj+L et le menu
             // Affichage font la même chose, mais personne ne les apprend.

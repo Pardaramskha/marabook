@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Marabook.Model;
 using Marabook.Persistence;
+using Marabook.Print;
 
 namespace Marabook.Tests
 {
@@ -20,6 +21,64 @@ namespace Marabook.Tests
             FootnoteModel(t);
             FootnoteStyle(t);
             FootnotePersistence(t);
+            SmallCaps(t);
+        }
+
+        // ------------------------------------------------- petites majuscules
+
+        private static void SmallCaps(Harness t)
+        {
+            // Le format voyage : clone, égalité, .plot.
+            var source = new TextRun { Text = "x", SmallCaps = true };
+            t.Check(PivotEdit.CloneFormat(source).SmallCaps == true, "CloneFormat garde les petites majuscules");
+            t.Check(!source.HasSameFormat(new TextRun { Text = "y" }), "un run en petites majuscules diffère d'un run nu");
+            var document = new TextDocument();
+            var paragraph = new TextParagraph();
+            paragraph.Runs.Add(new TextRun { Text = "Bonjour", SmallCaps = true });
+            document.Paragraphs.Add(paragraph);
+            var back = PlotFile.DeserializeDocument(PlotFile.SerializeDocument(document));
+            t.Check(back.Paragraphs[0].Runs[0].SmallCaps == true, "« sc » fait l'aller-retour .plot (v32)");
+            t.Check(PlotFile.SerializeDocument(document).Contains("\"sc\":true"), "la clé « sc » est écrite");
+
+            // Le compositeur (stub : 5 px par caractère à 10 px) : « Bonjour »
+            // devient B (10 px) + ONJOUR (7,8 px), soudés.
+            var styles = StyleSheet.CreateDefault();
+            var body = styles.Body;
+            body.FontSize = 10;
+            body.LineHeight = 20;
+            body.FirstLineIndent = 0;
+            body.Align = "left";
+            body.HyphenationEnabled = false;
+            var wide = new PageSetup { PageWidthMm = 100, PageHeightMm = 120, MarginTopMm = 20, MarginBottomMm = 20, MarginLeftMm = 25, MarginRightMm = 25 };
+            var engine = new CompositionEngine(document, styles, wide, null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            var line = engine.Current.Paragraphs[0].Lines[0];
+            var textPieces = new List<ComposedPiece>();
+            foreach (var piece in line.Pieces) if (!piece.IsSpace && piece.SourceLength > 0) textPieces.Add(piece);
+            t.Equal(2, textPieces.Count, "un mot en petites majuscules : deux pièces (capitale, bas-de-casse)");
+            t.Check(textPieces.Count == 2 && textPieces[0].SourceLength == 1 && System.Math.Abs(textPieces[0].FontSizePx - 10) < 0.01,
+                "la capitale garde sa taille (B, 10 px)");
+            t.Check(textPieces.Count == 2 && textPieces[1].SourceLength == 6
+                && System.Math.Abs(textPieces[1].FontSizePx - 10 * CompositionEngine.SmallCapsRatio) < 0.01
+                && textPieces[1].SourceStart == 1,
+                "les bas-de-casse passent à 78 % et gardent leurs offsets (ONJOUR, 1..7)");
+
+            // Colonne étroite (40 px) : « aaaa » tient, le groupe soudé « Bonjour »
+            // (5 + 6 × 3,9 = 28,4 px) ne tient plus derrière — il passe ENTIER à
+            // la ligne suivante, jamais coupé entre B et ONJOUR.
+            var narrowDocument = new TextDocument();
+            var narrowParagraph = new TextParagraph();
+            narrowParagraph.Runs.Add(new TextRun { Text = "aaaa " });
+            narrowParagraph.Runs.Add(new TextRun { Text = "Bonjour", SmallCaps = true });
+            narrowDocument.Paragraphs.Add(narrowParagraph);
+            var narrow = new PageSetup { PageWidthMm = 40 / (96.0 / 25.4) + 40, PageHeightMm = 120, MarginTopMm = 20, MarginBottomMm = 20, MarginLeftMm = 20, MarginRightMm = 20 };
+            var narrowEngine = new CompositionEngine(narrowDocument, styles, narrow, null, false, new StubGlyphMetrics());
+            narrowEngine.ComposeAll();
+            var lines = narrowEngine.Current.Paragraphs[0].Lines;
+            t.Equal(2, lines.Count, "colonne étroite : deux lignes");
+            var secondLineText = 0;
+            foreach (var piece in lines[lines.Count - 1].Pieces) if (!piece.IsSpace) secondLineText += piece.SourceLength;
+            t.Equal(7, secondLineText, "« Bonjour » entier sur la seconde ligne (le groupe soudé ne casse pas)");
         }
 
         // ------------------------------------------------------------ mots

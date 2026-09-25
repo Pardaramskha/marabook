@@ -183,6 +183,7 @@ namespace Marabook
             };
             shell.Children.Add(_welcomeVeil);
             Content = shell;
+            SmoothScroll.Install(); // le défilement fluide à la molette, partout (0.50.0)
             // Les travaux de fond qui font tourner l'anneau (0.50.0) : le
             // correcteur (Grammalecte qui s'initialise ou analyse, synonymes,
             // suggestions d'orthographe) et le préchauffage des textes après

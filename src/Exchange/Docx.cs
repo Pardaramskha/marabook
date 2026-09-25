@@ -439,6 +439,7 @@ namespace Marabook.Exchange
             if (run.Bold.HasValue) sb.Append(run.Bold.Value ? "<w:b/>" : "<w:b w:val=\"0\"/>");
             if (run.Italic.HasValue) sb.Append(run.Italic.Value ? "<w:i/>" : "<w:i w:val=\"0\"/>");
             if (run.Strike == true) sb.Append("<w:strike/>");
+            if (run.SmallCaps == true) sb.Append("<w:smallCaps/>"); // 0.50.0
             if (run.Color != null)
                 sb.Append("<w:color w:val=\"").Append(HexVal(run.Color)).Append("\"/>");
             if (run.FontSize.HasValue)
@@ -1013,6 +1014,7 @@ namespace Marabook.Exchange
                     && Attr(rPr.SelectSingleNode("w:u", ns), "w:val") != "none")
                     run.Underline = true;
                 if (IsOn(rPr.SelectSingleNode("w:strike", ns))) run.Strike = true;
+                if (IsOn(rPr.SelectSingleNode("w:smallCaps", ns))) run.SmallCaps = true; // 0.50.0
                 var fonts = Attr(rPr.SelectSingleNode("w:rFonts", ns), "w:ascii");
                 if (!string.IsNullOrEmpty(fonts) && fonts != style.FontFamily) run.FontFamily = fonts;
                 double sz;

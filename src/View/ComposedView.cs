@@ -748,6 +748,8 @@ namespace Marabook.View
                 selection.ApplyPropertyValue(System.Windows.Documents.TextElement.FontWeightProperty, probe.Bold.Value ? FontWeights.Bold : FontWeights.Normal);
             if (probe.Italic.HasValue)
                 selection.ApplyPropertyValue(System.Windows.Documents.TextElement.FontStyleProperty, probe.Italic.Value ? FontStyles.Italic : FontStyles.Normal);
+            if (probe.SmallCaps.HasValue)
+                selection.ApplyPropertyValue(System.Windows.Documents.Typography.CapitalsProperty, probe.SmallCaps.Value ? FontCapitals.SmallCaps : FontCapitals.Normal);
             if (probe.Color != null)
                 selection.ApplyPropertyValue(System.Windows.Documents.TextElement.ForegroundProperty, new SolidColorBrush(FlowConverter.ParseColor(probe.Color)));
             if (probe.Highlight != null)
@@ -1815,6 +1817,7 @@ namespace Marabook.View
                 case "italic": ToggleItalic(); return true;
                 case "underline": ToggleUnderline(); return true;
                 case "strike": ToggleStrike(); return true;
+                case "small-caps": ToggleSmallCaps(); return true;
                 case "align-left": ApplyAlign("left"); return true;
                 case "align-center": ApplyAlign("center"); return true;
                 case "align-right": ApplyAlign("right"); return true;
@@ -2608,6 +2611,80 @@ namespace Marabook.View
                 }
             }
             return mixed ? (double?)null : (found ?? 0);
+        }
+
+        /// <summary>Petites majuscules (0.50.0) : bascule sur la sélection, le
+        /// format d'insertion, ou la note ouverte — règle des bascules.</summary>
+        public void ToggleSmallCaps()
+        {
+            if (NoteEditing)
+            {
+                var current = _noteEditor.Selection.GetPropertyValue(System.Windows.Documents.Typography.CapitalsProperty);
+                var on = current is FontCapitals && (FontCapitals)current == FontCapitals.SmallCaps;
+                _noteEditor.Selection.ApplyPropertyValue(System.Windows.Documents.Typography.CapitalsProperty,
+                    on ? FontCapitals.Normal : FontCapitals.SmallCaps);
+                return;
+            }
+            Func<TextRun, ParagraphStyle, bool> isSmall = delegate(TextRun run, ParagraphStyle style)
+            { return run.SmallCaps == true; };
+            var all = HasSelection() ? SelectionAll(isSmall) : CollapsedFlag(isSmall);
+            ApplyToSelection(delegate(TextRun run) { run.SmallCaps = all ? (bool?)null : true; });
+        }
+
+        /// <summary>L'état « petites majuscules » pour le ruban : vrai/faux si
+        /// toute la sélection s'accorde, null si elle se mélange.</summary>
+        public bool? SmallCapsState()
+        {
+            if (_item == null) return false;
+            if (NoteEditing)
+            {
+                var current = _noteEditor.Selection.GetPropertyValue(System.Windows.Documents.Typography.CapitalsProperty);
+                if (current == DependencyProperty.UnsetValue) return null;
+                return current is FontCapitals && (FontCapitals)current == FontCapitals.SmallCaps;
+            }
+            if (!HasSelection())
+            {
+                var paragraph = CaretParagraph;
+                var reference = paragraph == null ? null : ReferenceRun(paragraph);
+                return reference != null && reference.SmallCaps == true;
+            }
+            int pa, oa, pb, ob;
+            OrderedSelection(out pa, out oa, out pb, out ob);
+            bool? state = null;
+            var seen = false;
+            for (var p = pa; p <= pb; p++)
+            {
+                var paragraph = _item.Document.Paragraphs[p];
+                var from = p == pa ? oa : 0;
+                var to = p == pb ? ob : PivotEdit.FlatLength(paragraph);
+                var cursor = 0;
+                foreach (var run in paragraph.Runs)
+                {
+                    var length = PivotEdit.IsElement(run) ? 1 : run.Text.Length;
+                    var overlaps = cursor + length > from && cursor < to;
+                    cursor += length;
+                    if (!overlaps || PivotEdit.IsElement(run)) continue;
+                    var value = run.SmallCaps == true;
+                    if (!seen) { seen = true; state = value; }
+                    else if (state.HasValue && state.Value != value) return null;
+                }
+            }
+            return state ?? false;
+        }
+
+        /// <summary>Insère un caractère spécial (tiroir du ruban, 0.50.0) : dans
+        /// la note ouverte s'il y en a une, sinon au caret du texte.</summary>
+        public void InsertSpecial(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            if (NoteEditing)
+            {
+                _noteEditor.Selection.Text = text;
+                _noteEditor.CaretPosition = _noteEditor.Selection.End;
+                _noteEditor.Selection.Select(_noteEditor.CaretPosition, _noteEditor.CaretPosition);
+                return;
+            }
+            TypeText(text);
         }
 
         public void ToggleStrike()

@@ -565,6 +565,11 @@ namespace Marabook.Print
             // (le curseur les traverse), aucune largeur, rien de dessiné —
             // le texte masqué de Word.
             public bool IsHidden;
+            // Petites majuscules (0.50.0) : un mot est découpé en atomes de
+            // deux tailles (capitales pleines, bas-de-casse en capitales
+            // réduites) qui restent SOUDÉS — la ligne ne casse jamais entre
+            // eux (FillLine mesure le groupe entier avant de le placer).
+            public bool GluedToPrevious;
         }
 
         private ComposedParagraphLayout ComposeParagraph(TextParagraph paragraph,
@@ -755,6 +760,24 @@ namespace Marabook.Print
         /// <summary>sourceBase &lt; 0 = decoration (list prefix): occupies no
         /// flat offsets, the caret skips it. inkOverride / highlightOverride :
         /// la teinte d'un lien montré, par-dessus le run et le style.</summary>
+        /// <summary>La taille des bas-de-casse rendus en capitales dans les
+        /// petites majuscules (0.50.0) : 78 % du corps, la proportion usuelle.</summary>
+        public const double SmallCapsRatio = 0.78;
+
+        /// <summary>Le segment en capitales, caractère par caractère : un
+        /// caractère dont la capitale ferait deux lettres (ß → SS) reste tel
+        /// quel, pour que rendu et source gardent la même longueur.</summary>
+        private static string UpperKeepingLength(string text)
+        {
+            var chars = text.ToCharArray();
+            for (var i = 0; i < chars.Length; i++)
+            {
+                var upper = chars[i].ToString().ToUpperInvariant();
+                if (upper.Length == 1) chars[i] = upper[0];
+            }
+            return new string(chars);
+        }
+
         private void AddTextAtoms(List<Atom> atoms, string text, ParagraphStyle style,
             TextRun run, bool superscript, int sourceBase,
             Brush inkOverride = null, Brush highlightOverride = null)
@@ -796,13 +819,53 @@ namespace Marabook.Print
             var tracking = run != null && run.Tracking.HasValue ? run.Tracking.Value : 0;
 
             var spaceWidth = MeasureText(" ", font, size, tracking);
+            var smallCaps = run != null && run.SmallCaps == true && !superscript;
             var start = 0;
             for (var i = 0; i <= text.Length; i++)
             {
                 var isSpace = i < text.Length && text[i] == ' ';
                 if (i == text.Length || isSpace)
                 {
-                    if (i > start)
+                    if (i > start && smallCaps)
+                    {
+                        // Petites majuscules (0.50.0) : le mot en segments —
+                        // les capitales à leur taille, les bas-de-casse mis en
+                        // capitales à SmallCapsRatio — soudés (GluedToPrevious),
+                        // un caractère source pour un caractère rendu (les
+                        // offsets, le caret et la correction ne bougent pas) ;
+                        // pas de césure sur un mot en petites capitales.
+                        var word = text.Substring(start, i - start);
+                        var segmentStart = 0;
+                        var first = true;
+                        while (segmentStart < word.Length)
+                        {
+                            var lower = char.IsLower(word[segmentStart]);
+                            var segmentEnd = segmentStart + 1;
+                            while (segmentEnd < word.Length && char.IsLower(word[segmentEnd]) == lower) segmentEnd++;
+                            var segment = word.Substring(segmentStart, segmentEnd - segmentStart);
+                            var rendered = lower ? UpperKeepingLength(segment) : segment;
+                            var segmentSize = lower ? size * SmallCapsRatio : size;
+                            atoms.Add(new Atom
+                            {
+                                Text = rendered,
+                                Width = MeasureText(rendered, font, segmentSize, tracking),
+                                SpaceWidth = spaceWidth,
+                                Font = font,
+                                Size = segmentSize,
+                                Ink = ink,
+                                Tracking = tracking,
+                                SourceStart = sourceBase < 0 ? -1 : sourceBase + start + segmentStart,
+                                SourceLength = segment.Length,
+                                Underline = underline,
+                                Strike = strike,
+                                Highlight = highlight,
+                                GluedToPrevious = !first
+                            });
+                            first = false;
+                            segmentStart = segmentEnd;
+                        }
+                    }
+                    else if (i > start)
                     {
                         var word = text.Substring(start, i - start);
                         atoms.Add(new Atom
@@ -930,7 +993,15 @@ namespace Marabook.Print
                     continue;
                 }
 
-                if (x + atom.Width <= avail + 0.05)
+                // Un groupe soudé (petites majuscules) se mesure ENTIER à sa
+                // tête : il tient ou passe à la ligne d'un bloc ; ses suivants
+                // ont déjà été comptés et tiennent toujours.
+                var fitWidth = atom.Width;
+                if (atom.GluedToPrevious) fitWidth = 0;
+                else
+                    for (var j = index + 1; j < atoms.Count && atoms[j].GluedToPrevious; j++)
+                        fitWidth += atoms[j].Width;
+                if (x + fitWidth <= avail + 0.05)
                 {
                     if (atom.IsSpace)
                     {

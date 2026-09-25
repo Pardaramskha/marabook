@@ -148,7 +148,11 @@ namespace Marabook.Persistence
         //      lue par les Marabook d'avant et par défaut). La feuille gagne
         //      le style « footnote » (« Notes de bas de page »), créé au
         //      chargement s'il manque, dérivé du corps (85 %).
-        private const int FormatVersion = 31;
+        // v32: PETITES MAJUSCULES (0.50.0) — la clé "sc" (booléen) sur un run,
+        //      absente = non ; rendues par le compositeur (bas-de-casse en
+        //      capitales à 78 %), par WPF (Typography.Capitals) et exportées
+        //      (w:smallCaps, fo:font-variant, font-variant CSS).
+        private const int FormatVersion = 32;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -1580,6 +1584,7 @@ namespace Marabook.Persistence
             if (run.Italic.HasValue) r["i"] = run.Italic.Value;
             if (run.Underline.HasValue) r["u"] = run.Underline.Value;
             if (run.Strike.HasValue) r["st"] = run.Strike.Value;
+            if (run.SmallCaps.HasValue) r["sc"] = run.SmallCaps.Value; // petites majuscules (v32)
             if (run.Weight != null) r["w"] = run.Weight;
             if (run.Tracking.HasValue) r["trk"] = run.Tracking.Value;
             if (run.FontFamily != null) r["font"] = run.FontFamily;
@@ -1617,6 +1622,7 @@ namespace Marabook.Persistence
                 run.Italic = OptBool(r, "i");
                 run.Underline = OptBool(r, "u");
                 run.Strike = OptBool(r, "st");
+                run.SmallCaps = OptBool(r, "sc"); // v32
                 run.Weight = Json.AsString(Json.Field(r, "w"));
                 var tracking = Json.Field(r, "trk");
                 if (tracking is double) run.Tracking = (double)tracking;

@@ -225,6 +225,8 @@ namespace Marabook.Exchange
                     autoStyles.Append(" style:text-underline-style=\"solid\"");
                 if (run.Strike == true)
                     autoStyles.Append(" style:text-line-through-style=\"solid\"");
+                if (run.SmallCaps == true)
+                    autoStyles.Append(" fo:font-variant=\"small-caps\""); // 0.50.0
                 if (run.FontFamily != null)
                     autoStyles.Append(" style:font-name=\"").Append(Esc(run.FontFamily)).Append("\"");
                 if (run.FontSize.HasValue)
@@ -243,9 +245,10 @@ namespace Marabook.Exchange
         private static string RunKey(TextRun run)
         {
             if (run.Bold == null && run.Italic == null && run.Underline == null
-                && run.Strike == null && run.FontFamily == null && run.FontSize == null
+                && run.Strike == null && run.SmallCaps == null && run.FontFamily == null && run.FontSize == null
                 && run.Color == null && run.Highlight == null) return null;
             return "T|" + run.Bold + "|" + run.Italic + "|" + run.Underline + "|" + run.Strike
+                 + "|" + run.SmallCaps
                  + "|" + run.FontFamily + "|" + run.FontSize + "|" + run.Color + "|" + run.Highlight;
         }
 
@@ -335,7 +338,7 @@ namespace Marabook.Exchange
         {
             public string Name, DisplayName, Family, Parent;
             public bool Automatic;
-            public bool? Bold, Italic, Underline, Strike;
+            public bool? Bold, Italic, Underline, Strike, SmallCaps;
             public string FontFamily, Color, Highlight, Align;
             public double FontSize, SpaceBefore, SpaceAfter, FirstIndent, LeftIndent;
 
@@ -418,6 +421,8 @@ namespace Marabook.Exchange
                     if (underline != null && underline != "none") style.Underline = true;
                     var strike = Attr(textProps, "text-line-through-style", StyleUri);
                     if (strike != null && strike != "none") style.Strike = true;
+                    var variant = Attr(textProps, "font-variant", FoUri);
+                    if (variant != null) style.SmallCaps = variant == "small-caps"; // 0.50.0
                     style.FontFamily = Attr(textProps, "font-name", StyleUri)
                         ?? Attr(textProps, "font-family", FoUri);
                     if (style.FontFamily != null) style.FontFamily = style.FontFamily.Trim('\'', '"');
@@ -603,6 +608,7 @@ namespace Marabook.Exchange
                 if (span.Italic.HasValue && span.Italic.Value != style.Italic) run.Italic = span.Italic;
                 if (span.Underline == true) run.Underline = true;
                 if (span.Strike == true) run.Strike = true;
+                if (span.SmallCaps == true) run.SmallCaps = true; // 0.50.0
                 if (span.FontFamily != null && span.FontFamily != style.FontFamily)
                     run.FontFamily = span.FontFamily;
                 if (span.FontSize > 0 && Math.Abs(span.FontSize - style.FontSize) > 0.1)

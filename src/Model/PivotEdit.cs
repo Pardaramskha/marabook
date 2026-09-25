@@ -154,6 +154,7 @@ namespace Marabook.Model
                 Italic = source.Italic,
                 Underline = source.Underline,
                 Strike = source.Strike,
+                SmallCaps = source.SmallCaps,
                 Tracking = source.Tracking,
                 FontFamily = source.FontFamily,
                 FontSize = source.FontSize,
