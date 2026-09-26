@@ -21,7 +21,8 @@ namespace Marabook.View
         private ParagraphStyle _style;
         private bool _syncing;
         private readonly TextBox _contentBox, _sizeBox, _leadingBox, _beforeBox, _afterBox;
-        private readonly ComboBox _fontCombo, _alignCombo;
+        private readonly FontPicker _fontCombo; // le sélecteur partagé (0.50.0)
+        private readonly ComboBox _alignCombo;
         private readonly CheckBox _boldCheck, _italicCheck;
         private readonly TextBlock _preview;
 
@@ -30,8 +31,7 @@ namespace Marabook.View
         public SeparatorEditor(ParagraphStyle style)
         {
             _contentBox = new TextBox { Width = 160, HorizontalAlignment = HorizontalAlignment.Left, ToolTip = "Le ou les caractères insérés par le bouton du ruban Texte" };
-            _fontCombo = new ComboBox { Width = 220, HorizontalAlignment = HorizontalAlignment.Left };
-            foreach (var family in Fonts.SystemFontFamilies) _fontCombo.Items.Add(family.Source);
+            _fontCombo = new FontPicker { Width = 220, HorizontalAlignment = HorizontalAlignment.Left };
             _sizeBox = Small();
             _leadingBox = Small();
             _alignCombo = new ComboBox { Width = 120, HorizontalAlignment = HorizontalAlignment.Left };
@@ -77,7 +77,8 @@ namespace Marabook.View
             };
             Children.Add(FormRow("Aperçu", previewFrame));
 
-            Hook(_contentBox); Hook(_fontCombo); Hook(_sizeBox); Hook(_leadingBox); Hook(_alignCombo);
+            Hook(_contentBox); Hook(_sizeBox); Hook(_leadingBox); Hook(_alignCombo);
+            _fontCombo.FontChosen += delegate { OnEdited(); }; // le choix, pas la frappe (0.50.0)
             Hook(_beforeBox); Hook(_afterBox); Hook(_boldCheck); Hook(_italicCheck);
             Load(style);
         }
@@ -92,7 +93,7 @@ namespace Marabook.View
             if (style == null) return;
             _syncing = true;
             _contentBox.Text = style.Content ?? "***";
-            _fontCombo.SelectedItem = style.FontFamily;
+            _fontCombo.Select(style.FontFamily);
             _sizeBox.Text = Pt(style.FontSize);
             _leadingBox.Text = Pt(style.LineHeight);
             _alignCombo.SelectedIndex = style.Align == "left" ? 0 : style.Align == "right" ? 2 : 1;
@@ -109,7 +110,7 @@ namespace Marabook.View
             if (_style == null || _syncing) return;
             var content = _contentBox.Text;
             _style.Content = content.Trim().Length == 0 ? "***" : content;
-            if (_fontCombo.SelectedItem != null) _style.FontFamily = (string)_fontCombo.SelectedItem;
+            if (_fontCombo.SelectedFontName != null) _style.FontFamily = _fontCombo.SelectedFontName;
             _style.FontSize = StylesPanel.Parse(_sizeBox.Text, _style.FontSize * 0.75, 4, 150) * 4.0 / 3.0;
             _style.LineHeight = StylesPanel.Parse(_leadingBox.Text, _style.LineHeight * 0.75, 0, 200) * 4.0 / 3.0;
             _style.Align = _alignCombo.SelectedIndex == 0 ? "left" : _alignCombo.SelectedIndex == 2 ? "right" : "center";

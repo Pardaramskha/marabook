@@ -142,7 +142,25 @@ namespace Marabook.Persistence
         //      gardé par la version lue. Les autres catégories d'un projet
         //      existant ne bougent pas ; un projet neuf reçoit les huit
         //      catégories de la liste du 23/09.
-        private const int FormatVersion = 30;
+        // v31: NOTES DE BAS DE PAGE MISES EN FORME (0.50.0) — une note porte
+        //      "runs" (mêmes clés que les runs d'un paragraphe) dès qu'elle a
+        //      un format ; "text" reste toujours écrit (la projection plate,
+        //      lue par les Marabook d'avant et par défaut). La feuille gagne
+        //      le style « footnote » (« Notes de bas de page »), créé au
+        //      chargement s'il manque, dérivé du corps (85 %).
+        // v32: PETITES MAJUSCULES (0.50.0) — la clé "sc" (booléen) sur un run,
+        //      absente = non ; rendues par le compositeur (bas-de-casse en
+        //      capitales à 78 %), par WPF (Typography.Capitals) et exportées
+        //      (w:smallCaps, fo:font-variant, font-variant CSS).
+        // v33: PLACEMENT DES IMAGES (0.50.0) — sur un run image ("img"), les
+        //      clés "iname" (nom de fichier), "iw"/"ih" (taille affichée en px,
+        //      absentes = naturelle), "ix"/"iy" (position dans la zone de
+        //      texte, absentes = centrée / attachée à la ligne de l'ancre),
+        //      "iwrap" ("wrap" = texte de part et d'autre ; absente = texte
+        //      au-dessus et en dessous), "ifree" (placement libre). Un run
+        //      image d'avant (sans ces clés) reste attaché, centré, réduit à
+        //      la colonne.
+        private const int FormatVersion = 33;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -744,28 +762,7 @@ namespace Marabook.Persistence
                 if (paragraph.PageBreakBefore) p["pb"] = true;
                 if (paragraph.AllowWidows) p["wo"] = true; // veuves/orphelines autorisées ici
                 var runs = new List<object>();
-                foreach (var run in paragraph.Runs)
-                {
-                    var r = new Dictionary<string, object>();
-                    if (run.IsLineBreak) { r["br"] = true; runs.Add(r); continue; }
-                    if (run.FootnoteId != null) { r["fn"] = run.FootnoteId; runs.Add(r); continue; }
-                    if (run.ImageId != null) { r["img"] = run.ImageId; runs.Add(r); continue; }
-                    if (run.IsRule) { r["hr"] = true; runs.Add(r); continue; }
-                    r["t"] = run.Text;
-                    if (run.Bold.HasValue) r["b"] = run.Bold.Value;
-                    if (run.Italic.HasValue) r["i"] = run.Italic.Value;
-                    if (run.Underline.HasValue) r["u"] = run.Underline.Value;
-                    if (run.Strike.HasValue) r["st"] = run.Strike.Value;
-                    if (run.Weight != null) r["w"] = run.Weight;
-                    if (run.Tracking.HasValue) r["trk"] = run.Tracking.Value;
-                    if (run.FontFamily != null) r["font"] = run.FontFamily;
-                    if (run.FontSize.HasValue) r["size"] = run.FontSize.Value;
-                    if (run.Color != null) r["color"] = run.Color;
-                    if (run.Highlight != null) r["hl"] = run.Highlight;
-                    if (run.AnnotationId != null) r["ann"] = run.AnnotationId;
-                    if (run.NoProof) r["np"] = true; // « ne pas corriger » (v8)
-                    runs.Add(r);
-                }
+                foreach (var run in paragraph.Runs) runs.Add(WriteRunNode(run));
                 p["runs"] = runs;
                 paragraphs.Add(p);
             }
@@ -778,7 +775,13 @@ namespace Marabook.Persistence
                 {
                     var n = new Dictionary<string, object>();
                     n["id"] = note.Id;
-                    n["text"] = note.Text;
+                    n["text"] = note.Text; // la projection plate, toujours (lue par les Marabook d'avant)
+                    if (note.HasFormatting) // v31 : les runs dès qu'il y a un format
+                    {
+                        var noteRuns = new List<object>();
+                        foreach (var run in note.Runs) noteRuns.Add(WriteRunNode(run));
+                        n["runs"] = noteRuns;
+                    }
                     notes.Add(n);
                 }
                 root["footnotes"] = notes;
@@ -932,6 +935,7 @@ namespace Marabook.Persistence
                             + error.Message + ") : styles par défaut appliqués.");
                     }
                 project.Styles.EnsureSeparator(legacySeparatorText, legacySeparatorFont, legacySeparatorSize); // v28
+                project.Styles.EnsureFootnoteStyle(); // v31
 
                 var templatesEntry = archive.GetEntry("sheets/templates.json");
                 if (templatesEntry != null)
@@ -1525,41 +1529,7 @@ namespace Marabook.Persistence
                         {
                             var r = Json.AsObject(runEntry);
                             if (r == null) continue;
-                            var run = new TextRun();
-                            if (Json.AsBool(Json.Field(r, "br"), false))
-                            {
-                                run.IsLineBreak = true;
-                            }
-                            else if (Json.Field(r, "fn") != null)
-                            {
-                                run.FootnoteId = Json.AsString(Json.Field(r, "fn"));
-                            }
-                            else if (Json.Field(r, "img") != null)
-                            {
-                                run.ImageId = Json.AsString(Json.Field(r, "img"));
-                            }
-                            else if (Json.AsBool(Json.Field(r, "hr"), false))
-                            {
-                                run.IsRule = true;
-                            }
-                            else
-                            {
-                                run.Text = Json.AsString(Json.Field(r, "t")) ?? "";
-                                run.Bold = OptBool(r, "b");
-                                run.Italic = OptBool(r, "i");
-                                run.Underline = OptBool(r, "u");
-                                run.Strike = OptBool(r, "st");
-                                run.Weight = Json.AsString(Json.Field(r, "w"));
-                                var tracking = Json.Field(r, "trk");
-                                if (tracking is double) run.Tracking = (double)tracking;
-                                run.FontFamily = Json.AsString(Json.Field(r, "font"));
-                                var size = Json.Field(r, "size");
-                                if (size is double) run.FontSize = (double)size;
-                                run.Color = Json.AsString(Json.Field(r, "color"));
-                                run.Highlight = Json.AsString(Json.Field(r, "hl"));
-                                run.AnnotationId = Json.AsString(Json.Field(r, "ann"));
-                                run.NoProof = Json.AsBool(Json.Field(r, "np"), false);
-                            }
+                            var run = ReadRunNode(r);
                             paragraph.Runs.Add(run);
                         }
                     document.Paragraphs.Add(paragraph);
@@ -1577,6 +1547,17 @@ namespace Marabook.Persistence
                     var noteId = Json.AsString(Json.Field(n, "id"));
                     if (!string.IsNullOrEmpty(noteId)) note.Id = noteId;
                     note.Text = Json.AsString(Json.Field(n, "text")) ?? "";
+                    var noteRuns = Json.AsList(Json.Field(n, "runs")); // v31 : le corps mis en forme
+                    if (noteRuns != null && noteRuns.Count > 0)
+                    {
+                        var formatted = new List<TextRun>();
+                        foreach (var runEntry in noteRuns)
+                        {
+                            var r = Json.AsObject(runEntry);
+                            if (r != null) formatted.Add(ReadRunNode(r));
+                        }
+                        if (formatted.Count > 0) note.SetRuns(formatted);
+                    }
                     document.Footnotes.Add(note);
                 }
 
@@ -1595,6 +1576,115 @@ namespace Marabook.Persistence
                     document.Annotations.Add(annotation);
                 }
             return document;
+        }
+
+        /// <summary>Un run → son nœud JSON (les clés du pivot, v2 ; "np" v8).
+        /// Partagé par les paragraphes et, depuis la v31, les notes.</summary>
+        private static Dictionary<string, object> WriteRunNode(TextRun run)
+        {
+            var r = new Dictionary<string, object>();
+            if (run.IsLineBreak) { r["br"] = true; return r; }
+            if (run.FootnoteId != null) { r["fn"] = run.FootnoteId; return r; }
+            if (run.ImageId != null)
+            {
+                r["img"] = run.ImageId;
+                WriteImageLayout(r, run.Image); // v33
+                if (run.AnnotationId != null) r["ann"] = run.AnnotationId; // une image annotée (0.50.0)
+                return r;
+            }
+            if (run.IsRule) { r["hr"] = true; return r; }
+            r["t"] = run.Text;
+            if (run.Bold.HasValue) r["b"] = run.Bold.Value;
+            if (run.Italic.HasValue) r["i"] = run.Italic.Value;
+            if (run.Underline.HasValue) r["u"] = run.Underline.Value;
+            if (run.Strike.HasValue) r["st"] = run.Strike.Value;
+            if (run.SmallCaps.HasValue) r["sc"] = run.SmallCaps.Value; // petites majuscules (v32)
+            if (run.Weight != null) r["w"] = run.Weight;
+            if (run.Tracking.HasValue) r["trk"] = run.Tracking.Value;
+            if (run.FontFamily != null) r["font"] = run.FontFamily;
+            if (run.FontSize.HasValue) r["size"] = run.FontSize.Value;
+            if (run.Color != null) r["color"] = run.Color;
+            if (run.Highlight != null) r["hl"] = run.Highlight;
+            if (run.AnnotationId != null) r["ann"] = run.AnnotationId;
+            if (run.NoProof) r["np"] = true; // « ne pas corriger » (v8)
+            return r;
+        }
+
+        private static TextRun ReadRunNode(Dictionary<string, object> r)
+        {
+            var run = new TextRun();
+            if (Json.AsBool(Json.Field(r, "br"), false))
+            {
+                run.IsLineBreak = true;
+            }
+            else if (Json.Field(r, "fn") != null)
+            {
+                run.FootnoteId = Json.AsString(Json.Field(r, "fn"));
+            }
+            else if (Json.Field(r, "img") != null)
+            {
+                run.ImageId = Json.AsString(Json.Field(r, "img"));
+                run.Image = ReadImageLayout(r); // v33 (null pour un run d'avant)
+                run.AnnotationId = Json.AsString(Json.Field(r, "ann"));
+            }
+            else if (Json.AsBool(Json.Field(r, "hr"), false))
+            {
+                run.IsRule = true;
+            }
+            else
+            {
+                run.Text = Json.AsString(Json.Field(r, "t")) ?? "";
+                run.Bold = OptBool(r, "b");
+                run.Italic = OptBool(r, "i");
+                run.Underline = OptBool(r, "u");
+                run.Strike = OptBool(r, "st");
+                run.SmallCaps = OptBool(r, "sc"); // v32
+                run.Weight = Json.AsString(Json.Field(r, "w"));
+                var tracking = Json.Field(r, "trk");
+                if (tracking is double) run.Tracking = (double)tracking;
+                run.FontFamily = Json.AsString(Json.Field(r, "font"));
+                var size = Json.Field(r, "size");
+                if (size is double) run.FontSize = (double)size;
+                run.Color = Json.AsString(Json.Field(r, "color"));
+                run.Highlight = Json.AsString(Json.Field(r, "hl"));
+                run.AnnotationId = Json.AsString(Json.Field(r, "ann"));
+                run.NoProof = Json.AsBool(Json.Field(r, "np"), false);
+            }
+            return run;
+        }
+
+        /// <summary>Le placement d'une image sur son nœud de run (v33) : rien
+        /// n'est écrit pour les défauts.</summary>
+        private static void WriteImageLayout(Dictionary<string, object> r, ImageLayout layout)
+        {
+            if (layout == null) return;
+            if (!string.IsNullOrEmpty(layout.Name)) r["iname"] = layout.Name;
+            if (layout.Width > 0) r["iw"] = Math.Round(layout.Width, 2);
+            if (layout.Height > 0) r["ih"] = Math.Round(layout.Height, 2);
+            if (layout.X.HasValue) r["ix"] = Math.Round(layout.X.Value, 2);
+            if (layout.Y.HasValue) r["iy"] = Math.Round(layout.Y.Value, 2);
+            if (layout.Wrap == ImageLayout.WrapAround) r["iwrap"] = layout.Wrap;
+            if (layout.Free) r["ifree"] = true;
+        }
+
+        private static ImageLayout ReadImageLayout(Dictionary<string, object> r)
+        {
+            var name = Json.AsString(Json.Field(r, "iname"));
+            var width = Json.Field(r, "iw");
+            var height = Json.Field(r, "ih");
+            var x = Json.Field(r, "ix");
+            var y = Json.Field(r, "iy");
+            var wrap = Json.AsString(Json.Field(r, "iwrap"));
+            var free = Json.AsBool(Json.Field(r, "ifree"), false);
+            if (name == null && width == null && height == null && x == null && y == null && wrap == null && !free)
+                return null;
+            var layout = new ImageLayout { Name = name, Free = free };
+            if (width is double) layout.Width = (double)width;
+            if (height is double) layout.Height = (double)height;
+            if (x is double) layout.X = (double)x;
+            if (y is double) layout.Y = (double)y;
+            if (wrap == ImageLayout.WrapAround) layout.Wrap = wrap;
+            return layout;
         }
 
         private static bool? OptBool(Dictionary<string, object> obj, string name)

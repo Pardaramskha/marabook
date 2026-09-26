@@ -146,15 +146,107 @@ namespace Marabook.Tests.Ui
             var noteA = target.Document.FindFootnote(order[0]);
             composed.EditNote(order[0]);
             DoEvents();
-            var noteEditor = (TextBox)GetField(composed, "_noteEditor");
-            Check(noteEditor != null && noteEditor.Text == noteA.Text && Canvas.GetTop(noteEditor) > 0,
+            // L'éditeur de note est RICHE depuis la 0.50.0 (RichTextBox).
+            var noteEditor = (RichTextBox)GetField(composed, "_noteEditor");
+            var shown = noteEditor == null ? null : new System.Windows.Documents.TextRange(
+                noteEditor.Document.ContentStart, noteEditor.Document.ContentEnd).Text.TrimEnd('\r', '\n');
+            Check(noteEditor != null && shown == noteA.Text && Canvas.GetTop(noteEditor) > 0,
                 "la note s'ouvre en place, posée sur la page, avec son texte");
-            noteEditor.Text = "Première note, corrigée";
+            new System.Windows.Documents.TextRange(noteEditor.Document.ContentStart, noteEditor.Document.ContentEnd).Text
+                = "Première note, corrigée";
             DoEvents();
             Check(noteA.Text == "Première note, corrigée", "la frappe dans la note atteint le modèle");
             Check((bool)GetField(window, "_dirty"), "le projet est marqué modifié");
+            // Le gras dans la note (0.50.0) : la sélection entière passe en gras
+            // par la commande du RichTextBox, le modèle reçoit un run gras.
+            noteEditor.SelectAll();
+            System.Windows.Documents.EditingCommands.ToggleBold.Execute(null, noteEditor);
+            DoEvents();
+            var anyBold = false;
+            foreach (var run in noteA.Runs) if (run.Bold == true) anyBold = true;
+            Check(anyBold && noteA.Text == "Première note, corrigée", "le gras posé dans la note atteint les runs du modèle, texte intact");
+            // La frappe dans la note ne fait pas sauter la page (correctif
+            // 0.50.0) : la vue est descendue sur la note, on tape cinq fois,
+            // le défilement ne bouge pas d'un pixel.
+            DoEvents();
+            var offsetBefore = composed.VerticalOffset;
+            for (var i = 0; i < 5; i++)
+            {
+                noteEditor.CaretPosition = noteEditor.Document.ContentEnd;
+                noteEditor.CaretPosition.InsertTextInRun(" mot");
+                DoEvents();
+            }
+            Check(Math.Abs(composed.VerticalOffset - offsetBefore) < 0.5,
+                "taper dans la note ne déplace pas la vue (" + offsetBefore.ToString("0") + " → " + composed.VerticalOffset.ToString("0") + ")");
+            Check(noteA.Text.EndsWith(" mot mot mot mot mot"), "les cinq frappes sont dans le modèle");
+            Check(GetField(composed, "_noteEditor") != null, "la note reste ouverte après la frappe");
+            // Le clavier part ailleurs (un onglet, un bouton du ruban) : la note
+            // reste ouverte et reçoit encore les formats du ruban.
+            var binder = (UIElement)GetField(window, "_binder");
+            binder.Focus();
+            DoEvents();
+            Check(GetField(composed, "_noteEditor") != null, "perdre le clavier ne referme plus la note");
+            noteEditor.SelectAll();
+            composed.ToggleItalic();
+            DoEvents();
+            var anyItalic = false;
+            foreach (var run in noteA.Runs) if (run.Italic == true) anyItalic = true;
+            Check(anyItalic, "le ruban (italique) agit sur la note ouverte même sans le clavier");
+            // La police de la note (correctif 0.50.0) : par l'API de la surface,
+            // puis par le chemin du ruban (OnFontChosen), et le ruban lit la
+            // note (style « Notes de bas de page », police choisie).
+            noteEditor.SelectAll();
+            composed.ApplyFont("Arial");
+            DoEvents();
+            var arial = false;
+            foreach (var run in noteA.Runs) if (run.FontFamily == "Arial") arial = true;
+            Check(arial, "ApplyFont sur la note ouverte : les runs portent Arial");
+            noteEditor.SelectAll();
+            Invoke(editor, "OnFontChosen", new object[] { "Georgia", false });
+            DoEvents();
+            var georgia = false;
+            foreach (var run in noteA.Runs) if (run.FontFamily == "Georgia") georgia = true;
+            Check(georgia, "le sélecteur du ruban (OnFontChosen) change la police de la note");
+            string caretStyle, caretFont;
+            double caretPt;
+            composed.CaretFormat(out caretStyle, out caretFont, out caretPt);
+            Check(caretStyle == StyleSheet.FootnoteId && caretFont == "Georgia",
+                "le ruban lit la note ouverte : style « footnote », police Georgia (" + caretStyle + ", " + caretFont + ")");
+            // Le champ a la hauteur de la note composée : même géométrie des
+            // deux côtés (pas de « faux débordement »).
+            var noteComposition = composed.CurrentComposition;
+            var noteIndex = composed.MarkerOrder().IndexOf(order[0]);
+            double noteTop = double.MaxValue, noteBottom = double.MinValue;
+            foreach (var notePage in noteComposition.Pages)
+                foreach (var noteLine in notePage.NoteLines)
+                {
+                    if (noteLine.ParagraphIndex != noteIndex) continue;
+                    var lineLayout = noteComposition.NoteParagraphs[noteIndex].Lines[noteLine.LineIndex];
+                    noteTop = Math.Min(noteTop, noteLine.Y);
+                    noteBottom = Math.Max(noteBottom, noteLine.Y + lineLayout.Height);
+                }
+            noteEditor.UpdateLayout();
+            Check(noteTop < noteBottom && Math.Abs(noteEditor.ActualHeight - (noteBottom - noteTop)) <= 3,
+                "le champ de note a la hauteur de la note composée (" + noteEditor.ActualHeight.ToString("0.#") + " vs " + (noteBottom - noteTop).ToString("0.#") + ")");
             composed.CloseNoteEditor(true);
             Check(GetField(composed, "_noteEditor") == null, "Entrée/Échap referment l'éditeur de note");
+
+            // Petites majuscules et caractères spéciaux (0.50.0) : les deux
+            // carrés sont au ruban ; la bascule sans sélection règle le format
+            // d'insertion, la frappe le prend ; le tiroir insère au caret.
+            Check(FindByToolTip(editor, "Petites majuscules") is System.Windows.Controls.Primitives.ToggleButton,
+                "le ruban a la bascule Petites majuscules");
+            Check(FindByToolTip(editor, "Caractères spéciaux") is Button, "le ruban a le bouton Caractères spéciaux");
+            composed.Focus();
+            composed.ToggleSmallCaps();
+            composed.TypeText("Abc");
+            DoEvents();
+            var firstRun = target.Document.Paragraphs[0].Runs[0];
+            Check(firstRun.SmallCaps == true && firstRun.Text.StartsWith("Abc"), "la frappe après la bascule est en petites majuscules");
+            Check(composed.SmallCapsState() == true, "le ruban lit « petites majuscules » au caret");
+            composed.InsertSpecial("«");
+            DoEvents();
+            Check(PivotEdit.FlatText(target.Document.Paragraphs[0]).StartsWith("Abc«"), "le tiroir insère le caractère au caret");
 
             // — Précédent/suivant : depuis la première, suivant ouvre la seconde.
             editor.NavigateNote(1);
@@ -184,7 +276,8 @@ namespace Marabook.Tests.Ui
             var tabs = FindTabControl(ribbon);
             var headers = new List<string>();
             foreach (TabItem tab in tabs.Items) headers.Add((string)tab.Header);
-            Check(headers.IndexOf("Insertion") == 1, "l'onglet Insertion suit Texte");
+            // L'onglet Image s'intercale entre Texte et Insertion (0.50.0).
+            Check(headers.IndexOf("Image") == 1 && headers.IndexOf("Insertion") == 2, "l'onglet Insertion suit Texte et Image");
             Check(headers.Contains("Correction") && headers.IndexOf("Correction") > headers.IndexOf("Révision"),
                 "l'onglet Correction existe, après Révision");
             Check(CountButtons(TabContent(tabs, "Insertion")) >= 4,
@@ -230,7 +323,7 @@ namespace Marabook.Tests.Ui
                 "le dictionnaire et sa racine survivent à l'aller-retour disque (v13)");
             BinderItem backText = null;
             foreach (var item in reloaded.AllItems()) if (item.Title == "Chapitre noté") backText = item;
-            Check(backText != null && backText.Document.FindFootnote(order[0]).Text == "Première note, corrigée",
+            Check(backText != null && backText.Document.FindFootnote(order[0]).Text == "Première note, corrigée mot mot mot mot mot",
                 "la note éditée en place est sur le disque");
 
             // — Le tableau du livre : supprimer retire la carte, la sélection ne traîne pas.
@@ -434,7 +527,7 @@ namespace Marabook.Tests.Ui
             var tabsAll = FindTabControl(ribbon);
             var headers2 = new List<string>();
             foreach (TabItem tab in tabsAll.Items) headers2.Add((string)tab.Header);
-            Check(headers2.IndexOf("Formatage") == 2 && ContainsLabel(TabContent(tabsAll, "Formatage"), "Typographie"),
+            Check(headers2.IndexOf("Formatage") == headers2.IndexOf("Insertion") + 1 && ContainsLabel(TabContent(tabsAll, "Formatage"), "Typographie"),
                 "l'onglet Formatage suit Insertion, avec « Typographie »");
             Snapshot(ribbon, Path.Combine(Path.GetTempPath(), "marabook-b34-ribbon.png"));
             Snapshot((FrameworkElement)GetField(window, "_binder"), Path.Combine(Path.GetTempPath(), "marabook-b35-pile.png"));
@@ -595,6 +688,20 @@ namespace Marabook.Tests.Ui
             {
                 Console.WriteLine("  (rendu PNG impossible : " + error.Message + ")");
             }
+        }
+
+        /// <summary>L'élément du ruban qui porte cette infobulle (0.50.0).</summary>
+        private static FrameworkElement FindByToolTip(DependencyObject root, string tip)
+        {
+            var element = root as FrameworkElement;
+            if (element != null && element.ToolTip is string && (string)element.ToolTip == tip) return element;
+            var count = VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < count; i++)
+            {
+                var found = FindByToolTip(VisualTreeHelper.GetChild(root, i), tip);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         private static List<Button> FindButtons(DependencyObject root)

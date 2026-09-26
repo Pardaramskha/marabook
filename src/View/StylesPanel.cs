@@ -82,7 +82,7 @@ namespace Marabook.View
         private TextBox _nameBox;
         private ComboBox _scopeCombo;
         // Caractère
-        private ComboBox _fontCombo;
+        private FontPicker _fontCombo; // le sélecteur partagé du ruban (0.50.0)
         private TextBox _sizeBox, _leadingBox, _colorBox;
         private CheckBox _boldCheck, _italicCheck, _ligaturesCheck;
         // Paragraphe
@@ -195,8 +195,9 @@ namespace Marabook.View
         {
             var form = new StackPanel { Margin = new Thickness(10) };
 
-            _fontCombo = new ComboBox();
-            foreach (var family in Fonts.SystemFontFamilies) _fontCombo.Items.Add(family.Source);
+            // Le même sélecteur que le ruban (0.50.0) : récentes, aperçu,
+            // frappe + Entrée, flèches — un choix commet la feuille.
+            _fontCombo = new FontPicker { ToolTip = "Police du style — tapez un nom puis Entrée, ou parcourez aux flèches" };
             form.Children.Add(FormRow("Police", _fontCombo));
 
             var sizeRow = new StackPanel { Orientation = Orientation.Horizontal };
@@ -422,6 +423,8 @@ namespace Marabook.View
             if (box != null) { box.LostKeyboardFocus += delegate { OnFieldEdited(); }; return; }
             var check = element as CheckBox;
             if (check != null) { check.Click += delegate { OnFieldEdited(); }; return; }
+            var picker = element as FontPicker;
+            if (picker != null) { picker.FontChosen += delegate { OnFieldEdited(); }; return; } // pas la frappe, le choix
             var combo = element as ComboBox;
             if (combo != null) { combo.SelectionChanged += delegate { OnFieldEdited(); }; return; }
             var panel = element as Panel;
@@ -513,7 +516,7 @@ namespace Marabook.View
                                       : style.Scope == ParagraphStyle.ScopeDocument ? 2 : 0;
             // « Corps » est le style de secours : global, toujours.
             _scopeCombo.IsEnabled = style.Id != "body" && (_context.AllowBook || _context.AllowDocument);
-            _fontCombo.SelectedItem = style.FontFamily;
+            _fontCombo.Select(style.FontFamily);
             _sizeBox.Text = Pt(style.FontSize);
             _boldCheck.IsChecked = style.Bold;
             _italicCheck.IsChecked = style.Italic;
@@ -574,7 +577,7 @@ namespace Marabook.View
             var name = _nameBox.Text.Trim();
             if (name.Length > 0) _current.Name = name;
 
-            if (_fontCombo.SelectedItem != null) _current.FontFamily = (string)_fontCombo.SelectedItem;
+            if (_fontCombo.SelectedFontName != null) _current.FontFamily = _fontCombo.SelectedFontName;
             _current.FontSize = FromPt(_sizeBox.Text, _current.FontSize, 4, 150);
             _current.Bold = _boldCheck.IsChecked == true;
             _current.Italic = _italicCheck.IsChecked == true;

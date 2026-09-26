@@ -35,8 +35,11 @@ namespace Marabook.Exchange
         /// <summary>commentsAuthor (b49) : les annotations non résolues
         /// partent en COMMENTAIRES WORD sous ce nom (l'auteur du projet,
         /// sinon l'utilisateur de la machine).</summary>
+        /// <summary>project (0.50.0) : le magasin d'images — chaque image posée
+        /// part dans word/media avec son ANCRAGE (position dans la zone de
+        /// texte, habillage) ; null = les images sont laissées de côté.</summary>
         public static void Export(TextDocument document, StyleSheet styles, string path,
-            PageSetup setup = null, string commentsAuthor = null)
+            PageSetup setup = null, string commentsAuthor = null, Project project = null)
         {
             var hasLists = false;
             foreach (var paragraph in document.Paragraphs)
@@ -44,19 +47,20 @@ namespace Marabook.Exchange
             var hasFooter = setup != null && setup.FooterPageNumbers;
             var hasSettings = setup != null && setup.Hyphenation;
             var comments = CollectComments(document);
+            var images = CollectImages(document, project);
 
             using (var stream = new FileStream(path, FileMode.Create))
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Create))
             {
                 WriteEntry(zip, "[Content_Types].xml",
-                    ContentTypes(document.Footnotes.Count > 0, hasLists, hasFooter, hasSettings, comments.Count > 0));
+                    ContentTypes(document.Footnotes.Count > 0, hasLists, hasFooter, hasSettings, comments.Count > 0, images));
                 WriteEntry(zip, "_rels/.rels",
                     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
                     "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
                     "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>" +
                     "</Relationships>");
                 WriteEntry(zip, "word/_rels/document.xml.rels",
-                    DocumentRels(document.Footnotes.Count > 0, hasLists, hasFooter, hasSettings, comments.Count > 0));
+                    DocumentRels(document.Footnotes.Count > 0, hasLists, hasFooter, hasSettings, comments.Count > 0, images));
                 WriteEntry(zip, "word/styles.xml", StylesXml(styles));
                 if (comments.Count > 0)
                     WriteEntry(zip, "word/comments.xml", CommentsXml(comments, commentsAuthor));
@@ -65,8 +69,134 @@ namespace Marabook.Exchange
                 if (hasLists) WriteEntry(zip, "word/numbering.xml", NumberingXml());
                 if (hasFooter) WriteEntry(zip, "word/footer1.xml", FooterXml(setup));
                 if (hasSettings) WriteEntry(zip, "word/settings.xml", SettingsXml(styles));
-                WriteEntry(zip, "word/document.xml", DocumentXml(document, styles, setup, hasFooter, comments));
+                foreach (var image in images.Values)
+                {
+                    var entry = zip.CreateEntry("word/media/" + image.FileName, CompressionLevel.NoCompression);
+                    using (var mediaStream = entry.Open()) mediaStream.Write(image.Bytes, 0, image.Bytes.Length);
+                }
+                WriteEntry(zip, "word/document.xml", DocumentXml(document, styles, setup, hasFooter, comments, images, project));
             }
+        }
+
+        // ------------------------------------------------------- images (0.50.0)
+
+        /// <summary>Une image du document qui part dans word/media.</summary>
+        private sealed class ExportImage
+        {
+            public string RelId;
+            public string FileName;
+            public string Extension; // sans le point
+            public byte[] Bytes;
+            public int Number;
+        }
+
+        /// <summary>Les images citées par un run et présentes dans le magasin,
+        /// dans l'ordre du texte, une entrée par image (id → media).</summary>
+        private static Dictionary<string, ExportImage> CollectImages(TextDocument document, Project project)
+        {
+            var images = new Dictionary<string, ExportImage>();
+            if (project == null) return images;
+            foreach (var paragraph in document.Paragraphs)
+                foreach (var run in paragraph.Runs)
+                {
+                    if (run.ImageId == null || images.ContainsKey(run.ImageId)) continue;
+                    var stored = project.FindImage(run.ImageId);
+                    if (stored == null || stored.Bytes == null || stored.Bytes.Length == 0) continue;
+                    var extension = (stored.Extension ?? ".png").TrimStart('.').ToLowerInvariant();
+                    if (extension == "jpg") extension = "jpeg";
+                    var number = images.Count + 1;
+                    images[run.ImageId] = new ExportImage
+                    {
+                        RelId = "rIdImg" + number,
+                        FileName = "image" + number + "." + extension,
+                        Extension = extension,
+                        Bytes = stored.Bytes,
+                        Number = number
+                    };
+                }
+            return images;
+        }
+
+        private static string ImageContentType(string extension)
+        {
+            switch (extension)
+            {
+                case "jpeg": return "image/jpeg";
+                case "gif": return "image/gif";
+                case "bmp": return "image/bmp";
+                case "tif": case "tiff": return "image/tiff";
+                default: return "image/png";
+            }
+        }
+
+        private const double EmuPerPx = 9525;
+        private const string WP = "xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\"";
+
+        /// <summary>Le dessin Word d'un run image : un wp:anchor positionné
+        /// dans la ZONE DE TEXTE (relativeFrom="margin") aux offsets du
+        /// placement — ou, image attachée à sa ligne, sous la ligne de
+        /// l'ancre (relativeFrom="line") ; centrée quand X est nul ; habillage
+        /// wrapTopAndBottom (texte au-dessus et en dessous) ou wrapSquare des
+        /// deux côtés (texte de part et d'autre). La taille = celle du
+        /// placement, sinon les pixels de l'image réduits à la colonne.</summary>
+        private static string DrawingXml(TextRun run, ExportImage image, PageSetup setup, Project project)
+        {
+            var layout = run.Image ?? new ImageLayout();
+            double width, height;
+            ExportSize(run, project, setup, out width, out height);
+            var cx = (long)Math.Round(Math.Max(1, width) * EmuPerPx);
+            var cy = (long)Math.Round(Math.Max(1, height) * EmuPerPx);
+            var gap = (long)Math.Round(Print.CompositionEngine.ImageGap * EmuPerPx);
+            var name = Esc(string.IsNullOrEmpty(layout.Name) ? image.FileName : layout.Name);
+            var sb = new StringBuilder();
+            sb.Append("<w:r><w:drawing><wp:anchor distT=\"").Append(gap).Append("\" distB=\"").Append(gap)
+              .Append("\" distL=\"").Append(gap).Append("\" distR=\"").Append(gap)
+              .Append("\" simplePos=\"0\" relativeHeight=\"").Append(251658240 + image.Number)
+              .Append("\" behindDoc=\"0\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\">")
+              .Append("<wp:simplePos x=\"0\" y=\"0\"/>");
+            if (layout.X.HasValue)
+                sb.Append("<wp:positionH relativeFrom=\"margin\"><wp:posOffset>")
+                  .Append((long)Math.Round(layout.X.Value * EmuPerPx)).Append("</wp:posOffset></wp:positionH>");
+            else
+                sb.Append("<wp:positionH relativeFrom=\"margin\"><wp:align>center</wp:align></wp:positionH>");
+            if (layout.Y.HasValue)
+                sb.Append("<wp:positionV relativeFrom=\"margin\"><wp:posOffset>")
+                  .Append((long)Math.Round(layout.Y.Value * EmuPerPx)).Append("</wp:posOffset></wp:positionV>");
+            else
+                sb.Append("<wp:positionV relativeFrom=\"line\"><wp:posOffset>").Append(gap).Append("</wp:posOffset></wp:positionV>");
+            sb.Append("<wp:extent cx=\"").Append(cx).Append("\" cy=\"").Append(cy).Append("\"/>")
+              .Append("<wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>")
+              .Append(layout.IsWrap ? "<wp:wrapSquare wrapText=\"bothSides\"/>" : "<wp:wrapTopAndBottom/>")
+              .Append("<wp:docPr id=\"").Append(image.Number).Append("\" name=\"").Append(name).Append("\"/>")
+              .Append("<wp:cNvGraphicFramePr/>")
+              .Append("<a:graphic xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\">")
+              .Append("<a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">")
+              .Append("<pic:pic xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">")
+              .Append("<pic:nvPicPr><pic:cNvPr id=\"0\" name=\"").Append(name).Append("\"/><pic:cNvPicPr/></pic:nvPicPr>")
+              .Append("<pic:blipFill><a:blip r:embed=\"").Append(image.RelId).Append("\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>")
+              .Append("<pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"").Append(cx).Append("\" cy=\"").Append(cy).Append("\"/></a:xfrm>")
+              .Append("<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>")
+              .Append("</wp:anchor></w:drawing></w:r>");
+            return sb.ToString();
+        }
+
+        /// <summary>La taille exportée d'une image : celle du placement, sinon
+        /// ses pixels (à 96 dpi) réduits à la largeur de la colonne.</summary>
+        private static void ExportSize(TextRun run, Project project, PageSetup setup, out double width, out double height)
+        {
+            var layout = run.Image ?? new ImageLayout();
+            width = layout.Width;
+            height = layout.Height;
+            if (width > 0 && height > 0) return;
+            var stored = project == null ? null : project.FindImage(run.ImageId);
+            var ratio = 2.0 / 3.0;
+            var pixels = stored == null ? 0 : View.ImageCache.PixelWidthOf(stored.Bytes);
+            var source = View.ImageCache.For(stored);
+            if (source != null && source.Width > 0) ratio = source.Height / source.Width;
+            if (width <= 0) width = pixels > 0 ? pixels : (source != null ? source.Width : 120);
+            if (height <= 0) height = width * ratio;
+            var column = (setup ?? new PageSetup()).ContentWidthPx;
+            ImageLayout.FitInside(ref width, ref height, column, 0);
         }
 
         // ------------------------------------------------------- commentaires (b49)
@@ -143,10 +273,17 @@ namespace Marabook.Exchange
 
         /// <summary>Un run du corps : saut de ligne, appel de note, ou texte
         /// avec ses propriétés ; les images sortent du périmètre docx.</summary>
-        private static string RunXml(TextRun run, Dictionary<string, int> noteIds)
+        private static string RunXml(TextRun run, Dictionary<string, int> noteIds,
+            Dictionary<string, ExportImage> images = null, PageSetup setup = null, Project project = null)
         {
             if (run.IsLineBreak) return "<w:r><w:br/></w:r>";
-            if (run.ImageId != null) return ""; // images: out of docx scope (PLAN §3)
+            if (run.ImageId != null)
+            {
+                // Une image posée (0.50.0) : son dessin ancré ; sans magasin, rien.
+                ExportImage image;
+                return images != null && images.TryGetValue(run.ImageId, out image)
+                    ? DrawingXml(run, image, setup, project) : "";
+            }
             if (run.FootnoteId != null)
             {
                 int id;
@@ -185,13 +322,23 @@ namespace Marabook.Exchange
             return sb.ToString();
         }
 
-        private static string ContentTypes(bool footnotes, bool lists, bool footer, bool settings, bool comments = false)
+        private static string ContentTypes(bool footnotes, bool lists, bool footer, bool settings, bool comments = false,
+            Dictionary<string, ExportImage> images = null)
         {
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
               .Append("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">")
               .Append("<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>")
-              .Append("<Default Extension=\"xml\" ContentType=\"application/xml\"/>")
+              .Append("<Default Extension=\"xml\" ContentType=\"application/xml\"/>");
+            if (images != null)
+            {
+                var extensions = new List<string>();
+                foreach (var image in images.Values)
+                    if (!extensions.Contains(image.Extension)) extensions.Add(image.Extension);
+                foreach (var extension in extensions)
+                    sb.Append("<Default Extension=\"").Append(extension).Append("\" ContentType=\"").Append(ImageContentType(extension)).Append("\"/>");
+            }
+            sb
               .Append("<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>")
               .Append("<Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>");
             if (footnotes)
@@ -208,7 +355,8 @@ namespace Marabook.Exchange
             return sb.ToString();
         }
 
-        private static string DocumentRels(bool footnotes, bool lists, bool footer, bool settings, bool comments = false)
+        private static string DocumentRels(bool footnotes, bool lists, bool footer, bool settings, bool comments = false,
+            Dictionary<string, ExportImage> images = null)
         {
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
@@ -224,6 +372,11 @@ namespace Marabook.Exchange
                 sb.Append("<Relationship Id=\"rId5\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings\" Target=\"settings.xml\"/>");
             if (comments)
                 sb.Append("<Relationship Id=\"rId6\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments\" Target=\"comments.xml\"/>");
+            if (images != null)
+                foreach (var image in images.Values)
+                    sb.Append("<Relationship Id=\"").Append(image.RelId)
+                      .Append("\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/")
+                      .Append(image.FileName).Append("\"/>");
             sb.Append("</Relationships>");
             return sb.ToString();
         }
@@ -330,19 +483,26 @@ namespace Marabook.Exchange
               .Append("<w:footnotes ").Append(W).Append(">")
               .Append("<w:footnote w:type=\"separator\" w:id=\"0\"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>")
               .Append("<w:footnote w:type=\"continuationSeparator\" w:id=\"1\"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>");
+            var none = new Dictionary<string, int>(); // pas d'appel de note dans une note
             for (var i = 0; i < document.Footnotes.Count; i++)
             {
-                sb.Append("<w:footnote w:id=\"").Append(i + 2).Append("\"><w:p><w:r>")
+                // Le paragraphe porte le style « footnote » de la feuille
+                // (0.50.0, écrit dans styles.xml avec les autres) et ses runs
+                // gardent leurs formats.
+                sb.Append("<w:footnote w:id=\"").Append(i + 2).Append("\"><w:p>")
+                  .Append("<w:pPr><w:pStyle w:val=\"").Append(Esc(StyleSheet.FootnoteId)).Append("\"/></w:pPr><w:r>")
                   .Append("<w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr><w:footnoteRef/></w:r>")
-                  .Append("<w:r><w:t xml:space=\"preserve\"> ")
-                  .Append(Esc(document.Footnotes[i].Text)).Append("</w:t></w:r></w:p></w:footnote>");
+                  .Append("<w:r><w:t xml:space=\"preserve\"> </w:t></w:r>");
+                foreach (var run in document.Footnotes[i].Runs) sb.Append(RunXml(run, none));
+                sb.Append("</w:p></w:footnote>");
             }
             sb.Append("</w:footnotes>");
             return sb.ToString();
         }
 
         private static string DocumentXml(TextDocument document, StyleSheet styles,
-            PageSetup setup, bool footer, List<ExportComment> comments)
+            PageSetup setup, bool footer, List<ExportComment> comments,
+            Dictionary<string, ExportImage> images = null, Project project = null)
         {
             // Footnote id by note id (docx numbers them 2+).
             var noteIds = new Dictionary<string, int>();
@@ -351,7 +511,7 @@ namespace Marabook.Exchange
 
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
-              .Append("<w:document ").Append(W).Append(" ").Append(R).Append("><w:body>");
+              .Append("<w:document ").Append(W).Append(" ").Append(R).Append(" ").Append(WP).Append("><w:body>");
             for (var pIndex = 0; pIndex < document.Paragraphs.Count; pIndex++)
             {
                 var paragraph = document.Paragraphs[pIndex];
@@ -391,7 +551,7 @@ namespace Marabook.Exchange
                     foreach (var comment in comments)
                         if (comment.FirstParagraph == pIndex && comment.FirstRun == r)
                             sb.Append("<w:commentRangeStart w:id=\"").Append(comment.Number).Append("\"/>");
-                    sb.Append(RunXml(paragraph.Runs[r], noteIds));
+                    sb.Append(RunXml(paragraph.Runs[r], noteIds, images, setup, project));
                     foreach (var comment in comments)
                         if (comment.LastParagraph == pIndex && comment.LastRun == r)
                             sb.Append("<w:commentRangeEnd w:id=\"").Append(comment.Number).Append("\"/>")
@@ -433,6 +593,7 @@ namespace Marabook.Exchange
             if (run.Bold.HasValue) sb.Append(run.Bold.Value ? "<w:b/>" : "<w:b w:val=\"0\"/>");
             if (run.Italic.HasValue) sb.Append(run.Italic.Value ? "<w:i/>" : "<w:i w:val=\"0\"/>");
             if (run.Strike == true) sb.Append("<w:strike/>");
+            if (run.SmallCaps == true) sb.Append("<w:smallCaps/>"); // 0.50.0
             if (run.Color != null)
                 sb.Append("<w:color w:val=\"").Append(HexVal(run.Color)).Append("\"/>");
             if (run.FontSize.HasValue)
@@ -535,7 +696,7 @@ namespace Marabook.Exchange
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Read))
             {
                 var styleMap = ReadStyles(zip, projectStyles);
-                var footnotes = ReadFootnotes(zip);
+                var footnotes = ReadFootnotes(zip, projectStyles);
                 var numbering = ReadNumbering(zip);
                 var documentEntry = zip.GetEntry("word/document.xml");
                 if (documentEntry == null)
@@ -694,23 +855,47 @@ namespace Marabook.Exchange
             return comments;
         }
 
-        private static Dictionary<string, Footnote> ReadFootnotes(ZipArchive zip)
+        /// <summary>Les notes du document, runs et formats compris (0.50.0) :
+        /// chaque w:p de la note est lu comme un paragraphe (les formats se
+        /// mesurent au style « Notes de bas de page » de la feuille cible), les
+        /// paragraphes d'une même note se suivent par un saut de ligne.</summary>
+        private static Dictionary<string, Footnote> ReadFootnotes(ZipArchive zip, StyleSheet projectStyles)
         {
             var notes = new Dictionary<string, Footnote>();
             var entry = zip.GetEntry("word/footnotes.xml");
             if (entry == null) return notes;
             var xml = LoadXml(entry);
             var ns = Ns(xml);
+            var noteStyle = projectStyles != null ? projectStyles.FootnoteStyle() : StyleSheet.DefaultFootnote(null);
+            var noNotes = new Dictionary<string, Footnote>();
+            var noteCtx = new ImportContext(); // ni commentaires ni images dans une note
             foreach (XmlNode noteNode in xml.SelectNodes("//w:footnote", ns))
             {
                 var type = Attr(noteNode, "w:type");
                 if (type == "separator" || type == "continuationSeparator") continue;
                 var id = Attr(noteNode, "w:id");
                 if (id == null) continue;
-                var sb = new StringBuilder();
-                foreach (XmlNode textNode in noteNode.SelectNodes(".//w:t", ns))
-                    sb.Append(textNode.InnerText);
-                notes[id] = new Footnote { Text = sb.ToString().Trim() };
+                var body = new TextParagraph();
+                var first = true;
+                foreach (XmlNode p in noteNode.SelectNodes("w:p", ns))
+                {
+                    if (!first) body.Runs.Add(new TextRun { IsLineBreak = true });
+                    first = false;
+                    ReadRuns(p, ns, body, noteStyle, noNotes, noteCtx);
+                }
+                // L'espace qui suit l'appel de note (w:footnoteRef) ne fait
+                // pas partie du texte.
+                while (body.Runs.Count > 0 && !PivotEdit.IsElement(body.Runs[0]))
+                {
+                    body.Runs[0].Text = body.Runs[0].Text.TrimStart();
+                    if (body.Runs[0].Text.Length > 0) break;
+                    body.Runs.RemoveAt(0);
+                }
+                if (body.Runs.Count > 0 && !PivotEdit.IsElement(body.Runs[body.Runs.Count - 1]))
+                    body.Runs[body.Runs.Count - 1].Text = body.Runs[body.Runs.Count - 1].Text.TrimEnd();
+                var note = new Footnote();
+                note.SetRuns(body.Runs);
+                notes[id] = note;
             }
             return notes;
         }
@@ -883,8 +1068,8 @@ namespace Marabook.Exchange
                 // texte — une même image citée deux fois par le run (Choice +
                 // Fallback) n'entre qu'une fois.
                 if (ctx != null && ctx.Images != null)
-                    foreach (var imageId in ImagesOf(child, ctx))
-                        paragraph.Runs.Add(new TextRun { ImageId = imageId });
+                    foreach (var imageRun in ImagesOf(child, ctx))
+                        paragraph.Runs.Add(imageRun);
 
                 var sb = new StringBuilder();
                 foreach (XmlNode part in child.ChildNodes)
@@ -905,20 +1090,91 @@ namespace Marabook.Exchange
         /// les a:blip (r:embed) des dessins DrawingML, puis les v:imagedata
         /// (r:id) des dessins VML — une image liée hors du fichier (r:link
         /// seul) n'a pas d'octets, elle est ignorée.</summary>
-        private static List<string> ImagesOf(XmlNode run, ImportContext ctx)
+        private static List<TextRun> ImagesOf(XmlNode run, ImportContext ctx)
         {
-            var ids = new List<string>();
+            var runs = new List<TextRun>();
+            var seen = new List<string>();
             foreach (var pair in new[] { new[] { "blip", "embed" }, new[] { "imagedata", "id" } })
             {
                 var nodes = run.SelectNodes(".//*[local-name()='" + pair[0] + "']");
                 if (nodes == null) continue;
                 foreach (XmlNode node in nodes)
                 {
-                    var id = ctx.ImageFor(LocalAttr(node, pair[1]));
-                    if (id != null && !ids.Contains(id)) ids.Add(id);
+                    var relationId = LocalAttr(node, pair[1]);
+                    var id = ctx.ImageFor(relationId);
+                    if (id == null || seen.Contains(id)) continue;
+                    seen.Add(id);
+                    // Le placement (0.50.0) : le nom de l'entrée (image1.png),
+                    // la taille du dessin (wp:extent, en EMU : 9 525 par px) —
+                    // attachée à sa ligne, centrée, texte au-dessus et en dessous.
+                    var layout = new ImageLayout();
+                    string entry;
+                    if (relationId != null && ctx.ImageRels.TryGetValue(relationId, out entry))
+                        layout.Name = System.IO.Path.GetFileName(entry);
+                    var extent = ExtentOf(node);
+                    if (extent != null)
+                    {
+                        double cx, cy;
+                        if (double.TryParse(LocalAttr(extent, "cx"), NumberStyles.Float, CultureInfo.InvariantCulture, out cx)
+                            && double.TryParse(LocalAttr(extent, "cy"), NumberStyles.Float, CultureInfo.InvariantCulture, out cy)
+                            && cx > 0 && cy > 0)
+                        {
+                            layout.Width = cx / EmuPerPx;
+                            layout.Height = cy / EmuPerPx;
+                        }
+                    }
+                    ReadAnchor(node, layout);
+                    runs.Add(new TextRun { ImageId = id, Image = layout });
                 }
             }
-            return ids;
+            return runs;
+        }
+
+        /// <summary>Le wp:inline ou wp:anchor qui porte ce blip, ou null (VML).</summary>
+        private static XmlNode DrawingOf(XmlNode blip)
+        {
+            var node = blip.ParentNode;
+            while (node != null)
+            {
+                if (node.LocalName == "inline" || node.LocalName == "anchor") return node;
+                node = node.ParentNode;
+            }
+            return null;
+        }
+
+        /// <summary>Le wp:extent du dessin qui porte ce blip, ou null (VML).</summary>
+        private static XmlNode ExtentOf(XmlNode blip)
+        {
+            var drawing = DrawingOf(blip);
+            return drawing == null ? null : drawing.SelectSingleNode("*[local-name()='extent']");
+        }
+
+        /// <summary>L'ancrage d'un wp:anchor (0.50.0) : la position dans la
+        /// zone de texte (positionH/positionV relativeFrom="margin" en EMU ;
+        /// "line" = attachée à sa ligne ; align center = centrée), l'habillage
+        /// (wrapSquare/wrapTight/wrapThrough = de part et d'autre, le reste =
+        /// au-dessus et en dessous). Un wp:inline reste attaché, centré.</summary>
+        private static void ReadAnchor(XmlNode blip, ImageLayout layout)
+        {
+            var drawing = DrawingOf(blip);
+            if (drawing == null || drawing.LocalName != "anchor") return;
+            var positionH = drawing.SelectSingleNode("*[local-name()='positionH']");
+            var positionV = drawing.SelectSingleNode("*[local-name()='positionV']");
+            double offset;
+            if (positionH != null && LocalAttr(positionH, "relativeFrom") == "margin"
+                && TryOffset(positionH, out offset)) layout.X = offset / EmuPerPx;
+            if (positionV != null && LocalAttr(positionV, "relativeFrom") == "margin"
+                && TryOffset(positionV, out offset)) layout.Y = offset / EmuPerPx;
+            foreach (XmlNode child in drawing.ChildNodes)
+                if (child.LocalName == "wrapSquare" || child.LocalName == "wrapTight" || child.LocalName == "wrapThrough")
+                    layout.Wrap = ImageLayout.WrapAround;
+        }
+
+        private static bool TryOffset(XmlNode position, out double value)
+        {
+            value = 0;
+            var node = position.SelectSingleNode("*[local-name()='posOffset']");
+            return node != null && double.TryParse(node.InnerText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
         }
 
         private static string LocalAttr(XmlNode node, string localName)
@@ -983,6 +1239,7 @@ namespace Marabook.Exchange
                     && Attr(rPr.SelectSingleNode("w:u", ns), "w:val") != "none")
                     run.Underline = true;
                 if (IsOn(rPr.SelectSingleNode("w:strike", ns))) run.Strike = true;
+                if (IsOn(rPr.SelectSingleNode("w:smallCaps", ns))) run.SmallCaps = true; // 0.50.0
                 var fonts = Attr(rPr.SelectSingleNode("w:rFonts", ns), "w:ascii");
                 if (!string.IsNullOrEmpty(fonts) && fonts != style.FontFamily) run.FontFamily = fonts;
                 double sz;

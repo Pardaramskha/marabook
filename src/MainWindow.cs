@@ -21,7 +21,7 @@ namespace Marabook
     public partial class MainWindow : Window, Extensions.IModuleHost
     {
         public const string AppName = "Marabook";
-        public const string AppVersion = "0.43.3-beta";
+        public const string AppVersion = "0.50.0-beta";
 
         private Project _project;
         /// <summary>Le .plot passé en argument, ouvert au Loaded (revue 22/09).</summary>
@@ -56,6 +56,7 @@ namespace Marabook
         private bool _journalOpen; // le journal masque l'inspecteur
         private Grid _centerHost; // hôte du toast de célébration
         private StackPanel _toastHost;          // succès : toasts en bas à droite de la fenêtre (12/09)
+        private BusyIndicator _busy;            // l'anneau d'activité de la ligne des menus (0.50.0)
         private DispatcherTimer _achievementTimer; // vérification coalescée
         private DispatcherTimer _minuteTimer;   // les succès de durée (ouverture, sauvegarde, page blanche)
         private long _lastSavedBytes;           // taille du dernier .plot écrit
@@ -182,6 +183,14 @@ namespace Marabook
             };
             shell.Children.Add(_welcomeVeil);
             Content = shell;
+            SmoothScroll.Install(); // le défilement fluide à la molette, partout (0.50.0)
+            // Les travaux de fond qui font tourner l'anneau (0.50.0) : le
+            // correcteur (Grammalecte qui s'initialise ou analyse, synonymes,
+            // suggestions d'orthographe) et le préchauffage des textes après
+            // l'ouverture. Les travaux du fil d'interface (chargements,
+            // sauvegarde) passent par _busy.Run.
+            _busy.Watch(delegate { return _editor != null && _editor.IsProofingBusy; });
+            _busy.Watch(delegate { return _statusWarmup != null && _statusWarmup.Visibility == Visibility.Visible; });
             Loaded += delegate
             {
                 // Le .plot reçu en argument s'ouvre ICI, la fenêtre affichée :
@@ -420,8 +429,43 @@ namespace Marabook
             help.Items.Add(Entry(null, "À propos de Marabook…", ShowAbout));
             menu.Items.Add(help);
 
-            bar.Child = menu;
+            // L'anneau d'activité (0.50.0) tient le bout droit de la ligne des
+            // menus. Un seul exemplaire pour la vie de la fenêtre : la barre
+            // est rebâtie après une personnalisation des raccourcis, l'anneau
+            // change juste de parent.
+            if (_busy == null) _busy = new BusyIndicator();
+            var previousParent = _busy.Parent as Panel;
+            if (previousParent != null) previousParent.Children.Remove(_busy);
+            _busy.Margin = new Thickness(8, 0, 12, 0);
+            DockPanel.SetDock(_busy, Dock.Right);
+            var row = new DockPanel();
+            row.Children.Add(_busy);
+            row.Children.Add(menu);
+            bar.Child = row;
             return bar;
+        }
+
+        /// <summary>Les polices à chaud (0.50.0) : Windows diffuse WM_FONTCHANGE
+        /// quand une police est installée ou retirée — le catalogue se
+        /// recharge et les sélecteurs suivent, sans relancer Marabook.</summary>
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            try
+            {
+                var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                var source = System.Windows.Interop.HwndSource.FromHwnd(handle);
+                if (source != null) source.AddHook(OnWindowMessage);
+            }
+            catch (Exception) { } // sans crochet, le catalogue vit jusqu'au prochain lancement
+        }
+
+        private const int WmFontChange = 0x001D;
+
+        private IntPtr OnWindowMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (message == WmFontChange) FontCatalog.RequestRefresh();
+            return IntPtr.Zero;
         }
 
         /// <summary>Reconstruit la barre de menus ET les KeyBindings de la
@@ -430,7 +474,10 @@ namespace Marabook
         /// on repart donc de zéro.</summary>
         private void RefreshShortcuts()
         {
-            var root = Content as DockPanel;
+            // Content est la grille « shell » depuis les toasts (12/09) : la
+            // barre vit dans _shellRoot — avec « Content as DockPanel » on
+            // sortait ici sans rien rebâtir (0.50.0).
+            var root = _shellRoot as DockPanel;
             if (root == null || _menuBar == null) return;
             InputBindings.Clear();
             var index = root.Children.IndexOf(_menuBar);
@@ -585,6 +632,13 @@ namespace Marabook
 
             _editor = new EditorView { Visibility = Visibility.Collapsed };
             _editor.Edited += OnEditorEdited;
+            _editor.ImageSelectionChanged += UpdateInspectorForImage; // le Général montre l'image (0.50.0)
+            _editor.ImageChanged += RefreshInspectorImageSize;        // …et suit sa taille en direct
+            _editor.ImageSaveRequested += delegate                    // menu contextuel de l'image
+            {
+                var info = _editor.SelectedImageInfo();
+                if (info != null) SaveImageToDisk(info);
+            };
             _editor.LinkClicked += NavigateToTitle;
             _editor.DefinitionRequested += ShowDefinition; // clic droit › « Afficher la définition » (18/09)
             _editor.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
@@ -1670,7 +1724,14 @@ namespace Marabook
 
         // ============================================================= project lifecycle
 
+        /// <summary>Installe un projet dans la fenêtre, l'anneau d'activité
+        /// visible pendant (0.50.0) — le travail est synchrone.</summary>
         private void LoadProject(Project project, string path)
+        {
+            _busy.Run(delegate { LoadProjectCore(project, path); });
+        }
+
+        private void LoadProjectCore(Project project, string path)
         {
             // Les styles globaux (22/09) : le projet se met d'accord avec les
             // réglages avant que quiconque lise sa feuille. S'il a POUSSÉ ses
@@ -1769,6 +1830,8 @@ namespace Marabook
 
         public void OpenFile(string path)
         {
+            _busy.Begin();
+            _busy.Pump();
             try
             {
                 var warnings = new List<string>();
@@ -1779,6 +1842,7 @@ namespace Marabook
             {
                 TryRecoverFromBackup(path, error);
             }
+            finally { _busy.End(); }
         }
 
         /// <summary>L'ouverture depuis l'accueil (14/09) : la lecture du .plot
@@ -1790,6 +1854,7 @@ namespace Marabook
         public void OpenFileInBackground(string path, Action finished)
         {
             var warnings = new List<string>();
+            _busy.Begin(); // rendu dans le BeginInvoke ci-dessous, réussite ou non
             System.Threading.Tasks.Task.Factory
                 .StartNew(delegate { return PlotFile.Load(path, warnings); })
                 .ContinueWith(delegate(System.Threading.Tasks.Task<Project> done)
@@ -1807,6 +1872,7 @@ namespace Marabook
                         {
                             TryRecoverFromBackup(path, error);
                         }
+                        finally { _busy.End(); }
                         if (finished != null) finished();
                     }));
                 });
@@ -2067,8 +2133,11 @@ namespace Marabook
                 // (SheetView._body) is a second EditorView the plain
                 // _editor.Commit() never reached — typing in a sheet then Ctrl+S
                 // used to lose the text.
-                CommitActive();
-                PlotFile.Save(_project, _path);
+                _busy.Run(delegate
+                {
+                    CommitActive();
+                    PlotFile.Save(_project, _path);
+                });
                 _dirty = false;
                 DropRecovery(); // le .plot complet est à jour : le secours est périmé (18/09)
                 AppSettings.AddRecentFile(_path);
@@ -2081,6 +2150,9 @@ namespace Marabook
                 UnlockAchievement(Achievements.FirstProject); // le premier projet enregistré
                 ScheduleAchievementCheck(); // « Damn boi, he thicc! »
                 _autosaveWarned = false;
+                // Le toast « enregistré » (0.50.0) : à la demande explicite
+                // seulement — l'automatique reste muet.
+                if (!silent) ShowSavedToast();
             }
             catch (Exception error)
             {
@@ -2377,7 +2449,14 @@ namespace Marabook
             return _corkboard.Visibility == Visibility.Visible && _corkboard.ShowsItem(item);
         }
 
+        /// <summary>Ouvre un élément dans la vue qui lui revient, l'anneau
+        /// d'activité visible pendant la composition (0.50.0).</summary>
         private void ShowItem(BinderItem item)
+        {
+            _busy.Run(delegate { ShowItemCore(item); });
+        }
+
+        private void ShowItemCore(BinderItem item)
         {
             // LE bug du « double-clic obligatoire », enfin élucidé : masquer la
             // vue qui porte le focus clavier fait retomber ce focus sur un
@@ -2781,9 +2860,9 @@ namespace Marabook
             // Les images du document entrent dans le magasin du projet (23/09).
             if (ext == ".docx") return Exchange.Docx.Import(path, _project.Styles, _project);
             if (ext == ".odt") return Exchange.Odt.Import(path, _project.Styles, _project);
-            if (ext == ".rtf") return Exchange.Rtf.Import(path, _project.Styles);
+            if (ext == ".rtf") return Exchange.Rtf.Import(path, _project.Styles, _project); // images \pict (0.50.0)
             if (ext == ".md" || ext == ".markdown")
-                return Exchange.MarkdownExchange.Import(File.ReadAllText(path));
+                return Exchange.MarkdownExchange.Import(File.ReadAllText(path), Path.GetDirectoryName(path), _project); // ![…](fichier)
             if (ext == ".txt") return TextDocument.FromPlainText(File.ReadAllText(path));
             if (ext == ".doc")
                 return Exchange.Docx.Import(Exchange.ExternalBridge.DocToDocx(path), _project.Styles, _project);
@@ -2869,7 +2948,7 @@ namespace Marabook
                 var ext = Path.GetExtension(path).ToLowerInvariant();
                 var exportStyles = _project.Styles.EffectiveFor(scope ?? _current); // le séparateur du livre (22/09)
                 var commentsAuthor = Defaults.Or(_project.Author, Defaults.Author); // Préférences › Auteur (22/09)
-                if (ext == ".docx") Exchange.Docx.Export(document, exportStyles, path, _project.Page, commentsAuthor); // annotations → commentaires Word (b49)
+                if (ext == ".docx") Exchange.Docx.Export(document, exportStyles, path, _project.Page, commentsAuthor, _project); // annotations → commentaires Word (b49), images ancrées (0.50.0)
                 else if (ext == ".odt")
                     Exchange.Odt.Export(Exchange.Compiler.FlattenLists(document), exportStyles, path);
                 else if (ext == ".rtf")
@@ -3967,53 +4046,88 @@ namespace Marabook
         /// toasts s'empilent si plusieurs tombent ensemble.</summary>
         private void ShowAchievementToast(Achievement achievement)
         {
-            var row = new DockPanel();
             var badge = AchievementBadge.Build(achievement, true, 48);
-            badge.Margin = new Thickness(0, 0, 12, 0);
-            DockPanel.SetDock(badge, Dock.Left);
-            row.Children.Add(badge);
+            ShowToast(badge, "Succès débloqué", achievement.Name, achievement.Description, 6);
+        }
+
+        /// <summary>Le toast « enregistré » (0.50.0) : la carte des succès, sans
+        /// icône, après un Fichier › Enregistrer — jamais pour l'automatique.</summary>
+        private void ShowSavedToast()
+        {
+            if (_project == null || _path == null) return;
+            var detail = Path.GetFileName(_path) + " · " + DateTime.Now.ToString("HH:mm");
+            ShowToast(null, "Projet enregistré", _project.Name, detail, 3);
+        }
+
+        /// <summary>La carte qui glisse depuis la droite et s'efface seule :
+        /// une icône (ou rien), une amorce, un titre, un détail. Inerte : elle
+        /// ne bloque jamais un clic dessous.</summary>
+        private void ShowToast(FrameworkElement badge, string kicker, string title, string description, double seconds)
+        {
+            var row = new DockPanel();
+            if (badge != null)
+            {
+                badge.Margin = new Thickness(0, 0, 12, 0);
+                DockPanel.SetDock(badge, Dock.Left);
+                row.Children.Add(badge);
+            }
             var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, MaxWidth = 300 };
             text.Children.Add(new TextBlock
             {
-                Text = "Succès débloqué",
+                Text = kicker,
                 Foreground = Chrome.SoftText,
                 FontSize = 10,
                 FontWeight = FontWeights.SemiBold
             });
             text.Children.Add(new TextBlock
             {
-                Text = achievement.Name,
+                Text = title,
                 Foreground = Chrome.Ink,
                 FontSize = 14,
                 FontWeight = FontWeights.SemiBold,
                 TextWrapping = TextWrapping.Wrap
             });
-            text.Children.Add(new TextBlock
-            {
-                Text = achievement.Description,
-                Foreground = Chrome.SoftText,
-                FontSize = 11,
-                TextWrapping = TextWrapping.Wrap
-            });
+            if (!string.IsNullOrEmpty(description))
+                text.Children.Add(new TextBlock
+                {
+                    Text = description,
+                    Foreground = Chrome.SoftText,
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap
+                });
             row.Children.Add(text);
-            var toast = new Border
+            // L'ombre vit sur un cadre VIDE dessous (correctif 0.50.0) : un
+            // DropShadowEffect posé sur le cadre qui porte le texte le rend
+            // flou (le piège connu des papers). UseLayoutRounding pour des
+            // bords nets pendant le glissement.
+            var card = new Grid { UseLayoutRounding = true };
+            card.Children.Add(new Border
             {
                 Background = Chrome.RaisedBg,
-                BorderBrush = Chrome.Accent,
-                BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(10),
-                Padding = new Thickness(12, 10, 16, 10),
-                Margin = new Thickness(0, 8, 0, 0),
-                Opacity = 0,
-                IsHitTestVisible = false, // un succès ne bloque jamais un clic dessous
-                Child = row,
                 Effect = new System.Windows.Media.Effects.DropShadowEffect
                 {
                     Color = Colors.Black,
                     Opacity = 0.3,
                     BlurRadius = 14,
                     ShadowDepth = 2
-                },
+                }
+            });
+            card.Children.Add(new Border
+            {
+                Background = Chrome.RaisedBg,
+                BorderBrush = Chrome.Accent,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(12, 10, 16, 10),
+                Child = row
+            });
+            var toast = new Border
+            {
+                Margin = new Thickness(0, 8, 0, 0),
+                Opacity = 0,
+                IsHitTestVisible = false, // un succès ne bloque jamais un clic dessous
+                Child = card,
                 RenderTransform = new TranslateTransform(60, 0)
             };
             _toastHost.Children.Add(toast);
@@ -4028,7 +4142,7 @@ namespace Marabook
             };
             var fade = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(600))
             {
-                BeginTime = TimeSpan.FromSeconds(6)
+                BeginTime = TimeSpan.FromSeconds(seconds)
             };
             fade.Completed += delegate { _toastHost.Children.Remove(toast); };
             toast.BeginAnimation(OpacityProperty, appear);

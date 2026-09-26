@@ -32,13 +32,23 @@ namespace Marabook.View
             // deux rangées — les blocs denses s'empilent, les séparateurs
             // verticaux courent sur toute la hauteur.
             var panel = TabPanel();
+            // SECTION 1 (0.50.0) : le style de paragraphe et l'éditeur de styles,
+            // seuls, tout à gauche — le combo en haut, la gestion en bas.
+            var styleRows = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var styleTop = RibbonRow();
+            var styleBottom = RibbonRow();
+            styleRows.Children.Add(styleTop);
+            styleRows.Children.Add(styleBottom);
+            // SECTION 2 : police, taille, variantes en haut ; gras, italique,
+            // souligné, barré, un trait, petites majuscules et caractères
+            // spéciaux en bas.
             var typeRows = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             var typeTop = RibbonRow();
             var typeBottom = RibbonRow();
             typeRows.Children.Add(typeTop);
             typeRows.Children.Add(typeBottom);
 
-            _styleCombo = new ComboBox { Width = 120, Margin = new Thickness(0, 0, 2, 0) };
+            _styleCombo = new ComboBox { Width = 150, Margin = new Thickness(0, 0, 2, 0) };
             _styleCombo.SelectionChanged += OnStyleComboChanged;
             // Réappliquer le style courant (« Corps + » → « Corps ») : la liste
             // se referme sur le même item, SelectionChanged ne dit rien.
@@ -46,69 +56,79 @@ namespace Marabook.View
             {
                 if (_syncing || _item == null || !ComposedActive) return;
                 var chosen = _styleCombo.SelectedItem as ComboBoxItem;
-                if (chosen == null || !ComposedView.HasOverrides(_composed.CaretParagraph)) return;
+                if (chosen == null || !_composed.CaretHasOverrides()) return;
                 var paragraph = _composed.CaretParagraph;
                 if (paragraph != null && paragraph.StyleId == (string)chosen.Tag)
                 {
                     _composed.ApplyStyle((string)chosen.Tag);
-                    _composed.Focus();
+                    _composed.FocusSurface();
                 }
             };
-            typeTop.Children.Add(_styleCombo);
+            styleTop.Children.Add(_styleCombo);
 
             var manageStyles = new Button
             {
-                Content = new TextBlock { Text = "Aa", FontSize = 12, FontWeight = FontWeights.SemiBold },
+                Content = new TextBlock { Text = "Aa  Gestion des styles…", FontSize = 12, FontWeight = FontWeights.SemiBold },
                 ToolTip = "Gestion des styles…",
-                Width = 26,
+                Width = 150,
                 Height = 26,
-                Padding = new Thickness(0),
-                Margin = new Thickness(0, 0, 6, 0),
-                Focusable = false
+                Padding = new Thickness(6, 0, 6, 0),
+                Margin = new Thickness(0, 0, 2, 0),
+                Focusable = false,
+                HorizontalContentAlignment = HorizontalAlignment.Left
             };
             manageStyles.Click += delegate
             {
                 var handler = StylesRequested;
                 if (handler != null) handler();
             };
-            typeTop.Children.Add(manageStyles);
+            styleBottom.Children.Add(manageStyles);
+            panel.Children.Add(styleRows);
+            panel.Children.Add(VerticalRuleTall());
 
-            // Éditables : on peut TAPER un nom de police ou une taille
-            // personnalisée (Entrée applique).
-            _fontCombo = new ComboBox
+            // Le sélecteur de police partagé (0.50.0) : récentes, trait,
+            // alphabet, aperçu « Marabook » ; la frappe n'applique qu'à
+            // Entrée, les flèches font défiler les polices en aperçu vivant.
+            _fontCombo = new FontPicker
             {
-                Width = 140,
+                Width = 150,
                 Margin = new Thickness(0, 0, 6, 0),
-                IsEditable = true,
-                ToolTip = "Police"
+                ToolTip = "Police — tapez un nom puis Entrée ; flèches haut/bas pour essayer les polices sur la sélection"
             };
-            foreach (var family in ListFonts()) _fontCombo.Items.Add(family);
-            _fontCombo.SelectionChanged += OnFontComboChanged;
-            _fontCombo.KeyDown += delegate(object sender, KeyEventArgs e)
-            {
-                if (e.Key != Key.Enter) return;
-                e.Handled = true;
-                ApplyTypedFont(_fontCombo.Text);
-            };
+            _fontCombo.FontChosen += OnFontChosen;
             typeTop.Children.Add(_fontCombo);
 
             // Sizes are displayed in points (like every word processor);
-            // internally everything stays WPF pixels (1 pt = 4/3 px).
+            // internally everything stays WPF pixels (1 pt = 4/3 px). Même
+            // discipline que la police (0.50.0) : la frappe n'applique qu'à
+            // Entrée — l'autocomplétion appliquait « 1 » → 10 pt et rendait le
+            // clavier au texte, le reste de la frappe partait dedans.
             _sizeCombo = new ComboBox
             {
                 Width = 52,
                 Margin = new Thickness(0, 0, 10, 0),
                 IsEditable = true,
-                ToolTip = "Taille"
+                ToolTip = "Taille — tapez une valeur puis Entrée ; flèches haut/bas pour l'essayer"
             };
             foreach (var size in new[] { 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 28, 32, 36, 48, 72 })
                 _sizeCombo.Items.Add(size);
             _sizeCombo.SelectionChanged += OnSizeComboChanged;
-            _sizeCombo.KeyDown += delegate(object sender, KeyEventArgs e)
+            _sizeCombo.DropDownClosed += delegate
             {
-                if (e.Key != Key.Enter) return;
-                e.Handled = true;
-                ApplyTypedSize(_sizeCombo.Text);
+                if (_syncing || _sizeCombo.SelectedItem == null || !_sizeDropDownChoice) return;
+                _sizeDropDownChoice = false;
+                ApplyTypedSize(_sizeCombo.SelectedItem.ToString());
+            };
+            _sizeCombo.PreviewKeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key == Key.Enter || e.Key == Key.Return)
+                {
+                    e.Handled = true;
+                    if (_sizeCombo.IsDropDownOpen) _sizeCombo.IsDropDownOpen = false;
+                    ApplyTypedSize(_sizeCombo.Text);
+                }
+                else if ((e.Key == Key.Up || e.Key == Key.Down) && !_sizeCombo.IsDropDownOpen)
+                    _sizeArrowNav = true;
             };
             typeTop.Children.Add(_sizeCombo);
 
@@ -135,33 +155,76 @@ namespace Marabook.View
             _boldBtn = FormatToggle("G", "Gras", true, false, false, false);
             _boldBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.ToggleBold(); _composed.Focus(); }
+                if (ComposedActive) { _composed.ToggleBold(); _composed.FocusSurface(); }
             };
             _italicBtn = FormatToggle("I", "Italique", false, true, false, false);
             _italicBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.ToggleItalic(); _composed.Focus(); }
+                if (ComposedActive) { _composed.ToggleItalic(); _composed.FocusSurface(); }
             };
             _underBtn = FormatToggle("S", "Souligné", false, false, true, false);
             _underBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.ToggleUnderline(); _composed.Focus(); }
+                if (ComposedActive) { _composed.ToggleUnderline(); _composed.FocusSurface(); }
             };
             _strikeBtn = FormatToggle("B", "Barré", false, false, false, true);
             _strikeBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.ToggleStrike(); _composed.Focus(); }
+                if (ComposedActive) { _composed.ToggleStrike(); _composed.FocusSurface(); }
             };
             // Icônes Flaticon (batch 28) — les lettres G/I/S/B laissent place
             // aux glyphes universels.
-            _boldBtn.Content = Icons.Make("bold", 12, Chrome.Ink);
-            _italicBtn.Content = Icons.Make("italic", 12, Chrome.Ink);
-            _underBtn.Content = Icons.Make("underline", 12, Chrome.Ink);
-            _strikeBtn.Content = Icons.Make("strikethrough", 12, Chrome.Ink);
+            DressToggle(_boldBtn, "bold", 12);
+            DressToggle(_italicBtn, "italic", 12);
+            DressToggle(_underBtn, "underline", 12);
+            DressToggle(_strikeBtn, "strikethrough", 12);
             typeBottom.Children.Add(_boldBtn);
             typeBottom.Children.Add(_italicBtn);
             typeBottom.Children.Add(_underBtn);
             typeBottom.Children.Add(_strikeBtn);
+            // Un trait de la hauteur des boutons, puis les deux nouveaux
+            // carrés (0.50.0) : petites majuscules (bascule) et le tiroir des
+            // caractères spéciaux.
+            typeBottom.Children.Add(VerticalRule());
+            _smallCapsBtn = new ToggleButton
+            {
+                ToolTip = "Petites majuscules",
+                Width = 26,
+                Height = 26,
+                Padding = new Thickness(0),
+                Margin = new Thickness(1, 0, 1, 0),
+                Focusable = false
+            };
+            DressToggle(_smallCapsBtn, "smallcaps", 14);
+            _smallCapsBtn.Click += delegate
+            {
+                if (ComposedActive) { _composed.ToggleSmallCaps(); _composed.FocusSurface(); }
+            };
+            typeBottom.Children.Add(_smallCapsBtn);
+            var specialBtn = new Button
+            {
+                ToolTip = "Caractères spéciaux",
+                Width = 26,
+                Height = 26,
+                Padding = new Thickness(0),
+                Margin = new Thickness(1, 0, 1, 0),
+                Focusable = false,
+                Content = Icons.Make("special-chars", 14, Chrome.Ink)
+            };
+            _specialDrawer = SpecialCharsDrawer.Build(specialBtn,
+                delegate
+                {
+                    var name = _composed != null && _item != null && ComposedActive ? _composed.GetCaretFontFamily() : null;
+                    return name == null ? null : FontCatalog.FamilyOf(name);
+                },
+                delegate(string text)
+                {
+                    if (!ComposedActive || _item == null) return;
+                    _composed.InsertSpecial(text);
+                    _composed.FocusSurface();
+                });
+            specialBtn.Click += delegate { _specialDrawer.IsOpen = !_specialDrawer.IsOpen; };
+            typeBottom.Children.Add(specialBtn);
             panel.Children.Add(typeRows);
             panel.Children.Add(VerticalRuleTall());
 
@@ -226,12 +289,12 @@ namespace Marabook.View
             _bulletBtn = IconToggle("list-bullets", "Liste à puces");
             _bulletBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.ApplyList("bullet"); _composed.Focus(); }
+                if (ComposedActive) { _composed.ApplyList("bullet"); _composed.FocusSurface(); }
             };
             _numberBtn = IconToggle("list-numbers-bold", "Liste numérotée");
             _numberBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.ApplyList("number"); _composed.Focus(); }
+                if (ComposedActive) { _composed.ApplyList("number"); _composed.FocusSurface(); }
             };
             _checkBtn = IconToggle("list-check", "Case à cocher");
             _checkBtn.Click += delegate
@@ -248,12 +311,12 @@ namespace Marabook.View
             indentAdd.Margin = new Thickness(7, 0, 1, 0);
             indentAdd.Click += delegate
             {
-                if (ComposedActive) { _composed.ApplyIndent(true); _composed.Focus(); }
+                if (ComposedActive) { _composed.ApplyIndent(true); _composed.FocusSurface(); }
             };
             var indentRemove = IconButton("space-remove", "Retirer le décalage");
             indentRemove.Click += delegate
             {
-                if (ComposedActive) { _composed.ApplyIndent(false); _composed.Focus(); }
+                if (ComposedActive) { _composed.ApplyIndent(false); _composed.FocusSurface(); }
             };
             alignBottom.Children.Add(indentAdd);
             alignBottom.Children.Add(indentRemove);
@@ -270,19 +333,7 @@ namespace Marabook.View
 
             restTop.Children.Add(PaletteButton("Couleur du texte", true));
             restTop.Children.Add(PaletteButton("Surlignage", false));
-
-            var imageBtn = new Button
-            {
-                ToolTip = "Insérer une image…",
-                Width = 26,
-                Height = 26,
-                Padding = new Thickness(0),
-                Margin = new Thickness(1, 0, 1, 0),
-                Focusable = false,
-                Content = Icons.Make("image-square-bold", 14, Chrome.Ink)
-            };
-            imageBtn.Click += delegate { InsertImage(); };
-            restBottom.Children.Add(imageBtn);
+            // L'insertion d'image a son onglet « Image » (0.50.0), en grand carré.
 
             var ruleBtn = new Button
             {
@@ -323,7 +374,7 @@ namespace Marabook.View
             };
             middleDotBtn.Click += delegate
             {
-                if (ComposedActive) { _composed.TypeText("·"); _composed.Focus(); }
+                if (ComposedActive) { _composed.TypeText("·"); _composed.FocusSurface(); }
             };
             restBottom.Children.Add(middleDotBtn);
 
@@ -415,7 +466,9 @@ namespace Marabook.View
                 Padding = new Thickness(0)
             };
             tabs.SetResourceReference(StyleProperty, "RibbonTabs");
+            _ribbonTabs = tabs; // l'onglet Image suit la sélection d'une image (0.50.0)
             tabs.Items.Add(new TabItem { Header = "Texte", Content = panel });
+            tabs.Items.Add(new TabItem { Header = "Image", Content = BuildImageTab() }); // 0.50.0
             tabs.Items.Add(new TabItem { Header = "Insertion", Content = BuildInsertTab() });
             tabs.Items.Add(new TabItem { Header = "Formatage", Content = BuildFormatTab() });
             tabs.Items.Add(new TabItem { Header = "Mise en page", Content = BuildPageSetupTab() });
@@ -634,7 +687,7 @@ namespace Marabook.View
             if (_item == null || !ComposedActive) return;
             _composed.ApplyTracking(delta);
             SyncTrackingBox();
-            _composed.Focus();
+            _composed.FocusSurface();
         }
 
         private void ApplyTrackingAbsolute(double value)
@@ -642,7 +695,7 @@ namespace Marabook.View
             if (_item == null || !ComposedActive) return;
             _composed.SetTracking(value);
             SyncTrackingBox();
-            _composed.Focus();
+            _composed.FocusSurface();
         }
 
         /// <summary>Combos et bascules du ruban : style, police, taille et
@@ -663,20 +716,39 @@ namespace Marabook.View
                 // Le suffixe « + » (22/09) : le paragraphe s'écarte de son style
                 // (alignement, décalage, alinéa posés à la main) — resélectionner
                 // le style efface ces écarts.
-                var overridden = ComposedView.HasOverrides(_composed.CaretParagraph);
+                var overridden = _composed.CaretHasOverrides();
                 foreach (ComboBoxItem candidate in _styleCombo.Items)
                 {
                     var label = StyleLabelOf(candidate);
                     var style = _styles.Find((string)candidate.Tag);
                     if (label != null && style != null) label.Text = style.Name + (candidate == match && overridden ? " +" : "");
                 }
-                _fontCombo.SelectedItem = fontFamily;
-                if (fontFamily != null && _fontCombo.SelectedItem == null)
-                    _fontCombo.Text = fontFamily;
-                _sizeCombo.SelectedItem = (int)Math.Round(sizePt);
-                if (_sizeCombo.SelectedItem == null)
-                    _sizeCombo.Text = sizePt.ToString("0.#",
-                        System.Globalization.CultureInfo.CurrentCulture);
+                // L'état de la SÉLECTION à trois valeurs (0.50.0) : une police
+                // ou une taille qui se mélangent vident leur combo, une
+                // bascule qui se mélange reste décochée mais porte un point
+                // jaune en haut à droite (« entre-deux »).
+                bool? boldState, italicState, underlineState, strikeState;
+                string selectionFont;
+                double? selectionSize;
+                bool mixedFont, mixedSize;
+                _composed.SelectionFormatState(out boldState, out italicState, out underlineState, out strikeState,
+                    out selectionFont, out selectionSize, out mixedFont, out mixedSize);
+                _lastAppliedFont = null; // le caret a bougé : le prochain choix s'applique
+                if (mixedFont) _fontCombo.ShowMixed();
+                else _fontCombo.Select(selectionFont ?? fontFamily);
+                if (mixedSize)
+                {
+                    _sizeCombo.SelectedItem = null;
+                    _sizeCombo.Text = "";
+                }
+                else
+                {
+                    var shownPt = selectionSize ?? sizePt;
+                    _sizeCombo.SelectedItem = (int)Math.Round(shownPt);
+                    if (_sizeCombo.SelectedItem == null)
+                        _sizeCombo.Text = shownPt.ToString("0.#",
+                            System.Globalization.CultureInfo.CurrentCulture);
+                }
 
                 // Les BASCULES aussi (gras/italique/…, alignements exclusifs,
                 // listes) — sans cette synchro, un ToggleButton cliqué gardait
@@ -685,10 +757,11 @@ namespace Marabook.View
                 string align, listKind;
                 _composed.SelectionFlags(out bold, out italic, out underline,
                     out strike, out align, out listKind);
-                _boldBtn.IsChecked = bold;
-                _italicBtn.IsChecked = italic;
-                _underBtn.IsChecked = underline;
-                _strikeBtn.IsChecked = strike;
+                SetToggleState(_boldBtn, boldState);
+                SetToggleState(_italicBtn, italicState);
+                SetToggleState(_underBtn, underlineState);
+                SetToggleState(_strikeBtn, strikeState);
+                if (_smallCapsBtn != null) SetToggleState(_smallCapsBtn, _composed.SmallCapsState());
                 _alignLeft.IsChecked = align == "left";
                 _alignCenter.IsChecked = align == "center";
                 _alignRight.IsChecked = align == "right";
@@ -1014,14 +1087,6 @@ namespace Marabook.View
             };
         }
 
-        private static List<string> ListFonts()
-        {
-            var names = new List<string>();
-            foreach (var family in Fonts.SystemFontFamilies) names.Add(family.Source);
-            names.Sort(StringComparer.CurrentCultureIgnoreCase);
-            return names;
-        }
-
         private ToggleButton FormatToggle(string label, string tooltip,
             bool bold, bool italic, bool underline, bool strike)
         {
@@ -1030,9 +1095,8 @@ namespace Marabook.View
                      : italic ? "text-italic-bold"
                      : underline ? "text-underline-bold"
                      : "text-strikethrough-bold";
-            return new ToggleButton
+            var toggle = new ToggleButton
             {
-                Content = Icons.Make(icon, 14, Chrome.Ink),
                 ToolTip = tooltip,
                 Width = 26,
                 Height = 26,
@@ -1040,6 +1104,47 @@ namespace Marabook.View
                 Margin = new Thickness(1, 0, 1, 0),
                 Focusable = false
             };
+            DressToggle(toggle, icon, 14);
+            return toggle;
+        }
+
+        // Le POINT JAUNE des bascules (0.50.0) : visible quand la sélection
+        // mélange l'attribut (gras ici, pas là) — le bouton reste décoché.
+        private readonly Dictionary<ToggleButton, System.Windows.Shapes.Ellipse> _mixedDots
+            = new Dictionary<ToggleButton, System.Windows.Shapes.Ellipse>();
+
+        /// <summary>Le contenu d'une bascule de format : l'icône, et le point
+        /// jaune en haut à droite, caché tant que l'état n'est pas mixte.</summary>
+        private void DressToggle(ToggleButton toggle, string icon, double size)
+        {
+            var grid = new Grid();
+            grid.Children.Add(Icons.Make(icon, size, Chrome.Ink));
+            var dot = new System.Windows.Shapes.Ellipse
+            {
+                Width = 6,
+                Height = 6,
+                Fill = new SolidColorBrush(Color.FromRgb(0xF2, 0xC2, 0x1B)),
+                Stroke = Chrome.PaperBg,
+                StrokeThickness = 1,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, -3, -3, 0),
+                Visibility = Visibility.Collapsed,
+                IsHitTestVisible = false
+            };
+            grid.Children.Add(dot);
+            toggle.Content = grid;
+            _mixedDots[toggle] = dot;
+        }
+
+        /// <summary>Coche pour « tout », décoche pour « rien », décoche ET
+        /// allume le point pour « mixte » (null).</summary>
+        private void SetToggleState(ToggleButton toggle, bool? state)
+        {
+            toggle.IsChecked = state == true;
+            System.Windows.Shapes.Ellipse dot;
+            if (_mixedDots.TryGetValue(toggle, out dot))
+                dot.Visibility = state.HasValue ? Visibility.Collapsed : Visibility.Visible;
         }
 
         /// <summary>Only the weights the current font really ships, with a
@@ -1105,7 +1210,7 @@ namespace Marabook.View
         {
             if (_item == null || !ComposedActive) return;
             _composed.ApplyWeight(weight);
-            _composed.Focus();
+            _composed.FocusSurface();
         }
 
         private ToggleButton AlignToggle(string align, string tooltip)
@@ -1123,7 +1228,7 @@ namespace Marabook.View
             };
             button.Click += delegate
             {
-                if (ComposedActive) { _composed.ApplyAlign(align); _composed.Focus(); }
+                if (ComposedActive) { _composed.ApplyAlign(align); _composed.FocusSurface(); }
             };
             return button;
         }
@@ -1327,7 +1432,7 @@ namespace Marabook.View
             if (!ComposedActive) return;
             if (isForeground) _composed.ApplyColor(hex);
             else _composed.ApplyHighlight(hex);
-            _composed.Focus();
+            _composed.FocusSurface();
         }
 
         private void AddColorEntry(ContextMenu menu, string label, string hex, bool isForeground)

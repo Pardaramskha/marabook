@@ -62,13 +62,30 @@ namespace Marabook.Print
                 FontSize = styles.Body.FontSize
             });
             flow.Blocks.Add(rule);
+            var noteStyle = styles.FootnoteStyle(); // « Notes de bas de page » (0.50.0)
             for (var i = 0; i < document.Footnotes.Count; i++)
             {
-                var note = new Paragraph { Margin = new Thickness(0, 0, 0, 2) };
-                note.Inlines.Add(new Run((i + 1) + ". " + document.Footnotes[i].Text)
+                var note = new Paragraph
                 {
-                    FontSize = Math.Max(8, styles.Body.FontSize * 0.85)
-                });
+                    Margin = new Thickness(0, 0, 0, 2),
+                    FontFamily = new FontFamily(noteStyle.FontFamily),
+                    FontSize = noteStyle.FontSize,
+                    FontWeight = noteStyle.Bold ? FontWeights.Bold : FontWeights.Normal,
+                    FontStyle = noteStyle.Italic ? FontStyles.Italic : FontStyles.Normal
+                };
+                note.Inlines.Add(new Run((i + 1) + ". "));
+                foreach (var run in document.Footnotes[i].Runs)
+                {
+                    if (run.IsLineBreak) { note.Inlines.Add(new LineBreak()); continue; }
+                    if (string.IsNullOrEmpty(run.Text)) continue;
+                    var inline = new Run(run.Text);
+                    if (run.Bold.HasValue) inline.FontWeight = run.Bold.Value ? FontWeights.Bold : FontWeights.Normal;
+                    if (run.Italic.HasValue) inline.FontStyle = run.Italic.Value ? FontStyles.Italic : FontStyles.Normal;
+                    if (run.Underline == true) inline.TextDecorations = TextDecorations.Underline;
+                    if (run.FontFamily != null) inline.FontFamily = new FontFamily(run.FontFamily);
+                    if (run.FontSize.HasValue) inline.FontSize = run.FontSize.Value;
+                    note.Inlines.Add(inline);
+                }
                 flow.Blocks.Add(note);
             }
         }

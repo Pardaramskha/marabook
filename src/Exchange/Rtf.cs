@@ -24,18 +24,20 @@ namespace Marabook.Exchange
                 range.Save(stream, System.Windows.DataFormats.Rtf);
         }
 
-        public static TextDocument Import(string path, StyleSheet projectStyles)
+        /// <summary>project (0.50.0) : les images du RTF (\pict) entrent dans
+        /// le magasin du projet, réencodées en PNG ; null = ignorées.</summary>
+        public static TextDocument Import(string path, StyleSheet projectStyles, Project project = null)
         {
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read))
-                return ImportStream(stream, projectStyles);
+                return ImportStream(stream, projectStyles, project);
         }
 
-        public static TextDocument ImportStream(Stream stream, StyleSheet projectStyles)
+        public static TextDocument ImportStream(Stream stream, StyleSheet projectStyles, Project project = null)
         {
             var flow = new FlowDocument();
             var range = new TextRange(flow.ContentStart, flow.ContentEnd);
             range.Load(stream, System.Windows.DataFormats.Rtf);
-            return FlowConverter.FromFlow(flow, projectStyles, null);
+            return FlowConverter.FromFlow(flow, projectStyles, null, project);
         }
     }
 }

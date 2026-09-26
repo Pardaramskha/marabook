@@ -56,8 +56,10 @@ namespace Marabook.View
         /// mode calme (13/09), comme les guides de marges.</summary>
         public static bool ShowWidowMarks = true;
 
+        /// <summary>hiddenNote : l'index (ordre des appels) de la note en cours
+        /// d'édition, qui n'est pas dessinée ; -1 = toutes (impression, PDF).</summary>
         public static void DrawPage(DrawingContext dc, Composition composition, int index,
-            bool screenExtras)
+            bool screenExtras, int hiddenNote = -1)
         {
             DefaultInk = screenExtras ? (Brush)Chrome.PaperInk : Brushes.Black;
             var setup = composition.Setup;
@@ -76,9 +78,13 @@ namespace Marabook.View
                     new Rect(left, top, Math.Max(4, contentWidth),
                         Math.Max(4, height - top - bottom)));
 
+            // Les images de la page (0.50.0), sous le texte : le texte coule
+            // autour, jamais dessus — sauf placement libre voulu tel.
+            foreach (var image in page.Images)
+                DrawImage(dc, image, composition, screenExtras);
+
             foreach (var placed in page.Lines)
-                DrawLine(dc, composition.Paragraphs[placed.ParagraphIndex].Lines[placed.LineIndex],
-                    left, placed.Y, screenExtras);
+                DrawLine(dc, placed.Line, left, placed.Y, screenExtras);
 
             // Bottom-of-page footnotes: separator rule, then the note lines.
             if (page.NoteLines.Count > 0)
@@ -88,8 +94,12 @@ namespace Marabook.View
                         left, page.NotesRuleY,
                         Math.Min(160, Math.Max(40, contentWidth / 3)), 0.8));
                 foreach (var placed in page.NoteLines)
-                    DrawLine(dc, composition.NoteParagraphs[placed.ParagraphIndex].Lines[placed.LineIndex],
-                        left, placed.Y, screenExtras);
+                {
+                    // La note en cours d'édition (0.50.0) n'est pas dessinée :
+                    // le champ posé dessus EST la note, pas un calque par-dessus.
+                    if (placed.ParagraphIndex == hiddenNote) continue;
+                    DrawLine(dc, placed.Line, left, placed.Y, screenExtras);
+                }
             }
 
             if (setup.LineNumbers)
@@ -98,7 +108,7 @@ namespace Marabook.View
                 foreach (var placed in page.Lines)
                 {
                     number++;
-                    var line = composition.Paragraphs[placed.ParagraphIndex].Lines[placed.LineIndex];
+                    var line = placed.Line;
                     var label = new FormattedText(number.ToString(),
                         System.Globalization.CultureInfo.CurrentCulture,
                         FlowDirection.LeftToRight, new Typeface("Segoe UI"), 9,
@@ -158,10 +168,15 @@ namespace Marabook.View
             // annotée — visible d'un coup d'œil en Composition.
             if (screenExtras)
             {
-                var markerBrush = new SolidColorBrush(Color.FromRgb(0xC9, 0xA2, 0x27));
+                var markerBrush = AnnotationMarkerBrush;
+                // Une image annotée (0.50.0) : sa pastille à la hauteur de son bord haut.
+                foreach (var image in page.Images)
+                    if (IsAnnotated(image.Run, composition))
+                        dc.DrawRoundedRectangle(markerBrush, null, new Rect(
+                            Math.Min(width - 8, left + contentWidth + 10), image.Rect.Y + 2, 5, 8), 2.5, 2.5);
                 foreach (var placed in page.Lines)
                 {
-                    var line = composition.Paragraphs[placed.ParagraphIndex].Lines[placed.LineIndex];
+                    var line = placed.Line;
                     var annotated = false;
                     foreach (var piece in line.Pieces)
                         if (ReferenceEquals(piece.Highlight, Chrome.AnnotationTint))
@@ -183,8 +198,7 @@ namespace Marabook.View
                     List<Correction.Finding> findings;
                     if (!composition.ScreenFindings.TryGetValue(
                         placed.ParagraphIndex, out findings)) continue;
-                    var line = composition.Paragraphs[placed.ParagraphIndex]
-                        .Lines[placed.LineIndex];
+                    var line = placed.Line;
                     foreach (var finding in findings)
                     {
                         if (finding.End <= line.Start || finding.Start >= line.End)
@@ -214,6 +228,46 @@ namespace Marabook.View
                         Brushes.White, 1.0);
                     dc.DrawText(glyph, new Point(Math.Max(2, left - 22) + 4, mark.Y + 1));
                 }
+        }
+
+        private static readonly Brush AnnotationMarkerBrush = FrozenBrush(Color.FromRgb(0xC9, 0xA2, 0x27));
+        private static readonly Pen PlaceholderPen = FrozenPen(Color.FromRgb(0xA0, 0xA6, 0xB4));
+
+        /// <summary>Le run porte une annotation vivante (non résolue), et les
+        /// annotations sont affichées.</summary>
+        private static bool IsAnnotated(Marabook.Model.TextRun run, Composition composition)
+        {
+            if (run == null || run.AnnotationId == null || !Settings.AppSettings.ShowAnnotations
+                || composition.Source == null) return false;
+            var annotation = composition.Source.FindAnnotation(run.AnnotationId);
+            return annotation != null && !annotation.Resolved;
+        }
+
+        /// <summary>Une image posée (0.50.0) : la bitmap dans son rectangle ;
+        /// illisible, un cadre gris et sa légende ; annotée (écran), un liseré
+        /// or — la teinte des passages annotés, en cadre pour ne pas voiler
+        /// l'image.</summary>
+        private static void DrawImage(DrawingContext dc, PlacedImage image, Composition composition, bool screenExtras)
+        {
+            if (image.Source != null)
+                dc.DrawImage(image.Source, image.Rect);
+            else
+            {
+                dc.DrawRectangle(null, PlaceholderPen, new Rect(
+                    image.Rect.X + 0.5, image.Rect.Y + 0.5, Math.Max(1, image.Rect.Width - 1), Math.Max(1, image.Rect.Height - 1)));
+                var label = new FormattedText("[image introuvable]",
+                    System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                    MarksTypeface, 10, screenExtras ? (Brush)Chrome.SoftText : Brushes.Gray, 1.0);
+                if (label.Width < image.Rect.Width - 4 && label.Height < image.Rect.Height - 4)
+                    dc.DrawText(label, new Point(image.Rect.X + (image.Rect.Width - label.Width) / 2,
+                        image.Rect.Y + (image.Rect.Height - label.Height) / 2));
+            }
+            if (screenExtras && IsAnnotated(image.Run, composition))
+            {
+                var pen = new Pen(AnnotationMarkerBrush, 2.5);
+                dc.DrawRectangle(null, pen, new Rect(
+                    image.Rect.X - 1.25, image.Rect.Y - 1.25, image.Rect.Width + 2.5, image.Rect.Height + 2.5));
+            }
         }
 
         /// <summary>One header/footer line: tokens expanded, aligned on the
@@ -480,11 +534,12 @@ namespace Marabook.View
                         piece.Rect.Width, piece.Rect.Height));
                     continue;
                 }
-                if (piece.Image != null)
+                if (piece.IsAnchor)
                 {
-                    dc.DrawImage(piece.Image, new Rect(
-                        left + piece.Rect.X, top + piece.Rect.Y,
-                        piece.Rect.Width, piece.Rect.Height));
+                    // L'ancre d'une image (0.50.0) : rien, sauf avec les
+                    // caractères d'impression — une petite ancre, à l'écran.
+                    if (screenExtras && ShowMarks)
+                        DrawMark(dc, "⚓", left + piece.Origin.X - 1, baseline + piece.Origin.Y, lastSize * 0.8);
                     continue;
                 }
                 var x = left + piece.Origin.X;
