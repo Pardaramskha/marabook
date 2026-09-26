@@ -315,10 +315,17 @@ namespace Marabook.Print
             if (_cropMarks) EmitCropMarks(ops);
             if (_bleedGuides) EmitBleedGuides(ops);
 
+            // Les images de la page (0.50.0), sous le texte.
+            foreach (var image in page.Images)
+            {
+                if (image.Source == null) continue;
+                var entry = RegisterImage(image.Source, image.Rect.Width);
+                if (entry != null)
+                    EmitImage(ops, entry, image.Rect.X, image.Rect.Y, image.Rect.Width, image.Rect.Height);
+            }
+
             foreach (var placed in page.Lines)
-                EmitLine(ops,
-                    _composition.Paragraphs[placed.ParagraphIndex].Lines[placed.LineIndex],
-                    left, placed.Y);
+                EmitLine(ops, placed.Line, left, placed.Y);
 
             if (page.NoteLines.Count > 0)
             {
@@ -328,9 +335,7 @@ namespace Marabook.Print
                     EmitRect(ops, left, page.NotesRuleY, ruleWidth, 0.8, Colors.Black);
                 }
                 foreach (var placed in page.NoteLines)
-                    EmitLine(ops,
-                        _composition.NoteParagraphs[placed.ParagraphIndex].Lines[placed.LineIndex],
-                        left, placed.Y);
+                    EmitLine(ops, placed.Line, left, placed.Y);
             }
 
             if (setup.LineNumbers)
@@ -340,7 +345,7 @@ namespace Marabook.Print
                 foreach (var placed in page.Lines)
                 {
                     number++;
-                    var line = _composition.Paragraphs[placed.ParagraphIndex].Lines[placed.LineIndex];
+                    var line = placed.Line;
                     var label = new FormattedText(
                         number.ToString(), CultureInfo.CurrentCulture,
                         FlowDirection.LeftToRight, typeface, 9, Brushes.Gray, 1.0);
@@ -511,14 +516,7 @@ namespace Marabook.Print
                         piece.Rect.Width, piece.Rect.Height, Colors.Black);
                     continue;
                 }
-                if (piece.Image != null)
-                {
-                    var entry = RegisterImage(piece.Image, piece.Rect.Width);
-                    if (entry != null)
-                        EmitImage(ops, entry, leftPx + piece.Rect.X, topPx + piece.Rect.Y,
-                            piece.Rect.Width, piece.Rect.Height);
-                    continue;
-                }
+                if (piece.IsAnchor) continue; // l'ancre d'une image : rien sur le papier
                 if (piece.Glyphs != null)
                 {
                     EmitGlyphs(ops, piece, leftPx, baseline);

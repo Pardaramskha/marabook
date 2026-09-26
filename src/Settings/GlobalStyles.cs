@@ -46,7 +46,13 @@ namespace Marabook.Settings
                 project.GlobalStylesStamp = "";
             }
             var settings = AppSettings.GlobalStyles;
-            var changed = false;
+            // Le style des notes de bas de page (0.50.0) existe des deux côtés
+            // avant toute comparaison : les réglages d'avant ne l'ont pas, et
+            // sans lui ici la règle du « style disparu » retirerait au projet
+            // celui que le chargement vient de lui donner.
+            settings.EnsureFootnoteStyle();
+            var changed = project.Styles.Find(StyleSheet.FootnoteId).Id != StyleSheet.FootnoteId;
+            project.Styles.EnsureFootnoteStyle();
             if (project.GlobalStylesStamp.Length == 0)
             {
                 // Première rencontre : les styles globaux du projet qui ne sont
@@ -88,7 +94,7 @@ namespace Marabook.Settings
                 if (Persist) AppSettings.Save();
                 return changed;
             }
-            if (project.GlobalStylesStamp == AppSettings.GlobalStylesStamp) return false;
+            if (project.GlobalStylesStamp == AppSettings.GlobalStylesStamp) return changed;
             // Les réglages ont bougé depuis : le projet les reprend.
             foreach (var global in settings.Styles)
             {
@@ -101,6 +107,7 @@ namespace Marabook.Settings
             var stale = new List<ParagraphStyle>();
             foreach (var style in project.Styles.Styles)
                 if (style.IsGlobal && Find(settings, style.Id) == null && style.Id != "body" && style.Id != Model.ExtraPages.StyleId
+                    && style.Id != StyleSheet.FootnoteId
                     && !InUse(project, style.Id)) stale.Add(style);
             foreach (var style in stale) { project.Styles.Styles.Remove(style); changed = true; }
             project.GlobalStylesStamp = AppSettings.GlobalStylesStamp;

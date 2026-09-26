@@ -130,6 +130,10 @@ namespace Marabook.Tests
             t.Check(document.Paragraphs[0].Runs.Count == 3 && document.Paragraphs[0].Runs[1].ImageId != null,
                 "l'image est à sa place, entre « Avant » et « après »");
             t.Equal("schéma", document.Paragraphs[2].ToPlainText(), "l'EMF est laissé de côté, son texte reste");
+            // Le placement (0.50.0) : nom de l'entrée et taille du dessin (914 400 EMU = 96 px).
+            var layout = runs.Count > 0 ? runs[0].Image : null;
+            t.Check(layout != null && layout.Name != null && layout.Name.EndsWith(".png") && Math.Abs(layout.Width - 96) < 0.01
+                && Math.Abs(layout.Height - 96) < 0.01 && layout.IsAttached, "docx : le run image porte le nom du fichier et la taille du wp:extent");
             t.Equal(0, document.Paragraphs[3].Runs.Count, "image externe et relation inconnue : rien");
 
             // Sans projet : comme avant, aucun run image, pas de plantage.
@@ -187,6 +191,8 @@ namespace Marabook.Tests
             t.Check(document.Paragraphs.Count == 3 && document.Paragraphs[1].Runs.Count == 1 && document.Paragraphs[1].Runs[0].ImageId != null,
                 "le cadre ancré à la page fait son propre paragraphe");
             t.Equal("Lien externe.", document.Paragraphs[2].ToPlainText(), "une image liée en http est ignorée");
+            t.Check(runs.Count > 0 && runs[0].Image != null && runs[0].Image.Name != null && runs[0].Image.Name.Length > 0,
+                "odt : le run image porte le nom du fichier (" + (runs.Count > 0 && runs[0].Image != null ? runs[0].Image.Name : "-") + ")");
             t.Equal(0, ImageRuns(Exchange.Odt.Import(path, StyleSheet.CreateDefault())).Count, "sans projet : aucune image, comme avant");
         }
 

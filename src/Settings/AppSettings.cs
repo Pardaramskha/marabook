@@ -144,6 +144,7 @@ namespace Marabook.Settings
         public static bool WhitePaperInDark; // keep white pages under the dark theme
         public static bool StatsExpanded;    // « Statistiques » accordion of the inspector
         public static bool ShowAnnotations = true; // teintes + bulles de révision
+        public static bool ImageGrid;               // grille de placement des images (0.50.0)
         // Les [[liens]] du texte (18/09) : marques visibles et texte du lien
         // en évidence, ou marques masquées (défaut). Jamais persisté : chaque
         // session repart cachée, l'insertion d'un lien les montre.
@@ -152,6 +153,23 @@ namespace Marabook.Settings
         public static bool ProofEnabled = true; // vérification continue (Révision)
         public static int SnapshotCap = 20;        // instantanés gardés par item (b38, 5–100)
         public static bool DailySnapshot = true;   // capture à la première modification du jour (b38)
+        // L'auto-sélecteur de mot (0.50.0) : un cliquer-glisser qui déborde
+        // du mot de départ sélectionne des mots entiers, façon Word.
+        public static bool AutoSelectWord = true;
+        // La vitesse du défilement à la molette (0.50.0) : un multiplicateur
+        // du pas de Windows, 0,25 à 3 — Préférences › Personnalisation.
+        public static double ScrollSpeed = 1;
+        // Les derniers caractères spéciaux insérés (tiroir du ruban, 0.50.0).
+        public static List<string> RecentSpecialChars = new List<string>();
+
+        public static void NoteSpecialChar(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            RecentSpecialChars.Remove(text);
+            RecentSpecialChars.Insert(0, text);
+            while (RecentSpecialChars.Count > 12) RecentSpecialChars.RemoveAt(RecentSpecialChars.Count - 1);
+            Save();
+        }
         // La grammaire (batch 29) : interrupteur maître de Grammalecte, et
         // les choix d'options de l'utilisateur PAR-DESSUS la politique de
         // recouvrement du lot C (clé = nom d'option Grammalecte). Une entrée
@@ -201,6 +219,65 @@ namespace Marabook.Settings
         // projets — le pendant de Project.LearnedWords.
         public static List<Model.LexiconEntry> Lexicon = new List<Model.LexiconEntry>();
         public static List<string> RecentFiles = new List<string>(); // last 5 .plot files
+        // Les dernières polices employées (0.50.0) : la tête de liste du
+        // sélecteur de police, 5 au plus, la plus récente d'abord.
+        public static List<string> RecentFonts = new List<string>();
+
+        // Le catalogue de polices (0.50.0) : les FAVORITES (un doublon en tête
+        // de chaque sélecteur) et les EXCLUES (retirées des sélecteurs) —
+        // réglages de l'utilisateur, conservés entre les projets.
+        public static List<string> FavoriteFonts = new List<string>();
+        public static List<string> ExcludedFonts = new List<string>();
+
+        /// <summary>Favorites ou exclusions changées : les sélecteurs se rebâtissent.</summary>
+        public static event Action FontPrefsChanged;
+
+        private static bool ContainsFont(List<string> list, string name)
+        {
+            foreach (var existing in list)
+                if (string.Equals(existing, name, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        public static bool IsFavoriteFont(string name) { return name != null && ContainsFont(FavoriteFonts, name); }
+        public static bool IsExcludedFont(string name) { return name != null && ContainsFont(ExcludedFonts, name); }
+
+        /// <summary>Ajoute ou retire une police des favorites ; rend le nouvel état.</summary>
+        public static bool ToggleFavoriteFont(string name)
+        {
+            return ToggleFont(FavoriteFonts, name);
+        }
+
+        /// <summary>Exclut ou réintègre une police ; rend le nouvel état (exclue ?).</summary>
+        public static bool ToggleExcludedFont(string name)
+        {
+            return ToggleFont(ExcludedFonts, name);
+        }
+
+        private static bool ToggleFont(List<string> list, string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            var present = ContainsFont(list, name);
+            if (present)
+                list.RemoveAll(delegate(string existing) { return string.Equals(existing, name, StringComparison.OrdinalIgnoreCase); });
+            else list.Add(name);
+            Save();
+            var handler = FontPrefsChanged;
+            if (handler != null) handler();
+            return !present;
+        }
+
+        public static void NoteRecentFont(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+            RecentFonts.RemoveAll(delegate(string existing)
+            {
+                return string.Equals(existing, name, StringComparison.OrdinalIgnoreCase);
+            });
+            RecentFonts.Insert(0, name);
+            while (RecentFonts.Count > 5) RecentFonts.RemoveAt(RecentFonts.Count - 1);
+            Save();
+        }
         // Les succès (12/09/2026) : GLOBAUX à l'utilisateur, id → date
         // d'obtention « yyyy-MM-dd HH:mm » ; plus les compteurs que le projet
         // ne porte pas (suppressions, jours d'usage consécutifs).
@@ -248,6 +325,20 @@ namespace Marabook.Settings
             RecentFiles.Insert(0, path);
             while (RecentFiles.Count > 5)
                 RecentFiles.RemoveAt(RecentFiles.Count - 1);
+        }
+
+        /// <summary>Une liste de noms de polices du fichier (sans doublon ni vide).</summary>
+        private static List<string> ReadFontList(Dictionary<string, object> root, string key)
+        {
+            var result = new List<string>();
+            var list = Json.AsList(Json.Field(root, key));
+            if (list == null) return result;
+            foreach (var entry in list)
+            {
+                var name = Json.AsString(entry);
+                if (!string.IsNullOrEmpty(name) && !ContainsFont(result, name)) result.Add(name);
+            }
+            return result;
         }
 
         /// <summary>Les tests : un autre fichier que celui de l'utilisateur.</summary>
@@ -355,6 +446,7 @@ namespace Marabook.Settings
                 AccentColor = Json.AsString(Json.Field(root, "accentColor"));
                 var globalStyles = Json.Field(root, "globalStyles");
                 GlobalStyles = globalStyles != null ? Persistence.PlotFile.ReadStylesNode(globalStyles) : null;
+                if (GlobalStyles != null) GlobalStyles.EnsureFootnoteStyle(); // réglages d'avant la 0.50.0
                 GlobalStylesStamp = Json.AsString(Json.Field(root, "globalStylesStamp")) ?? "";
                 DefaultAuthor = Json.AsString(Json.Field(root, "defaultAuthor")) ?? "";
                 DefaultPublisher = Json.AsString(Json.Field(root, "defaultPublisher")) ?? "";
@@ -363,12 +455,26 @@ namespace Marabook.Settings
                 WhitePaperInDark = Json.AsBool(Json.Field(root, "whitePaperInDark"), false);
                 StatsExpanded = Json.AsBool(Json.Field(root, "statsExpanded"), false);
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
+                ImageGrid = Json.AsBool(Json.Field(root, "imageGrid"), false);
                 LexiconPinned = Json.AsBool(Json.Field(root, "lexiconPinned"), false);
                 ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
                 SnapshotCap = (int)Json.AsDouble(Json.Field(root, "snapshotCap"), 20);
                 if (SnapshotCap < 5) SnapshotCap = 5;
                 if (SnapshotCap > 100) SnapshotCap = 100;
                 DailySnapshot = Json.AsBool(Json.Field(root, "dailySnapshot"), true);
+                AutoSelectWord = Json.AsBool(Json.Field(root, "autoSelectWord"), true);
+                ScrollSpeed = Json.AsDouble(Json.Field(root, "scrollSpeed"), 1);
+                if (ScrollSpeed < 0.25 || ScrollSpeed > 3) ScrollSpeed = 1;
+                var specials = Json.AsList(Json.Field(root, "recentSpecialChars"));
+                if (specials != null)
+                {
+                    RecentSpecialChars = new List<string>();
+                    foreach (var entry in specials)
+                    {
+                        var text = Json.AsString(entry);
+                        if (!string.IsNullOrEmpty(text) && RecentSpecialChars.Count < 12) RecentSpecialChars.Add(text);
+                    }
+                }
                 GrammarEnabled = Json.AsBool(Json.Field(root, "grammarEnabled"), true);
                 SpellEnabled = Json.AsBool(Json.Field(root, "spellEnabled"), true);
                 TypographyEnabled = Json.AsBool(Json.Field(root, "typographyEnabled"), false);
@@ -413,6 +519,18 @@ namespace Marabook.Settings
                         if (entry is string) words.Add((string)entry);
                     Model.LexiconEntry.MergeWords(Lexicon, words);
                 }
+                var recentFonts = Json.AsList(Json.Field(root, "recentFonts")); // 0.50.0
+                if (recentFonts != null)
+                {
+                    RecentFonts = new List<string>();
+                    foreach (var entry in recentFonts)
+                    {
+                        var name = Json.AsString(entry);
+                        if (!string.IsNullOrEmpty(name) && RecentFonts.Count < 5) RecentFonts.Add(name);
+                    }
+                }
+                FavoriteFonts = ReadFontList(root, "favoriteFonts"); // 0.50.0, catalogue de polices
+                ExcludedFonts = ReadFontList(root, "excludedFonts");
                 var recents = Json.AsList(Json.Field(root, "recentFiles"));
                 if (recents != null)
                 {
@@ -474,10 +592,14 @@ namespace Marabook.Settings
                 root["whitePaperInDark"] = WhitePaperInDark;
                 root["statsExpanded"] = StatsExpanded;
                 root["showAnnotations"] = ShowAnnotations;
+                root["imageGrid"] = ImageGrid;
                 root["lexiconPinned"] = LexiconPinned;
                 root["proofEnabled"] = ProofEnabled;
                 root["snapshotCap"] = SnapshotCap;
                 root["dailySnapshot"] = DailySnapshot;
+                root["autoSelectWord"] = AutoSelectWord;
+                if (Math.Abs(ScrollSpeed - 1) > 0.001) root["scrollSpeed"] = ScrollSpeed;
+                if (RecentSpecialChars.Count > 0) root["recentSpecialChars"] = new List<object>(RecentSpecialChars.ToArray());
                 root["grammarEnabled"] = GrammarEnabled;
                 root["spellEnabled"] = SpellEnabled;
                 root["typographyEnabled"] = TypographyEnabled;
@@ -503,6 +625,9 @@ namespace Marabook.Settings
                 if (Lexicon.Count > 0)
                     root["lexicon"] = Model.LexiconEntry.ToJsonList(Lexicon);
                 root["recentFiles"] = new List<object>(RecentFiles.ToArray());
+                if (RecentFonts.Count > 0) root["recentFonts"] = new List<object>(RecentFonts.ToArray());
+                if (FavoriteFonts.Count > 0) root["favoriteFonts"] = new List<object>(FavoriteFonts.ToArray());
+                if (ExcludedFonts.Count > 0) root["excludedFonts"] = new List<object>(ExcludedFonts.ToArray());
                 if (Achievements.Count > 0)
                     root["achievements"] = new Dictionary<string, object>(ToObjectDict(Achievements));
                 if (PermanentlyDeleted > 0) root["permanentlyDeleted"] = PermanentlyDeleted;

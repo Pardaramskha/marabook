@@ -25,7 +25,8 @@ namespace Marabook.View
         private RichTextBox _focusedZone;
         private readonly List<RichTextBox> _zones = new List<RichTextBox>();
         private bool _loading;
-        private ComboBox _sizeCombo, _fontCombo; // barre d'outils des zones
+        private ComboBox _sizeCombo;   // barre d'outils des zones
+        private FontPicker _fontCombo; // le sélecteur partagé (0.50.0)
         private bool _syncingBar;
 
         public event Action Changed;
@@ -270,22 +271,18 @@ namespace Marabook.View
             bar.Children.Add(_sizeCombo);
 
             // Vrai sélecteur de polices système (comme le ruban de l'éditeur).
-            _fontCombo = new ComboBox
+            _fontCombo = new FontPicker
             {
                 Width = 150,
                 Margin = new Thickness(6, 0, 0, 0),
-                ToolTip = "Police de la sélection"
+                ToolTip = "Police de la sélection — tapez un nom puis Entrée, ou parcourez aux flèches"
             };
-            var families = new List<string>();
-            foreach (var family in Fonts.SystemFontFamilies) families.Add(family.Source);
-            families.Sort(StringComparer.CurrentCultureIgnoreCase);
-            foreach (var family in families) _fontCombo.Items.Add(family);
-            _fontCombo.SelectionChanged += delegate
+            _fontCombo.FontChosen += delegate(string name, bool preview)
             {
-                if (_syncingBar || _focusedZone == null || _fontCombo.SelectedItem == null) return;
-                _focusedZone.Selection.ApplyPropertyValue(TextElement.FontFamilyProperty,
-                    new FontFamily((string)_fontCombo.SelectedItem));
+                if (_syncingBar || _focusedZone == null || string.IsNullOrEmpty(name)) return;
+                _focusedZone.Selection.ApplyPropertyValue(TextElement.FontFamilyProperty, FontCatalog.FamilyOf(name));
                 ZoneEdited(_focusedZone);
+                if (!preview) _focusedZone.Focus();
             };
             bar.Children.Add(_fontCombo);
 
@@ -544,7 +541,7 @@ namespace Marabook.View
                 else _sizeCombo.SelectedIndex = -1;
                 var family = _focusedZone.Selection
                     .GetPropertyValue(TextElement.FontFamilyProperty) as FontFamily;
-                _fontCombo.SelectedItem = family == null ? null : (object)family.Source;
+                if (family == null) _fontCombo.ShowMixed(); else _fontCombo.Select(family.Source);
             }
             finally
             {

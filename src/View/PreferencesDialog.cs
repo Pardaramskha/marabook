@@ -61,19 +61,24 @@ namespace Marabook.View
             Owner = owner;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             // Taille UNIQUE pour tous les onglets (b43) — fini la fenêtre qui
-            // change de taille à chaque onglet.
-            Width = 760;
-            Height = 660;
+            // change de taille à chaque onglet. Élargie (0.50.0 : huit onglets)
+            // et bornée à l'écran : sur un petit écran la fenêtre rétrécit et
+            // les onglets se replient sur deux rangées (style PrefsTabs).
+            var area = SystemParameters.WorkArea;
+            Width = Math.Min(900, Math.Max(520, area.Width - 40));
+            Height = Math.Min(660, Math.Max(420, area.Height - 40));
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
             Background = Chrome.RaisedBg;
 
             var tabs = new TabControl { Margin = new Thickness(10) };
+            tabs.SetResourceReference(StyleProperty, "PrefsTabs");
             _swatches = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Left };
             tabs.Items.Add(Tab("Personnalisation", BuildPersonalizationTab()));
             tabs.Items.Add(Tab("Édition", BuildEditingTab()));
             tabs.Items.Add(Tab("Correction", BuildProofingTab()));
             tabs.Items.Add(Tab("Styles globaux", BuildGlobalStylesTab()));
+            tabs.Items.Add(Tab("Catalogue de polices", new FontCatalogTab())); // 0.50.0
             tabs.Items.Add(Tab("Auteur", BuildAuthorTab()));
             tabs.Items.Add(Tab("Raccourcis", BuildShortcutsTab()));
             tabs.Items.Add(Tab("DLC", BuildModulesTab()));
@@ -354,8 +359,31 @@ namespace Marabook.View
             // l'écran « Dictionnaire » de la Pile tient ce rôle, avec les
             // natures grammaticales et les formes acceptées.
 
+            // — La sélection à la souris (0.50.0).
+            panel.Children.Add(Caption("Sélection"));
+            var autoWord = new CheckBox
+            {
+                Content = "Auto-sélecteur de mot",
+                IsChecked = AppSettings.AutoSelectWord,
+                Margin = new Thickness(0, 6, 0, 0)
+            };
+            autoWord.Click += delegate
+            {
+                AppSettings.AutoSelectWord = autoWord.IsChecked == true;
+                AppSettings.Save();
+            };
+            panel.Children.Add(autoWord);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Complète la sélection d'un mot lorsque vous n'en sélectionnez qu'une partie",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(22, 4, 0, 0)
+            });
+
             // — Les versions d'écrits (batch 38).
-            panel.Children.Add(Caption("Versions d'écrits"));
+            panel.Children.Add(Caption("Versions d'écrits", 16));
             var daily = new CheckBox
             {
                 Content = "Instantané automatique à la première modification du jour",
@@ -526,6 +554,73 @@ namespace Marabook.View
             reset.Click += delegate { SetAccent(null); };
             custom.Children.Add(reset);
             panel.Children.Add(custom);
+
+            // La vitesse du défilement (0.50.0) : un curseur, et une mini-
+            // fenêtre qui défile à sa droite pour l'essayer tout de suite —
+            // elle passe par le même défilement fluide que le reste.
+            panel.Children.Add(Caption("Défilement", 18));
+            var speedRow = new DockPanel { Margin = new Thickness(0, 6, 0, 0), LastChildFill = true };
+            var preview = new ScrollViewer
+            {
+                Width = 210,
+                Height = 100,
+                Margin = new Thickness(16, 0, 0, 0),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Background = Chrome.PaperBg,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1),
+                ToolTip = "Essayez la molette ici"
+            };
+            var previewLines = new StackPanel { Margin = new Thickness(10, 6, 10, 6) };
+            for (var i = 1; i <= 40; i++)
+                previewLines.Children.Add(new TextBlock
+                {
+                    Text = "Ligne " + i + " — la molette fait défiler ce texte à la vitesse choisie.",
+                    Foreground = Chrome.PaperInk,
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap
+                });
+            preview.Content = previewLines;
+            DockPanel.SetDock(preview, Dock.Right);
+            speedRow.Children.Add(preview);
+            var speedColumn = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var speedLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
+            var speed = new Slider
+            {
+                Minimum = 0.25,
+                Maximum = 3,
+                Value = AppSettings.ScrollSpeed,
+                TickFrequency = 0.25,
+                IsSnapToTickEnabled = true,
+                Width = 260,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                ToolTip = "Vitesse du défilement à la molette : ×0,25 (lent) à ×3 (rapide)"
+            };
+            Action refreshSpeedLabel = delegate
+            {
+                speedLabel.Text = "Vitesse : ×" + AppSettings.ScrollSpeed.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture)
+                    + (Math.Abs(AppSettings.ScrollSpeed - 1) < 0.01 ? " (le pas de Windows)" : "");
+            };
+            speed.ValueChanged += delegate
+            {
+                AppSettings.ScrollSpeed = Math.Round(speed.Value * 4) / 4;
+                refreshSpeedLabel();
+                AppSettings.Save();
+            };
+            refreshSpeedLabel();
+            speedColumn.Children.Add(speed);
+            speedColumn.Children.Add(speedLabel);
+            speedColumn.Children.Add(new TextBlock
+            {
+                Text = "Le défilement à la molette est fluide partout ; ce réglage en change le pas.",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+            speedRow.Children.Add(speedColumn);
+            panel.Children.Add(speedRow);
 
             panel.Children.Add(Caption("Mode sombre", 18));
             // Le commutateur (22/09) : le raccourci Ctrl+Maj+L et le menu

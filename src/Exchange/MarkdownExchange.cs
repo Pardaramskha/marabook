@@ -88,7 +88,17 @@ namespace Marabook.Exchange
 
         public static TextDocument Import(string markdown)
         {
+            return Import(markdown, null, null);
+        }
+
+        /// <summary>baseDirectory + project (0.50.0) : les images « ![alt](chemin) »
+        /// dont le fichier existe (chemin relatif au .md, ou absolu) entrent
+        /// dans le magasin du projet, à leur place dans le texte ; sans projet
+        /// ou fichier introuvable, l'alt reste en texte.</summary>
+        public static TextDocument Import(string markdown, string baseDirectory, Project project)
+        {
             var document = new TextDocument();
+            var images = new ImageSource { BaseDirectory = baseDirectory, Project = project };
             var noteIds = new Dictionary<string, string>(); // "1" -> footnote id
             var lines = (markdown ?? "").Replace("\r\n", "\n").Split('\n');
 
@@ -144,7 +154,7 @@ namespace Marabook.Exchange
                     document.Paragraphs.Add(new TextParagraph());
                     continue;
                 }
-                ParseInline(line, paragraph, noteIds);
+                ParseInline(line, paragraph, noteIds, images);
                 document.Paragraphs.Add(paragraph);
             }
 
@@ -158,8 +168,40 @@ namespace Marabook.Exchange
 
         /// <summary>Single-pass inline parser: **, *, ~~ toggles and [^n] refs.
         /// Unclosed markers fall back to literal text at end of line.</summary>
+        /// <summary>D'où viennent les images d'un Markdown importé (0.50.0).</summary>
+        private sealed class ImageSource
+        {
+            public string BaseDirectory;
+            public Project Project;
+
+            /// <summary>Le run image d'un « ![alt](chemin) », ou null (pas de
+            /// projet, fichier absent, format que WPF ne lit pas, plus de 20 Mo).</summary>
+            public TextRun Load(string target, string alt)
+            {
+                if (Project == null || string.IsNullOrEmpty(target)) return null;
+                try
+                {
+                    var path = target.Trim();
+                    var space = path.IndexOf(' ');
+                    if (space > 0 && path.IndexOf('"', space) > 0) path = path.Substring(0, space); // titre « (chemin "titre") »
+                    if (path.Contains("://")) return null;
+                    path = Uri.UnescapeDataString(path).Replace('/', System.IO.Path.DirectorySeparatorChar);
+                    if (!System.IO.Path.IsPathRooted(path) && !string.IsNullOrEmpty(BaseDirectory))
+                        path = System.IO.Path.Combine(BaseDirectory, path);
+                    if (!System.IO.File.Exists(path)) return null;
+                    var extension = System.IO.Path.GetExtension(path).ToLowerInvariant();
+                    if (Array.IndexOf(ImportedImages.Supported, extension) < 0) return null;
+                    var info = new System.IO.FileInfo(path);
+                    if (info.Length == 0 || info.Length > 20 * 1024 * 1024) return null;
+                    var id = Project.AddImage(System.IO.File.ReadAllBytes(path), extension);
+                    return new TextRun { ImageId = id, Image = new ImageLayout { Name = System.IO.Path.GetFileName(path) } };
+                }
+                catch (Exception) { return null; }
+            }
+        }
+
         private static void ParseInline(string line, TextParagraph paragraph,
-            Dictionary<string, string> noteIds)
+            Dictionary<string, string> noteIds, ImageSource images)
         {
             var bold = false;
             var italic = false;
@@ -168,6 +210,22 @@ namespace Marabook.Exchange
             var i = 0;
             while (i < line.Length)
             {
+                // Une image « ![alt](chemin) » (0.50.0).
+                if (Peek(line, i, "!["))
+                {
+                    var close = line.IndexOf("](", i, StringComparison.Ordinal);
+                    var end = close < 0 ? -1 : line.IndexOf(')', close + 2);
+                    if (close > i && end > close)
+                    {
+                        var alt = line.Substring(i + 2, close - i - 2);
+                        var run = images == null ? null : images.Load(line.Substring(close + 2, end - close - 2), alt);
+                        Flush(paragraph, sb, bold, italic, strike);
+                        if (run != null) paragraph.Runs.Add(run);
+                        else if (alt.Length > 0) sb.Append(alt);
+                        i = end + 1;
+                        continue;
+                    }
+                }
                 if (Peek(line, i, "**")) { Flush(paragraph, sb, bold, italic, strike); bold = !bold; i += 2; continue; }
                 if (Peek(line, i, "~~")) { Flush(paragraph, sb, bold, italic, strike); strike = !strike; i += 2; continue; }
                 if (line[i] == '*') { Flush(paragraph, sb, bold, italic, strike); italic = !italic; i += 1; continue; }
