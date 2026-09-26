@@ -89,10 +89,34 @@ Pour les versions suivantes, certaines améliorations sont déjà prévues :
 * La sortie de deux DLC : FPDM et Mental-O
 * Amélioration de l'interface du correcteur ortho-styllistique
 * Amélioration de la vue comparative
-* Amélioration de l'expérience de défilement globale
 * Un tutoriel pour les dbéutant.e.s
 * Une petite refonte des textes pour qu'ils vous insultent encore plus
 
 ## Patch notes
 
-* Version BETA: première release du logiciel au public
+Version 0.50.0-beta (26/09/2026)
+
+* Fonctionnalités majeures
+
+  * Refonte complète de l'import d'images dans les documents
+  * Catalogue de polices
+  * Mise en forme : petites majuscules et caractères spéciaux
+  * Ajout d'un modificateur de vitesse de défilement
+
+
+* Fonctionnalités mineures
+
+  * Amélioration de la sélection de texte par-mot
+  * Indicateur de charge/sauvegarde et notifications
+  * Possibilité de mettre en forme les notes de bas de page
+	
+
+* Correctifs
+
+  * Correctif des styles de paragraphe (police et formatage non appliqués)
+  * Correctif du sélecteur de police
+  * Correctif de la sélection de texte
+  * Recharge à chaud des nouvelles polices de caractère
+  * Meilleur sélecteur de polices dans l'éditeur de style de paragraphe
+
+
