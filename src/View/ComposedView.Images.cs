@@ -767,5 +767,177 @@ namespace Marabook.View
             InsertElementAtCaret(element);
             SelectImageRun(element);
         }
+
+        // ============================================================ menu contextuel
+
+        /// <summary>« Annoter l'image » du menu contextuel : l'éditeur ouvre
+        /// une annotation (Révision) sur l'image sélectionnée.</summary>
+        public event Action ImageAnnotateRequested;
+
+        /// <summary>« Enregistrer l'image… » du menu contextuel : la coquille
+        /// enregistre les octets de l'image sélectionnée.</summary>
+        public event Action ImageSaveRequested;
+
+        private bool ImageContextMenu(MouseButtonEventArgs e)
+        {
+            if (_engine == null) return false;
+            PlacedImage image;
+            int pageIndex, handle;
+            if (!HitImage(e.GetPosition(_pages), out image, out pageIndex, out handle)) return false;
+            SelectImageRun(image.Run);
+            var menu = BuildImageMenu();
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+            menu.IsOpen = true;
+            return true;
+        }
+
+        /// <summary>Le menu d'une image sélectionnée : les mêmes options que
+        /// l'onglet Image, cochées selon son état, plus annoter, enregistrer
+        /// et supprimer. Public pour les sondes.</summary>
+        internal ContextMenu BuildImageMenu()
+        {
+            var menu = new ContextMenu();
+            string horizontal, vertical, wrap;
+            bool free;
+            SelectedImageState(out horizontal, out vertical, out wrap, out free);
+            var editable = !ReadOnly;
+            menu.Items.Add(MenuEntry("Aligner à gauche", horizontal == "left", editable, delegate { AlignSelectedImage("left", null); }));
+            menu.Items.Add(MenuEntry("Centrer", horizontal == "center", editable, delegate { AlignSelectedImage("center", null); }));
+            menu.Items.Add(MenuEntry("Aligner à droite", horizontal == "right", editable, delegate { AlignSelectedImage("right", null); }));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuEntry("En haut de la page", vertical == "top", editable, delegate { AlignSelectedImage(null, "top"); }));
+            menu.Items.Add(MenuEntry("Au centre de la page", vertical == "center", editable, delegate { AlignSelectedImage(null, "center"); }));
+            menu.Items.Add(MenuEntry("En bas de la page", vertical == "bottom", editable, delegate { AlignSelectedImage(null, "bottom"); }));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuEntry("Texte au-dessus et en dessous", wrap != ImageLayout.WrapAround, editable,
+                delegate { SetSelectedImageWrap(ImageLayout.WrapExclude); }));
+            menu.Items.Add(MenuEntry("Texte de part et d'autre", wrap == ImageLayout.WrapAround, editable,
+                delegate { SetSelectedImageWrap(ImageLayout.WrapAround); }));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuEntry("Placement libre", free, editable, delegate { SetSelectedImageFree(!free); }));
+            var grid = Settings.AppSettings.ImageGrid;
+            menu.Items.Add(MenuEntry("Grille de placement", grid, true, delegate { SetImageGrid(!grid); RaiseSelectionState(); }));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuEntry("Annoter l'image…", false, editable, delegate
+            {
+                var handler = ImageAnnotateRequested;
+                if (handler != null) handler();
+            }));
+            menu.Items.Add(MenuEntry("Enregistrer l'image…", false, true, delegate
+            {
+                var handler = ImageSaveRequested;
+                if (handler != null) handler();
+            }));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuEntry("Supprimer l'image", false, editable, delegate { DeleteSelectedImage(); }));
+            return menu;
+        }
+
+        private static MenuItem MenuEntry(string header, bool isChecked, bool enabled, Action action)
+        {
+            var item = new MenuItem { Header = header, IsChecked = isChecked, IsEnabled = enabled };
+            item.Click += delegate { action(); };
+            return item;
+        }
+
+        // ============================================================ dépôt de fichiers
+
+        private void InitImageDrop()
+        {
+            AllowDrop = true;
+            DragOver += delegate(object sender, DragEventArgs e)
+            {
+                if (_item == null || ReadOnly || _project == null || ImageFilesOf(e.Data).Count == 0) return;
+                e.Effects = DragDropEffects.Copy;
+                e.Handled = true;
+            };
+            Drop += delegate(object sender, DragEventArgs e)
+            {
+                if (_item == null || ReadOnly || _project == null) return;
+                var files = ImageFilesOf(e.Data);
+                if (files.Count == 0) return;
+                DropImageFiles(files.ToArray(), e.GetPosition(_pages));
+                e.Handled = true;
+            };
+        }
+
+        /// <summary>Les fichiers image (formats que WPF lit) d'un glisser de
+        /// l'Explorateur, ou une liste vide.</summary>
+        private static List<string> ImageFilesOf(IDataObject data)
+        {
+            var result = new List<string>();
+            try
+            {
+                if (data == null || !data.GetDataPresent(DataFormats.FileDrop)) return result;
+                var files = data.GetData(DataFormats.FileDrop) as string[];
+                if (files == null) return result;
+                foreach (var file in files)
+                {
+                    var extension = System.IO.Path.GetExtension(file ?? "").ToLowerInvariant();
+                    if (Array.IndexOf(Exchange.ImportedImages.Supported, extension) >= 0) result.Add(file);
+                }
+            }
+            catch (Exception) { }
+            return result;
+        }
+
+        /// <summary>Pose des fichiers image à un point de la colonne : chaque
+        /// image entre dans le magasin, son ancre va dans la ligne sous le
+        /// point, sa position est celle du dépôt (les suivantes décalées) ; la
+        /// dernière est sélectionnée. Un cran d'annulation. Rend le nombre
+        /// d'images posées. Internal : les sondes déposent sans souris.</summary>
+        internal int DropImageFiles(string[] files, Point point)
+        {
+            if (_item == null || _engine == null || _project == null || ReadOnly || files == null) return 0;
+            var composition = _engine.Current;
+            if (composition.Pages.Count == 0) return 0;
+            var pageIndex = PageIndexAt(point);
+            var inPage = new Point(point.X, point.Y - PageTop(pageIndex));
+            var left = composition.LeftPxFor(pageIndex);
+            var top = composition.TopPx;
+            int paragraph, offset;
+            if (!HitTestAt(point, out paragraph, out offset))
+            {
+                paragraph = _caretParagraph;
+                offset = _caretOffset;
+            }
+            var placed = 0;
+            TextRun last = null;
+            foreach (var file in files)
+            {
+                byte[] bytes;
+                try
+                {
+                    var info = new System.IO.FileInfo(file);
+                    if (!info.Exists || info.Length == 0 || info.Length > 20 * 1024 * 1024) continue;
+                    bytes = System.IO.File.ReadAllBytes(file);
+                }
+                catch (Exception) { continue; }
+                if (placed == 0) PushUndo(false);
+                var id = _project.AddImage(bytes, System.IO.Path.GetExtension(file));
+                var run = new TextRun
+                {
+                    ImageId = id,
+                    Image = new ImageLayout
+                    {
+                        Name = System.IO.Path.GetFileName(file),
+                        X = Math.Max(0, inPage.X - left) + placed * 24,
+                        Y = Math.Max(0, inPage.Y - top) + placed * 24
+                    }
+                };
+                PivotEdit.InsertElement(_item.Document.Paragraphs[paragraph], offset, run);
+                offset++;
+                placed++;
+                last = run;
+            }
+            if (placed == 0) return 0;
+            ClearSelection();
+            _engine.RecomposeParagraph(paragraph);
+            ApplyImageEdit(pageIndex);
+            var edited = Edited;
+            if (edited != null) edited();
+            if (last != null) SelectImageRun(last);
+            return placed;
+        }
     }
 }

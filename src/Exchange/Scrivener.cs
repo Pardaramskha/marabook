@@ -138,7 +138,7 @@ namespace Marabook.Exchange
             try
             {
                 using (var stream = new FileStream(rtfPath, FileMode.Open, FileAccess.Read))
-                    return Rtf.ImportStream(stream, project.Styles);
+                    return Rtf.ImportStream(stream, project.Styles, project); // images comprises (0.50.0)
             }
             catch
             {

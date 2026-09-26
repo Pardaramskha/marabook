@@ -198,6 +198,21 @@ namespace Marabook.Tests.Ui
                 Check(headers.Count == 2 && headers[0] == "Favoris" && headers[1] == "Ne plus exclure",
                     "clic droit sur l'exclue : « Favoris » et « Ne plus exclure » (" + string.Join(" / ", headers.ToArray()) + ")");
                 RenderPng((FrameworkElement)dialog.Content, Path.Combine(Path.GetTempPath(), "marabook-catalogue-polices.png"));
+                // La fenêtre des Préférences (fin de patch) : élargie, et ses
+                // onglets se replient sur deux rangées quand elle est étroite.
+                Check(dialog.Width >= 860 || dialog.Width >= SystemParameters.WorkArea.Width - 41, "les Préférences sont plus larges (" + dialog.Width.ToString("0") + " px)");
+                var chips = FindChild<WrapPanel>(tabs);
+                Check(chips != null, "les onglets des Préférences vivent dans un WrapPanel (repli possible)");
+                dialog.Width = 560;
+                DoEvents();
+                var firstChip = tabs.ItemContainerGenerator.ContainerFromIndex(0) as TabItem;
+                var lastChip = tabs.ItemContainerGenerator.ContainerFromIndex(tabs.Items.Count - 1) as TabItem;
+                var firstTop = firstChip == null ? 0 : firstChip.TranslatePoint(new Point(0, 0), dialog).Y;
+                var lastTop = lastChip == null ? 0 : lastChip.TranslatePoint(new Point(0, 0), dialog).Y;
+                Check(lastTop > firstTop + 10, "fenêtre étroite : le dernier onglet est passé sur une seconde rangée");
+                RenderPng((FrameworkElement)dialog.Content, Path.Combine(Path.GetTempPath(), "marabook-preferences-etroit.png"));
+                dialog.Width = 900;
+                DoEvents();
 
                 // — Retirer le favori : le doublon s'en va, ici et dans le ruban.
                 var copyRow = list.ItemContainerGenerator.ContainerFromIndex(0) as ListBoxItem;

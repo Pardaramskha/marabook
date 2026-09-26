@@ -278,6 +278,7 @@ namespace Marabook.View
             };
             PreviewTextInput += OnTextInput;
             PreviewKeyDown += OnKeyDown;
+            InitImageDrop(); // un fichier image glissé depuis l'Explorateur (0.50.0)
         }
 
         public bool HasItem { get { return _item != null; } }
@@ -1284,8 +1285,7 @@ namespace Marabook.View
         /// autorise de nouveau.</summary>
         private void OnMouseRightDown(object sender, MouseButtonEventArgs e)
         {
-            if (ReadOnly) { e.Handled = true; return; }
-            if (_item == null || _project == null) return;
+            if (_item == null) return;
             var source = e.OriginalSource as DependencyObject;
             while (source != null)
             {
@@ -1294,6 +1294,11 @@ namespace Marabook.View
                     ? System.Windows.Media.VisualTreeHelper.GetParent(source)
                     : LogicalTreeHelper.GetParent(source);
             }
+            // Clic droit sur une image (0.50.0) : son menu — alignements,
+            // habillage, placement, annoter, enregistrer, supprimer.
+            if (ImageContextMenu(e)) { e.Handled = true; return; }
+            if (ReadOnly) { e.Handled = true; return; }
+            if (_project == null) return;
             int paragraph, offset;
             if (!HitTestPosition(e, out paragraph, out offset)) return;
             var word = WordAt(paragraph, offset);
@@ -1622,8 +1627,17 @@ namespace Marabook.View
             paragraph = 0;
             offset = 0;
             if (_engine == null || _engine.Current.Pages.Count == 0) return false;
+            return HitTestAt(e.GetPosition(_pages), out paragraph, out offset);
+        }
+
+        /// <summary>Le paragraphe et l'offset plat sous un point de la colonne
+        /// (coordonnées de _pages) — la souris, ou un dépôt de fichier.</summary>
+        private bool HitTestAt(Point point, out int paragraph, out int offset)
+        {
+            paragraph = 0;
+            offset = 0;
+            if (_engine == null || _engine.Current.Pages.Count == 0) return false;
             var composition = _engine.Current;
-            var point = e.GetPosition(_pages);
             var stride = composition.PageHeightPx + PageGapPx;
             var pageIndex = Math.Max(0, Math.Min(composition.Pages.Count - 1,
                 (int)(point.Y / stride)));

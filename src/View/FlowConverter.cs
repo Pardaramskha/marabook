@@ -71,8 +71,20 @@ namespace Marabook.View
                     }
                     if (run.ImageId != null)
                     {
-                        wpfParagraph.Inlines.Add(MakeImageInline(run.ImageId,
-                            project == null ? null : project.FindImage(run.ImageId)));
+                        var inline = MakeImageInline(run.ImageId, project == null ? null : project.FindImage(run.ImageId));
+                        // La taille du placement (0.50.0) voyage avec l'élément —
+                        // le RTF exporté (\picwgoal) la reprend.
+                        var picture = inline.Child as System.Windows.Controls.Image;
+                        if (picture != null && run.Image != null && run.Image.Width > 0 && run.Image.Height > 0)
+                        {
+                            picture.MaxWidth = double.PositiveInfinity;
+                            picture.MaxHeight = double.PositiveInfinity;
+                            picture.Stretch = Stretch.Fill;
+                            picture.StretchDirection = System.Windows.Controls.StretchDirection.Both;
+                            picture.Width = run.Image.Width;
+                            picture.Height = run.Image.Height;
+                        }
+                        wpfParagraph.Inlines.Add(inline);
                         continue;
                     }
                     if (run.IsRule)
@@ -400,6 +412,19 @@ namespace Marabook.View
 
             foreach (var entry in WalkParagraphs(flow.Blocks, null))
             {
+                if (entry.Picture != null)
+                {
+                    // Une image posée en bloc (RTF de Word, Scrivener) : un
+                    // paragraphe réduit à l'image, adoptée dans le magasin.
+                    var adoptedId = project == null ? null : AdoptForeignImage(entry.Picture, project);
+                    if (adoptedId != null)
+                    {
+                        var holder = new TextParagraph();
+                        holder.Runs.Add(new TextRun { ImageId = adoptedId, Image = LayoutOf(entry.Picture) });
+                        document.Paragraphs.Add(holder);
+                    }
+                    continue;
+                }
                 var wpfParagraph = entry.Paragraph;
                 var styleId = wpfParagraph.Tag as string ?? "body";
                 var style = styles.Find(styleId);
@@ -436,6 +461,7 @@ namespace Marabook.View
         {
             public Paragraph Paragraph;
             public string ListKind; // null when outside any list
+            public System.Windows.Controls.Image Picture; // un BlockUIContainer d'image (RTF), sans paragraphe
         }
 
         /// <summary>Walks blocks in order, remembering the list context: Sections
@@ -477,6 +503,15 @@ namespace Marabook.View
                         foreach (TableRow row in group.Rows)
                             foreach (TableCell cell in row.Cells)
                                 foreach (var inner in WalkParagraphs(cell.Blocks, null)) yield return inner;
+                    continue;
+                }
+                // Une image en bloc (le lecteur RTF de WPF pose ainsi les
+                // images seules sur leur ligne) : un paragraphe-image (0.50.0).
+                var blockContainer = block as BlockUIContainer;
+                if (blockContainer != null)
+                {
+                    var picture = blockContainer.Child as System.Windows.Controls.Image;
+                    if (picture != null) yield return new ParagraphEntry { Picture = picture, ListKind = listKind };
                 }
             }
         }
@@ -513,10 +548,16 @@ namespace Marabook.View
                         paragraph.Runs.Add(new TextRun { ImageId = containerTag.Substring(4) });
                         continue;
                     }
-                    // Foreign image (pasted from Word or a browser): adopt it
-                    // into the project store so it survives the round-trip.
-                    var adopted = project == null ? null : AdoptForeignImage(container, project);
-                    if (adopted != null) paragraph.Runs.Add(new TextRun { ImageId = adopted });
+                    // Foreign image (pasted from Word or a browser, or lue d'un
+                    // RTF): adopt it into the project store so it survives the
+                    // round-trip — with the size the source gave it (0.50.0).
+                    var picture = container.Child as System.Windows.Controls.Image;
+                    var adopted = project == null || picture == null ? null : AdoptForeignImage(picture, project);
+                    if (adopted != null)
+                    {
+                        container.Tag = "img:" + adopted; // stabilize for the rest of the session
+                        paragraph.Runs.Add(new TextRun { ImageId = adopted, Image = LayoutOf(picture) });
+                    }
                     continue;
                 }
                 var wpfRun = inline as Run;
@@ -560,11 +601,10 @@ namespace Marabook.View
 
         /// <summary>Encodes a pasted image to PNG and registers it in the
         /// project store. Returns the new image id, or null if unreadable.</summary>
-        private static string AdoptForeignImage(InlineUIContainer container, Project project)
+        private static string AdoptForeignImage(System.Windows.Controls.Image image, Project project)
         {
             try
             {
-                var image = container.Child as System.Windows.Controls.Image;
                 var source = image == null ? null : image.Source as System.Windows.Media.Imaging.BitmapSource;
                 if (source == null) return null;
                 var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
@@ -572,15 +612,27 @@ namespace Marabook.View
                 using (var buffer = new System.IO.MemoryStream())
                 {
                     encoder.Save(buffer);
-                    var id = project.AddImage(buffer.ToArray(), ".png");
-                    container.Tag = "img:" + id; // stabilize for the rest of the session
-                    return id;
+                    return project.AddImage(buffer.ToArray(), ".png");
                 }
             }
             catch
             {
                 return null;
             }
+        }
+
+        /// <summary>Le placement d'une image étrangère (0.50.0) : la taille
+        /// que la source lui donnait (\picwgoal du RTF → Width/Height de
+        /// l'élément), sinon naturelle ; attachée à sa ligne, centrée.</summary>
+        private static ImageLayout LayoutOf(System.Windows.Controls.Image image)
+        {
+            var layout = new ImageLayout();
+            if (image != null && !double.IsNaN(image.Width) && !double.IsNaN(image.Height) && image.Width > 0 && image.Height > 0)
+            {
+                layout.Width = image.Width;
+                layout.Height = image.Height;
+            }
+            return layout;
         }
 
         /// <summary>Reads a WPF run's *effective* (inherited) properties and keeps

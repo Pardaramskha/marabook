@@ -713,6 +713,31 @@ namespace Marabook.View
     </Setter>
   </Style>
 
+  <!-- Les onglets des PRÉFÉRENCES (0.50.0) : la rangée des chips se replie
+       sur plusieurs rangées quand la fenêtre est étroite (petits écrans) —
+       un WrapPanel, jamais le TabPanel qui étire les chips. -->
+  <Style x:Key=""PrefsTabs"" TargetType=""TabControl"">
+    <Setter Property=""Background"" Value=""Transparent""/>
+    <Setter Property=""BorderThickness"" Value=""0""/>
+    <Setter Property=""Padding"" Value=""4""/>
+    <Setter Property=""Template"">
+      <Setter.Value>
+        <ControlTemplate TargetType=""TabControl"">
+          <Grid>
+            <Grid.RowDefinitions>
+              <RowDefinition Height=""Auto""/>
+              <RowDefinition Height=""*""/>
+            </Grid.RowDefinitions>
+            <WrapPanel Grid.Row=""0"" IsItemsHost=""True"" KeyboardNavigation.TabIndex=""1""/>
+            <ContentPresenter Grid.Row=""1"" x:Name=""PART_SelectedContentHost""
+                              ContentSource=""SelectedContent""
+                              Margin=""{TemplateBinding Padding}""/>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
   <!-- Onglets en CHIP (batch 34) : l'actif est une pastille arrondie à la
        couleur d'accent, texte papier ; les autres sont nus, survol grisé. -->
   <!-- Curseur, encre et graisse sont posés sur l'EN-TÊTE (Bg), jamais sur

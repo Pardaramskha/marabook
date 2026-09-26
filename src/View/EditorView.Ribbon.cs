@@ -466,6 +466,7 @@ namespace Marabook.View
                 Padding = new Thickness(0)
             };
             tabs.SetResourceReference(StyleProperty, "RibbonTabs");
+            _ribbonTabs = tabs; // l'onglet Image suit la sélection d'une image (0.50.0)
             tabs.Items.Add(new TabItem { Header = "Texte", Content = panel });
             tabs.Items.Add(new TabItem { Header = "Image", Content = BuildImageTab() }); // 0.50.0
             tabs.Items.Add(new TabItem { Header = "Insertion", Content = BuildInsertTab() });

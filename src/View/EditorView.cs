@@ -1796,7 +1796,14 @@ namespace Marabook.View
             _composed.ImageSelectionChanged += delegate
             {
                 SyncImageTab();
+                FollowImageSelection(); // l'onglet Image s'ouvre avec l'image
                 var handler = ImageSelectionChanged;
+                if (handler != null) handler();
+            };
+            _composed.ImageAnnotateRequested += CreateAnnotation; // menu contextuel de l'image
+            _composed.ImageSaveRequested += delegate
+            {
+                var handler = ImageSaveRequested;
                 if (handler != null) handler();
             };
 

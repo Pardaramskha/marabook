@@ -634,6 +634,11 @@ namespace Marabook
             _editor.Edited += OnEditorEdited;
             _editor.ImageSelectionChanged += UpdateInspectorForImage; // le Général montre l'image (0.50.0)
             _editor.ImageChanged += RefreshInspectorImageSize;        // …et suit sa taille en direct
+            _editor.ImageSaveRequested += delegate                    // menu contextuel de l'image
+            {
+                var info = _editor.SelectedImageInfo();
+                if (info != null) SaveImageToDisk(info);
+            };
             _editor.LinkClicked += NavigateToTitle;
             _editor.DefinitionRequested += ShowDefinition; // clic droit › « Afficher la définition » (18/09)
             _editor.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
@@ -2855,9 +2860,9 @@ namespace Marabook
             // Les images du document entrent dans le magasin du projet (23/09).
             if (ext == ".docx") return Exchange.Docx.Import(path, _project.Styles, _project);
             if (ext == ".odt") return Exchange.Odt.Import(path, _project.Styles, _project);
-            if (ext == ".rtf") return Exchange.Rtf.Import(path, _project.Styles);
+            if (ext == ".rtf") return Exchange.Rtf.Import(path, _project.Styles, _project); // images \pict (0.50.0)
             if (ext == ".md" || ext == ".markdown")
-                return Exchange.MarkdownExchange.Import(File.ReadAllText(path));
+                return Exchange.MarkdownExchange.Import(File.ReadAllText(path), Path.GetDirectoryName(path), _project); // ![…](fichier)
             if (ext == ".txt") return TextDocument.FromPlainText(File.ReadAllText(path));
             if (ext == ".doc")
                 return Exchange.Docx.Import(Exchange.ExternalBridge.DocToDocx(path), _project.Styles, _project);
@@ -2943,7 +2948,7 @@ namespace Marabook
                 var ext = Path.GetExtension(path).ToLowerInvariant();
                 var exportStyles = _project.Styles.EffectiveFor(scope ?? _current); // le séparateur du livre (22/09)
                 var commentsAuthor = Defaults.Or(_project.Author, Defaults.Author); // Préférences › Auteur (22/09)
-                if (ext == ".docx") Exchange.Docx.Export(document, exportStyles, path, _project.Page, commentsAuthor); // annotations → commentaires Word (b49)
+                if (ext == ".docx") Exchange.Docx.Export(document, exportStyles, path, _project.Page, commentsAuthor, _project); // annotations → commentaires Word (b49), images ancrées (0.50.0)
                 else if (ext == ".odt")
                     Exchange.Odt.Export(Exchange.Compiler.FlattenLists(document), exportStyles, path);
                 else if (ext == ".rtf")

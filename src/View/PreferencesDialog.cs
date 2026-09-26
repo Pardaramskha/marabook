@@ -61,14 +61,18 @@ namespace Marabook.View
             Owner = owner;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             // Taille UNIQUE pour tous les onglets (b43) — fini la fenêtre qui
-            // change de taille à chaque onglet.
-            Width = 760;
-            Height = 660;
+            // change de taille à chaque onglet. Élargie (0.50.0 : huit onglets)
+            // et bornée à l'écran : sur un petit écran la fenêtre rétrécit et
+            // les onglets se replient sur deux rangées (style PrefsTabs).
+            var area = SystemParameters.WorkArea;
+            Width = Math.Min(900, Math.Max(520, area.Width - 40));
+            Height = Math.Min(660, Math.Max(420, area.Height - 40));
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
             Background = Chrome.RaisedBg;
 
             var tabs = new TabControl { Margin = new Thickness(10) };
+            tabs.SetResourceReference(StyleProperty, "PrefsTabs");
             _swatches = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Left };
             tabs.Items.Add(Tab("Personnalisation", BuildPersonalizationTab()));
             tabs.Items.Add(Tab("Édition", BuildEditingTab()));

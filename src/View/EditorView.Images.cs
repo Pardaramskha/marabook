@@ -39,6 +39,32 @@ namespace Marabook.View
         /// rail met sa taille affichée à jour sans se reconstruire).</summary>
         public event Action ImageChanged;
 
+        /// <summary>« Enregistrer l'image… » (menu contextuel de l'image) : la
+        /// coquille enregistre les octets de l'image sélectionnée.</summary>
+        public event Action ImageSaveRequested;
+
+        // L'onglet Image s'ouvre à la sélection d'une image (0.50.0, façon
+        // onglet contextuel de Word) et l'onglet d'avant revient à la
+        // désélection — s'il est toujours sur Image.
+        private TabControl _ribbonTabs;
+        private int _tabBeforeImage = -1;
+        private const int ImageTabIndex = 1;
+
+        private void FollowImageSelection()
+        {
+            if (_ribbonTabs == null || !ComposedActive) return;
+            if (_composed.SelectedImage != null)
+            {
+                if (_ribbonTabs.SelectedIndex == ImageTabIndex) return;
+                _tabBeforeImage = _ribbonTabs.SelectedIndex;
+                _ribbonTabs.SelectedIndex = ImageTabIndex;
+                return;
+            }
+            if (_tabBeforeImage < 0) return;
+            if (_ribbonTabs.SelectedIndex == ImageTabIndex) _ribbonTabs.SelectedIndex = _tabBeforeImage;
+            _tabBeforeImage = -1;
+        }
+
         /// <summary>Onglet « Image », entre Texte et Insertion : insérer en
         /// grand carré ; alignement (gauche/centre/droite en haut, haut/
         /// centre/bas de la zone de texte en bas) ; positionnement (texte

@@ -76,14 +76,19 @@ namespace Marabook.Tests.Ui
         /// dégradé et un disque, fabriqué par WPF.</summary>
         private static byte[] MakePng()
         {
+            return MakePng(900, 560);
+        }
+
+        private static byte[] MakePng(int width, int height)
+        {
             var visual = new DrawingVisual();
             using (var dc = visual.RenderOpen())
             {
                 dc.DrawRectangle(new LinearGradientBrush(Color.FromRgb(0x5B, 0x67, 0xD8), Color.FromRgb(0xF2, 0xC9, 0x4C), 30), null,
-                    new Rect(0, 0, 900, 560));
-                dc.DrawEllipse(Brushes.White, new Pen(Brushes.Black, 5), new Point(450, 280), 170, 170);
+                    new Rect(0, 0, width, height));
+                dc.DrawEllipse(Brushes.White, new Pen(Brushes.Black, 5), new Point(width / 2.0, height / 2.0), height * 0.3, height * 0.3);
             }
-            var bitmap = new RenderTargetBitmap(900, 560, 96, 96, PixelFormats.Pbgra32);
+            var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
             bitmap.Render(visual);
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(bitmap));
@@ -160,7 +165,7 @@ namespace Marabook.Tests.Ui
                 Check(FindByToolTipStart(imageTab, "Insère une image") != null, "l'onglet Image a son grand carré d'insertion");
                 var texteTab = TabContent(tabs, "Texte");
                 Check(FindByToolTipStart(texteTab, "Insérer une image") == null, "l'onglet Texte n'a plus le bouton d'image");
-                tabs.SelectedIndex = headers.IndexOf("Image");
+                tabs.SelectedIndex = headers.IndexOf("Insertion");
                 DoEvents();
 
                 // — L'image est posée sur la page de son ancre, le texte dessous.
@@ -189,6 +194,34 @@ namespace Marabook.Tests.Ui
                 var defaultChild = inspector.Child;
                 Check(composed.SelectImageRun(run), "l'image se sélectionne");
                 DoEvents();
+                // L'onglet Image s'ouvre avec la sélection (fin de patch), et
+                // l'onglet d'avant revient à la désélection.
+                Check(tabs.SelectedIndex == headers.IndexOf("Image"), "sélectionner l'image ouvre l'onglet Image");
+                composed.DeselectImage(true);
+                DoEvents();
+                Check(tabs.SelectedIndex == headers.IndexOf("Insertion"), "désélectionner rend l'onglet d'avant (Insertion)");
+                composed.SelectImageRun(run);
+                DoEvents();
+                // Le menu contextuel de l'image : les options de l'onglet,
+                // cochées selon l'état, plus annoter / enregistrer / supprimer.
+                var menu = composed.BuildImageMenu();
+                var menuHeaders = new List<string>();
+                var checkedHeaders = new List<string>();
+                foreach (var item in menu.Items)
+                {
+                    var entry = item as MenuItem;
+                    if (entry == null) continue;
+                    menuHeaders.Add((string)entry.Header);
+                    if (entry.IsChecked) checkedHeaders.Add((string)entry.Header);
+                }
+                Check(menuHeaders.Contains("Aligner à droite") && menuHeaders.Contains("Texte de part et d'autre")
+                    && menuHeaders.Contains("Placement libre") && menuHeaders.Contains("Grille de placement")
+                    && menuHeaders.Contains("Annoter l'image…") && menuHeaders.Contains("Enregistrer l'image…")
+                    && menuHeaders.Contains("Supprimer l'image"), "le menu contextuel a ses treize entrées (" + menuHeaders.Count + ")");
+                // L'image fait toute la colonne : gauche, centre et droite coïncident — une seule cochée.
+                Check(checkedHeaders.Count == 2 && (checkedHeaders.Contains("Centrer") || checkedHeaders.Contains("Aligner à gauche"))
+                    && checkedHeaders.Contains("Texte au-dessus et en dessous"),
+                    "cochées : un alignement et Texte au-dessus et en dessous (" + string.Join(" / ", checkedHeaders.ToArray()) + ")");
                 var overlay = (Canvas)GetField(composed, "_overlay");
                 var handles = 0;
                 foreach (UIElement child in overlay.Children)
@@ -388,6 +421,25 @@ namespace Marabook.Tests.Ui
                 composed.Undo();
                 DoEvents();
                 Check(FindImageRun(target.Document) != null, "Ctrl+Z ramène l'image");
+
+                // — Un fichier image déposé depuis l'Explorateur (fin de patch) :
+                // il entre dans le magasin, ancré dans la ligne sous le point,
+                // posé au point de dépôt, sélectionné.
+                var dropped = Path.Combine(Path.GetDirectoryName(path), "depot.png");
+                File.WriteAllBytes(dropped, MakePng(200, 120)); // plus petite que la colonne : posée telle quelle
+                var page0 = composed.CurrentComposition;
+                var dropPoint = new Point(page0.LeftPxFor(0) + 40, page0.TopPx + 300);
+                var imagesBefore = opened.Images.Count;
+                Check(composed.DropImageFiles(new[] { dropped }, dropPoint) == 1, "un PNG déposé est posé");
+                DoEvents();
+                var droppedRun = composed.SelectedImage;
+                int droppedPage;
+                var droppedPlaced = droppedRun == null ? null : FindPlaced(composed.CurrentComposition, droppedRun, out droppedPage);
+                Check(droppedRun != null && droppedRun.Image != null && droppedRun.Image.Name == "depot.png" && opened.Images.Count == imagesBefore + 1,
+                    "l'image déposée est dans le magasin, nommée, et sélectionnée");
+                Check(droppedPlaced != null && Math.Abs(droppedPlaced.Rect.X - dropPoint.X) < 0.5 && Math.Abs(droppedPlaced.Rect.Y - dropPoint.Y) < 0.5,
+                    "…posée au point de dépôt");
+                Check(composed.DropImageFiles(new[] { Path.Combine(Path.GetDirectoryName(path), "rien.txt") }, dropPoint) == 0, "un fichier qui n'est pas une image n'est pas posé");
 
                 SetField(window, "_dirty", false);
             }
