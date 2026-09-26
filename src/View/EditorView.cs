@@ -1785,6 +1785,13 @@ namespace Marabook.View
                 SyncTrackingBox();
                 SyncToolbarComposed();
                 SyncImageTab(); // l'onglet Image suit l'image sélectionnée (0.50.0)
+                // L'image sélectionnée a bougé ou changé de taille (glisser,
+                // poignée, flèche, alignement) : le rail suit en direct.
+                if (_composed.SelectedImage != null)
+                {
+                    var changed = ImageChanged;
+                    if (changed != null) changed();
+                }
             };
             _composed.ImageSelectionChanged += delegate
             {

@@ -224,6 +224,10 @@ namespace Marabook.Tests.Ui
                     && Math.Abs(placed.Rect.Height - placed.Rect.Width * startRect.Height / startRect.Width) < 0.5,
                     "…et les proportions sont gardées (" + placed.Rect.Width.ToString("0") + " × " + placed.Rect.Height.ToString("0") + ")");
                 Check(run.Image.IsAttached, "redimensionner ne détache pas l'image de sa ligne");
+                // Le rail suit la taille en direct (retour de Rémi, 26/09).
+                var sizeShown = FindLabelStartingWith(inspector.Child, "cm");
+                var expected = (placed.Rect.Width / PageSetup.PxPerMm / 10).ToString("0.0") + " × " + (placed.Rect.Height / PageSetup.PxPerMm / 10).ToString("0.0") + " cm";
+                Check(sizeShown != null && sizeShown.Text == expected, "le rail affiche la nouvelle taille (" + (sizeShown == null ? "-" : sizeShown.Text) + " ; attendu " + expected + ")");
                 var center = new Point(placed.Rect.X + placed.Rect.Width / 2, pageTop0 + placed.Rect.Y + placed.Rect.Height / 2);
                 var moved = placed.Rect;
                 Check(composed.ImagePressAt(center), "presser au milieu de l'image");
@@ -475,6 +479,19 @@ namespace Marabook.Tests.Ui
             foreach (var child in LogicalTreeHelper.GetChildren(root))
             {
                 var found = child is DependencyObject ? FindTextBox((DependencyObject)child) : null;
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        /// <summary>Le premier TextBlock dont le texte se termine par un suffixe.</summary>
+        private static TextBlock FindLabelStartingWith(DependencyObject root, string suffix)
+        {
+            var block = root as TextBlock;
+            if (block != null && block.Text.EndsWith(suffix)) return block;
+            foreach (var child in LogicalTreeHelper.GetChildren(root))
+            {
+                var found = child is DependencyObject ? FindLabelStartingWith((DependencyObject)child, suffix) : null;
                 if (found != null) return found;
             }
             return null;

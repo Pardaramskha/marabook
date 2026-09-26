@@ -35,6 +35,10 @@ namespace Marabook.View
         /// Général remplace son contenu par les propriétés de l'image).</summary>
         public event Action ImageSelectionChanged;
 
+        /// <summary>L'image sélectionnée a été déplacée ou redimensionnée (le
+        /// rail met sa taille affichée à jour sans se reconstruire).</summary>
+        public event Action ImageChanged;
+
         /// <summary>Onglet « Image », entre Texte et Insertion : insérer en
         /// grand carré ; alignement (gauche/centre/droite en haut, haut/
         /// centre/bas de la zone de texte en bas) ; positionnement (texte

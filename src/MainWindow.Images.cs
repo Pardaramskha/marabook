@@ -15,6 +15,23 @@ namespace Marabook
     public partial class MainWindow
     {
         private UIElement _inspectorDefaultChild; // le Général ordinaire
+        private TextBlock _imageSizeValue;        // « Taille affichée » du panneau image, suivie en direct
+
+        /// <summary>L'image sélectionnée a été redimensionnée (poignées) ou
+        /// déplacée : la taille affichée du panneau suit, sans reconstruire
+        /// le panneau (le champ du nom garderait mal le clavier).</summary>
+        private void RefreshInspectorImageSize()
+        {
+            if (_imageSizeValue == null || _editor == null || ReferenceEquals(_inspector.Child, _inspectorDefaultChild)) return;
+            var info = _editor.SelectedImageInfo();
+            if (info == null) return;
+            _imageSizeValue.Text = SizeLabel(info);
+        }
+
+        private static string SizeLabel(SelectedImageInfo info)
+        {
+            return Cm(info.WidthPx) + " × " + Cm(info.HeightPx) + " cm";
+        }
 
         private void UpdateInspectorForImage()
         {
@@ -111,7 +128,8 @@ namespace Marabook
             panel.Children.Add(name);
 
             panel.Children.Add(InspectorLabel("Taille affichée", 10));
-            panel.Children.Add(InspectorValue(Cm(info.WidthPx) + " × " + Cm(info.HeightPx) + " cm"));
+            _imageSizeValue = InspectorValue(SizeLabel(info));
+            panel.Children.Add(_imageSizeValue);
             if (info.PixelWidth > 0)
             {
                 panel.Children.Add(InspectorLabel("Pixels", 10));

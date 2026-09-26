@@ -633,6 +633,7 @@ namespace Marabook
             _editor = new EditorView { Visibility = Visibility.Collapsed };
             _editor.Edited += OnEditorEdited;
             _editor.ImageSelectionChanged += UpdateInspectorForImage; // le Général montre l'image (0.50.0)
+            _editor.ImageChanged += RefreshInspectorImageSize;        // …et suit sa taille en direct
             _editor.LinkClicked += NavigateToTitle;
             _editor.DefinitionRequested += ShowDefinition; // clic droit › « Afficher la définition » (18/09)
             _editor.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
