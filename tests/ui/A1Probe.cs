@@ -113,6 +113,8 @@ namespace Marabook.Tests.Ui
             _failures += MindMapProbe.Run();
             Console.WriteLine();
             _failures += ImagesProbe.Run(); // refonte des images (0.50.0)
+            Console.WriteLine();
+            _failures += FontCatalogProbe.Run(); // catalogue de polices (0.50.0)
         }
 
         private static void Run(string path)

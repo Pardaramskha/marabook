@@ -68,8 +68,16 @@ namespace Marabook.View
                 if (SelectedItem != null && SelectedItem != _openedWith) Announce(SelectedFontName, false);
                 else if (_announcedWhileOpen) Announce(SelectedFontName, false);
             };
-            Loaded += delegate { FontCatalog.Changed += OnCatalogChanged; };
-            Unloaded += delegate { FontCatalog.Changed -= OnCatalogChanged; };
+            Loaded += delegate
+            {
+                FontCatalog.Changed += OnCatalogChanged;
+                AppSettings.FontPrefsChanged += OnCatalogChanged; // favorites / exclues (0.50.0)
+            };
+            Unloaded += delegate
+            {
+                FontCatalog.Changed -= OnCatalogChanged;
+                AppSettings.FontPrefsChanged -= OnCatalogChanged;
+            };
         }
 
         /// <summary>Le nom de la police montrée : l'entrée choisie, sinon ce
@@ -118,8 +126,10 @@ namespace Marabook.View
             Dispatcher.BeginInvoke(new Action(delegate { Rebuild(SelectedFontName); }));
         }
 
-        /// <summary>Récentes, trait, tout le catalogue — en gardant la police
-        /// montrée.</summary>
+        /// <summary>Favorites, trait, récentes, trait, tout le catalogue sans
+        /// les exclues (FontCatalog.Arrange) — en gardant la police montrée.
+        /// Favorites et récentes sont des copies : un même objet deux fois
+        /// dans Items rendrait SelectedItem ambigu.</summary>
         private void Rebuild(string keep)
         {
             var wasSyncing = _syncing;
@@ -127,18 +137,9 @@ namespace Marabook.View
             try
             {
                 Items.Clear();
-                var recents = new List<FontCatalog.Entry>();
-                foreach (var name in AppSettings.RecentFonts)
-                {
-                    var entry = FontCatalog.Find(name);
-                    if (entry != null && !recents.Contains(entry)) recents.Add(entry);
-                    if (recents.Count >= RecentCount) break;
-                }
-                // Les récentes sont des copies : un même objet deux fois dans
-                // Items rendrait SelectedItem ambigu.
-                foreach (var entry in recents) Items.Add(new FontCatalog.Entry { Name = entry.Name, Family = entry.Family });
-                if (recents.Count > 0) Items.Add(Separator);
-                foreach (var entry in FontCatalog.Entries) Items.Add(entry);
+                foreach (var entry in FontCatalog.Arrange(FontCatalog.Entries, AppSettings.FavoriteFonts,
+                    AppSettings.RecentFonts, AppSettings.ExcludedFonts, RecentCount))
+                    Items.Add(entry.IsSeparator ? Separator : entry);
                 if (keep != null)
                 {
                     var entry = FindEntry(keep);
@@ -290,6 +291,15 @@ namespace Marabook.View
             row.SetValue(FrameworkElement.HeightProperty, RowHeight);
             row.SetValue(UIElement.ClipToBoundsProperty, true);
             row.SetValue(DockPanel.LastChildFillProperty, true);
+            // L'étoile d'une favorite (0.50.0), devant le nom.
+            var badge = new FrameworkElementFactory(typeof(TextBlock));
+            badge.SetBinding(TextBlock.TextProperty, new Binding("Badge"));
+            badge.SetValue(DockPanel.DockProperty, Dock.Left);
+            badge.SetValue(TextBlock.ForegroundProperty, Chrome.Accent);
+            badge.SetValue(TextBlock.FontSizeProperty, 11.0);
+            badge.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+            badge.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 3, 0));
+            row.AppendChild(badge);
             var name = new FrameworkElementFactory(typeof(TextBlock));
             name.SetBinding(TextBlock.TextProperty, new Binding("Name"));
             name.SetValue(DockPanel.DockProperty, Dock.Left);

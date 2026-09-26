@@ -74,6 +74,7 @@ namespace Marabook.View
             tabs.Items.Add(Tab("Édition", BuildEditingTab()));
             tabs.Items.Add(Tab("Correction", BuildProofingTab()));
             tabs.Items.Add(Tab("Styles globaux", BuildGlobalStylesTab()));
+            tabs.Items.Add(Tab("Catalogue de polices", new FontCatalogTab())); // 0.50.0
             tabs.Items.Add(Tab("Auteur", BuildAuthorTab()));
             tabs.Items.Add(Tab("Raccourcis", BuildShortcutsTab()));
             tabs.Items.Add(Tab("DLC", BuildModulesTab()));

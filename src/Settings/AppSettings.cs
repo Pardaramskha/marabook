@@ -223,6 +223,50 @@ namespace Marabook.Settings
         // sélecteur de police, 5 au plus, la plus récente d'abord.
         public static List<string> RecentFonts = new List<string>();
 
+        // Le catalogue de polices (0.50.0) : les FAVORITES (un doublon en tête
+        // de chaque sélecteur) et les EXCLUES (retirées des sélecteurs) —
+        // réglages de l'utilisateur, conservés entre les projets.
+        public static List<string> FavoriteFonts = new List<string>();
+        public static List<string> ExcludedFonts = new List<string>();
+
+        /// <summary>Favorites ou exclusions changées : les sélecteurs se rebâtissent.</summary>
+        public static event Action FontPrefsChanged;
+
+        private static bool ContainsFont(List<string> list, string name)
+        {
+            foreach (var existing in list)
+                if (string.Equals(existing, name, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        public static bool IsFavoriteFont(string name) { return name != null && ContainsFont(FavoriteFonts, name); }
+        public static bool IsExcludedFont(string name) { return name != null && ContainsFont(ExcludedFonts, name); }
+
+        /// <summary>Ajoute ou retire une police des favorites ; rend le nouvel état.</summary>
+        public static bool ToggleFavoriteFont(string name)
+        {
+            return ToggleFont(FavoriteFonts, name);
+        }
+
+        /// <summary>Exclut ou réintègre une police ; rend le nouvel état (exclue ?).</summary>
+        public static bool ToggleExcludedFont(string name)
+        {
+            return ToggleFont(ExcludedFonts, name);
+        }
+
+        private static bool ToggleFont(List<string> list, string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            var present = ContainsFont(list, name);
+            if (present)
+                list.RemoveAll(delegate(string existing) { return string.Equals(existing, name, StringComparison.OrdinalIgnoreCase); });
+            else list.Add(name);
+            Save();
+            var handler = FontPrefsChanged;
+            if (handler != null) handler();
+            return !present;
+        }
+
         public static void NoteRecentFont(string name)
         {
             if (string.IsNullOrEmpty(name)) return;
@@ -281,6 +325,20 @@ namespace Marabook.Settings
             RecentFiles.Insert(0, path);
             while (RecentFiles.Count > 5)
                 RecentFiles.RemoveAt(RecentFiles.Count - 1);
+        }
+
+        /// <summary>Une liste de noms de polices du fichier (sans doublon ni vide).</summary>
+        private static List<string> ReadFontList(Dictionary<string, object> root, string key)
+        {
+            var result = new List<string>();
+            var list = Json.AsList(Json.Field(root, key));
+            if (list == null) return result;
+            foreach (var entry in list)
+            {
+                var name = Json.AsString(entry);
+                if (!string.IsNullOrEmpty(name) && !ContainsFont(result, name)) result.Add(name);
+            }
+            return result;
         }
 
         /// <summary>Les tests : un autre fichier que celui de l'utilisateur.</summary>
@@ -471,6 +529,8 @@ namespace Marabook.Settings
                         if (!string.IsNullOrEmpty(name) && RecentFonts.Count < 5) RecentFonts.Add(name);
                     }
                 }
+                FavoriteFonts = ReadFontList(root, "favoriteFonts"); // 0.50.0, catalogue de polices
+                ExcludedFonts = ReadFontList(root, "excludedFonts");
                 var recents = Json.AsList(Json.Field(root, "recentFiles"));
                 if (recents != null)
                 {
@@ -566,6 +626,8 @@ namespace Marabook.Settings
                     root["lexicon"] = Model.LexiconEntry.ToJsonList(Lexicon);
                 root["recentFiles"] = new List<object>(RecentFiles.ToArray());
                 if (RecentFonts.Count > 0) root["recentFonts"] = new List<object>(RecentFonts.ToArray());
+                if (FavoriteFonts.Count > 0) root["favoriteFonts"] = new List<object>(FavoriteFonts.ToArray());
+                if (ExcludedFonts.Count > 0) root["excludedFonts"] = new List<object>(ExcludedFonts.ToArray());
                 if (Achievements.Count > 0)
                     root["achievements"] = new Dictionary<string, object>(ToObjectDict(Achievements));
                 if (PermanentlyDeleted > 0) root["permanentlyDeleted"] = PermanentlyDeleted;

@@ -23,7 +23,79 @@ namespace Marabook.View
             public string Name { get; set; }
             public FontFamily Family { get; set; }
             public bool IsSeparator { get { return string.IsNullOrEmpty(Name); } }
+            /// <summary>Le doublon d'une favorite en tête de liste (0.50.0) :
+            /// une étoile devant son nom dans les sélecteurs.</summary>
+            public bool IsFavoriteCopy { get; set; }
+            public string Badge { get { return IsFavoriteCopy ? "★" : ""; } }
             public override string ToString() { return Name ?? ""; }
+        }
+
+        /// <summary>L'ordre d'un sélecteur (0.50.0, catalogue de polices) :
+        /// les FAVORITES en tête (des doublons marqués), un trait, les
+        /// RÉCENTES (doublons, sans celles déjà favorites), un trait, puis le
+        /// catalogue entier — les polices EXCLUES n'apparaissent nulle part,
+        /// favorites comprises. Pure : testable sans fenêtre.</summary>
+        public static List<Entry> Arrange(IList<Entry> catalog, IList<string> favorites, IList<string> recents,
+            IList<string> excluded, int recentCount)
+        {
+            var result = new List<Entry>();
+            var head = new List<Entry>();
+            foreach (var name in favorites ?? new List<string>())
+            {
+                var entry = FindIn(catalog, name);
+                if (entry == null || IsIn(excluded, name) || IsIn(head, name)) continue;
+                head.Add(new Entry { Name = entry.Name, Family = entry.Family, IsFavoriteCopy = true });
+            }
+            if (head.Count > 0)
+            {
+                result.AddRange(head);
+                result.Add(new Entry { Name = "" });
+            }
+            var recentCopies = new List<Entry>();
+            foreach (var name in recents ?? new List<string>())
+            {
+                if (recentCopies.Count >= recentCount) break;
+                var entry = FindIn(catalog, name);
+                if (entry == null || IsIn(excluded, name) || IsIn(head, name) || IsIn(recentCopies, name)) continue;
+                recentCopies.Add(new Entry { Name = entry.Name, Family = entry.Family });
+            }
+            if (recentCopies.Count > 0)
+            {
+                result.AddRange(recentCopies);
+                result.Add(new Entry { Name = "" });
+            }
+            foreach (var entry in catalog)
+                if (!IsIn(excluded, entry.Name)) result.Add(entry);
+            return result;
+        }
+
+        private static Entry FindIn(IList<Entry> entries, string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            foreach (var entry in entries)
+                if (string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase)) return entry;
+            return null;
+        }
+
+        private static bool IsIn(IList<string> names, string name)
+        {
+            if (names == null) return false;
+            foreach (var candidate in names)
+                if (string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        private static bool IsIn(IList<Entry> entries, string name)
+        {
+            return FindIn(entries, name) != null;
+        }
+
+        /// <summary>Le nombre de styles (graisses × italique) d'une famille,
+        /// 0 si la police ne se lit pas.</summary>
+        public static int StyleCount(FontFamily family)
+        {
+            try { return family == null ? 0 : family.FamilyTypefaces.Count; }
+            catch (Exception) { return 0; }
         }
 
         private static List<Entry> _entries;

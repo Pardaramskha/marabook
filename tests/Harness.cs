@@ -122,7 +122,8 @@ namespace Marabook.Tests
                 ImageImportTests.Run,    // C39 — images des documents importés (23/09)
                 GrammarFilterTests.Run,  // C40 — second regard sur Grammalecte (23/09)
                 Patch050Tests.Run,       // C41 — patch 0.50.0 : sélection par mot, format d'insertion, notes riches (25/09)
-                ImagesTests.Run          // C42 — refonte des images (26/09)
+                ImagesTests.Run,         // C42 — refonte des images (26/09)
+                FontPrefsTests.Run       // C43 — catalogue de polices (26/09)
             };
             foreach (var suite in suites)
             {
