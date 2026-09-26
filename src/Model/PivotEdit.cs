@@ -122,6 +122,7 @@ namespace Marabook.Model
             r.Text = run.Text;
             r.FootnoteId = run.FootnoteId;
             r.ImageId = run.ImageId;
+            r.Image = run.Image == null ? null : run.Image.Clone(); // placement (0.50.0)
             r.IsRule = run.IsRule;
             r.IsLineBreak = run.IsLineBreak;
             return r;
@@ -435,15 +436,7 @@ namespace Marabook.Model
                     Decor = paragraph.Decor
                 };
                 foreach (var run in paragraph.Runs)
-                {
-                    var r = CloneFormat(run);
-                    r.Text = run.Text;
-                    r.FootnoteId = run.FootnoteId;
-                    r.ImageId = run.ImageId;
-                    r.IsRule = run.IsRule;
-                    r.IsLineBreak = run.IsLineBreak;
-                    p.Runs.Add(r);
-                }
+                    p.Runs.Add(CloneRun(run)); // placement d'image compris (0.50.0)
                 copy.Paragraphs.Add(p);
             }
             foreach (var note in document.Footnotes)

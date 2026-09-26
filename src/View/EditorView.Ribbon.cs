@@ -333,19 +333,7 @@ namespace Marabook.View
 
             restTop.Children.Add(PaletteButton("Couleur du texte", true));
             restTop.Children.Add(PaletteButton("Surlignage", false));
-
-            var imageBtn = new Button
-            {
-                ToolTip = "Insérer une image…",
-                Width = 26,
-                Height = 26,
-                Padding = new Thickness(0),
-                Margin = new Thickness(1, 0, 1, 0),
-                Focusable = false,
-                Content = Icons.Make("image-square-bold", 14, Chrome.Ink)
-            };
-            imageBtn.Click += delegate { InsertImage(); };
-            restBottom.Children.Add(imageBtn);
+            // L'insertion d'image a son onglet « Image » (0.50.0), en grand carré.
 
             var ruleBtn = new Button
             {
@@ -479,6 +467,7 @@ namespace Marabook.View
             };
             tabs.SetResourceReference(StyleProperty, "RibbonTabs");
             tabs.Items.Add(new TabItem { Header = "Texte", Content = panel });
+            tabs.Items.Add(new TabItem { Header = "Image", Content = BuildImageTab() }); // 0.50.0
             tabs.Items.Add(new TabItem { Header = "Insertion", Content = BuildInsertTab() });
             tabs.Items.Add(new TabItem { Header = "Formatage", Content = BuildFormatTab() });
             tabs.Items.Add(new TabItem { Header = "Mise en page", Content = BuildPageSetupTab() });

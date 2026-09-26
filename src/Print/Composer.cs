@@ -19,9 +19,13 @@ namespace Marabook.Print
         public Point Origin;         // line-relative (x, baseline shift)
         public double ScaleX = 1.0;  // glyph scaling (justification)
         public Brush Ink = Brushes.Black;
-        public ImageSource Image;
-        public Rect Rect;            // images and rules, line-relative
+        public Rect Rect;            // rules, line-relative
         public bool IsRule;
+        // L'ANCRE d'une image (0.50.0) : une pièce sans largeur ni glyphe qui
+        // occupe l'offset plat du run image — l'image elle-même est posée par
+        // la pagination (ComposedPageLayout.Images), pas dans la ligne.
+        public bool IsAnchor;
+        public TextRun AnchorRun;
         public bool IsSpace;         // invisible, occupies width
         public double SpaceWidth;    // spaces only (justified width included)
         public double SpaceNatural;  // pre-trim width — the caret advances past
@@ -81,6 +85,10 @@ namespace Marabook.Print
         // recomposé : les statistiques deviennent incrémentales.
         public int Words = -1, Sec, NoSpaces;
 
+        /// <summary>Le paragraphe porte au moins une ancre d'image (0.50.0) :
+        /// la pagination le compose ligne à ligne, autour des images.</summary>
+        public bool HasAnchor;
+
         // Footnote markers of this paragraph: flat offset and global marker
         // index (document order) — pagination maps lines to their notes.
         public List<int> NoteOffsets;
@@ -96,11 +104,20 @@ namespace Marabook.Print
         public int ParagraphIndex;
         public int LineIndex;
         public double Y;
+        /// <summary>La ligne elle-même (0.50.0) : celle du paragraphe composé
+        /// pleine colonne, ou une ligne composée POUR CETTE PAGE autour des
+        /// images (ComposedView, le rendu et le PDF lisent celle-ci, jamais
+        /// Paragraphs[…].Lines[LineIndex]).</summary>
+        public ComposedLine Line;
     }
 
     public class ComposedPageLayout
     {
         public List<PlacedLine> Lines = new List<PlacedLine>();
+
+        /// <summary>Les images posées sur cette page (0.50.0), en coordonnées
+        /// de page — celles dont l'ancre est tombée ici.</summary>
+        public List<PlacedImage> Images = new List<PlacedImage>();
 
         // Bottom-of-page footnotes: which notes this page carries (marker
         // order), their placed lines (ParagraphIndex = index into
@@ -221,7 +238,7 @@ namespace Marabook.Print
     /// word/letter/glyph ranges, honors keeps with widow/orphan control, and
     /// recomposes incrementally (one paragraph at a time) so typing stays
     /// fluid on long chapters.</summary>
-    public class CompositionEngine
+    public partial class CompositionEngine
     {
         private readonly TextDocument _document;
         private readonly StyleSheet _styles;
@@ -553,8 +570,9 @@ namespace Marabook.Print
             public Brush Ink;
             public bool Superscript;
             public List<int> Breaks;
-            public ImageSource Image;
-            public double ImageWidth, ImageHeight;
+            // L'ancre d'une image (0.50.0) : un offset plat, aucune largeur.
+            public bool IsAnchor;
+            public TextRun Run;
             public bool IsRule;
             public int SourceStart = -1;
             public int SourceLength;
@@ -577,6 +595,8 @@ namespace Marabook.Print
         {
             var layout = ComposeWithStyle(paragraph, _styles.Find(paragraph.StyleId),
                 listNumber, noteBase);
+            foreach (var run in paragraph.Runs)
+                if (run.ImageId != null) { layout.HasAnchor = true; break; }
 
             // Map the paragraph's footnote markers (flat offset → global marker
             // index) so pagination can pull each note to its page bottom.
@@ -618,12 +638,12 @@ namespace Marabook.Print
 
             var contentWidth = _setup.ContentWidthPx;
             var atoms = BuildAtoms(paragraph, style, listNumber, noteBase);
+            // Les atomes sont gardés avec le paragraphe composé (0.50.0) : la
+            // pagination les rejoue ligne à ligne autour des images.
+            _atomsOf.Remove(layout);
+            _atomsOf.Add(layout, atoms);
             var align = paragraph.AlignOverride ?? style.Align;
-            var leading = style.LineHeight > 1
-                ? style.LineHeight
-                : style.FontSize * Math.Max(100, style.AutoLeadingPercent) / 100.0;
-            // L'interligne du document (22/09) multiplie celui du style.
-            if (_document.LineSpacing > 0) leading *= _document.LineSpacing;
+            var leading = Leading(style);
             // Décalage du paragraphe (17/09) : une valeur remplace retrait
             // gauche, alinéa et retrait de liste d'un bloc — 0 = à la marge.
             // La première ligne a sa propre position (21/09) : alinéa recréé
@@ -632,6 +652,9 @@ namespace Marabook.Print
             paragraph.EffectiveIndents(style, out leftIndent, out firstX);
             var firstLineIndent = firstX - leftIndent;
             var baseAvail = Math.Max(40, contentWidth - leftIndent - style.RightIndent);
+            // Une copie : FillLine remplace les atomes coupés (césure), la
+            // liste gardée pour la pagination doit rester intacte.
+            atoms = new List<Atom>(atoms);
 
             var index = 0;
             var cursor = 0;
@@ -692,20 +715,9 @@ namespace Marabook.Print
                 }
                 if (run.ImageId != null)
                 {
-                    var stored = _project == null ? null : _project.FindImage(run.ImageId);
-                    var source = View.ImageCache.For(stored); // décodée une fois, pas à chaque frappe (23/09)
-                    if (source != null)
-                    {
-                        var w = Math.Min(source.Width, 480.0);
-                        atoms.Add(new Atom
-                        {
-                            Image = source,
-                            ImageWidth = w,
-                            ImageHeight = source.Height * (w / source.Width),
-                            SourceStart = offset,
-                            SourceLength = 1
-                        });
-                    }
+                    // L'ancre (0.50.0) : l'image n'est plus un bloc dans la
+                    // ligne — la pagination la pose sur la page de l'ancre.
+                    atoms.Add(new Atom { IsAnchor = true, Run = run, SourceStart = offset, SourceLength = 1 });
                     offset++;
                     continue;
                 }
@@ -927,16 +939,23 @@ namespace Marabook.Print
             {
                 var atom = atoms[index];
 
-                if (atom.IsHidden)
+                if (atom.IsHidden || atom.IsAnchor)
                 {
-                    // Marque de lien masquée : une pièce sans glyphe ni
-                    // largeur, dont les offsets restent adressables (le
-                    // curseur y passe, la ligne ne bouge pas).
+                    // Une ancre d'image suit le mot qui la SUIT (règle de
+                    // Word) : si ce mot passe à la ligne, l'ancre passe avec
+                    // lui — sinon une ancre posée en tête de ligne finissait
+                    // au bout de la ligne d'avant, et l'image sur l'autre page.
+                    if (atom.IsAnchor && contentPlaced && !NextAtomFits(atoms, index, x, avail, style, consecutiveHyphens)) break;
+                    // Marque de lien masquée, ou ancre d'image : une pièce sans
+                    // glyphe ni largeur, dont les offsets restent adressables
+                    // (le curseur y passe, la ligne ne bouge pas).
                     line.Pieces.Add(new ComposedPiece
                     {
                         Origin = new Point(x, 0),
                         SourceStart = atom.SourceStart,
-                        SourceLength = atom.SourceLength
+                        SourceLength = atom.SourceLength,
+                        IsAnchor = atom.IsAnchor,
+                        AnchorRun = atom.Run
                     });
                     index++;
                     cursor = Advance(cursor, atom);
@@ -966,26 +985,6 @@ namespace Marabook.Print
                     line.End = cursor;
                     return line;
                 }
-                if (atom.Image != null)
-                {
-                    if (contentPlaced) break;
-                    var w = Math.Min(atom.ImageWidth, avail);
-                    var h = atom.ImageHeight * (w / atom.ImageWidth);
-                    line.Pieces.Add(new ComposedPiece
-                    {
-                        Image = atom.Image,
-                        Rect = new Rect(0, 0, w, h),
-                        SourceStart = atom.SourceStart,
-                        SourceLength = 1
-                    });
-                    line.Height = h + 6;
-                    line.Ascent = h;
-                    index++;
-                    cursor = Advance(cursor, atom);
-                    line.End = cursor;
-                    return line;
-                }
-
                 if (atom.IsSpace && !contentPlaced)
                 {
                     index++;
@@ -1107,6 +1106,29 @@ namespace Marabook.Print
         private static int Advance(int cursor, Atom atom)
         {
             return atom.SourceStart < 0 ? cursor : cursor + atom.SourceLength;
+        }
+
+        /// <summary>Le prochain atome visible après <paramref name="index"/>
+        /// tient-il encore sur la ligne (entier, ou coupé) ? Vrai aussi en fin
+        /// de paragraphe, devant une espace, un saut ou un filet.</summary>
+        private bool NextAtomFits(List<Atom> atoms, int index, double x, double avail,
+            ParagraphStyle style, int consecutiveHyphens)
+        {
+            var j = index + 1;
+            while (j < atoms.Count && (atoms[j].IsHidden || atoms[j].IsAnchor)) j++;
+            if (j >= atoms.Count) return true;
+            var next = atoms[j];
+            if (next.IsSpace || next.IsForcedBreak || next.IsRule) return true;
+            var fitWidth = next.Width;
+            for (var k = j + 1; k < atoms.Count && atoms[k].GluedToPrevious; k++) fitWidth += atoms[k].Width;
+            if (x + fitWidth <= avail + 0.05) return true;
+            if (next.Breaks != null && next.Breaks.Count > 0 && style.HyphenConsecutiveLimit > 0
+                && consecutiveHyphens < style.HyphenConsecutiveLimit)
+            {
+                var prefix = next.Text.Substring(0, next.Breaks[0]) + "-";
+                if (x + MeasureText(prefix, next.Font, next.Size, next.Tracking) <= avail + 0.05) return true;
+            }
+            return false;
         }
 
         private void UpdateMetrics(Atom atom, ref double ascent, ref double height)
@@ -1290,7 +1312,7 @@ namespace Marabook.Print
             foreach (var piece in line.Pieces)
             {
                 piece.Origin = new Point(piece.Origin.X + x, piece.Origin.Y);
-                if (piece.Image != null || piece.IsRule)
+                if (piece.IsRule)
                     piece.Rect = new Rect(piece.Rect.X + x, piece.Rect.Y,
                         piece.Rect.Width, piece.Rect.Height);
             }
@@ -1340,178 +1362,6 @@ namespace Marabook.Print
             }
         }
 
-        // ============================================================ pagination
-
-        /// <summary>Places every composed line on pages (no piece copies) with
-        /// keeps and widow/orphan control. Space for the footnotes called from
-        /// each placed line is reserved at the bottom of its page — a line and
-        /// its notes always share a page. Returns the index of the first page
-        /// whose content differs from the previous pagination.</summary>
-        public int Repaginate()
-        {
-            var previous = Current.Pages;
-            var pages = new List<ComposedPageLayout>();
-            var setup = _setup;
-            var top = Current.TopPx;
-            var bottom = Current.BottomPx;
-            var pageHeight = Current.PageHeightPx;
-            var contentHeight = pageHeight - top - bottom;
-
-            var page = new ComposedPageLayout();
-            pages.Add(page);
-            var y = top;
-            var noteHeight = 0.0; // reserved at the current page's bottom
-            var pageStartIndex = 0;
-            var paragraphs = Current.Paragraphs;
-
-            for (var p = 0; p < paragraphs.Count; p++)
-            {
-                var paragraph = paragraphs[p];
-                if (paragraph.PageBreakBefore && page.Lines.Count > 0)
-                {
-                    page = new ComposedPageLayout();
-                    pages.Add(page);
-                    // Chapter start of a book: land on a RECTO — an even folio
-                    // gets a blank verso inserted before it.
-                    if (paragraph.StartOnRecto
-                        && (pages.Count + Current.FolioOffset) % 2 == 0)
-                    {
-                        page = new ComposedPageLayout();
-                        pages.Add(page);
-                    }
-                    y = top;
-                    noteHeight = 0;
-                    pageStartIndex = p;
-                }
-                y += paragraph.SpaceBefore;
-
-                var height = ParagraphHeight(paragraph);
-                var wholeNotes = 0.0;
-                {
-                    var anyOnPage = page.NoteIndices.Count > 0;
-                    foreach (var line in paragraph.Lines)
-                    {
-                        var extra = LineNotesHeight(paragraph, line, !anyOnPage);
-                        if (extra > 0) anyOnPage = true;
-                        wholeNotes += extra;
-                    }
-                }
-                var fitsWhole = y + height <= top + contentHeight - noteHeight - wholeNotes + 0.5;
-                if (!fitsWhole && paragraph.Style.KeepLinesTogether
-                    && height <= contentHeight && page.Lines.Count > 0)
-                {
-                    var chainStart = ChainStart(paragraphs, p, pageStartIndex, contentHeight);
-                    if (chainStart < p)
-                    {
-                        // Rebuild the page without the chain, replay from there.
-                        var keepFrom = pageStartIndex;
-                        pages.RemoveAt(pages.Count - 1);
-                        page = new ComposedPageLayout();
-                        pages.Add(page);
-                        y = top;
-                        noteHeight = 0;
-                        for (var i = keepFrom; i < chainStart; i++)
-                        {
-                            y += paragraphs[i].SpaceBefore;
-                            for (var l = 0; l < paragraphs[i].Lines.Count; l++)
-                            {
-                                page.Lines.Add(new PlacedLine { ParagraphIndex = i, LineIndex = l, Y = y });
-                                noteHeight += AddLineNotes(page, paragraphs[i], paragraphs[i].Lines[l]);
-                                y += paragraphs[i].Lines[l].Height;
-                            }
-                            y += paragraphs[i].SpaceAfter;
-                        }
-                        page = new ComposedPageLayout();
-                        pages.Add(page);
-                        y = top;
-                        noteHeight = 0;
-                        pageStartIndex = chainStart;
-                        p = chainStart - 1;
-                        continue;
-                    }
-                    page = new ComposedPageLayout();
-                    pages.Add(page);
-                    y = top;
-                    noteHeight = 0;
-                    pageStartIndex = p;
-                }
-
-                var lineIndex = 0;
-                while (lineIndex < paragraph.Lines.Count)
-                {
-                    var remaining = paragraph.Lines.Count - lineIndex;
-                    var fit = 0;
-                    var probe = y;
-                    var probeNotes = 0.0;
-                    var probeAny = page.NoteIndices.Count > 0;
-                    for (var k = lineIndex; k < paragraph.Lines.Count; k++)
-                    {
-                        var candidate = paragraph.Lines[k];
-                        var extra = LineNotesHeight(paragraph, candidate, !probeAny);
-                        if (probe + candidate.Height
-                            > top + contentHeight - noteHeight - probeNotes - extra + 0.5) break;
-                        probe += candidate.Height;
-                        probeNotes += extra;
-                        if (extra > 0) probeAny = true;
-                        fit++;
-                    }
-                    var pageEmpty = page.Lines.Count == 0 && y <= top + paragraph.SpaceBefore + 0.5;
-                    if (fit < remaining)
-                    {
-                        // Contrôle veuves/orphelines 2/2 — débrayable paragraphe
-                        // par paragraphe (AllowWidows) : la correction saute,
-                        // le marqueur de marge reste (grisé) pour la rétablir.
-                        var allow = p < _document.Paragraphs.Count
-                            && _document.Paragraphs[p].AllowWidows;
-                        var adjusted = false;
-                        if (remaining - fit == 1 && fit > 1)
-                        {
-                            adjusted = true;
-                            if (!allow) fit--;
-                        }
-                        if (fit == 1 && lineIndex == 0 && remaining >= 2 && !pageEmpty)
-                        {
-                            adjusted = true;
-                            if (!allow) fit = 0;
-                        }
-                        if (fit <= 0 && pageEmpty) fit = 1;
-                        if (adjusted)
-                        {
-                            double kept = 0;
-                            for (var k = 0; k < fit && lineIndex + k < paragraph.Lines.Count; k++)
-                                kept += paragraph.Lines[lineIndex + k].Height;
-                            page.WidowMarks.Add(new WidowMark
-                            {
-                                ParagraphIndex = p,
-                                Y = Math.Min(y + kept, top + contentHeight - 14),
-                                Disabled = allow
-                            });
-                        }
-                    }
-                    for (var k = 0; k < fit; k++)
-                    {
-                        page.Lines.Add(new PlacedLine { ParagraphIndex = p, LineIndex = lineIndex, Y = y });
-                        noteHeight += AddLineNotes(page, paragraph, paragraph.Lines[lineIndex]);
-                        y += paragraph.Lines[lineIndex].Height;
-                        lineIndex++;
-                    }
-                    if (lineIndex < paragraph.Lines.Count)
-                    {
-                        page = new ComposedPageLayout();
-                        pages.Add(page);
-                        y = top;
-                        noteHeight = 0;
-                        pageStartIndex = p;
-                    }
-                }
-                y += paragraph.SpaceAfter;
-            }
-
-            PlaceNoteLines(pages, top, contentHeight);
-            Current.Pages = pages;
-            return FirstChangedPage(previous, pages);
-        }
-
         /// <summary>Stacks each page's notes at the bottom of its text area,
         /// mirroring the heights reserved during placement, and positions the
         /// separator rule.</summary>
@@ -1538,7 +1388,7 @@ namespace Marabook.Print
                     for (var l = 0; l < layout.Lines.Count; l++)
                     {
                         if (y + layout.Lines[l].Height > bottom + 0.5) break; // tronqué
-                        page.NoteLines.Add(new PlacedLine { ParagraphIndex = index, LineIndex = l, Y = y });
+                        page.NoteLines.Add(new PlacedLine { ParagraphIndex = index, LineIndex = l, Y = y, Line = layout.Lines[l] });
                         y += layout.Lines[l].Height;
                     }
                     y += NoteGap;
@@ -1560,6 +1410,7 @@ namespace Marabook.Print
                     if (before[k].WidowMarks[i].Disabled != after[k].WidowMarks[i].Disabled
                         || Math.Abs(before[k].WidowMarks[i].Y - after[k].WidowMarks[i].Y) > 0.1)
                         return k;
+                if (ImagesDiffer(before[k].Images, after[k].Images)) return k;
             }
             return before.Count == after.Count ? int.MaxValue : common;
         }
@@ -1570,7 +1421,36 @@ namespace Marabook.Print
             for (var i = 0; i < a.Count; i++)
                 if (a[i].ParagraphIndex != b[i].ParagraphIndex
                     || a[i].LineIndex != b[i].LineIndex
-                    || Math.Abs(a[i].Y - b[i].Y) > 0.1) return true;
+                    || Math.Abs(a[i].Y - b[i].Y) > 0.1
+                    || !SameLine(a[i].Line, b[i].Line)) return true;
+            return false;
+        }
+
+        /// <summary>Deux lignes posées disent-elles la même chose ? La même
+        /// ligne composée, ou — lignes composées pour leur page autour des
+        /// images, objets neufs à chaque pagination — la même plage plate au
+        /// même endroit avec les mêmes pièces. Le contenu d'un paragraphe
+        /// édité est couvert par l'appelant (sa page compte toujours changée).</summary>
+        private static bool SameLine(ComposedLine a, ComposedLine b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null) return false;
+            if (a.Start != b.Start || a.End != b.End || a.Pieces.Count != b.Pieces.Count
+                || Math.Abs(a.Height - b.Height) > 0.1) return false;
+            for (var i = 0; i < a.Pieces.Count; i++)
+                if (Math.Abs(a.Pieces[i].Origin.X - b.Pieces[i].Origin.X) > 0.1
+                    || Math.Abs(a.Pieces[i].ScaleX - b.Pieces[i].ScaleX) > 0.001) return false;
+            return true;
+        }
+
+        private static bool ImagesDiffer(List<PlacedImage> a, List<PlacedImage> b)
+        {
+            if (a.Count != b.Count) return true;
+            for (var i = 0; i < a.Count; i++)
+                if (!ReferenceEquals(a[i].Run, b[i].Run)
+                    || Math.Abs(a[i].Rect.X - b[i].Rect.X) > 0.1 || Math.Abs(a[i].Rect.Y - b[i].Rect.Y) > 0.1
+                    || Math.Abs(a[i].Rect.Width - b[i].Rect.Width) > 0.1 || Math.Abs(a[i].Rect.Height - b[i].Rect.Height) > 0.1)
+                    return true;
             return false;
         }
 

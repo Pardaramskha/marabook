@@ -17,7 +17,7 @@ namespace Marabook.View
     /// (dead keys included), Enter/Backspace/Delete, clipboard, character
     /// formatting, its own undo/redo on the pivot. « Écrire dans un livre déjà
     /// mis en page. » Black on white: print fidelity.</summary>
-    public class ComposedView : ScrollViewer
+    public partial class ComposedView : ScrollViewer
     {
         private const double PageGapPx = 18;
 
@@ -253,6 +253,9 @@ namespace Marabook.View
             _blink = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(530) };
             _blink.Tick += delegate
             {
+                // Une image sélectionnée (0.50.0) : pas de caret qui clignote,
+                // c'est elle qui a la main (ses poignées le disent).
+                if (_selectedImage != null) { _caretBar.Visibility = Visibility.Collapsed; return; }
                 _caretBar.Visibility = _caretBar.Visibility == Visibility.Visible && _item != null
                     ? Visibility.Hidden : (_item != null ? Visibility.Visible : Visibility.Collapsed);
             };
@@ -260,8 +263,9 @@ namespace Marabook.View
             PreviewMouseLeftButtonDown += OnMouseDown;
             PreviewMouseRightButtonDown += OnMouseRightDown;
             PreviewMouseMove += OnMouseMoveDrag;
-            PreviewMouseLeftButtonUp += delegate
+            PreviewMouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
             {
+                if (ImageMouseUp(e)) { e.Handled = true; return; }
                 _mouseSelecting = false;
                 _dragOriginParagraph = -1;
                 _dragWholeWords = false;
@@ -349,6 +353,7 @@ namespace Marabook.View
             _engine.DefaultDecor = Decor;
             _engine.ComposeAll();
             CloseNoteEditor(false);
+            DeselectImage(false);
             _undo.Clear();
             _redo.Clear();
             _caretParagraph = 0;
@@ -363,6 +368,7 @@ namespace Marabook.View
         public void Detach()
         {
             CloseNoteEditor(false);
+            DeselectImage(false);
             _item = null;
             _engine = null;
             ClearVetoes();
@@ -477,7 +483,7 @@ namespace Marabook.View
             foreach (var placed in page.NoteLines)
             {
                 if (placed.ParagraphIndex < 0 || placed.ParagraphIndex >= composition.NoteParagraphs.Count) continue;
-                var line = composition.NoteParagraphs[placed.ParagraphIndex].Lines[placed.LineIndex];
+                var line = placed.Line;
                 if (yInPage < placed.Y - 1 || yInPage > placed.Y + line.Height + 1) continue;
                 var order = MarkerOrder();
                 return placed.ParagraphIndex < order.Count ? order[placed.ParagraphIndex] : null;
@@ -785,7 +791,7 @@ namespace Marabook.View
                 foreach (var placed in composition.Pages[k].NoteLines)
                 {
                     if (placed.ParagraphIndex != index) continue;
-                    var line = composition.NoteParagraphs[index].Lines[placed.LineIndex];
+                    var line = placed.Line;
                     top = Math.Min(top, placed.Y);
                     bottom = Math.Max(bottom, placed.Y + line.Height);
                 }
@@ -954,21 +960,35 @@ namespace Marabook.View
             var composition = _engine.Current;
             if (paragraphIndex < 0 || paragraphIndex >= composition.Paragraphs.Count)
                 return null;
-            var layout = composition.Paragraphs[paragraphIndex];
-            var lineIndex = layout.Lines.Count - 1;
-            for (var i = 0; i < layout.Lines.Count; i++)
-                if (offset < layout.Lines[i].End || (i == layout.Lines.Count - 1))
-                { lineIndex = i; break; }
-
+            // Les lignes POSÉES du paragraphe (0.50.0) : celles du paragraphe
+            // composé pleine colonne, ou celles composées pour leur page
+            // autour des images — la première dont la fin dépasse l'offset,
+            // sinon la dernière.
+            ComposedLine last = null;
+            var lastPage = 0;
+            var lastY = 0.0;
             for (var k = 0; k < composition.Pages.Count; k++)
                 foreach (var placed in composition.Pages[k].Lines)
-                    if (placed.ParagraphIndex == paragraphIndex && placed.LineIndex == lineIndex)
+                {
+                    if (placed.ParagraphIndex != paragraphIndex) continue;
+                    if (offset < placed.Line.End)
                     {
                         pageIndex = k;
                         lineY = placed.Y;
-                        return layout.Lines[lineIndex];
+                        return placed.Line;
                     }
-            return layout.Lines.Count > 0 ? layout.Lines[lineIndex] : null;
+                    last = placed.Line;
+                    lastPage = k;
+                    lastY = placed.Y;
+                }
+            if (last != null)
+            {
+                pageIndex = lastPage;
+                lineY = lastY;
+                return last;
+            }
+            var layout = composition.Paragraphs[paragraphIndex];
+            return layout.Lines.Count > 0 ? layout.Lines[layout.Lines.Count - 1] : null;
         }
 
         /// <summary>left = LeftPxFor(page de la ligne) — mirrored margins make
@@ -1020,6 +1040,7 @@ namespace Marabook.View
                 return;
             }
             DrawSelectionOverlay();
+            DrawImageOverlay(); // cadre, poignées et grille de l'image sélectionnée (0.50.0)
 
             int pageIndex;
             double lineY;
@@ -1030,7 +1051,7 @@ namespace Marabook.View
             Canvas.SetLeft(_caretBar, x);
             Canvas.SetTop(_caretBar, y + 1);
             _caretBar.Height = Math.Max(8, line.Height - 2);
-            _caretBar.Visibility = Visibility.Visible;
+            _caretBar.Visibility = _selectedImage != null ? Visibility.Collapsed : Visibility.Visible;
 
             EnsureCaretVisible(y, line.Height);
             RaisePageInfo();
@@ -1065,7 +1086,7 @@ namespace Marabook.View
                 foreach (var placed in composition.Pages[k].Lines)
                 {
                     if (placed.ParagraphIndex < pa || placed.ParagraphIndex > pb) continue;
-                    var line = composition.Paragraphs[placed.ParagraphIndex].Lines[placed.LineIndex];
+                    var line = placed.Line;
                     var from = placed.ParagraphIndex == pa ? Math.Max(line.Start, oa) : line.Start;
                     var to = placed.ParagraphIndex == pb ? Math.Min(line.End, ob) : line.End;
                     if (from > to) continue;
@@ -1149,6 +1170,11 @@ namespace Marabook.View
             if (_noteEditor != null) CloseNoteEditor(false);
             Focus();
             if (ToggleWidowMarkAt(e)) { e.Handled = true; return; }
+            // Une image sous le clic (0.50.0) : elle se sélectionne et se
+            // déplace ; un clic ailleurs sur la surface la désélectionne —
+            // le ruban, lui, ne la lâche jamais.
+            if (ImageMouseDown(e)) { e.Handled = true; return; }
+            DeselectImage(true);
             // Clic sur une note au bas de la page : on l'édite en place.
             var noteId = NoteAtPoint(e.GetPosition(_pages));
             if (noteId != null) { EditNote(noteId); e.Handled = true; return; }
@@ -1550,7 +1576,8 @@ namespace Marabook.View
 
         private void OnMouseMoveDrag(object sender, MouseEventArgs e)
         {
-            if (!_mouseSelecting && Settings.AppSettings.ShowLinks) UpdateLinkCursor(e);
+            if (ImageMouseMove(e)) { e.Handled = true; return; }
+            if (!_mouseSelecting) UpdateHoverCursor(e);
             if (!_mouseSelecting || e.LeftButton != MouseButtonState.Pressed) return;
             int paragraph, offset;
             if (!HitTestPosition(e, out paragraph, out offset)) return;
@@ -1575,14 +1602,18 @@ namespace Marabook.View
             UpdateCaretVisual();
         }
 
-        /// <summary>Liens montrés : la main sur un lien, le I ailleurs — posé
-        /// sur la page survolée (c'est elle qui porte le curseur d'écriture).</summary>
-        private void UpdateLinkCursor(MouseEventArgs e)
+        /// <summary>Le curseur de la page survolée (c'est elle qui porte le
+        /// curseur d'écriture) : une poignée ou une image (0.50.0), la main
+        /// sur un lien montré, le I ailleurs.</summary>
+        private void UpdateHoverCursor(MouseEventArgs e)
         {
             var page = e.OriginalSource as PageElement;
             if (page == null || _item == null) return;
+            var imageCursor = ImageCursorAt(e.GetPosition(_pages));
+            if (imageCursor != null) { page.Cursor = imageCursor; return; }
             int paragraph, offset;
-            var over = HitTestPosition(e, out paragraph, out offset) && WikiLinkAt(paragraph, offset) != null;
+            var over = Settings.AppSettings.ShowLinks
+                && HitTestPosition(e, out paragraph, out offset) && WikiLinkAt(paragraph, offset) != null;
             page.Cursor = over ? Cursors.Hand : Cursors.IBeam;
         }
 
@@ -1606,18 +1637,45 @@ namespace Marabook.View
                 offset = _caretOffset;
                 return true;
             }
+            // La ligne sous le point : la première à sa hauteur — et, quand
+            // plusieurs lignes partagent une ordonnée (de part et d'autre
+            // d'une image, 0.50.0), celle dont la colonne contient l'abscisse.
             var chosen = page.Lines[page.Lines.Count - 1];
-            foreach (var placed in page.Lines)
+            var found = false;
+            for (var i = 0; i < page.Lines.Count; i++)
             {
-                var line = composition.Paragraphs[placed.ParagraphIndex].Lines[placed.LineIndex];
-                if (yInPage < placed.Y) { chosen = placed; break; }
+                var placed = page.Lines[i];
+                var line = placed.Line;
+                if (yInPage < placed.Y) { chosen = placed; found = true; break; }
                 chosen = placed;
-                if (yInPage <= placed.Y + line.Height) break;
+                if (yInPage <= placed.Y + line.Height)
+                {
+                    found = true;
+                    for (var j = i; j < page.Lines.Count && Math.Abs(page.Lines[j].Y - placed.Y) < 0.5; j++)
+                        if (ContainsX(page.Lines[j].Line, point.X, composition.LeftPxFor(pageIndex)))
+                        { chosen = page.Lines[j]; break; }
+                    break;
+                }
             }
+            if (!found) chosen = page.Lines[page.Lines.Count - 1];
             paragraph = chosen.ParagraphIndex;
-            var chosenLine = composition.Paragraphs[paragraph].Lines[chosen.LineIndex];
-            offset = OffsetFromX(chosenLine, point.X, composition.LeftPxFor(pageIndex));
+            offset = OffsetFromX(chosen.Line, point.X, composition.LeftPxFor(pageIndex));
             return true;
+        }
+
+        /// <summary>L'abscisse tombe-t-elle dans l'empreinte horizontale de
+        /// la ligne (ses pièces), avec un peu de marge ?</summary>
+        private static bool ContainsX(ComposedLine line, double x, double left)
+        {
+            var min = double.MaxValue;
+            var max = double.MinValue;
+            foreach (var piece in line.Pieces)
+            {
+                if (piece.SourceStart < 0 && !piece.IsSpace) continue;
+                min = Math.Min(min, left + piece.Origin.X);
+                max = Math.Max(max, left + piece.Origin.X + piece.VisualWidth());
+            }
+            return min <= max && x >= min - 8 && x <= max + 8;
         }
 
         /// <summary>La cible du [[lien]] sous l'offset (marques comprises,
@@ -1675,6 +1733,7 @@ namespace Marabook.View
             if (text == "\r" || text == "\n" || text == "\t" || text == "\b"
                 || (text.Length == 1 && char.IsControl(text[0]))) return;
             e.Handled = true;
+            DeselectImage(false); // la frappe revient au texte (0.50.0)
             TypeText(text);
         }
 
@@ -1760,6 +1819,7 @@ namespace Marabook.View
             }
             if (_bubbleLayer.IsKeyboardFocusWithin) return; // le clavier est à la bulle (b34)
             if (_item == null) return;
+            if (ImageKeyDown(e)) { e.Handled = true; return; } // l'image sélectionnée (0.50.0)
             // Les gestes de l'éditeur (22/09) : gras, italique, alignements,
             // listes, décalages, point médian, saut de page… — la table des
             // raccourcis (Préférences › Raccourcis › Éditeur) décide.
@@ -1951,15 +2011,20 @@ namespace Marabook.View
             var current = -1;
             for (var i = 0; i < flat.Count; i++)
             {
-                var candidate = composition.Paragraphs[flat[i].ParagraphIndex].Lines[flat[i].LineIndex];
+                var candidate = flat[i].Line;
                 if (flat[i].ParagraphIndex == _caretParagraph
                     && ReferenceEquals(candidate, line)) { current = i; break; }
             }
             if (current < 0) return;
-            var next = current + direction;
+            // Des lignes de part et d'autre d'une image partagent une
+            // ordonnée (0.50.0) : haut/bas sautent à l'ordonnée suivante.
+            var next = current;
+            do { next += direction; }
+            while (next >= 0 && next < flat.Count && pageOf[next] == pageOf[current]
+                && Math.Abs(flat[next].Y - flat[current].Y) < 0.5);
             if (next < 0 || next >= flat.Count) return;
             var targetPlaced = flat[next];
-            var targetLine = composition.Paragraphs[targetPlaced.ParagraphIndex].Lines[targetPlaced.LineIndex];
+            var targetLine = targetPlaced.Line;
             _caretParagraph = targetPlaced.ParagraphIndex;
             var targetLeft = composition.LeftPxFor(pageOf[next]);
             _caretOffset = OffsetFromX(targetLine, targetLeft + _caretDesiredX, targetLeft);
@@ -2854,9 +2919,11 @@ namespace Marabook.View
 
         // ============================================================= révision
 
-        /// <summary>Ancre une annotation sur la sélection (faux sans sélection).</summary>
+        /// <summary>Ancre une annotation sur la sélection — ou sur l'image
+        /// sélectionnée (0.50.0). Faux sans l'une ni l'autre.</summary>
         public bool AnnotateSelection(string id)
         {
+            if (_selectedImage != null) return AnnotateSelectedImage(id);
             if (!HasSelection()) return false;
             ApplyToSelection(delegate(TextRun run) { run.AnnotationId = id; });
             return true;
@@ -3037,12 +3104,16 @@ namespace Marabook.View
                 }
                 if (start < 0) continue;
                 var stride = composition.PageHeightPx + PageGapPx;
+                // Une image annotée (0.50.0) : la bulle à la hauteur de l'image.
+                int imagePage;
+                var placedImage = FindPlacedImage(RunAtFlat(_item.Document.Paragraphs[p], start), out imagePage);
+                if (placedImage != null) return imagePage * stride + placedImage.Rect.Y;
                 double firstOfParagraph = -1;
                 for (var pageIndex = 0; pageIndex < composition.Pages.Count; pageIndex++)
                     foreach (var placed in composition.Pages[pageIndex].Lines)
                     {
                         if (placed.ParagraphIndex != p) continue;
-                        var line = composition.Paragraphs[p].Lines[placed.LineIndex];
+                        var line = placed.Line;
                         if (firstOfParagraph < 0)
                             firstOfParagraph = pageIndex * stride + placed.Y;
                         if (start >= line.Start && start < Math.Max(line.Start + 1, line.End))
@@ -3154,6 +3225,7 @@ namespace Marabook.View
         public string AnnotationAtCaret()
         {
             if (_item == null || _caretParagraph >= _item.Document.Paragraphs.Count) return null;
+            if (_selectedImage != null) return _selectedImage.AnnotationId; // l'image sélectionnée (0.50.0)
             var paragraph = _item.Document.Paragraphs[_caretParagraph];
             int runIndex, inner;
             PivotEdit.Locate(paragraph, _caretOffset, out runIndex, out inner);
@@ -3184,12 +3256,15 @@ namespace Marabook.View
                     var length = PivotEdit.IsElement(run) ? 1 : run.Text.Length;
                     if (run.AnnotationId == id)
                     {
+                        // Une image annotée (0.50.0) : on la sélectionne, elle.
+                        if (run.ImageId != null && start < 0 && SelectImageRun(run)) return true;
                         if (start < 0) start = cursor;
                         end = cursor + length;
                     }
                     cursor += length;
                 }
                 if (start < 0) continue;
+                DeselectImage(false);
                 _anchorParagraph = p;
                 _anchorOffset = start;
                 _caretParagraph = p;

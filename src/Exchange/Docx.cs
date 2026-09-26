@@ -914,8 +914,8 @@ namespace Marabook.Exchange
                 // texte — une même image citée deux fois par le run (Choice +
                 // Fallback) n'entre qu'une fois.
                 if (ctx != null && ctx.Images != null)
-                    foreach (var imageId in ImagesOf(child, ctx))
-                        paragraph.Runs.Add(new TextRun { ImageId = imageId });
+                    foreach (var imageRun in ImagesOf(child, ctx))
+                        paragraph.Runs.Add(imageRun);
 
                 var sb = new StringBuilder();
                 foreach (XmlNode part in child.ChildNodes)
@@ -936,20 +936,57 @@ namespace Marabook.Exchange
         /// les a:blip (r:embed) des dessins DrawingML, puis les v:imagedata
         /// (r:id) des dessins VML — une image liée hors du fichier (r:link
         /// seul) n'a pas d'octets, elle est ignorée.</summary>
-        private static List<string> ImagesOf(XmlNode run, ImportContext ctx)
+        private static List<TextRun> ImagesOf(XmlNode run, ImportContext ctx)
         {
-            var ids = new List<string>();
+            var runs = new List<TextRun>();
+            var seen = new List<string>();
             foreach (var pair in new[] { new[] { "blip", "embed" }, new[] { "imagedata", "id" } })
             {
                 var nodes = run.SelectNodes(".//*[local-name()='" + pair[0] + "']");
                 if (nodes == null) continue;
                 foreach (XmlNode node in nodes)
                 {
-                    var id = ctx.ImageFor(LocalAttr(node, pair[1]));
-                    if (id != null && !ids.Contains(id)) ids.Add(id);
+                    var relationId = LocalAttr(node, pair[1]);
+                    var id = ctx.ImageFor(relationId);
+                    if (id == null || seen.Contains(id)) continue;
+                    seen.Add(id);
+                    // Le placement (0.50.0) : le nom de l'entrée (image1.png),
+                    // la taille du dessin (wp:extent, en EMU : 9 525 par px) —
+                    // attachée à sa ligne, centrée, texte au-dessus et en dessous.
+                    var layout = new ImageLayout();
+                    string entry;
+                    if (relationId != null && ctx.ImageRels.TryGetValue(relationId, out entry))
+                        layout.Name = System.IO.Path.GetFileName(entry);
+                    var extent = ExtentOf(node);
+                    if (extent != null)
+                    {
+                        double cx, cy;
+                        if (double.TryParse(LocalAttr(extent, "cx"), NumberStyles.Float, CultureInfo.InvariantCulture, out cx)
+                            && double.TryParse(LocalAttr(extent, "cy"), NumberStyles.Float, CultureInfo.InvariantCulture, out cy)
+                            && cx > 0 && cy > 0)
+                        {
+                            layout.Width = cx / 9525.0;
+                            layout.Height = cy / 9525.0;
+                        }
+                    }
+                    runs.Add(new TextRun { ImageId = id, Image = layout });
                 }
             }
-            return ids;
+            return runs;
+        }
+
+        /// <summary>Le wp:extent du dessin qui porte ce blip (l'ancêtre
+        /// wp:inline ou wp:anchor, puis son extent), ou null (VML).</summary>
+        private static XmlNode ExtentOf(XmlNode blip)
+        {
+            var node = blip.ParentNode;
+            while (node != null)
+            {
+                if (node.LocalName == "inline" || node.LocalName == "anchor")
+                    return node.SelectSingleNode("*[local-name()='extent']");
+                node = node.ParentNode;
+            }
+            return null;
         }
 
         private static string LocalAttr(XmlNode node, string localName)

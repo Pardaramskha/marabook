@@ -31,8 +31,18 @@ namespace Marabook.Model
                                     // aux vérificateurs (noms inventés, langues
                                     // fictives) ; sémantique du w:noProof de Word
         public bool IsLineBreak;    // explicit line break (Shift+Enter)
-        public string ImageId;      // inline image (bytes live in the project image store)
+        public string ImageId;      // image ancrée ici (octets dans le magasin du projet)
+        public ImageLayout Image;   // son placement (0.50.0) ; null = défauts
+                                    // (attachée à sa ligne, centrée, texte
+                                    // au-dessus et en dessous)
         public bool IsRule;         // horizontal rule (its paragraph holds nothing else)
+
+        /// <summary>Le placement de l'image, créé au besoin (run image seulement).</summary>
+        public ImageLayout EnsureImage()
+        {
+            if (Image == null) Image = new ImageLayout();
+            return Image;
+        }
 
         public bool HasSameFormat(TextRun other)
         {
@@ -325,9 +335,17 @@ namespace Marabook.Model
             var sb = new StringBuilder();
             foreach (var paragraph in Paragraphs)
                 foreach (var run in paragraph.Runs)
-                    if (run.AnnotationId == id && run.FootnoteId == null
-                        && run.ImageId == null && !run.IsRule)
-                        sb.Append(run.Text);
+                {
+                    if (run.AnnotationId != id || run.FootnoteId != null || run.IsRule) continue;
+                    // Une image annotée (0.50.0) : son nom entre crochets.
+                    if (run.ImageId != null)
+                    {
+                        var name = run.Image == null ? null : run.Image.Name;
+                        sb.Append("[" + (string.IsNullOrEmpty(name) ? "image" : name) + "]");
+                        continue;
+                    }
+                    sb.Append(run.Text);
+                }
             return sb.ToString();
         }
     }

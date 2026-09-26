@@ -292,6 +292,8 @@ namespace Marabook.Model
                 if (!x.HasSameFormat(y)) return false;
                 if (x.Text != y.Text || x.ImageId != y.ImageId || x.IsRule != y.IsRule || x.IsLineBreak != y.IsLineBreak
                     || x.FootnoteId != y.FootnoteId) return false;
+                // Le placement d'une image (0.50.0) : déplacée ou redimensionnée = changée.
+                if (x.ImageId != null && !(x.Image == null ? y.Image == null : x.Image.SameAs(y.Image))) return false;
             }
             return true;
         }

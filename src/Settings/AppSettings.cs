@@ -144,6 +144,7 @@ namespace Marabook.Settings
         public static bool WhitePaperInDark; // keep white pages under the dark theme
         public static bool StatsExpanded;    // « Statistiques » accordion of the inspector
         public static bool ShowAnnotations = true; // teintes + bulles de révision
+        public static bool ImageGrid;               // grille de placement des images (0.50.0)
         // Les [[liens]] du texte (18/09) : marques visibles et texte du lien
         // en évidence, ou marques masquées (défaut). Jamais persisté : chaque
         // session repart cachée, l'insertion d'un lien les montre.
@@ -396,6 +397,7 @@ namespace Marabook.Settings
                 WhitePaperInDark = Json.AsBool(Json.Field(root, "whitePaperInDark"), false);
                 StatsExpanded = Json.AsBool(Json.Field(root, "statsExpanded"), false);
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
+                ImageGrid = Json.AsBool(Json.Field(root, "imageGrid"), false);
                 LexiconPinned = Json.AsBool(Json.Field(root, "lexiconPinned"), false);
                 ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
                 SnapshotCap = (int)Json.AsDouble(Json.Field(root, "snapshotCap"), 20);
@@ -530,6 +532,7 @@ namespace Marabook.Settings
                 root["whitePaperInDark"] = WhitePaperInDark;
                 root["statsExpanded"] = StatsExpanded;
                 root["showAnnotations"] = ShowAnnotations;
+                root["imageGrid"] = ImageGrid;
                 root["lexiconPinned"] = LexiconPinned;
                 root["proofEnabled"] = ProofEnabled;
                 root["snapshotCap"] = SnapshotCap;

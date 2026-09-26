@@ -152,7 +152,15 @@ namespace Marabook.Persistence
         //      absente = non ; rendues par le compositeur (bas-de-casse en
         //      capitales à 78 %), par WPF (Typography.Capitals) et exportées
         //      (w:smallCaps, fo:font-variant, font-variant CSS).
-        private const int FormatVersion = 32;
+        // v33: PLACEMENT DES IMAGES (0.50.0) — sur un run image ("img"), les
+        //      clés "iname" (nom de fichier), "iw"/"ih" (taille affichée en px,
+        //      absentes = naturelle), "ix"/"iy" (position dans la zone de
+        //      texte, absentes = centrée / attachée à la ligne de l'ancre),
+        //      "iwrap" ("wrap" = texte de part et d'autre ; absente = texte
+        //      au-dessus et en dessous), "ifree" (placement libre). Un run
+        //      image d'avant (sans ces clés) reste attaché, centré, réduit à
+        //      la colonne.
+        private const int FormatVersion = 33;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -1577,7 +1585,13 @@ namespace Marabook.Persistence
             var r = new Dictionary<string, object>();
             if (run.IsLineBreak) { r["br"] = true; return r; }
             if (run.FootnoteId != null) { r["fn"] = run.FootnoteId; return r; }
-            if (run.ImageId != null) { r["img"] = run.ImageId; return r; }
+            if (run.ImageId != null)
+            {
+                r["img"] = run.ImageId;
+                WriteImageLayout(r, run.Image); // v33
+                if (run.AnnotationId != null) r["ann"] = run.AnnotationId; // une image annotée (0.50.0)
+                return r;
+            }
             if (run.IsRule) { r["hr"] = true; return r; }
             r["t"] = run.Text;
             if (run.Bold.HasValue) r["b"] = run.Bold.Value;
@@ -1610,6 +1624,8 @@ namespace Marabook.Persistence
             else if (Json.Field(r, "img") != null)
             {
                 run.ImageId = Json.AsString(Json.Field(r, "img"));
+                run.Image = ReadImageLayout(r); // v33 (null pour un run d'avant)
+                run.AnnotationId = Json.AsString(Json.Field(r, "ann"));
             }
             else if (Json.AsBool(Json.Field(r, "hr"), false))
             {
@@ -1635,6 +1651,40 @@ namespace Marabook.Persistence
                 run.NoProof = Json.AsBool(Json.Field(r, "np"), false);
             }
             return run;
+        }
+
+        /// <summary>Le placement d'une image sur son nœud de run (v33) : rien
+        /// n'est écrit pour les défauts.</summary>
+        private static void WriteImageLayout(Dictionary<string, object> r, ImageLayout layout)
+        {
+            if (layout == null) return;
+            if (!string.IsNullOrEmpty(layout.Name)) r["iname"] = layout.Name;
+            if (layout.Width > 0) r["iw"] = Math.Round(layout.Width, 2);
+            if (layout.Height > 0) r["ih"] = Math.Round(layout.Height, 2);
+            if (layout.X.HasValue) r["ix"] = Math.Round(layout.X.Value, 2);
+            if (layout.Y.HasValue) r["iy"] = Math.Round(layout.Y.Value, 2);
+            if (layout.Wrap == ImageLayout.WrapAround) r["iwrap"] = layout.Wrap;
+            if (layout.Free) r["ifree"] = true;
+        }
+
+        private static ImageLayout ReadImageLayout(Dictionary<string, object> r)
+        {
+            var name = Json.AsString(Json.Field(r, "iname"));
+            var width = Json.Field(r, "iw");
+            var height = Json.Field(r, "ih");
+            var x = Json.Field(r, "ix");
+            var y = Json.Field(r, "iy");
+            var wrap = Json.AsString(Json.Field(r, "iwrap"));
+            var free = Json.AsBool(Json.Field(r, "ifree"), false);
+            if (name == null && width == null && height == null && x == null && y == null && wrap == null && !free)
+                return null;
+            var layout = new ImageLayout { Name = name, Free = free };
+            if (width is double) layout.Width = (double)width;
+            if (height is double) layout.Height = (double)height;
+            if (x is double) layout.X = (double)x;
+            if (y is double) layout.Y = (double)y;
+            if (wrap == ImageLayout.WrapAround) layout.Wrap = wrap;
+            return layout;
         }
 
         private static bool? OptBool(Dictionary<string, object> obj, string name)

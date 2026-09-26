@@ -276,7 +276,8 @@ namespace Marabook.Tests.Ui
             var tabs = FindTabControl(ribbon);
             var headers = new List<string>();
             foreach (TabItem tab in tabs.Items) headers.Add((string)tab.Header);
-            Check(headers.IndexOf("Insertion") == 1, "l'onglet Insertion suit Texte");
+            // L'onglet Image s'intercale entre Texte et Insertion (0.50.0).
+            Check(headers.IndexOf("Image") == 1 && headers.IndexOf("Insertion") == 2, "l'onglet Insertion suit Texte et Image");
             Check(headers.Contains("Correction") && headers.IndexOf("Correction") > headers.IndexOf("Révision"),
                 "l'onglet Correction existe, après Révision");
             Check(CountButtons(TabContent(tabs, "Insertion")) >= 4,
@@ -526,7 +527,7 @@ namespace Marabook.Tests.Ui
             var tabsAll = FindTabControl(ribbon);
             var headers2 = new List<string>();
             foreach (TabItem tab in tabsAll.Items) headers2.Add((string)tab.Header);
-            Check(headers2.IndexOf("Formatage") == 2 && ContainsLabel(TabContent(tabsAll, "Formatage"), "Typographie"),
+            Check(headers2.IndexOf("Formatage") == headers2.IndexOf("Insertion") + 1 && ContainsLabel(TabContent(tabsAll, "Formatage"), "Typographie"),
                 "l'onglet Formatage suit Insertion, avec « Typographie »");
             Snapshot(ribbon, Path.Combine(Path.GetTempPath(), "marabook-b34-ribbon.png"));
             Snapshot((FrameworkElement)GetField(window, "_binder"), Path.Combine(Path.GetTempPath(), "marabook-b35-pile.png"));

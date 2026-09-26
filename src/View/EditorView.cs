@@ -1416,7 +1416,7 @@ namespace Marabook.View
             if (!anchored)
             {
                 MessageDialog.Show(Window.GetWindow(this),
-                    "Sélectionnez d'abord le passage à annoter.",
+                    "Sélectionnez d'abord le passage à annoter — ou cliquez une image.",
                     "Révision", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -1784,6 +1784,13 @@ namespace Marabook.View
             {
                 SyncTrackingBox();
                 SyncToolbarComposed();
+                SyncImageTab(); // l'onglet Image suit l'image sélectionnée (0.50.0)
+            };
+            _composed.ImageSelectionChanged += delegate
+            {
+                SyncImageTab();
+                var handler = ImageSelectionChanged;
+                if (handler != null) handler();
             };
 
             var centerHost = new Grid();
@@ -2137,7 +2144,13 @@ namespace Marabook.View
                 var bytes = System.IO.File.ReadAllBytes(dialog.FileName);
                 var id = _project.AddImage(bytes, System.IO.Path.GetExtension(dialog.FileName));
                 if (!ComposedActive) return;
-                _composed.InsertElementAtCaret(new TextRun { ImageId = id });
+                // L'image naît attachée à sa ligne, centrée, réduite à la
+                // colonne, et sélectionnée (0.50.0) : poignées et onglet Image.
+                _composed.InsertImageAtCaret(new TextRun
+                {
+                    ImageId = id,
+                    Image = new ImageLayout { Name = System.IO.Path.GetFileName(dialog.FileName) }
+                });
                 _composed.FocusSurface();
             }
             catch (Exception error)

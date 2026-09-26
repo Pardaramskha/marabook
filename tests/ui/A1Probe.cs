@@ -111,6 +111,8 @@ namespace Marabook.Tests.Ui
             Console.WriteLine();
             Console.WriteLine("== Sonde des cartes mentales (22/09, le vrai DLC Mental-o s'il est bâti)");
             _failures += MindMapProbe.Run();
+            Console.WriteLine();
+            _failures += ImagesProbe.Run(); // refonte des images (0.50.0)
         }
 
         private static void Run(string path)

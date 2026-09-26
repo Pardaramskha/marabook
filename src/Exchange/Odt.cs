@@ -494,7 +494,16 @@ namespace Marabook.Exchange
                 var href = Attr(image, "href", null);
                 if (string.IsNullOrEmpty(href) || href.Contains(":")) continue;
                 var id = images.Store(ImportedImages.Resolve("", href));
-                if (id != null) paragraph.Runs.Add(new TextRun { ImageId = id });
+                if (id == null) continue;
+                // Le placement (0.50.0) : le nom du fichier, la taille du
+                // cadre (svg:width / svg:height de draw:frame) — attachée à sa
+                // ligne, centrée, le texte au-dessus et en dessous.
+                var layout = new ImageLayout { Name = Path.GetFileName(href.Replace('\\', '/')) };
+                var holder = image.ParentNode != null && image.ParentNode.LocalName == "frame" ? image.ParentNode : frame;
+                var width = PxFromLength(Attr(holder, "width", null));
+                var height = PxFromLength(Attr(holder, "height", null));
+                if (width > 0 && height > 0) { layout.Width = width; layout.Height = height; }
+                paragraph.Runs.Add(new TextRun { ImageId = id, Image = layout });
             }
         }
 
