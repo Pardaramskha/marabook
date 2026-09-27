@@ -289,7 +289,7 @@ namespace Marabook.App
             var titleRow = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
             var menu = Buttons.Icon("dots-three-vertical-bold", "Déplacer, supprimer la colonne", Buttons.Compact, Buttons.Look.Calm);
             var columnRef = column;
-            menu.Click += delegate { ColumnMenu(columnRef).Open(); };
+            menu.Click += delegate { ColumnMenu(columnRef).Open(menu); }; // une cible, sinon Avalonia lève (28/09)
             DockPanel.SetDock(menu, Dock.Right);
             titleRow.Children.Add(menu);
             var titleBox = new TextBox

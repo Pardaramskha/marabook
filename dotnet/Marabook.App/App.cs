@@ -1,3 +1,4 @@
+using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -64,7 +65,24 @@ namespace Marabook.App
             if (desktop != null)
             {
                 desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
-                desktop.MainWindow = new MainWindow(Launch);
+                var window = new MainWindow(Launch);
+                desktop.MainWindow = window;
+                // Le filet du secours (18/09, rebranché sur Avalonia le 28/09 :
+                // il manquait, et tout clic droit fautif emportait le
+                // processus sans rapport) : une erreur non rattrapée sur le
+                // fil d'interface écrit le secours et le rapport, s'explique,
+                // et l'application continue ; une erreur fatale ailleurs écrit
+                // au moins le secours avant la chute.
+                Avalonia.Threading.Dispatcher.UIThread.UnhandledException += delegate(object sender, Avalonia.Threading.DispatcherUnhandledExceptionEventArgs e)
+                {
+                    if (Launch != null && Launch.Isolated) return; // les sondes veulent la chute et la pile
+                    window.OnCrash(e.Exception);
+                    e.Handled = true;
+                };
+                AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e)
+                {
+                    window.OnFatal(e.ExceptionObject as Exception);
+                };
             }
             base.OnFrameworkInitializationCompleted();
         }

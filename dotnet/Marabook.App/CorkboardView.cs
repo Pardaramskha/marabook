@@ -1604,7 +1604,10 @@ namespace Marabook.App
                     if (card.ContextMenu != null) return;
                     var menu = BuildCardOptionsMenu(item);
                     menu.Placement = PlacementMode.Pointer;
-                    menu.Open();
+                    // Avalonia exige une CIBLE de placement, même au pointeur :
+                    // Open() sans cible = ArgumentNullException, et le clic
+                    // droit sur une carte emportait l'application (28/09).
+                    menu.Open(card);
                     e.Handled = true;
                 };
             card.PointerMoved += OnCardMouseMove;
