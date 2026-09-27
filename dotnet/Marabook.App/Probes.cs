@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -25,6 +26,20 @@ namespace Marabook.App
             _checks++;
             if (!condition) Failures++;
             Console.WriteLine((condition ? "  OK     " : "  ÉCHEC  ") + label);
+        }
+
+        /// <summary>Le premier bouton visible dont le texte contient ce libellé.</summary>
+        private static Button FindButton(Visual root, string label)
+        {
+            foreach (var button in root.GetVisualDescendants().OfType<Button>())
+            {
+                var text = button.Content as string;
+                if (text == null)
+                    foreach (var block in button.GetVisualDescendants().OfType<TextBlock>())
+                        if (block.Text != null && block.Text.Contains(label)) return button;
+                if (text != null && text.Contains(label)) return button;
+            }
+            return null;
         }
 
         private static async Task Settle()
@@ -129,6 +144,54 @@ namespace Marabook.App
                 Check(kinds.Contains(ItemKind.Sheet) && kinds.Contains(ItemKind.Book) && kinds.Contains(ItemKind.Plan)
                     && kinds.Contains(ItemKind.Folder) && kinds.Contains(ItemKind.Media) && kinds.Contains(ItemKind.Text),
                     "écrit, fiche, livre, dossier, plan et média s'affichent (" + kinds.Count + " natures)");
+                // — Les onglets du livre, le mode wiki d'une fiche.
+                if (book != null)
+                {
+                    shell.Binder.SelectItem(book.Id, true);
+                    await Settle();
+                    var tabsSeen = 0;
+                    foreach (var tabs in shell.GetVisualDescendants().OfType<TabControl>())
+                    {
+                        if (!tabs.IsEffectivelyVisible) continue;
+                        for (var i = 0; i < tabs.Items.Count; i++) { tabs.SelectedIndex = i; await Settle(); tabsSeen++; }
+                        tabs.SelectedIndex = 0;
+                    }
+                    Check(shell.VisibleView == "book" && tabsSeen >= 5, "le livre ouvre ses onglets (" + tabsSeen + " onglets parcourus)");
+                }
+                BinderItem sheet = null;
+                foreach (var item in shell.Project.AllItems()) if (item.Kind == ItemKind.Sheet) { sheet = item; break; }
+                if (sheet != null)
+                {
+                    shell.Binder.SelectItem(sheet.Id, true);
+                    await Settle();
+                    if (shell.VisibleView != "sheet") { Console.WriteLine("  [sonde] vue après sélection de la fiche : " + shell.VisibleView + " ; fenêtres ouvertes : " + ((Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)Avalonia.Application.Current.ApplicationLifetime).Windows.Count); }
+                    var wiki = FindButton(shell, "Mode wiki");
+                    if (wiki != null) { wiki.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); await Settle(); }
+                    Check(shell.VisibleView == "sheet" && wiki != null, "la fiche passe en mode wiki et revient (" + shell.VisibleView + ", bouton " + (wiki == null ? "introuvable parmi " + shell.GetVisualDescendants().OfType<Button>().Count() + " boutons" : "trouvé") + ")");
+                    var back = FindButton(shell, "Mode fiche") ?? FindButton(shell, "Mode wiki");
+                    if (back != null) { back.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); await Settle(); }
+                }
+
+                // — Enregistrer puis rouvrir : le .plot fait l'aller-retour.
+                var plotPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-p3.plot");
+                try
+                {
+                    var count = shell.Project.AllItems().Count();
+                    Persistence.PlotFile.Save(shell.Project, plotPath);
+                    shell.OpenFile(plotPath);
+                    await Settle();
+                    await Settle();
+                    Check(shell.HasProjectPath && shell.Project.AllItems().Count() == count && shell.Title.Contains("marabook-sonde-p3"),
+                        "le projet enregistré se rouvre avec ses " + count + " éléments (" + shell.Title + ")");
+                }
+                catch (Exception error) { Check(false, "aller-retour .plot : " + error.Message); }
+                finally { try { System.IO.File.Delete(plotPath); } catch { } }
+                book = null;
+                foreach (var item in shell.Project.AllItems()) if (item.Kind == ItemKind.Book) { book = item; break; }
+                chapter = book == null ? null : book.Children[0];
+                if (chapter != null) shell.Binder.SelectItem(chapter.Id, true);
+                await Settle();
+
                 shell.ShowJournalPublic();
                 await Settle();
                 Check(true, "le Journal perso s'ouvre");

@@ -556,10 +556,17 @@ namespace Marabook.App
             if (_rebuilding) return;
             // Avalonia : SelectedItem n'est pas encore à jour quand l'événement
             // part d'un nœud imbriqué — le nœud ajouté fait foi.
-            var node = (e != null && e.AddedItems != null && e.AddedItems.Count > 0 ? e.AddedItems[0] : _selectedNode) as TreeViewItem;
+            TreeViewItem node;
+            if (e == null)
+            {
+                // Annonce directe depuis SelectItem : le nœud demandé.
+                if (_selectedId == null || !_nodesById.TryGetValue(_selectedId, out node)) node = null;
+            }
+            else node = (e.AddedItems != null && e.AddedItems.Count > 0 ? e.AddedItems[0] : _selectedNode) as TreeViewItem;
             _selectedNode = node;
             var id = node == null || !(node.Tag is BinderItem)
                 ? null : ((BinderItem)node.Tag).Id;
+            if (Environment.GetEnvironmentVariable("MARABOOK_TRACE") == "1") Console.WriteLine("  [trace] Pile : sélection " + (id ?? "null") + " attendu=" + _expectedSelectId + " rebuilding=" + _rebuilding);
 
             // WPF selects a TreeViewItem the moment it RECEIVES the keyboard
             // focus (TreeViewItem.OnGotFocus → Select) — and masquer une vue
@@ -622,6 +629,11 @@ namespace Marabook.App
                 }
                 node.IsSelected = true;
                 if (bringIntoView) node.BringIntoView();
+                // Avalonia ne lève pas toujours SelectionChanged pour un nœud
+                // imbriqué (parent replié à l'instant, arbre rebâti) : la vue
+                // annonce elle-même la sélection — OnBinderSelection ignore
+                // un doublon sur l'élément déjà ouvert.
+                if (_selectedNode != node) OnSelectedItemChanged(_tree, null);
             }
         }
 

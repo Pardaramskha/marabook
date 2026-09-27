@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using Avalonia;
@@ -40,8 +41,24 @@ namespace Marabook.App
     {
         public const string Repository = "Pardaramskha/marabook";
         public const string RepositoryUrl = "https://github.com/" + Repository;
-        public const string PortableZip = "marabook-windows-portable.zip";
-        public const string Exe = "Marabook.exe";
+        /// <summary>L'asset de CE système (P4) : les noms sont stables d'une
+        /// release à l'autre — celui de Windows est celui de la 0.43, que
+        /// l'Updater 0.43 sait déjà télécharger.</summary>
+        public static string PortableZip
+        {
+            get
+            {
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return "marabook-windows-portable.zip";
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                    return RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "marabook-macos-arm64.zip" : "marabook-macos-x64.zip";
+                return "marabook-linux-x64.tar.gz";
+            }
+        }
+
+        public static string Exe
+        {
+            get { return RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "Marabook.exe" : "Marabook"; }
+        }
 
         public sealed class Info
         {
@@ -213,35 +230,96 @@ namespace Marabook.App
             if (!File.Exists(System.IO.Path.Combine(content, Exe)))
                 throw new Exception("L'archive ne contient pas " + Exe);
 
-            var script = System.IO.Path.Combine(temp, "maj.cmd");
+            // Le script qui finit le travail une fois l'app fermée (P4, trois
+            // OS) : SAUVEGARDE de l'ancien dossier, copie par-dessus, relance
+            // — et RETOUR ARRIÈRE si le nouvel exécutable s'arrête dans les
+            // dix secondes (une archive incomplète, un runtime qui manque).
             var pid = Process.GetCurrentProcess().Id;
-            var lines = new StringBuilder();
-            lines.Append("@echo off\r\n");
-            lines.Append(":attend\r\n");
-            lines.Append("tasklist /FI \"PID eq " + pid + "\" 2>nul | find \"" + pid + "\" >nul\r\n");
-            lines.Append("if not errorlevel 1 (ping 127.0.0.1 -n 2 >nul & goto attend)\r\n");
-            lines.Append("xcopy \"" + content + "\\*\" \"" + appDir.TrimEnd('\\') + "\\\" /E /Y /I /Q >nul\r\n");
-            lines.Append("start \"\" \"" + System.IO.Path.Combine(appDir, Exe) + "\"\r\n");
-            lines.Append("cd /d \"%TEMP%\"\r\n");
-            lines.Append("rmdir /s /q \"" + temp + "\"\r\n");
-            File.WriteAllText(script, lines.ToString(), Encoding.Default);
-
-            UpdateRegistry(appDir, info.Version);
-
-            var start = new ProcessStartInfo("cmd.exe", "/c \"" + script + "\"")
+            var backup = appDir.TrimEnd('\\', '/') + ".avant-maj";
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                WindowStyle = ProcessWindowStyle.Hidden,
-                WorkingDirectory = System.IO.Path.GetTempPath()
-            };
-            Process.Start(start);
+                var script = System.IO.Path.Combine(temp, "maj.cmd");
+                var app = appDir.TrimEnd('\\');
+                var exe = System.IO.Path.Combine(app, Exe);
+                var lines = new StringBuilder();
+                lines.Append("@echo off\r\n");
+                lines.Append(":attend\r\n");
+                lines.Append("tasklist /FI \"PID eq " + pid + "\" 2>nul | find \"" + pid + "\" >nul\r\n");
+                lines.Append("if not errorlevel 1 (ping 127.0.0.1 -n 2 >nul & goto attend)\r\n");
+                lines.Append("if exist \"" + backup + "\" rmdir /s /q \"" + backup + "\"\r\n");
+                lines.Append("xcopy \"" + app + "\\*\" \"" + backup + "\\\" /E /Y /I /Q >nul\r\n");
+                lines.Append("xcopy \"" + content + "\\*\" \"" + app + "\\\" /E /Y /I /Q >nul\r\n");
+                lines.Append("start \"\" \"" + exe + "\"\r\n");
+                lines.Append("ping 127.0.0.1 -n 11 >nul\r\n");
+                lines.Append("tasklist /FI \"IMAGENAME eq " + Exe + "\" 2>nul | find /I \"" + Exe + "\" >nul\r\n");
+                lines.Append("if errorlevel 1 (\r\n");
+                lines.Append("  xcopy \"" + backup + "\\*\" \"" + app + "\\\" /E /Y /I /Q >nul\r\n");
+                lines.Append("  start \"\" \"" + exe + "\" --maj-annulee\r\n");
+                lines.Append(") else (\r\n");
+                lines.Append("  rmdir /s /q \"" + backup + "\"\r\n");
+                lines.Append(")\r\n");
+                lines.Append("cd /d \"%TEMP%\"\r\n");
+                lines.Append("rmdir /s /q \"" + temp + "\"\r\n");
+                File.WriteAllText(script, lines.ToString(), Encoding.Default);
+
+                UpdateRegistry(appDir, info.Version);
+
+                var start = new ProcessStartInfo("cmd.exe", "/c \"" + script + "\"")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    WorkingDirectory = System.IO.Path.GetTempPath()
+                };
+                Process.Start(start);
+            }
+            else
+            {
+                var script = System.IO.Path.Combine(temp, "maj.sh");
+                var app = appDir.TrimEnd('/');
+                var exe = System.IO.Path.Combine(app, Exe);
+                var lines = new StringBuilder();
+                lines.Append("#!/bin/sh\n");
+                lines.Append("while kill -0 " + pid + " 2>/dev/null; do sleep 1; done\n");
+                lines.Append("rm -rf '" + backup + "'\n");
+                lines.Append("cp -a '" + app + "' '" + backup + "'\n");
+                lines.Append("cp -a '" + content + "/.' '" + app + "/'\n");
+                lines.Append("chmod +x '" + exe + "'\n");
+                lines.Append("'" + exe + "' &\n");
+                lines.Append("nouveau=$!\n");
+                lines.Append("sleep 10\n");
+                lines.Append("if kill -0 $nouveau 2>/dev/null; then rm -rf '" + backup + "'; else\n");
+                lines.Append("  cp -a '" + backup + "/.' '" + app + "/'\n");
+                lines.Append("  '" + exe + "' --maj-annulee &\n");
+                lines.Append("fi\n");
+                lines.Append("rm -rf '" + temp + "'\n");
+                File.WriteAllText(script, lines.ToString(), new UTF8Encoding(false));
+                var start = new ProcessStartInfo("/bin/sh", "'" + script + "'")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    WorkingDirectory = System.IO.Path.GetTempPath()
+                };
+                Process.Start(start);
+            }
         }
 
-        /// <summary>Déballe en refusant les chemins qui sortent du dossier.</summary>
+        /// <summary>Déballe en refusant les chemins qui sortent du dossier ;
+        /// une archive .tar.gz (Linux) passe par tar, qui garde le bit
+        /// d'exécution.</summary>
         private static void Extract(string zip, string folder)
         {
             Directory.CreateDirectory(folder);
+            if (zip.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase))
+            {
+                var tar = new ProcessStartInfo("tar", "-xzf '" + zip + "' -C '" + folder + "'") { UseShellExecute = false, CreateNoWindow = true };
+                using (var process = Process.Start(tar))
+                {
+                    process.WaitForExit();
+                    if (process.ExitCode != 0) throw new Exception("tar n'a pas pu déballer l'archive");
+                }
+                return;
+            }
             var root = System.IO.Path.GetFullPath(folder).TrimEnd('\\') + "\\";
             using (var archive = ZipFile.OpenRead(zip))
                 foreach (var entry in archive.Entries)
@@ -256,6 +334,7 @@ namespace Marabook.App
 
         /// <summary>Si l'app a été posée par un Setup, Paramètres → Applications
         /// installées doit afficher la nouvelle version.</summary>
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
         private static void UpdateRegistry(string appDir, string version)
         {
             try

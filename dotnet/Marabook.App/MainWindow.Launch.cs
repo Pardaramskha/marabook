@@ -22,6 +22,9 @@ namespace Marabook.App
     {
         private Launch _launch = new Launch();
 
+        /// <summary>MARABOOK_TRACE=1 : la sélection et l'ouverture des vues s'écrivent sur la console (sondes).</summary>
+        private static readonly bool Trace = Environment.GetEnvironmentVariable("MARABOOK_TRACE") == "1";
+
         public MainWindow(Launch launch) : this()
         {
             _launch = launch ?? new Launch();
@@ -46,6 +49,9 @@ namespace Marabook.App
                     if (_launch.Demo && !_launch.Probe) { await Task.Delay(200); if (_launch.OpenTitle != null) OpenByTitle(_launch.OpenTitle); else SelectFirstText(); }
                 }
                 if (_launch.Probe) { await Probes.Run(this); QuitNow(); return; }
+                if (_launch.UpdateRolledBack)
+                    await MessageDialog.Show(this, "La mise à jour n'a pas pu démarrer : la version précédente a été remise en place.\n\nRéessayez plus tard depuis Aide › Vérifier les mises à jour, ou téléchargez la release depuis GitHub.",
+                        "Mise à jour annulée", MessageButtons.OK, MessageIcon.Warning);
                 if (_launch.CapturePath != null) await CaptureAndQuit(_launch.CapturePath);
                 else if (_launch.Lab) BuildLab().Show(this);
             };

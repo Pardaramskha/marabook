@@ -20,6 +20,9 @@ namespace Marabook.App
         public static int Main(string[] args)
         {
             Args = args ?? new string[0];
+            // Les .plot s'ouvrent d'un double-clic si rien ne les ouvrait (22/09) —
+            // jamais depuis une sonde ou une capture.
+            if (!Launch.Parse(Args).Isolated) FileAssociation.EnsureRegistered();
             var code = BuildAvaloniaApp().StartWithClassicDesktopLifetime(Args);
             return Probes.Failures > 0 ? Probes.Failures : code;
         }
@@ -46,6 +49,7 @@ namespace Marabook.App
         public bool Dark;           // thème sombre forcé (captures)
         public bool Prefs;          // la capture montre les Préférences
         public string OpenTitle;    // --open <titre> : l'élément ouvert avant la capture (« journal » = le Journal)
+        public bool UpdateRolledBack; // --maj-annulee : le script de mise à jour a remis l'ancienne version
         public int PrefsTab = -1;   // …ouvertes sur cet onglet (--tab N)
         public bool Lab;            // la capture montre la fenêtre de diagnostic du rendu
         public double Scale = 1;    // l'échelle de la capture (2 = pixels doublés)
@@ -65,6 +69,7 @@ namespace Marabook.App
                 if (arg == "--probe") { launch.Probe = true; continue; }
                 if (arg == "--dark") { launch.Dark = true; continue; }
                 if (arg == "--prefs") { launch.Prefs = true; continue; }
+                if (arg == "--maj-annulee") { launch.UpdateRolledBack = true; continue; }
                 if (arg == "--open" && i + 1 < args.Length) { launch.OpenTitle = args[++i]; continue; }
                 if (arg == "--tab" && i + 1 < args.Length) { int.TryParse(args[++i], out launch.PrefsTab); launch.Prefs = true; continue; }
                 if (arg == "--lab") { launch.Lab = true; continue; }

@@ -2353,6 +2353,7 @@ namespace Marabook.App
 
         private void OnBinderSelection(BinderItem item)
         {
+            if (Trace) Console.WriteLine("  [trace] OnBinderSelection " + (item == null ? "null" : item.Kind + " " + item.Title) + " navigating=" + _navigating + " current=" + (_current == null ? "null" : _current.Title) + " visible=" + VisibleView);
             // Phantom selections: hiding the view that holds keyboard focus
             // makes WPF re-focus a TreeViewItem, which SELECTS ITSELF
             // (TreeViewItem.OnGotFocus → Select) — reentering here mid-open
