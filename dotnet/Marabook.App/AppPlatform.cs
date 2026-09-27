@@ -116,11 +116,23 @@ namespace Marabook.App
             catch { return false; }
         }
 
+        /// <summary>Les pixels RVB24 sur blanc (le PDF), l'image réduite à
+        /// maxWidthPx si elle est plus large — décodée par Skia.</summary>
         public byte[] ToRgb24(byte[] bytes, double maxWidthPx, out int width, out int height)
         {
             width = 0;
             height = 0;
-            return null; // P2 : les pixels du PDF passent par Skia
+            if (bytes == null) return null;
+            try
+            {
+                int headerWidth, headerHeight;
+                var known = TryGetSize(bytes, out headerWidth, out headerHeight);
+                var target = maxWidthPx > 0 && known && headerWidth > maxWidthPx ? (int)Math.Round(maxWidthPx) : 0;
+                using (var stream = new MemoryStream(bytes))
+                using (var bitmap = target > 0 ? Bitmap.DecodeToWidth(stream, target) : new Bitmap(stream))
+                    return AvaloniaFontEngine.Rgb24OverWhite(bitmap, out width, out height);
+            }
+            catch { return null; }
         }
 
         public byte[] ToPng(byte[] bytes)

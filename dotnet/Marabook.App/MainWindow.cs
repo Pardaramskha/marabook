@@ -1098,7 +1098,16 @@ namespace Marabook.App
         /// rendue en PNG une fois la mise en page posée, puis l'application quitte.</summary>
         private async Task CaptureAndQuit(string path)
         {
-            if (_launch.Prefs) { OpenPreferences(); await Task.Delay(300); }
+            if (_launch.Prefs)
+            {
+                OpenPreferences();
+                await Task.Delay(300);
+                if (_launch.PrefsTab >= 0 && _preferences != null && _launch.PrefsTab < _preferences.Tabs.Items.Count)
+                {
+                    _preferences.Tabs.SelectedIndex = _launch.PrefsTab;
+                    await Task.Delay(400);
+                }
+            }
             Window lab = null;
             if (_launch.Lab) { lab = BuildLab(); lab.Show(this); await Task.Delay(300); }
             await Task.Delay(500);

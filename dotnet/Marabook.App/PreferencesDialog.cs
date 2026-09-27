@@ -19,7 +19,7 @@ namespace Marabook.App
     /// Styles globaux, Catalogue de polices, Auteur, Raccourcis, DLC. Taille
     /// unique, bornée à l'écran ; les chips se replient sur plusieurs rangées
     /// quand la fenêtre est étroite (WrapPanel). Tout est dans AppSettings.
-    /// Styles globaux et Catalogue de polices attendent leurs éditeurs (P3).</summary>
+    /// Styles globaux et Catalogue de polices ont leurs éditeurs (P2).</summary>
     public class PreferencesDialog : Window
     {
         public event Action AppearanceChanged;
@@ -71,8 +71,8 @@ namespace Marabook.App
             Tabs.Items.Add(Tab("Personnalisation", BuildPersonalizationTab()));
             Tabs.Items.Add(Tab("Édition", BuildEditingTab()));
             Tabs.Items.Add(Tab("Correction", BuildProofingTab()));
-            Tabs.Items.Add(Tab("Styles globaux", Later("La gestion des styles globaux et le séparateur de scène global arrivent avec les vues (lot P3).")));
-            Tabs.Items.Add(Tab("Catalogue de polices", Later("Le catalogue de polices (favorites, exclusions, texte d'exemple) arrive avec l'éditeur composé (lot P2).")));
+            Tabs.Items.Add(Tab("Styles globaux", BuildGlobalStylesTab()));
+            Tabs.Items.Add(Tab("Catalogue de polices", new FontCatalogTab()));
             Tabs.Items.Add(Tab("Auteur", BuildAuthorTab()));
             Tabs.Items.Add(Tab("Raccourcis", BuildShortcutsTab()));
             Tabs.Items.Add(Tab("DLC", BuildModulesTab()));
@@ -113,6 +113,51 @@ namespace Marabook.App
         private static StackPanel TabPanel()
         {
             return new StackPanel { Margin = new Thickness(16, 12, 16, 12), HorizontalAlignment = HorizontalAlignment.Stretch };
+        }
+
+        /// <summary>Onglet « Styles globaux » : l'outil de gestion des styles
+        /// sur la feuille de tous les projets (portée globale seulement), et
+        /// le séparateur de scène global en dessous. Chaque édition est
+        /// enregistrée et poussée au projet ouvert.</summary>
+        private Control BuildGlobalStylesTab()
+        {
+            var panel = TabPanel();
+            if (AppSettings.GlobalStyles == null)
+                AppSettings.GlobalStyles = _project != null ? GlobalStyles.ForNewProject() : StyleSheet.CreateDefault();
+            var sheet = AppSettings.GlobalStyles;
+            panel.Children.Add(Caption("Styles de paragraphe globaux"));
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Ces styles valent pour tous les projets. Un livre ou un écrit peut y ajouter les siens (portée « livre » ou « document ») depuis l'onglet Styles du livre ou Format › Gérer les styles.",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 8)
+            });
+            var styles = new StylesPanel(sheet, StyleScopeContext.GlobalOnly()) { Height = 380 };
+            styles.Changed += delegate { RaiseGlobalStylesChanged(); };
+            panel.Children.Add(styles);
+
+            panel.Children.Add(Caption("Séparateur de texte global", 18));
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Le paragraphe inséré par le bouton « Séparateur de scène » du ruban Texte. Un livre peut le remplacer par le sien (onglet Styles du livre).",
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 8)
+            });
+            var separator = new SeparatorEditor(sheet.EnsureSeparator(null, null, 0));
+            separator.Changed += delegate { RaiseGlobalStylesChanged(); };
+            panel.Children.Add(separator);
+            return panel;
+        }
+
+        private void RaiseGlobalStylesChanged()
+        {
+            AppSettings.Save();
+            var handler = GlobalStylesChanged;
+            if (handler != null) handler();
         }
 
         private static Control Later(string text)
