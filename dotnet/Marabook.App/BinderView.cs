@@ -549,10 +549,15 @@ namespace Marabook.App
             e.Handled = true;
         }
 
+        private TreeViewItem _selectedNode; // TreeView.SelectedItem d'Avalonia ignore les nœuds imbriqués : suivi ici
+
         private void OnSelectedItemChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_rebuilding) return;
-            var node = _tree.SelectedItem as TreeViewItem;
+            // Avalonia : SelectedItem n'est pas encore à jour quand l'événement
+            // part d'un nœud imbriqué — le nœud ajouté fait foi.
+            var node = (e != null && e.AddedItems != null && e.AddedItems.Count > 0 ? e.AddedItems[0] : _selectedNode) as TreeViewItem;
+            _selectedNode = node;
             var id = node == null || !(node.Tag is BinderItem)
                 ? null : ((BinderItem)node.Tag).Id;
 

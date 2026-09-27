@@ -100,6 +100,48 @@ namespace Marabook.App
                 catch (Exception error) { Check(false, "le PDF s'écrit : " + error.Message); }
                 finally { try { System.IO.File.Delete(pdfPath); } catch { } }
 
+                // — P3 : le tour des vues — chaque racine, chaque élément, les
+                // panneaux de droite ; une vue qui lève une exception fait
+                // tomber le processus, c'est le verdict.
+                var visited = 0;
+                foreach (var root in shell.Project.Roots)
+                {
+                    shell.Binder.SelectItem(root.Id, true);
+                    await Settle();
+                    visited++;
+                }
+                Check(visited == shell.Project.Roots.Count, "chaque racine de la Pile s'ouvre (" + visited + ")");
+                var kinds = new HashSet<ItemKind>();
+                var wrong = new List<string>();
+                foreach (var item in shell.Project.AllItems())
+                {
+                    if (item.IsCategory) continue;
+                    shell.Binder.SelectItem(item.Id, true);
+                    await Settle();
+                    kinds.Add(item.Kind);
+                    var expected = item.Kind == ItemKind.Text ? "editor" : item.Kind == ItemKind.Sheet ? "sheet"
+                        : item.Kind == ItemKind.Book ? "book" : item.Kind == ItemKind.Plan ? "plan" : item.Kind == ItemKind.Media ? "media"
+                        : item.Kind == ItemKind.MindMap ? "mindmap" : item.Kind == ItemKind.PageTemplate ? "template"
+                        : item.Kind == ItemKind.Folder && item.RootCategory().CategoryKey == Project.KeySheets ? "library" : "corkboard";
+                    if (shell.VisibleView != expected) wrong.Add(item.Title + " : " + shell.VisibleView + " au lieu de " + expected);
+                }
+                Check(wrong.Count == 0, "chaque élément ouvre sa vue" + (wrong.Count == 0 ? "" : " — " + string.Join(" ; ", wrong.ToArray())));
+                Check(kinds.Contains(ItemKind.Sheet) && kinds.Contains(ItemKind.Book) && kinds.Contains(ItemKind.Plan)
+                    && kinds.Contains(ItemKind.Folder) && kinds.Contains(ItemKind.Media) && kinds.Contains(ItemKind.Text),
+                    "écrit, fiche, livre, dossier, plan et média s'affichent (" + kinds.Count + " natures)");
+                shell.ShowJournalPublic();
+                await Settle();
+                Check(true, "le Journal perso s'ouvre");
+                foreach (RightPanel panel in Enum.GetValues(typeof(RightPanel)))
+                {
+                    shell.SetRightPanelPublic(panel);
+                    await Settle();
+                }
+                Check(true, "chaque panneau de droite s'ouvre (" + Enum.GetValues(typeof(RightPanel)).Length + ")");
+                shell.SetRightPanelPublic(RightPanel.Inspector);
+                if (chapter != null) shell.Binder.SelectItem(chapter.Id, true);
+                await Settle();
+
                 // — Le thème bascule et revient.
                 var before = Chrome.Ink.Color;
                 App.ApplyTheme(!Chrome.Dark);

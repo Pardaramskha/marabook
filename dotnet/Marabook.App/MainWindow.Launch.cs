@@ -43,7 +43,7 @@ namespace Marabook.App
                 {
                     if (_welcome != null) _welcome.Close();
                     LoadProject(SampleProject(), null);
-                    if (_launch.Demo && !_launch.Probe) { await Task.Delay(200); SelectFirstText(); }
+                    if (_launch.Demo && !_launch.Probe) { await Task.Delay(200); if (_launch.OpenTitle != null) OpenByTitle(_launch.OpenTitle); else SelectFirstText(); }
                 }
                 if (_launch.Probe) { await Probes.Run(this); QuitNow(); return; }
                 if (_launch.CapturePath != null) await CaptureAndQuit(_launch.CapturePath);
@@ -61,6 +61,44 @@ namespace Marabook.App
         public string StatusText { get { return _statusLeft == null ? "" : _statusLeft.Text ?? ""; } }
         public string StatusRightText { get { return _statusRight == null ? "" : _statusRight.Text ?? ""; } }
         public string StatusPagesText { get { return _statusPages == null ? "" : _statusPages.Text ?? ""; } }
+
+        public void ShowJournalPublic() { ShowJournal(); }
+
+        /// <summary>La vue du centre qui est visible (sondes) : editor, sheet,
+        /// library, dictionary, home, plan, mindmap, corkboard, book, template,
+        /// media, journal, ou « none ».</summary>
+        public string VisibleView
+        {
+            get
+            {
+                if (_editor != null && _editor.IsVisible) return "editor";
+                if (_sheetView != null && _sheetView.IsVisible) return "sheet";
+                if (_sheetLibrary != null && _sheetLibrary.IsVisible) return "library";
+                if (_dictionaryView != null && _dictionaryView.IsVisible) return "dictionary";
+                if (_homeView != null && _homeView.IsVisible) return "home";
+                if (_planView != null && _planView.IsVisible) return "plan";
+                if (_mindMapHost != null && _mindMapHost.IsVisible) return "mindmap";
+                if (_corkboard != null && _corkboard.IsVisible) return "corkboard";
+                if (_bookView != null && _bookView.IsVisible) return "book";
+                if (_templateView != null && _templateView.IsVisible) return "template";
+                if (_mediaView != null && _mediaView.IsVisible) return "media";
+                if (_journalView != null && _journalView.IsVisible) return "journal";
+                return "none";
+            }
+        }
+        public void SetRightPanelPublic(RightPanel panel) { SetRightPanel(panel); }
+
+        /// <summary>--open : l'élément de ce titre (ou « journal ») est ouvert
+        /// avant la capture.</summary>
+        public void OpenByTitle(string title)
+        {
+            if (_project == null || string.IsNullOrEmpty(title)) return;
+            if (title == "journal") { ShowJournal(); return; }
+            foreach (var item in _project.AllItems())
+                if (string.Equals(item.Title, title, StringComparison.OrdinalIgnoreCase)) { _binder.SelectItem(item.Id, true); return; }
+            foreach (var root in _project.Roots)
+                if (string.Equals(root.Title, title, StringComparison.OrdinalIgnoreCase)) { _binder.SelectItem(root.Id, true); return; }
+        }
 
         /// <summary>Quitter sans question (sondes, captures) : rien à enregistrer.</summary>
         public void QuitNow()
