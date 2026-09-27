@@ -93,13 +93,8 @@ namespace Marabook.View
         private readonly System.Windows.Shapes.Rectangle _caretBar;
         private readonly DispatcherTimer _blink;
 
-        // Notes de bas de page éditées EN PLACE (batch 33) : un TextBox posé
-        // sur la note, au bas de sa page — plus de panneau du bas.
-        private readonly Canvas _noteLayer;
-        private RichTextBox _noteEditor; // riche depuis la 0.50.0 (gras, italique, police dans la note)
-        private TextBlock _noteNumber;   // le « n. » dessiné à part pendant l'édition (la note, elle, ne l'est plus)
-        private int _editingNoteIndex = -1; // index (ordre des appels) de la note ouverte, pour le rendu
-        private string _editingNoteId;
+        // Notes de bas de page éditées EN PLACE (batch 33) par le compositeur
+        // maison (27/09/2026) : voir ComposedView.Notes.cs.
         private double _zoom = 1.0;
 
         private BinderItem _item;
@@ -239,15 +234,9 @@ namespace Marabook.View
                 Margin = new Thickness(24, 20, 24, 20),
                 HorizontalAlignment = HorizontalAlignment.Center
             };
-            _noteLayer = new Canvas
-            {
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top
-            };
             _column.Children.Add(_pages);
             _column.Children.Add(_overlay);
             _column.Children.Add(_bubbleLayer); // bulles portées (batch 26)
-            _column.Children.Add(_noteLayer);   // éditeur de note en place (b33)
             Content = _column;
 
             _blink = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(530) };
@@ -275,6 +264,7 @@ namespace Marabook.View
                 // the one after would delete it.
                 if (_anchorParagraph == _caretParagraph && _anchorOffset == _caretOffset)
                     ClearSelection();
+                if (_noteAnchor == _noteCaret) _noteAnchor = -1; // même règle dans la note
             };
             PreviewTextInput += OnTextInput;
             PreviewKeyDown += OnKeyDown;
@@ -424,6 +414,7 @@ namespace Marabook.View
             _engine.ComposeAll();
             RebuildPages();
             ClampCaret();
+            ClampNoteCaret();
             UpdateCaretVisual();
             RaisePageInfo();
         }
@@ -450,7 +441,6 @@ namespace Marabook.View
                 slot.Page.InvalidateMeasure();
                 slot.Page.InvalidateVisual();
             }
-            PositionNoteEditor(false); // repose le champ, sans déplacer la vue
         }
 
         // ============================================================ notes en place (b33)
@@ -466,30 +456,6 @@ namespace Marabook.View
                 foreach (var run in paragraph.Runs)
                     if (run.FootnoteId != null) order.Add(run.FootnoteId);
             return order;
-        }
-
-        /// <summary>La note ouverte en place, ou null.</summary>
-        public string EditingNoteId { get { return _editingNoteId; } }
-
-        /// <summary>La note dont le texte est sous ce point (zone des notes au
-        /// bas d'une page), ou null.</summary>
-        private string NoteAtPoint(Point point)
-        {
-            var composition = _engine == null ? null : _engine.Current;
-            if (composition == null || composition.Pages.Count == 0) return null;
-            var stride = composition.PageHeightPx + PageGapPx;
-            var pageIndex = Math.Max(0, Math.Min(composition.Pages.Count - 1, (int)(point.Y / stride)));
-            var yInPage = point.Y - pageIndex * stride;
-            var page = composition.Pages[pageIndex];
-            foreach (var placed in page.NoteLines)
-            {
-                if (placed.ParagraphIndex < 0 || placed.ParagraphIndex >= composition.NoteParagraphs.Count) continue;
-                var line = placed.Line;
-                if (yInPage < placed.Y - 1 || yInPage > placed.Y + line.Height + 1) continue;
-                var order = MarkerOrder();
-                return placed.ParagraphIndex < order.Count ? order[placed.ParagraphIndex] : null;
-            }
-            return null;
         }
 
         /// <summary>L'appel de note (exposant) sous le clic : le curseur est
@@ -521,324 +487,17 @@ namespace Marabook.View
             return null;
         }
 
-        /// <summary>Ouvre la note en place : un champ posé exactement sur son
-        /// texte au bas de sa page ; la frappe recompose les notes ; Entrée,
-        /// Échap ou un clic ailleurs referment.</summary>
-        public void EditNote(string id)
-        {
-            if (_item == null || _engine == null || id == null) return;
-            var note = _item.Document.FindFootnote(id);
-            if (note == null) return;
-            if (_editingNoteId == id && _noteEditor != null) { _noteEditor.Focus(); return; }
-            CloseNoteEditor(false);
-            _editingNoteId = id;
-            // Le champ est RICHE depuis la 0.50.0 : gras, italique, souligné,
-            // police, taille — par les raccourcis du RichTextBox et par le
-            // ruban (les bascules et combos délèguent à la note quand elle a
-            // le clavier). Police et taille de base : le style « Notes de bas
-            // de page » de la feuille, le même que celui du compositeur.
-            var noteStyle = _styles.FootnoteStyle();
-            // Le champ EST la note (correctif 0.50.0) : la page ne dessine plus
-            // la note ouverte (PageElement passe son index au rendu), le champ
-            // se pose à sa place, sans cadre ni fond — juste un trait d'accent
-            // dessous — et le numéro « n. » est dessiné à part, à gauche.
-            _noteEditor = new RichTextBox
-            {
-                FontFamily = new FontFamily(noteStyle.FontFamily),
-                FontSize = noteStyle.FontSize,
-                FontWeight = noteStyle.Bold ? FontWeights.Bold : FontWeights.Normal,
-                FontStyle = noteStyle.Italic ? FontStyles.Italic : FontStyles.Normal,
-                AcceptsReturn = false,
-                AcceptsTab = false,
-                Padding = new Thickness(0),
-                BorderBrush = Chrome.Accent,
-                BorderThickness = new Thickness(0, 0, 0, 1),
-                Background = Brushes.Transparent,
-                Foreground = Chrome.PaperInk,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                // La sélection reste VISIBLE quand le clavier part au ruban
-                // (correctif 0.50.0) : on voit encore ce qu'on va formater.
-                IsInactiveSelectionHighlightEnabled = true,
-                ToolTip = "Note de bas de page — Entrée, Échap ou un clic sur la page pour fermer ; gras, italique, police depuis le ruban ou les raccourcis"
-            };
-            _noteEditor.Document = NoteFlow(note, noteStyle);
-            // Le ruban suit la NOTE tant qu'elle est ouverte (style « Notes de
-            // bas de page », police, taille et bascules de sa sélection).
-            _noteEditor.SelectionChanged += delegate { RaiseSelectionState(); };
-            _noteEditor.GotKeyboardFocus += delegate { RaiseSelectionState(); };
-            _noteNumber = new TextBlock
-            {
-                FontFamily = _noteEditor.FontFamily,
-                FontSize = _noteEditor.FontSize,
-                FontWeight = _noteEditor.FontWeight,
-                FontStyle = _noteEditor.FontStyle,
-                Foreground = Chrome.PaperInk,
-                IsHitTestVisible = false
-            };
-            var noteRef = note;
-            var lastKey = note.FormatKey();
-            _noteEditor.TextChanged += delegate
-            {
-                if (_noteEditor == null) return;
-                // Le FlowDocument relu en runs (texte ET formats) ; rien ne
-                // bouge si la signature n'a pas changé (la relecture d'une
-                // frappe neutre, le repositionnement).
-                var back = FlowConverter.FromFlow(_noteEditor.Document, NoteSheet(noteStyle), null);
-                var runs = new List<TextRun>();
-                for (var i = 0; i < back.Paragraphs.Count; i++)
-                {
-                    if (i > 0) runs.Add(new TextRun { IsLineBreak = true });
-                    runs.AddRange(back.Paragraphs[i].Runs);
-                }
-                var candidate = new Footnote();
-                candidate.SetRuns(runs);
-                var key = candidate.FormatKey();
-                if (key == lastKey) return;
-                lastKey = key;
-                noteRef.SetRuns(runs);
-                // La vue ne bouge pas pendant la frappe dans la note : la
-                // recomposition ramenait le caret du TEXTE dans la fenêtre et
-                // la page sautait à chaque lettre (correctif 0.50.0).
-                _keepScroll = true;
-                try
-                {
-                    RefreshNotes();
-                    PositionNoteEditor(false);
-                }
-                finally { _keepScroll = false; }
-                var handler = Edited;
-                if (handler != null) handler();
-            };
-            // Le champ ne demande jamais à la vue de défiler vers lui : c'est
-            // la vue qui décide (à l'ouverture seulement).
-            _noteEditor.RequestBringIntoView += delegate(object sender, RequestBringIntoViewEventArgs e) { e.Handled = true; };
-            // La note reste ouverte quand le clavier part ailleurs (ruban,
-            // onglets, menus) : elle se referme par Entrée, Échap, un clic
-            // sur la page ou le changement d'écrit — plus au moindre clic
-            // hors du champ.
-            _noteLayer.Children.Add(_noteNumber);
-            _noteLayer.Children.Add(_noteEditor);
-            _editingNoteIndex = MarkerOrder().IndexOf(id);
-            if (!PositionNoteEditor(true)) { CloseNoteEditor(false); return; }
-            RedrawNotePages();
-            _noteEditor.CaretPosition = _noteEditor.Document.ContentEnd;
-            _noteEditor.Focus();
-            var started = NoteEditingStarted;
-            if (started != null) started(id);
-        }
-
-        /// <summary>La feuille vue par l'éditeur de note : la note est un
-        /// paragraphe de style « footnote » — et « body » vaut pareil, pour
-        /// un paragraphe que le RichTextBox aurait créé sans étiquette.</summary>
-        private static StyleSheet NoteSheet(ParagraphStyle noteStyle)
-        {
-            var sheet = new StyleSheet();
-            var body = noteStyle.Clone();
-            body.Id = "body";
-            sheet.Styles.Add(body);
-            var footnote = noteStyle.Clone();
-            footnote.Id = StyleSheet.FootnoteId;
-            sheet.Styles.Add(footnote);
-            return sheet;
-        }
-
-        /// <summary>Le corps de la note en FlowDocument pour le RichTextBox :
-        /// ses runs avec leurs formats, sans marges (le numéro « n. » reste
-        /// dessiné par la page, à gauche du champ).</summary>
-        private System.Windows.Documents.FlowDocument NoteFlow(Footnote note, ParagraphStyle noteStyle)
-        {
-            var document = new TextDocument();
-            document.Paragraphs.Add(note.ToParagraph(StyleSheet.FootnoteId));
-            var flow = FlowConverter.ToFlow(document, NoteSheet(noteStyle), _project, false);
-            // Même géométrie que le compositeur (correctif 0.50.0) : pas de
-            // marges, l'alignement du style, la valeur d'interligne du style
-            // en bloc, ni césure ni crénage (le compositeur additionne les
-            // chasses), ligatures selon le style — les lignes cassent au même
-            // endroit et la note s'édite telle qu'elle paraîtra.
-            flow.PagePadding = new Thickness(0);
-            flow.FontFamily = new FontFamily(noteStyle.FontFamily);
-            flow.FontSize = noteStyle.FontSize;
-            flow.IsHyphenationEnabled = false;
-            flow.IsOptimalParagraphEnabled = false;
-            flow.Typography.Kerning = false;
-            flow.Typography.StandardLigatures = noteStyle.Ligatures;
-            foreach (var block in flow.Blocks)
-            {
-                var paragraph = block as System.Windows.Documents.Paragraph;
-                if (paragraph == null) continue;
-                paragraph.Margin = new Thickness(0);
-                paragraph.Padding = new Thickness(0);
-                paragraph.TextIndent = 0;
-                paragraph.TextAlignment = FlowConverter.ParseAlign(noteStyle.Align);
-                paragraph.FontSize = noteStyle.FontSize;
-                if (noteStyle.LineHeight > 1)
-                {
-                    paragraph.LineHeight = noteStyle.LineHeight;
-                    paragraph.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
-                }
-                else paragraph.LineHeight = double.NaN;
-            }
-            return flow;
-        }
-
-        /// <summary>Vrai quand la note ouverte a le clavier : les formats du
-        /// ruban lui reviennent, pas au texte.</summary>
-        private bool NoteEditing
-        {
-            // La note OUVERTE reçoit les formats du ruban, qu'elle ait ou non le
-            // clavier (cliquer un bouton du ruban le lui prend) — correctif 0.50.0.
-            get { return _noteEditor != null; }
-        }
-
         private void RaiseSelectionState()
         {
             var handler = SelectionStateChanged;
             if (handler != null) handler();
         }
 
-        /// <summary>L'état de la sélection de la NOTE ouverte pour le ruban :
-        /// lu sur le RichTextBox (UnsetValue = mixte). Les défauts viennent du
-        /// style « Notes de bas de page ».</summary>
-        private void NoteSelectionFormat(out string fontFamily, out double? sizePt, out bool mixedFont, out bool mixedSize,
-            out bool? bold, out bool? italic, out bool? underline, out bool? strike)
-        {
-            var style = _styles.FootnoteStyle();
-            var selection = _noteEditor.Selection;
-            var family = selection.GetPropertyValue(System.Windows.Documents.TextElement.FontFamilyProperty);
-            mixedFont = family == DependencyProperty.UnsetValue;
-            fontFamily = mixedFont ? null : family is FontFamily ? ((FontFamily)family).Source : style.FontFamily;
-            var size = selection.GetPropertyValue(System.Windows.Documents.TextElement.FontSizeProperty);
-            mixedSize = size == DependencyProperty.UnsetValue;
-            sizePt = mixedSize ? (double?)null : (size is double ? (double)size : style.FontSize) * 0.75;
-            var weight = selection.GetPropertyValue(System.Windows.Documents.TextElement.FontWeightProperty);
-            bold = weight == DependencyProperty.UnsetValue ? (bool?)null : weight is FontWeight && (FontWeight)weight >= FontWeights.Bold;
-            var fontStyle = selection.GetPropertyValue(System.Windows.Documents.TextElement.FontStyleProperty);
-            italic = fontStyle == DependencyProperty.UnsetValue ? (bool?)null : fontStyle is FontStyle && (FontStyle)fontStyle == FontStyles.Italic;
-            var decorations = selection.GetPropertyValue(System.Windows.Documents.Inline.TextDecorationsProperty);
-            if (decorations == DependencyProperty.UnsetValue) { underline = null; strike = null; }
-            else
-            {
-                underline = false;
-                strike = false;
-                var collection = decorations as TextDecorationCollection;
-                if (collection != null)
-                    foreach (var decoration in collection)
-                    {
-                        if (decoration.Location == TextDecorationLocation.Underline) underline = true;
-                        if (decoration.Location == TextDecorationLocation.Strikethrough) strike = true;
-                    }
-            }
-        }
-
         /// <summary>Rend le clavier à la surface — à la note ouverte s'il y en
         /// a une (un choix au ruban ne doit pas la refermer), sinon au texte.</summary>
         public void FocusSurface()
         {
-            if (_noteEditor != null) _noteEditor.Focus();
-            else Focus();
-        }
-
-        /// <summary>Un format du ruban appliqué à la sélection de la note :
-        /// le setter est joué sur un run témoin, ce qu'il pose est reporté
-        /// sur les propriétés du RichTextBox.</summary>
-        private void ApplyToNoteSelection(Action<TextRun> setter)
-        {
-            var probe = new TextRun();
-            setter(probe);
-            var selection = _noteEditor.Selection;
-            if (probe.FontFamily != null)
-                selection.ApplyPropertyValue(System.Windows.Documents.TextElement.FontFamilyProperty, new FontFamily(probe.FontFamily));
-            if (probe.FontSize.HasValue)
-                selection.ApplyPropertyValue(System.Windows.Documents.TextElement.FontSizeProperty, probe.FontSize.Value);
-            if (probe.Bold.HasValue)
-                selection.ApplyPropertyValue(System.Windows.Documents.TextElement.FontWeightProperty, probe.Bold.Value ? FontWeights.Bold : FontWeights.Normal);
-            if (probe.Italic.HasValue)
-                selection.ApplyPropertyValue(System.Windows.Documents.TextElement.FontStyleProperty, probe.Italic.Value ? FontStyles.Italic : FontStyles.Normal);
-            if (probe.SmallCaps.HasValue)
-                selection.ApplyPropertyValue(System.Windows.Documents.Typography.CapitalsProperty, probe.SmallCaps.Value ? FontCapitals.SmallCaps : FontCapitals.Normal);
-            if (probe.Color != null)
-                selection.ApplyPropertyValue(System.Windows.Documents.TextElement.ForegroundProperty, new SolidColorBrush(FlowConverter.ParseColor(probe.Color)));
-            if (probe.Highlight != null)
-                selection.ApplyPropertyValue(System.Windows.Documents.TextElement.BackgroundProperty, new SolidColorBrush(FlowConverter.ParseColor(probe.Highlight)));
-        }
-
-        /// <summary>Barré dans la note : bascule la décoration sur la sélection.</summary>
-        private void ToggleNoteStrike()
-        {
-            var selection = _noteEditor.Selection;
-            var current = selection.GetPropertyValue(System.Windows.Documents.Inline.TextDecorationsProperty) as TextDecorationCollection;
-            var struck = false;
-            if (current != null)
-                foreach (var decoration in current)
-                    if (decoration.Location == TextDecorationLocation.Strikethrough) struck = true;
-            selection.ApplyPropertyValue(System.Windows.Documents.Inline.TextDecorationsProperty,
-                struck ? new TextDecorationCollection() : TextDecorations.Strikethrough);
-        }
-
-        /// <summary>Pose (ou repose) l'éditeur de note sur la géométrie
-        /// courante de la note. Faux quand la note n'est placée nulle part.</summary>
-        private bool PositionNoteEditor(bool scrollIntoView)
-        {
-            if (_noteEditor == null || _engine == null) return false;
-            var composition = _engine.Current;
-            var index = MarkerOrder().IndexOf(_editingNoteId);
-            if (index < 0) return false;
-            _editingNoteIndex = index;
-            for (var k = 0; k < composition.Pages.Count; k++)
-            {
-                var top = double.MaxValue;
-                var bottom = double.MinValue;
-                foreach (var placed in composition.Pages[k].NoteLines)
-                {
-                    if (placed.ParagraphIndex != index) continue;
-                    var line = placed.Line;
-                    top = Math.Min(top, placed.Y);
-                    bottom = Math.Max(bottom, placed.Y + line.Height);
-                }
-                if (top == double.MaxValue) continue;
-                var left = composition.LeftPxFor(k);
-                // Le numéro « n. » à gauche (dessiné par nous : la page ne
-                // dessine plus la note ouverte), le champ juste après — à la
-                // largeur exacte du retrait suspendu que le compositeur a
-                // mesuré (Composer.ComposeNote) : mêmes largeurs, mêmes
-                // coupures de lignes, même hauteur qu'à l'affichage.
-                var layoutStyle = composition.NoteParagraphs[index].Style;
-                _noteNumber.Text = (index + 1) + ".";
-                var numberWidth = layoutStyle.LeftIndent;
-                Canvas.SetLeft(_noteNumber, left);
-                Canvas.SetTop(_noteNumber, PageTop(k) + top);
-                Canvas.SetLeft(_noteEditor, left + numberWidth);
-                Canvas.SetTop(_noteEditor, PageTop(k) + top);
-                _noteEditor.Width = Math.Max(60, composition.Setup.ContentWidthPx - numberWidth - layoutStyle.RightIndent);
-                _noteEditor.MinHeight = Math.Max(16, bottom - top);
-                if (scrollIntoView) EnsureCaretVisible(PageTop(k) + top, bottom - top);
-                return true;
-            }
-            return false;
-        }
-
-        /// <summary>Redessine les pages : la note ouverte disparaît du rendu,
-        /// ou y revient à la fermeture.</summary>
-        private void RedrawNotePages()
-        {
-            for (var k = 0; k < _pages.Children.Count; k++) PageAt(k).InvalidateVisual();
-        }
-
-        /// <summary>Referme l'éditeur de note (le texte est déjà dans le
-        /// modèle, frappe par frappe).</summary>
-        public void CloseNoteEditor(bool refocus)
-        {
-            if (_noteEditor == null) { _editingNoteId = null; _editingNoteIndex = -1; return; }
-            var editor = _noteEditor;
-            _noteEditor = null;
-            _editingNoteId = null;
-            _editingNoteIndex = -1;
-            _noteLayer.Children.Remove(editor);
-            if (_noteNumber != null) { _noteLayer.Children.Remove(_noteNumber); _noteNumber = null; }
-            RedrawNotePages(); // la note revient dans le rendu de la page
-            RaiseSelectionState(); // le ruban revient au texte
-            if (refocus) Focus();
+            Focus(); // la note ouverte vit sur la surface elle-même (27/09)
         }
 
         private static bool IsInside(DependencyObject source, DependencyObject ancestor)
@@ -947,7 +606,7 @@ namespace Marabook.View
                     new Rect(0.5, 0.5, w - 1, h - 1));
                 if (!_owner.IsPageNear(this)) { Stale = true; return; } // rendu paresseux (22/09)
                 Stale = false;
-                ComposedRenderer.DrawPage(dc, composition, _index, true, _owner._editingNoteIndex);
+                ComposedRenderer.DrawPage(dc, composition, _index, true); // la note ouverte se dessine comme les autres (27/09)
             }
         }
 
@@ -1038,6 +697,16 @@ namespace Marabook.View
             if (_item == null || _engine == null || _engine.Current.Paragraphs.Count == 0)
             {
                 _caretBar.Visibility = Visibility.Collapsed;
+                return;
+            }
+            if (NoteEditing)
+            {
+                // Le caret est à la note ouverte (27/09) : sa sélection, son
+                // trait d'accent, sa barre — le texte n'en montre pas.
+                UpdateNoteCaretVisual();
+                RaisePageInfo();
+                var noteStateHandler = SelectionStateChanged;
+                if (noteStateHandler != null) noteStateHandler();
                 return;
             }
             DrawSelectionOverlay();
@@ -1160,25 +829,38 @@ namespace Marabook.View
                     ? System.Windows.Media.VisualTreeHelper.GetParent(source)
                     : LogicalTreeHelper.GetParent(source);
             }
-            if (_noteEditor != null && IsInside(e.OriginalSource as DependencyObject, _noteEditor))
-                return; // le clic est pour l'éditeur de note
             // Les bulles d'annotation vivent dans la même colonne (batch 26) :
             // leurs clics ne sont pas à nous non plus (batch 34 — la bulle
             // se refermait avant d'avoir reçu le focus).
             if (IsInside(e.OriginalSource as DependencyObject, _bubbleLayer)) return;
-            // Un clic sur la page hors du champ de note referme la note ouverte
-            // (correctif 0.50.0 : c'est LE geste de sortie, avec Entrée/Échap).
-            if (_noteEditor != null) CloseNoteEditor(false);
             Focus();
+            // Clic sur une note au bas de la page : on l'édite en place, le
+            // caret sous le clic (27/09 : la note s'édite sur la page même) ;
+            // Maj étend la sélection, le double-clic prend le mot, le glisser
+            // sélectionne.
+            string noteId;
+            int noteOffset;
+            var pagePoint = e.GetPosition(_pages);
+            if (NoteHit(pagePoint, out noteId, out noteOffset))
+            {
+                var extend = (Keyboard.Modifiers & ModifierKeys.Shift) != 0 && _editingNoteId == noteId;
+                if (_editingNoteId != noteId) EditNoteAt(noteId, noteOffset);
+                else NotePlaceCaret(noteOffset, extend);
+                if (e.ClickCount == 2) NoteSelectWordAt(noteOffset);
+                _mouseSelecting = true;
+                CaptureMouse();
+                e.Handled = true;
+                return;
+            }
+            // Un clic sur la page hors de la note referme la note ouverte
+            // (correctif 0.50.0 : c'est LE geste de sortie, avec Entrée/Échap).
+            if (NoteEditing) CloseNoteEditor(false);
             if (ToggleWidowMarkAt(e)) { e.Handled = true; return; }
             // Une image sous le clic (0.50.0) : elle se sélectionne et se
             // déplace ; un clic ailleurs sur la surface la désélectionne —
             // le ruban, lui, ne la lâche jamais.
             if (ImageMouseDown(e)) { e.Handled = true; return; }
             DeselectImage(true);
-            // Clic sur une note au bas de la page : on l'édite en place.
-            var noteId = NoteAtPoint(e.GetPosition(_pages));
-            if (noteId != null) { EditNote(noteId); e.Handled = true; return; }
             int paragraph, offset;
             if (!HitTestPosition(e, out paragraph, out offset)) return;
             // Clic sur l'appel de note (l'exposant) : même chose.
@@ -1584,6 +1266,7 @@ namespace Marabook.View
             if (ImageMouseMove(e)) { e.Handled = true; return; }
             if (!_mouseSelecting) UpdateHoverCursor(e);
             if (!_mouseSelecting || e.LeftButton != MouseButtonState.Pressed) return;
+            if (NoteEditing) { NoteDragTo(e.GetPosition(_pages)); return; } // le glisser est à la note (27/09)
             int paragraph, offset;
             if (!HitTestPosition(e, out paragraph, out offset)) return;
             if ((Settings.AppSettings.AutoSelectWord || _dragWholeWords) && _dragOriginParagraph >= 0
@@ -1740,7 +1423,6 @@ namespace Marabook.View
         private void OnTextInput(object sender, TextCompositionEventArgs e)
         {
             if (ReadOnly) { e.Handled = true; return; }
-            if (_noteEditor != null && _noteEditor.IsKeyboardFocusWithin) return; // la note tape pour elle
             if (_bubbleLayer.IsKeyboardFocusWithin) return; // une bulle d'annotation tape pour elle (b34)
             if (_item == null || string.IsNullOrEmpty(e.Text)) return;
             var text = e.Text;
@@ -1751,10 +1433,12 @@ namespace Marabook.View
             TypeText(text);
         }
 
-        /// <summary>Public for tests and toolbar routing.</summary>
+        /// <summary>Public for tests and toolbar routing. La note ouverte
+        /// reçoit la frappe (27/09) — le ruban (point médian, tiroir) aussi.</summary>
         public void TypeText(string text)
         {
             if (_item == null) return;
+            if (NoteEditing) { NoteTypeText(text); return; }
             PushUndo(true);
             DeleteSelectionIfAny();
             // Le format d'insertion (0.50.0) s'imprime dans le texte tapé, puis
@@ -1822,16 +1506,15 @@ namespace Marabook.View
         private void OnKeyDown(object sender, KeyEventArgs e)
         {
             if (ReadOnly && !IsNavigationKey(e)) { e.Handled = true; return; }
-            if (_noteEditor != null && _noteEditor.IsKeyboardFocusWithin)
-            {
-                if (e.Key == Key.Escape || e.Key == Key.Enter || e.Key == Key.Return)
-                {
-                    CloseNoteEditor(true);
-                    e.Handled = true;
-                }
-                return; // les autres touches vont au TextBox de la note
-            }
             if (_bubbleLayer.IsKeyboardFocusWithin) return; // le clavier est à la bulle (b34)
+            if (NoteEditing)
+            {
+                // La note ouverte a le clavier (27/09) : ses déplacements, ses
+                // effacements, Entrée/Échap pour sortir ; les raccourcis de la
+                // fenêtre (Ctrl+S…) remontent.
+                if (NoteKeyDown(e)) e.Handled = true;
+                return;
+            }
             if (_item == null) return;
             if (ImageKeyDown(e)) { e.Handled = true; return; } // l'image sélectionnée (0.50.0)
             // Les gestes de l'éditeur (22/09) : gras, italique, alignements,
@@ -2079,6 +1762,7 @@ namespace Marabook.View
 
         public void SelectAll()
         {
+            if (NoteEditing) { NoteSelectAll(); return; }
             _anchorParagraph = 0;
             _anchorOffset = 0;
             _caretParagraph = _item.Document.Paragraphs.Count - 1;
@@ -2194,6 +1878,7 @@ namespace Marabook.View
             _engine.ComposeAll();
             RebuildPages();
             ClampCaret();
+            ClampNoteCaret(); // la note ouverte suit l'annulation, ou se referme si elle a disparu
             UpdateCaretVisual();
             var handler = Edited;
             if (handler != null) handler();
@@ -2241,6 +1926,7 @@ namespace Marabook.View
 
         private void Backspace()
         {
+            if (NoteEditing) { NoteBackspace(); return; } // la note ouverte (27/09)
             PushUndo(false);
             if (DeleteSelectionIfAny()) { AfterEdit(0); return; }
             var document = _item.Document;
@@ -2270,6 +1956,7 @@ namespace Marabook.View
 
         private void ForwardDelete()
         {
+            if (NoteEditing) { NoteForwardDelete(); return; } // la note ouverte (27/09)
             PushUndo(false);
             if (DeleteSelectionIfAny()) { AfterEdit(0); return; }
             var document = _item.Document;
@@ -2295,6 +1982,7 @@ namespace Marabook.View
 
         public void InsertParagraphBreak()
         {
+            if (NoteEditing) { CloseNoteEditor(true); return; } // Entrée dans la note : on sort (27/09)
             PushUndo(false);
             DeleteSelectionIfAny();
             ClearVetoes();
@@ -2557,7 +2245,7 @@ namespace Marabook.View
 
         private void ApplyToSelection(Action<TextRun> setter)
         {
-            if (NoteEditing) { ApplyToNoteSelection(setter); return; } // la note a le clavier (0.50.0)
+            if (NoteEditing) return; // la note ouverte n'a pas d'options de format (27/09)
             if (!HasSelection())
             {
                 // Sans sélection (0.50.0) : le format devient celui du point
@@ -2607,7 +2295,7 @@ namespace Marabook.View
         // le format d'insertion, comme Ctrl+B avant de taper dans Word.
         public void ToggleBold()
         {
-            if (NoteEditing) { System.Windows.Documents.EditingCommands.ToggleBold.Execute(null, _noteEditor); return; }
+            if (NoteEditing) return; // sans options dans la note (27/09)
             Func<TextRun, ParagraphStyle, bool> isBold = delegate(TextRun run, ParagraphStyle style)
             { return run.Bold ?? style.Bold; };
             var allBold = HasSelection() ? SelectionAll(isBold) : CollapsedFlag(isBold);
@@ -2616,7 +2304,7 @@ namespace Marabook.View
 
         public void ToggleItalic()
         {
-            if (NoteEditing) { System.Windows.Documents.EditingCommands.ToggleItalic.Execute(null, _noteEditor); return; }
+            if (NoteEditing) return;
             Func<TextRun, ParagraphStyle, bool> isItalic = delegate(TextRun run, ParagraphStyle style)
             { return run.Italic ?? style.Italic; };
             var all = HasSelection() ? SelectionAll(isItalic) : CollapsedFlag(isItalic);
@@ -2625,7 +2313,7 @@ namespace Marabook.View
 
         public void ToggleUnderline()
         {
-            if (NoteEditing) { System.Windows.Documents.EditingCommands.ToggleUnderline.Execute(null, _noteEditor); return; }
+            if (NoteEditing) return;
             Func<TextRun, ParagraphStyle, bool> isUnderlined = delegate(TextRun run, ParagraphStyle style)
             { return run.Underline == true; };
             var all = HasSelection() ? SelectionAll(isUnderlined) : CollapsedFlag(isUnderlined);
@@ -2696,14 +2384,7 @@ namespace Marabook.View
         /// format d'insertion, ou la note ouverte — règle des bascules.</summary>
         public void ToggleSmallCaps()
         {
-            if (NoteEditing)
-            {
-                var current = _noteEditor.Selection.GetPropertyValue(System.Windows.Documents.Typography.CapitalsProperty);
-                var on = current is FontCapitals && (FontCapitals)current == FontCapitals.SmallCaps;
-                _noteEditor.Selection.ApplyPropertyValue(System.Windows.Documents.Typography.CapitalsProperty,
-                    on ? FontCapitals.Normal : FontCapitals.SmallCaps);
-                return;
-            }
+            if (NoteEditing) return;
             Func<TextRun, ParagraphStyle, bool> isSmall = delegate(TextRun run, ParagraphStyle style)
             { return run.SmallCaps == true; };
             var all = HasSelection() ? SelectionAll(isSmall) : CollapsedFlag(isSmall);
@@ -2715,12 +2396,7 @@ namespace Marabook.View
         public bool? SmallCapsState()
         {
             if (_item == null) return false;
-            if (NoteEditing)
-            {
-                var current = _noteEditor.Selection.GetPropertyValue(System.Windows.Documents.Typography.CapitalsProperty);
-                if (current == DependencyProperty.UnsetValue) return null;
-                return current is FontCapitals && (FontCapitals)current == FontCapitals.SmallCaps;
-            }
+            if (NoteEditing) return false;
             if (!HasSelection())
             {
                 var paragraph = CaretParagraph;
@@ -2756,19 +2432,12 @@ namespace Marabook.View
         public void InsertSpecial(string text)
         {
             if (string.IsNullOrEmpty(text)) return;
-            if (NoteEditing)
-            {
-                _noteEditor.Selection.Text = text;
-                _noteEditor.CaretPosition = _noteEditor.Selection.End;
-                _noteEditor.Selection.Select(_noteEditor.CaretPosition, _noteEditor.CaretPosition);
-                return;
-            }
-            TypeText(text);
+            TypeText(text); // la note ouverte le reçoit par TypeText (27/09)
         }
 
         public void ToggleStrike()
         {
-            if (NoteEditing) { ToggleNoteStrike(); return; }
+            if (NoteEditing) return;
             Func<TextRun, ParagraphStyle, bool> isStruck = delegate(TextRun run, ParagraphStyle style)
             { return run.Strike == true; };
             var all = HasSelection() ? SelectionAll(isStruck) : CollapsedFlag(isStruck);
@@ -2854,9 +2523,8 @@ namespace Marabook.View
             if (_item == null || _caretParagraph >= _item.Document.Paragraphs.Count) return;
             if (NoteEditing)
             {
-                // La note ouverte : l'état de SA sélection (correctif 0.50.0).
-                NoteSelectionFormat(out fontFamily, out sizePt, out mixedFont, out mixedSize,
-                    out bold, out italic, out underline, out strike);
+                // La note ouverte : son style, sans options (27/09).
+                NoteFormatState(out bold, out italic, out underline, out strike, out fontFamily, out sizePt);
                 return;
             }
             int pa, oa, pb, ob;
@@ -3469,13 +3137,9 @@ namespace Marabook.View
                 // La note ouverte : son style, la police et la taille de sa
                 // sélection (correctif 0.50.0 — le ruban disait « Corps »).
                 var noteStyle = _styles.FootnoteStyle();
-                double? noteSize;
-                bool mixedFont, mixedSize;
-                bool? b, i, u, s;
-                NoteSelectionFormat(out fontFamily, out noteSize, out mixedFont, out mixedSize, out b, out i, out u, out s);
                 styleId = StyleSheet.FootnoteId;
-                if (fontFamily == null) fontFamily = noteStyle.FontFamily;
-                sizePt = noteSize ?? noteStyle.FontSize * 0.75;
+                fontFamily = noteStyle.FontFamily;
+                sizePt = noteStyle.FontSize * 0.75;
                 return;
             }
             var paragraph = _item.Document.Paragraphs[_caretParagraph];

@@ -145,24 +145,14 @@ namespace Marabook.Model
                     "Une phénoménale perte de temps pour les plus pointilleux",
                     "De nouveaux succès"
                 }
-            },
-            // Mental-o en DLC (22/09) : un module À CODE — sa DLL apporte les
-            // cartes mentales (racine « Cartes mentales », éditeur, tuiles).
-            new ModuleSource
-            {
-                Id = "mental-o",
-                Name = "Mental-o",
-                Title = "Cartes mentales",
-                Repository = "Pardaramskha/marabook-dlc-mental-o",
-                Asset = "mental-o.mdlc",
-                Features =
-                {
-                    "Une racine « Cartes mentales » dans la Pile : vos cartes vivent dans le projet",
-                    "Le canevas de Mental-o à la sauce Marabook : boîtes, liens, groupes, images, notes",
-                    "Chaque carte en tuile sur le corkboard, import et export des .tea",
-                    "Trois succès"
-                }
             }
+            // Mental-o en DLC (22/09) : un module À CODE — sa DLL WPF apporte
+            // les cartes mentales. RETIRÉ DU CATALOGUE le 27/09/2026 (décision
+            // de Rémi, portage Avalonia) : le module sera porté sur Avalonia
+            // après la V1, dans un chantier à part ; d'ici là il ne se propose
+            // plus. L'infrastructure des modules à code (ICodeModuleHost,
+            // manifeste « entry », ModuleRegistry) reste en place, et un
+            // .mdlc installé à la main se charge toujours.
         };
 
         /// <summary>Le dossier des modules installés : %APPDATA%\Marabook\dlc,

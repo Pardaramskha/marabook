@@ -144,92 +144,111 @@ namespace Marabook.Tests.Ui
             Check(order.Count == 2, "deux appels de note dans l'ordre du texte");
 
             var noteA = target.Document.FindFootnote(order[0]);
+            var noteTextBefore = noteA.Text;
             composed.EditNote(order[0]);
             DoEvents();
-            // L'éditeur de note est RICHE depuis la 0.50.0 (RichTextBox).
-            var noteEditor = (RichTextBox)GetField(composed, "_noteEditor");
-            var shown = noteEditor == null ? null : new System.Windows.Documents.TextRange(
-                noteEditor.Document.ContentStart, noteEditor.Document.ContentEnd).Text.TrimEnd('\r', '\n');
-            Check(noteEditor != null && shown == noteA.Text && Canvas.GetTop(noteEditor) > 0,
-                "la note s'ouvre en place, posée sur la page, avec son texte");
-            new System.Windows.Documents.TextRange(noteEditor.Document.ContentStart, noteEditor.Document.ContentEnd).Text
-                = "Première note, corrigée";
+            // La note s'édite EN PLACE par le compositeur maison (27/09/2026,
+            // portage Avalonia — plus de RichTextBox) : le caret de la surface
+            // est dans la note, au bas de sa page, en fin de texte.
+            var caretBar = (FrameworkElement)GetField(composed, "_caretBar");
+            var noteComposition = composed.CurrentComposition;
+            var noteIndex = composed.MarkerOrder().IndexOf(order[0]);
+            double noteTop = double.MaxValue, noteBottom = double.MinValue;
+            var notePageIndex = -1;
+            for (var k = 0; k < noteComposition.Pages.Count; k++)
+                foreach (var noteLine in noteComposition.Pages[k].NoteLines)
+                {
+                    if (noteLine.ParagraphIndex != noteIndex) continue;
+                    notePageIndex = k;
+                    noteTop = Math.Min(noteTop, noteLine.Y);
+                    noteBottom = Math.Max(noteBottom, noteLine.Y + noteLine.Line.Height);
+                }
+            var notePageTop = (double)Invoke(composed, "PageTop", new object[] { Math.Max(0, notePageIndex) });
+            var caretTop = Canvas.GetTop(caretBar);
+            Check(composed.EditingNoteId == order[0] && (int)GetField(composed, "_noteCaret") == noteTextBefore.Length,
+                "la note s'ouvre en place, le caret en fin de note (" + GetField(composed, "_noteCaret") + "/" + noteTextBefore.Length + ")");
+            Check(notePageIndex >= 0 && caretTop >= notePageTop + noteTop - 1 && caretTop <= notePageTop + noteBottom,
+                "la barre du caret est posée dans la note composée (" + caretTop.ToString("0") + " dans [" + (notePageTop + noteTop).ToString("0") + ", " + (notePageTop + noteBottom).ToString("0") + "])");
+            composed.SelectAll(); // Ctrl+A dans la note : toute la note
+            composed.TypeText("Première note, corrigée");
             DoEvents();
-            Check(noteA.Text == "Première note, corrigée", "la frappe dans la note atteint le modèle");
+            Check(noteA.Text == "Première note, corrigée", "la frappe dans la note atteint le modèle (Ctrl+A puis frappe remplace le texte)");
             Check((bool)GetField(window, "_dirty"), "le projet est marqué modifié");
-            // Le gras dans la note (0.50.0) : la sélection entière passe en gras
-            // par la commande du RichTextBox, le modèle reçoit un run gras.
-            noteEditor.SelectAll();
-            System.Windows.Documents.EditingCommands.ToggleBold.Execute(null, noteEditor);
+            // Sans options (27/09) : le gras du ruban ne touche pas la note.
+            composed.SelectAll();
+            composed.ToggleBold();
             DoEvents();
             var anyBold = false;
             foreach (var run in noteA.Runs) if (run.Bold == true) anyBold = true;
-            Check(anyBold && noteA.Text == "Première note, corrigée", "le gras posé dans la note atteint les runs du modèle, texte intact");
+            Check(!anyBold && noteA.Text == "Première note, corrigée", "la note s'édite sans options : le gras du ruban n'y fait rien, texte intact");
             // La frappe dans la note ne fait pas sauter la page (correctif
             // 0.50.0) : la vue est descendue sur la note, on tape cinq fois,
             // le défilement ne bouge pas d'un pixel.
+            composed.PlaceNoteCaretPublic(int.MaxValue);
             DoEvents();
             var offsetBefore = composed.VerticalOffset;
             for (var i = 0; i < 5; i++)
             {
-                noteEditor.CaretPosition = noteEditor.Document.ContentEnd;
-                noteEditor.CaretPosition.InsertTextInRun(" mot");
+                composed.TypeText(" mot");
                 DoEvents();
             }
             Check(Math.Abs(composed.VerticalOffset - offsetBefore) < 0.5,
                 "taper dans la note ne déplace pas la vue (" + offsetBefore.ToString("0") + " → " + composed.VerticalOffset.ToString("0") + ")");
             Check(noteA.Text.EndsWith(" mot mot mot mot mot"), "les cinq frappes sont dans le modèle");
-            Check(GetField(composed, "_noteEditor") != null, "la note reste ouverte après la frappe");
+            Check(composed.EditingNoteId == order[0], "la note reste ouverte après la frappe");
+            // Retour arrière et Suppr dans la note, par le clavier de la surface.
+            composed.BackspacePublic();
+            DoEvents();
+            Check(noteA.Text.EndsWith(" mot mot mot mot mo"), "Retour arrière efface le dernier caractère de la note");
+            composed.PlaceNoteCaretPublic(0);
+            composed.DeletePublic();
+            DoEvents();
+            Check(noteA.Text.StartsWith("remière note"), "Suppr efface le caractère sous le caret, au début de la note");
+            // Remis d'aplomb (le texte est relu sur le disque plus bas) : la
+            // frappe insère au caret, au début comme à la fin.
+            composed.TypeText("P");
+            composed.PlaceNoteCaretPublic(int.MaxValue);
+            composed.TypeText("t");
+            DoEvents();
+            Check(noteA.Text == "Première note, corrigée mot mot mot mot mot", "la frappe insère au caret, au début comme en fin de note (" + noteA.Text + ")");
             // Le clavier part ailleurs (un onglet, un bouton du ruban) : la note
-            // reste ouverte et reçoit encore les formats du ruban.
+            // reste ouverte.
             var binder = (UIElement)GetField(window, "_binder");
             binder.Focus();
             DoEvents();
-            Check(GetField(composed, "_noteEditor") != null, "perdre le clavier ne referme plus la note");
-            noteEditor.SelectAll();
+            Check(composed.EditingNoteId == order[0], "perdre le clavier ne referme pas la note");
+            // Les formats du ruban se taisent sur la note (sans options) : ni
+            // italique, ni police, par l'API de la surface ou par OnFontChosen.
+            composed.SelectAll();
             composed.ToggleItalic();
-            DoEvents();
-            var anyItalic = false;
-            foreach (var run in noteA.Runs) if (run.Italic == true) anyItalic = true;
-            Check(anyItalic, "le ruban (italique) agit sur la note ouverte même sans le clavier");
-            // La police de la note (correctif 0.50.0) : par l'API de la surface,
-            // puis par le chemin du ruban (OnFontChosen), et le ruban lit la
-            // note (style « Notes de bas de page », police choisie).
-            noteEditor.SelectAll();
             composed.ApplyFont("Arial");
-            DoEvents();
-            var arial = false;
-            foreach (var run in noteA.Runs) if (run.FontFamily == "Arial") arial = true;
-            Check(arial, "ApplyFont sur la note ouverte : les runs portent Arial");
-            noteEditor.SelectAll();
             Invoke(editor, "OnFontChosen", new object[] { "Georgia", false });
             DoEvents();
-            var georgia = false;
-            foreach (var run in noteA.Runs) if (run.FontFamily == "Georgia") georgia = true;
-            Check(georgia, "le sélecteur du ruban (OnFontChosen) change la police de la note");
+            var anyFormat = false;
+            foreach (var run in noteA.Runs) if (run.Italic == true || run.FontFamily != null) anyFormat = true;
+            Check(!anyFormat, "italique et police du ruban ne touchent pas la note ouverte");
             string caretStyle, caretFont;
             double caretPt;
             composed.CaretFormat(out caretStyle, out caretFont, out caretPt);
-            Check(caretStyle == StyleSheet.FootnoteId && caretFont == "Georgia",
-                "le ruban lit la note ouverte : style « footnote », police Georgia (" + caretStyle + ", " + caretFont + ")");
-            // Le champ a la hauteur de la note composée : même géométrie des
-            // deux côtés (pas de « faux débordement »).
-            var noteComposition = composed.CurrentComposition;
-            var noteIndex = composed.MarkerOrder().IndexOf(order[0]);
-            double noteTop = double.MaxValue, noteBottom = double.MinValue;
-            foreach (var notePage in noteComposition.Pages)
-                foreach (var noteLine in notePage.NoteLines)
-                {
-                    if (noteLine.ParagraphIndex != noteIndex) continue;
-                    var lineLayout = noteComposition.NoteParagraphs[noteIndex].Lines[noteLine.LineIndex];
-                    noteTop = Math.Min(noteTop, noteLine.Y);
-                    noteBottom = Math.Max(noteBottom, noteLine.Y + lineLayout.Height);
-                }
-            noteEditor.UpdateLayout();
-            Check(noteTop < noteBottom && Math.Abs(noteEditor.ActualHeight - (noteBottom - noteTop)) <= 3,
-                "le champ de note a la hauteur de la note composée (" + noteEditor.ActualHeight.ToString("0.#") + " vs " + (noteBottom - noteTop).ToString("0.#") + ")");
+            var footnoteStyle = opened.Styles.FootnoteStyle();
+            Check(caretStyle == StyleSheet.FootnoteId && caretFont == footnoteStyle.FontFamily,
+                "le ruban lit la note ouverte : style « footnote », police du style (" + caretStyle + ", " + caretFont + ")");
+            // Le clic sur la note pose le caret sous le clic ; un clic sur le
+            // texte referme la note.
+            var noteLeft = (double)Invoke(noteComposition, "LeftPxFor", new object[] { notePageIndex });
+            composed.PlaceNoteCaretPublic(int.MaxValue);
+            var endX = Canvas.GetLeft(caretBar);
+            var args = new object[] { new Point(noteLeft + 60, notePageTop + noteTop + 3), null, 0 };
+            var hitNote = (bool)Invoke(composed, "NoteHit", args);
+            Check(hitNote && (string)args[1] == order[0] && (int)args[2] > 0 && (int)args[2] < noteA.Text.Length,
+                "un point dans la note désigne la note et un offset de son corps (" + args[2] + ")");
+            composed.PlaceNoteCaretPublic((int)args[2]);
+            DoEvents();
+            Check(Canvas.GetLeft(caretBar) < endX, "le caret posé à cet offset est à gauche de la fin de note");
             composed.CloseNoteEditor(true);
-            Check(GetField(composed, "_noteEditor") == null, "Entrée/Échap referment l'éditeur de note");
+            Check(composed.EditingNoteId == null, "Entrée/Échap referment l'éditeur de note");
+            Check(caretBar.Visibility == Visibility.Visible || caretBar.Visibility == Visibility.Hidden,
+                "le caret est revenu au texte");
 
             // Petites majuscules et caractères spéciaux (0.50.0) : les deux
             // carrés sont au ruban ; la bascule sans sélection règle le format

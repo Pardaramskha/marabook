@@ -486,6 +486,14 @@ namespace Marabook.Print
             return changed;
         }
 
+        /// <summary>Le préfixe « n. » d'une note composée (index dans l'ordre
+        /// des appels) : son run 0 — les offsets plats du corps de la note
+        /// commencent après lui (l'éditeur de notes en place le sait).</summary>
+        public static string NotePrefix(int index)
+        {
+            return (index + 1) + ". ";
+        }
+
         /// <summary>Le corps d'une note : le style « Notes de bas de page » de
         /// la feuille (0.50.0 ; avant, le corps à 85 % en dur), ses runs avec
         /// leurs formats, le numéro devant. Alinéa et espacements verticaux
@@ -497,7 +505,7 @@ namespace Marabook.Print
             // marge du bloc, toutes les lignes du corps alignées après lui —
             // c'est aussi la géométrie du champ d'édition en place, qui
             // commence là (layout.Style.LeftIndent) et fait la largeur restante.
-            var prefix = (index + 1) + ". ";
+            var prefix = NotePrefix(index);
             var numberWidth = _metrics.AdvanceWidth(style.FontFamily, style.FontSize,
                 style.Bold ? 700 : 400, style.Italic, prefix);
             style.LeftIndent = numberWidth;
