@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Marabook.App (portage Avalonia, P1) : l'application Avalonia 11 sur
+       .NET 8, un seul code pour Windows, Linux et macOS. Interface 100 % en
+       code (pas de XAML), comme l'app WPF qu'elle remplace. Elle compile le
+       cœur (Marabook.Core) et n'en connaît que les contrats : IPlatform,
+       IImageCodec, IFontEngine, Exchange.Rtf, Modules.CodeHost. -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>Marabook</AssemblyName>
+    <RootNamespace>Marabook.App</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationIcon>..\..\tools\app.ico</ApplicationIcon>
+    <Version>0.50.0</Version>
+    <InformationalVersion>0.50.0-beta-avalonia</InformationalVersion>
+    <SatelliteResourceLanguages>fr</SatelliteResourceLanguages>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <NoWarn>CS0618;CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Simple" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.22" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Marabook.Core\Marabook.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="..\..\tools\app.ico" Link="Assets\app.ico" />
+  </ItemGroup>
+
+</Project>
