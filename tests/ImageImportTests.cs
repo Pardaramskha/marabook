@@ -210,9 +210,6 @@ namespace Marabook.Tests
             t.Equal(1000, ImageHeader.PixelWidth(bmp), "BMP : largeur du DIB");
             t.Equal(0, ImageHeader.PixelWidth(new byte[] { 1, 2, 3 }), "inconnu : 0");
             t.Equal(0, ImageHeader.PixelWidth(null), "null : 0");
-#if !MARABOOK_CORE
-            t.Check(View.ImageCache.For(null) == null && View.ImageCache.For(new ProjectImage()) == null, "pas d'octets : pas d'image");
-#endif
         }
 
         private static void Paths(Harness t)

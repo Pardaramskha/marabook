@@ -115,12 +115,7 @@ namespace Marabook.Tests
             t.Check(module.HasCode && module.EntryAssembly == "bin/MentalO.Marabook.dll" && module.EntryType == "MentalO.Marabook.Module",
                 "le manifeste d'un module à code nomme sa DLL et son type");
             t.Check(!Modules.Parse("{\"id\":\"demo\"}").HasCode, "sans « entry » : un module sans code");
-#if !MARABOOK_CORE
-            t.Check(Extensions.ModuleRegistry.Find("mental-o") == null && Extensions.ModuleRegistry.MindMaps == null,
-                "aucun module à code chargé dans les tests");
-#else
             t.Check(Modules.CodeHost == null, "cœur seul : aucun hôte de modules à code, la DLL ne se charge pas");
-#endif
         }
 
         private static void Rules(Harness t)
