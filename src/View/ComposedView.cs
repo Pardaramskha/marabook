@@ -349,7 +349,7 @@ namespace Marabook.View
             // appendNotes: footnotes sit at the bottom of their page, like on
             // paper — the composed surface is print-exact.
             _engine = new CompositionEngine(item.Document, styles, setup, project, true,
-                new Print.WpfGlyphMetrics());
+                new Wpf.WpfFontEngine());
             _engine.FolioOffset = FolioOffset;
             _engine.DefaultDecor = Decor;
             _engine.ComposeAll();
@@ -1837,7 +1837,7 @@ namespace Marabook.View
             // Les gestes de l'éditeur (22/09) : gras, italique, alignements,
             // listes, décalages, point médian, saut de page… — la table des
             // raccourcis (Préférences › Raccourcis › Éditeur) décide.
-            var action = Settings.AppSettings.EditorActionFor(e.Key == Key.System ? e.SystemKey : e.Key, Keyboard.Modifiers);
+            var action = Settings.AppSettings.EditorActionFor((e.Key == Key.System ? e.SystemKey : e.Key).ToString(), Geo.ToCore(Keyboard.Modifiers));
             if (action != null && RunEditorAction(action)) { e.Handled = true; return; }
             var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
             var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;

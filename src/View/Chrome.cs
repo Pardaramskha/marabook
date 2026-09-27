@@ -132,6 +132,18 @@ namespace Marabook.View
                 Warn.Color = Rgb(0xC4, 0x82, 0x0E);
                 Danger.Color = Rgb(0xCE, 0x46, 0x46);
             }
+            SyncCompositionPalette();
+        }
+
+        /// <summary>Les couleurs que le compositeur pose dans ses pièces (P0 :
+        /// il ne lit plus les pinceaux d'ici) suivent le thème.</summary>
+        private static void SyncCompositionPalette()
+        {
+            var palette = Print.CompositionPalette.Current;
+            palette.FaintText = FaintText.Color.ToInk();
+            palette.AccentStrong = AccentStrong.Color.ToInk();
+            palette.AccentTint = AccentTint.Color.ToInk();
+            palette.AnnotationTint = AnnotationTint.Color.ToInk();
         }
 
         /// <summary>The customized accent, or null when the default indigo applies.</summary>

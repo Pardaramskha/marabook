@@ -173,7 +173,7 @@ namespace Marabook.Tests.Ui
                 var run = FindImageRun(target.Document);
                 int pageIndex;
                 var placed = FindPlaced(composition, run, out pageIndex);
-                Check(placed != null && placed.Source != null, "l'image est posée sur une page, décodée");
+                Check(placed != null && placed.Readable && ImageCache.For(placed.Stored) != null, "l'image est posée sur une page, décodée");
                 var textBelow = true;
                 var anchorLineSeen = false;
                 foreach (var line in composition.Pages[pageIndex].Lines)

@@ -179,7 +179,7 @@ namespace Marabook.View
                     var line = placed.Line;
                     var annotated = false;
                     foreach (var piece in line.Pieces)
-                        if (ReferenceEquals(piece.Highlight, Chrome.AnnotationTint))
+                        if (piece.HighlightRole == HighlightRole.Annotation)
                         { annotated = true; break; }
                     if (!annotated) continue;
                     dc.DrawRoundedRectangle(markerBrush, null, new Rect(
@@ -249,8 +249,11 @@ namespace Marabook.View
         /// l'image.</summary>
         private static void DrawImage(DrawingContext dc, PlacedImage image, Composition composition, bool screenExtras)
         {
-            if (image.Source != null)
-                dc.DrawImage(image.Source, image.Rect);
+            // La bitmap décodée une fois (ImageCache) ; le compositeur n'en a
+            // que les dimensions (P0).
+            var source = image.Readable ? ImageCache.For(image.Stored) : null;
+            if (source != null)
+                dc.DrawImage(source, image.Rect.ToRect());
             else
             {
                 dc.DrawRectangle(null, PlaceholderPen, new Rect(
@@ -348,10 +351,12 @@ namespace Marabook.View
             }
         }
 
-        private static bool IsTranslucent(Brush brush)
+        /// <summary>Le surlignage d'une pièce ne va pas au papier quand il est
+        /// semi-transparent (teinte d'annotation) : même règle que le PDF.</summary>
+        private static bool IsTranslucent(ComposedPiece piece)
         {
-            var solid = brush as SolidColorBrush;
-            return solid != null && solid.Color.A < 0xFF;
+            return piece.HighlightRole == HighlightRole.Annotation
+                || (piece.Highlight.HasValue && piece.Highlight.Value.IsTranslucent);
         }
 
         // ------------------------------------------- signalements de correction
@@ -502,12 +507,13 @@ namespace Marabook.View
             // teintes d'annotation (semi-transparentes) sont écran seulement.
             foreach (var piece in line.Pieces)
             {
-                if (piece.Highlight == null) continue;
-                if (!screenExtras && IsTranslucent(piece.Highlight)) continue;
+                var highlight = Geo.HighlightBrush(piece);
+                if (highlight == null) continue;
+                if (!screenExtras && IsTranslucent(piece)) continue;
                 var w = piece.VisualWidth();
                 if (w < 0.1) continue;
                 var size = piece.FontSizePx > 0 ? piece.FontSizePx : 16;
-                dc.DrawRectangle(piece.Highlight, null, new Rect(
+                dc.DrawRectangle(highlight, null, new Rect(
                     left + piece.Origin.X, baseline + piece.Origin.Y - size * 0.8,
                     w, size * 1.05));
             }
@@ -547,10 +553,16 @@ namespace Marabook.View
                 var scaled = Math.Abs(piece.ScaleX - 1.0) > 0.001;
                 dc.PushTransform(new TranslateTransform(x, y));
                 if (scaled) dc.PushTransform(new ScaleTransform(piece.ScaleX, 1.0));
-                if (piece.Glyphs != null)
-                    dc.DrawGlyphRun(piece.Ink ?? DefaultInk, piece.Glyphs);
-                else if (piece.Fallback != null)
-                    dc.DrawText(piece.Fallback, new Point(0, -piece.Fallback.Baseline));
+                if (piece.IsGlyphs)
+                {
+                    var run = GlyphRunOf(piece);
+                    if (run != null) dc.DrawGlyphRun(Geo.InkBrush(piece), run);
+                }
+                else if (piece.IsFallback)
+                {
+                    var text = FallbackOf(piece);
+                    if (text != null) dc.DrawText(text, new Point(0, -piece.FallbackBaseline));
+                }
                 if (scaled) dc.Pop();
                 dc.Pop();
             }
@@ -570,24 +582,53 @@ namespace Marabook.View
             var w = piece.VisualWidth();
             if (w < 0.1) return;
             var size = piece.FontSizePx > 0 ? piece.FontSizePx : 16;
-            var typeface = piece.Glyphs != null ? piece.Glyphs.GlyphTypeface : null;
-            var ink = piece.Ink ?? DefaultInk;
+            var face = piece.IsGlyphs ? piece.Face : null;
+            var ink = Geo.InkBrush(piece);
             var x = left + piece.Origin.X;
             var y = baseline + piece.Origin.Y;
             if (piece.Underline)
             {
-                var offset = typeface != null ? -typeface.UnderlinePosition * size : size * 0.09;
-                var thickness = typeface != null
-                    ? Math.Max(0.8, typeface.UnderlineThickness * size) : Math.Max(0.8, size * 0.05);
+                var offset = face != null ? -face.UnderlinePosition * size : size * 0.09;
+                var thickness = face != null
+                    ? Math.Max(0.8, face.UnderlineThickness * size) : Math.Max(0.8, size * 0.05);
                 dc.DrawRectangle(ink, null, new Rect(x, y + offset, w, thickness));
             }
             if (piece.Strike)
             {
-                var offset = typeface != null ? -typeface.StrikethroughPosition * size : -size * 0.3;
-                var thickness = typeface != null
-                    ? Math.Max(0.8, typeface.StrikethroughThickness * size) : Math.Max(0.8, size * 0.05);
+                var offset = face != null ? -face.StrikethroughPosition * size : -size * 0.3;
+                var thickness = face != null
+                    ? Math.Max(0.8, face.StrikethroughThickness * size) : Math.Max(0.8, size * 0.05);
                 dc.DrawRectangle(ink, null, new Rect(x, y + offset, w, thickness));
             }
+        }
+
+        // ------------------------------------------- objets natifs des pièces
+
+        /// <summary>Le GlyphRun d'une pièce (P0) : bâti une fois depuis la
+        /// face et les avances, gardé dans la pièce ; le compositeur l'efface
+        /// quand la justification bouge les avances.</summary>
+        private static GlyphRun GlyphRunOf(ComposedPiece piece)
+        {
+            var cached = piece.NativeCache as GlyphRun;
+            if (cached != null) return cached;
+            var glyphs = Wpf.WpfFontEngine.GlyphsOf(piece.Face);
+            if (glyphs == null || piece.GlyphIndices.Length == 0) return null;
+            var run = new GlyphRun(glyphs, 0, false, piece.EmSize, 1.0f,
+                piece.GlyphIndices, new Point(0, 0), piece.Advances,
+                null, null, null, null, null, null);
+            piece.NativeCache = run;
+            return run;
+        }
+
+        /// <summary>Le FormattedText d'un repli, dans l'encre de la pièce (les
+        /// rôles du thème ne concernent que les glyphes ; un repli est rare).</summary>
+        private static FormattedText FallbackOf(ComposedPiece piece)
+        {
+            var cached = piece.NativeCache as FormattedText;
+            if (cached != null) return cached;
+            var text = Wpf.WpfFontEngine.Format(piece.Face, piece.Text, piece.EmSize, Geo.InkBrush(piece));
+            piece.NativeCache = text;
+            return text;
         }
     }
 }

@@ -496,8 +496,22 @@ namespace Marabook
         {
             Key key;
             ModifierKeys modifiers;
-            if (AppSettings.ParseGesture(AppSettings.Gesture(actionId), out key, out modifiers))
+            if (TryGesture(AppSettings.Gesture(actionId), out key, out modifiers))
                 InputBindings.Add(new KeyBinding(new DelegateCommand(handler), key, modifiers));
+        }
+
+        /// <summary>Un geste des réglages (« Ctrl+Maj+G ») vers la touche et les
+        /// modificateurs WPF ; false si le nom de touche n'en est pas une.</summary>
+        private static bool TryGesture(string gesture, out Key key, out ModifierKeys modifiers)
+        {
+            key = Key.None;
+            modifiers = ModifierKeys.None;
+            string name;
+            Settings.KeyModifiers coreModifiers;
+            if (!AppSettings.ParseGesture(gesture, out name, out coreModifiers)) return false;
+            if (!View.Geo.TryKey(name, out key)) return false;
+            modifiers = View.Geo.ToWpf(coreModifiers);
+            return true;
         }
 
         /// <summary>Builds a menu entry wired to an action id: display shortcut
@@ -521,7 +535,7 @@ namespace Marabook
                 item.InputGestureText = AppSettings.DisplayGesture(gesture);
                 Key key;
                 ModifierKeys modifiers;
-                if (AppSettings.ParseGesture(gesture, out key, out modifiers))
+                if (TryGesture(gesture, out key, out modifiers))
                     InputBindings.Add(new KeyBinding(new DelegateCommand(guarded), key, modifiers));
             }
             if (when != null) _menuRules.Add(new KeyValuePair<MenuItem, Func<bool>>(item, when));
@@ -3092,7 +3106,7 @@ namespace Marabook
                     ? ComputeFolioOffset(_current) : 0;
                 var decor = _current != null && _current.Kind == ItemKind.Text
                     ? PageDecor.For(_current, _project) : null;
-                Print.Printing.ShowPreview(this, document, _project.Styles.EffectiveFor(_current), _project,
+                Wpf.Printing.ShowPreview(this, document, _project.Styles.EffectiveFor(_current), _project,
                     name, setup, offset, decor);
             }
             catch (Exception error)
@@ -3114,7 +3128,7 @@ namespace Marabook
                     ? ComputeFolioOffset(_current) : 0;
                 var decor = _current != null && _current.Kind == ItemKind.Text
                     ? PageDecor.For(_current, _project) : null;
-                Print.Printing.Print(document, _project.Styles.EffectiveFor(_current), _project,
+                Wpf.Printing.Print(document, _project.Styles.EffectiveFor(_current), _project,
                     AppName + " — " + name, setup, offset, decor);
                 UnlockAchievement(Achievements.OldSchool); // « À l'ancienne »
             }
@@ -3205,7 +3219,7 @@ namespace Marabook
             try
             {
                 var composition = Print.Composer.Compose(
-                    document, styles ?? _project.Styles.EffectiveFor(_current), setup, _project);
+                    document, styles ?? _project.Styles.EffectiveFor(_current), setup, _project, new Wpf.WpfFontEngine());
                 composition.DefaultDecor = decor;
                 composition.FolioOffset = folioOffset;
                 var path = Path.Combine(Path.GetTempPath(),
@@ -3261,7 +3275,7 @@ namespace Marabook
             try
             {
                 var composition = Print.Composer.Compose(Links.Strip(text.Document),
-                    _project.Styles.EffectiveFor(text), text.Page ?? _project.Page, _project);
+                    _project.Styles.EffectiveFor(text), text.Page ?? _project.Page, _project, new Wpf.WpfFontEngine());
                 pages = Math.Max(1, composition.Pages.Count);
             }
             catch { pages = 1; }
@@ -3688,7 +3702,7 @@ namespace Marabook
             try
             {
                 var composition = Print.Composer.Compose(
-                    document, styles ?? _project.Styles.EffectiveFor(_current), setup, _project);
+                    document, styles ?? _project.Styles.EffectiveFor(_current), setup, _project, new Wpf.WpfFontEngine());
                 composition.DefaultDecor = decor;
                 composition.FolioOffset = folioOffset;
                 Print.PdfWriter.Write(dialog.FileName, composition, options);

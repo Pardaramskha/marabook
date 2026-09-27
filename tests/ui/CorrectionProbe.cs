@@ -34,7 +34,7 @@ namespace Marabook.Tests.Ui
                 var styles = StyleSheet.CreateDefault();
                 var setup = new PageSetup();
                 var engine = new CompositionEngine(document, styles, setup,
-                    null, false, new WpfGlyphMetrics());
+                    null, false, new Marabook.Wpf.WpfFontEngine());
                 engine.ComposeAll();
 
                 var host = new CheckerHost();
@@ -69,7 +69,7 @@ namespace Marabook.Tests.Ui
                     { Text = "Le chateau domine la vallée." });
                     faulty.Paragraphs.Add(p2);
                     var engine2 = new CompositionEngine(faulty, styles, setup,
-                        null, false, new WpfGlyphMetrics());
+                        null, false, new Marabook.Wpf.WpfFontEngine());
                     engine2.ComposeAll();
                     var spellChecker = new SpellChecker(spellEngine);
                     var host2 = new CheckerHost();
@@ -142,7 +142,7 @@ namespace Marabook.Tests.Ui
                     document.Paragraphs.Add(filler);
                 }
                 var engine = new CompositionEngine(document, styles, setup,
-                    null, false, new WpfGlyphMetrics());
+                    null, false, new Marabook.Wpf.WpfFontEngine());
                 engine.ComposeAll();
 
                 var host = new CheckerHost();

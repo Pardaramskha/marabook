@@ -2,10 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using System.Windows.Input;
+using Marabook.Model;
 
 namespace Marabook.Settings
 {
+    /// <summary>Les modificateurs d'un raccourci, sans System.Windows.Input
+    /// (portage Avalonia, P0). La vue traduit ceux de sa plate-forme.</summary>
+    [Flags]
+    public enum KeyModifiers
+    {
+        None = 0,
+        Control = 1,
+        Shift = 2,
+        Alt = 4
+    }
+
     /// <summary>An action that can be rebound to a shortcut. The rebinding dialog
     /// itself arrives later; the table is the source of truth from day one
     /// (pattern ported from Mental-o's ParametresGlobaux).</summary>
@@ -97,19 +108,48 @@ namespace Marabook.Settings
         /// les raccourcis personnalisés puis les défauts — null si aucune.
         /// Les modificateurs doivent correspondre exactement (Ctrl+B ne
         /// répond pas à Ctrl+Maj+B).</summary>
-        public static string EditorActionFor(Key key, ModifierKeys modifiers)
+        public static string EditorActionFor(string key, KeyModifiers modifiers)
         {
-            if (key == Key.None) return null;
-            modifiers &= ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt;
+            if (string.IsNullOrEmpty(key) || SameKey(key, "None")) return null;
+            modifiers &= KeyModifiers.Control | KeyModifiers.Shift | KeyModifiers.Alt;
             foreach (var action in Actions)
             {
                 if (action.Category != EditorCategory && action.Id != "page-break") continue;
-                Key wanted;
-                ModifierKeys wantedModifiers;
+                string wanted;
+                KeyModifiers wantedModifiers;
                 if (!ParseGesture(Gesture(action.Id), out wanted, out wantedModifiers)) continue;
-                if (wanted == key && wantedModifiers == modifiers) return action.Id;
+                if (SameKey(wanted, key) && wantedModifiers == modifiers) return action.Id;
             }
             return null;
+        }
+
+        /// <summary>Deux noms de touche désignent-ils la même touche ? Les
+        /// noms sont ceux de l'énumération Key de WPF (Avalonia reprend les
+        /// mêmes), sans la casse ; les doublons de l'énumération (Return et
+        /// Enter, Prior et PageUp…) sont réconciliés ici, là où Enum.Parse
+        /// le faisait par la valeur.</summary>
+        public static bool SameKey(string a, string b)
+        {
+            return string.Equals(CanonicalKey(a), CanonicalKey(b), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static readonly Dictionary<string, string> KeyAliases =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "Enter", "Return" }, { "CapsLock", "Capital" }, { "PageUp", "Prior" },
+                { "PageDown", "Next" }, { "PrintScreen", "Snapshot" }, { "Esc", "Escape" },
+                { "Backspace", "Back" }, { "Del", "Delete" }, { "Ins", "Insert" },
+                { "OemSemicolon", "Oem1" }, { "OemQuestion", "Oem2" }, { "OemTilde", "Oem3" },
+                { "OemOpenBrackets", "Oem4" }, { "OemPipe", "Oem5" }, { "OemCloseBrackets", "Oem6" },
+                { "OemQuotes", "Oem7" }, { "OemBackslash", "Oem102" }
+            };
+
+        private static string CanonicalKey(string name)
+        {
+            if (name == null) return "";
+            name = name.Trim();
+            string canonical;
+            return KeyAliases.TryGetValue(name, out canonical) ? canonical : name;
         }
 
         public static Dictionary<string, string> Shortcuts = new Dictionary<string, string>();
@@ -351,10 +391,7 @@ namespace Marabook.Settings
         private static string SettingsPath()
         {
             if (!string.IsNullOrEmpty(PathOverride)) return PathOverride;
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var folder = Path.Combine(appData, "Marabook");
-            Directory.CreateDirectory(folder);
-            return Path.Combine(folder, "settings.json");
+            return Path.Combine(Platform.Current.DataFolder, "settings.json");
         }
 
         public static ActionDefinition Definition(string id)
@@ -678,25 +715,28 @@ namespace Marabook.Settings
             return string.Join("+", parts);
         }
 
-        public static bool ParseGesture(string gesture, out Key key, out ModifierKeys modifiers)
+        /// <summary>« Ctrl+Shift+G » → la touche (le nom WPF, tel quel) et ses
+        /// modificateurs. La validité du nom de touche est l'affaire de la
+        /// vue (MainWindow.TryKey) : le cœur ne connaît pas l'énumération.</summary>
+        public static bool ParseGesture(string gesture, out string key, out KeyModifiers modifiers)
         {
-            key = Key.None;
-            modifiers = ModifierKeys.None;
+            key = null;
+            modifiers = KeyModifiers.None;
             if (string.IsNullOrEmpty(gesture)) return false;
             var parts = gesture.Split('+');
             foreach (var raw in parts)
             {
                 var part = raw.Trim();
-                if (part == "Ctrl") modifiers |= ModifierKeys.Control;
-                else if (part == "Shift" || part == "Maj") modifiers |= ModifierKeys.Shift;
-                else if (part == "Alt") modifiers |= ModifierKeys.Alt;
-                else
+                if (part == "Ctrl") modifiers |= KeyModifiers.Control;
+                else if (part == "Shift" || part == "Maj") modifiers |= KeyModifiers.Shift;
+                else if (part == "Alt") modifiers |= KeyModifiers.Alt;
+                else if (part.Length > 0)
                 {
-                    try { key = (Key)Enum.Parse(typeof(Key), part, true); }
-                    catch { return false; }
+                    if (key != null) return false; // deux touches : geste mal formé
+                    key = part;
                 }
             }
-            return key != Key.None;
+            return key != null && !SameKey(key, "None");
         }
     }
 }

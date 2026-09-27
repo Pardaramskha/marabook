@@ -9,6 +9,11 @@ namespace Marabook
         [STAThread]
         public static void Main(string[] args)
         {
+            // Le cœur est portable (P0) : l'app WPF lui prête son codec
+            // d'images, son convertisseur RTF et le registre des modules à code.
+            Model.Platform.Images = new Wpf.WpfImageCodec();
+            Wpf.WpfRtf.Register();
+            Model.Modules.CodeHost = Extensions.ModuleRegistry.CodeHost;
             Settings.AppSettings.Load();
             FileAssociation.EnsureRegistered(); // les .plot s'ouvrent d'un double-clic si rien ne les ouvrait (22/09)
             Model.Modules.Load(); // les DLC installés (22/09) : sans module, rien ne change

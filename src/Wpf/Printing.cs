@@ -8,9 +8,10 @@ using System.Windows.Media;
 using System.Windows.Xps;
 using System.Windows.Xps.Packaging;
 using Marabook.Model;
+using Marabook.Print;
 using Marabook.View;
 
-namespace Marabook.Print
+namespace Marabook.Wpf
 {
     /// <summary>Phase 4a: real pagination. Builds a print-ready FlowDocument
     /// from the pivot (page size, margins, columns, hyphenation from the
@@ -303,7 +304,7 @@ namespace Marabook.Print
             if (setup == null) setup = project.Page;
             try
             {
-                var composition = Composer.Compose(document, styles, setup, project);
+                var composition = Composer.Compose(document, styles, setup, project, new WpfFontEngine());
                 composition.FolioOffset = folioOffset;
                 composition.DefaultDecor = decor;
                 return spreads

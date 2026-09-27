@@ -34,34 +34,11 @@ namespace Marabook.View
         }
 
         /// <summary>La largeur en pixels lue dans l'en-tête (PNG, JPEG, GIF,
-        /// BMP), 0 si inconnue — sans décoder.</summary>
+        /// BMP), 0 si inconnue — sans décoder. La lecture vit dans le cœur
+        /// (ImageHeader, P0).</summary>
         public static int PixelWidthOf(byte[] b)
         {
-            if (b == null) return 0;
-            try
-            {
-                if (b.Length > 24 && b[0] == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G')
-                    return (b[16] << 24) | (b[17] << 16) | (b[18] << 8) | b[19];
-                if (b.Length > 10 && b[0] == 'G' && b[1] == 'I' && b[2] == 'F')
-                    return b[6] | (b[7] << 8);
-                if (b.Length > 22 && b[0] == 'B' && b[1] == 'M')
-                    return b[18] | (b[19] << 8) | (b[20] << 16) | (b[21] << 24);
-                if (b.Length > 4 && b[0] == 0xFF && b[1] == 0xD8)
-                {
-                    var i = 2;
-                    while (i + 9 < b.Length && b[i] == 0xFF)
-                    {
-                        var marker = b[i + 1];
-                        var length = (b[i + 2] << 8) | b[i + 3];
-                        if (marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC)
-                            return (b[i + 7] << 8) | b[i + 8];
-                        if (length < 2) break;
-                        i += 2 + length;
-                    }
-                }
-            }
-            catch (IndexOutOfRangeException) { }
-            return 0;
+            return ImageHeader.PixelWidth(b);
         }
     }
 }

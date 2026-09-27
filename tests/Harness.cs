@@ -78,6 +78,10 @@ namespace Marabook.Tests
         [STAThread]
         public static int Main(string[] args)
         {
+            // Le harnais tourne dans l'exécutable WPF : il prête au cœur les
+            // mêmes services que l'app (codec d'images, RTF), comme Program.
+            Marabook.Model.Platform.Images = new Marabook.Wpf.WpfImageCodec();
+            Marabook.Wpf.WpfRtf.Register();
             var harness = new Harness();
             var suites = new List<Action<Harness>>
             {

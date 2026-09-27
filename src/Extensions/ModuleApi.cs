@@ -128,5 +128,25 @@ namespace Marabook.Extensions
             var handler = Changed;
             if (handler != null) handler();
         }
+
+        /// <summary>Le registre vu du cœur (Model.Modules.CodeHost, P0) : le
+        /// cœur charge la DLL et instancie le type d'entrée, l'app vérifie le
+        /// contrat et enregistre.</summary>
+        public static readonly Model.ICodeModuleHost CodeHost = new Host();
+
+        private sealed class Host : Model.ICodeModuleHost
+        {
+            public bool IsLoaded(string id) { return Find(id) != null; }
+
+            public void Register(string id, object instance)
+            {
+                var module = instance as IMarabookModule;
+                if (module == null)
+                    throw new InvalidOperationException((instance == null ? "null" : instance.GetType().FullName) + " n'est pas un IMarabookModule");
+                ModuleRegistry.Register(id, module);
+            }
+
+            public void Unregister(string id) { ModuleRegistry.Unregister(id); }
+        }
     }
 }

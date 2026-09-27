@@ -151,7 +151,7 @@ namespace Marabook.View
                 var selected = FindRunOnPage(page, _selectedImage);
                 if (selected != null)
                 {
-                    var handles = HandleRects(selected.Rect);
+                    var handles = HandleRects(selected.Rect.ToRect());
                     for (var i = 0; i < handles.Length; i++)
                     {
                         var zone = handles[i];
@@ -161,7 +161,7 @@ namespace Marabook.View
                 }
             }
             for (var i = page.Images.Count - 1; i >= 0; i--)
-                if (page.Images[i].Rect.Contains(inPage)) { image = page.Images[i]; return true; }
+                if (page.Images[i].Rect.Contains(inPage.X, inPage.Y)) { image = page.Images[i]; return true; }
             return false;
         }
 
@@ -240,7 +240,7 @@ namespace Marabook.View
             }
             var pageTop = PageTop(pageIndex);
             if (Settings.AppSettings.ImageGrid) DrawGrid(pageTop);
-            var rect = image.Rect;
+            var rect = image.Rect.ToRect();
             var frame = new System.Windows.Shapes.Rectangle
             {
                 Width = rect.Width + 2,
@@ -374,7 +374,7 @@ namespace Marabook.View
                 Page = pageIndex,
                 Handle = handle,
                 Start = point,
-                StartRect = image.Rect
+                StartRect = image.Rect.ToRect()
             };
             return true;
         }
@@ -404,7 +404,7 @@ namespace Marabook.View
             {
                 rect = new Rect(drag.StartRect.X + dx, drag.StartRect.Y + dy, drag.StartRect.Width, drag.StartRect.Height);
                 rect = SnapToGrid(rect);
-                rect = ImageLayout.ClampInto(rect, area);
+                rect = ImageLayout.ClampInto(rect.ToBox(), area.ToBox()).ToRect();
                 layout.X = rect.X - left;
                 layout.Y = rect.Y - top; // l'image quitte sa ligne : position explicite
             }
@@ -414,11 +414,11 @@ namespace Marabook.View
                 // Une image attachée à sa ligne grandit vers le bas : ses
                 // poignées du haut agissent comme celles du bas.
                 if (layout.IsAttached && (handle == 0 || handle == 1 || handle == 2)) handle = 6 - handle;
-                rect = ImageLayout.Resize(drag.StartRect, handle, dx, dy, shift);
+                rect = ImageLayout.Resize(drag.StartRect.ToBox(), handle, dx, dy, shift).ToRect();
                 var w = rect.Width;
                 var h = rect.Height;
                 ImageLayout.FitInside(ref w, ref h, area.Width, area.Height);
-                rect = ImageLayout.ClampInto(new Rect(rect.X, rect.Y, w, h), area);
+                rect = ImageLayout.ClampInto(new Box(rect.X, rect.Y, w, h), area.ToBox()).ToRect();
                 layout.Width = rect.Width;
                 layout.Height = rect.Height;
                 layout.X = rect.X - left;
@@ -517,7 +517,7 @@ namespace Marabook.View
             var layout = run.EnsureImage();
             var area = AreaOf(toPage, layout.Free);
             var rect = ImageLayout.ClampInto(SnapToGrid(new Rect(topLeftOnPage.X, topLeftOnPage.Y,
-                layout.Width > 0 ? layout.Width : area.Width / 2, layout.Height > 0 ? layout.Height : area.Height / 3)), area);
+                layout.Width > 0 ? layout.Width : area.Width / 2, layout.Height > 0 ? layout.Height : area.Height / 3)).ToBox(), area.ToBox()).ToRect();
             layout.X = rect.X - composition.LeftPxFor(toPage);
             layout.Y = rect.Y - composition.TopPx;
             var firstTouched = Math.Min(toPage, FirstPageOfParagraph(fromParagraph));
@@ -619,7 +619,7 @@ namespace Marabook.View
                     : dy < 0 ? (Math.Ceiling(image.Rect.Y / step - 0.001) - 1) * step : image.Rect.Y;
                 rect = new Rect(x, y, rect.Width, rect.Height);
             }
-            rect = ImageLayout.ClampInto(rect, AreaOf(pageIndex, layout.Free));
+            rect = ImageLayout.ClampInto(rect.ToBox(), AreaOf(pageIndex, layout.Free).ToBox()).ToRect();
             layout.X = rect.X - composition.LeftPxFor(pageIndex);
             layout.Y = rect.Y - composition.TopPx;
             ApplyImageEdit(pageIndex);

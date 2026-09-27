@@ -691,18 +691,7 @@ namespace Marabook.Exchange
 
             private static byte[] ToPng(byte[] bytes)
             {
-                try
-                {
-                    var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(new MemoryStream(bytes),
-                        System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-                    var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
-                    encoder.Frames.Add(decoder.Frames[0]);
-                    using (var output = new MemoryStream())
-                    {
-                        encoder.Save(output);
-                        return output.ToArray();
-                    }
-                }
+                try { return Platform.Images.ToPng(bytes); }
                 catch { return null; }
             }
 

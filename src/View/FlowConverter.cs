@@ -274,28 +274,16 @@ namespace Marabook.View
 
         /// <summary>Named weight ↔ WPF FontWeight (the fine variants beyond
         /// the Bold flag: Fin, Moyen, Demi-gras, Noir…).</summary>
+        /// <summary>La table des graisses vit dans le cœur (TextWeights, P0) ;
+        /// ici sa traduction WPF.</summary>
         public static FontWeight ParseWeight(string name)
         {
-            switch (name)
-            {
-                case "Thin": return FontWeights.Thin;
-                case "Light": return FontWeights.Light;
-                case "Medium": return FontWeights.Medium;
-                case "SemiBold": return FontWeights.SemiBold;
-                case "Bold": return FontWeights.Bold;
-                case "Black": return FontWeights.Black;
-                default: return FontWeights.Normal;
-            }
+            return FontWeight.FromOpenTypeWeight(TextWeights.Parse(name));
         }
 
         public static string WeightName(FontWeight weight)
         {
-            if (weight == FontWeights.Thin) return "Thin";
-            if (weight == FontWeights.Light) return "Light";
-            if (weight == FontWeights.Medium) return "Medium";
-            if (weight == FontWeights.SemiBold) return "SemiBold";
-            if (weight == FontWeights.Black) return "Black";
-            return null; // Normal/Bold travel through the Bold flag
+            return TextWeights.Name(weight.ToOpenTypeWeight()); // Normal/Bold travel through the Bold flag
         }
 
         private static Run MakeRun(TextRun run, bool annotationTint = false)
@@ -745,8 +733,13 @@ namespace Marabook.View
             return "left";
         }
 
+        /// <summary>Une couleur du pivot (« #RRGGBB »…) : la même lecture que
+        /// le compositeur (Ink.Parse, P0) ; un nom de couleur WPF (« Red »)
+        /// reste accepté ici par ColorConverter.</summary>
         public static Color ParseColor(string hex)
         {
+            Ink ink;
+            if (Ink.TryParse(hex, out ink)) return ink.ToColor();
             try
             {
                 return (Color)ColorConverter.ConvertFromString(hex);

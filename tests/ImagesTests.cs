@@ -179,8 +179,8 @@ namespace Marabook.Tests
             ImageLayout.FitInside(ref w, ref h, 200, 1000);
             t.Check(Math.Abs(w - 100) < 0.001, "FitInside n'agrandit jamais");
 
-            var area = new Rect(10, 20, 100, 100);
-            var clamped = ImageLayout.ClampInto(new Rect(-5, 200, 30, 30), area);
+            var area = new Box(10, 20, 100, 100);
+            var clamped = ImageLayout.ClampInto(new Box(-5, 200, 30, 30), area);
             t.Check(Math.Abs(clamped.X - 10) < 0.001 && Math.Abs(clamped.Y - 90) < 0.001, "ClampInto ramène aux bords");
 
             t.Check(Math.Abs(ImageLayout.AlignedX("right", 30, 100) - 70) < 0.001, "AlignedX right");
@@ -194,7 +194,7 @@ namespace Marabook.Tests
             t.Equal("center", ImageLayout.VerticalAlignOf(35, 30, 100), "35 = center vertical");
 
             // Poignées : le coin bas-droit, proportionnel — le haut-gauche fixe.
-            var start = new Rect(10, 10, 100, 50);
+            var start = new Box(10, 10, 100, 50);
             var resized = ImageLayout.Resize(start, 4, 50, 0, false);
             t.Check(Math.Abs(resized.X - 10) < 0.001 && Math.Abs(resized.Y - 10) < 0.001, "Resize coin bas-droit : le haut-gauche ne bouge pas");
             t.Check(Math.Abs(resized.Width - 150) < 0.001 && Math.Abs(resized.Height - 75) < 0.001, "Resize proportionnel : 150 × 75");

@@ -1,8 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Windows;
-using System.Windows.Media;
 using Marabook.Model;
 
 namespace Marabook.Print
@@ -11,16 +8,37 @@ namespace Marabook.Print
     /// are line-relative: X across the text column, Y a baseline shift
     /// (superscripts). Each piece knows its source range in the paragraph's
     /// flat text, and the cumulative right edge of every character, so the
-    /// editing caret can be placed to the pixel.</summary>
+    /// editing caret can be placed to the pixel.
+    ///
+    /// Portage Avalonia (P0) : la pièce ne porte plus de GlyphRun ni de
+    /// FormattedText WPF — une face (FaceInfo), des index de glyphes et leurs
+    /// avances finales, ou le texte d'un repli mesuré par la plate-forme. Le
+    /// rendu bâtit ses objets natifs à la demande et les gare dans NativeCache.</summary>
     public class ComposedPiece
     {
-        public GlyphRun Glyphs;
-        public FormattedText Fallback;
-        public Point Origin;         // line-relative (x, baseline shift)
+        public FaceInfo Face;         // la face (null : espace, filet, ancre)
+        public double EmSize;         // le corps de la pièce (px)
+        public string Text;           // le texte rendu (glyphes ou repli)
+        public ushort[] GlyphIndices; // null = repli (texte hors police, ou sans moteur)
+        public double[] Advances;     // avances FINALES px, approche et interlettrage inclus
+        public double FallbackWidth, FallbackHeight, FallbackBaseline; // la mesure du repli
+        /// <summary>L'objet de dessin natif du rendu (GlyphRun, FormattedText…),
+        /// posé par lui ; remis à null par le compositeur quand les avances
+        /// changent (justification).</summary>
+        public object NativeCache;
+        public Pos Origin;           // line-relative (x, baseline shift)
         public double ScaleX = 1.0;  // glyph scaling (justification)
-        public Brush Ink = Brushes.Black;
-        public Rect Rect;            // rules, line-relative
+        public Ink Ink = Ink.Black;
+        public InkRole InkRole;      // Faint / Accent : le rendu écran suit le thème en direct
+        public Box Rect;             // rules, line-relative
         public bool IsRule;
+
+        /// <summary>La pièce porte des glyphes adressables.</summary>
+        public bool IsGlyphs { get { return GlyphIndices != null; } }
+        /// <summary>La pièce est un texte rendu en repli par la plate-forme.</summary>
+        public bool IsFallback { get { return GlyphIndices == null && Text != null && Face != null; } }
+        /// <summary>Du texte dessiné (glyphes ou repli).</summary>
+        public bool HasText { get { return IsGlyphs || IsFallback; } }
         // L'ANCRE d'une image (0.50.0) : une pièce sans largeur ni glyphe qui
         // occupe l'offset plat du run image — l'image elle-même est posée par
         // la pagination (ComposedPageLayout.Images), pas dans la ligne.
@@ -39,21 +57,22 @@ namespace Marabook.Print
         // Text decorations, carried through to every renderer (screen, print,
         // PDF): underline/strike drawn over the text, highlight behind it.
         public bool Underline, Strike;
-        public Brush Highlight;
+        public Ink? Highlight;       // null = pas de surlignage
+        public HighlightRole HighlightRole;
         public double FontSizePx;    // decoration geometry (spaces included)
 
         /// <summary>Visual advance of the piece (justified, scaled).</summary>
         public double VisualWidth()
         {
             if (IsSpace) return SpaceWidth;
-            if (Glyphs != null)
+            if (GlyphIndices != null)
             {
                 double width = 0;
-                foreach (var advance in Glyphs.AdvanceWidths) width += advance;
+                foreach (var advance in Advances) width += advance;
                 return width * ScaleX;
             }
-            if (Fallback != null)
-                return Fallback.WidthIncludingTrailingWhitespace * ScaleX;
+            if (IsFallback)
+                return FallbackWidth * ScaleX;
             return Rect.Width;
         }
     }
@@ -170,6 +189,10 @@ namespace Marabook.Print
         /// <summary>The source pivot (composed paragraphs match its list 1:1).</summary>
         public TextDocument Source;
 
+        /// <summary>Le moteur de polices qui a composé ces pages (P0) : le
+        /// rendu et le PDF y reprennent faces, glyphes et fichiers.</summary>
+        public IFontEngine Fonts;
+
         /// <summary>Les statistiques du document, paragraphe par paragraphe
         /// (22/09) : seuls les paragraphes recomposés depuis le dernier appel
         /// se recomptent — exactement les comptes de TextStats.Compute sur le
@@ -246,6 +269,7 @@ namespace Marabook.Print
         private readonly PageSetup _setup;
         private readonly bool _appendNotes;
         private readonly IGlyphMetrics _metrics;
+        private readonly IFontEngine _fonts; // _metrics vu comme moteur (faces, glyphes)
 
         // Per-paragraph numbering context (list numbers, footnote numbers):
         // recomposition compares them to catch renumbering ripples.
@@ -262,8 +286,9 @@ namespace Marabook.Print
         public PageDecor DefaultDecor;
 
         /// <summary>metrics : la seule route du moteur vers les largeurs de
-        /// caractères (batch 24) — WpfGlyphMetrics dans l'app, StubGlyphMetrics
-        /// dans les tests console.</summary>
+        /// caractères (batch 24) — WpfFontEngine dans l'app, StubGlyphMetrics
+        /// dans les tests console (enveloppé en FallbackFontEngine : sans
+        /// glyphes, chaque pièce est un repli mesuré par le stub).</summary>
         public CompositionEngine(TextDocument document, StyleSheet styles,
             PageSetup setup, Project project, bool appendNotes, IGlyphMetrics metrics)
         {
@@ -273,6 +298,7 @@ namespace Marabook.Print
             _project = project;
             _appendNotes = appendNotes;
             _metrics = metrics;
+            _fonts = FallbackFontEngine.Wrap(metrics);
         }
 
         // Exceptions de césure du projet (mots à ne jamais couper) — figées à
@@ -296,7 +322,8 @@ namespace Marabook.Print
                 Setup = _setup,
                 FolioOffset = FolioOffset,
                 DefaultDecor = DefaultDecor,
-                Source = _document
+                Source = _document,
+                Fonts = _fonts
             };
             RefreshContexts();
             Current.Paragraphs.Clear();
@@ -542,17 +569,17 @@ namespace Marabook.Print
         }
 
         // ============================================================ fonts
-        // FontInfo, FontCache (le cache de mesure historique) et l'interface
-        // IGlyphMetrics vivent dans Print/GlyphMetrics.cs depuis le batch 24.
+        // FaceInfo, IGlyphMetrics et IFontEngine vivent dans Print/GlyphMetrics.cs
+        // (batch 24, puis P0) ; le cache de mesure WPF est dans Wpf/WpfFontEngine.cs.
 
         /// <summary>tracking : approche en millièmes de cadratin, ajoutée à
         /// l'avance de CHAQUE caractère (unités InDesign). Les largeurs
         /// passent par _metrics — l'unique couture entre la composition et
         /// les polices réelles.</summary>
-        private double MeasureText(string text, FontInfo font, double size,
+        private double MeasureText(string text, FaceInfo font, double size,
             double tracking = 0)
         {
-            return _metrics.AdvanceWidth(font.Family, size, font.WeightValue,
+            return _metrics.AdvanceWidth(font.Family, size, font.Weight,
                 font.Italic, text) + size * tracking / 1000.0 * text.Length;
         }
 
@@ -565,9 +592,10 @@ namespace Marabook.Print
             public bool IsForcedBreak; // Shift+Enter
             public double Width;
             public double SpaceWidth;
-            public FontInfo Font;
+            public FaceInfo Font;
             public double Size;
-            public Brush Ink;
+            public Ink Ink;
+            public InkRole InkRole;
             public bool Superscript;
             public List<int> Breaks;
             // L'ancre d'une image (0.50.0) : un offset plat, aucune largeur.
@@ -577,7 +605,8 @@ namespace Marabook.Print
             public int SourceStart = -1;
             public int SourceLength;
             public bool Underline, Strike;
-            public Brush Highlight;
+            public Ink? Highlight;
+            public HighlightRole HighlightRole;
             public double Tracking; // approche (em/1000)
             // Marque de [[lien]] masquée (18/09) : occupe ses offsets plats
             // (le curseur les traverse), aucune largeur, rien de dessiné —
@@ -758,9 +787,9 @@ namespace Marabook.Print
                 if (span.IsMark && !shown)
                     atoms.Add(new Atom { IsHidden = true, SourceStart = start, SourceLength = end - start });
                 else if (span.IsMark)
-                    AddTextAtoms(atoms, part, style, run, false, start, View.Chrome.FaintText, null);
+                    AddTextAtoms(atoms, part, style, run, false, start, InkRole.Faint, HighlightRole.None);
                 else if (shown)
-                    AddTextAtoms(atoms, part, style, run, false, start, View.Chrome.AccentStrong, View.Chrome.AccentTint);
+                    AddTextAtoms(atoms, part, style, run, false, start, InkRole.Accent, HighlightRole.Accent);
                 else
                     AddTextAtoms(atoms, part, style, run, false, start);
                 pos = end;
@@ -792,7 +821,7 @@ namespace Marabook.Print
 
         private void AddTextAtoms(List<Atom> atoms, string text, ParagraphStyle style,
             TextRun run, bool superscript, int sourceBase,
-            Brush inkOverride = null, Brush highlightOverride = null)
+            InkRole inkRole = InkRole.Explicit, HighlightRole highlightRole = HighlightRole.None)
         {
             if (string.IsNullOrEmpty(text)) return;
             var family = run != null && run.FontFamily != null ? run.FontFamily : style.FontFamily;
@@ -801,20 +830,22 @@ namespace Marabook.Print
             var size = run != null && run.FontSize.HasValue ? run.FontSize.Value : style.FontSize;
             if (superscript) size = Math.Max(6, size * 0.65);
             var weight = run != null && run.Weight != null
-                ? View.FlowConverter.ParseWeight(run.Weight)
-                : (bold ? FontWeights.Bold : FontWeights.Normal);
-            var font = FontCache.Resolve(family, weight, italic);
-            Brush ink = Brushes.Black;
+                ? TextWeights.Parse(run.Weight)
+                : (bold ? TextWeights.Bold : TextWeights.Normal);
+            var font = _fonts.Resolve(family, weight, italic);
+            var palette = CompositionPalette.Current;
+            var ink = Ink.Black;
             if (run != null && run.Color != null)
-                ink = new SolidColorBrush(View.FlowConverter.ParseColor(run.Color));
+                ink = Ink.Parse(run.Color);
             else if (style.Color != null)
-                ink = new SolidColorBrush(View.FlowConverter.ParseColor(style.Color));
+                ink = Ink.Parse(style.Color);
 
             var underline = run != null && run.Underline == true && !superscript;
             var strike = run != null && run.Strike == true && !superscript;
-            Brush highlight = run != null && run.Highlight != null
-                ? new SolidColorBrush(View.FlowConverter.ParseColor(run.Highlight))
-                : null;
+            Ink? highlight = run != null && run.Highlight != null
+                ? Ink.Parse(run.Highlight)
+                : (Ink?)null;
+            var highlightKind = highlight.HasValue ? HighlightRole.Explicit : HighlightRole.None;
             // Passage annoté (révision) : teinte semi-transparente, filtrée par
             // les rendus papier (aperçu, impression, PDF) sur son alpha — et
             // éteinte quand l'utilisateur masque les annotations.
@@ -824,10 +855,19 @@ namespace Marabook.Print
                 var annotation = _document == null ? null
                     : _document.FindAnnotation(run.AnnotationId);
                 if (annotation != null && !annotation.Resolved)
-                    highlight = View.Chrome.AnnotationTint;
+                {
+                    highlight = palette.AnnotationTint;
+                    highlightKind = HighlightRole.Annotation;
+                }
             }
-            if (inkOverride != null) ink = inkOverride;
-            if (highlightOverride != null) highlight = highlightOverride;
+            // La teinte d'un lien montré, par-dessus le run et le style.
+            if (inkRole == InkRole.Faint) ink = palette.FaintText;
+            else if (inkRole == InkRole.Accent) ink = palette.AccentStrong;
+            if (highlightRole == HighlightRole.Accent)
+            {
+                highlight = palette.AccentTint;
+                highlightKind = HighlightRole.Accent;
+            }
             var tracking = run != null && run.Tracking.HasValue ? run.Tracking.Value : 0;
 
             var spaceWidth = MeasureText(" ", font, size, tracking);
@@ -865,12 +905,14 @@ namespace Marabook.Print
                                 Font = font,
                                 Size = segmentSize,
                                 Ink = ink,
+                                InkRole = inkRole,
                                 Tracking = tracking,
                                 SourceStart = sourceBase < 0 ? -1 : sourceBase + start + segmentStart,
                                 SourceLength = segment.Length,
                                 Underline = underline,
                                 Strike = strike,
                                 Highlight = highlight,
+                                HighlightRole = highlightKind,
                                 GluedToPrevious = !first
                             });
                             first = false;
@@ -888,6 +930,7 @@ namespace Marabook.Print
                             Font = font,
                             Size = size,
                             Ink = ink,
+                            InkRole = inkRole,
                             Tracking = tracking,
                             Superscript = superscript,
                             SourceStart = sourceBase < 0 ? -1 : (superscript ? sourceBase : sourceBase + start),
@@ -895,6 +938,7 @@ namespace Marabook.Print
                             Underline = underline,
                             Strike = strike,
                             Highlight = highlight,
+                            HighlightRole = highlightKind,
                             // La césure obéit au bouton du document (PageSetup)
                             // ET au réglage du style — et jamais sur un mot
                             // des exceptions du projet.
@@ -914,10 +958,12 @@ namespace Marabook.Print
                             Font = font,
                             Size = size,
                             Ink = ink,
+                            InkRole = inkRole,
                             Tracking = tracking,
                             Underline = underline,
                             Strike = strike,
                             Highlight = highlight,
+                            HighlightRole = highlightKind,
                             SourceStart = sourceBase < 0 ? -1 : sourceBase + i,
                             SourceLength = 1
                         });
@@ -951,7 +997,7 @@ namespace Marabook.Print
                     // (le curseur y passe, la ligne ne bouge pas).
                     line.Pieces.Add(new ComposedPiece
                     {
-                        Origin = new Point(x, 0),
+                        Origin = new Pos(x, 0),
                         SourceStart = atom.SourceStart,
                         SourceLength = atom.SourceLength,
                         IsAnchor = atom.IsAnchor,
@@ -974,7 +1020,7 @@ namespace Marabook.Print
                     line.Pieces.Add(new ComposedPiece
                     {
                         IsRule = true,
-                        Rect = new Rect(0, 0, avail, 1.5),
+                        Rect = new Box(0, 0, avail, 1.5),
                         SourceStart = atom.SourceStart,
                         SourceLength = 1
                     });
@@ -1007,15 +1053,17 @@ namespace Marabook.Print
                         line.Pieces.Add(new ComposedPiece
                         {
                             IsSpace = true,
-                            Origin = new Point(x, 0),
+                            Origin = new Pos(x, 0),
                             SpaceWidth = atom.Width,
                             SpaceNatural = atom.Width,
                             SourceStart = atom.SourceStart,
                             SourceLength = 1,
                             Ink = atom.Ink,
+                            InkRole = atom.InkRole,
                             Underline = atom.Underline,
                             Strike = atom.Strike,
                             Highlight = atom.Highlight,
+                            HighlightRole = atom.HighlightRole,
                             FontSizePx = atom.Size
                         });
                     }
@@ -1059,10 +1107,12 @@ namespace Marabook.Print
                             Font = atom.Font,
                             Size = atom.Size,
                             Ink = atom.Ink,
+                            InkRole = atom.InkRole,
                             Tracking = atom.Tracking,
                             Underline = atom.Underline,
                             Strike = atom.Strike,
                             Highlight = atom.Highlight,
+                            HighlightRole = atom.HighlightRole,
                             SourceStart = atom.SourceStart < 0 ? -1 : atom.SourceStart + bestCut,
                             SourceLength = atom.SourceLength - bestCut,
                             Breaks = FrenchHyphenator.BreakPoints(rest,
@@ -1135,7 +1185,7 @@ namespace Marabook.Print
         {
             if (atom.Font == null) return;
             var m = _metrics.Metrics(atom.Font.Family, atom.Size,
-                atom.Font.WeightValue, atom.Font.Italic);
+                atom.Font.Weight, atom.Font.Italic);
             if (m.Ascent > ascent) ascent = m.Ascent;
             if (m.LineHeight > height) height = m.LineHeight;
         }
@@ -1156,50 +1206,60 @@ namespace Marabook.Print
         {
             var y = atom.Superscript ? -atom.Size * 0.35 : 0;
             var piece = BuildTextPiece(text, atom.Font, atom.Size, atom.Ink,
-                new Point(x, y), atom.Tracking);
+                new Pos(x, y), atom.Tracking);
             piece.SourceStart = atom.SourceStart;
             piece.SourceLength = atom.SourceStart < 0 ? 0 : sourceLength;
             piece.Underline = atom.Underline;
             piece.Strike = atom.Strike;
+            piece.InkRole = atom.InkRole;
             piece.Highlight = atom.Highlight;
+            piece.HighlightRole = atom.HighlightRole;
             piece.FontSizePx = atom.Size;
             line.Pieces.Add(piece);
         }
 
-        private static ComposedPiece BuildTextPiece(string text, FontInfo font, double size,
-            Brush ink, Point origin, double tracking = 0)
+        /// <summary>Une pièce de texte : les glyphes de la face et leurs
+        /// avances (approche comprise) quand tous les caractères y sont ;
+        /// sinon le texte entier en repli, mesuré par la plate-forme — la
+        /// même règle que les largeurs (MeasureText), pour que rendu et
+        /// coupure de ligne suivent le même chemin.</summary>
+        private ComposedPiece BuildTextPiece(string text, FaceInfo font, double size,
+            Ink ink, Pos origin, double tracking = 0)
         {
-            if (font.Glyphs != null)
+            var piece = new ComposedPiece
             {
-                var extra = size * tracking / 1000.0; // approche par caractère
-                var indices = new List<ushort>();
-                var advances = new List<double>();
-                var complete = true;
-                foreach (var c in text)
-                {
-                    ushort glyph;
-                    if (!font.Glyphs.CharacterToGlyphMap.TryGetValue(c, out glyph))
-                    { complete = false; break; }
-                    indices.Add(glyph);
-                    advances.Add(font.Glyphs.AdvanceWidths[glyph] * size + extra);
-                }
-                if (complete && indices.Count > 0)
-                    return new ComposedPiece
-                    {
-                        Glyphs = new GlyphRun(font.Glyphs, 0, false, size, 1.0f,
-                            indices, new Point(0, 0), advances,
-                            null, null, null, null, null, null),
-                        Origin = origin,
-                        Ink = ink
-                    };
-            }
-            return new ComposedPiece
-            {
-                Fallback = new FormattedText(text, CultureInfo.CurrentCulture,
-                    FlowDirection.LeftToRight, font.Typeface, size, ink, 1.0),
+                Face = font,
+                EmSize = size,
+                Text = text,
                 Origin = origin,
                 Ink = ink
             };
+            if (font.HasGlyphs && text.Length > 0)
+            {
+                var extra = size * tracking / 1000.0; // approche par caractère
+                var indices = new ushort[text.Length];
+                var advances = new double[text.Length];
+                var complete = true;
+                for (var i = 0; i < text.Length; i++)
+                {
+                    ushort glyph;
+                    if (!_fonts.TryGlyph(font, text[i], out glyph))
+                    { complete = false; break; }
+                    indices[i] = glyph;
+                    advances[i] = _fonts.GlyphAdvance(font, glyph) * size + extra;
+                }
+                if (complete)
+                {
+                    piece.GlyphIndices = indices;
+                    piece.Advances = advances;
+                    return piece;
+                }
+            }
+            var extent = _fonts.Measure(font, text, size);
+            piece.FallbackWidth = extent.Width;
+            piece.FallbackHeight = extent.Height;
+            piece.FallbackBaseline = extent.Baseline;
+            return piece;
         }
 
         // ============================================================ justification
@@ -1245,8 +1305,8 @@ namespace Marabook.Print
             {
                 var gaps = 0;
                 foreach (var piece in line.Pieces)
-                    if (piece.Glyphs != null && piece.Glyphs.AdvanceWidths.Count > 1)
-                        gaps += piece.Glyphs.AdvanceWidths.Count - 1;
+                    if (piece.GlyphIndices != null && piece.Advances.Length > 1)
+                        gaps += piece.Advances.Length - 1;
                 if (gaps > 0)
                 {
                     var em = spaces[0].SpaceWidth;
@@ -1276,7 +1336,7 @@ namespace Marabook.Print
             {
                 if (piece.IsSpace)
                 {
-                    piece.Origin = new Point(x, 0);
+                    piece.Origin = new Pos(x, 0);
                     if (piece.SpaceWidth > 0)
                     {
                         piece.SpaceWidth += perSpace;
@@ -1290,16 +1350,17 @@ namespace Marabook.Print
                     x += piece.SpaceWidth;
                     continue;
                 }
-                piece.Origin = new Point(x, piece.Origin.Y);
+                piece.Origin = new Pos(x, piece.Origin.Y);
                 piece.ScaleX = glyphScale;
-                if (piece.Glyphs != null)
+                if (piece.GlyphIndices != null)
                 {
                     double w = 0;
-                    for (var g = 0; g < piece.Glyphs.AdvanceWidths.Count; g++)
+                    for (var g = 0; g < piece.Advances.Length; g++)
                     {
-                        piece.Glyphs.AdvanceWidths[g] += letterAdd / Math.Max(0.01, glyphScale);
-                        w += piece.Glyphs.AdvanceWidths[g];
+                        piece.Advances[g] += letterAdd / Math.Max(0.01, glyphScale);
+                        w += piece.Advances[g];
                     }
+                    piece.NativeCache = null; // les avances ont bougé : le rendu rebâtit
                     x += w * glyphScale;
                 }
                 else
@@ -1311,9 +1372,9 @@ namespace Marabook.Print
         {
             foreach (var piece in line.Pieces)
             {
-                piece.Origin = new Point(piece.Origin.X + x, piece.Origin.Y);
+                piece.Origin = new Pos(piece.Origin.X + x, piece.Origin.Y);
                 if (piece.IsRule)
-                    piece.Rect = new Rect(piece.Rect.X + x, piece.Rect.Y,
+                    piece.Rect = new Box(piece.Rect.X + x, piece.Rect.Y,
                         piece.Rect.Width, piece.Rect.Height);
             }
         }
@@ -1336,19 +1397,19 @@ namespace Marabook.Print
                     continue;
                 }
                 var rights = new double[piece.SourceLength];
-                if (piece.Glyphs != null)
+                if (piece.GlyphIndices != null)
                 {
                     // Glyph count may exceed source length (hyphen appended):
                     // spread the visible advances over the source characters.
                     double total = 0;
-                    var advances = piece.Glyphs.AdvanceWidths;
-                    var glyphsPerChar = (double)advances.Count / piece.SourceLength;
+                    var advances = piece.Advances;
+                    var glyphsPerChar = (double)advances.Length / piece.SourceLength;
                     var g = 0;
                     for (var c = 0; c < piece.SourceLength; c++)
                     {
                         var until = (int)Math.Round((c + 1) * glyphsPerChar);
-                        if (c == piece.SourceLength - 1) until = advances.Count;
-                        for (; g < until && g < advances.Count; g++) total += advances[g];
+                        if (c == piece.SourceLength - 1) until = advances.Length;
+                        for (; g < until && g < advances.Length; g++) total += advances[g];
                         rights[c] = total * piece.ScaleX;
                     }
                 }
@@ -1478,14 +1539,14 @@ namespace Marabook.Print
         }
     }
 
-    /// <summary>Static facade for one-shot composition (preview, print).</summary>
+    /// <summary>Static facade for one-shot composition (preview, print).
+    /// fonts : le moteur de polices de l'app (WpfFontEngine ; demain Skia).</summary>
     public static class Composer
     {
         public static Composition Compose(TextDocument document, StyleSheet styles,
-            PageSetup setup, Project project)
+            PageSetup setup, Project project, IGlyphMetrics fonts)
         {
-            var engine = new CompositionEngine(document, styles, setup, project, true,
-                new WpfGlyphMetrics());
+            var engine = new CompositionEngine(document, styles, setup, project, true, fonts);
             engine.ComposeAll();
             return engine.Current;
         }

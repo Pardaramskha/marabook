@@ -190,10 +190,13 @@ namespace Marabook.Exchange
             if (width > 0 && height > 0) return;
             var stored = project == null ? null : project.FindImage(run.ImageId);
             var ratio = 2.0 / 3.0;
-            var pixels = stored == null ? 0 : View.ImageCache.PixelWidthOf(stored.Bytes);
-            var source = View.ImageCache.For(stored);
-            if (source != null && source.Width > 0) ratio = source.Height / source.Width;
-            if (width <= 0) width = pixels > 0 ? pixels : (source != null ? source.Width : 120);
+            var pixels = 0;
+            var pixelHeight = 0;
+            var readable = stored != null && stored.Bytes != null
+                && Platform.Images.TryGetSize(stored.Bytes, out pixels, out pixelHeight);
+            if (!readable) { pixels = 0; pixelHeight = 0; }
+            if (readable && pixels > 0) ratio = (double)pixelHeight / pixels;
+            if (width <= 0) width = pixels > 0 ? pixels : 120;
             if (height <= 0) height = width * ratio;
             var column = (setup ?? new PageSetup()).ContentWidthPx;
             ImageLayout.FitInside(ref width, ref height, column, 0);

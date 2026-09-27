@@ -11,18 +11,11 @@ namespace Marabook.Exchange
     /// detected, never fetched (300 Mo is an explicit user decision).</summary>
     public static class ExternalBridge
     {
+        /// <summary>Le binaire LibreOffice installé (la plate-forme sait où
+        /// chercher), ou null.</summary>
         public static string FindLibreOffice()
         {
-            var candidates = new[]
-            {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                    "LibreOffice", "program", "soffice.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                    "LibreOffice", "program", "soffice.exe")
-            };
-            foreach (var candidate in candidates)
-                if (File.Exists(candidate)) return candidate;
-            return null;
+            return Marabook.Model.Platform.Current.FindLibreOffice();
         }
 
         /// <summary>Converts a legacy .doc to a temp .docx via LibreOffice.

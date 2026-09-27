@@ -200,7 +200,7 @@ namespace Marabook.View
                 Bytes = stored == null ? null : stored.Bytes,
                 Id = run.ImageId
             };
-            var bitmap = placed.Source as System.Windows.Media.Imaging.BitmapSource;
+            var bitmap = placed.Readable ? ImageCache.For(placed.Stored) as System.Windows.Media.Imaging.BitmapSource : null;
             if (stored != null)
             {
                 info.PixelWidth = ImageCache.PixelWidthOf(stored.Bytes);
