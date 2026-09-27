@@ -198,19 +198,21 @@ namespace Marabook.Tests
 
         private static void Headers(Harness t)
         {
-            t.Equal(1, View.ImageCache.PixelWidthOf(Png), "PNG : la largeur lue dans IHDR");
+            t.Equal(1, ImageHeader.PixelWidth(Png), "PNG : la largeur lue dans IHDR");
             var wide = (byte[])Png.Clone();
             wide[16] = 0; wide[17] = 0; wide[18] = 0x0F; wide[19] = 0xA0; // 4000
-            t.Equal(4000, View.ImageCache.PixelWidthOf(wide), "…grand format reconnu sans décoder");
+            t.Equal(4000, ImageHeader.PixelWidth(wide), "…grand format reconnu sans décoder");
             var jpeg = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x04, 0x00, 0x00, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x02, 0x00, 0x03, 0x00, 0x03, 0x00, 0x00, 0x00 };
-            t.Equal(768, View.ImageCache.PixelWidthOf(jpeg), "JPEG : la largeur du SOF0 après un APP0");
+            t.Equal(768, ImageHeader.PixelWidth(jpeg), "JPEG : la largeur du SOF0 après un APP0");
             var gif = Utf8("GIF89a"); Array.Resize(ref gif, 13); gif[6] = 0x40; gif[7] = 0x01;
-            t.Equal(320, View.ImageCache.PixelWidthOf(gif), "GIF : largeur en petit-boutien");
+            t.Equal(320, ImageHeader.PixelWidth(gif), "GIF : largeur en petit-boutien");
             var bmp = new byte[26]; bmp[0] = (byte)'B'; bmp[1] = (byte)'M'; bmp[18] = 0xE8; bmp[19] = 0x03;
-            t.Equal(1000, View.ImageCache.PixelWidthOf(bmp), "BMP : largeur du DIB");
-            t.Equal(0, View.ImageCache.PixelWidthOf(new byte[] { 1, 2, 3 }), "inconnu : 0");
-            t.Equal(0, View.ImageCache.PixelWidthOf(null), "null : 0");
+            t.Equal(1000, ImageHeader.PixelWidth(bmp), "BMP : largeur du DIB");
+            t.Equal(0, ImageHeader.PixelWidth(new byte[] { 1, 2, 3 }), "inconnu : 0");
+            t.Equal(0, ImageHeader.PixelWidth(null), "null : 0");
+#if !MARABOOK_CORE
             t.Check(View.ImageCache.For(null) == null && View.ImageCache.For(new ProjectImage()) == null, "pas d'octets : pas d'image");
+#endif
         }
 
         private static void Paths(Harness t)

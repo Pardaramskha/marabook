@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Le harnais de tests console (C1–C44) sur .NET 8, contre Marabook.Core
+       seul : les mêmes sources que build-tests.bat, moins les suites qui
+       testent la vue WPF (thème, dates de la vue, Accueil, catalogue de
+       polices, markdown des fiches) — le symbole MARABOOK_CORE les écarte
+       du Main du harnais. Tourne sur Windows ET sur Linux : c'est la preuve
+       que le cœur est portable. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>MarabookTests</AssemblyName>
+    <RootNamespace>Marabook.Tests</RootNamespace>
+    <StartupObject>Marabook.Tests.TestMain</StartupObject>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DefineConstants>$(DefineConstants);MARABOOK_CORE</DefineConstants>
+    <NoWarn>CS0618;CS0108;CS0414;CS0169;CS0649;CS0219;CS1591;CS0162;SYSLIB0001;SYSLIB0014</NoWarn>
+    <SatelliteResourceLanguages>fr</SatelliteResourceLanguages>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Marabook.Core\Marabook.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\tests\*.cs" Link="%(Filename)%(Extension)" />
+    <!-- Les suites de la vue WPF : hors du cœur. -->
+    <Compile Remove="..\..\tests\ThemeTests.cs" />
+    <Compile Remove="..\..\tests\PackTests.cs" />
+    <Compile Remove="..\..\tests\HomeTests.cs" />
+    <Compile Remove="..\..\tests\FontPrefsTests.cs" />
+    <Compile Remove="..\..\tests\MarkdownTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Les données que les tests lisent à côté de l'exécutable, comme
+         MarabookTests.exe les trouve à la racine du dépôt. -->
+    <None Include="..\..\dict\**" Link="dict\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\grammalecte\**" Link="grammalecte\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\VERSION" Link="VERSION" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

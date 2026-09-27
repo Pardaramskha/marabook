@@ -24,3 +24,8 @@ dist/
 
 # Preuve de build du coeur sans WPF (build-core.bat)
 Marabook.Core.dll
+
+# Projets .NET 8 (dotnet/) : sorties de build et publications
+dotnet/**/bin/
+dotnet/**/obj/
+dotnet/publish/

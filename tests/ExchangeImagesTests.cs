@@ -157,6 +157,9 @@ namespace Marabook.Tests
             paragraph.Runs.Add(new TextRun { Text = " suite." });
             document.Paragraphs.Add(paragraph);
             var path = Path.Combine(dir, "image.rtf");
+            // Le RTF est le convertisseur de l'interface (WPF aujourd'hui) :
+            // le harnais du cœur seul (dotnet/Marabook.Tests) n'en a pas.
+            if (!Rtf.Available) return;
             Rtf.Export(document, StyleSheet.CreateDefault(), path, project);
             var back = Project.CreateNew();
             var imported = Rtf.Import(path, StyleSheet.CreateDefault(), back);

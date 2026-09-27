@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 
 namespace Marabook.Model
 {
@@ -26,6 +27,27 @@ namespace Marabook.Model
     /// console remplacent ce qu'ils veulent.</summary>
     public static class Platform
     {
+        static Platform()
+        {
+            // Sous .NET 8, les pages de code (Windows-1252 des vieux .dic) ne
+            // sont pas chargées d'office : le fournisseur s'enregistre une
+            // fois, pour tout le cœur. Par réflexion : le type n'existe pas
+            // dans le .NET Framework 4.8 (qui a déjà toutes les pages de code)
+            // et csc doit compiler ce fichier aussi. Jamais fatal.
+            try
+            {
+                var provider = Type.GetType("System.Text.CodePagesEncodingProvider, System.Text.Encoding.CodePages");
+                var instance = provider == null ? null : provider.GetProperty("Instance");
+                var value = instance == null ? null : instance.GetValue(null, null) as EncodingProvider;
+                if (value != null) Encoding.RegisterProvider(value);
+            }
+            catch { }
+        }
+
+        /// <summary>Force l'initialisation statique (les encodages) — à appeler
+        /// au démarrage avant toute lecture de fichier tiers.</summary>
+        public static void Init() { }
+
         public static IPlatform Current = new DefaultPlatform();
 
         /// <summary>Le décodeur d'images : celui de l'interface (WPF, puis

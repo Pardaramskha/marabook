@@ -14,7 +14,7 @@ set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
   /r:"%FW%\mscorlib.dll" /r:"%FW%\System.dll" /r:"%FW%\System.Core.dll" ^
   /r:"%FW%\System.Xml.dll" /r:"%FW%\System.Xml.Linq.dll" ^
   /r:"%FW%\System.IO.Compression.dll" /r:"%FW%\System.IO.Compression.FileSystem.dll" ^
-  src\Json.cs ^
+  src\Json.cs src\CrashReport.cs ^
   /recurse:src\Model\*.cs /recurse:src\Persistence\*.cs /recurse:src\Correction\*.cs ^
   /recurse:src\History\*.cs /recurse:src\Settings\*.cs /recurse:src\Print\*.cs ^
   /recurse:src\Exchange\*.cs

@@ -345,7 +345,9 @@ namespace Marabook.Model
                 foreach (var entry in archive.Entries)
                 {
                     if (entry.Name.Length == 0) continue; // un dossier
-                    var target = Path.GetFullPath(Path.Combine(fresh, entry.FullName.Replace('/', '\\')));
+                    // Le séparateur du système (P1 : sous Linux, « \ » est un
+                    // caractère de nom de fichier, pas un séparateur).
+                    var target = Path.GetFullPath(Path.Combine(fresh, entry.FullName.Replace('/', Path.DirectorySeparatorChar)));
                     if (!target.StartsWith(Path.GetFullPath(fresh), StringComparison.OrdinalIgnoreCase)) continue;
                     Directory.CreateDirectory(Path.GetDirectoryName(target));
                     entry.ExtractToFile(target, true);

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using System.Windows;
 using Marabook.Model;
 using Marabook.Persistence;
 using Marabook.Print;

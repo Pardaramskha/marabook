@@ -78,6 +78,7 @@ namespace Marabook.Model
             try { return new UTF8Encoding(false, true).GetString(bytes); }
             catch (DecoderFallbackException)
             {
+                Platform.Init(); // .NET 8 : la page de code 1252 demande son fournisseur
                 return Encoding.GetEncoding(1252).GetString(bytes);
             }
         }
