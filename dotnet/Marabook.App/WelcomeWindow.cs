@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.IO;
 using Avalonia;
@@ -67,6 +68,30 @@ namespace Marabook.App
 
         /// <summary>Un projet est ouvert (ou l'app se ferme) : l'accueil se
         /// retire — la seule façon de le fermer.</summary>
+        private StackPanel _noticeHost;
+
+        /// <summary>Un toast à boutons (NoticeToast) en bas à droite de l'accueil :
+        /// l'hôte se glisse par-dessus le contenu à la première demande.</summary>
+        public void ShowNotice(Border toast)
+        {
+            if (_noticeHost == null)
+            {
+                var content = Content as Control;
+                Content = null;
+                var grid = new Grid();
+                if (content != null) grid.Children.Add(content);
+                _noticeHost = new StackPanel
+                {
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                    Margin = new Thickness(0, 0, 24, 24)
+                };
+                grid.Children.Add(_noticeHost);
+                Content = grid;
+            }
+            NoticeToast.Show(_noticeHost, toast);
+        }
+
         public void Release()
         {
             if (_release) return;
@@ -150,7 +175,7 @@ namespace Marabook.App
             open.Click += async delegate
             {
                 if (_opening) return;
-                var chosen = await _shell.AskProjectFile(this);
+                var chosen = await Ui.PickOpenFile(this, "Ouvrir un projet", Persistence.PlotFile.OpenFilter);
                 if (chosen != null) BeginOpen(chosen);
             };
             _openButton = open;
@@ -300,9 +325,11 @@ namespace Marabook.App
                 Canvas.SetLeft(_runner, 40 + 40 * Math.Sin(phase));
             };
             _sweep.Start();
-            _shell.OpenFileInBackground(path, delegate(bool opened)
+            _shell.OpenFileInBackground(path, delegate
             {
-                if (opened) { Release(); return; }
+                // Ouvert : la fenêtre a relâché l'accueil (InstallOpened). Sinon
+                // l'accueil reprend la main.
+                if (_release) return;
                 _sweep.Stop();
                 _loading.Opacity = 0;
                 _tiles.IsEnabled = true;
@@ -388,7 +415,7 @@ namespace Marabook.App
             grid.PointerReleased += async delegate
             {
                 if (_opening) return;
-                if (await _shell.NewProjectWithSaveDialog(this)) Release();
+                if (await _shell.NewProjectWithSaveDialog()) Release();
             };
             return grid;
         }

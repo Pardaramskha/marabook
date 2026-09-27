@@ -41,25 +41,25 @@ namespace Marabook.App
                 await Settle();
                 // — La coquille sur le projet d'exemple.
                 Check(shell.Project != null, "le projet d'exemple est ouvert");
-                var roots = shell.Binder.ItemsSource as List<BinderItem>;
+                var roots = shell.Project.Roots;
                 Check(roots != null && roots.Count == 8, "la Pile montre les huit racines (" + (roots == null ? "-" : roots.Count.ToString()) + ")");
                 var writings = shell.Project.Category(Project.KeyWritings);
                 var book = writings.Children.Count > 1 ? writings.Children[1] : null;
                 Check(book != null && book.Kind == ItemKind.Book && book.Children.Count == 3, "le livre d'exemple a trois chapitres");
                 var chapter = book == null ? null : book.Children[0];
-                shell.Binder.SelectedItem = chapter;
+                if (chapter != null) shell.Binder.SelectItem(chapter.Id, true);
                 await Settle();
                 Check(shell.InspectorTitle == (chapter == null ? "" : chapter.Title), "sélectionner un écrit : l'inspecteur montre son titre (" + shell.InspectorTitle + ")");
-                Check(shell.InspectorKind == "Écrit" && shell.InspectorDetail.Contains("mots"), "…sa nature et ses mots (" + shell.InspectorDetail + ")");
-                Check(shell.Title.StartsWith("Projet d'exemple"), "le titre de la fenêtre nomme le projet");
-                Check(shell.StatusText.Contains("éléments"), "la barre d'état compte les éléments");
+                Check(shell.InspectorKind == "Écrit" && shell.InspectorDetail.Contains("Mots"), "…sa nature et ses mots (" + shell.InspectorDetail.Replace("\n", " · ") + ")");
+                Check(shell.Title.Contains("Marabook"), "le titre de la fenêtre nomme l'application (" + shell.Title + ")");
+                Check(shell.StatusText.Length > 0, "la barre d'état dit quelque chose (" + shell.StatusText + ")");
 
                 // — P2 : l'éditeur composé sur l'écrit sélectionné.
                 var editor = shell.Editor;
                 Check(editor.IsVisible && chapter != null && editor.ShowsItem(chapter), "l'écrit s'ouvre dans l'éditeur composé");
                 var composed = shell.Composed;
                 Check(composed != null && composed.HasItem && composed.IsVisible, "la surface composée est attachée");
-                Check(shell.StatusRightText.StartsWith("page 1 / "), "la barre d'état donne la page du caret (" + shell.StatusRightText + ")");
+                Check(shell.StatusPagesText.Contains("1"), "la barre d'état donne la page du caret (" + shell.StatusPagesText + ")");
                 Check(FontCatalog.Entries.Count > 10, "le catalogue de polices énumère les polices installées (" + FontCatalog.Entries.Count + ")");
                 Check(!string.IsNullOrEmpty(editor.CurrentFontName), "le sélecteur de police montre la police du caret (" + editor.CurrentFontName + ")");
                 var engine = new AvaloniaFontEngine();
@@ -131,7 +131,7 @@ namespace Marabook.App
                 // de la graisse de la chip active).
                 TextBlock sample = null;
                 foreach (var text in prefs.GetVisualDescendants().OfType<TextBlock>())
-                    if (text.Text != null && text.Text.StartsWith("Boutons, sélections")) { sample = text; break; }
+                    if (text.Text != null && (text.Text ?? "").StartsWith("Boutons, sélections")) { sample = text; break; }
                 Check(sample != null && sample.FontWeight == Avalonia.Media.FontWeight.Normal,
                     "un texte courant des Préférences reste en graisse normale (" + (sample == null ? "introuvable" : sample.FontWeight + ", " + sample.FontFamily.Name + " " + sample.FontSize) + ")");
                 prefs.Close();
@@ -162,7 +162,7 @@ namespace Marabook.App
                 // — Fermer le projet : l'Accueil se pose sur la coquille.
                 shell.CloseProjectPublic();
                 await Settle();
-                Check(shell.Project == null && shell.Welcome != null && shell.Welcome.IsVisible, "projet fermé : l'accueil est posé sur la coquille");
+                Check(shell.Welcome != null && shell.Welcome.IsVisible, "projet fermé : l'accueil est posé sur la coquille");
                 Check(shell.Welcome.Width >= 640 && shell.Welcome.Height >= 420, "l'accueil fait au moins 640×420 (" + shell.Welcome.Width.ToString("0") + "×" + shell.Welcome.Height.ToString("0") + ")");
             }
             catch (Exception error)

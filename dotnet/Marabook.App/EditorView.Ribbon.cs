@@ -453,7 +453,7 @@ namespace Marabook.App
                 if (e.Key != Key.Enter) return;
                 e.Handled = true;
                 double value;
-                if (double.TryParse(_trackingBox.Text.Trim().Replace(',', '.'),
+                if (double.TryParse((_trackingBox.Text ?? "").Trim().Replace(',', '.'),
                     System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out value))
                     ApplyTrackingAbsolute(value);

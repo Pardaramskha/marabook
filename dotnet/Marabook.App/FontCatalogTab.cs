@@ -136,7 +136,7 @@ namespace Marabook.App
             };
             sampleBox.TextChanged += delegate
             {
-                _sample = sampleBox.Text.Length > 0 ? sampleBox.Text : DefaultSample;
+                _sample = (sampleBox.Text ?? "").Length > 0 ? sampleBox.Text : DefaultSample;
                 foreach (var row in _rows) row.Refresh();
             };
             sampleRow.Children.Add(sampleBox);

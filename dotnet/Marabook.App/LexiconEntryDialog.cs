@@ -135,7 +135,7 @@ namespace Marabook.App
             var ok = new Button { Content = "Valider", IsDefault = true, MinWidth = 80 };
             ok.Click += delegate
             {
-                if (_word.Text.Trim().Length == 0) { _word.Focus(); return; }
+                if ((_word.Text ?? "").Trim().Length == 0) { _word.Focus(); return; }
                 _accepted = true;
                 Close();
             };
@@ -169,14 +169,14 @@ namespace Marabook.App
         {
             return new LexiconEntry
             {
-                Word = _word.Text.Trim(),
+                Word = (_word.Text ?? "").Trim(),
                 Class = SelectedClass(),
                 Gender = _gender.SelectedIndex == 1 ? "m" : _gender.SelectedIndex == 2 ? "f" : "",
                 Plural = _plural.SelectedIndex == 1 ? LexiconEntry.PluralX
                        : _plural.SelectedIndex == 2 ? LexiconEntry.PluralInvariable : "",
-                Feminine = _feminine.Text.Trim(),
-                Definition = _definition.Text.Trim(),
-                Note = _note.Text.Trim()
+                Feminine = (_feminine.Text ?? "").Trim(),
+                Definition = (_definition.Text ?? "").Trim(),
+                Note = (_note.Text ?? "").Trim()
             };
         }
 

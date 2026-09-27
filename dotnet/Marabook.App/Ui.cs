@@ -2,6 +2,11 @@ using System;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Marabook.Model;
+using Avalonia.Media;
+using Avalonia.Animation.Easings;
+using Avalonia.Animation;
+using Avalonia.Input;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -87,6 +92,178 @@ namespace Marabook.App
                 FileTypeChoices = types
             });
             return picked == null ? null : picked.TryGetLocalPath();
+        }
+
+        /// <summary>Plusieurs fichiers à l'ouverture, ou null.</summary>
+        public static async Task<string[]> PickOpenFiles(Visual visual, string title, string wpfFilter)
+        {
+            var top = visual == null ? null : TopLevel.GetTopLevel(visual);
+            if (top == null) return null;
+            var picked = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = title,
+                AllowMultiple = true,
+                FileTypeFilter = FileTypes(wpfFilter)
+            });
+            if (picked == null) return null;
+            var paths = new System.Collections.Generic.List<string>();
+            foreach (var item in picked)
+            {
+                var path = item.TryGetLocalPath();
+                if (path != null) paths.Add(path);
+            }
+            return paths.ToArray();
+        }
+
+        /// <summary>Un objet de données d'un seul format (le new DataObject(format, value) de WPF).</summary>
+        public static DataObject DataOf(string format, object value)
+        {
+            var data = new DataObject();
+            data.Set(format, value);
+            return data;
+        }
+
+        /// <summary>Les chemins locaux des fichiers déposés, ou null.</summary>
+        public static string[] DroppedPaths(IDataObject data)
+        {
+            if (data == null) return null;
+            var items = data.GetFiles();
+            if (items == null) return null;
+            var paths = new System.Collections.Generic.List<string>();
+            foreach (var item in items)
+            {
+                var path = item.TryGetLocalPath();
+                if (path != null) paths.Add(path);
+            }
+            return paths.Count == 0 ? null : paths.ToArray();
+        }
+
+        /// <summary>Sélectionne length caractères à partir de start (TextBox.Select de WPF).</summary>
+        public static void Select(TextBox box, int start, int length)
+        {
+            var text = box.Text ?? "";
+            start = Math.Max(0, Math.Min(text.Length, start));
+            var end = Math.Max(start, Math.Min(text.Length, start + length));
+            box.SelectionStart = start;
+            box.SelectionEnd = end;
+            box.CaretIndex = end;
+        }
+
+        /// <summary>IsVisibleChanged de WPF : la propriété IsVisible observée.</summary>
+        public static void OnVisibilityChanged(Visual control, Action handler)
+        {
+            control.PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs e)
+            {
+                if (e.Property == Visual.IsVisibleProperty) handler();
+            };
+        }
+
+        /// <summary>SizeChanged de WPF (sans arguments) : les bornes observées.</summary>
+        public static void OnSizeChanged(Visual control, Action handler)
+        {
+            control.PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs e)
+            {
+                if (e.Property == Visual.BoundsProperty) handler();
+            };
+        }
+
+        /// <summary>La molette en pixels signés comme WPF la donnait (120 par
+        /// cran) : Avalonia compte en crans (Delta.Y = ±1).</summary>
+        public static double Wheel(PointerWheelEventArgs e)
+        {
+            return e.Delta.Y * 120;
+        }
+
+        /// <summary>Le toast glisse et apparaît (les DoubleAnimation de WPF) :
+        /// une translation depuis (fromX, fromY) et l'opacité, en transitions.</summary>
+        public static void SlideIn(Control toast, double fromX, double fromY, int milliseconds)
+        {
+            var translate = new TranslateTransform(fromX, fromY);
+            toast.RenderTransform = translate;
+            toast.Opacity = 0;
+            translate.Transitions = new Transitions
+            {
+                new DoubleTransition { Property = TranslateTransform.XProperty, Duration = TimeSpan.FromMilliseconds(milliseconds), Easing = new CubicEaseOut() },
+                new DoubleTransition { Property = TranslateTransform.YProperty, Duration = TimeSpan.FromMilliseconds(milliseconds), Easing = new CubicEaseOut() }
+            };
+            toast.Transitions = new Transitions
+            {
+                new DoubleTransition { Property = Visual.OpacityProperty, Duration = TimeSpan.FromMilliseconds(Math.Min(milliseconds, 240)) }
+            };
+            Dispatcher.UIThread.Post(delegate
+            {
+                translate.X = 0;
+                translate.Y = 0;
+                toast.Opacity = 1;
+            }, DispatcherPriority.Background);
+        }
+
+        /// <summary>Le toast s'efface après afterSeconds, en milliseconds, puis completed.</summary>
+        public static void FadeOutLater(Control toast, double afterSeconds, int milliseconds, Action completed)
+        {
+            var wait = new DispatcherTimer { Interval = TimeSpan.FromSeconds(Math.Max(0.05, afterSeconds)) };
+            wait.Tick += delegate
+            {
+                wait.Stop();
+                toast.Transitions = new Transitions
+                {
+                    new DoubleTransition { Property = Visual.OpacityProperty, Duration = TimeSpan.FromMilliseconds(milliseconds) }
+                };
+                toast.Opacity = 0;
+                var end = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(milliseconds + 30) };
+                end.Tick += delegate { end.Stop(); if (completed != null) completed(); };
+                end.Start();
+            };
+            wait.Start();
+        }
+
+        /// <summary>Un dégradé vertical de deux couleurs (le LinearGradientBrush(c1, c2, 90) de WPF).</summary>
+        public static IBrush VerticalGradient(Color top, Color bottom)
+        {
+            var brush = new LinearGradientBrush
+            {
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative)
+            };
+            brush.GradientStops.Add(new GradientStop(top, 0));
+            brush.GradientStops.Add(new GradientStop(bottom, 1));
+            return brush;
+        }
+
+        /// <summary>La ligne (retours à la ligne comptés) d'un indice du texte.</summary>
+        public static int LineOf(TextBox box, int index)
+        {
+            var text = box.Text ?? "";
+            var line = 0;
+            for (var i = 0; i < index && i < text.Length; i++) if (text[i] == '\n') line++;
+            return line;
+        }
+
+        /// <summary>ScrollToLine de WPF : le TextBox d'Avalonia met son caret en vue de lui-même.</summary>
+        public static void ScrollToLine(TextBox box, int line)
+        {
+        }
+
+        /// <summary>Un document du pivot en colonne de lecture nue : un
+        /// TextBlock par paragraphe (le FlowDocument du panneau épinglé).</summary>
+        public static Control PlainDocument(TextDocument document, double fontSize, IBrush ink)
+        {
+            var stack = new StackPanel { Margin = new Thickness(14, 12, 14, 16) };
+            if (document == null) return stack;
+            foreach (var paragraph in document.Paragraphs)
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = paragraph.ToPlainText(),
+                    FontSize = fontSize,
+                    Foreground = ink,
+                    TextWrapping = TextWrapping.Wrap,
+                    TextAlignment = paragraph.AlignOverride == "center" ? TextAlignment.Center
+                        : paragraph.AlignOverride == "right" ? TextAlignment.Right : TextAlignment.Left,
+                    Margin = new Thickness(0, 0, 0, 8)
+                });
+            }
+            return stack;
         }
 
         /// <summary>Le clavier est-il dans ce sous-arbre (IsKeyboardFocusWithin) ?</summary>

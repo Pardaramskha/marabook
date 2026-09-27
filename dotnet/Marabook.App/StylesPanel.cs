@@ -582,7 +582,7 @@ namespace Marabook.App
         private void CommitForm()
         {
             if (_current == null || _syncing) return;
-            var name = _nameBox.Text.Trim();
+            var name = (_nameBox.Text ?? "").Trim();
             if (name.Length > 0) _current.Name = name;
 
             if (_fontCombo.SelectedFontName != null) _current.FontFamily = _fontCombo.SelectedFontName;
@@ -591,7 +591,7 @@ namespace Marabook.App
             _current.Italic = _italicCheck.IsChecked == true;
             _current.LineHeight = FromPt(_leadingBox.Text, _current.LineHeight, 0, 200);
             _current.Ligatures = _ligaturesCheck.IsChecked == true;
-            var color = _colorBox.Text.Trim();
+            var color = (_colorBox.Text ?? "").Trim();
             _current.Color = (color.Length == 0 || color.Equals("auto", StringComparison.OrdinalIgnoreCase))
                 ? null : color;
 

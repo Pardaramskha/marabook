@@ -14,6 +14,15 @@ namespace Marabook.App
     {
         /// <summary>Ouvre un fichier (ou une URL) avec l'application du
         /// système : ShellExecute sur Windows, open sur macOS, xdg-open sur Linux.</summary>
+        /// <summary>Montre un fichier dans son dossier : l'Explorateur le
+        /// sélectionne sur Windows ; ailleurs, le dossier s'ouvre.</summary>
+        public static void RevealInFolder(string path)
+        {
+            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+                System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + path + "\"");
+            else OpenWithShell(System.IO.Path.GetDirectoryName(path) ?? path);
+        }
+
         public static void OpenWithShell(string path)
         {
             if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))

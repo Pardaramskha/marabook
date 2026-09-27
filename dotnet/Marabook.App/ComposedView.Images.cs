@@ -108,7 +108,7 @@ namespace Marabook.App
                         offset = cursor;
                         return true;
                     }
-                    cursor += PivotEdit.IsElement(candidate) ? 1 : candidate.Text.Length;
+                    cursor += PivotEdit.IsElement(candidate) ? 1 : (candidate.Text ?? "").Length;
                 }
             }
             return false;

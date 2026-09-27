@@ -18,6 +18,8 @@ namespace Marabook.App
             Launch = Launch.Parse(Program.Args);
             AppPlatform.Install();
             if (Launch.SettingsPath != null) AppSettings.PathOverride = Launch.SettingsPath;
+            // Une sonde ou une capture n'écrit jamais dans le secours de l'utilisateur.
+            if (Launch.Isolated) Persistence.RecoveryStore.Root =System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-recovery");
             AppSettings.Load();
             if (Launch.Dark) AppSettings.DarkTheme = true;
             Chrome.Toggle(AppSettings.DarkTheme);
@@ -46,6 +48,13 @@ namespace Marabook.App
                 var desktop = Current == null ? null : Current.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
                 return desktop == null ? null : desktop.MainWindow;
             }
+        }
+
+        /// <summary>Quitter (Application.Current.Shutdown() de WPF).</summary>
+        public static void Exit()
+        {
+            var desktop = Current == null ? null : Current.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+            if (desktop != null) desktop.Shutdown();
         }
 
         public override void OnFrameworkInitializationCompleted()

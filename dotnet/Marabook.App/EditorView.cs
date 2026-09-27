@@ -1606,7 +1606,7 @@ namespace Marabook.App
                 Ui.Post(DispatcherPriority.Input, new Action(delegate
                 {
                     editor.Focus();
-                    editor.CaretIndex = editor.Text.Length;
+                    editor.CaretIndex = (editor.Text ?? "").Length;
                 }));
             }
         }
@@ -1674,10 +1674,10 @@ namespace Marabook.App
                 buttons.Children.Add(remove);
                 panel.Children.Add(buttons);
             }
-            else if (annotation.Text.Trim().Length > 0)
+            else if ((annotation.Text ?? "").Trim().Length > 0)
                 panel.Children.Add(new TextBlock
                 {
-                    Text = annotation.Text.Trim(),
+                    Text = (annotation.Text ?? "").Trim(),
                     Foreground = Chrome.Ink,
                     FontSize = 11,
                     TextWrapping = TextWrapping.Wrap,

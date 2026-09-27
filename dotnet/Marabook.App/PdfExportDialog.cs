@@ -184,7 +184,7 @@ namespace Marabook.App
         private PdfExportOptions CurrentOptions()
         {
             double bleed;
-            var text = _bleed.Text.Trim().Replace(',', '.');
+            var text = (_bleed.Text ?? "").Trim().Replace(',', '.');
             if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out bleed)
                 || bleed < 0) bleed = 0;
             return new PdfExportOptions

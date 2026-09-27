@@ -161,7 +161,7 @@ namespace Marabook.App
             {
                 var veto = _typoVetoes[i];
                 if (veto.Paragraph != paragraph) continue;
-                var length = Math.Max(1, veto.Text.Length);
+                var length = Math.Max(1, (veto.Text ?? "").Length);
                 if (delta < 0 && veto.Start < position - delta && veto.Start + length > position)
                 {
                     // effacé : le refus tombe, avec tout son groupe (la paire)
@@ -467,7 +467,7 @@ namespace Marabook.App
             var pos = 0;
             foreach (var run in paragraph.Runs)
             {
-                var length = PivotEdit.IsElement(run) ? 1 : run.Text.Length;
+                var length = PivotEdit.IsElement(run) ? 1 : (run.Text ?? "").Length;
                 if (run.FootnoteId != null && (offset == pos || offset == pos + 1))
                 {
                     // Empreinte horizontale de la marque sur sa ligne.
@@ -2441,7 +2441,7 @@ namespace Marabook.App
                 var cursor = 0;
                 foreach (var run in paragraph.Runs)
                 {
-                    var length = PivotEdit.IsElement(run) ? 1 : run.Text.Length;
+                    var length = PivotEdit.IsElement(run) ? 1 : (run.Text ?? "").Length;
                     var overlaps = cursor + length > from && cursor < to;
                     cursor += length;
                     if (!overlaps || PivotEdit.IsElement(run)) continue;
@@ -2578,7 +2578,7 @@ namespace Marabook.App
                 var cursor = 0;
                 foreach (var run in paragraph.Runs)
                 {
-                    var length = PivotEdit.IsElement(run) ? 1 : run.Text.Length;
+                    var length = PivotEdit.IsElement(run) ? 1 : (run.Text ?? "").Length;
                     var overlaps = cursor + length > from && cursor < to;
                     cursor += length;
                     if (!overlaps || PivotEdit.IsElement(run)) continue;
@@ -2806,7 +2806,7 @@ namespace Marabook.App
                 var start = -1;
                 foreach (var run in _item.Document.Paragraphs[p].Runs)
                 {
-                    var length = PivotEdit.IsElement(run) ? 1 : run.Text.Length;
+                    var length = PivotEdit.IsElement(run) ? 1 : (run.Text ?? "").Length;
                     if (run.AnnotationId == id) { start = cursor; break; }
                     cursor += length;
                 }
@@ -2961,7 +2961,7 @@ namespace Marabook.App
                 var end = -1;
                 foreach (var run in paragraph.Runs)
                 {
-                    var length = PivotEdit.IsElement(run) ? 1 : run.Text.Length;
+                    var length = PivotEdit.IsElement(run) ? 1 : (run.Text ?? "").Length;
                     if (run.AnnotationId == id)
                     {
                         // Une image annotée (0.50.0) : on la sélectionne, elle.
@@ -3223,7 +3223,7 @@ namespace Marabook.App
                 var cursor = 0;
                 foreach (var run in paragraph.Runs)
                 {
-                    var length = PivotEdit.IsElement(run) ? 1 : run.Text.Length;
+                    var length = PivotEdit.IsElement(run) ? 1 : (run.Text ?? "").Length;
                     if (cursor + length > from && cursor < to && !PivotEdit.IsElement(run))
                     {
                         var name = run.Weight ?? ((run.Bold ?? style.Bold) ? "Bold" : null);

@@ -91,6 +91,16 @@ namespace Marabook.App
             return result;
         }
 
+        /// <summary>Les modificateurs du cœur vers ceux d'Avalonia (raccourcis des menus).</summary>
+        public static KeyModifiers ToAvalonia(Settings.KeyModifiers modifiers)
+        {
+            var result = KeyModifiers.None;
+            if ((modifiers & Settings.KeyModifiers.Control) != 0) result |= KeyModifiers.Control;
+            if ((modifiers & Settings.KeyModifiers.Shift) != 0) result |= KeyModifiers.Shift;
+            if ((modifiers & Settings.KeyModifiers.Alt) != 0) result |= KeyModifiers.Alt;
+            return result;
+        }
+
         /// <summary>Le nom d'une touche (celui des réglages) vers la touche
         /// Avalonia ; false si le nom n'en est pas une.</summary>
         public static bool TryKey(string name, out Key key)

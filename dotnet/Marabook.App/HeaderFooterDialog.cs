@@ -129,10 +129,10 @@ namespace Marabook.App
             await Dialogs.ShowModal(dialog, owner);
             if (!dialog._accepted) return null;
             double size;
-            if (!double.TryParse(dialog._size.Text.Trim().Replace(',', '.'),
+            if (!double.TryParse((dialog._size.Text ?? "").Trim().Replace(',', '.'),
                 NumberStyles.Float, CultureInfo.InvariantCulture, out size) || size < 4)
                 size = 10;
-            var font = dialog._font.Text.Trim();
+            var font = (dialog._font.Text ?? "").Trim();
             return new HeaderFooter
             {
                 Text = dialog._text.Text,

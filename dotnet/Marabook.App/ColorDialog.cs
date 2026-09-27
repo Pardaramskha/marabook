@@ -142,7 +142,7 @@ namespace Marabook.App
 
         private void SyncFromHex()
         {
-            var text = _hexBox.Text.Trim();
+            var text = (_hexBox.Text ?? "").Trim();
             if (!text.StartsWith("#")) text = "#" + text;
             if (text.Length != 7) return;
             _syncing = true;
@@ -159,7 +159,7 @@ namespace Marabook.App
             var dialog = new ColorDialog(owner);
             await Dialogs.ShowModal(dialog, owner);
             if (!dialog._accepted) return null;
-            var text = dialog._hexBox.Text.Trim();
+            var text = (dialog._hexBox.Text ?? "").Trim();
             if (!text.StartsWith("#")) text = "#" + text;
             return text.Length == 7 ? text.ToUpperInvariant() : null;
         }

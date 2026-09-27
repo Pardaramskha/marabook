@@ -212,7 +212,7 @@ namespace Marabook.App
             var dullVerbs = dialog._dullVerbs.IsChecked == true;
             var dialogue = dialog._dialogue.IsChecked == true;
             int radius;
-            if (!int.TryParse(dialog._radius.Text.Trim(), out radius)) radius = AppSettings.RepetitionRadius;
+            if (!int.TryParse((dialog._radius.Text ?? "").Trim(), out radius)) radius = AppSettings.RepetitionRadius;
             radius = Math.Max(20, Math.Min(500, radius));
             var dullList = Correction.Grammalecte.StyleChecker.ParseDullVerbs(dialog._dullList.Text);
             if (dullList.Count == 0)
