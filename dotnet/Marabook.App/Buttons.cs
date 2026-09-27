@@ -1,3 +1,4 @@
+using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -172,7 +173,7 @@ namespace Marabook.App
             glyph.HorizontalAlignment = HorizontalAlignment.Center;
             glyph.Margin = new Thickness(0, 0, 0, 2);
             column.Children.Add(glyph);
-            column.Children.Add(new TextBlock
+            var text = new TextBlock
             {
                 Text = label,
                 FontSize = 11,
@@ -181,7 +182,15 @@ namespace Marabook.App
                 HorizontalAlignment = HorizontalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap,
                 MaxWidth = 88
-            });
+            };
+            // Avalonia remesure un TextBlock replié à la largeur EXACTE qu'il
+            // a annoncée : le dernier mot d'une ligne pouvait alors ne plus y
+            // tenir (arrondi) et se faire rogner au bord du bouton
+            // (« d'impression » coupé, 27/09). La largeur mesurée est un
+            // plancher, avec deux pixels d'air.
+            text.Measure(new Size(88, double.PositiveInfinity));
+            if (text.DesiredSize.Width > 0) text.MinWidth = Math.Ceiling(text.DesiredSize.Width) + 2;
+            column.Children.Add(text);
             return column;
         }
     }

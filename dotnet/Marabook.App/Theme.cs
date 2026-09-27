@@ -25,6 +25,10 @@ namespace Marabook.App
     {
         public const double Radius = 6;
 
+        /// <summary>L'épaisseur des barres de défilement (le pouce y laisse
+        /// 2 px de marge de chaque côté).</summary>
+        public const double ScrollBarSize = 12;
+
         /// <summary>La classe des boutons fabriqués par Buttons.cs : les
         /// styles de boutons ne touchent qu'eux — pas les bascules internes
         /// des gabarits du thème de base (l'expanseur d'un TreeViewItem…).</summary>
@@ -72,8 +76,8 @@ namespace Marabook.App
             resources["FontSizeSmall"] = 11.0;
             resources["FontSizeNormal"] = 13.0;
             resources["FontSizeLarge"] = 16.0;
-            resources["ScrollBarThickness"] = 10.0;
-            resources["ScrollBarThumbThickness"] = 6.0;
+            resources["ScrollBarThickness"] = ScrollBarSize;
+            resources["ScrollBarThumbThickness"] = ScrollBarSize - 4;
         }
 
         public static Styles Build()
@@ -183,25 +187,77 @@ namespace Marabook.App
                 new Setter(TextBox.CaretBrushProperty, Chrome.Ink),
                 new Setter(TextBox.SelectionBrushProperty, Chrome.Accent),
                 new Setter(TextBox.SelectionForegroundBrushProperty, Chrome.PaperBg),
-                new Setter(ContentControl.VerticalContentAlignmentProperty, VerticalAlignment.Center)));
-            foreach (var name in new[] { "PART_BorderElement", "border", "PART_ContentPresenter" })
-            {
-                var border = name;
-                styles.Add(Style(x => x.OfType<TextBox>().Class(":pointerover").Template().OfType<Border>().Name(border),
-                    new Setter(Border.BorderBrushProperty, Chrome.SoftText),
-                    new Setter(Border.BackgroundProperty, Chrome.PaperBg)));
-                styles.Add(Style(x => x.OfType<TextBox>().Class(":focus").Template().OfType<Border>().Name(border),
-                    new Setter(Border.BorderBrushProperty, Chrome.Accent),
-                    new Setter(Border.BackgroundProperty, Chrome.PaperBg)));
-            }
+                new Setter(TextBox.VerticalContentAlignmentProperty, VerticalAlignment.Center)));
+            // Le cadre du gabarit Simple s'appelle « border » (TextBox et
+            // ComboBox) ; les coins y sont posés directement (27/09) : le
+            // thème de contrôle gardait ses angles droits.
+            styles.Add(Style(x => x.OfType<TextBox>().Template().OfType<Border>().Name("border"),
+                new Setter(Border.CornerRadiusProperty, new CornerRadius(Radius))));
+            styles.Add(Style(x => x.OfType<TextBox>().Class(":pointerover").Template().OfType<Border>().Name("border"),
+                new Setter(Border.BorderBrushProperty, Chrome.SoftText),
+                new Setter(Border.BackgroundProperty, Chrome.PaperBg)));
+            styles.Add(Style(x => x.OfType<TextBox>().Class(":focus").Template().OfType<Border>().Name("border"),
+                new Setter(Border.BorderBrushProperty, Chrome.Accent),
+                new Setter(Border.BackgroundProperty, Chrome.PaperBg)));
             styles.Add(Style(x => x.OfType<TextBox>().Class(":disabled"),
                 new Setter(Visual.OpacityProperty, 0.45)));
+
+            // ---- combos : le même champ, coins 6, flèche discrète
+            styles.Add(Style(x => x.OfType<ComboBox>(),
+                new Setter(TemplatedControl.BackgroundProperty, Chrome.PaperBg),
+                new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
+                new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
+                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius)),
+                new Setter(TemplatedControl.PaddingProperty, new Thickness(6, 2, 2, 2)),
+                new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink)));
+            styles.Add(Style(x => x.OfType<ComboBox>().Template().OfType<Border>().Name("border"),
+                new Setter(Border.CornerRadiusProperty, new CornerRadius(Radius))));
+            styles.Add(Style(x => x.OfType<ComboBox>().Class(":pointerover").Template().OfType<Border>().Name("border"),
+                new Setter(Border.BorderBrushProperty, Chrome.SoftText),
+                new Setter(Border.BackgroundProperty, Chrome.PaperBg)));
+            styles.Add(Style(x => x.OfType<ComboBox>().Class(":focus").Template().OfType<Border>().Name("border"),
+                new Setter(Border.BorderBrushProperty, Chrome.Accent),
+                new Setter(Border.BackgroundProperty, Chrome.PaperBg)));
+            styles.Add(Style(x => x.OfType<ComboBox>().Class(":disabled"),
+                new Setter(Visual.OpacityProperty, 0.45)));
+
+            // ---- barres de défilement : une piste transparente, un pouce
+            // arrondi de 8 px dans une bande de 12, sans flèches (le style
+            // WPF) — le gabarit Simple (flèches, pouce carré, piste grise)
+            // était hors cadre (27/09).
+            var vScroll = new FuncControlTemplate<ScrollBar>(delegate(ScrollBar parent, INameScope scope) { return ScrollBarFace(scope, true); });
+            var hScroll = new FuncControlTemplate<ScrollBar>(delegate(ScrollBar parent, INameScope scope) { return ScrollBarFace(scope, false); });
+            styles.Add(Style(x => x.OfType<ScrollBar>(),
+                new Setter(TemplatedControl.BackgroundProperty, Brushes.Transparent)));
+            styles.Add(Style(x => x.OfType<ScrollBar>().Class(":vertical"),
+                new Setter(TemplatedControl.TemplateProperty, vScroll),
+                new Setter(Layoutable.WidthProperty, ScrollBarSize)));
+            styles.Add(Style(x => x.OfType<ScrollBar>().Class(":horizontal"),
+                new Setter(TemplatedControl.TemplateProperty, hScroll),
+                new Setter(Layoutable.HeightProperty, ScrollBarSize)));
+            styles.Add(Style(x => x.OfType<ScrollBar>().Template().OfType<Thumb>(),
+                new Setter(TemplatedControl.BackgroundProperty, Chrome.BorderStrong)));
+            styles.Add(Style(x => x.OfType<ScrollBar>().Template().OfType<Thumb>().Class(":pointerover"),
+                new Setter(TemplatedControl.BackgroundProperty, Chrome.SoftText)));
+            styles.Add(Style(x => x.OfType<ScrollBar>().Template().OfType<Thumb>().Class(":pressed"),
+                new Setter(TemplatedControl.BackgroundProperty, Chrome.SoftText)));
+            styles.Add(Style(x => x.OfType<ScrollBar>().Class(":vertical").Template().OfType<Thumb>(),
+                new Setter(Layoutable.WidthProperty, ScrollBarSize),
+                new Setter(Layoutable.MinHeightProperty, 28.0)));
+            styles.Add(Style(x => x.OfType<ScrollBar>().Class(":horizontal").Template().OfType<Thumb>(),
+                new Setter(Layoutable.HeightProperty, ScrollBarSize),
+                new Setter(Layoutable.MinWidthProperty, 28.0)));
 
             // ---- cases à cocher : un carré 16, coins 4, accent plein cochée
             styles.Add(Style(x => x.OfType<CheckBox>(),
                 new Setter(TemplatedControl.TemplateProperty, new FuncControlTemplate<CheckBox>(CheckFace)),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(InputElement.CursorProperty, new Cursor(StandardCursorType.Hand))));
+            styles.Add(Style(x => x.OfType<CheckBox>().Template().OfType<Border>().Name("Box"),
+                new Setter(Border.BackgroundProperty, Chrome.PaperBg),
+                new Setter(Border.BorderBrushProperty, Chrome.Border)));
+            styles.Add(Style(x => x.OfType<CheckBox>().Template().OfType<Path>().Name("Check"),
+                new Setter(Visual.IsVisibleProperty, false)));
             styles.Add(Style(x => x.OfType<CheckBox>().Class(":pointerover").Template().OfType<Border>().Name("Box"),
                 new Setter(Border.BorderBrushProperty, Chrome.Accent)));
             styles.Add(Style(x => x.OfType<CheckBox>().Class(":checked").Template().OfType<Border>().Name("Box"),
@@ -320,6 +376,10 @@ namespace Marabook.App
         /// tant que la case n'est pas cochée), le libellé.</summary>
         private static Control CheckFace(TemplatedControl parent, INameScope scope)
         {
+            // PIÈGE (27/09) : aucune valeur LOCALE sur ce que les styles
+            // d'état doivent changer (visibilité de la coche, fond et filet
+            // du carré) — une valeur locale prime sur tout style, et la case
+            // cochée restait vide. Le repos est posé par les styles aussi.
             var check = new Path
             {
                 Name = "Check",
@@ -327,8 +387,7 @@ namespace Marabook.App
                 Stroke = Brushes.White,
                 StrokeThickness = 2,
                 Stretch = Stretch.Uniform,
-                Margin = new Thickness(3),
-                IsVisible = false
+                Margin = new Thickness(3)
             };
             var box = new Border
             {
@@ -336,8 +395,6 @@ namespace Marabook.App
                 Width = 16,
                 Height = 16,
                 CornerRadius = new CornerRadius(4),
-                Background = Chrome.PaperBg,
-                BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = check
@@ -357,6 +414,64 @@ namespace Marabook.App
             box.RegisterInNameScope(scope);
             presenter.RegisterInNameScope(scope);
             return row;
+        }
+
+        /// <summary>La barre de défilement : une piste transparente qui
+        /// porte un Track (boutons de page invisibles, pouce arrondi). Les
+        /// bornes, la fenêtre et la valeur suivent la barre (liaisons de
+        /// gabarit, la valeur dans les deux sens).</summary>
+        private static Control ScrollBarFace(INameScope scope, bool vertical)
+        {
+            var thumb = new Thumb
+            {
+                Name = "thumb",
+                Template = new FuncControlTemplate<Thumb>(ThumbFace)
+            };
+            var track = new Track
+            {
+                Name = "PART_Track",
+                Orientation = vertical ? Orientation.Vertical : Orientation.Horizontal,
+                IsDirectionReversed = vertical,
+                Thumb = thumb,
+                DecreaseButton = PageButton("PART_PageUpButton"),
+                IncreaseButton = PageButton("PART_PageDownButton")
+            };
+            track.Bind(Track.MinimumProperty, new TemplateBinding(RangeBase.MinimumProperty), BindingPriority.Template);
+            track.Bind(Track.MaximumProperty, new TemplateBinding(RangeBase.MaximumProperty), BindingPriority.Template);
+            track.Bind(Track.ViewportSizeProperty, new TemplateBinding(ScrollBar.ViewportSizeProperty), BindingPriority.Template);
+            track.Bind(Track.ValueProperty, new TemplateBinding(RangeBase.ValueProperty) { Mode = BindingMode.TwoWay }, BindingPriority.Template);
+            var host = new Border { Name = "Rail", Background = Brushes.Transparent, Child = track };
+            host.Bind(Border.BackgroundProperty, new TemplateBinding(TemplatedControl.BackgroundProperty), BindingPriority.Template);
+            thumb.RegisterInNameScope(scope);
+            track.RegisterInNameScope(scope);
+            host.RegisterInNameScope(scope);
+            return host;
+        }
+
+        /// <summary>Le pouce : un rectangle arrondi dans la couleur du contrôle,
+        /// 2 px d'air tout autour.</summary>
+        private static Control ThumbFace(TemplatedControl parent, INameScope scope)
+        {
+            var face = new Border { CornerRadius = new CornerRadius((ScrollBarSize - 4) / 2), Margin = new Thickness(2) };
+            face.Bind(Border.BackgroundProperty, new TemplateBinding(TemplatedControl.BackgroundProperty), BindingPriority.Template);
+            return face;
+        }
+
+        /// <summary>Le bouton de page (clic sur la piste hors du pouce) :
+        /// invisible, mais il répond.</summary>
+        private static RepeatButton PageButton(string name)
+        {
+            var button = new RepeatButton
+            {
+                Name = name,
+                Focusable = false,
+                Background = Brushes.Transparent,
+                Template = new FuncControlTemplate<RepeatButton>(delegate(RepeatButton parent, INameScope scope)
+                {
+                    return new Border { Background = Brushes.Transparent };
+                })
+            };
+            return button;
         }
 
         private static Style Style(System.Func<Selector, Selector> selector, params Setter[] setters)

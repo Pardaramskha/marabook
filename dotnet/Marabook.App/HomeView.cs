@@ -36,6 +36,9 @@ namespace Marabook.App
     /// invite.</summary>
     public class HomeView : ScrollViewer
     {
+        /// <summary>Le gabarit du ScrollViewer se cherche par type (27/09).</summary>
+        protected override Type StyleKeyOverride { get { return typeof(ScrollViewer); } }
+
         // Deux colonnes (2-1 : Reprendre et Épinglés côte à côte, « Où j'en
         // suis » en dessous sur toute la largeur) tant que la FENÊTRE fait
         // 1 400 px ou plus ; une seule colonne en dessous (14/09 — la largeur

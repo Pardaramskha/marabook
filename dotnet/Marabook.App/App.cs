@@ -29,6 +29,7 @@ namespace Marabook.App
             Styles.Add(new SimpleTheme());
             Theme.OverrideResources(Resources);
             Styles.Add(Theme.Build());
+            SmoothScroll.Install(); // le défilement fluide à la molette, partout (0.50.0)
         }
 
         /// <summary>Bascule clair/sombre en direct (menu, Préférences).</summary>

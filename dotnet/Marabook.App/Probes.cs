@@ -74,6 +74,8 @@ namespace Marabook.App
                 Check(editor.IsVisible && chapter != null && editor.ShowsItem(chapter), "l'écrit s'ouvre dans l'éditeur composé");
                 var composed = shell.Composed;
                 Check(composed != null && composed.HasItem && composed.IsVisible, "la surface composée est attachée");
+                Check(composed != null && composed.Extent.Height > composed.Viewport.Height + 1,
+                    "…et elle défile : la page dépasse la fenêtre (" + (composed == null ? "-" : composed.Extent.Height.ToString("0") + " > " + composed.Viewport.Height.ToString("0")) + ")");
                 Check(shell.StatusPagesText.Contains("1"), "la barre d'état donne la page du caret (" + shell.StatusPagesText + ")");
                 Check(FontCatalog.Entries.Count > 10, "le catalogue de polices énumère les polices installées (" + FontCatalog.Entries.Count + ")");
                 Check(!string.IsNullOrEmpty(editor.CurrentFontName), "le sélecteur de police montre la police du caret (" + editor.CurrentFontName + ")");
@@ -183,6 +185,17 @@ namespace Marabook.App
                     await Settle();
                     Check(shell.HasProjectPath && shell.Project.AllItems().Count() == count && shell.Title.Contains("marabook-sonde-p3"),
                         "le projet enregistré se rouvre avec ses " + count + " éléments (" + shell.Title + ")");
+                    // Fichier › Enregistrer sur le projet rouvert : le vrai
+                    // chemin de la fenêtre (rinçage des vues, écriture,
+                    // récents, inspecteur, toast) — celui qui tombait sur
+                    // « Object reference not set » (27/09).
+                    var doSave = typeof(MainWindow).GetMethod("DoSave", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    var stampBefore = System.IO.File.GetLastWriteTimeUtc(plotPath);
+                    await Task.Delay(30);
+                    doSave.Invoke(shell, null);
+                    await Settle();
+                    Check(shell.LastSaveError == null && System.IO.File.GetLastWriteTimeUtc(plotPath) > stampBefore,
+                        "Fichier › Enregistrer réécrit le projet rouvert" + (shell.LastSaveError == null ? "" : " : " + shell.LastSaveError.Split('\n')[0]));
                 }
                 catch (Exception error) { Check(false, "aller-retour .plot : " + error.Message); }
                 finally { try { System.IO.File.Delete(plotPath); } catch { } }

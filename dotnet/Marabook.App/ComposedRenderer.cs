@@ -616,6 +616,12 @@ namespace Marabook.App
             for (var i = 0; i < infos.Length; i++)
                 infos[i] = new Avalonia.Media.TextFormatting.GlyphInfo(piece.GlyphIndices[i], i, piece.Advances[i]);
             var run = new GlyphRun(glyphs, piece.EmSize, (piece.Text ?? "").AsMemory(), infos);
+            // DrawGlyphRun dessine à BaselineOrigin, qui vaut (0, ascendante)
+            // par défaut : la ligne de base tombait une ascendante SOUS le
+            // point où DrawLine l'avait déjà posée — le texte flottait sous
+            // le caret et la sélection (27/09). La translation poussée par
+            // DrawLine est la ligne de base : l'origine du run est (0, 0).
+            run.BaselineOrigin = new Point(0, 0);
             piece.NativeCache = run;
             return run;
         }

@@ -70,12 +70,18 @@ namespace Marabook.App
 
             _tree = new TreeView { [DragDrop.AllowDropProperty] = true };
             _tree.SelectionChanged += OnSelectedItemChanged;
-            _tree.PointerPressed += OnPreviewMouseDown;
+            // En TUNNEL, comme le PreviewMouseDown de WPF : le TreeView
+            // d'Avalonia sélectionne dans son gestionnaire de classe (phase
+            // bulle), AVANT les gestionnaires d'instance — abonnés en bulle,
+            // les nôtres posaient _expectedSelectId après la sélection, que
+            // le filtre anti-fantôme révoquait : un clic dans la Pile ne
+            // faisait plus rien (27/09).
+            _tree.AddHandler(InputElement.PointerPressedEvent, OnPreviewMouseDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
             // Le clic droit sélectionne aussi (menu contextuel) : il doit être
             // « attendu » pour passer le filtre anti-fantôme. Et l'élément
             // VISÉ se surligne le temps du menu (batch 28) — sur l'interligne,
             // on sait enfin à qui le menu s'applique.
-            _tree.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+            _tree.AddHandler(InputElement.PointerPressedEvent, new EventHandler<PointerPressedEventArgs>(delegate(object sender, PointerPressedEventArgs e)
             {
                 var node = NodeFromSource(e.Source);
                 _expectedSelectId = node == null ? null : ((BinderItem)node.Tag).Id;
@@ -96,7 +102,7 @@ namespace Marabook.App
                     };
                     menu.Closed += closed;
                 }
-            };
+            }), Avalonia.Interactivity.RoutingStrategies.Tunnel);
             _tree.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Left

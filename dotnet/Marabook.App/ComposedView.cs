@@ -24,6 +24,12 @@ namespace Marabook.App
     /// mis en page. » Black on white: print fidelity.</summary>
     public partial class ComposedView : ScrollViewer
     {
+        /// <summary>Le gabarit du ScrollViewer (présentateur, barres) se
+        /// cherche par type : sans cette clé, la classe dérivée n'a ni
+        /// fenêtre ni étendue — Offset restait à zéro, la molette et les
+        /// barres étaient mortes (27/09).</summary>
+        protected override Type StyleKeyOverride { get { return typeof(ScrollViewer); } }
+
         private const double PageGapPx = 18;
 
         private readonly Grid _column;      // pages + overlay, centered
@@ -764,6 +770,10 @@ namespace Marabook.App
         private void EnsureCaretVisible(double y, double height)
         {
             if (_keepScroll) return;
+            // Pas encore posée (fenêtre nulle) : rien à ramener — sinon la
+            // formule descendait la vue de la hauteur du caret + 60 px avant
+            // la première disposition (page ouverte déjà défilée, 27/09).
+            if (Viewport.Height <= 0) return;
             var topContent = (_column.Margin.Top + y) * _zoom;
             var bottomContent = (_column.Margin.Top + y + height) * _zoom;
             if (topContent < Offset.Y + 8)

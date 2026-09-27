@@ -41,6 +41,33 @@ namespace Marabook.App
                 {
                     PendingOpen = null;
                     OpenFile(_launch.PlotPath);
+                    if (_launch.SaveProbe)
+                    {
+                        // La sonde d'enregistrement (27/09) : le projet ouvert
+                        // depuis un fichier, le vrai chemin de la fenêtre,
+                        // verdict sur la sortie — pour attraper un
+                        // « Object reference… » avec sa pile.
+                        await Task.Delay(1500);
+                        await SaveProbeSweep(null);
+                    }
+                }
+                else if (_launch.SaveProbe)
+                {
+                    // Sans .plot : le parcours de l'accueil — projet neuf (ou
+                    // le projet d'exemple avec --demo) enregistré sous un nom,
+                    // un écrit créé, quelques mots tapés, puis le balayage.
+                    await Task.Delay(500);
+                    var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-save-" + Guid.NewGuid().ToString("N") + Persistence.PlotFile.Extension);
+                    LoadProject(_launch.Demo ? SampleProject() : Project.CreateNew(), null);
+                    _path = path;
+                    AdoptFileName(_project, _path);
+                    DoSave();
+                    Console.WriteLine(LastSaveError == null ? "SAVE OK    projet neuf" : "SAVE ERROR projet neuf\n" + LastSaveError);
+                    _binder.NewText(null);
+                    await Task.Delay(600);
+                    if (Composed != null && Composed.HasItem) Composed.TypeText("Sonde d'enregistrement.");
+                    await Task.Delay(300);
+                    await SaveProbeSweep(path);
                 }
                 else if (_launch.Demo || _launch.Probe)
                 {
@@ -104,6 +131,41 @@ namespace Marabook.App
                 if (string.Equals(item.Title, title, StringComparison.OrdinalIgnoreCase)) { _binder.SelectItem(item.Id, true); return; }
             foreach (var root in _project.Roots)
                 if (string.Equals(root.Title, title, StringComparison.OrdinalIgnoreCase)) { _binder.SelectItem(root.Id, true); return; }
+        }
+
+        /// <summary>La sonde d'enregistrement (27/09) : enregistrer (manuel
+        /// puis automatique) sur le projet tel quel, puis un élément de chaque
+        /// nature ouvert au centre (le rinçage des vues change avec la vue
+        /// ouverte) et l'enregistrement après chacun ; verdict par ligne sur la
+        /// sortie, la pile complète après un échec. Quitte à la fin, efface le
+        /// fichier temporaire s'il y en a un.</summary>
+        private async Task SaveProbeSweep(string temporaryPath)
+        {
+            DoSave();
+            Console.WriteLine(LastSaveError == null ? "SAVE OK    manuel" : "SAVE ERROR manuel\n" + LastSaveError);
+            MarkDirty();
+            Autosave();
+            Console.WriteLine(LastSaveError == null ? "SAVE OK    automatique" : "SAVE ERROR automatique\n" + LastSaveError);
+            var seen = new HashSet<ItemKind>();
+            foreach (var item in new List<BinderItem>(_project.AllItems()))
+            {
+                if (!seen.Add(item.Kind)) continue;
+                _binder.SelectItem(item.Id, true);
+                await Task.Delay(700);
+                MarkDirty();
+                SaveProject(true);
+                Console.WriteLine((LastSaveError == null ? "SAVE OK    " : "SAVE ERROR ") + item.Kind + " « " + item.Title + " » (" + VisibleView + ")" + (LastSaveError == null ? "" : "\n" + LastSaveError));
+            }
+            foreach (RightPanel panel in Enum.GetValues(typeof(RightPanel)))
+            {
+                SetRightPanelPublic(panel);
+                await Task.Delay(300);
+                MarkDirty();
+                SaveProject(true);
+                Console.WriteLine((LastSaveError == null ? "SAVE OK    " : "SAVE ERROR ") + "panneau " + panel + (LastSaveError == null ? "" : "\n" + LastSaveError));
+            }
+            if (temporaryPath != null) { try { System.IO.File.Delete(temporaryPath); } catch { } }
+            QuitNow();
         }
 
         /// <summary>Quitter sans question (sondes, captures) : rien à enregistrer.</summary>

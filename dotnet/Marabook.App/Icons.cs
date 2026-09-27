@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
@@ -38,7 +39,7 @@ namespace Marabook.App
             var geometry = Get(name);
             if (geometry == null)
                 return new TextBlock { Text = "?", FontSize = size };
-            return new Path
+            return new Icon
             {
                 Data = geometry,
                 Fill = fill,
@@ -46,6 +47,28 @@ namespace Marabook.App
                 Width = size,
                 Height = size
             };
+        }
+
+        /// <summary>Un Path CENTRÉ dans sa case (27/09) : le Shape d'Avalonia
+        /// occupe toute la taille arrangée et cale la géométrie étirée en
+        /// haut à gauche — une icône plus large que haute flottait vers le
+        /// haut de son bouton. WPF rendait la taille étirée, donc centrait ;
+        /// ici l'arrangement rend la taille réelle du dessin, et l'alignement
+        /// par défaut (Stretch = centré quand plus petit) fait le reste.</summary>
+        private sealed class Icon : Path
+        {
+            protected override Type StyleKeyOverride { get { return typeof(Path); } }
+
+            protected override Size ArrangeOverride(Size finalSize)
+            {
+                var size = base.ArrangeOverride(finalSize);
+                var geometry = Data;
+                if (geometry == null || Stretch != Stretch.Uniform) return size;
+                var bounds = geometry.Bounds;
+                if (bounds.Width <= 0 || bounds.Height <= 0 || finalSize.Width <= 0 || finalSize.Height <= 0) return size;
+                var scale = Math.Min(finalSize.Width / bounds.Width, finalSize.Height / bounds.Height);
+                return new Size(bounds.Width * scale, bounds.Height * scale);
+            }
         }
 
         /// <summary>Le contenu d'un bouton « icône + libellé » ; sans libellé,

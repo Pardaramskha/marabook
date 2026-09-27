@@ -9,7 +9,9 @@ namespace Marabook.App
     /// « --demo » (un projet d'exemple en mémoire), « --capture &lt;png&gt; »
     /// (la fenêtre rendue en PNG une fois posée, puis quitte), « --probe »
     /// (les vérifications de la sonde, OK/ÉCHEC sur la sortie, code de retour
-    /// = échecs), « --dark », « --settings &lt;fichier&gt; ». Toute exécution
+    /// = échecs), « --save-probe » (enregistre le projet ouvert, ou un projet
+    /// neuf, après chaque vue : OK / ERREUR + pile), « --dark », « --settings
+    /// &lt;fichier&gt; ». Toute exécution
     /// de sonde ou de capture lit des réglages NEUFS dans un fichier
     /// temporaire : jamais ceux de l'utilisateur.</summary>
     public static class Program
@@ -54,8 +56,9 @@ namespace Marabook.App
         public bool Lab;            // la capture montre la fenêtre de diagnostic du rendu
         public double Scale = 1;    // l'échelle de la capture (2 = pixels doublés)
         public string SettingsPath; // un settings.json à part
+        public bool SaveProbe;      // --save-probe : ouvre le .plot donné, le marque modifié, l'enregistre (silencieux), dit OK ou la pile, quitte
 
-        public bool Isolated { get { return Demo || Probe || CapturePath != null; } }
+        public bool Isolated { get { return Demo || Probe || CapturePath != null || SaveProbe; } }
 
         public static Launch Parse(string[] args)
         {
@@ -73,6 +76,7 @@ namespace Marabook.App
                 if (arg == "--open" && i + 1 < args.Length) { launch.OpenTitle = args[++i]; continue; }
                 if (arg == "--tab" && i + 1 < args.Length) { int.TryParse(args[++i], out launch.PrefsTab); launch.Prefs = true; continue; }
                 if (arg == "--lab") { launch.Lab = true; continue; }
+                if (arg == "--save-probe") { launch.SaveProbe = true; continue; }
                 if (arg == "--scale" && i + 1 < args.Length) { double.TryParse(args[++i], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out launch.Scale); continue; }
                 if (arg.StartsWith("--", StringComparison.Ordinal)) continue;
                 if (File.Exists(arg)) launch.PlotPath = Path.GetFullPath(arg);

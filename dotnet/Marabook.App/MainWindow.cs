@@ -2006,13 +2006,21 @@ namespace Marabook.App
             _welcomeVeil.IsVisible = true;
             _shellRoot.IsEnabled = false;
             _welcome = new WelcomeWindow(this);
+            // Un clic sur le voile (hors du papier de l'accueil) ramène
+            // l'accueil devant — sans propriétaire, la coquille passait
+            // par-dessus et cachait le seul écran utilisable (27/09).
+            EventHandler<PointerPressedEventArgs> raise = delegate { if (_welcome != null) _welcome.Activate(); };
+            _welcomeVeil.PointerPressed += raise;
             _welcome.Closed += delegate
             {
+                _welcomeVeil.PointerPressed -= raise;
                 _welcome = null;
                 _welcomeVeil.IsVisible = false;
                 _shellRoot.IsEnabled = true;
             };
-            _welcome.Show();
+            // PROPRIÉTAIRE : la fenêtre d'accueil reste au-dessus de la
+            // coquille (fenêtre possédée), comme Owner = shell en WPF.
+            _welcome.Show(this);
         }
 
         /// <summary>La tuile « + » de l'accueil : un projet n'existe qu'une
@@ -2103,6 +2111,10 @@ namespace Marabook.App
 
         private bool _autosaveWarned; // un seul avertissement par panne de sauvegarde automatique
 
+        /// <summary>La dernière erreur d'enregistrement (pile complète), null
+        /// après une réussite — la sonde le lit.</summary>
+        public string LastSaveError;
+
         private void DoSave()
         {
             SaveProject(false);
@@ -2135,6 +2147,7 @@ namespace Marabook.App
                     PlotFile.Save(_project, _path);
                 });
                 _dirty = false;
+                LastSaveError = null;
                 DropRecovery(); // le .plot complet est à jour : le secours est périmé (18/09)
                 AppSettings.AddRecentFile(_path);
                 AppSettings.Save();
@@ -2152,17 +2165,28 @@ namespace Marabook.App
             }
             catch (Exception error)
             {
+                // La sonde lit l'échec ; la console garde la pile complète
+                // (un « Object reference… » sans pile ne dit rien, 27/09).
+                LastSaveError = error.ToString();
+                Console.Error.WriteLine("[enregistrement] " + error);
+                // Une erreur de programme (pas un fichier verrouillé) laisse un
+                // rapport comme un plantage : la pile y est, le message seul
+                // ne dit rien (« Object reference… », 27/09).
+                var report = error is IOException || error is UnauthorizedAccessException || (_launch != null && _launch.Isolated)
+                    ? null : CrashReport.Write(error, AppVersion, CrashContext());
+                var detail = error.Message + (report == null ? ""
+                    : "\n\nUn rapport a été écrit (Aide › Rapports de plantage) : joignez-le au signalement.");
                 if (silent)
                 {
                     if (_autosaveWarned) return;
                     _autosaveWarned = true;
                     ShowNotice(NoticeToast.Build("warning-bold", "Sauvegarde automatique impossible",
-                        error.Message + "\n\nLe secours continue d'écrire vos textes ; réessayez Fichier › Enregistrer quand le fichier sera libre.",
+                        detail + "\n\nLe secours continue d'écrire vos textes ; réessayez Fichier › Enregistrer quand le fichier sera libre.",
                         "Enregistrer maintenant", delegate { SaveProject(false); }, "Plus tard", null));
                     return;
                 }
                 MessageDialog.Show(this,
-                    "Impossible d'enregistrer le projet :\n" + error.Message,
+                    "Impossible d'enregistrer le projet :\n" + detail,
                     AppName, MessageButtons.OK, MessageIcon.Error);
             }
         }
