@@ -24,11 +24,11 @@ namespace Marabook.Tests
         /// elle est enregistrée, une valeur illisible rendue telle quelle.</summary>
         private static void DisplayDates(Harness t)
         {
-            t.Equal("12/09/2026 19:30", Marabook.View.Dates.Display("2026-09-12 19:30"), "date et heure");
-            t.Equal("12/09/2026 19:30", Marabook.View.Dates.Display("2026-09-12 19:30:45"), "les secondes tombent");
-            t.Equal("12/09/2026", Marabook.View.Dates.Display("2026-09-12"), "date seule");
-            t.Equal("", Marabook.View.Dates.Display(null), "vide reste vide");
-            t.Equal("hier soir", Marabook.View.Dates.Display("hier soir"), "une valeur illisible passe telle quelle");
+            t.Equal("12/09/2026 19:30", Marabook.Model.Dates.Display("2026-09-12 19:30"), "date et heure");
+            t.Equal("12/09/2026 19:30", Marabook.Model.Dates.Display("2026-09-12 19:30:45"), "les secondes tombent");
+            t.Equal("12/09/2026", Marabook.Model.Dates.Display("2026-09-12"), "date seule");
+            t.Equal("", Marabook.Model.Dates.Display(null), "vide reste vide");
+            t.Equal("hier soir", Marabook.Model.Dates.Display("hier soir"), "une valeur illisible passe telle quelle");
         }
 
         private static BinderItem Sheet(string title)

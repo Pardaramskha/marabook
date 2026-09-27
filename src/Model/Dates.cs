@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace Marabook.View
+namespace Marabook.Model
 {
     /// <summary>Les dates À L'ÉCRAN s'écrivent JJ/MM/AAAA (12/09/2026) ; les
     /// fichiers gardent leur forme triable « yyyy-MM-dd HH:mm[:ss] ».</summary>

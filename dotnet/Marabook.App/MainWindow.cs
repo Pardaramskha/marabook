@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -21,7 +23,7 @@ namespace Marabook.App
     /// rail, barre d'état — la géométrie de la fenêtre WPF, sur les trois OS.
     /// Ouvre un vrai .plot (PlotFile du cœur) et montre sa Pile ; le centre,
     /// l'inspecteur et le rail se peupleront lot après lot (P2, P3). Sans
-    /// projet, l'Accueil : titre, version, projets récents, Ouvrir.</summary>
+    /// projet, la fenêtre reste voilée sous l'écran d'accueil (WelcomeWindow).</summary>
     public class MainWindow : Window
     {
         private const double RailWidth = 44;
@@ -29,16 +31,29 @@ namespace Marabook.App
         private readonly Launch _launch;
         private Project _project;
         private string _projectPath;
+        private bool _dirty;
 
+        private DockPanel _shellRoot;
+        private Border _welcomeVeil;
+        private WelcomeWindow _welcome;
         private TreeView _binder;
-        private TextBlock _binderHeader;
         private Grid _center;
-        private Control _welcome;
         private TextBlock _placeholder;
         private TextBlock _inspectorTitle, _inspectorKind, _inspectorDetail;
         private TextBlock _statusLeft, _statusRight;
         private MenuItem _recentMenu;
         private StackPanel _railStack;
+        private PreferencesDialog _preferences;
+
+        // Exposé aux sondes.
+        public Project Project { get { return _project; } }
+        public TreeView Binder { get { return _binder; } }
+        public WelcomeWindow Welcome { get { return _welcome; } }
+        public string InspectorTitle { get { return _inspectorTitle.Text; } }
+        public string InspectorKind { get { return _inspectorKind.Text; } }
+        public string InspectorDetail { get { return _inspectorDetail.Text; } }
+        public string StatusText { get { return _statusLeft.Text; } }
+        public bool HasProjectPath { get { return _projectPath != null; } }
 
         public MainWindow(Launch launch)
         {
@@ -50,61 +65,155 @@ namespace Marabook.App
             MinHeight = 500;
             Background = Chrome.WindowBg;
             Foreground = Chrome.Ink;
-            if (_launch.CapturePath == null) WindowState = WindowState.Maximized;
+            if (!_launch.Isolated) WindowState = WindowState.Maximized;
             try { Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://Marabook/Assets/app.ico"))); }
             catch { }
 
-            var root = new DockPanel();
+            _shellRoot = new DockPanel();
             var menu = BuildMenuBar();
             DockPanel.SetDock(menu, Dock.Top);
-            root.Children.Add(menu);
+            _shellRoot.Children.Add(menu);
             var status = BuildStatusBar();
             DockPanel.SetDock(status, Dock.Bottom);
-            root.Children.Add(status);
-            root.Children.Add(BuildContent());
-            Content = root;
+            _shellRoot.Children.Add(status);
+            _shellRoot.Children.Add(BuildContent());
+            // Le voile de l'accueil : à l'ouverture sans projet, la fenêtre
+            // reste vide — blanc cassé — sous la fenêtre d'accueil.
+            _welcomeVeil = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0xFA, 0xF9, 0xF6)),
+                IsVisible = false
+            };
+            var shell = new Grid();
+            shell.Children.Add(_shellRoot);
+            shell.Children.Add(_welcomeVeil);
+            Content = shell;
 
             Opened += async delegate
             {
                 if (_launch.PlotPath != null) await OpenProject(_launch.PlotPath);
-                else if (_launch.Demo) await ShowProject(SampleProject(), null, new List<string>());
+                else if (_launch.Demo || _launch.Probe) await ShowProject(SampleProject(), null, new List<string>());
                 else ShowWelcome();
+                if (_launch.Probe) { await Probes.Run(this); Close(); return; }
                 if (_launch.CapturePath != null) await CaptureAndQuit(_launch.CapturePath);
+                else if (_launch.Lab) BuildLab().Show(this);
+            };
+            Closing += delegate
+            {
+                if (_welcome != null) _welcome.Release();
             };
         }
 
         // ============================================================ menus
 
+        private sealed class DelegateCommand : ICommand
+        {
+            private readonly Action _run;
+            public DelegateCommand(Action run) { _run = run; }
+            public event EventHandler CanExecuteChanged { add { } remove { } }
+            public bool CanExecute(object parameter) { return true; }
+            public void Execute(object parameter) { _run(); }
+        }
+
         private Menu BuildMenuBar()
         {
             var menu = new Menu { Background = Chrome.BarBg };
             var file = new MenuItem { Header = "_Fichier" };
-            file.Items.Add(Entry("Nouveau projet…", "Ctrl+N", delegate { var _ = NewProject(); }));
-            file.Items.Add(Entry("Ouvrir…", "Ctrl+O", delegate { var _ = OpenProjectDialog(); }));
+            file.Items.Add(Entry("new", "Nouveau projet", delegate { var _ = NewProject(); }));
+            file.Items.Add(Entry("open", "Ouvrir…", delegate { var _ = OpenProjectDialog(); }));
             _recentMenu = new MenuItem { Header = "Projets récents" };
             file.Items.Add(_recentMenu);
             file.Items.Add(new Separator());
-            file.Items.Add(Entry("Fermer le projet", null, CloseProject));
+            file.Items.Add(Entry("save", "Enregistrer", delegate { var _ = SaveProject(false); }));
+            file.Items.Add(Entry("save-as", "Enregistrer sous…", delegate { var _ = SaveProject(true); }));
             file.Items.Add(new Separator());
-            file.Items.Add(Entry("Quitter", "Alt+F4", delegate { Close(); }));
+            file.Items.Add(Entry("preferences", "Préférences…", OpenPreferences));
+            file.Items.Add(new Separator());
+            file.Items.Add(Later("print", "Imprimer…", "l'éditeur (lot P2)"));
+            file.Items.Add(new Separator());
+            var importMenu = new MenuItem { Header = "Importer" };
+            importMenu.Items.Add(Later("import-docs", "Des documents…", "les vues (lot P3)"));
+            importMenu.Items.Add(Later("import-scrivener", "Un projet Scrivener…", "les vues (lot P3)"));
+            file.Items.Add(importMenu);
+            var exportMenu = new MenuItem { Header = "Exporter" };
+            exportMenu.Items.Add(Later("export-item", "L'écrit sélectionné…", "les vues (lot P3)"));
+            exportMenu.Items.Add(Later("compile", "Compiler les écrits…", "les vues (lot P3)"));
+            exportMenu.Items.Add(Later("export-pdf", "PDF prêt à imprimer…", "l'éditeur (lot P2)"));
+            exportMenu.Items.Add(Later("export-epub", "EPUB du livre ou de l'écrit…", "les vues (lot P3)"));
+            file.Items.Add(exportMenu);
+            file.Items.Add(new Separator());
+            file.Items.Add(Entry("close-project", "Fermer le projet", CloseProject));
+            file.Items.Add(Entry(null, "Quitter", delegate { Close(); }));
             menu.Items.Add(file);
 
+            var edit = new MenuItem { Header = "É_dition" };
+            edit.Items.Add(Later("undo", "Annuler", "l'éditeur (lot P2)"));
+            edit.Items.Add(Later("redo", "Rétablir", "l'éditeur (lot P2)"));
+            edit.Items.Add(new Separator());
+            edit.Items.Add(Later("find", "Rechercher dans l'écrit…", "l'éditeur (lot P2)"));
+            edit.Items.Add(Later("project-search", "Rechercher dans le projet…", "les vues (lot P3)"));
+            edit.Items.Add(Later("versions-panel", "Versions de l'écrit…", "les vues (lot P3)"));
+            edit.Items.Add(new Separator());
+            edit.Items.Add(Entry("new-text", "Nouvel écrit", delegate { var _ = NewItem(ItemKind.Text); }));
+            edit.Items.Add(Entry("new-sheet", "Nouvelle fiche", delegate { var _ = NewItem(ItemKind.Sheet); }));
+            edit.Items.Add(Entry("new-folder", "Nouveau dossier", delegate { var _ = NewItem(ItemKind.Folder); }));
+            edit.Items.Add(Entry("rename", "Renommer…", delegate { var _ = RenameSelected(); }));
+            edit.Items.Add(Entry("delete", "Supprimer", delegate { var _ = DeleteSelected(); }));
+            menu.Items.Add(edit);
+
+            var format = new MenuItem { Header = "F_ormat" };
+            format.Items.Add(Later("styles", "Gérer les styles…", "les vues (lot P3)"));
+            format.Items.Add(Later("templates", "Modèles de fiches…", "les vues (lot P3)"));
+            format.Items.Add(new Separator());
+            format.Items.Add(Later("insert-footnote", "Note de bas de page", "l'éditeur (lot P2)"));
+            format.Items.Add(Later("insert-link", "Lien vers une fiche…", "l'éditeur (lot P2)"));
+            format.Items.Add(Later("insert-image", "Insérer une image…", "l'éditeur (lot P2)"));
+            menu.Items.Add(format);
+
             var view = new MenuItem { Header = "_Affichage" };
-            view.Items.Add(Entry("Basculer le thème sombre", null, delegate { SwitchTheme(!Chrome.Dark); }));
+            view.Items.Add(Entry("toggle-binder", "Pile", ToggleBinder));
+            view.Items.Add(Entry("toggle-inspector", "Général", ToggleInspector));
+            view.Items.Add(new Separator());
+            view.Items.Add(Entry("dark-theme", "Thème sombre", ToggleDarkTheme));
             menu.Items.Add(view);
 
             var help = new MenuItem { Header = "Aid_e" };
-            help.Items.Add(Entry("À propos de Marabook", null, delegate { var _ = About(); }));
+            help.Items.Add(Later(null, "Vérifier les mises à jour…", "la livraison (lot P4)"));
+            help.Items.Add(new Separator());
+            help.Items.Add(Entry(null, "À propos de Marabook…", delegate { var _ = About(); }));
             menu.Items.Add(help);
             RebuildRecentMenu();
             return menu;
         }
 
-        private static MenuItem Entry(string header, string gesture, Action handler)
+        /// <summary>Une entrée de menu liée à une action de la table des
+        /// raccourcis : le geste affiché et posé sur la fenêtre.</summary>
+        private MenuItem Entry(string actionId, string header, Action handler)
         {
             var item = new MenuItem { Header = header };
-            if (gesture != null) item.InputGesture = Avalonia.Input.KeyGesture.Parse(gesture);
             item.Click += delegate { handler(); };
+            if (actionId != null)
+            {
+                var gesture = AppSettings.Gesture(actionId);
+                if (!string.IsNullOrEmpty(gesture))
+                {
+                    try
+                    {
+                        var parsed = KeyGesture.Parse(gesture);
+                        item.InputGesture = parsed;
+                        KeyBindings.Add(new KeyBinding { Gesture = parsed, Command = new DelegateCommand(handler) });
+                    }
+                    catch { }
+                }
+            }
+            return item;
+        }
+
+        /// <summary>Une entrée qui attend son lot : grisée, l'infobulle dit lequel.</summary>
+        private MenuItem Later(string actionId, string header, string when)
+        {
+            var item = new MenuItem { Header = header, IsEnabled = false };
+            ToolTip.SetTip(item, "Arrive avec " + when);
             return item;
         }
 
@@ -126,6 +235,8 @@ namespace Marabook.App
 
         // ============================================================ contenu
 
+        private Border _binderHost, _inspectorHost;
+
         private Control BuildContent()
         {
             var grid = new Grid();
@@ -137,14 +248,14 @@ namespace Marabook.App
             grid.ColumnDefinitions.Add(new ColumnDefinition(RailWidth, GridUnitType.Pixel));
 
             // La Pile
-            var binderHost = new Border
+            _binderHost = new Border
             {
                 Background = Chrome.BarBgLight,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(0, 0, 1, 0)
             };
             var binderDock = new DockPanel();
-            _binderHeader = new TextBlock
+            var binderHeader = new TextBlock
             {
                 Text = "Pile",
                 Foreground = Chrome.FaintText,
@@ -152,8 +263,8 @@ namespace Marabook.App
                 FontWeight = FontWeight.SemiBold,
                 Margin = new Thickness(12, 10, 12, 6)
             };
-            DockPanel.SetDock(_binderHeader, Dock.Top);
-            binderDock.Children.Add(_binderHeader);
+            DockPanel.SetDock(binderHeader, Dock.Top);
+            binderDock.Children.Add(binderHeader);
             _binder = new TreeView
             {
                 Background = Brushes.Transparent,
@@ -163,9 +274,9 @@ namespace Marabook.App
             };
             _binder.SelectionChanged += delegate { ShowInspector(_binder.SelectedItem as BinderItem); };
             binderDock.Children.Add(_binder);
-            binderHost.Child = binderDock;
-            Grid.SetColumn(binderHost, 0);
-            grid.Children.Add(binderHost);
+            _binderHost.Child = binderDock;
+            Grid.SetColumn(_binderHost, 0);
+            grid.Children.Add(_binderHost);
 
             var binderSplit = new GridSplitter { Width = 6, ResizeDirection = GridResizeDirection.Columns, Background = Chrome.WindowBg };
             Grid.SetColumn(binderSplit, 1);
@@ -190,12 +301,10 @@ namespace Marabook.App
             Grid.SetColumn(inspectorSplit, 3);
             grid.Children.Add(inspectorSplit);
 
-            // L'inspecteur (le Général)
-            var inspector = BuildInspector();
-            Grid.SetColumn(inspector, 4);
-            grid.Children.Add(inspector);
+            _inspectorHost = BuildInspector();
+            Grid.SetColumn(_inspectorHost, 4);
+            grid.Children.Add(_inspectorHost);
 
-            // Le rail
             var rail = BuildRail();
             Grid.SetColumn(rail, 5);
             grid.Children.Add(rail);
@@ -255,27 +364,11 @@ namespace Marabook.App
         private Border BuildInspector()
         {
             var panel = new StackPanel { Margin = new Thickness(14) };
-            _inspectorTitle = new TextBlock
-            {
-                Foreground = Chrome.Ink,
-                FontSize = 15,
-                FontWeight = FontWeight.SemiBold,
-                TextWrapping = TextWrapping.Wrap
-            };
+            _inspectorTitle = new TextBlock { Foreground = Chrome.Ink, FontSize = 15, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap };
             panel.Children.Add(_inspectorTitle);
-            _inspectorKind = new TextBlock
-            {
-                Foreground = Chrome.SoftText,
-                FontSize = 12,
-                Margin = new Thickness(0, 2, 0, 12)
-            };
+            _inspectorKind = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(0, 2, 0, 12) };
             panel.Children.Add(_inspectorKind);
-            _inspectorDetail = new TextBlock
-            {
-                Foreground = Chrome.SoftText,
-                FontSize = 12,
-                TextWrapping = TextWrapping.Wrap
-            };
+            _inspectorDetail = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap };
             panel.Children.Add(_inspectorDetail);
             return new Border
             {
@@ -324,13 +417,7 @@ namespace Marabook.App
             };
             DockPanel.SetDock(_statusRight, Dock.Right);
             dock.Children.Add(_statusRight);
-            _statusLeft = new TextBlock
-            {
-                Text = "Aucun projet ouvert",
-                Foreground = Chrome.SoftText,
-                FontSize = 11,
-                VerticalAlignment = VerticalAlignment.Center
-            };
+            _statusLeft = new TextBlock { Text = "Aucun projet ouvert", Foreground = Chrome.SoftText, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
             dock.Children.Add(_statusLeft);
             return new Border
             {
@@ -344,120 +431,102 @@ namespace Marabook.App
 
         // ============================================================ l'Accueil
 
-        /// <summary>Sans projet : le titre, la version, les projets récents et
-        /// les deux gestes — au centre, à la place de l'écrit.</summary>
+        /// <summary>Sans projet : la coquille se voile et se désactive, la
+        /// fenêtre d'accueil se pose dessus.</summary>
         private void ShowWelcome()
         {
-            if (_welcome != null) _center.Children.Remove(_welcome);
-            var card = new StackPanel { MinWidth = 320, MaxWidth = 520, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
-            card.Children.Add(new TextBlock
-            {
-                Text = AppInfo.Name,
-                FontSize = 34,
-                FontWeight = FontWeight.SemiBold,
-                Foreground = Chrome.Ink,
-                HorizontalAlignment = HorizontalAlignment.Center
-            });
-            card.Children.Add(new TextBlock
-            {
-                Text = "version " + AppInfo.Version + " · portage Avalonia, lot P1",
-                FontSize = 12,
-                Foreground = Chrome.FaintText,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 2, 0, 22)
-            });
-            var recents = new StackPanel { Margin = new Thickness(0, 0, 0, 16) };
-            var any = false;
-            foreach (var path in AppSettings.RecentFiles)
-            {
-                if (!File.Exists(path)) continue;
-                any = true;
-                var captured = path;
-                var tile = Buttons.IconText("book-bold", Path.GetFileNameWithoutExtension(path), path, Buttons.Bar, Buttons.Look.Outline);
-                tile.HorizontalAlignment = HorizontalAlignment.Stretch;
-                tile.HorizontalContentAlignment = HorizontalAlignment.Left;
-                tile.Margin = new Thickness(0, 0, 0, 6);
-                tile.Click += delegate { var _ = OpenProject(captured); };
-                recents.Children.Add(tile);
-            }
-            if (any)
-            {
-                card.Children.Add(new TextBlock { Text = "Projets récents", Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(0, 0, 0, 6) });
-                card.Children.Add(recents);
-            }
-            var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            var open = Buttons.IconText("folder-open", "Ouvrir un projet…", "Un fichier .plot", Buttons.Bar, Buttons.Look.Outline);
-            open.Click += delegate { var _ = OpenProjectDialog(); };
-            var create = Buttons.IconText("file-dashed-bold", "Nouveau projet", "Un projet neuf, enregistré tout de suite", Buttons.Bar, Buttons.Look.Primary);
-            create.Margin = new Thickness(10, 0, 0, 0);
-            create.Click += delegate { var _ = NewProject(); };
-            row.Children.Add(open);
-            row.Children.Add(create);
-            card.Children.Add(row);
-            _welcome = new Border
-            {
-                Background = Chrome.RaisedBg,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(10),
-                Padding = new Thickness(36, 32, 36, 32),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                Child = card
-            };
-            _placeholder.IsVisible = false;
-            _center.Children.Add(_welcome);
+            _welcomeVeil.IsVisible = true;
+            _shellRoot.IsEnabled = false;
+            if (_welcome != null) return;
+            _welcome = new WelcomeWindow(this);
+            _welcome.Closed += delegate { _welcome = null; };
+            _welcome.Show(this);
         }
 
         private void HideWelcome()
         {
-            if (_welcome != null) { _center.Children.Remove(_welcome); _welcome = null; }
-            _placeholder.IsVisible = true;
+            _welcomeVeil.IsVisible = false;
+            _shellRoot.IsEnabled = true;
+            if (_welcome != null) _welcome.Release();
+            _welcome = null;
+        }
+
+        /// <summary>Le sélecteur de fichier .plot (l'accueil et le menu).</summary>
+        public async Task<string> AskProjectFile(Window owner)
+        {
+            var files = await (owner ?? this).StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Ouvrir un projet Marabook",
+                AllowMultiple = false,
+                FileTypeFilter = new List<FilePickerFileType> { new FilePickerFileType("Projet Marabook") { Patterns = new[] { "*.plot" } } }
+            });
+            if (files == null || files.Count == 0) return null;
+            return files[0].TryGetLocalPath();
+        }
+
+        /// <summary>Un projet neuf, enregistré tout de suite ; vrai s'il est ouvert.</summary>
+        public async Task<bool> NewProjectWithSaveDialog(Window owner)
+        {
+            var file = await (owner ?? this).StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Enregistrer le nouveau projet",
+                SuggestedFileName = "Nouveau roman",
+                DefaultExtension = "plot",
+                FileTypeChoices = new List<FilePickerFileType> { new FilePickerFileType("Projet Marabook") { Patterns = new[] { "*.plot" } } }
+            });
+            if (file == null) return false;
+            var path = file.TryGetLocalPath();
+            if (path == null) return false;
+            try
+            {
+                var project = Project.CreateNew();
+                PlotFile.Save(project, path);
+                await OpenProject(path);
+                return _projectPath == path;
+            }
+            catch (Exception error)
+            {
+                await MessageDialog.Show(owner ?? this, "Le projet n'a pas pu être créé :\n" + error.Message, AppInfo.Name, MessageButtons.OK, MessageIcon.Error);
+                return false;
+            }
+        }
+
+        /// <summary>La lecture du fichier en fond (l'accueil montre l'attente),
+        /// puis le projet posé sur la coquille ; done(vrai) s'il est ouvert.</summary>
+        public void OpenFileInBackground(string path, Action<bool> done)
+        {
+            Task.Run(delegate
+            {
+                var warnings = new List<string>();
+                Project project = null;
+                Exception failure = null;
+                try { project = PlotFile.Load(path, warnings); }
+                catch (Exception error) { failure = error; }
+                Dispatcher.UIThread.Post(async delegate
+                {
+                    if (failure != null)
+                    {
+                        await MessageDialog.Show(_welcome != null ? (Window)_welcome : this, "Le projet n'a pas pu être ouvert :\n" + failure.Message, AppInfo.Name, MessageButtons.OK, MessageIcon.Error);
+                        done(false);
+                        return;
+                    }
+                    await ShowProject(project, path, warnings);
+                    done(_projectPath == path);
+                });
+            });
         }
 
         // ============================================================ projet
 
         private async Task OpenProjectDialog()
         {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = "Ouvrir un projet Marabook",
-                AllowMultiple = false,
-                FileTypeFilter = new List<FilePickerFileType>
-                {
-                    new FilePickerFileType("Projet Marabook") { Patterns = new[] { "*.plot" } }
-                }
-            });
-            if (files == null || files.Count == 0) return;
-            var path = files[0].TryGetLocalPath();
+            var path = await AskProjectFile(this);
             if (path != null) await OpenProject(path);
         }
 
         private async Task NewProject()
         {
-            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-            {
-                Title = "Enregistrer le nouveau projet",
-                SuggestedFileName = "Nouveau roman",
-                DefaultExtension = "plot",
-                FileTypeChoices = new List<FilePickerFileType>
-                {
-                    new FilePickerFileType("Projet Marabook") { Patterns = new[] { "*.plot" } }
-                }
-            });
-            if (file == null) return;
-            var path = file.TryGetLocalPath();
-            if (path == null) return;
-            try
-            {
-                var project = Project.CreateNew();
-                PlotFile.Save(project, path);
-                await OpenProject(path);
-            }
-            catch (Exception error)
-            {
-                await MessageDialog.Show(this, "Le projet n'a pas pu être créé :\n" + error.Message, AppInfo.Name, MessageButtons.OK, MessageIcon.Error);
-            }
+            await NewProjectWithSaveDialog(this);
         }
 
         private async Task OpenProject(string path)
@@ -476,7 +545,7 @@ namespace Marabook.App
 
         /// <summary>Un projet d'exemple, en mémoire : ce que montre la fenêtre
         /// pour les captures et les sondes, sans toucher au disque.</summary>
-        private static Project SampleProject()
+        public static Project SampleProject()
         {
             var project = Project.CreateNew();
             var writings = project.Category(Project.KeyWritings);
@@ -515,9 +584,10 @@ namespace Marabook.App
             {
                 _project = project;
                 _projectPath = path;
+                _dirty = false;
                 HideWelcome();
+                _binder.ItemsSource = null;
                 _binder.ItemsSource = project.Roots;
-                // Les racines s'ouvrent une fois leurs conteneurs bâtis.
                 Dispatcher.UIThread.Post(delegate
                 {
                     foreach (var root in project.Roots)
@@ -526,10 +596,15 @@ namespace Marabook.App
                         if (container != null) container.IsExpanded = true;
                     }
                 }, DispatcherPriority.Loaded);
-                Title = (path != null ? Path.GetFileNameWithoutExtension(path) : "Projet d'exemple") + " — " + AppInfo.Name;
-                var items = 0;
-                foreach (var item in project.AllItems()) items++;
-                _statusLeft.Text = (path ?? "projet d'exemple, en mémoire") + "  ·  " + items + " éléments";
+                if (path != null)
+                {
+                    AppSettings.RecentFiles.Remove(path);
+                    AppSettings.RecentFiles.Insert(0, path);
+                    while (AppSettings.RecentFiles.Count > 5) AppSettings.RecentFiles.RemoveAt(AppSettings.RecentFiles.Count - 1);
+                    if (!_launch.Isolated) AppSettings.Save();
+                    RebuildRecentMenu();
+                }
+                RefreshTitle();
                 ShowInspector(null);
                 if (warnings.Count > 0)
                     await MessageDialog.Show(this, string.Join("\n", warnings), "Réserves à l'ouverture", MessageButtons.OK, MessageIcon.Warning);
@@ -540,15 +615,151 @@ namespace Marabook.App
             }
         }
 
+        private void RefreshTitle()
+        {
+            if (_project == null)
+            {
+                Title = AppInfo.Name;
+                _statusLeft.Text = "Aucun projet ouvert";
+                return;
+            }
+            var name = _projectPath != null ? Path.GetFileNameWithoutExtension(_projectPath) : "Projet d'exemple";
+            Title = name + (_dirty ? " *" : "") + " — " + AppInfo.Name;
+            var items = 0;
+            foreach (var item in _project.AllItems()) items++;
+            _statusLeft.Text = (_projectPath ?? "projet d'exemple, en mémoire") + "  ·  " + items + " éléments" + (_dirty ? "  ·  modifié" : "");
+        }
+
+        private void MarkDirty()
+        {
+            _dirty = true;
+            RefreshTitle();
+        }
+
+        private async Task SaveProject(bool ask)
+        {
+            if (_project == null) return;
+            var path = _projectPath;
+            if (ask || path == null)
+            {
+                var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                {
+                    Title = "Enregistrer le projet",
+                    SuggestedFileName = path != null ? Path.GetFileName(path) : "Nouveau roman.plot",
+                    DefaultExtension = "plot",
+                    FileTypeChoices = new List<FilePickerFileType> { new FilePickerFileType("Projet Marabook") { Patterns = new[] { "*.plot" } } }
+                });
+                if (file == null) return;
+                path = file.TryGetLocalPath();
+                if (path == null) return;
+            }
+            try
+            {
+                PlotFile.Save(_project, path);
+                _projectPath = path;
+                _dirty = false;
+                RefreshTitle();
+            }
+            catch (Exception error)
+            {
+                await MessageDialog.Show(this, "Le projet n'a pas pu être enregistré :\n" + error.Message, AppInfo.Name, MessageButtons.OK, MessageIcon.Error);
+            }
+        }
+
         private void CloseProject()
         {
             _project = null;
             _projectPath = null;
+            _dirty = false;
             _binder.ItemsSource = null;
-            Title = AppInfo.Name;
-            _statusLeft.Text = "Aucun projet ouvert";
+            RefreshTitle();
             ShowInspector(null);
             ShowWelcome();
+        }
+
+        public void CloseProjectPublic() { CloseProject(); }
+
+        // ------------------------------------------------------------ la Pile (P1 : le minimum)
+
+        private BinderItem SelectedItem { get { return _binder.SelectedItem as BinderItem; } }
+
+        private async Task NewItem(ItemKind kind)
+        {
+            if (_project == null) return;
+            var selected = SelectedItem;
+            BinderItem parent;
+            if (kind == ItemKind.Sheet)
+                parent = selected != null && (selected.CategoryKey == Project.KeySheets || (selected.Kind == ItemKind.Folder && RootOf(selected).CategoryKey == Project.KeySheets))
+                    ? selected : _project.Category(Project.KeySheets);
+            else
+                parent = selected != null && (selected.Kind == ItemKind.Folder || selected.Kind == ItemKind.Book || selected.CategoryKey == Project.KeyWritings)
+                    ? selected : _project.Category(Project.KeyWritings);
+            var label = kind == ItemKind.Sheet ? "Nouvelle fiche" : kind == ItemKind.Folder ? "Nouveau dossier" : "Nouvel écrit";
+            var title = await InputDialog.Ask(this, label, "Titre :", label);
+            if (title == null) return;
+            var item = new BinderItem { Title = title, Kind = kind, Parent = parent };
+            parent.Children.Add(item);
+            RefreshBinder();
+            _binder.SelectedItem = item;
+            MarkDirty();
+        }
+
+        private static BinderItem RootOf(BinderItem item)
+        {
+            while (item.Parent != null) item = item.Parent;
+            return item;
+        }
+
+        private async Task RenameSelected()
+        {
+            var item = SelectedItem;
+            if (item == null || item.IsCategory) return;
+            var title = await InputDialog.Ask(this, "Renommer", "Nouveau titre :", item.Title);
+            if (title == null || title == item.Title) return;
+            item.Title = title;
+            RefreshBinder();
+            _binder.SelectedItem = item;
+            ShowInspector(item);
+            MarkDirty();
+        }
+
+        private async Task DeleteSelected()
+        {
+            var item = SelectedItem;
+            if (item == null || item.IsCategory || item.Parent == null || _project == null) return;
+            var trash = _project.Trash;
+            var inTrash = RootOf(item) == trash;
+            if (inTrash)
+            {
+                var answer = await MessageDialog.Show(this, "Supprimer définitivement « " + item.Title + " » ?", "Corbeille", MessageButtons.YesNo, MessageIcon.Warning);
+                if (answer != MessageResult.Yes) return;
+                item.Parent.Children.Remove(item);
+            }
+            else
+            {
+                item.Parent.Children.Remove(item);
+                item.Parent = trash;
+                trash.Children.Add(item);
+            }
+            RefreshBinder();
+            MarkDirty();
+        }
+
+        /// <summary>L'arbre se rebâtit sur la même liste (les racines).</summary>
+        private void RefreshBinder()
+        {
+            if (_project == null) return;
+            var roots = _project.Roots;
+            _binder.ItemsSource = null;
+            _binder.ItemsSource = roots;
+            Dispatcher.UIThread.Post(delegate
+            {
+                foreach (var root in roots)
+                {
+                    var container = _binder.TreeContainerFromItem(root) as TreeViewItem;
+                    if (container != null) container.IsExpanded = true;
+                }
+            }, DispatcherPriority.Loaded);
         }
 
         private void ShowInspector(BinderItem item)
@@ -590,13 +801,32 @@ namespace Marabook.App
             }
         }
 
-        // ============================================================ thème, à propos, capture
+        // ============================================================ affichage, préférences, à propos
 
-        private void SwitchTheme(bool dark)
+        private void ToggleBinder()
         {
-            Chrome.Toggle(dark);
-            Application.Current.RequestedThemeVariant = dark
-                ? Avalonia.Styling.ThemeVariant.Dark : Avalonia.Styling.ThemeVariant.Light;
+            _binderHost.IsVisible = !_binderHost.IsVisible;
+        }
+
+        private void ToggleInspector()
+        {
+            _inspectorHost.IsVisible = !_inspectorHost.IsVisible;
+        }
+
+        private void ToggleDarkTheme()
+        {
+            AppSettings.DarkTheme = !AppSettings.DarkTheme;
+            if (!_launch.Isolated) AppSettings.Save();
+            App.ApplyTheme(AppSettings.DarkTheme);
+        }
+
+        private void OpenPreferences()
+        {
+            if (_preferences != null) { _preferences.Activate(); return; }
+            _preferences = new PreferencesDialog(this, _project);
+            _preferences.AppearanceChanged += delegate { App.ApplyTheme(AppSettings.DarkTheme); };
+            _preferences.Closed += delegate { _preferences = null; };
+            _preferences.Show(this);
         }
 
         private async Task About()
@@ -608,17 +838,45 @@ namespace Marabook.App
                 "À propos de " + AppInfo.Name, MessageButtons.OK, MessageIcon.Information);
         }
 
-        /// <summary>La sonde visuelle : la fenêtre rendue en PNG une fois la
-        /// mise en page posée, puis l'application quitte.</summary>
+        /// <summary>La fenêtre de diagnostic du rendu (« --lab ») : le même
+        /// texte dans des conteneurs différents, pour voir lequel l'abîme.</summary>
+        private Window BuildLab()
+        {
+            var panel = new StackPanel { Margin = new Thickness(20), Spacing = 10 };
+            panel.Children.Add(new TextBlock { Text = "1. TextBlock nu : Boutons, sélections, liens" });
+            panel.Children.Add(new ScrollViewer { Content = new TextBlock { Text = "2. Dans un ScrollViewer : Boutons, sélections, liens" }, Height = 30 });
+            var tabs = new TabControl();
+            tabs.Items.Add(new TabItem { Header = "Onglet", Content = new TextBlock { Text = "3. Dans un TabControl : Boutons, sélections, liens" } });
+            panel.Children.Add(tabs);
+            panel.Children.Add(new CheckBox { Content = "4. Libellé de case : Boutons, sélections, liens" });
+            panel.Children.Add(new TextBlock { Text = "5. TextBlock Wrap : Boutons, sélections, liens", TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = "6. TextBlock FontSize 12 SoftText : Boutons, sélections, liens", FontSize = 12, Foreground = Chrome.SoftText });
+            var stackInGrid = new Grid();
+            stackInGrid.Children.Add(new TextBlock { Text = "7. Dans un Grid : Boutons, sélections, liens" });
+            panel.Children.Add(stackInGrid);
+            var dock = new DockPanel();
+            dock.Children.Add(new TextBlock { Text = "8. Dans un DockPanel : Boutons, sélections, liens" });
+            panel.Children.Add(dock);
+            return new Window { Title = "Lab", Width = 700, Height = 420, Background = Chrome.RaisedBg, Content = panel };
+        }
+
+        /// <summary>La sonde visuelle : la fenêtre (ou l'accueil posé dessus)
+        /// rendue en PNG une fois la mise en page posée, puis l'application quitte.</summary>
         private async Task CaptureAndQuit(string path)
         {
-            await Task.Delay(400);
+            if (_launch.Prefs) { OpenPreferences(); await Task.Delay(300); }
+            Window lab = null;
+            if (_launch.Lab) { lab = BuildLab(); lab.Show(this); await Task.Delay(300); }
+            await Task.Delay(500);
             await Dispatcher.UIThread.InvokeAsync(delegate { }, DispatcherPriority.Render);
             try
             {
-                var content = (Control)Content;
-                var size = new PixelSize(Math.Max(1, (int)content.Bounds.Width), Math.Max(1, (int)content.Bounds.Height));
-                using (var bitmap = new RenderTargetBitmap(size, new Vector(96, 96)))
+                Control content = lab != null ? (Control)lab.Content
+                    : _preferences != null ? (Control)_preferences.Content
+                    : _welcome != null ? (Control)_welcome.Content : (Control)Content;
+                var scale = _launch.Scale > 0 ? _launch.Scale : 1;
+                var size = new PixelSize(Math.Max(1, (int)(content.Bounds.Width * scale)), Math.Max(1, (int)(content.Bounds.Height * scale)));
+                using (var bitmap = new RenderTargetBitmap(size, new Vector(96 * scale, 96 * scale)))
                 {
                     bitmap.Render(content);
                     Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));

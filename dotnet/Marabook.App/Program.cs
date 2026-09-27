@@ -5,10 +5,13 @@ using Avalonia;
 namespace Marabook.App
 {
     /// <summary>Le point d'entrée de Marabook sur Avalonia (P1). Arguments :
-    /// un chemin .plot (ouvert au démarrage), et pour les sondes
-    /// « --capture &lt;png&gt; » — la fenêtre principale se rend en PNG une
-    /// fois posée, puis quitte : la preuve visuelle sur chaque OS, sans
-    /// bureau ni focus à voler.</summary>
+    /// un chemin .plot (ouvert au démarrage) ; pour les sondes et captures :
+    /// « --demo » (un projet d'exemple en mémoire), « --capture &lt;png&gt; »
+    /// (la fenêtre rendue en PNG une fois posée, puis quitte), « --probe »
+    /// (les vérifications de la sonde, OK/ÉCHEC sur la sortie, code de retour
+    /// = échecs), « --dark », « --settings &lt;fichier&gt; ». Toute exécution
+    /// de sonde ou de capture lit des réglages NEUFS dans un fichier
+    /// temporaire : jamais ceux de l'utilisateur.</summary>
     public static class Program
     {
         public static string[] Args = new string[0];
@@ -17,7 +20,8 @@ namespace Marabook.App
         public static int Main(string[] args)
         {
             Args = args ?? new string[0];
-            return BuildAvaloniaApp().StartWithClassicDesktopLifetime(Args);
+            var code = BuildAvaloniaApp().StartWithClassicDesktopLifetime(Args);
+            return Probes.Failures > 0 ? Probes.Failures : code;
         }
 
         /// <summary>La configuration Avalonia (aussi lue par le concepteur et
@@ -38,6 +42,14 @@ namespace Marabook.App
         public string PlotPath;     // un projet à ouvrir
         public string CapturePath;  // rendre la fenêtre en PNG puis quitter
         public bool Demo;           // un projet d'exemple en mémoire (sondes, captures)
+        public bool Probe;          // la sonde en place, puis quitter
+        public bool Dark;           // thème sombre forcé (captures)
+        public bool Prefs;          // la capture montre les Préférences
+        public bool Lab;            // la capture montre la fenêtre de diagnostic du rendu
+        public double Scale = 1;    // l'échelle de la capture (2 = pixels doublés)
+        public string SettingsPath; // un settings.json à part
+
+        public bool Isolated { get { return Demo || Probe || CapturePath != null; } }
 
         public static Launch Parse(string[] args)
         {
@@ -46,10 +58,18 @@ namespace Marabook.App
             {
                 var arg = args[i];
                 if (arg == "--capture" && i + 1 < args.Length) { launch.CapturePath = args[++i]; continue; }
+                if (arg == "--settings" && i + 1 < args.Length) { launch.SettingsPath = args[++i]; continue; }
                 if (arg == "--demo") { launch.Demo = true; continue; }
+                if (arg == "--probe") { launch.Probe = true; continue; }
+                if (arg == "--dark") { launch.Dark = true; continue; }
+                if (arg == "--prefs") { launch.Prefs = true; continue; }
+                if (arg == "--lab") { launch.Lab = true; continue; }
+                if (arg == "--scale" && i + 1 < args.Length) { double.TryParse(args[++i], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out launch.Scale); continue; }
                 if (arg.StartsWith("--", StringComparison.Ordinal)) continue;
                 if (File.Exists(arg)) launch.PlotPath = Path.GetFullPath(arg);
             }
+            if (launch.SettingsPath == null && launch.Isolated)
+                launch.SettingsPath = Path.Combine(Path.GetTempPath(), "marabook-sonde-" + Guid.NewGuid().ToString("N") + ".json");
             return launch;
         }
     }
