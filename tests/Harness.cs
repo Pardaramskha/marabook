@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace Marabook.Tests
@@ -99,9 +99,7 @@ namespace Marabook.Tests
                 TokenizerTests.Run,      // C7 — le tokeniseur français unique
                 SpellTests.Run,          // C8 — l'orthographe (Hunspell maison)
                 GrammarBridgeTests.Run,  // C9 — pont Grammalecte (offsets, trames)
-#if !MARABOOK_CORE
-                MarkdownTests.Run,       // C10 — markdown des fiches, catégories (rendu de la vue)
-#endif
+                MarkdownTests.Run,       // C10 — markdown des fiches, catégories (le dialecte est dans le cœur)
                 LexiconTests.Run,        // C11 — dictionnaire personnel à natures (b33)
 #if !MARABOOK_CORE
                 ThemeTests.Run,          // C12 — les palettes se parsent (b34)
@@ -138,9 +136,7 @@ namespace Marabook.Tests
                 GrammarFilterTests.Run,  // C40 — second regard sur Grammalecte (23/09)
                 Patch050Tests.Run,       // C41 — patch 0.50.0 : sélection par mot, format d'insertion, notes riches (25/09)
                 ImagesTests.Run,         // C42 — refonte des images (26/09)
-#if !MARABOOK_CORE
-                FontPrefsTests.Run,      // C43 — catalogue de polices (26/09)
-#endif
+                FontPrefsTests.Run,      // C43 — catalogue de polices : l'ordre (FontOrder) et les bascules
                 ExchangeImagesTests.Run  // C44 — images dans les échanges : docx ancré, Markdown, RTF (26/09)
             };
             foreach (var suite in suites)

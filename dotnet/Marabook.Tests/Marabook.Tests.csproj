@@ -33,8 +33,6 @@
     <Compile Remove="..\..\tests\ThemeTests.cs" />
     <Compile Remove="..\..\tests\PackTests.cs" />
     <Compile Remove="..\..\tests\HomeTests.cs" />
-    <Compile Remove="..\..\tests\FontPrefsTests.cs" />
-    <Compile Remove="..\..\tests\MarkdownTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

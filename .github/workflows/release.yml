@@ -127,11 +127,11 @@ jobs:
           & ./tools/verify-dict.ps1
           if ($LASTEXITCODE -ne 0) { throw "Dictionnaire absent ou corrompu." }
 
-      - name: Tests du cœur (C1–C44)
+      - name: Tests du cœur (C1–C44, harnais console)
         shell: pwsh
         run: |
-          dotnet test dotnet/Marabook.Tests -c Release --nologo -v q
-          if ($LASTEXITCODE -ne 0) { throw "Les tests du cœur échouent." }
+          dotnet run --project dotnet/Marabook.Tests -c Release --nologo -v q
+          if ($LASTEXITCODE -ne 0) { throw "Les tests du cœur échouent (code $LASTEXITCODE)." }
 
       - name: Compiler l'application
         shell: pwsh

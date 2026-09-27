@@ -79,7 +79,17 @@ namespace Marabook.App
             // Une distribution portable livrée à côté (python-build-standalone),
             // sinon le python3 du système.
             var bundled = Path.Combine(baseFolder, "python", "bin", "python3");
-            return File.Exists(bundled) ? bundled : "python3";
+            if (File.Exists(bundled)) return bundled;
+            // Le pont vérifie File.Exists : un nom nu ne passe pas — le python3
+            // du PATH, résolu en chemin complet (P4).
+            var path = Environment.GetEnvironmentVariable("PATH") ?? "";
+            foreach (var folder in path.Split(Path.PathSeparator))
+            {
+                if (folder.Length == 0) continue;
+                var candidate = Path.Combine(folder, "python3");
+                if (File.Exists(candidate)) return candidate;
+            }
+            return "/usr/bin/python3";
         }
 
         public string FindLibreOffice()

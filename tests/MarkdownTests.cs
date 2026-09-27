@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using Marabook.Model;
-using Marabook.View;
 
 namespace Marabook.Tests
 {
@@ -10,7 +9,7 @@ namespace Marabook.Tests
     /// de blocs porté de Markdown We Go (titres, filets, citations, listes,
     /// cases, tableaux, code) et la couche en ligne (gras, italique, barré,
     /// souligné, code, liens, [[wiki]]), plus les catégories de fiches (le
-    /// modèle et sa migration). Le RENDU WPF reste une couche mince non
+    /// modèle et sa migration). Le RENDU (la vue) reste une couche mince non
     /// testée ici — le modèle de blocs est le contrat.</summary>
     public static class MarkdownTests
     {

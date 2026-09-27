@@ -45,34 +45,19 @@ namespace Marabook.App
         public static List<Entry> Arrange(IList<Entry> catalog, IList<string> favorites, IList<string> recents,
             IList<string> excluded, int recentCount)
         {
+            // L'ordre est calculé dans le cœur (FontOrder, testé par C43) ; ici
+            // chaque case reçoit sa famille — l'entrée du catalogue reste
+            // l'objet d'origine, favorites et récentes sont des copies.
+            var names = new List<string>();
+            foreach (var entry in catalog) names.Add(entry.Name);
             var result = new List<Entry>();
-            var head = new List<Entry>();
-            foreach (var name in favorites ?? new List<string>())
+            foreach (var slot in FontOrder.Arrange(names, favorites, recents, excluded, recentCount))
             {
-                var entry = FindIn(catalog, name);
-                if (entry == null || IsIn(excluded, name) || IsIn(head, name)) continue;
-                head.Add(new Entry { Name = entry.Name, Family = entry.Family, IsFavoriteCopy = true });
+                if (slot.IsSeparator) { result.Add(new Entry { Name = "" }); continue; }
+                var entry = FindIn(catalog, slot.Name);
+                if (entry == null) continue;
+                result.Add(slot.IsCopy ? new Entry { Name = entry.Name, Family = entry.Family, IsFavoriteCopy = slot.IsFavoriteCopy } : entry);
             }
-            if (head.Count > 0)
-            {
-                result.AddRange(head);
-                result.Add(new Entry { Name = "" });
-            }
-            var recentCopies = new List<Entry>();
-            foreach (var name in recents ?? new List<string>())
-            {
-                if (recentCopies.Count >= recentCount) break;
-                var entry = FindIn(catalog, name);
-                if (entry == null || IsIn(excluded, name) || IsIn(head, name) || IsIn(recentCopies, name)) continue;
-                recentCopies.Add(new Entry { Name = entry.Name, Family = entry.Family });
-            }
-            if (recentCopies.Count > 0)
-            {
-                result.AddRange(recentCopies);
-                result.Add(new Entry { Name = "" });
-            }
-            foreach (var entry in catalog)
-                if (!IsIn(excluded, entry.Name)) result.Add(entry);
             return result;
         }
 
