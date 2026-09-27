@@ -15,6 +15,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Marabook.Model;
 using Marabook.Persistence;
+using Marabook.Print;
 using Marabook.Settings;
 
 namespace Marabook.App
@@ -39,6 +40,8 @@ namespace Marabook.App
         private TreeView _binder;
         private Grid _center;
         private TextBlock _placeholder;
+        private EditorView _editor; // P2 : l'éditeur composé et son ruban
+        private double _zoom = 1.0;
         private TextBlock _inspectorTitle, _inspectorKind, _inspectorDetail;
         private TextBlock _statusLeft, _statusRight;
         private MenuItem _recentMenu;
@@ -53,6 +56,7 @@ namespace Marabook.App
         public string InspectorKind { get { return _inspectorKind.Text; } }
         public string InspectorDetail { get { return _inspectorDetail.Text; } }
         public string StatusText { get { return _statusLeft.Text; } }
+        public string StatusRightText { get { return _statusRight.Text ?? ""; } }
         public bool HasProjectPath { get { return _projectPath != null; } }
 
         public MainWindow(Launch launch)
@@ -93,6 +97,7 @@ namespace Marabook.App
             {
                 if (_launch.PlotPath != null) await OpenProject(_launch.PlotPath);
                 else if (_launch.Demo || _launch.Probe) await ShowProject(SampleProject(), null, new List<string>());
+                if (_launch.Demo && !_launch.Probe) { await Task.Delay(200); SelectFirstText(); }
                 else ShowWelcome();
                 if (_launch.Probe) { await Probes.Run(this); Close(); return; }
                 if (_launch.CapturePath != null) await CaptureAndQuit(_launch.CapturePath);
@@ -129,7 +134,7 @@ namespace Marabook.App
             file.Items.Add(new Separator());
             file.Items.Add(Entry("preferences", "Préférences…", OpenPreferences));
             file.Items.Add(new Separator());
-            file.Items.Add(Later("print", "Imprimer…", "l'éditeur (lot P2)"));
+            file.Items.Add(Entry("print", "Imprimer…", PrintCurrent));
             file.Items.Add(new Separator());
             var importMenu = new MenuItem { Header = "Importer" };
             importMenu.Items.Add(Later("import-docs", "Des documents…", "les vues (lot P3)"));
@@ -138,7 +143,7 @@ namespace Marabook.App
             var exportMenu = new MenuItem { Header = "Exporter" };
             exportMenu.Items.Add(Later("export-item", "L'écrit sélectionné…", "les vues (lot P3)"));
             exportMenu.Items.Add(Later("compile", "Compiler les écrits…", "les vues (lot P3)"));
-            exportMenu.Items.Add(Later("export-pdf", "PDF prêt à imprimer…", "l'éditeur (lot P2)"));
+            exportMenu.Items.Add(Entry("export-pdf", "PDF prêt à imprimer…", ExportPdf));
             exportMenu.Items.Add(Later("export-epub", "EPUB du livre ou de l'écrit…", "les vues (lot P3)"));
             file.Items.Add(exportMenu);
             file.Items.Add(new Separator());
@@ -147,10 +152,10 @@ namespace Marabook.App
             menu.Items.Add(file);
 
             var edit = new MenuItem { Header = "É_dition" };
-            edit.Items.Add(Later("undo", "Annuler", "l'éditeur (lot P2)"));
-            edit.Items.Add(Later("redo", "Rétablir", "l'éditeur (lot P2)"));
+            edit.Items.Add(Entry("undo", "Annuler", delegate { if (_editor.IsVisible) _editor.TryUndo(); }));
+            edit.Items.Add(Entry("redo", "Rétablir", delegate { if (_editor.IsVisible) _editor.TryRedo(); }));
             edit.Items.Add(new Separator());
-            edit.Items.Add(Later("find", "Rechercher dans l'écrit…", "l'éditeur (lot P2)"));
+            edit.Items.Add(Entry("find", "Rechercher dans l'écrit…", delegate { if (_editor.IsVisible) _editor.ShowSearch(); }));
             edit.Items.Add(Later("project-search", "Rechercher dans le projet…", "les vues (lot P3)"));
             edit.Items.Add(Later("versions-panel", "Versions de l'écrit…", "les vues (lot P3)"));
             edit.Items.Add(new Separator());
@@ -165,9 +170,9 @@ namespace Marabook.App
             format.Items.Add(Later("styles", "Gérer les styles…", "les vues (lot P3)"));
             format.Items.Add(Later("templates", "Modèles de fiches…", "les vues (lot P3)"));
             format.Items.Add(new Separator());
-            format.Items.Add(Later("insert-footnote", "Note de bas de page", "l'éditeur (lot P2)"));
+            format.Items.Add(Entry("insert-footnote", "Note de bas de page", delegate { if (_editor.IsVisible) _editor.InsertFootnote(); }));
             format.Items.Add(Later("insert-link", "Lien vers une fiche…", "l'éditeur (lot P2)"));
-            format.Items.Add(Later("insert-image", "Insérer une image…", "l'éditeur (lot P2)"));
+            format.Items.Add(Entry("insert-image", "Insérer une image…", delegate { if (_editor.IsVisible) _editor.InsertImage(); }));
             menu.Items.Add(format);
 
             var view = new MenuItem { Header = "_Affichage" };
@@ -272,7 +277,7 @@ namespace Marabook.App
                 Margin = new Thickness(4, 0, 4, 4),
                 ItemTemplate = new FuncTreeDataTemplate<BinderItem>(BinderRow, item => item.Children)
             };
-            _binder.SelectionChanged += delegate { ShowInspector(_binder.SelectedItem as BinderItem); };
+            _binder.SelectionChanged += delegate { ShowInspector(_binder.SelectedItem as BinderItem); ShowCurrent(); };
             binderDock.Children.Add(_binder);
             _binderHost.Child = binderDock;
             Grid.SetColumn(_binderHost, 0);
@@ -294,6 +299,14 @@ namespace Marabook.App
                 VerticalAlignment = VerticalAlignment.Center
             };
             _center.Children.Add(_placeholder);
+            _editor = new EditorView { IsVisible = false };
+            _editor.Edited += delegate { _dirty = true; RefreshTitle(); };
+            _editor.PageInfoChanged += delegate(int page, int count) { _statusRight.Text = "page " + page + " / " + count; };
+            _editor.PdfRequested += ExportPdf;
+            _editor.PrintRequested += PrintCurrent;
+            _editor.PreviewRequested += PrintCurrent; // l'aperçu = le PDF dans la visionneuse (P2)
+            _editor.ZoomStepRequested += delegate(int step) { _editor.SetZoom(Math.Max(0.5, Math.Min(2.0, _zoom + step / 100.0))); _zoom = Math.Max(0.5, Math.Min(2.0, _zoom + step / 100.0)); };
+            _center.Children.Add(_editor);
             Grid.SetColumn(_center, 2);
             grid.Children.Add(_center);
 
@@ -586,6 +599,10 @@ namespace Marabook.App
                 _projectPath = path;
                 _dirty = false;
                 HideWelcome();
+                _pageCountCache.Clear();
+                _editor.SetStyleSheet(project.Styles);
+                _editor.SetProject(project);
+                _editor.ApplyPageSetup(project.Page);
                 _binder.ItemsSource = null;
                 _binder.ItemsSource = project.Roots;
                 Dispatcher.UIThread.Post(delegate
@@ -672,6 +689,7 @@ namespace Marabook.App
             _projectPath = null;
             _dirty = false;
             _binder.ItemsSource = null;
+            ShowCurrent();
             RefreshTitle();
             ShowInspector(null);
             ShowWelcome();
@@ -682,6 +700,222 @@ namespace Marabook.App
         // ------------------------------------------------------------ la Pile (P1 : le minimum)
 
         private BinderItem SelectedItem { get { return _binder.SelectedItem as BinderItem; } }
+
+        /// <summary>Le centre suit la sélection : un écrit s'ouvre dans la
+        /// surface composée, le reste laisse l'invite.</summary>
+        private void ShowCurrent()
+        {
+            var item = _project == null ? null : SelectedItem;
+            if (item != null && item.Kind == ItemKind.Text)
+            {
+                if (_editor.ShowsItem(item)) return;
+                _editor.FolioOffset = ComputeFolioOffset(item);
+                _editor.Decor = PageDecor.For(item, _project);
+                _editor.LoadItem(item);
+                _editor.IsVisible = true;
+                _placeholder.IsVisible = false;
+                _editor.FocusEditor();
+            }
+            else
+            {
+                if (_editor.HasItem) _editor.Clear();
+                _editor.IsVisible = false;
+                _placeholder.IsVisible = true;
+            }
+        }
+
+        // ============================================================ PDF et impression (P2)
+
+        /// <summary>Le document à mettre en pages : l'écrit ou la fiche
+        /// sélectionnée (marques de [[liens]] retirées), ou un dossier / livre
+        /// compilé. Null (et un message) sinon.</summary>
+        private TextDocument BuildPrintable(out string name, out PageSetup setup)
+        {
+            name = null;
+            setup = _project == null ? new PageSetup() : _project.Page;
+            var current = SelectedItem;
+            if (_project == null || current == null)
+            {
+                var _ = MessageDialog.Show(this, "Sélectionnez un écrit, une fiche ou un dossier à mettre en pages.",
+                    AppInfo.Name, MessageButtons.OK, MessageIcon.Information);
+                return null;
+            }
+            if (current.Kind == ItemKind.Text || current.Kind == ItemKind.Sheet)
+            {
+                name = current.Title;
+                if (current.Page != null) setup = current.Page;
+                return Links.Strip(current.Document);
+            }
+            if (current.IsContainer)
+            {
+                name = current.Title;
+                if (current.Kind == ItemKind.Book && current.Book != null) setup = current.Book.Template;
+                return Links.Strip(Exchange.Compiler.Build(_project, current, new Exchange.CompileOptions
+                {
+                    TitlePage = false,
+                    ChapterHeadings = false,
+                    PageBreakPerText = true
+                }));
+            }
+            var __ = MessageDialog.Show(this, "Sélectionnez un écrit, une fiche ou un dossier à mettre en pages.",
+                AppInfo.Name, MessageButtons.OK, MessageIcon.Information);
+            return null;
+        }
+
+        private Print.Composition ComposeFor(TextDocument document, PageSetup setup, PageDecor decor, int folioOffset)
+        {
+            var current = SelectedItem;
+            var composition = Print.Composer.Compose(document, _project.Styles.EffectiveFor(current), setup, _project, new AvaloniaFontEngine());
+            composition.DefaultDecor = decor;
+            composition.FolioOffset = folioOffset;
+            return composition;
+        }
+
+        /// <summary>Fichier › Exporter › PDF prêt à imprimer : les options,
+        /// puis le fichier.</summary>
+        public async void ExportPdf()
+        {
+            string name;
+            PageSetup setup;
+            var document = BuildPrintable(out name, out setup);
+            if (document == null) return;
+            var current = SelectedItem;
+            var decor = current != null && current.Kind == ItemKind.Text ? PageDecor.For(current, _project) : null;
+            var offset = current != null && current.Kind == ItemKind.Text ? ComputeFolioOffset(current) : 0;
+            var options = await PdfExportDialog.Ask(this, name, false, 0,
+                delegate(Print.PdfExportOptions o) { return PreviewPdf(document, setup, name, o, decor, offset); });
+            if (options == null) return;
+            await WritePdf(document, setup, name, options, decor, offset);
+        }
+
+        /// <summary>Le BAT : le PDF exact dans un fichier temporaire, ouvert
+        /// dans la visionneuse du système.</summary>
+        private bool PreviewPdf(TextDocument document, PageSetup setup, string name,
+            Print.PdfExportOptions options, PageDecor decor, int folioOffset)
+        {
+            try
+            {
+                var path = Path.Combine(Path.GetTempPath(), "marabook-bat-" + SafeFileName(name) + ".pdf");
+                Print.PdfWriter.Write(path, ComposeFor(document, setup, decor, folioOffset), options);
+                AppPlatform.OpenWithShell(path);
+                return true;
+            }
+            catch { return false; }
+        }
+
+        private async Task<bool> WritePdf(TextDocument document, PageSetup setup, string name,
+            Print.PdfExportOptions options, PageDecor decor, int folioOffset)
+        {
+            var path = await Ui.PickSaveFile(this, "PDF prêt à imprimer", "PDF (*.pdf)|*.pdf", SafeFileName(name) + ".pdf");
+            if (path == null) return false;
+            try
+            {
+                Print.PdfWriter.Write(path, ComposeFor(document, setup, decor, folioOffset), options);
+                await MessageDialog.Show(this, "Export terminé :\n" + path, AppInfo.Name, MessageButtons.OK, MessageIcon.Information);
+                return true;
+            }
+            catch (Exception error)
+            {
+                await MessageDialog.Show(this, "Export PDF impossible :\n" + error.Message, AppInfo.Name, MessageButtons.OK, MessageIcon.Error);
+                return false;
+            }
+        }
+
+        /// <summary>Fichier › Imprimer (P2, trois systèmes) : Marabook n'a pas
+        /// de dialogue d'impression natif hors WPF — les pages composées
+        /// partent en PDF dans la visionneuse du système, qui imprime.</summary>
+        public void PrintCurrent()
+        {
+            string name;
+            PageSetup setup;
+            var document = BuildPrintable(out name, out setup);
+            if (document == null) return;
+            var current = SelectedItem;
+            var decor = current != null && current.Kind == ItemKind.Text ? PageDecor.For(current, _project) : null;
+            var offset = current != null && current.Kind == ItemKind.Text ? ComputeFolioOffset(current) : 0;
+            if (!PreviewPdf(document, setup, name, new Print.PdfExportOptions(), decor, offset))
+            {
+                var _ = MessageDialog.Show(this, "Impression impossible : le PDF n'a pas pu être produit.", AppInfo.Name, MessageButtons.OK, MessageIcon.Warning);
+            }
+        }
+
+        private static string SafeFileName(string name)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var c in name ?? "")
+                sb.Append(Array.IndexOf(Path.GetInvalidFileNameChars(), c) >= 0 ? '_' : c);
+            return sb.Length == 0 ? "document" : sb.ToString();
+        }
+
+        // ============================================================ folio de livre
+
+        private readonly Dictionary<string, int> _pageCountCache = new Dictionary<string, int>();
+
+        /// <summary>Les pages du livre qui précèdent cet écrit ; chaque écrit
+        /// ouvre sur un recto (un compte impair reçoit un verso blanc).</summary>
+        private int ComputeFolioOffset(BinderItem item)
+        {
+            var book = item.EnclosingBook();
+            if (book == null || book.Book == null || book == item) return 0;
+            var texts = new List<BinderItem>();
+            CollectBookTexts(book, texts);
+            var offset = 0;
+            foreach (var text in texts)
+            {
+                if (text == item) return offset;
+                offset += PageCountOf(text);
+                if (offset % 2 == 1) offset++;
+            }
+            return 0;
+        }
+
+        private static void CollectBookTexts(BinderItem root, List<BinderItem> texts)
+        {
+            foreach (var child in root.Children)
+            {
+                if (child.Kind == ItemKind.Text) texts.Add(child);
+                CollectBookTexts(child, texts);
+            }
+        }
+
+        private int PageCountOf(BinderItem text)
+        {
+            int pages;
+            if (_pageCountCache.TryGetValue(text.Id, out pages)) return pages;
+            try
+            {
+                var composition = Print.Composer.Compose(Links.Strip(text.Document),
+                    _project.Styles.EffectiveFor(text), text.Page ?? _project.Page, _project, new AvaloniaFontEngine());
+                pages = Math.Max(1, composition.Pages.Count);
+            }
+            catch { pages = 1; }
+            _pageCountCache[text.Id] = pages;
+            return pages;
+        }
+
+        /// <summary>Exposés aux sondes.</summary>
+        public EditorView Editor { get { return _editor; } }
+        public ComposedView Composed { get { return _editor.Composed; } }
+
+        /// <summary>La démo ouvre le premier écrit du projet (la capture
+        /// montre la surface composée, pas l'invite).</summary>
+        public void SelectFirstText()
+        {
+            if (_project == null) return;
+            var first = FirstText(_project.Roots);
+            if (first != null) _binder.SelectedItem = first;
+        }
+
+        private static BinderItem FirstText(IEnumerable<BinderItem> items)
+        {
+            foreach (var item in items)
+            {
+                if (item.Kind == ItemKind.Text && item.Document != null && item.Document.ToPlainText().Trim().Length > 0) return item;
+                var inner = FirstText(item.Children);
+                if (inner != null) return inner;
+            }
+            return null;
+        }
 
         private async Task NewItem(ItemKind kind)
         {

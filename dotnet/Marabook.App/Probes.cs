@@ -35,7 +35,7 @@ namespace Marabook.App
 
         public static async Task Run(MainWindow shell)
         {
-            Console.WriteLine("== Sonde Avalonia P1 (" + AppPlatform.OsName + ")");
+            Console.WriteLine("== Sonde Avalonia P1-P2 (" + AppPlatform.OsName + ")");
             try
             {
                 await Settle();
@@ -53,6 +53,52 @@ namespace Marabook.App
                 Check(shell.InspectorKind == "Écrit" && shell.InspectorDetail.Contains("mots"), "…sa nature et ses mots (" + shell.InspectorDetail + ")");
                 Check(shell.Title.StartsWith("Projet d'exemple"), "le titre de la fenêtre nomme le projet");
                 Check(shell.StatusText.Contains("éléments"), "la barre d'état compte les éléments");
+
+                // — P2 : l'éditeur composé sur l'écrit sélectionné.
+                var editor = shell.Editor;
+                Check(editor.IsVisible && chapter != null && editor.ShowsItem(chapter), "l'écrit s'ouvre dans l'éditeur composé");
+                var composed = shell.Composed;
+                Check(composed != null && composed.HasItem && composed.IsVisible, "la surface composée est attachée");
+                Check(shell.StatusRightText.StartsWith("page 1 / "), "la barre d'état donne la page du caret (" + shell.StatusRightText + ")");
+                Check(FontCatalog.Entries.Count > 10, "le catalogue de polices énumère les polices installées (" + FontCatalog.Entries.Count + ")");
+                Check(!string.IsNullOrEmpty(editor.CurrentFontName), "le sélecteur de police montre la police du caret (" + editor.CurrentFontName + ")");
+                var engine = new AvaloniaFontEngine();
+                var face = engine.Resolve("Times New Roman", 400, false);
+                Check(face.HasGlyphs && face.Baseline > 0.7 && face.Baseline < 1.0, "le moteur de polices résout Times New Roman (ligne de base " + face.Baseline.ToString("0.000") + ")");
+                var advance = engine.AdvanceWidth("Times New Roman", 12, 400, false, 'a');
+                Check(advance > 4 && advance < 8, "…et mesure l'avance d'un « a » à 12 px (" + advance.ToString("0.00") + ")");
+                int faceIndex; string fallbackName;
+                var fontFile = engine.FontFile(face, out faceIndex, out fallbackName);
+                Check(fontFile != null && fontFile.Length > 100000, "…et lit le fichier de la police pour le PDF (" + (fontFile == null ? "aucun" : fontFile.Length + " octets") + ")");
+
+                // — Frapper, annuler, mettre en gras.
+                var document = chapter.Document;
+                var original = document.Paragraphs[0].ToPlainText();
+                composed.PlaceCaret(0, 0, false);
+                composed.TypeText("Sonde ");
+                await Settle();
+                Check(document.Paragraphs[0].ToPlainText() == "Sonde " + original, "la frappe entre dans le pivot");
+                Check(composed.Undo() && document.Paragraphs[0].ToPlainText() == original, "Ctrl+Z la retire");
+                composed.SelectAll();
+                composed.ToggleBold();
+                await Settle();
+                var bold = document.Paragraphs[0].Runs.Count > 0 && document.Paragraphs[0].Runs[0].Bold == true;
+                Check(bold, "tout sélectionner + gras : le premier run est en gras");
+                Check(composed.Undo() && !(document.Paragraphs[0].Runs.Count > 0 && document.Paragraphs[0].Runs[0].Bold == true), "…et Ctrl+Z le rend");
+                composed.PlaceCaret(0, 0, false);
+
+                // — Le PDF avec le moteur Avalonia : police embarquée.
+                var pdfPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-p2.pdf");
+                try
+                {
+                    var composition = Marabook.Print.Composer.Compose(document, shell.Project.Styles.EffectiveFor(chapter), shell.Project.Page, shell.Project, engine);
+                    Marabook.Print.PdfWriter.Write(pdfPath, composition, new Marabook.Print.PdfExportOptions());
+                    var pdf = System.IO.File.ReadAllBytes(pdfPath);
+                    var text = System.Text.Encoding.Latin1.GetString(pdf);
+                    Check(pdf.Length > 5000 && text.StartsWith("%PDF") && text.Contains("/FontFile"), "le PDF s'écrit avec la police TrueType embarquée (" + pdf.Length + " octets)");
+                }
+                catch (Exception error) { Check(false, "le PDF s'écrit : " + error.Message); }
+                finally { try { System.IO.File.Delete(pdfPath); } catch { } }
 
                 // — Le thème bascule et revient.
                 var before = Chrome.Ink.Color;

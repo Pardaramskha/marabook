@@ -37,6 +37,17 @@ namespace Marabook.App
                 Current.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
         }
 
+        /// <summary>La fenêtre principale, propriétaire des dialogues (null
+        /// avant son ouverture).</summary>
+        public static Window MainWindowOrNull
+        {
+            get
+            {
+                var desktop = Current == null ? null : Current.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+                return desktop == null ? null : desktop.MainWindow;
+            }
+        }
+
         public override void OnFrameworkInitializationCompleted()
         {
             var desktop = ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;

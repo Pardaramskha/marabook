@@ -12,6 +12,18 @@ namespace Marabook.App
     /// python.exe embarqué) ; Linux suit XDG, macOS ~/Library.</summary>
     public sealed class AppPlatform : IPlatform
     {
+        /// <summary>Ouvre un fichier (ou une URL) avec l'application du
+        /// système : ShellExecute sur Windows, open sur macOS, xdg-open sur Linux.</summary>
+        public static void OpenWithShell(string path)
+        {
+            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+            else if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX))
+                System.Diagnostics.Process.Start("open", new[] { path });
+            else
+                System.Diagnostics.Process.Start("xdg-open", new[] { path });
+        }
+
         public static readonly bool IsWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
         public static readonly bool IsMac = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
         public static readonly bool IsLinux = RuntimeInformation.IsOSPlatform(OSPlatform.Linux);

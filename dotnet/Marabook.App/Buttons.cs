@@ -116,7 +116,9 @@ namespace Marabook.App
         {
             button.Height = size;
             button.MinWidth = size;
-            button.Padding = new Thickness(8, 4, 8, 4);
+            // 18 + 2 + deux lignes de 12 = 44, sous les 50 disponibles (13/09).
+            button.Padding = new Thickness(6, 3, 6, 2);
+            button.VerticalAlignment = VerticalAlignment.Top;
             button.FontSize = 11;
             button.Focusable = false;
             if (!string.IsNullOrEmpty(tooltip)) ToolTip.SetTip(button, tooltip);
@@ -164,19 +166,21 @@ namespace Marabook.App
         private static Control BigContent(TemplatedControl owner, string icon, string label)
         {
             var column = new StackPanel { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Center };
-            var glyph = Icons.Make(icon, 24, owner.Foreground);
+            var glyph = Icons.Make(icon, 18, owner.Foreground);
             var path = glyph as Path;
             if (path != null) path.Bind(Shape.FillProperty, owner.GetObservable(TemplatedControl.ForegroundProperty));
             glyph.HorizontalAlignment = HorizontalAlignment.Center;
-            glyph.Margin = new Thickness(0, 2, 0, 4);
+            glyph.Margin = new Thickness(0, 0, 0, 2);
             column.Children.Add(glyph);
             column.Children.Add(new TextBlock
             {
                 Text = label,
+                FontSize = 11,
+                LineHeight = 12,
                 TextAlignment = TextAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap,
-                MaxWidth = 84
+                MaxWidth = 88
             });
             return column;
         }
