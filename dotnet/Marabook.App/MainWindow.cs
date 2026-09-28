@@ -129,6 +129,11 @@ namespace Marabook.App
         private DispatcherTimer _statsTimer, _autosaveTimer;
 
         private MenuItem _undoMenu, _redoMenu, _darkMenu, _binderMenu, _inspectorMenu, _recentMenu, _rulersMenu;
+        // La feuille de styles telle qu'elle était AVANT le changement en
+        // cours (28/09) : les panneaux de styles éditent la feuille en place
+        // et ne préviennent qu'après — ce clone est le point d'annulation.
+        private StyleSheet _stylesBefore;
+        private bool _restoringStyles;
         private MenuItem _searchMenu, _versionsMenu; // cases à cocher du panneau actif (b39)
 
         // Bandeau « lecture seule » : projet écrit par un format plus récent
@@ -805,6 +810,21 @@ namespace Marabook.App
             _bookView.PublishRequested += PublishBook;
             _bookView.EpubRequested += ExportEpub;
             _bookView.StylesChanged += delegate { ApplyStyleSheet(); MarkDirty(); };
+            // Ctrl+Z sur un changement de style (28/09) : la feuille d'avant
+            // revient sur le projet, tout se recharge, sans nouveau point.
+            _editor.StylesRestored += delegate(StyleSheet sheet)
+            {
+                if (_project == null || sheet == null) return;
+                _restoringStyles = true;
+                try
+                {
+                    _project.Styles = sheet;
+                    ApplyStyleSheet();
+                    if (_bookView.IsVisible) _bookView.RefreshStyles();
+                    MarkDirty();
+                }
+                finally { _restoringStyles = false; }
+            };
             _bookView.ExportRequested += ExportItem;
             _bookView.RenameRequested += delegate(BinderItem item)
             { _binder.RenameQuiet(item); RefreshOpenCorkboards(); UpdateInspector(); };
@@ -1759,6 +1779,7 @@ namespace Marabook.App
             _sessionGoal = 0;
             ResetSprint();
             _editor.SetStyleSheet(project.Styles);
+            _stylesBefore = project.Styles.Clone(); // la base des points d'annulation de styles (28/09)
             _editor.SetProject(project);
             _editor.ApplyPageSetup(project.Page);
             _editor.Clear();
@@ -2849,6 +2870,7 @@ namespace Marabook.App
                 MarkDirty();
                 // Imports may have merged new named styles into the sheet.
                 _editor.SetStyleSheet(_project.Styles);
+                _stylesBefore = _project.Styles.Clone(); // nouvelle base, sans point d'annulation (28/09)
                 _sheetView.SetStyleSheet(_project.Styles);
                 _binder.SelectItem(items[items.Count - 1].Id);
             }
@@ -2996,11 +3018,32 @@ namespace Marabook.App
         /// l'éditeur et les fiches se rechargent.</summary>
         private void ApplyStyleSheet()
         {
+            RememberStylesForUndo();
             GlobalStyles.Push(_project);
             _editor.SetStyleSheet(_project.Styles);
             _editor.Reload();
             _sheetView.SetStyleSheet(_project.Styles);
             _sheetView.ReloadBody();
+        }
+
+        /// <summary>Pour la sonde : la feuille du projet a été éditée en place
+        /// (comme par l'onglet Styles du livre) — même chemin que l'événement.</summary>
+        public void StylesEditedInPlace()
+        {
+            if (_project == null) return;
+            ApplyStyleSheet();
+            MarkDirty();
+        }
+
+        /// <summary>La feuille vient de changer (28/09) : la feuille d'AVANT
+        /// devient un point d'annulation sur l'écrit ouvert, et la feuille
+        /// d'après est clonée pour le prochain changement. Rien pendant une
+        /// restauration (ce serait un point de trop).</summary>
+        private void RememberStylesForUndo()
+        {
+            if (_project == null) return;
+            if (!_restoringStyles && _stylesBefore != null) _editor.PushStylesUndo(_stylesBefore);
+            _stylesBefore = _project.Styles.Clone();
         }
 
         private async void OpenTemplatesDialog()
@@ -4499,6 +4542,7 @@ namespace Marabook.App
                 if (_project == null) return;
                 if (GlobalStyles.PushFromSettings(_project))
                 {
+                    RememberStylesForUndo(); // un point d'annulation par changement (28/09)
                     _editor.SetStyleSheet(_project.Styles);
                     _editor.Reload();
                     _sheetView.SetStyleSheet(_project.Styles);

@@ -185,6 +185,33 @@ namespace Marabook.App
                 }
                 catch (Exception error) { Check(false, "annulation par écrit : " + error.Message); }
 
+                // — L'annulation d'un changement de STYLE (28/09) : la taille
+                // des notes de bas de page change, Ctrl+Z la rend, Ctrl+Y la
+                // remet ; entre les deux, le texte n'a pas bougé.
+                try
+                {
+                    var note = shell.Project.Styles.FootnoteStyle();
+                    var sizeBefore = note.FontSize;
+                    var textBefore = document.Paragraphs[0].ToPlainText();
+                    note.FontSize = sizeBefore + 4;
+                    shell.StylesEditedInPlace();
+                    await Settle();
+                    Check(Math.Abs(shell.Project.Styles.FootnoteStyle().FontSize - (sizeBefore + 4)) < 0.01, "la taille des notes est changée dans la feuille");
+                    var undone = composed.Undo();
+                    await Settle();
+                    Check(undone && Math.Abs(shell.Project.Styles.FootnoteStyle().FontSize - sizeBefore) < 0.01,
+                        "Ctrl+Z rend la taille des notes d'avant (" + shell.Project.Styles.FootnoteStyle().FontSize + ")");
+                    Check(document.Paragraphs[0].ToPlainText() == textBefore, "…sans toucher au texte");
+                    var redone = composed.Redo();
+                    await Settle();
+                    Check(redone && Math.Abs(shell.Project.Styles.FootnoteStyle().FontSize - (sizeBefore + 4)) < 0.01, "Ctrl+Y remet le changement de style");
+                    composed.Undo();
+                    await Settle();
+                    Check(Math.Abs(shell.Project.Styles.FootnoteStyle().FontSize - sizeBefore) < 0.01, "…et Ctrl+Z le rend encore");
+                    composed.PlaceCaret(0, 0, false);
+                }
+                catch (Exception error) { Check(false, "annulation d'un style : " + error.Message); }
+
                 // — Le PDF avec le moteur Avalonia : police embarquée.
                 var pdfPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-p2.pdf");
                 try

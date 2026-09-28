@@ -1749,6 +1749,7 @@ namespace Marabook.App
         {
             _composed = new ComposedView { IsVisible = false };
             _composed.Edited += delegate { NotifyEdited(); };
+            _composed.StylesRestored += delegate(StyleSheet sheet) { var h = StylesRestored; if (h != null) h(sheet); };
             _composed.MarksRequested += delegate
             {
                 // Le raccourci « Caractères d'impression » (22/09) : même
@@ -1980,7 +1981,7 @@ namespace Marabook.App
             if (_item == null || !ComposedActive) return;
             _composed.FolioOffset = FolioOffset;
             _composed.Decor = Decor;
-            _composed.Attach(_item, _styles, _pageSetup, _project); // recompose
+            _composed.Attach(_item, _styles.EffectiveFor(_item), _pageSetup, _project); // recompose, avec le séparateur du livre (28/09)
         }
 
         /// <summary>Detaches the editor from its item (selection moved to a
@@ -2017,6 +2018,17 @@ namespace Marabook.App
         public bool TryRedo()
         {
             return _item != null && ComposedActive && _composed.Redo();
+        }
+
+        /// <summary>Un Ctrl+Z (ou Ctrl+Y) a rendu une feuille de styles : la
+        /// fenêtre la repose sur le projet et recharge (28/09).</summary>
+        public event Action<StyleSheet> StylesRestored;
+
+        /// <summary>Un point d'annulation avant un changement de la feuille de
+        /// styles (28/09), sur la pile de l'écrit ouvert — rien sans écrit.</summary>
+        public void PushStylesUndo(StyleSheet before)
+        {
+            if (_item != null && ComposedActive) _composed.PushStylesUndo(before);
         }
 
         public string PlainText()

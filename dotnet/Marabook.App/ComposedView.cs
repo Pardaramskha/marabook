@@ -135,6 +135,10 @@ namespace Marabook.App
             // positions du texte d'AVANT — un Ctrl+Z dessus devient un refus.
             public int AutoParagraph;
             public List<KeyValuePair<int, string>> AutoBlocks;
+            // La feuille de styles d'AVANT un changement de style (28/09) :
+            // posée par la fenêtre (dialogue, onglet Styles du livre,
+            // Préférences) ; un Ctrl+Z dessus rend la feuille au projet.
+            public StyleSheet Styles;
         }
 
         /// <summary>Une correction automatique REFUSÉE par Ctrl+Z (b45) : à
@@ -1906,6 +1910,28 @@ namespace Marabook.App
             _redo.Clear();
         }
 
+        /// <summary>La feuille de styles a été rendue par un Ctrl+Z (ou un
+        /// Ctrl+Y) : la fenêtre la repose sur le projet et recharge.</summary>
+        public event Action<StyleSheet> StylesRestored;
+
+        /// <summary>Un point d'annulation AVANT un changement de la feuille de
+        /// styles (28/09) : le document tel quel et la feuille d'avant (déjà
+        /// clonée par l'appelant, la pile la garde). Ignoré sans écrit.</summary>
+        public void PushStylesUndo(StyleSheet before)
+        {
+            if (_item == null || before == null) return;
+            _lastWasTyping = false;
+            _undo.Add(new Snapshot
+            {
+                Document = PivotEdit.Clone(_item.Document),
+                Paragraph = _caretParagraph,
+                Offset = _caretOffset,
+                Styles = before
+            });
+            if (_undo.Count > 100) _undo.RemoveAt(0);
+            _redo.Clear();
+        }
+
         /// <summary>Le plus ancien instantané local — l'état du document tel
         /// qu'ouvert, tant que la pile n'a pas débordé (la capture quotidienne
         /// fige l'état d'AVANT la première frappe, b38). Null sans frappe.</summary>
@@ -1923,7 +1949,8 @@ namespace Marabook.App
             {
                 Document = PivotEdit.Clone(_item.Document),
                 Paragraph = _caretParagraph,
-                Offset = _caretOffset
+                Offset = _caretOffset,
+                Styles = snapshot.Styles != null && _project != null ? _project.Styles.Clone() : null
             });
             RestoreSnapshot(snapshot);
             // Ctrl+Z sur une correction automatique (b45) : l'auteur la
@@ -1953,7 +1980,8 @@ namespace Marabook.App
             {
                 Document = PivotEdit.Clone(_item.Document),
                 Paragraph = _caretParagraph,
-                Offset = _caretOffset
+                Offset = _caretOffset,
+                Styles = snapshot.Styles != null && _project != null ? _project.Styles.Clone() : null
             });
             RestoreSnapshot(snapshot);
             _lastWasTyping = false;
@@ -1967,6 +1995,14 @@ namespace Marabook.App
             document.Paragraphs.AddRange(snapshot.Document.Paragraphs);
             document.Footnotes.Clear();
             document.Footnotes.AddRange(snapshot.Document.Footnotes);
+            // La feuille de styles d'avant (28/09) : la fenêtre la repose sur
+            // le projet et recharge l'éditeur (Attach garde la pile) ; le
+            // caret et la composition sont refaits juste après.
+            if (snapshot.Styles != null)
+            {
+                var restored = StylesRestored;
+                if (restored != null) restored(snapshot.Styles.Clone());
+            }
             _caretParagraph = snapshot.Paragraph;
             _caretOffset = snapshot.Offset;
             ClearSelection();
