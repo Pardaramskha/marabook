@@ -1,3 +1,4 @@
+using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
@@ -8,8 +9,10 @@ using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Styling;
+using Avalonia.VisualTree;
 
 namespace Marabook.App
 {
@@ -484,7 +487,40 @@ namespace Marabook.App
             arrow.RegisterInNameScope(scope);
             pill.RegisterInNameScope(scope);
             presenter.RegisterInNameScope(scope);
+            // La flèche vise le CENTRE du contrôle survolé (28/09 soir : à
+            // 14 px fixes, elle pointait le bouton voisin dès que la bulle
+            // dépassait le bouton — Avalonia centre la bulle dessous, et la
+            // fait glisser au bord de l'écran). Recalculé à chaque passe de
+            // mise en page de la bulle ; sans changement, rien n'est reposé.
+            parent.LayoutUpdated += delegate { AimArrow(parent, arrow, pill); };
             return column;
+        }
+
+        /// <summary>Pose la flèche de l'infobulle sous le milieu du contrôle
+        /// qu'elle décrit : la cible est le PlacementTarget du Popup qui
+        /// porte la bulle (parent logique de son PopupRoot), l'écart se lit
+        /// en pixels d'écran puis revient en unités logiques.</summary>
+        private static void AimArrow(TemplatedControl tip, Path arrow, Border pill)
+        {
+            var root = tip.GetVisualRoot() as PopupRoot;
+            if (root == null) return;
+            var popup = ((ILogical)root).LogicalParent as Popup;
+            var target = popup != null ? popup.PlacementTarget : null;
+            if (target == null || !target.IsAttachedToVisualTree() || pill.Bounds.Width <= 0) return;
+            PixelPoint targetCenter, tipOrigin;
+            try
+            {
+                targetCenter = target.PointToScreen(new Point(target.Bounds.Width / 2, 0));
+                tipOrigin = tip.PointToScreen(new Point(0, 0));
+            }
+            catch (Exception) { return; } // fenêtre en cours de fermeture
+            var scale = root.RenderScaling > 0 ? root.RenderScaling : 1;
+            var x = (targetCenter.X - tipOrigin.X) / scale - arrow.Width / 2;
+            var max = pill.Bounds.Width - arrow.Width - 6;
+            if (x > max) x = max;
+            if (x < 6) x = 6;
+            if (Math.Abs(arrow.Margin.Left - x) < 0.5) return;
+            arrow.Margin = new Thickness(x, 0, 0, 0);
         }
 
         /// <summary>Le bouton radio : le même visage que la case — un rond
