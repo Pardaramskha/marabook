@@ -296,7 +296,7 @@ namespace Marabook.App
                 new Setter(Layoutable.MinHeightProperty, 0.0)));
             styles.Add(Style(x => x.OfType<TabItem>().Template().OfType<Border>().Name("Bg"),
                 new Setter(TextElement.ForegroundProperty, Chrome.SoftText),
-                new Setter(TextElement.FontWeightProperty, FontWeight.Normal),
+                new Setter(TextElement.FontWeightProperty, FontWeight.SemiBold), // un cran de plus (28/09)
                 new Setter(InputElement.CursorProperty, new Cursor(StandardCursorType.Hand))));
             styles.Add(Style(x => x.OfType<TabItem>().Class(":pointerover"),
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.AccentTint)));
@@ -305,7 +305,7 @@ namespace Marabook.App
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.Accent)));
             styles.Add(Style(x => x.OfType<TabItem>().Class(":selected").Template().OfType<Border>().Name("Bg"),
                 new Setter(TextElement.ForegroundProperty, Chrome.RaisedBg),
-                new Setter(TextElement.FontWeightProperty, FontWeight.SemiBold)));
+                new Setter(TextElement.FontWeightProperty, FontWeight.Bold)));
 
             // ---- listes et arbres : la ligne active en accent-tint
             styles.Add(Style(x => x.OfType<ListBox>(),
