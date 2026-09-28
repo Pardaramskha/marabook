@@ -2142,6 +2142,7 @@ namespace Marabook.App
 
         public void TogglePageBreak()
         {
+            if (NoteEditing) return; // (28/09)
             PushUndo(false);
             var paragraph = _item.Document.Paragraphs[_caretParagraph];
             paragraph.PageBreakBefore = !paragraph.PageBreakBefore;
@@ -2152,6 +2153,7 @@ namespace Marabook.App
         /// caret paragraph): null clears back to the style's alignment.</summary>
         public void ApplyAlign(string align)
         {
+            if (NoteEditing) return; // une note n'est pas un paragraphe du texte (28/09)
             PushUndo(false);
             int pa, pb;
             if (HasSelection())
@@ -2184,6 +2186,7 @@ namespace Marabook.App
         /// d'annulation.</summary>
         public void ApplyIndent(bool add)
         {
+            if (NoteEditing) return; // (28/09)
             PushUndo(false);
             int pa, oa, pb, ob;
             if (HasSelection()) OrderedSelection(out pa, out oa, out pb, out ob);
@@ -2397,6 +2400,7 @@ namespace Marabook.App
         /// <summary>L'état d'une bascule au point d'insertion (sans sélection).</summary>
         private bool CollapsedFlag(Func<TextRun, ParagraphStyle, bool> predicate)
         {
+            if (NoteEditing) return NoteRangeHas(predicate); // la note : sa sélection, sinon toute la note (28/09)
             var paragraph = CaretParagraph;
             if (paragraph == null) return false;
             var style = _styles.Find(paragraph.StyleId);
@@ -2405,7 +2409,7 @@ namespace Marabook.App
 
         private void ApplyToSelection(Action<TextRun> setter)
         {
-            if (NoteEditing) return; // la note ouverte n'a pas d'options de format (27/09)
+            if (NoteEditing) { NoteApplyFormat(setter); return; } // la note ouverte se met en forme aussi (28/09)
             if (!HasSelection())
             {
                 // Sans sélection (0.50.0) : le format devient celui du point
@@ -2438,6 +2442,7 @@ namespace Marabook.App
 
         private bool SelectionAll(Func<TextRun, ParagraphStyle, bool> predicate)
         {
+            if (NoteEditing) return NoteRangeHas(predicate);
             int pa, oa, pb, ob;
             OrderedSelection(out pa, out oa, out pb, out ob);
             for (var p = pa; p <= pb; p++)
@@ -2455,7 +2460,6 @@ namespace Marabook.App
         // le format d'insertion, comme Ctrl+B avant de taper dans Word.
         public void ToggleBold()
         {
-            if (NoteEditing) return; // sans options dans la note (27/09)
             Func<TextRun, ParagraphStyle, bool> isBold = delegate(TextRun run, ParagraphStyle style)
             { return run.Bold ?? style.Bold; };
             var allBold = HasSelection() ? SelectionAll(isBold) : CollapsedFlag(isBold);
@@ -2464,7 +2468,6 @@ namespace Marabook.App
 
         public void ToggleItalic()
         {
-            if (NoteEditing) return;
             Func<TextRun, ParagraphStyle, bool> isItalic = delegate(TextRun run, ParagraphStyle style)
             { return run.Italic ?? style.Italic; };
             var all = HasSelection() ? SelectionAll(isItalic) : CollapsedFlag(isItalic);
@@ -2473,7 +2476,6 @@ namespace Marabook.App
 
         public void ToggleUnderline()
         {
-            if (NoteEditing) return;
             Func<TextRun, ParagraphStyle, bool> isUnderlined = delegate(TextRun run, ParagraphStyle style)
             { return run.Underline == true; };
             var all = HasSelection() ? SelectionAll(isUnderlined) : CollapsedFlag(isUnderlined);
@@ -2544,7 +2546,6 @@ namespace Marabook.App
         /// format d'insertion, ou la note ouverte — règle des bascules.</summary>
         public void ToggleSmallCaps()
         {
-            if (NoteEditing) return;
             Func<TextRun, ParagraphStyle, bool> isSmall = delegate(TextRun run, ParagraphStyle style)
             { return run.SmallCaps == true; };
             var all = HasSelection() ? SelectionAll(isSmall) : CollapsedFlag(isSmall);
@@ -2556,7 +2557,7 @@ namespace Marabook.App
         public bool? SmallCapsState()
         {
             if (_item == null) return false;
-            if (NoteEditing) return false;
+            if (NoteEditing) return NoteRangeHas(delegate(TextRun run, ParagraphStyle style) { return run.SmallCaps == true; }); // (28/09)
             if (!HasSelection())
             {
                 var paragraph = CaretParagraph;
@@ -2597,7 +2598,6 @@ namespace Marabook.App
 
         public void ToggleStrike()
         {
-            if (NoteEditing) return;
             Func<TextRun, ParagraphStyle, bool> isStruck = delegate(TextRun run, ParagraphStyle style)
             { return run.Strike == true; };
             var all = HasSelection() ? SelectionAll(isStruck) : CollapsedFlag(isStruck);
@@ -3235,6 +3235,7 @@ namespace Marabook.App
 
         public void ApplyList(string kind) // "bullet" | "number" | null, toggles
         {
+            if (NoteEditing) return; // (28/09)
             PushUndo(false);
             int pa, pb;
             if (HasSelection())

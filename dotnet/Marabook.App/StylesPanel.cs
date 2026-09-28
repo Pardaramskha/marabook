@@ -162,6 +162,23 @@ namespace Marabook.App
                 RaiseChanged();
             };
             scopeRow.Children.Add(_scopeCombo);
+            // « Réinitialiser » (28/09) : toute la feuille revient aux styles
+            // de Marabook tels qu'à l'installation — après confirmation.
+            var reset = Buttons.Text("Réinitialiser", "Revenir aux styles de Marabook tels qu'à l'installation : tous les styles de cette feuille sont remplacés",
+                Buttons.Compact, Buttons.Look.Outline);
+            reset.Margin = new Thickness(8, 0, 0, 0);
+            reset.VerticalAlignment = VerticalAlignment.Center;
+            reset.Click += async delegate
+            {
+                var answer = await MessageDialog.Show(Ui.OwnerOf(this),
+                    "Remettre TOUS les styles de cette feuille aux valeurs de Marabook à l'installation ?\n\n"
+                    + "Les styles ajoutés disparaissent et les styles modifiés reprennent leurs valeurs d'origine. "
+                    + "Les paragraphes d'un style disparu reviennent au style « Corps ».",
+                    "Styles", MessageButtons.YesNo, MessageIcon.Question);
+                if (answer != MessageResult.Yes) return;
+                ResetToDefaults();
+            };
+            scopeRow.Children.Add(reset);
             scopeRow.Children.Add(new TextBlock
             {
                 Text = "Global : tous les projets · Livre : les écrits de ce livre · Document : cet écrit seul",
@@ -688,6 +705,21 @@ namespace Marabook.App
             copy.Name = source.Name + " (copie)";
             Sheet.Styles.Insert(Sheet.Styles.IndexOf(source) + 1, copy);
             FillList(copy.Id);
+            RaiseChanged();
+        }
+
+        /// <summary>Toute la feuille revient aux styles de Marabook tels qu'à
+        /// l'installation (28/09) : les styles ajoutés disparaissent, les
+        /// modifiés reprennent leurs valeurs — les paragraphes d'un style
+        /// disparu retombent sur « Corps » au rendu.</summary>
+        private void ResetToDefaults()
+        {
+            _current = null; // le formulaire ne recommet rien dans un style retiré
+            var defaults = StyleSheet.CreateDefault();
+            defaults.EnsureFootnoteStyle();
+            Sheet.Styles.Clear();
+            foreach (var style in defaults.Styles) Sheet.Styles.Add(style);
+            FillList(null);
             RaiseChanged();
         }
 

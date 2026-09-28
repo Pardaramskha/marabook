@@ -551,8 +551,9 @@ namespace Marabook.App
         }
 
         /// <summary>Le clavier quand une note est ouverte. Vrai = géré. Les
-        /// gestes du ruban (Ctrl+B, alignements…) sont absorbés sans effet —
-        /// « sans options » ; les raccourcis de la fenêtre (Ctrl+S) remontent.</summary>
+        /// gestes de caractère (Ctrl+B, Ctrl+I…) valent dans la note (28/09),
+        /// ceux du paragraphe sont absorbés ; les raccourcis de la fenêtre
+        /// (Ctrl+S) remontent.</summary>
         private bool NoteKeyDown(KeyEventArgs e)
         {
             var key = e.Key;
@@ -580,14 +581,68 @@ namespace Marabook.App
                 case Key.Z: if (ctrl) { Undo(); return true; } break;
                 case Key.Y: if (ctrl) { Redo(); return true; } break;
             }
-            // Un geste de l'éditeur (gras, italique, listes…) : absorbé, la
-            // note n'a pas d'options.
+            // Un geste de l'éditeur (Ctrl+B, Ctrl+I…) vaut dans la note (28/09) :
+            // les formats de caractère s'y appliquent ; les gestes de
+            // paragraphe (alignements, listes) sont absorbés sans effet.
             var action = Settings.AppSettings.EditorActionFor(key.ToString(), Geo.ToCore(e.KeyModifiers));
+            if (action != null && !ReadOnly && IsCharacterAction(action)) RunEditorAction(action);
             return action != null;
         }
 
+        /// <summary>Les gestes qui valent dans une note : ceux du caractère,
+        /// jamais ceux du paragraphe (alignement, liste, décalage, saut).</summary>
+        private static bool IsCharacterAction(string action)
+        {
+            return action == "bold" || action == "italic" || action == "underline" || action == "strike"
+                || action == "small-caps" || action == "check-box" || action == "middle-dot";
+        }
+
+        // ============================================================ mise en forme (28/09)
+
+        /// <summary>La plage que le ruban vise dans la note : la sélection de
+        /// la note s'il y en a une, sinon LA NOTE ENTIÈRE (une note est
+        /// courte : sans sélection, le gras ou la taille vaut pour toute la
+        /// note, ce qu'on attend d'une note).</summary>
+        private void NoteRange(out int a, out int b)
+        {
+            if (HasNoteSelection()) { OrderedNoteSelection(out a, out b); return; }
+            a = 0;
+            b = NoteLength();
+        }
+
+        /// <summary>Vrai si tout le texte de la plage visée satisfait le
+        /// prédicat (règle des bascules), le style des notes en référence.</summary>
+        private bool NoteRangeHas(Func<TextRun, ParagraphStyle, bool> predicate)
+        {
+            var note = EditingNote;
+            if (note == null) return false;
+            int a, b;
+            NoteRange(out a, out b);
+            return PivotEdit.RangeHas(NoteParagraph(note), a, b, _styles.FootnoteStyle(), predicate);
+        }
+
+        /// <summary>Applique un format (gras, police, taille, couleur…) à la
+        /// plage visée de la note ouverte — depuis le ruban Texte (28/09 :
+        /// la note avait été « sans options » au portage).</summary>
+        private void NoteApplyFormat(Action<TextRun> setter)
+        {
+            var note = EditingNote;
+            if (note == null || ReadOnly) return;
+            int a, b;
+            NoteRange(out a, out b);
+            if (b <= a) return;
+            PushUndo(false);
+            var paragraph = NoteParagraph(note);
+            PivotEdit.ApplyFormat(paragraph, a, b, setter);
+            note.SetRuns(paragraph.Runs);
+            AfterNoteEdit();
+            RaiseSelectionState(); // le ruban suit
+        }
+
         /// <summary>L'état de format que le ruban montre pour la note ouverte :
-        /// le style « Notes de bas de page », rien de plus (sans options).</summary>
+        /// à trois valeurs sur la plage visée (sélection, sinon toute la
+        /// note), le style « Notes de bas de page » en référence — comme le
+        /// texte (28/09 ; avant, le style seul, sans options).</summary>
         private void NoteFormatState(out bool? bold, out bool? italic, out bool? underline, out bool? strike,
             out string fontFamily, out double? sizePt)
         {
@@ -598,6 +653,41 @@ namespace Marabook.App
             strike = false;
             fontFamily = style.FontFamily;
             sizePt = style.FontSize * 0.75;
+            var note = EditingNote;
+            if (note == null) return;
+            int a, b;
+            NoteRange(out a, out b);
+            var paragraph = NoteParagraph(note);
+            var seen = false;
+            var mixedFont = false;
+            var mixedSize = false;
+            var cursor = 0;
+            foreach (var run in paragraph.Runs)
+            {
+                var length = PivotEdit.IsElement(run) ? 1 : (run.Text ?? "").Length;
+                var overlaps = cursor + length > a && cursor < b;
+                cursor += length;
+                if (!overlaps || PivotEdit.IsElement(run)) continue;
+                var runBold = run.Bold ?? style.Bold;
+                var runItalic = run.Italic ?? style.Italic;
+                var runUnderline = run.Underline == true;
+                var runStrike = run.Strike == true;
+                var runFont = run.FontFamily ?? style.FontFamily;
+                var runSize = (run.FontSize ?? style.FontSize) * 0.75;
+                if (!seen)
+                {
+                    seen = true;
+                    bold = runBold; italic = runItalic; underline = runUnderline; strike = runStrike;
+                    fontFamily = runFont; sizePt = runSize;
+                    continue;
+                }
+                if (bold.HasValue && bold.Value != runBold) bold = null;
+                if (italic.HasValue && italic.Value != runItalic) italic = null;
+                if (underline.HasValue && underline.Value != runUnderline) underline = null;
+                if (strike.HasValue && strike.Value != runStrike) strike = null;
+                if (!mixedFont && !string.Equals(fontFamily, runFont, StringComparison.OrdinalIgnoreCase)) { mixedFont = true; fontFamily = null; }
+                if (!mixedSize && sizePt.HasValue && Math.Abs(sizePt.Value - runSize) > 0.05) { mixedSize = true; sizePt = null; }
+            }
         }
     }
 }

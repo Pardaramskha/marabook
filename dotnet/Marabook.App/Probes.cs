@@ -212,6 +212,44 @@ namespace Marabook.App
                 }
                 catch (Exception error) { Check(false, "annulation d'un style : " + error.Message); }
 
+                // — La mise en forme d'une note depuis le ruban (28/09) : la
+                // note ouverte passe en gras (toute la note sans sélection),
+                // Ctrl+Z la rend ; le texte n'a pas bougé.
+                try
+                {
+                    var noteIds = composed.MarkerOrder();
+                    if (noteIds.Count == 0)
+                    {
+                        composed.PlaceCaret(0, 0, false);
+                        composed.InsertFootnoteAtCaret();
+                        await Settle();
+                        noteIds = composed.MarkerOrder();
+                    }
+                    Check(noteIds.Count > 0, "l'écrit a une note de bas de page (" + noteIds.Count + ")");
+                    var noteId = noteIds[0];
+                    var textBefore = document.Paragraphs[0].ToPlainText();
+                    composed.EditNote(noteId);
+                    composed.TypeText("note sonde");
+                    await Settle();
+                    composed.ToggleBold();
+                    await Settle();
+                    var footnote = document.FindFootnote(noteId);
+                    var allBold = footnote != null && footnote.Runs.Count > 0;
+                    if (footnote != null) foreach (var run in footnote.Runs) if (!PivotEdit.IsElement(run) && run.Bold != true) allBold = false;
+                    Check(allBold, "gras depuis le ruban : toute la note passe en gras (" + (footnote == null ? "note absente" : footnote.Text) + ")");
+                    Check(document.Paragraphs[0].ToPlainText() == textBefore, "…sans toucher au texte");
+                    composed.Undo();
+                    await Settle();
+                    footnote = document.FindFootnote(noteId);
+                    var anyBold = false;
+                    if (footnote != null) foreach (var run in footnote.Runs) if (run.Bold == true) anyBold = true;
+                    Check(!anyBold, "Ctrl+Z rend la note sans gras");
+                    composed.CloseNoteEditor(true);
+                    composed.Undo(); composed.Undo(); // la frappe, puis la note insérée s'il a fallu l'insérer
+                    composed.PlaceCaret(0, 0, false);
+                }
+                catch (Exception error) { Check(false, "mise en forme d'une note : " + error.Message); }
+
                 // — Le PDF avec le moteur Avalonia : police embarquée.
                 var pdfPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-p2.pdf");
                 try

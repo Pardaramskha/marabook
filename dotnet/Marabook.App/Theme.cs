@@ -345,8 +345,19 @@ namespace Marabook.App
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius))));
 
-            // ---- infobulles : pilule inversée, texte blanc compact
+            // ---- infobulles : pilule inversée, texte blanc compact, et la
+            // FLÈCHE qui pointe le contrôle (28/09 : perdue au portage). La
+            // bulle se pose SOUS le contrôle (et non au pointeur) pour que la
+            // flèche vise quelque chose : le placement est posé par style sur
+            // tous les contrôles (Is<Control> : les dérivés aussi), l'écart
+            // vertical avec. PIÈGE : OverrideDefaultValue<Control> lève
+            // « Metadata is already set » — la propriété attachée est
+            // déclarée pour Control, ses métadonnées existent déjà.
+            styles.Add(Style(x => x.Is<Control>(),
+                new Setter(ToolTip.PlacementProperty, PlacementMode.Bottom),
+                new Setter(ToolTip.VerticalOffsetProperty, 2.0)));
             styles.Add(Style(x => x.OfType<ToolTip>(),
+                new Setter(TemplatedControl.TemplateProperty, new FuncControlTemplate<ToolTip>(TipFace)),
                 new Setter(TemplatedControl.BackgroundProperty, TipBg),
                 new Setter(TemplatedControl.BorderBrushProperty, Brushes.Transparent),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(0)),
@@ -443,6 +454,37 @@ namespace Marabook.App
             box.RegisterInNameScope(scope);
             presenter.RegisterInNameScope(scope);
             return row;
+        }
+
+        /// <summary>L'infobulle : une petite flèche vers le haut (vers le
+        /// contrôle, la bulle se pose dessous) puis la pilule ; les deux
+        /// suivent Background, la pilule aussi CornerRadius et Padding.</summary>
+        private static Control TipFace(TemplatedControl parent, INameScope scope)
+        {
+            var arrow = new Path
+            {
+                Name = "Arrow",
+                Data = Geometry.Parse("M0,6 L6,0 L12,6 Z"),
+                Width = 12,
+                Height = 6,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(14, 0, 0, 0)
+            };
+            arrow.Bind(Shape.FillProperty, new TemplateBinding(TemplatedControl.BackgroundProperty), BindingPriority.Template);
+            var presenter = new ContentPresenter { Name = "PART_ContentPresenter" };
+            presenter.Bind(ContentPresenter.ContentProperty, new TemplateBinding(ContentControl.ContentProperty), BindingPriority.Template);
+            presenter.Bind(ContentPresenter.ContentTemplateProperty, new TemplateBinding(ContentControl.ContentTemplateProperty), BindingPriority.Template);
+            presenter.Bind(ContentPresenter.PaddingProperty, new TemplateBinding(TemplatedControl.PaddingProperty), BindingPriority.Template);
+            var pill = new Border { Name = "Pill", Child = presenter };
+            pill.Bind(Border.BackgroundProperty, new TemplateBinding(TemplatedControl.BackgroundProperty), BindingPriority.Template);
+            pill.Bind(Border.CornerRadiusProperty, new TemplateBinding(TemplatedControl.CornerRadiusProperty), BindingPriority.Template);
+            var column = new StackPanel { Orientation = Orientation.Vertical };
+            column.Children.Add(arrow);
+            column.Children.Add(pill);
+            arrow.RegisterInNameScope(scope);
+            pill.RegisterInNameScope(scope);
+            presenter.RegisterInNameScope(scope);
+            return column;
         }
 
         /// <summary>Le bouton radio : le même visage que la case — un rond

@@ -22,6 +22,21 @@ namespace Marabook.App
         public static int Main(string[] args)
         {
             Args = args ?? new string[0];
+            // « --reinitialiser-styles-globaux » (28/09) : les styles globaux
+            // des réglages reviennent aux défauts de Marabook (nouvelle
+            // empreinte : chaque projet les reprend à l'ouverture), sans
+            // ouvrir l'application — un outil de support.
+            if (Array.IndexOf(Args, "--reinitialiser-styles-globaux") >= 0)
+            {
+                var launch = Launch.Parse(Args);
+                AppPlatform.Install();
+                if (launch.SettingsPath != null) Settings.AppSettings.PathOverride = launch.SettingsPath;
+                Settings.AppSettings.Load();
+                Settings.AppSettings.GlobalStyles = Model.StyleSheet.CreateDefault();
+                Settings.GlobalStyles.PushFromSettings(null); // empreinte neuve + enregistrement
+                Console.WriteLine("Styles globaux remis aux défauts de Marabook.");
+                return 0;
+            }
             // Les .plot s'ouvrent d'un double-clic si rien ne les ouvrait (22/09) —
             // jamais depuis une sonde ou une capture.
             if (!Launch.Parse(Args).Isolated) FileAssociation.EnsureRegistered();
