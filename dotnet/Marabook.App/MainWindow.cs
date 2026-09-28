@@ -3005,9 +3005,13 @@ namespace Marabook.App
         private async void OpenStylesDialog()
         {
             CommitActive();
-            var edited = StylesDialog.Show(this, _project.Styles, StyleScopeContext.ForItem(_project, _current));
-            if (edited == null) return;
-            _project.Styles = await edited;
+            // Le résultat est null quand le dialogue est annulé (Échap, Annuler,
+            // la croix) : tester la TÂCHE ne suffisait pas, et la feuille nulle
+            // faisait planter le point d'annulation puis chaque enregistrement
+            // (rapports du 28/09 11h24-11h27).
+            var sheet = await StylesDialog.Show(this, _project.Styles, StyleScopeContext.ForItem(_project, _current));
+            if (sheet == null || _project == null) return;
+            _project.Styles = sheet;
             ApplyStyleSheet();
             if (_bookView.IsVisible) _bookView.RefreshStyles(); // feuille remplacée (revue 22/09)
             MarkDirty();
@@ -3041,7 +3045,7 @@ namespace Marabook.App
         /// restauration (ce serait un point de trop).</summary>
         private void RememberStylesForUndo()
         {
-            if (_project == null) return;
+            if (_project == null || _project.Styles == null) return;
             if (!_restoringStyles && _stylesBefore != null) _editor.PushStylesUndo(_stylesBefore);
             _stylesBefore = _project.Styles.Clone();
         }
@@ -3049,9 +3053,9 @@ namespace Marabook.App
         private async void OpenTemplatesDialog()
         {
             CommitActive();
-            var edited = TemplatesDialog.Show(this, _project.Templates, _project);
-            if (edited == null) return;
-            _project.Templates = await edited;
+            var templates = await TemplatesDialog.Show(this, _project.Templates, _project);
+            if (templates == null || _project == null) return; // annulé (28/09)
+            _project.Templates = templates;
             // Re-render the current sheet: its fields may have changed.
             if (_current != null && _current.Kind == ItemKind.Sheet)
                 _sheetView.LoadItem(_current, _project.FindTemplate(_current.TemplateId));

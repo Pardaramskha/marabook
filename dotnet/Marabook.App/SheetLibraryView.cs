@@ -305,9 +305,9 @@ namespace Marabook.App
         /// modèles édités remplacent ceux du projet, la bibliothèque se redessine.</summary>
         private async void EditTemplates()
         {
-            var edited = TemplatesDialog.Show(Ui.OwnerOf(this), _project.Templates, _project);
-            if (edited == null) return;
-            _project.Templates = await edited;
+            var templates = await TemplatesDialog.Show(Ui.OwnerOf(this), _project.Templates, _project);
+            if (templates == null) return; // annulé (28/09) : la liste nulle cassait le projet
+            _project.Templates = templates;
             NotifyChanged();
             RebuildRows();
         }
