@@ -142,6 +142,49 @@ namespace Marabook.App
                 }
                 catch (Exception error) { Check(false, "copier/coller mis en forme : " + error.Message); }
 
+                // — L'annulation par écrit (28/09) : A modifié, B modifié, A
+                // modifié ; deux Ctrl+Z sur A rendent A, B reste tel quel ;
+                // un rechargement (styles) ne vide pas la pile.
+                try
+                {
+                    var chapterB = book.Children[1];
+                    var originalA = document.Paragraphs[0].ToPlainText();
+                    var originalB = chapterB.Document.Paragraphs[0].ToPlainText();
+                    composed.PlaceCaret(0, 0, false);
+                    composed.TypeText("Un ");
+                    await Settle();
+                    shell.Binder.SelectItem(chapterB.Id, true);
+                    await Settle();
+                    composed.PlaceCaret(0, 0, false);
+                    composed.TypeText("Bé ");
+                    await Settle();
+                    shell.Binder.SelectItem(chapter.Id, true);
+                    await Settle();
+                    composed.PlaceCaret(0, PivotEdit.FlatLength(document.Paragraphs[0]), false);
+                    composed.TypeText(" deux");
+                    await Settle();
+                    editor.Reload(); // la feuille de styles a « changé »
+                    await Settle();
+                    // Une correction automatique (b45) peut demander un Ctrl+Z
+                    // de plus (le premier la refuse) : on recule jusqu'à l'état.
+                    var stepsOne = 0;
+                    while (stepsOne < 3 && document.Paragraphs[0].ToPlainText() != "Un " + originalA && composed.Undo()) stepsOne++;
+                    var afterOne = document.Paragraphs[0].ToPlainText();
+                    var stepsTwo = 0;
+                    while (stepsTwo < 3 && document.Paragraphs[0].ToPlainText() != originalA && composed.Undo()) stepsTwo++;
+                    var afterTwo = document.Paragraphs[0].ToPlainText();
+                    Check(stepsOne > 0 && afterOne == "Un " + originalA && stepsTwo > 0 && afterTwo == originalA,
+                        "annuler sur A rend « phrase 2 » puis « phrase 1 » (" + stepsOne + " + " + stepsTwo + " Ctrl+Z, après un rechargement)");
+                    Check(chapterB.Document.Paragraphs[0].ToPlainText() == "Bé " + originalB, "…et B n'a pas bougé");
+                    shell.Binder.SelectItem(chapterB.Id, true);
+                    await Settle();
+                    Check(composed.Undo() && chapterB.Document.Paragraphs[0].ToPlainText() == originalB, "Ctrl+Z sur B rend B");
+                    shell.Binder.SelectItem(chapter.Id, true);
+                    await Settle();
+                    composed.PlaceCaret(0, 0, false);
+                }
+                catch (Exception error) { Check(false, "annulation par écrit : " + error.Message); }
+
                 // — Le PDF avec le moteur Avalonia : police embarquée.
                 var pdfPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-p2.pdf");
                 try

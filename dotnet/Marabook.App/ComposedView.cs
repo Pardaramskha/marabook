@@ -187,8 +187,19 @@ namespace Marabook.App
         {
             _typoVetoes.Clear();
         }
-        private readonly List<Snapshot> _undo = new List<Snapshot>();
-        private readonly List<Snapshot> _redo = new List<Snapshot>();
+        // Les piles d'annulation vivent PAR ÉCRIT (28/09) : elles survivent
+        // au passage d'un écrit à l'autre et aux rechargements (feuille de
+        // styles modifiée → Attach), et Ctrl+Z ne touche que l'écrit ouvert.
+        // Oubliées quand le projet change.
+        private sealed class UndoStacks
+        {
+            public readonly List<Snapshot> Undo = new List<Snapshot>();
+            public readonly List<Snapshot> Redo = new List<Snapshot>();
+        }
+        private readonly Dictionary<string, UndoStacks> _stacksByItem = new Dictionary<string, UndoStacks>();
+        private Project _stacksProject;
+        private List<Snapshot> _undo = new List<Snapshot>();
+        private List<Snapshot> _redo = new List<Snapshot>();
         private DateTime _lastTyping = DateTime.MinValue;
         private bool _lastWasTyping;
 
@@ -350,8 +361,16 @@ namespace Marabook.App
             _engine.ComposeAll();
             CloseNoteEditor(false);
             DeselectImage(false);
-            _undo.Clear();
-            _redo.Clear();
+            // La pile de CET écrit (28/09) — vidée seulement quand le projet
+            // change ; un rechargement (styles) ou un aller-retour entre
+            // écrits la retrouve intacte.
+            if (_stacksProject != project) { _stacksByItem.Clear(); _stacksProject = project; }
+            UndoStacks stacks;
+            var key = item.Id ?? "";
+            if (!_stacksByItem.TryGetValue(key, out stacks)) { stacks = new UndoStacks(); _stacksByItem[key] = stacks; }
+            _undo = stacks.Undo;
+            _redo = stacks.Redo;
+            _lastWasTyping = false;
             _caretParagraph = 0;
             _caretOffset = 0;
             ClearSelection();
