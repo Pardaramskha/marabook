@@ -12,6 +12,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 using Marabook.Model;
+using Marabook.Persistence;
 using Marabook.Print;
 
 namespace Marabook.App
@@ -518,6 +519,39 @@ namespace Marabook.App
             var top = TopLevel.GetTopLevel(this);
             if (top == null || top.Clipboard == null) return null;
             try { return await top.Clipboard.GetTextAsync(); }
+            catch { return null; }
+        }
+
+        /// <summary>Le texte plat ET le fragment mis en forme (28/09) : les
+        /// autres applications lisent le texte, Marabook relit le fragment
+        /// (JSON du .plot, en octets UTF-8 sous son propre format).</summary>
+        private void SetClipboardFragment(string text, string json)
+        {
+            var top = TopLevel.GetTopLevel(this);
+            if (top == null || top.Clipboard == null) return;
+            try
+            {
+                var data = new DataObject();
+                data.Set(DataFormats.Text, text);
+                data.Set(TextFragment.ClipboardFormat, Encoding.UTF8.GetBytes(json));
+                var _ = top.Clipboard.SetDataObjectAsync(data);
+            }
+            catch { SetClipboardText(text); }
+        }
+
+        /// <summary>Le JSON du fragment s'il y en a un dans le presse-papiers,
+        /// sinon null (texte venu d'ailleurs, ou copie sans mise en forme).</summary>
+        private async System.Threading.Tasks.Task<string> ClipboardFragment()
+        {
+            var top = TopLevel.GetTopLevel(this);
+            if (top == null || top.Clipboard == null) return null;
+            try
+            {
+                var data = await top.Clipboard.GetDataAsync(TextFragment.ClipboardFormat);
+                var bytes = data as byte[];
+                if (bytes != null) return Encoding.UTF8.GetString(bytes);
+                return data as string;
+            }
             catch { return null; }
         }
 
@@ -1563,6 +1597,7 @@ namespace Marabook.App
             if (action != null && RunEditorAction(action)) { e.Handled = true; return; }
             var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
             var shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
+            var alt = (e.KeyModifiers & KeyModifiers.Alt) != 0;
             var handled = true;
             switch (e.Key)
             {
@@ -1588,8 +1623,10 @@ namespace Marabook.App
                     handled = false; // laisse remonter (mode calme)
                     break;
                 case Key.A: if (ctrl) SelectAll(); else handled = false; break;
-                case Key.C: if (ctrl) CopySelection(false); else handled = false; break;
-                case Key.X: if (ctrl) CopySelection(true); else handled = false; break;
+                // Ctrl+C/X gardent la mise en forme, Ctrl+Alt+C/X (28/09) ne
+                // portent que le texte ; Ctrl+V colle ce que porte le presse-papiers.
+                case Key.C: if (ctrl) CopySelection(false, !alt); else handled = false; break;
+                case Key.X: if (ctrl) CopySelection(true, !alt); else handled = false; break;
                 case Key.V: if (ctrl) Paste(); else handled = false; break;
                 case Key.Z: if (ctrl) Undo(); else handled = false; break;
                 case Key.Y: if (ctrl) Redo(); else handled = false; break;
@@ -2157,21 +2194,22 @@ namespace Marabook.App
 
         // ============================================================ clipboard
 
-        private void CopySelection(bool cut)
+        /// <summary>Copier / couper (28/09) : Ctrl+C et Ctrl+X emportent la
+        /// mise en forme (police, taille, gras, couleur… et les styles des
+        /// paragraphes), Ctrl+Alt+C et Ctrl+Alt+X ne portent que le texte.
+        /// Les deux posent aussi le texte plat pour les autres applications.</summary>
+        public void Copy(bool withFormat) { CopySelection(false, withFormat); }
+        public void Cut(bool withFormat) { if (!ReadOnly) CopySelection(true, withFormat); }
+
+        private void CopySelection(bool cut, bool withFormat)
         {
-            if (!HasSelection()) return;
+            if (!HasSelection() || _item == null) return;
             int pa, oa, pb, ob;
             OrderedSelection(out pa, out oa, out pb, out ob);
-            var sb = new StringBuilder();
-            for (var p = pa; p <= pb; p++)
-            {
-                var text = PivotEdit.FlatText(_item.Document.Paragraphs[p]);
-                var from = p == pa ? Math.Min(oa, text.Length) : 0;
-                var to = p == pb ? Math.Min(ob, text.Length) : text.Length;
-                sb.Append(text.Substring(from, Math.Max(0, to - from)).Replace("￼", ""));
-                if (p < pb) sb.AppendLine();
-            }
-            SetClipboardText(sb.ToString());
+            var fragment = TextFragment.Extract(_item.Document, pa, oa, pb, ob);
+            var text = fragment.ToPlainText().Replace("\n", Environment.NewLine);
+            if (withFormat) SetClipboardFragment(text, PlotFile.SerializeDocument(fragment));
+            else SetClipboardText(text);
             if (cut)
             {
                 PushUndo(false);
@@ -2180,10 +2218,23 @@ namespace Marabook.App
             }
         }
 
-        private async void Paste()
+        /// <summary>Coller (Ctrl+V) : ce que porte le presse-papiers — le
+        /// fragment mis en forme de Marabook quand il y en a un, sinon le
+        /// texte plat (venu d'ailleurs, ou copié sans mise en forme).</summary>
+        private async void Paste() { await PasteAsync(); }
+
+        public async System.Threading.Tasks.Task PasteAsync()
         {
+            if (_item == null || ReadOnly) return;
+            var json = await ClipboardFragment();
+            if (json != null)
+            {
+                TextDocument fragment = null;
+                try { fragment = PlotFile.DeserializeDocument(json); } catch { fragment = null; }
+                if (fragment != null && fragment.Paragraphs.Count > 0) { PasteFragment(fragment); return; }
+            }
             var text = await ClipboardText();
-            if (string.IsNullOrEmpty(text) || _item == null) return;
+            if (string.IsNullOrEmpty(text)) return;
             PushUndo(false);
             DeleteSelectionIfAny();
             var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
@@ -2204,6 +2255,24 @@ namespace Marabook.App
                     _engine.RecomposeParagraph(_caretParagraph);
                 }
             }
+            AfterEdit(Math.Min(first, 0));
+        }
+
+        /// <summary>Insère le fragment au caret (TextFragment.Insert) et
+        /// apprend au compositeur chaque paragraphe ajouté.</summary>
+        private void PasteFragment(TextDocument fragment)
+        {
+            PushUndo(false);
+            DeleteSelectionIfAny();
+            var start = _caretParagraph;
+            var paragraph = _caretParagraph;
+            var offset = _caretOffset;
+            var added = TextFragment.Insert(_item.Document, fragment, ref paragraph, ref offset);
+            var first = _engine.RecomposeParagraph(start);
+            for (var i = 1; i <= added; i++)
+                first = Math.Min(first, _engine.ParagraphInserted(start + i));
+            _caretParagraph = paragraph;
+            _caretOffset = offset;
             AfterEdit(Math.Min(first, 0));
         }
 

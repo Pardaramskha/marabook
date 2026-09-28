@@ -104,6 +104,44 @@ namespace Marabook.App
                 Check(composed.Undo() && !(document.Paragraphs[0].Runs.Count > 0 && document.Paragraphs[0].Runs[0].Bold == true), "…et Ctrl+Z le rend");
                 composed.PlaceCaret(0, 0, false);
 
+                // — Copier avec mise en forme, coller (28/09) : le gras voyage
+                // par le presse-papiers ; sans mise en forme, il ne voyage pas.
+                try
+                {
+                    var paragraphs = document.Paragraphs.Count;
+                    composed.PlaceCaret(0, 0, false);
+                    composed.PlaceCaret(0, Math.Min(5, original.Length), true); // les cinq premiers caractères
+                    composed.ToggleBold();
+                    await Settle();
+                    composed.PlaceCaret(0, 0, false);
+                    composed.PlaceCaret(0, Math.Min(5, original.Length), true);
+                    composed.Copy(true);
+                    await Settle();
+                    var end = document.Paragraphs[paragraphs - 1];
+                    composed.PlaceCaret(paragraphs - 1, PivotEdit.FlatLength(end), false);
+                    await composed.PasteAsync();
+                    await Settle();
+                    var pasted = end.Runs.Count > 0 ? end.Runs[end.Runs.Count - 1] : null;
+                    Check(pasted != null && pasted.Bold == true && pasted.Text == original.Substring(0, Math.Min(5, original.Length)),
+                        "copier avec mise en forme puis coller : le gras voyage (" + (pasted == null ? "rien collé" : pasted.Text + ", gras=" + pasted.Bold) + ")");
+                    composed.Undo();
+                    end = document.Paragraphs[paragraphs - 1]; // l'annulation a pu remplacer le paragraphe
+                    composed.PlaceCaret(0, 0, false);
+                    composed.PlaceCaret(0, Math.Min(5, original.Length), true);
+                    composed.Copy(false);
+                    await Settle();
+                    composed.PlaceCaret(paragraphs - 1, PivotEdit.FlatLength(end), false);
+                    await composed.PasteAsync();
+                    await Settle();
+                    pasted = end.Runs.Count > 0 ? end.Runs[end.Runs.Count - 1] : null;
+                    Check(pasted != null && pasted.Bold != true && end.ToPlainText().EndsWith(original.Substring(0, Math.Min(5, original.Length))),
+                        "copier sans mise en forme puis coller : le texte seul voyage");
+                    composed.Undo(); // le collage
+                    composed.Undo(); // le gras
+                    composed.PlaceCaret(0, 0, false);
+                }
+                catch (Exception error) { Check(false, "copier/coller mis en forme : " + error.Message); }
+
                 // — Le PDF avec le moteur Avalonia : police embarquée.
                 var pdfPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-p2.pdf");
                 try

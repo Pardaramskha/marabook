@@ -121,7 +121,8 @@ namespace Marabook.Tests
                 Patch050Tests.Run,       // C41 — patch 0.50.0 : sélection par mot, format d'insertion, notes riches (25/09)
                 ImagesTests.Run,         // C42 — refonte des images (26/09)
                 FontPrefsTests.Run,      // C43 — catalogue de polices : l'ordre (FontOrder) et les bascules
-                ExchangeImagesTests.Run  // C44 — images dans les échanges : docx ancré, Markdown, RTF (26/09)
+                ExchangeImagesTests.Run,  // C44 — images dans les échanges : docx ancré, Markdown, RTF (26/09)
+                TextFragmentTests.Run    // C45 - fragment du presse-papiers mis en forme (28/09)
             };
             foreach (var suite in suites)
             {
