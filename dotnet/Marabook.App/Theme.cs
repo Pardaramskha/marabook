@@ -277,6 +277,26 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<CheckBox>().Class(":disabled"),
                 new Setter(Visual.OpacityProperty, 0.45)));
 
+            // ---- boutons radio : un rond 16, point blanc sur accent plein choisi
+            styles.Add(Style(x => x.OfType<RadioButton>(),
+                new Setter(TemplatedControl.TemplateProperty, new FuncControlTemplate<RadioButton>(RadioFace)),
+                new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
+                new Setter(InputElement.CursorProperty, new Cursor(StandardCursorType.Hand))));
+            styles.Add(Style(x => x.OfType<RadioButton>().Template().OfType<Border>().Name("Box"),
+                new Setter(Border.BackgroundProperty, Chrome.PaperBg),
+                new Setter(Border.BorderBrushProperty, Chrome.Border)));
+            styles.Add(Style(x => x.OfType<RadioButton>().Template().OfType<Ellipse>().Name("Dot"),
+                new Setter(Visual.IsVisibleProperty, false)));
+            styles.Add(Style(x => x.OfType<RadioButton>().Class(":pointerover").Template().OfType<Border>().Name("Box"),
+                new Setter(Border.BorderBrushProperty, Chrome.Accent)));
+            styles.Add(Style(x => x.OfType<RadioButton>().Class(":checked").Template().OfType<Border>().Name("Box"),
+                new Setter(Border.BackgroundProperty, Chrome.Accent),
+                new Setter(Border.BorderBrushProperty, Chrome.Accent)));
+            styles.Add(Style(x => x.OfType<RadioButton>().Class(":checked").Template().OfType<Ellipse>().Name("Dot"),
+                new Setter(Visual.IsVisibleProperty, true)));
+            styles.Add(Style(x => x.OfType<RadioButton>().Class(":disabled"),
+                new Setter(Visual.OpacityProperty, 0.45)));
+
             // ---- onglets en CHIP : l'actif est une pastille d'accent, texte papier
             styles.Add(Style(x => x.OfType<TabControl>(),
                 new Setter(TemplatedControl.BackgroundProperty, Brushes.Transparent),
@@ -420,6 +440,49 @@ namespace Marabook.App
             row.Children.Add(box);
             row.Children.Add(presenter);
             check.RegisterInNameScope(scope);
+            box.RegisterInNameScope(scope);
+            presenter.RegisterInNameScope(scope);
+            return row;
+        }
+
+        /// <summary>Le bouton radio : le même visage que la case — un rond
+        /// (Box) et un point (Dot, caché tant que le bouton n'est pas choisi),
+        /// le libellé. Mêmes règles : aucune valeur locale sur ce que les
+        /// styles d'état changent (28/09, le gabarit Simple n'affichait pas
+        /// le choix, comme la case avant le 27/09).</summary>
+        private static Control RadioFace(TemplatedControl parent, INameScope scope)
+        {
+            var dot = new Ellipse
+            {
+                Name = "Dot",
+                Width = 6,
+                Height = 6,
+                Fill = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var box = new Border
+            {
+                Name = "Box",
+                Width = 16,
+                Height = 16,
+                CornerRadius = new CornerRadius(8),
+                BorderThickness = new Thickness(1),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = dot
+            };
+            var presenter = new ContentPresenter
+            {
+                Name = "Label",
+                Margin = new Thickness(7, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            presenter.Bind(ContentPresenter.ContentProperty, new TemplateBinding(ContentControl.ContentProperty), BindingPriority.Template);
+            presenter.Bind(ContentPresenter.ContentTemplateProperty, new TemplateBinding(ContentControl.ContentTemplateProperty), BindingPriority.Template);
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Background = Brushes.Transparent };
+            row.Children.Add(box);
+            row.Children.Add(presenter);
+            dot.RegisterInNameScope(scope);
             box.RegisterInNameScope(scope);
             presenter.RegisterInNameScope(scope);
             return row;

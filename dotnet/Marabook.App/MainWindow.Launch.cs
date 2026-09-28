@@ -260,6 +260,11 @@ private Window BuildLab()
             tabs.Items.Add(new TabItem { Header = "Onglet", Content = new TextBlock { Text = "3. Dans un TabControl : Boutons, sélections, liens" } });
             panel.Children.Add(tabs);
             panel.Children.Add(new CheckBox { Content = "4. Libellé de case : Boutons, sélections, liens" });
+            var choices = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14 };
+            choices.Children.Add(new CheckBox { Content = "4b. Case cochée", IsChecked = true });
+            choices.Children.Add(new RadioButton { Content = "Radio choisie", GroupName = "lab", IsChecked = true });
+            choices.Children.Add(new RadioButton { Content = "Radio au repos", GroupName = "lab" });
+            panel.Children.Add(choices);
             panel.Children.Add(new TextBlock { Text = "5. TextBlock Wrap : Boutons, sélections, liens", TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(new TextBlock { Text = "6. TextBlock FontSize 12 SoftText : Boutons, sélections, liens", FontSize = 12, Foreground = Chrome.SoftText });
             var stackInGrid = new Grid();
