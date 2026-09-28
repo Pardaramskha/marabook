@@ -436,7 +436,7 @@ namespace Marabook.App
                 var menu = MenuProvider == null ? null : MenuProvider(folderRef);
                 if (menu == null) return;
                 menu.PlacementTarget = card;
-                menu.Open();
+                menu.Open(card);
             };
             card.PointerEntered += delegate { card.BorderBrush = Chrome.Accent; };
             card.PointerExited += delegate { card.BorderBrush = Chrome.Border; };
@@ -621,7 +621,7 @@ namespace Marabook.App
                         menu.Items.Add(entry);
             }
             menu.PlacementTarget = anchor;
-            menu.Open();
+            menu.Open(anchor);
         }
 
         // ------------------------------------------------------- catégories
@@ -705,7 +705,7 @@ namespace Marabook.App
             menu.Items.Add(remove);
 
             menu.PlacementTarget = anchor;
-            menu.Open();
+            menu.Open(anchor);
         }
 
         private async void NewCategory()

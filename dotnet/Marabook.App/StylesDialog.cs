@@ -46,6 +46,7 @@ namespace Marabook.App
             var ok = new Button { Content = "Valider", IsDefault = true, MinWidth = 90 };
             ok.Click += delegate { _panel.Commit(); _accepted = true; Close(); };
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 90, Margin = new Thickness(8, 0, 0, 0) };
+            cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
             DockPanel.SetDock(buttons, Dock.Bottom);

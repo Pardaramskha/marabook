@@ -213,6 +213,7 @@ namespace Marabook.App
         {
             var button = new ToggleButton
             {
+                Classes = { Marabook.App.Theme.Owned },
                 Content = new TextBlock { Text = label, FontSize = 11 },
                 Padding = new Thickness(7, 1, 7, 1),
                 Margin = new Thickness(0, 0, 4, 3),

@@ -271,6 +271,7 @@ namespace Marabook.App
             var ok = new Button { Content = "Valider", IsDefault = true, MinWidth = 90 };
             ok.Click += delegate { CommitName(); _accepted = true; Close(); };
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 90, Margin = new Thickness(8, 0, 0, 0) };
+            cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
             Grid.SetColumn(buttons, 2);
@@ -768,6 +769,7 @@ namespace Marabook.App
             var ok = new Button { Content = "Créer", IsDefault = true, MinWidth = 80 };
             ok.Click += delegate { _accepted = true; Close(); };
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 80, Margin = new Thickness(8, 0, 0, 0) };
+            cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
             panel.Children.Add(buttons);
@@ -833,6 +835,7 @@ namespace Marabook.App
             var ok = new Button { Content = "Insérer", IsDefault = true, MinWidth = 80 };
             ok.Click += delegate { _accepted = true; Close(); };
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 80, Margin = new Thickness(8, 0, 0, 0) };
+            cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
             panel.Children.Add(buttons);

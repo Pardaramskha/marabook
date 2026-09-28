@@ -830,6 +830,7 @@ namespace Marabook.App
         {
             var chip = new ToggleButton
             {
+                Classes = { Marabook.App.Theme.Owned },
                 Content = ComposedRenderer.CategoryLabel(category),
                 IsChecked = true,
                 Margin = new Thickness(6, 0, 0, 0),

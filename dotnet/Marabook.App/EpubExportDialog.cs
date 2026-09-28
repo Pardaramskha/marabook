@@ -125,6 +125,7 @@ namespace Marabook.App
             var ok = new Button { Content = "Créer l'EPUB…", IsDefault = true, MinWidth = 120 };
             ok.Click += delegate { _accepted = true; Close(); };
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 90, Margin = new Thickness(8, 0, 0, 0) };
+            cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
             panel.Children.Add(buttons);

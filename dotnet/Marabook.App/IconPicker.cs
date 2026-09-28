@@ -253,6 +253,7 @@ namespace Marabook.App
             var reset = new Button { Content = "Icône par défaut", MinWidth = 110 };
             reset.Click += delegate { _result = ""; _accepted = true; Close(); };
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 80, Margin = new Thickness(8, 0, 0, 0) };
+            cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(reset);
             buttons.Children.Add(cancel);
             panel.Children.Add(buttons);
@@ -271,6 +272,7 @@ namespace Marabook.App
         {
             var button = new ToggleButton
             {
+                Classes = { Marabook.App.Theme.Owned },
                 Width = 26,
                 Height = 26,
                 Margin = new Thickness(2),

@@ -170,6 +170,7 @@ namespace Marabook.App
                 MinWidth = 80,
                 Margin = new Thickness(8, 0, 0, 0)
             };
+            cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
             panel.Children.Add(buttons);

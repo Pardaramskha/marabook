@@ -127,6 +127,7 @@ namespace Marabook.App
             var ok = new Button { Content = "Valider", IsDefault = true, MinWidth = 80 };
             ok.Click += delegate { _accepted = true; Close(); };
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 80, Margin = new Thickness(8, 0, 0, 0) };
+            cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
             panel.Children.Add(buttons);
@@ -250,6 +251,7 @@ namespace Marabook.App
             var apply = new Button { Content = "Appliquer", IsDefault = true, MinWidth = 100, FontWeight = FontWeight.SemiBold };
             apply.Click += delegate { _accepted = true; Close(); };
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 90, Margin = new Thickness(8, 0, 0, 0) };
+            cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(apply);
             buttons.Children.Add(cancel);
             DockPanel.SetDock(buttons, Dock.Bottom);

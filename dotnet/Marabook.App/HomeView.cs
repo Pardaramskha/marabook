@@ -384,7 +384,7 @@ namespace Marabook.App
                 var menu = MenuProvider == null ? null : MenuProvider(item);
                 if (menu == null) return;
                 menu.PlacementTarget = host;
-                menu.Open();
+                menu.Open(host);
                 e.Handled = true;
             };
             return host;

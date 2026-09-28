@@ -367,7 +367,7 @@ namespace Marabook.App
             Add(menu, "Les automatiques de tout le projet", delegate { return SnapshotStore.PurgeAutomatic(_project, null); });
             Add(menu, "Tout ce qui a plus de 30 jours", delegate { return SnapshotStore.PurgeOlderThan(_project, 30); });
             Add(menu, "Tout ce qui a plus de 90 jours", delegate { return SnapshotStore.PurgeOlderThan(_project, 90); });
-            menu.Open();
+            menu.Open(_purge);
         }
 
         private void Add(ContextMenu menu, string header, Func<int> purge)

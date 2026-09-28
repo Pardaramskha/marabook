@@ -153,7 +153,7 @@ namespace Marabook.App
             weightBtn.Click += delegate
             {
                 BuildWeightMenu(weightMenu); // graisses de LA police, coche incluse
-                weightMenu.Open();
+                weightMenu.Open(weightBtn);
             };
             typeTop.Children.Add(weightBtn);
 
@@ -193,6 +193,7 @@ namespace Marabook.App
             typeBottom.Children.Add(VerticalRule());
             _smallCapsBtn = new ToggleButton
             {
+                Classes = { Marabook.App.Theme.Owned },
                 [ToolTip.TipProperty] = "Petites majuscules",
                 Width = 26,
                 Height = 26,
@@ -1067,6 +1068,7 @@ namespace Marabook.App
         {
             return new ToggleButton
             {
+                Classes = { Marabook.App.Theme.Owned },
                 Content = Icons.Make(iconName, 14, Chrome.Ink),
                 [ToolTip.TipProperty] = tooltip,
                 Width = 26,
@@ -1081,6 +1083,7 @@ namespace Marabook.App
         {
             return new ToggleButton
             {
+                Classes = { Marabook.App.Theme.Owned },
                 Content = new TextBlock { Text = label, FontSize = 13 },
                 [ToolTip.TipProperty] = tooltip,
                 Width = 26,
@@ -1101,6 +1104,7 @@ namespace Marabook.App
                      : "text-strikethrough-bold";
             var toggle = new ToggleButton
             {
+                Classes = { Marabook.App.Theme.Owned },
                 [ToolTip.TipProperty] = tooltip,
                 Width = 26,
                 Height = 26,
@@ -1226,6 +1230,7 @@ namespace Marabook.App
         {
             var button = new ToggleButton
             {
+                Classes = { Marabook.App.Theme.Owned },
                 Content = Icons.Make("text-align-" + align + "-bold", 14, Chrome.Ink),
                 [ToolTip.TipProperty] = tooltip,
                 Width = 26,
@@ -1394,7 +1399,7 @@ namespace Marabook.App
             button.Click += delegate
             {
                 BuildPaletteMenu(menu, isForeground); // custom colors live per project
-                menu.Open();
+                menu.Open(button);
             };
             return button;
         }

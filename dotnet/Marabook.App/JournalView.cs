@@ -202,6 +202,7 @@ namespace Marabook.App
                 var daysRef = days;
                 var chip = new ToggleButton
                 {
+                    Classes = { Marabook.App.Theme.Owned },
                     Content = days + " j",
                     FontSize = 11,
                     Padding = new Thickness(8, 1, 8, 1),

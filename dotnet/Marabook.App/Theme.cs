@@ -29,9 +29,13 @@ namespace Marabook.App
         /// 2 px de marge de chaque côté).</summary>
         public const double ScrollBarSize = 12;
 
-        /// <summary>La classe des boutons fabriqués par Buttons.cs : les
-        /// styles de boutons ne touchent qu'eux — pas les bascules internes
-        /// des gabarits du thème de base (l'expanseur d'un TreeViewItem…).</summary>
+        /// <summary>La classe des BASCULES habillées par le thème : Buttons.cs
+        /// la pose, et toute ToggleButton fabriquée à la main doit la porter
+        /// (Classes = { Theme.Owned }). Les styles de bascules ne touchent
+        /// qu'elles — pas les bascules internes des gabarits du thème de base
+        /// (l'expanseur d'un TreeViewItem, la flèche d'un ComboBox…). Les
+        /// Button, eux, sont TOUS habillés (style implicite, comme en WPF) :
+        /// le thème de base n'en glisse aucun dans nos gabarits (28/09).</summary>
         public const string Owned = "mb";
 
         /// <summary>Les classes des trois apparences (Buttons.Look).</summary>
@@ -106,10 +110,13 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<GridSplitter>().Class(":pointerover"),
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.AccentSoft)));
 
-            // ---- boutons : le contour est l'implicite (raised + line-strong)
+            // ---- boutons : le contour est l'implicite (raised + line-strong),
+            // pour TOUT Button — ceux des dialogues et du ruban écrits à la
+            // main comme ceux de Buttons.cs (le passage à Avalonia les avait
+            // laissés aux angles droits du thème Simple, 28/09).
             var buttonTemplate = new FuncControlTemplate<Button>(Face);
             var toggleTemplate = new FuncControlTemplate<ToggleButton>(Face);
-            styles.Add(Style(x => x.OfType<Button>().Class(Owned),
+            styles.Add(Style(x => x.OfType<Button>(),
                 new Setter(TemplatedControl.TemplateProperty, buttonTemplate),
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.RaisedBg),
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.BorderStrong),
@@ -120,34 +127,34 @@ namespace Marabook.App
                 new Setter(InputElement.CursorProperty, new Cursor(StandardCursorType.Hand)),
                 new Setter(ContentControl.HorizontalContentAlignmentProperty, HorizontalAlignment.Center),
                 new Setter(ContentControl.VerticalContentAlignmentProperty, VerticalAlignment.Center)));
-            styles.Add(Style(x => x.OfType<Button>().Class(Owned).Class(":pointerover"),
+            styles.Add(Style(x => x.OfType<Button>().Class(":pointerover"),
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.AccentTint),
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.SoftText)));
-            styles.Add(Style(x => x.OfType<Button>().Class(Owned).Class(":pressed"),
+            styles.Add(Style(x => x.OfType<Button>().Class(":pressed"),
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.AccentSoft)));
-            styles.Add(Style(x => x.OfType<Button>().Class(Owned).Class(":disabled"),
+            styles.Add(Style(x => x.OfType<Button>().Class(":disabled"),
                 new Setter(Visual.OpacityProperty, 0.45)));
 
             // calme : transparent au repos, accent-tint au survol, accent-soft enfoncé
-            styles.Add(Style(x => x.OfType<Button>().Class(Owned).Class(Calm),
+            styles.Add(Style(x => x.OfType<Button>().Class(Calm),
                 new Setter(TemplatedControl.BackgroundProperty, Brushes.Transparent),
                 new Setter(TemplatedControl.BorderBrushProperty, Brushes.Transparent)));
-            styles.Add(Style(x => x.OfType<Button>().Class(Owned).Class(Calm).Class(":pointerover"),
+            styles.Add(Style(x => x.OfType<Button>().Class(Calm).Class(":pointerover"),
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.AccentTint),
                 new Setter(TemplatedControl.BorderBrushProperty, Brushes.Transparent)));
-            styles.Add(Style(x => x.OfType<Button>().Class(Owned).Class(Calm).Class(":pressed"),
+            styles.Add(Style(x => x.OfType<Button>().Class(Calm).Class(":pressed"),
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.AccentSoft)));
 
             // principal : accent plein, texte papier, accent-strong enfoncé
-            styles.Add(Style(x => x.OfType<Button>().Class(Owned).Class(Primary),
+            styles.Add(Style(x => x.OfType<Button>().Class(Primary),
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.Accent),
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.Accent),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.RaisedBg),
                 new Setter(TemplatedControl.FontWeightProperty, FontWeight.SemiBold)));
-            styles.Add(Style(x => x.OfType<Button>().Class(Owned).Class(Primary).Class(":pointerover"),
+            styles.Add(Style(x => x.OfType<Button>().Class(Primary).Class(":pointerover"),
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.Accent),
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.AccentStrong)));
-            styles.Add(Style(x => x.OfType<Button>().Class(Owned).Class(Primary).Class(":pressed"),
+            styles.Add(Style(x => x.OfType<Button>().Class(Primary).Class(":pressed"),
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.AccentStrong)));
 
             // ---- bascules : mêmes apparences ; cochée = l'état ACTIF

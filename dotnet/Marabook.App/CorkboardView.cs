@@ -612,7 +612,7 @@ namespace Marabook.App
             {
                 var menu = BuildCardOptionsMenu(itemRef);
                 menu.PlacementTarget = button;
-                menu.Open();
+                menu.Open(button); // une cible, sinon Avalonia lève (28/09)
             };
             return button;
         }
@@ -1176,7 +1176,7 @@ namespace Marabook.App
                 delete.Click += delegate
                 { var h = DeleteRequested; if (h != null) h(gabaritRef); };
                 menu.Items.Add(delete);
-                menu.Open();
+                menu.Open(button); // une cible, sinon Avalonia lève (28/09)
             };
             return button;
         }
@@ -1308,7 +1308,7 @@ namespace Marabook.App
                 AddExtraEntry(menu, "Cartes et illustrations", ExtraPages.KindIllustrations,
                     "Une page d'accueil pour vos cartes et images");
             }
-            menu.Open();
+            menu.Open(anchor); // une cible, sinon Avalonia lève (28/09)
         }
 
         private void AddExtraEntry(ContextMenu menu, string label, string kind, string tip)

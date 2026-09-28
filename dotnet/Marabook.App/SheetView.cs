@@ -125,6 +125,7 @@ namespace Marabook.App
             rightTools.Children.Add(_moduleButtons);
             _previewToggle = new ToggleButton
             {
+                Classes = { Marabook.App.Theme.Owned },
                 Content = "📖  Mode wiki",
                 FontWeight = FontWeight.SemiBold,
                 Padding = new Thickness(12, 4, 12, 4),
@@ -1428,6 +1429,7 @@ namespace Marabook.App
         {
             return new ToggleButton
             {
+                Classes = { Marabook.App.Theme.Owned },
                 Content = Icons.Make(icon, 14, Chrome.Ink),
                 Width = Buttons.Compact,
                 Height = Buttons.Compact,

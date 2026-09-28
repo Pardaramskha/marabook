@@ -94,7 +94,7 @@ namespace Marabook.App
             tools.Children.Add(_next);
             _position = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) };
             tools.Children.Add(_position);
-            _foldToggle = new ToggleButton { Content = new TextBlock { Text = "Replier les passages inchangés", FontSize = 11 }, IsChecked = true, Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 8, 0), Focusable = false };
+            _foldToggle = new ToggleButton { Classes = { Marabook.App.Theme.Owned }, Content = new TextBlock { Text = "Replier les passages inchangés", FontSize = 11 }, IsChecked = true, Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 8, 0), Focusable = false };
             _foldToggle.Checked += delegate { Render(); };
             _foldToggle.Unchecked += delegate { Render(); };
             tools.Children.Add(_foldToggle);
