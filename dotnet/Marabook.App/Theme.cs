@@ -93,8 +93,10 @@ namespace Marabook.App
                 new Setter(Window.BackgroundProperty, Chrome.RaisedBg),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TemplatedControl.FontSizeProperty, 13.0)));
-            styles.Add(Style(x => x.OfType<TextBlock>(),
-                new Setter(TextBlock.ForegroundProperty, Chrome.Ink)));
+            // Pas de style implicite sur TextBlock : l'encre vient de la
+            // fenêtre par héritage, et un texte posé dans un bouton principal,
+            // une bascule active ou un onglet choisi prend LEUR couleur (le
+            // style forçait l'encre sombre sur l'accent, 28/09).
             styles.Add(Style(x => x.OfType<Menu>(),
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.BarBg),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),

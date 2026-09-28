@@ -117,7 +117,9 @@ namespace Marabook.App
         {
             button.Height = size;
             button.MinWidth = size;
-            // 18 + 2 + deux lignes de 12 = 44, sous les 50 disponibles (13/09).
+            // 18 + 2 + deux lignes naturelles (13,3 chacune) = 47, sous les 49
+            // disponibles. La hauteur de ligne forcée à 12 px (13/09) rognait
+            // les descendantes de la seconde ligne (« d'impression », 28/09).
             button.Padding = new Thickness(6, 3, 6, 2);
             button.VerticalAlignment = VerticalAlignment.Top;
             button.FontSize = 11;
@@ -177,7 +179,6 @@ namespace Marabook.App
             {
                 Text = label,
                 FontSize = 11,
-                LineHeight = 12,
                 TextAlignment = TextAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap,
