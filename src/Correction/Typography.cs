@@ -263,28 +263,31 @@ namespace Marabook.Correction
                 work = Replace(work, @"::", "·", out n, null);
                 r.Count("points médians", n);
             }
-            // (5a) insécables de ponctuation
+            // (5a) insécables de ponctuation — les autres blancs d'Unicode
+            // (fine U+2009, ultrafine, cadratins… venus de Word, d'InDesign ou
+            // d'un copier-coller) sont des espaces à normaliser aussi : ils
+            // passaient inaperçus, ni signalés ni corrigés (29/09).
             if (o.NoBreakPunctuation && !o.Minimal)
             {
                 var fine = o.BeforeHighPunctuation.ToString();
                 var colon = o.BeforeColon.ToString();
                 var inside = o.InsideQuotes.ToString();
-                work = Replace(work, "(?<=[^\\s;!?:«\u00A0\u202F])[ \u00A0\u202F]*(?=[;!?])", fine, out n, fine);
+                work = Replace(work, "(?<=[^\\s;!?:«\u00A0\u202F])[ \u00A0\u202F\u2000-\u200A\u205F]*(?=[;!?])", fine, out n, fine);
                 r.Count("insécables avant ; ! ?", n);
-                work = Replace(work, "(?<=[^\\s:«\u00A0\u202F])[ \u00A0\u202F]*(?=:(?=\\s|$))", colon, out n, colon);
+                work = Replace(work, "(?<=[^\\s:«\u00A0\u202F])[ \u00A0\u202F\u2000-\u200A\u205F]*(?=:(?=\\s|$))", colon, out n, colon);
                 r.Count("insécables avant :", n);
-                work = Replace(work, "(?<=«)[ \u00A0\u202F]*(?=\\S)", inside, out n, inside);
+                work = Replace(work, "(?<=«)[ \u00A0\u202F\u2000-\u200A\u205F]*(?=\\S)", inside, out n, inside);
                 r.Count("insécables dans « »", n);
-                work = Replace(work, "(?<=\\S)[ \u00A0\u202F]*(?=»)", inside, out n, inside);
+                work = Replace(work, "(?<=\\S)[ \u00A0\u202F\u2000-\u200A\u205F]*(?=»)", inside, out n, inside);
                 r.Count("insécables dans « »", n);
             }
             // (5b) insécables d'unités
             if (o.NoBreakUnits && !o.Minimal)
             {
-                work = Replace(work, "(?<=\\d)[ \u00A0\u202F]*(?=[%€$])", "\u00A0", out n, "\u00A0");
+                work = Replace(work, "(?<=\\d)[ \u00A0\u202F\u2000-\u200A\u205F]*(?=[%€$])", "\u00A0", out n, "\u00A0");
                 r.Count("insécables d'unités", n);
                 work = Replace(work,
-                    "(?<=\\d)[ \u00A0\u202F]+(?=(?:kg|km|cm|mm|mn|min|ans|an|h|g|m|s|l|cl|ml|ko|mo|go|Ko|Mo|Go)\\b)",
+                    "(?<=\\d)[ \u00A0\u202F\u2000-\u200A\u205F]+(?=(?:kg|km|cm|mm|mn|min|ans|an|h|g|m|s|l|cl|ml|ko|mo|go|Ko|Mo|Go)\\b)",
                     "\u00A0", out n, "\u00A0");
                 r.Count("insécables d'unités", n);
             }
@@ -300,7 +303,7 @@ namespace Marabook.Correction
             // (6c) dimensions
             if (o.Dimensions && !o.Minimal)
             {
-                work = Replace(work, "(?<=\\d)[ \u00A0\u202F]*[xX][ \u00A0\u202F]*(?=\\d)", "\u00A0×\u00A0", out n, "\u00A0×\u00A0");
+                work = Replace(work, "(?<=\\d)[ \u00A0\u202F\u2000-\u200A\u205F]*[xX][ \u00A0\u202F\u2000-\u200A\u205F]*(?=\\d)", "\u00A0×\u00A0", out n, "\u00A0×\u00A0");
                 r.Count("dimensions ×", n);
             }
             // (6d) ordinaux
@@ -434,7 +437,7 @@ namespace Marabook.Correction
                     if (depth == 0) depth++;
                     count++;
                     i++;
-                    while (i < work.Length && (work[i] == ' ' || work[i] == '\u00A0' || work[i] == '\u202F')) i++;
+                    while (i < work.Length && (work[i] == ' ' || work[i] == '\u00A0' || work[i] == '\u202F' || work[i] == '\u2009')) i++;
                     continue;
                 }
                 if (i == reservedClose)
@@ -456,7 +459,7 @@ namespace Marabook.Correction
                 var close = work.IndexOf('"', i + 1);
                 if (close == reservedClose) close = -1; // réservé au fermant
                 if (close < 0 || work.IndexOf('\n', i, close - i) >= 0) { sb.Append(c); i++; continue; }
-                var inner = work.Substring(i + 1, close - i - 1).Trim(' ', '\u00A0', '\u202F');
+                var inner = work.Substring(i + 1, close - i - 1).Trim(' ', '\u00A0', '\u202F', '\u2009');
                 if (depth > 0) sb.Append('\u201C').Append(inner).Append('\u201D');
                 else sb.Append('«').Append(nbsp).Append(inner).Append(nbsp).Append('»');
                 count++;
@@ -491,7 +494,7 @@ namespace Marabook.Correction
         private static bool IsAtParagraphEnd(string text, int index)
         {
             var before = index - 1;
-            while (before >= 0 && (text[before] == ' ' || text[before] == '\u00A0' || text[before] == '\u202F')) before--;
+            while (before >= 0 && (text[before] == ' ' || text[before] == '\u00A0' || text[before] == '\u202F' || text[before] == '\u2009')) before--;
             if (before < 0) return false;
             if (!IsSpeechEnd(text[before])) return false;
             for (var i = index + 1; i < text.Length; i++)
@@ -513,7 +516,7 @@ namespace Marabook.Correction
             var after = index + 1;
             var punctuationAfter = after < text.Length && IsSpeechEnd(text[after]);
             var before = index - 1;
-            while (before >= 0 && (text[before] == ' ' || text[before] == '\u00A0' || text[before] == '\u202F')) before--;
+            while (before >= 0 && (text[before] == ' ' || text[before] == '\u00A0' || text[before] == '\u202F' || text[before] == '\u2009')) before--;
             if (before < 0) return false;
             var punctuationBefore = IsSpeechEnd(text[before]);
             if (!punctuationBefore && !punctuationAfter) return false;
@@ -521,7 +524,7 @@ namespace Marabook.Correction
             else if (punctuationAfter) return false; // « ami,", » : on ne devine pas
             var j = after;
             var blanks = 0;
-            while (j < text.Length && (text[j] == ' ' || text[j] == '\u00A0' || text[j] == '\u202F')) { j++; blanks++; }
+            while (j < text.Length && (text[j] == ' ' || text[j] == '\u00A0' || text[j] == '\u202F' || text[j] == '\u2009')) { j++; blanks++; }
             if (blanks == 0 || j >= text.Length) return false;
             return char.IsLower(text[j]);
         }
@@ -531,7 +534,7 @@ namespace Marabook.Correction
             while (sb.Length > 0)
             {
                 var last = sb[sb.Length - 1];
-                if (last != ' ' && last != '\u00A0' && last != '\u202F') break;
+                if (last != ' ' && last != '\u00A0' && last != '\u202F' && last != '\u2009') break;
                 sb.Length--;
             }
         }
@@ -818,7 +821,7 @@ namespace Marabook.Correction
 
         private static bool IsBlank(char c)
         {
-            return c == ' ' || c == '\u00A0' || c == '\u202F' || c == '\t';
+            return c == ' ' || c == '\u00A0' || c == '\u202F' || c == '\u2009' || c == '\t';
         }
 
         /// <summary>L'appariement des insertions d'un bloc aux suppressions

@@ -314,6 +314,12 @@ namespace Marabook.App
                 new Setter(TemplatedControl.BackgroundProperty, Brushes.Transparent),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(0)),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(4))));
+            // Le ruban (classe « ribbon ») rend son Tag — l'axe d'affichage
+            // Pages / Brouillon / Calme — à droite de la rangée des chips,
+            // comme le gabarit RibbonTabs de WPF. Le thème de contrôle
+            // d'Avalonia ignorait le Tag : les modes avaient disparu (29/09).
+            styles.Add(Style(x => x.OfType<TabControl>().Class("ribbon"),
+                new Setter(TemplatedControl.TemplateProperty, new FuncControlTemplate<TabControl>(RibbonTabsFace))));
             // Encre et graisse sont posées sur l'EN-TÊTE (Bg), jamais sur le
             // TabItem : son contenu en hériterait (règle héritée de WPF, b42).
             styles.Add(Style(x => x.OfType<TabItem>(),
@@ -421,6 +427,37 @@ namespace Marabook.App
             border.Bind(Border.PaddingProperty, new TemplateBinding(TemplatedControl.PaddingProperty), BindingPriority.Template);
             presenter.RegisterInNameScope(scope);
             border.RegisterInNameScope(scope);
+            return border;
+        }
+
+        /// <summary>Le ruban : la rangée des chips (PART_ItemsPresenter) avec,
+        /// à sa droite, le contenu du Tag (l'axe d'affichage) ; dessous, le
+        /// contenu de l'onglet (PART_SelectedContentHost) sur toute la largeur.</summary>
+        private static Control RibbonTabsFace(TabControl parent, INameScope scope)
+        {
+            var extra = new ContentPresenter { Name = "Extra", VerticalAlignment = VerticalAlignment.Top };
+            extra.Bind(ContentPresenter.ContentProperty, new TemplateBinding(Control.TagProperty), BindingPriority.Template);
+            DockPanel.SetDock(extra, Dock.Right);
+            var chips = new ItemsPresenter { Name = "PART_ItemsPresenter" };
+            chips.Bind(ItemsPresenter.ItemsPanelProperty, new TemplateBinding(ItemsControl.ItemsPanelProperty), BindingPriority.Template);
+            var strip = new DockPanel { LastChildFill = true };
+            strip.Children.Add(extra);
+            strip.Children.Add(chips);
+            DockPanel.SetDock(strip, Dock.Top);
+            var content = new ContentPresenter { Name = "PART_SelectedContentHost" };
+            content.Bind(ContentPresenter.ContentProperty, new TemplateBinding(TabControl.SelectedContentProperty), BindingPriority.Template);
+            content.Bind(ContentPresenter.ContentTemplateProperty, new TemplateBinding(TabControl.SelectedContentTemplateProperty), BindingPriority.Template);
+            content.Bind(Layoutable.MarginProperty, new TemplateBinding(TemplatedControl.PaddingProperty), BindingPriority.Template);
+            var root = new DockPanel();
+            root.Children.Add(strip);
+            root.Children.Add(content);
+            var border = new Border { Child = root };
+            border.Bind(Border.BackgroundProperty, new TemplateBinding(TemplatedControl.BackgroundProperty), BindingPriority.Template);
+            border.Bind(Border.BorderBrushProperty, new TemplateBinding(TemplatedControl.BorderBrushProperty), BindingPriority.Template);
+            border.Bind(Border.BorderThicknessProperty, new TemplateBinding(TemplatedControl.BorderThicknessProperty), BindingPriority.Template);
+            extra.RegisterInNameScope(scope);
+            chips.RegisterInNameScope(scope);
+            content.RegisterInNameScope(scope);
             return border;
         }
 

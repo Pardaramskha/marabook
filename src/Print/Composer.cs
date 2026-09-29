@@ -587,6 +587,23 @@ namespace Marabook.Print
         private double MeasureText(string text, FaceInfo font, double size,
             double tracking = 0)
         {
+            // Un blanc typographique absent de la face : la largeur suit le
+            // même chemin que la pièce rendue (TryGlyphOrBlank), sinon la
+            // plate-forme mesurait le mot en repli et la coupure divergeait.
+            if (_fonts != null && font != null && font.HasGlyphs && HasTypographicBlank(text))
+            {
+                var extra = size * tracking / 1000.0;
+                double width = 0;
+                var complete = true;
+                for (var i = 0; i < text.Length; i++)
+                {
+                    ushort glyph;
+                    double advance;
+                    if (!TryGlyphOrBlank(font, text[i], size, extra, out glyph, out advance)) { complete = false; break; }
+                    width += advance;
+                }
+                if (complete) return width;
+            }
             return _metrics.AdvanceWidth(font.Family, size, font.Weight,
                 font.Italic, text) + size * tracking / 1000.0 * text.Length;
         }
@@ -1251,10 +1268,11 @@ namespace Marabook.Print
                 for (var i = 0; i < text.Length; i++)
                 {
                     ushort glyph;
-                    if (!_fonts.TryGlyph(font, text[i], out glyph))
+                    double advance;
+                    if (!TryGlyphOrBlank(font, text[i], size, extra, out glyph, out advance))
                     { complete = false; break; }
                     indices[i] = glyph;
-                    advances[i] = _fonts.GlyphAdvance(font, glyph) * size + extra;
+                    advances[i] = advance;
                 }
                 if (complete)
                 {
@@ -1268,6 +1286,65 @@ namespace Marabook.Print
             piece.FallbackHeight = extent.Height;
             piece.FallbackBaseline = extent.Baseline;
             return piece;
+        }
+
+        // ------------------------------------------------- blancs typographiques
+
+        /// <summary>Les blancs d'Unicode que la typographie française sème
+        /// (insécable, fine insécable, fine, cadratins…). Bien des polices
+        /// n'en ont pas le glyphe — EB Garamond n'a pas U+202F, la fine
+        /// insécable que Marabook pose avant ; ! ? — et le mot entier passait
+        /// alors en repli de plate-forme : une autre face à l'écran, une image
+        /// dans le PDF, à côté de mots nets (29/09).</summary>
+        private static bool IsTypographicBlank(char c)
+        {
+            return c == ' ' || (c >= ' ' && c <= ' ') || c == ' ' || c == ' ';
+        }
+
+        private static bool HasTypographicBlank(string text)
+        {
+            for (var i = 0; i < text.Length; i++) if (IsTypographicBlank(text[i])) return true;
+            return false;
+        }
+
+        /// <summary>Le glyphe et l'avance d'un caractère dans la face ; un blanc
+        /// typographique que la face n'a pas emprunte le glyphe (vide) de
+        /// l'espace avec l'avance du blanc voulu — celle du jumeau présent
+        /// (U+2009 pour U+202F et inversement), sinon la fraction de cadratin
+        /// d'Unicode. Le mot reste en glyphes, coupure et rendu compris.</summary>
+        private bool TryGlyphOrBlank(FaceInfo font, char c, double size, double extra, out ushort glyph, out double advance)
+        {
+            if (_fonts.TryGlyph(font, c, out glyph))
+            {
+                advance = _fonts.GlyphAdvance(font, glyph) * size + extra;
+                return true;
+            }
+            advance = 0;
+            if (!IsTypographicBlank(c)) return false;
+            ushort space;
+            if (!_fonts.TryGlyph(font, ' ', out space)) return false;
+            glyph = space;
+            var spaceEm = _fonts.GlyphAdvance(font, space);
+            double em;
+            ushort other;
+            switch (c)
+            {
+                case ' ': em = spaceEm; break;
+                case ' ': em = _fonts.TryGlyph(font, ' ', out other) ? _fonts.GlyphAdvance(font, other) : 0.2; break;
+                case ' ': em = _fonts.TryGlyph(font, ' ', out other) ? _fonts.GlyphAdvance(font, other) : 0.2; break;
+                case ' ': em = 0.1; break;                       // ultrafine
+                case ' ': case ' ': em = 0.5; break;        // demi-cadratin
+                case ' ': case ' ': em = 1.0; break;        // cadratin
+                case ' ': em = 1.0 / 3; break;
+                case ' ': em = 0.25; break;
+                case ' ': em = 1.0 / 6; break;
+                case ' ': em = _fonts.TryGlyph(font, '0', out other) ? _fonts.GlyphAdvance(font, other) : spaceEm; break; // chiffre
+                case ' ': em = _fonts.TryGlyph(font, '.', out other) ? _fonts.GlyphAdvance(font, other) : spaceEm; break; // ponctuation
+                case ' ': em = 4.0 / 18; break;                  // mathématique moyenne
+                default: em = spaceEm; break;
+            }
+            advance = em * size + extra;
+            return true;
         }
 
         // ============================================================ justification
