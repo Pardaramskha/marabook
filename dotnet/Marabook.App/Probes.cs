@@ -355,6 +355,33 @@ namespace Marabook.App
                     if (back != null) { back.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); await Settle(); }
                 }
 
+                // — Un lien du Texte libre sur une ligne RENVOYÉE répond sous
+                // la souris (TextLayout.HitTestPoint d'Avalonia le jugeait
+                // « dehors » au-delà de la première ligne — 29/09).
+                {
+                    var source = "Texte assez long pour être renvoyé sur plusieurs lignes dans une colonne étroite, "
+                        + "avec du **gras** et de l'*italique* avant le lien, et enfin [[Le marabout]]";
+                    var body = MarkdownRender.Build(source, delegate { }, delegate { });
+                    var lab = new Window { Width = 360, Height = 240, Content = new Border { Width = 320, Child = body } };
+                    lab.Show();
+                    await Settle();
+                    TextBlock paragraph = null;
+                    foreach (var block in lab.GetVisualDescendants().OfType<TextBlock>())
+                        if (block.Tag != null) { paragraph = block; break; }
+                    var lines = paragraph == null || paragraph.TextLayout == null ? 0 : paragraph.TextLayout.TextLines.Count;
+                    var onLink = false; var offLink = true;
+                    if (lines >= 2)
+                    {
+                        var last = paragraph.TextLayout.TextLines[lines - 1];
+                        var y = paragraph.TextLayout.Height - last.Height / 2;
+                        onLink = MarkdownRender.HasLinkAt(paragraph, new Point(last.Start + last.Width - 6, y));
+                        var first = paragraph.TextLayout.TextLines[0];
+                        offLink = MarkdownRender.HasLinkAt(paragraph, new Point(first.Start + 6, first.Height / 2));
+                    }
+                    Check(lines >= 2 && onLink && !offLink, "le lien d'une ligne renvoyée du Texte libre répond sous la souris (" + lines + " lignes, lien " + onLink + ", texte " + offLink + ")");
+                    lab.Close();
+                }
+
                 // — Enregistrer puis rouvrir : le .plot fait l'aller-retour.
                 var plotPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-p3.plot");
                 try

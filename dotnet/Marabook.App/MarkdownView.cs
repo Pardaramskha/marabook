@@ -259,15 +259,20 @@ namespace Marabook.App
             return length;
         }
 
+        /// <summary>Un lien sous ce point du paragraphe ? (sonde)</summary>
+        public static bool HasLinkAt(TextBlock owner, Point point)
+        {
+            return SpanAt(owner, point) != null;
+        }
+
         private static LinkSpan SpanAt(TextBlock owner, Point point)
         {
             var spans = owner.Tag as List<LinkSpan>;
-            var layout = owner.TextLayout;
-            if (spans == null || layout == null) return null;
-            var hit = layout.HitTestPoint(point);
-            if (!hit.IsInside) return null;
+            if (spans == null) return null;
+            var position = TextHit.PositionAt(owner, point);
+            if (position < 0) return null;
             foreach (var span in spans)
-                if (hit.TextPosition >= span.Start && hit.TextPosition < span.Start + span.Length) return span;
+                if (position >= span.Start && position < span.Start + span.Length) return span;
             return null;
         }
 

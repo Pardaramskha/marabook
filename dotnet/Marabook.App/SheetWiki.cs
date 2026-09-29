@@ -298,12 +298,11 @@ namespace Marabook.App
         private static LinkSpan SpanAt(TextBlock line, Point point)
         {
             var spans = line.Tag as List<LinkSpan>;
-            var layout = line.TextLayout;
-            if (spans == null || layout == null) return null;
-            var hit = layout.HitTestPoint(point);
-            if (!hit.IsInside) return null;
+            if (spans == null) return null;
+            var position = TextHit.PositionAt(line, point);
+            if (position < 0) return null;
             foreach (var span in spans)
-                if (hit.TextPosition >= span.Start && hit.TextPosition < span.Start + span.Length) return span;
+                if (position >= span.Start && position < span.Start + span.Length) return span;
             return null;
         }
 

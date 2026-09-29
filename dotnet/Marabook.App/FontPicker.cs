@@ -74,9 +74,27 @@ namespace Marabook.App
             AddHandler(KeyDownEvent, OnPreviewKeyDownInternal, RoutingStrategies.Tunnel);
             DropDownOpened += delegate
             {
-                _openedWith = SelectedItem;
                 _announcedWhileOpen = false;
                 Rebuild(SelectedFontName); // les récentes du moment
+                _openedWith = SelectedItem; // après la reconstruction : les copies changent d'objet
+                // Avalonia cale au bord haut la ligne choisie AVANT cette
+                // reconstruction — celle cliquée à l'ouverture précédente :
+                // une favorite en troisième ligne cachait les deux du dessus,
+                // « injoignables » (29/09). La liste s'ouvre sur son haut
+                // quand la police montrée y figure (favorites, récentes),
+                // sinon sur sa ligne de la partie alphabétique.
+                var index = SelectedIndex;
+                var head = HeadCount();
+                Dispatcher.UIThread.Post(delegate
+                {
+                    if (!IsDropDownOpen || Items.Count == 0) return;
+                    if (index >= 0 && index < Items.Count && !IsInHead(index, head)) { ScrollIntoView(index); return; }
+                    // Tout en haut, au pixel (ScrollIntoView(0) laissait la
+                    // première ligne rognée de quelques pixels).
+                    var scroll = Presenter == null ? null : Presenter.FindAncestorOfType<ScrollViewer>();
+                    if (scroll != null) scroll.Offset = new Vector(scroll.Offset.X, 0);
+                    else ScrollIntoView(0);
+                }, DispatcherPriority.Background);
             };
             DropDownClosed += delegate
             {
@@ -171,12 +189,44 @@ namespace Marabook.App
             finally { _syncing = wasSyncing; }
         }
 
+        /// <summary>Le début de la partie alphabétique : après le dernier trait.</summary>
+        private int HeadCount()
+        {
+            for (var i = Items.Count - 1; i >= 0; i--)
+                if (ReferenceEquals(Items[i], Separator)) return i + 1;
+            return 0;
+        }
+
+        /// <summary>La police de cette ligne figure-t-elle en tête de liste
+        /// (favorite ou récente) ?</summary>
+        private bool IsInHead(int index, int head)
+        {
+            if (index < head) return true;
+            var entry = index < Items.Count ? Items[index] as FontCatalog.Entry : null;
+            if (entry == null) return false;
+            for (var i = 0; i < head && i < Items.Count; i++)
+            {
+                var other = Items[i] as FontCatalog.Entry;
+                if (other != null && !other.IsSeparator && string.Equals(other.Name, entry.Name, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
         /// <summary>L'entrée de ce nom dans la partie alphabétique (les objets
         /// du catalogue eux-mêmes ; les récentes sont des copies).</summary>
         private FontCatalog.Entry FindEntry(string name)
         {
-            var entry = FontCatalog.Find(name);
-            return entry != null && Items.Contains(entry) ? entry : null;
+            // La PREMIÈRE ligne de ce nom (29/09) : la copie favorite ou
+            // récente avant l'entrée alphabétique. Choisir l'entrée du bas
+            // faisait réaliser la liste très loin à l'ouverture, et le retour
+            // en haut laissait un blanc fantôme au-dessus des favorites.
+            if (string.IsNullOrEmpty(name)) return null;
+            foreach (var item in Items)
+            {
+                var entry = item as FontCatalog.Entry;
+                if (entry != null && !entry.IsSeparator && string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase)) return entry;
+            }
+            return null;
         }
 
         protected override void PrepareContainerForItemOverride(Control element, object item, int index)
