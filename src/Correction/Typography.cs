@@ -815,6 +815,11 @@ namespace Marabook.Correction
                 run.Text = piece.Value.ToString();
                 copy.Runs.Add(run);
             }
+            // Les pièces d'un même run se ressoudent (29/09) : la repasse
+            // laissait un run par blanc inséré (« vole… », « », « » »), et le
+            // compositeur — qui ne coupe qu'aux espaces MAIS entre deux
+            // atomes — voyait une occasion de couper devant chaque signe.
+            PivotEdit.MergeAdjacent(copy);
             if (copy.Runs.Count == 0) copy.Runs.Add(new TextRun());
             return copy;
         }

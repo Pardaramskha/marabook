@@ -785,7 +785,29 @@ namespace Marabook.Print
                 AddRunAtoms(atoms, run, style, offset, linkSpans);
                 offset += run.Text.Length;
             }
+            GlueRunBoundaries(atoms);
             return atoms;
+        }
+
+        /// <summary>Deux atomes de texte qui se suivent SANS espace entre eux
+        /// (une frontière de run au milieu d'un mot : « vraiment » en italique
+        /// puis « ? » en romain, un appel de note collé au mot) forment un
+        /// seul mot pour la coupure de ligne : le second est soudé au premier
+        /// (GluedToPrevious, comme les segments des petites capitales). Sinon
+        /// chaque atome était une occasion de couper, et une virgule ou un
+        /// point d'interrogation partait seul en tête de ligne — surtout
+        /// avec la césure, qui remplit les lignes au plus juste (29/09).</summary>
+        private static void GlueRunBoundaries(List<Atom> atoms)
+        {
+            Atom previous = null;
+            foreach (var atom in atoms)
+            {
+                if (atom.IsHidden || atom.IsAnchor) continue; // transparents
+                if (atom.IsSpace || atom.IsForcedBreak || atom.IsRule) { previous = null; continue; }
+                if (previous != null && !atom.GluedToPrevious && atom.Text != null && atom.Text.Length > 0)
+                    atom.GluedToPrevious = true;
+                previous = atom;
+            }
         }
 
         /// <summary>Le texte d'un run, découpé sur les plages de [[liens]] :
