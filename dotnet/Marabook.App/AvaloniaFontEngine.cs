@@ -53,9 +53,29 @@ namespace Marabook.App
             var typeface = new Typeface(new FontFamily(family ?? "Times New Roman"),
                 italic ? FontStyle.Italic : FontStyle.Normal, (FontWeight)Math.Max(1, Math.Min(999, weight)));
             IGlyphTypeface glyphs = null;
+            var emulateBold = false;
             try
             {
-                if (!FontManager.Current.TryGetGlyphTypeface(typeface, out glyphs)) glyphs = null;
+                // POLICE VARIABLE = JAMAIS DE GRAS DEMANDÉ À SKIA (29/09). Sur
+                // un fichier variable (EB Garamond : un seul « wght »), demander
+                // la graisse 700 à DirectWrite règle l'axe du fichier, et la
+                // face maigre servie ensuite pour le même fichier sort épaissie :
+                // tout le corps du texte devenait gras dès qu'un titre gras de
+                // la même famille avait été composé. Pour ces polices, le gras
+                // est la face maigre épaissie par nous (rendu et PDF).
+                var regularFace = new Typeface(new FontFamily(family ?? "Times New Roman"),
+                    italic ? FontStyle.Italic : FontStyle.Normal, FontWeight.Normal);
+                if (weight >= 600 && IsVariableFamily(family, italic, regularFace))
+                {
+                    IGlyphTypeface regular;
+                    if (FontManager.Current.TryGetGlyphTypeface(regularFace, out regular) && regular != null)
+                    {
+                        glyphs = regular;
+                        typeface = regularFace;
+                        emulateBold = true;
+                    }
+                }
+                if (glyphs == null && !FontManager.Current.TryGetGlyphTypeface(typeface, out glyphs)) glyphs = null;
             }
             catch { glyphs = null; }
             face = new FaceInfo
@@ -80,10 +100,11 @@ namespace Marabook.App
                 face.UnderlineThickness = metrics.UnderlineThickness / em;
                 face.StrikethroughPosition = metrics.StrikethroughPosition / em;
                 face.StrikethroughThickness = metrics.StrikethroughThickness / em;
-                face.SimulatedBold = (glyphs.FontSimulations & FontSimulations.Bold) != 0;
+                face.SimulatedBold = emulateBold || (glyphs.FontSimulations & FontSimulations.Bold) != 0;
                 face.SimulatedItalic = (glyphs.FontSimulations & FontSimulations.Oblique) != 0;
+                if (emulateBold) face.ActualWeight = weight; // la graisse voulue, épaissie par nous
                 face.File = glyphs.FamilyName + "|" + (int)glyphs.Weight + "|" + glyphs.Style + "|" + glyphs.Stretch;
-                face.Key = face.File + "|" + (int)glyphs.FontSimulations;
+                face.Key = face.File + "|" + (int)glyphs.FontSimulations + (emulateBold ? "|gras" : "");
             }
             else face.Key = key;
             lock (_faces)
@@ -91,6 +112,52 @@ namespace Marabook.App
                 _faces[key] = face;
             }
             return face;
+        }
+
+        private static readonly Dictionary<string, bool> _variable = new Dictionary<string, bool>();
+
+        /// <summary>La famille (dans ce style) est-elle une police VARIABLE ?
+        /// Lu une fois dans le fichier de la face maigre : une table « fvar »
+        /// dans le répertoire OpenType. Mémorisé par famille et style.</summary>
+        private static bool IsVariableFamily(string family, bool italic, Typeface regularFace)
+        {
+            var key = (family ?? "") + "|" + italic;
+            bool known;
+            lock (_variable)
+            {
+                if (_variable.TryGetValue(key, out known)) return known;
+            }
+            var variable = false;
+            try
+            {
+                IGlyphTypeface regular;
+                if (FontManager.Current.TryGetGlyphTypeface(regularFace, out regular) && regular != null)
+                {
+                    var stream = FontStreamOf(regular);
+                    if (stream != null)
+                        using (stream)
+                        {
+                            var header = new byte[12];
+                            if (stream.Read(header, 0, 12) == 12)
+                            {
+                                var tables = (header[4] << 8) | header[5];
+                                var entry = new byte[16];
+                                for (var i = 0; i < tables && i < 64; i++)
+                                {
+                                    if (stream.Read(entry, 0, 16) != 16) break;
+                                    if (entry[0] == (byte)'f' && entry[1] == (byte)'v' && entry[2] == (byte)'a' && entry[3] == (byte)'r')
+                                    { variable = true; break; }
+                                }
+                            }
+                        }
+                }
+            }
+            catch { variable = false; }
+            lock (_variable)
+            {
+                _variable[key] = variable;
+            }
+            return variable;
         }
 
         public bool TryGlyph(FaceInfo face, char c, out ushort glyph)

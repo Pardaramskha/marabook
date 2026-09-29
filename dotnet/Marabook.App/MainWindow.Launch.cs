@@ -76,6 +76,7 @@ namespace Marabook.App
                     if (_launch.Demo && !_launch.Probe) { await Task.Delay(200); if (_launch.OpenTitle != null) OpenByTitle(_launch.OpenTitle); else SelectFirstText(); }
                 }
                 if (_launch.Probe) { await Probes.Run(this); QuitNow(); return; }
+                if (_launch.FontProbe != null) { FontProbe(_launch.FontProbe); QuitNow(); return; }
                 if (_launch.UpdateRolledBack)
                     await MessageDialog.Show(this, "La mise à jour n'a pas pu démarrer : la version précédente a été remise en place.\n\nRéessayez plus tard depuis Aide › Vérifier les mises à jour, ou téléchargez la release depuis GitHub.",
                         "Mise à jour annulée", MessageButtons.OK, MessageIcon.Warning);
@@ -123,6 +124,28 @@ namespace Marabook.App
 
         /// <summary>--open : l'élément de ce titre (ou « journal ») est ouvert
         /// avant la capture.</summary>
+        /// <summary>« --police famille » (29/09) : comment le moteur résout la
+        /// face pour chaque graisse — le nom réel, la graisse obtenue, les
+        /// simulations (gras/oblique synthétiques). Diagnostic d'un corps
+        /// rendu gras alors que la feuille dit maigre.</summary>
+        private static void FontProbe(string family)
+        {
+            var engine = new AvaloniaFontEngine();
+            Console.WriteLine("== Police « " + family + " »");
+            foreach (var weight in new[] { 300, 400, 500, 600, 700 })
+                foreach (var italic in new[] { false, true })
+                {
+                    var face = engine.Resolve(family, weight, italic);
+                    Console.WriteLine("  demandé " + weight + (italic ? " italique" : "        ")
+                        + " → " + (face.HasGlyphs ? face.File : "(sans glyphes)")
+                        + "  graisse " + face.ActualWeight + (face.SimulatedBold ? "  GRAS SIMULÉ" : "") + (face.SimulatedItalic ? "  oblique simulé" : ""));
+                }
+            Console.WriteLine("  familles système contenant « " + family.Split(' ')[0] + " » :");
+            foreach (var installed in Avalonia.Media.FontManager.Current.SystemFonts)
+                if (installed.Name.IndexOf(family.Split(' ')[0], StringComparison.OrdinalIgnoreCase) >= 0)
+                    Console.WriteLine("    " + installed.Name);
+        }
+
         public void OpenByTitle(string title)
         {
             if (_project == null || string.IsNullOrEmpty(title)) return;
@@ -242,8 +265,12 @@ public static Project SampleProject()
             var sheets = project.Category(Project.KeySheets);
             var folder = new BinderItem { Title = "Personnages", Kind = ItemKind.Folder, Parent = sheets };
             sheets.Children.Add(folder);
-            folder.Children.Add(new BinderItem { Title = "Keira Varenh", Kind = ItemKind.Sheet, Parent = folder, CardColor = "#C0392B" });
-            folder.Children.Add(new BinderItem { Title = "Le marabout", Kind = ItemKind.Sheet, Parent = folder });
+            var keira = new BinderItem { Title = "Keira Varenh", Kind = ItemKind.Sheet, Parent = folder, CardColor = "#C0392B" };
+            var marabout = new BinderItem { Title = "Le marabout", Kind = ItemKind.Sheet, Parent = folder };
+            folder.Children.Add(keira);
+            folder.Children.Add(marabout);
+            // Une relation (29/09) : le wiki montre un lien vers une fiche (captures, sondes).
+            keira.Relations.Add(new SheetRelation { Kind = "mentor", TargetId = marabout.Id });
             var plans = project.Category(Project.KeyPlans);
             plans.Children.Add(new BinderItem { Title = "Plan en trois actes", Kind = ItemKind.Plan, Parent = plans });
             return project;

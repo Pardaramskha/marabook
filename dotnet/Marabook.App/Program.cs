@@ -72,8 +72,9 @@ namespace Marabook.App
         public double Scale = 1;    // l'échelle de la capture (2 = pixels doublés)
         public string SettingsPath; // un settings.json à part
         public bool SaveProbe;      // --save-probe : ouvre le .plot donné, le marque modifié, l'enregistre (silencieux), dit OK ou la pile, quitte
+        public string FontProbe;    // --police <famille> : dit comment la face se résout (graisse, simulations), puis quitte (29/09)
 
-        public bool Isolated { get { return Demo || Probe || CapturePath != null || SaveProbe; } }
+        public bool Isolated { get { return Demo || Probe || CapturePath != null || SaveProbe || FontProbe != null; } }
 
         public static Launch Parse(string[] args)
         {
@@ -92,6 +93,7 @@ namespace Marabook.App
                 if (arg == "--tab" && i + 1 < args.Length) { int.TryParse(args[++i], out launch.PrefsTab); launch.Prefs = true; continue; }
                 if (arg == "--lab") { launch.Lab = true; continue; }
                 if (arg == "--save-probe") { launch.SaveProbe = true; continue; }
+                if (arg == "--police" && i + 1 < args.Length) { launch.FontProbe = args[++i]; continue; } // diagnostic : comment la face se résout (29/09)
                 if (arg == "--scale" && i + 1 < args.Length) { double.TryParse(args[++i], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out launch.Scale); continue; }
                 if (arg.StartsWith("--", StringComparison.Ordinal)) continue;
                 if (File.Exists(arg)) launch.PlotPath = Path.GetFullPath(arg);

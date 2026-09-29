@@ -555,7 +555,17 @@ namespace Marabook.App
                     if (piece.IsGlyphs)
                     {
                         var run = GlyphRunOf(piece);
-                        if (run != null) dc.DrawGlyphRun(Geo.InkBrush(piece), run);
+                        if (run != null)
+                        {
+                            var ink = Geo.InkBrush(piece);
+                            dc.DrawGlyphRun(ink, run);
+                            // Le gras ÉMULÉ (29/09) : la face n'a pas de graisse
+                            // propre (police variable) — le contour des glyphes,
+                            // tracé au 1/28e du corps, épaissit le trait ; on ne
+                            // laisse jamais Avalonia le simuler (voir Resolve).
+                            if (piece.Face != null && piece.Face.SimulatedBold)
+                                dc.DrawGeometry(null, new Pen(ink, Math.Max(0.6, piece.EmSize * 0.036)), run.BuildGeometry());
+                        }
                     }
                     else if (piece.IsFallback)
                     {

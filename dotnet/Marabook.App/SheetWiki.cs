@@ -184,7 +184,7 @@ namespace Marabook.App
                 var kind = RelationKinds.Canonical(relation.Kind);
                 if (label.Length == 0 && kind.Length == 0) continue;
                 var line = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
-                line.Inlines.Add(Anchor(label, target, navigate));
+                line.Inlines.Add(Anchor(line, label, target, navigate));
                 if (kind.Length > 0)
                     line.Inlines.Add(new Run((label.Length > 0 ? " (" : "(") + kind + ")") { Foreground = Chrome.SoftText });
                 paper.Children.Add(line);
@@ -213,7 +213,7 @@ namespace Marabook.App
                     var line = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
                     if (label.Length > 0)
                     {
-                        line.Inlines.Add(text != null ? Anchor(label, text, navigate) : new Run(label) { Foreground = Chrome.Ink, FontWeight = FontWeight.SemiBold });
+                        line.Inlines.Add(text != null ? Anchor(line, label, text, navigate) : new Run(label) { Foreground = Chrome.Ink, FontWeight = FontWeight.SemiBold });
                         if (note.Length > 0) line.Inlines.Add(new Run(" — ") { Foreground = Chrome.SoftText });
                     }
                     if (note.Length > 0) line.Inlines.Add(new Run(note) { Foreground = Chrome.Ink });
@@ -228,7 +228,7 @@ namespace Marabook.App
                 foreach (var row in rows)
                 {
                     var line = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
-                    line.Inlines.Add(Anchor(row.Text.Title, row.Text, navigate));
+                    line.Inlines.Add(Anchor(line, row.Text.Title, row.Text, navigate));
                     line.Inlines.Add(new Run(" · " + row.Count) { Foreground = Chrome.SoftText });
                     paper.Children.Add(line);
                 }
@@ -249,26 +249,62 @@ namespace Marabook.App
             return paper;
         }
 
-        private static Inline Anchor(string label, BinderItem target, Action<BinderItem> navigate)
+        /// <summary>Un lien vers une fiche, EN LIGNE (29/09) : un Run accent
+        /// souligné — le même texte, la même ligne de base que le reste, plus
+        /// aucun décalage — et la ligne retrouve le lien sous la souris par
+        /// son TextLayout (HitTestPoint) : clic = navigation, main au survol.
+        /// (Un InlineUIContainer, même centré, flottait d'un ou deux pixels.)</summary>
+        private sealed class LinkSpan { public int Start, Length; public BinderItem Target; }
+
+        private static Inline Anchor(TextBlock line, string label, BinderItem target, Action<BinderItem> navigate)
         {
             if (target == null || navigate == null) return new Run(label) { Foreground = Chrome.Ink };
-            // Pas de Run cliquable chez Avalonia : un TextBlock accent en ligne.
-            // Même corps que la ligne (12) et centré dessus (29/09) : un
-            // TextBlock détaché prenait le corps par défaut et flottait.
-            var text = new TextBlock
+            var spans = line.Tag as List<LinkSpan>;
+            if (spans == null)
             {
-                Text = label,
-                FontSize = 12,
-                Foreground = Chrome.Accent,
-                TextDecorations = TextDecorations.Underline,
-                Cursor = new Cursor(StandardCursorType.Hand),
-                Background = Brushes.Transparent,
-                Padding = new Thickness(0),
-                Margin = new Thickness(0),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            text.PointerPressed += delegate { navigate(target); };
-            return new InlineUIContainer(text) { BaselineAlignment = BaselineAlignment.Center };
+                spans = new List<LinkSpan>();
+                line.Tag = spans;
+                line.Background = Brushes.Transparent;
+                line.PointerMoved += delegate(object sender, PointerEventArgs e)
+                {
+                    line.Cursor = SpanAt(line, e.GetPosition(line)) != null
+                        ? new Cursor(StandardCursorType.Hand) : new Cursor(StandardCursorType.Arrow);
+                };
+                line.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+                {
+                    if (!e.GetCurrentPoint(line).Properties.IsLeftButtonPressed) return;
+                    var span = SpanAt(line, e.GetPosition(line));
+                    if (span == null) return;
+                    e.Handled = true;
+                    navigate(span.Target);
+                };
+            }
+            spans.Add(new LinkSpan { Start = TextLengthOf(line), Length = label.Length, Target = target });
+            return new Run(label) { Foreground = Chrome.Accent, TextDecorations = TextDecorations.Underline };
+        }
+
+        private static int TextLengthOf(TextBlock line)
+        {
+            var length = 0;
+            foreach (var inline in line.Inlines)
+            {
+                var run = inline as Run;
+                if (run != null) length += (run.Text ?? "").Length;
+                else if (inline is LineBreak) length += 1;
+            }
+            return length;
+        }
+
+        private static LinkSpan SpanAt(TextBlock line, Point point)
+        {
+            var spans = line.Tag as List<LinkSpan>;
+            var layout = line.TextLayout;
+            if (spans == null || layout == null) return null;
+            var hit = layout.HitTestPoint(point);
+            if (!hit.IsInside) return null;
+            foreach (var span in spans)
+                if (hit.TextPosition >= span.Start && hit.TextPosition < span.Start + span.Length) return span;
+            return null;
         }
 
         public static TextBlock GroupCaption(string text)
@@ -303,7 +339,7 @@ namespace Marabook.App
                 {
                     var target = FieldKinds.SheetOf(value, project);
                     var line = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap };
-                    line.Inlines.Add(Anchor(FieldKinds.Display(kind, value, project), target, navigate));
+                    line.Inlines.Add(Anchor(line, FieldKinds.Display(kind, value, project), target, navigate));
                     infobox.Children.Add(line);
                     return;
                 }
