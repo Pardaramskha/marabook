@@ -139,6 +139,10 @@ namespace Marabook.App
             // posée par la fenêtre (dialogue, onglet Styles du livre,
             // Préférences) ; un Ctrl+Z dessus rend la feuille au projet.
             public StyleSheet Styles;
+            // Le défilement à garder au retour (29/09) : un signet
+            // veuve/orpheline cliqué loin du caret — l'annuler ne doit pas
+            // ramener la vue au caret. -1 = le caret fait loi.
+            public double ScrollY = -1;
         }
 
         /// <summary>Une correction automatique REFUSÉE par Ctrl+Z (b45) : à
@@ -1093,6 +1097,14 @@ namespace Marabook.App
                 var rect = new Rect(Math.Max(2, left - 22) - 2, mark.Y - 2, 18, 18);
                 if (!rect.Contains(new Point(xInPage, yInPage))) continue;
                 var paragraph = _item.Document.Paragraphs[mark.ParagraphIndex];
+                // Un point d'annulation (29/09) : Ctrl+Z rend le signet, sans
+                // bouger la vue — avant, il défaisait la dernière frappe et
+                // ramenait le caret, souvent des pages plus loin.
+                if (!ReadOnly)
+                {
+                    PushUndo(false);
+                    _undo[_undo.Count - 1].ScrollY = Offset.Y;
+                }
                 paragraph.AllowWidows = !paragraph.AllowWidows;
                 var firstChanged = _engine.Repaginate();
                 // La vue reste où elle est (12/09) : UpdateCaretVisual ramenait
@@ -2021,7 +2033,8 @@ namespace Marabook.App
                 Document = PivotEdit.Clone(_item.Document),
                 Paragraph = _caretParagraph,
                 Offset = _caretOffset,
-                Styles = snapshot.Styles != null && _project != null ? _project.Styles.Clone() : null
+                Styles = snapshot.Styles != null && _project != null ? _project.Styles.Clone() : null,
+                ScrollY = snapshot.ScrollY >= 0 ? Offset.Y : -1 // le Ctrl+Y d'un signet garde la vue aussi
             });
             RestoreSnapshot(snapshot);
             // Ctrl+Z sur une correction automatique (b45) : l'auteur la
@@ -2052,7 +2065,8 @@ namespace Marabook.App
                 Document = PivotEdit.Clone(_item.Document),
                 Paragraph = _caretParagraph,
                 Offset = _caretOffset,
-                Styles = snapshot.Styles != null && _project != null ? _project.Styles.Clone() : null
+                Styles = snapshot.Styles != null && _project != null ? _project.Styles.Clone() : null,
+                ScrollY = snapshot.ScrollY >= 0 ? Offset.Y : -1
             });
             RestoreSnapshot(snapshot);
             _lastWasTyping = false;
@@ -2081,7 +2095,16 @@ namespace Marabook.App
             RebuildPages();
             ClampCaret();
             ClampNoteCaret(); // la note ouverte suit l'annulation, ou se referme si elle a disparu
-            UpdateCaretVisual();
+            if (snapshot.ScrollY >= 0)
+            {
+                // Un signet veuve/orpheline défait (29/09) : la vue reste où
+                // elle était, le caret ne la rappelle pas.
+                _keepScroll = true;
+                try { UpdateCaretVisual(); }
+                finally { _keepScroll = false; }
+                Offset = new Vector(Offset.X, snapshot.ScrollY);
+            }
+            else UpdateCaretVisual();
             var handler = Edited;
             if (handler != null) handler();
         }

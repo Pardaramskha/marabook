@@ -1146,7 +1146,7 @@ namespace Marabook.App
             // prénom courant que le correcteur connaît déjà n'ont rien à
             // apprendre — seuls les mots qu'il soulignerait manquent.
             var engine = Correction.SpellDictionary.Default;
-            foreach (var word in NameWords(_item.Title))
+            foreach (var word in NameWordsAndFields())
             {
                 if (known.Contains(Correction.FrenchTokenizer.Fold(word))) continue;
                 if (engine != null && engine.Accepts(word)) continue;
@@ -1155,10 +1155,18 @@ namespace Marabook.App
             return missing;
         }
 
+        /// <summary>Les mots que le dictionnaire doit connaître (29/09) : ceux du
+        /// titre, et ceux des champs Nom, Prénom, Alias d'un personnage.</summary>
+        private List<string> NameWordsAndFields()
+        {
+            return _item == null ? new List<string>() : DictionarySuggestions();
+        }
+
         private void RefreshDictionaryBadge()
         {
             if (_dictState == null) return;
-            if (_item == null || NameWords(_item.Title).Count == 0)
+            var words = NameWordsAndFields();
+            if (_item == null || words.Count == 0)
             {
                 _dictDot.IsVisible = false;
                 _dictState.IsVisible = false;
@@ -1167,12 +1175,16 @@ namespace Marabook.App
             }
             var missing = MissingWords();
             var present = missing.Count == 0;
+            // Partiellement présent (29/09) : une partie des mots manque —
+            // un prénom connu mais pas le nom, l'alias oublié…
+            var partial = !present && missing.Count < words.Count;
             _dictDot.IsVisible = true;
             _dictState.IsVisible = true;
             _dictDot.Background = present ? Chrome.Ok : Chrome.Warn;
-            _dictState.Text = present ? "Présent dans le dictionnaire" : "Absent du dictionnaire";
+            _dictState.Text = present ? "Présent dans le dictionnaire"
+                : partial ? "Partiellement présent dans le dictionnaire" : "Absent du dictionnaire";
             ToolTip.SetTip(_dictState, present
-                ? "Chaque mot du nom est une entrée du dictionnaire"
+                ? "Chaque mot du nom, du prénom et de l'alias est connu du dictionnaire"
                 : "Manque : " + string.Join(", ", missing.ToArray()));
             _dictAdd.IsVisible = present ? false : true;
         }

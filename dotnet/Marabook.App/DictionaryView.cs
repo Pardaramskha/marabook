@@ -330,7 +330,7 @@ namespace Marabook.App
             grid.Children.Add(forms);
 
             var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            var remove = new Button { Content = "Retirer", Padding = new Thickness(8, 2, 8, 2), FontSize = 11 };
+            var remove = new Button { Content = "Retirer", Padding = new Thickness(8, 2, 8, 2), FontSize = 11, Foreground = Chrome.Danger }; // suppression sèche, en rouge (29/09)
             remove.Click += async delegate
             {
                 // Retirer une entrée ne se rattrape pas (29/09) : on demande.

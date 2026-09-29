@@ -516,10 +516,18 @@ namespace Marabook.App
 
         private Button SmallButton(string label, Action onClick)
         {
+            return SmallButton(label, null, onClick);
+        }
+
+        /// <summary>ink : encre et filet du bouton (29/09 : « Ignorer » en
+        /// orange, pour le distinguer des suggestions).</summary>
+        private Button SmallButton(string label, IBrush ink, Action onClick)
+        {
             // Compact, contour : dans un panneau, une suggestion doit se
             // lire comme cliquable (batch 40).
             var button = Buttons.Text(label, null, Buttons.Compact, Buttons.Look.Outline);
             button.Margin = new Thickness(0, 0, 6, 0);
+            if (ink != null) { button.Foreground = ink; button.BorderBrush = ink; }
             button.Click += delegate { onClick(); };
             return button;
         }
@@ -1341,7 +1349,7 @@ namespace Marabook.App
             // 13/09) ; sans mot, ici aussi.
             var ignoreRef = finding;
             var projectWide = finding.Word.Length > 0 && finding.CheckerId != "style";
-            var ignore = SmallButton("Ignorer", delegate
+            var ignore = SmallButton("Ignorer", Chrome.Warn, delegate
             {
                 if (projectWide)
                 {
@@ -1899,10 +1907,11 @@ namespace Marabook.App
             _styleCombo.Items.Clear();
             foreach (var style in _styles.VisibleFor(_item))
             {
+                // Le nom seul, dans la police de l'interface (29/09) : l'aperçu
+                // dans la police du style rendait la liste illisible.
                 var label = new TextBlock
                 {
                     Text = style.Name,
-                    FontFamily = new FontFamily(style.FontFamily),
                     VerticalAlignment = VerticalAlignment.Center
                 };
                 var row = new StackPanel { Orientation = Orientation.Horizontal };

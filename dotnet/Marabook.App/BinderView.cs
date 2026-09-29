@@ -51,6 +51,7 @@ namespace Marabook.App
         // visé, chemins). Branché, la coquille décide (documents dans Écrits,
         // médias ailleurs) ; sinon la Pile importe en médias comme avant.
         public event Action<BinderItem, string[]> FilesDropped;
+        public event Action CollapseRequested; // le caret de repli sur la ligne Accueil (29/09)
         public event Action JournalRequested; // clic sur « Journal perso » (pied de Pile)
         // Épingler sur le côté (b47) : la coquille tient l'épingle ; la Pile
         // demande, et sait si l'item est déjà épinglé pour libeller le menu.
@@ -72,7 +73,11 @@ namespace Marabook.App
             BorderBrush = Chrome.Border;
             BorderThickness = new Thickness(0, 0, 1, 0);
 
-            _tree = new TreeView { [DragDrop.AllowDropProperty] = true };
+            // AutoScrollToSelectedItem (29/09) : l'arbre d'Avalonia amène LUI
+            // AUSSI la sélection dans la fenêtre, à l'horizontale comprise —
+            // la Pile filait vers la droite devant un titre long. La Pile s'en
+            // charge, verticalement seulement (BringIntoViewVertically).
+            _tree = new TreeView { [DragDrop.AllowDropProperty] = true, AutoScrollToSelectedItem = false };
             _tree.SelectionChanged += OnSelectedItemChanged;
             // En TUNNEL, comme le PreviewMouseDown de WPF : le TreeView
             // d'Avalonia sélectionne dans son gestionnaire de classe (phase
@@ -426,11 +431,87 @@ namespace Marabook.App
                     if (child.Kind != ItemKind.PageTemplate)
                         node.Items.Add(BuildNode(child));
             }
+            else if (IsSheetContainer(item))
+                AddSheetChildren(node, item);
             else
                 foreach (var child in item.Children)
                     node.Items.Add(BuildNode(child));
             _nodesById[item.Id] = node;
             return node;
+        }
+
+        /// <summary>Un conteneur de la racine Fiches (la racine, un dossier, un
+        /// sous-dossier) qui contient au moins une fiche.</summary>
+        private bool IsSheetContainer(BinderItem item)
+        {
+            if (_project == null || item.RootCategory().CategoryKey != Project.KeySheets) return false;
+            foreach (var child in item.Children) if (child.Kind == ItemKind.Sheet) return true;
+            return false;
+        }
+
+        /// <summary>Les enfants d'un conteneur de Fiches (29/09) : les dossiers
+        /// et le reste dans leur ordre, puis les fiches PAR CATÉGORIE (l'ordre
+        /// des catégories du projet, les sans-catégorie en dernier) et, dans
+        /// chaque catégorie, par ordre alphabétique. Chaque catégorie s'annonce
+        /// par une ligne — son nom et un filet — au même niveau que ses
+        /// fiches : ni un dossier, ni un item, rien au tableau. Affichage
+        /// seulement : l'ordre du modèle ne bouge pas.</summary>
+        private void AddSheetChildren(TreeViewItem node, BinderItem item)
+        {
+            foreach (var child in item.Children)
+                if (child.Kind != ItemKind.Sheet) node.Items.Add(BuildNode(child));
+            var groups = new List<KeyValuePair<SheetCategory, List<BinderItem>>>();
+            foreach (var category in _project.SheetCategories)
+                groups.Add(new KeyValuePair<SheetCategory, List<BinderItem>>(category, new List<BinderItem>()));
+            var loose = new List<BinderItem>();
+            foreach (var child in item.Children)
+            {
+                if (child.Kind != ItemKind.Sheet) continue;
+                var category = _project.SheetCategoryOf(child);
+                var placed = false;
+                foreach (var group in groups)
+                    if (group.Key == category) { group.Value.Add(child); placed = true; break; }
+                if (!placed) loose.Add(child);
+            }
+            foreach (var group in groups)
+            {
+                if (group.Value.Count == 0) continue;
+                node.Items.Add(CategoryRow(group.Key.Name));
+                foreach (var sheet in Alphabetical(group.Value)) node.Items.Add(BuildNode(sheet));
+            }
+            if (loose.Count > 0)
+            {
+                node.Items.Add(CategoryRow("Sans catégorie"));
+                foreach (var sheet in Alphabetical(loose)) node.Items.Add(BuildNode(sheet));
+            }
+        }
+
+        private static List<BinderItem> Alphabetical(List<BinderItem> sheets)
+        {
+            var sorted = new List<BinderItem>(sheets);
+            sorted.Sort(delegate(BinderItem a, BinderItem b)
+            { return string.Compare(a.Title ?? "", b.Title ?? "", StringComparison.CurrentCultureIgnoreCase); });
+            return sorted;
+        }
+
+        /// <summary>La ligne d'une catégorie : son nom en petit, un filet
+        /// jusqu'au bord — inerte (ni sélection, ni menu, ni dépôt).</summary>
+        private static TreeViewItem CategoryRow(string name)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 5, 8, 2), MinWidth = 120 };
+            var label = new TextBlock
+            {
+                Text = name,
+                Foreground = Chrome.SoftText,
+                FontSize = 10.5,
+                FontWeight = FontWeight.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+            DockPanel.SetDock(label, Dock.Left);
+            row.Children.Add(label);
+            row.Children.Add(new Border { Height = 1, Background = Chrome.Border, VerticalAlignment = VerticalAlignment.Center });
+            return new TreeViewItem { Header = row, IsEnabled = false, Focusable = false }; // Tag nul, comme le filet sous l'Accueil
         }
 
         private Control BuildHeader(BinderItem item)
@@ -467,6 +548,36 @@ namespace Marabook.App
                 title.Foreground = Chrome.SoftText;
             }
             panel.Children.Add(title);
+
+            // Le bouton de repli de la Pile (29/09), collé à droite de la
+            // ligne Accueil : un caret vers la gauche ; la coquille cache la
+            // Pile et ne laisse qu'un caret vers la droite pour la rouvrir.
+            // La pression est absorbée : elle ne sélectionne pas l'Accueil.
+            if (item.IsHomeRoot)
+            {
+                var toggle = new Border
+                {
+                    Padding = new Thickness(6, 2, 4, 2),
+                    Background = Brushes.Transparent,
+                    Cursor = new Cursor(StandardCursorType.Hand),
+                    Child = Icons.Make("caret-left-bold", 11, Chrome.SoftText),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    [ToolTip.TipProperty] = "Replier la Pile"
+                };
+                toggle.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e) { e.Handled = true; }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+                toggle.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+                {
+                    if (e.InitialPressMouseButton != MouseButton.Left) return;
+                    e.Handled = true;
+                    var handler = CollapseRequested;
+                    if (handler != null) handler();
+                };
+                var row = new DockPanel { HorizontalAlignment = HorizontalAlignment.Stretch };
+                DockPanel.SetDock(toggle, Dock.Right);
+                row.Children.Add(toggle);
+                row.Children.Add(panel);
+                return row;
+            }
 
             // Books: alert chip when a document strays from the gabarit.
             if (item.Kind == ItemKind.Book && BookHasDivergentDocs(item))
@@ -646,7 +757,7 @@ namespace Marabook.App
                     parent = parent.Parent as TreeViewItem;
                 }
                 node.IsSelected = true;
-                if (bringIntoView) node.BringIntoView();
+                if (bringIntoView) BringIntoViewVertically(node);
                 // Avalonia ne lève pas toujours SelectionChanged pour un nœud
                 // imbriqué (parent replié à l'instant, arbre rebâti) : la vue
                 // annonce elle-même la sélection — OnBinderSelection ignore
@@ -682,7 +793,7 @@ namespace Marabook.App
             {
                 if (!item.IsCategory)
                     AddMenu(menu, "Restaurer dans Écrits", delegate { Restore(item); });
-                AddMenu(menu, "Vider la corbeille", delegate { EmptyTrash(); });
+                AddMenu(menu, "Vider la corbeille", HardDeleteInk, delegate { EmptyTrash(); });
                 return menu;
             }
             // L'Accueil (batch 41) : rien à créer, rien à renommer, rien à
@@ -783,6 +894,10 @@ namespace Marabook.App
                 if (item.IsOutOfBook) return menu;
                 AddMenu(menu, "Renommer…", delegate { Rename(item); });
                 AddMenu(menu, "Changer l'icône…", delegate { ChangeIcon(item); });
+                // La couleur de l'icône (29/09) : la teinte seule, l'icône
+                // reste — le nuancier partagé, sur l'icône choisie ou celle
+                // par défaut de l'item.
+                if (!item.IsCategory) menu.Items.Add(BuildIconColorMenu(item));
                 // La couleur (29/09) : toute tuile colorable (écrit, fiche,
                 // livre, dossier) l'a dans son menu — le nuancier du Général.
                 if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet
@@ -795,7 +910,9 @@ namespace Marabook.App
                     if (item.ImageId != null)
                         AddMenu(menu, "Retirer l'image de la carte", delegate { RemoveCardImage(item); });
                 }
-                AddMenu(menu, "Supprimer", async delegate
+                // Suppression DOUCE (29/09) : vers la corbeille, en orange —
+                // elle se restaure ; la sèche (vider la corbeille) est rouge.
+                AddMenu(menu, "Envoyer à la corbeille", SoftDeleteInk, async delegate
                 {
                     if (confirmDelete && !await ConfirmTrash(item)) return;
                     Delete(item);
@@ -812,6 +929,34 @@ namespace Marabook.App
         {
             var root = new MenuItem { Header = "Couleur", Icon = ColorMenus.Dot(item.CardColor, 1, Chrome.Border) };
             ColorMenus.Fill(root, Ui.OwnerOf(this), _project, item.CardColor, delegate(string value) { ApplyColor(item, value); });
+            return root;
+        }
+
+        /// <summary>Le sous-menu « Couleur de l'icône » (29/09) : teinte l'icône
+        /// vectorielle de l'item (la sienne, ou celle par défaut de sa nature)
+        /// sans la changer — icône « svg:nom:#hex ». Une icône fichier ou
+        /// glyphe ne se teinte pas : l'entrée est là, éteinte.</summary>
+        private MenuItem BuildIconColorMenu(BinderItem item)
+        {
+            var current = item.Icon;
+            string name = null, tint = null;
+            if (current == null) name = ItemIcons.DefaultSvg(item);
+            else if (current.StartsWith("svg:", StringComparison.Ordinal))
+            {
+                var token = current.Substring(4);
+                var colon = token.IndexOf(':');
+                name = colon < 0 ? token : token.Substring(0, colon);
+                tint = colon < 0 ? null : token.Substring(colon + 1);
+            }
+            var root = new MenuItem { Header = "Couleur de l'icône", IsEnabled = name != null };
+            if (name == null) return root;
+            var iconName = name;
+            ColorMenus.Fill(root, Ui.OwnerOf(this), _project, tint, delegate(string value)
+            {
+                var icon = value == null ? (item.Icon == null ? null : "svg:" + iconName) : "svg:" + iconName + ":" + value;
+                if (icon == item.Icon) return;
+                RunAndSelect(new ChangeIconAction(item, icon), null, null);
+            });
             return root;
         }
 
@@ -849,10 +994,21 @@ namespace Marabook.App
 
         private static void AddMenu(ContextMenu menu, string label, EventHandler<RoutedEventArgs> onClick)
         {
+            AddMenu(menu, label, null, onClick);
+        }
+
+        /// <summary>ink : l'encre de l'entrée (29/09) — orange pour une
+        /// suppression douce (corbeille), rouge pour une suppression sèche.</summary>
+        private static void AddMenu(ContextMenu menu, string label, IBrush ink, EventHandler<RoutedEventArgs> onClick)
+        {
             var entry = new MenuItem { Header = label };
+            if (ink != null) entry.Foreground = ink;
             entry.Click += onClick;
             menu.Items.Add(entry);
         }
+
+        public static readonly IBrush SoftDeleteInk = Chrome.Warn;   // vers la corbeille : se restaure
+        public static readonly IBrush HardDeleteInk = Chrome.Danger; // définitif
 
         // ------------------------------------------------------- operations
 
@@ -1534,6 +1690,30 @@ namespace Marabook.App
                 MessageDialog.Show(Ui.OwnerOf(this),
                     "Fichiers non importés :\n" + string.Join("\n", errors.ToArray()),
                     "Import", MessageButtons.OK, MessageIcon.Warning);
+        }
+
+        /// <summary>Amène la ligne dans la fenêtre VERTICALEMENT seulement
+        /// (29/09) : BringIntoView faisait aussi défiler l'arbre vers la
+        /// droite devant un titre long, et la Pile « s'élargissait » — les
+        /// icônes et chevrons sortaient du champ. La position horizontale
+        /// reste celle de l'utilisateur (il défile à la main s'il veut lire).</summary>
+        private void BringIntoViewVertically(TreeViewItem node)
+        {
+            Ui.Post(DispatcherPriority.Background, delegate
+            {
+                var scroller = node.FindAncestorOfType<ScrollViewer>();
+                var header = node.Header as Control;
+                if (scroller == null || header == null) { node.BringIntoView(); return; }
+                var top = header.TranslatePoint(new Point(0, 0), scroller);
+                if (top == null) return;
+                var offset = scroller.Offset;
+                var y = top.Value.Y + offset.Y; // dans le contenu
+                var height = Math.Max(1, header.Bounds.Height);
+                if (y < offset.Y)
+                    scroller.Offset = new Vector(offset.X, Math.Max(0, y - 8));
+                else if (y + height > offset.Y + scroller.Viewport.Height)
+                    scroller.Offset = new Vector(offset.X, Math.Max(0, y + height - scroller.Viewport.Height + 8));
+            });
         }
 
         private static TreeViewItem NodeFromSource(object source)

@@ -42,6 +42,8 @@ namespace Marabook.App
         private BinderView _binder;
         private ColumnDefinition _binderCol, _inspectorCol;
         private GridSplitter _binderSplit, _inspectorSplit;
+        private Border _binderStrip; // la Pile repliée : le caret de réouverture (29/09)
+        private const double BinderStripWidth = 26;
 
         private EditorView _editor;
         private SheetView _sheetView;
@@ -394,7 +396,7 @@ namespace Marabook.App
             edit.Items.Add(Entry("new-book", "Nouveau livre", delegate { _binder.NewBook(null); }));
             edit.Items.Add(Entry("import-media", "Importer dans Recherche…", delegate { _binder.ImportMediaDialog(null); }));
             edit.Items.Add(Entry("rename", "Renommer…", delegate { _binder.Rename(null); }, ItemSelected));
-            edit.Items.Add(Entry("delete", "Supprimer", delegate { _binder.Delete(null); }, ItemSelected));
+            edit.Items.Add(Entry("delete", "Envoyer à la corbeille", delegate { _binder.Delete(null); }, ItemSelected)); // suppression douce (29/09)
             edit.Items.Add(new Separator());
             edit.Items.Add(Entry("empty-trash", "Vider la corbeille", delegate { _binder.EmptyTrash(); }));
             menu.Items.Add(edit);
@@ -632,6 +634,33 @@ namespace Marabook.App
             _binder.BookPageTotal = BookPageTotal;
             Grid.SetColumn(_binder, 0);
             grid.Children.Add(_binder);
+            // La Pile repliée (29/09) : une bande étroite avec le caret de
+            // réouverture, à la place de la Pile.
+            _binder.CollapseRequested += ToggleBinder;
+            var reopen = new Border
+            {
+                Padding = new Thickness(6, 8, 6, 8),
+                Background = Brushes.Transparent,
+                Cursor = new Cursor(StandardCursorType.Hand),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top,
+                Child = Icons.Make("caret-right-bold", 12, Chrome.SoftText),
+                [ToolTip.TipProperty] = "Déplier la Pile"
+            };
+            reopen.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            {
+                if (e.InitialPressMouseButton == MouseButton.Left) ToggleBinder();
+            };
+            _binderStrip = new Border
+            {
+                Background = Chrome.BarBg,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(0, 0, 1, 0),
+                IsVisible = false,
+                Child = reopen
+            };
+            Grid.SetColumn(_binderStrip, 0);
+            grid.Children.Add(_binderStrip);
 
             _binderSplit = new GridSplitter
             {
@@ -737,6 +766,7 @@ namespace Marabook.App
             // « Fiches » — rangées par catégorie, cartes, recherche.
             _sheetLibrary = new SheetLibraryView { IsVisible = false };
             _sheetLibrary.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _sheetLibrary.CardSelected += InspectCard; // clic simple sur une tuile de fiche : le Général la montre (29/09)
             _sheetLibrary.AchievementEvent += UnlockAchievement; // « Crétin des alpes » (12/09)
             _sheetLibrary.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             _sheetLibrary.MenuProvider = delegate(BinderItem item) { return _binder.BuildContextMenu(item, true); }; // les tuiles offrent le menu de la Pile (14/09)
@@ -2294,7 +2324,7 @@ namespace Marabook.App
             // Quitter n'attend jamais la correction différée (batch 29).
             _editor.ShutdownProofing();
             EndRecovery(); // fermeture propre : témoin et secours retirés (18/09)
-            AppSettings.BinderWidth = _binderCol.Width.Value > 0 ? _binderCol.Width.Value : AppSettings.BinderWidth;
+            AppSettings.BinderWidth = _binderCol.Width.Value > BinderStripWidth ? _binderCol.Width.Value : AppSettings.BinderWidth; // jamais la bande repliée (29/09)
             RememberRightWidth();
             AppSettings.Save();
         }
@@ -4269,7 +4299,7 @@ namespace Marabook.App
         private void ToggleBinder()
         {
             AppSettings.BinderVisible = !AppSettings.BinderVisible;
-            if (!AppSettings.BinderVisible && _binderCol.Width.Value > 0)
+            if (!AppSettings.BinderVisible && _binderCol.Width.Value > BinderStripWidth)
                 AppSettings.BinderWidth = _binderCol.Width.Value;
             ApplyPanelVisibility();
             AppSettings.Save();
@@ -4296,7 +4326,7 @@ namespace Marabook.App
             if (calm)
             {
                 // Mémorise les largeurs réelles avant de replier les panneaux.
-                if (_binderCol.Width.Value > 0) AppSettings.BinderWidth = _binderCol.Width.Value;
+                if (_binderCol.Width.Value > BinderStripWidth) AppSettings.BinderWidth = _binderCol.Width.Value;
                 if (_inspectorCol.Width.Value > 0) AppSettings.InspectorWidth = _inspectorCol.Width.Value;
             }
             _calmMode = calm;
@@ -4313,7 +4343,12 @@ namespace Marabook.App
             var binderOn = AppSettings.BinderVisible && !_calmMode;
             _binder.IsVisible = binderOn ? true : false;
             _binderSplit.IsVisible = _binder.IsVisible;
-            _binderCol.Width = binderOn ? new GridLength(AppSettings.BinderWidth) : new GridLength(0);
+            // Repliée (29/09) : la bande du caret de réouverture — sauf en
+            // mode calme, où rien ne reste.
+            var strip = !binderOn && !_calmMode;
+            if (_binderStrip != null) _binderStrip.IsVisible = strip ? true : false;
+            _binderCol.Width = binderOn ? new GridLength(AppSettings.BinderWidth)
+                : strip ? new GridLength(BinderStripWidth) : new GridLength(0);
             _binderMenu.IsChecked = binderOn;
 
             // La colonne de droite (batch 39) : le panneau actif est-il
@@ -4334,7 +4369,7 @@ namespace Marabook.App
             var anyRight = shown != RightPanel.None;
             _inspectorSplit.IsVisible = anyRight ? true : false;
             _inspectorCol.Width = anyRight
-                ? new GridLength(shown == RightPanel.Pinned ? AppSettings.PinnedWidth : AppSettings.InspectorWidth)
+                ? new GridLength(AppSettings.InspectorWidth) // une seule largeur, quel que soit le panneau (29/09)
                 : new GridLength(0);
             _inspectorMenu.IsChecked = shown == RightPanel.Inspector;
             _searchMenu.IsChecked = shown == RightPanel.Search;
@@ -4389,8 +4424,10 @@ namespace Marabook.App
         {
             var width = _inspectorCol.Width.Value;
             if (width <= 0) return;
-            if (ShownRightPanel() == RightPanel.Pinned) AppSettings.PinnedWidth = width;
-            else AppSettings.InspectorWidth = width;
+            // Une seule largeur pour la colonne de droite (29/09) : réglée à
+            // la main, elle reste — l'épinglé ne la faisait plus sauter.
+            AppSettings.PinnedWidth = width;
+            AppSettings.InspectorWidth = width;
         }
 
         // ============================================================= le rail (b39)

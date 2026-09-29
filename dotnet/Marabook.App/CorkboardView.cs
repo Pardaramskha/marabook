@@ -742,7 +742,7 @@ namespace Marabook.App
                     return menu;
                 }
                 if (menu.Items.Count > 0) menu.Items.Add(new Separator());
-                var delete = new MenuItem { Header = "Supprimer" };
+                var delete = new MenuItem { Header = "Envoyer à la corbeille", Foreground = BinderView.SoftDeleteInk }; // suppression douce, en orange (29/09)
                 delete.Click += delegate
                 {
                     var handler = DeleteRequested;
@@ -1249,7 +1249,7 @@ namespace Marabook.App
                 { var h = CopyTemplateRequested; if (h != null) h(gabaritRef); };
                 menu.Items.Add(copy);
                 menu.Items.Add(new Separator());
-                var delete = new MenuItem { Header = "Supprimer" };
+                var delete = new MenuItem { Header = "Envoyer à la corbeille", Foreground = BinderView.SoftDeleteInk }; // suppression douce, en orange (29/09)
                 delete.Click += delegate
                 { var h = DeleteRequested; if (h != null) h(gabaritRef); };
                 menu.Items.Add(delete);

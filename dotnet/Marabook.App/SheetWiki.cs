@@ -253,9 +253,22 @@ namespace Marabook.App
         {
             if (target == null || navigate == null) return new Run(label) { Foreground = Chrome.Ink };
             // Pas de Run cliquable chez Avalonia : un TextBlock accent en ligne.
-            var text = new TextBlock { Text = label, Foreground = Chrome.Accent, Cursor = new Cursor(StandardCursorType.Hand), Background = Brushes.Transparent };
+            // Même corps que la ligne (12) et centré dessus (29/09) : un
+            // TextBlock détaché prenait le corps par défaut et flottait.
+            var text = new TextBlock
+            {
+                Text = label,
+                FontSize = 12,
+                Foreground = Chrome.Accent,
+                TextDecorations = TextDecorations.Underline,
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Background = Brushes.Transparent,
+                Padding = new Thickness(0),
+                Margin = new Thickness(0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
             text.PointerPressed += delegate { navigate(target); };
-            return new InlineUIContainer(text) { BaselineAlignment = BaselineAlignment.Baseline };
+            return new InlineUIContainer(text) { BaselineAlignment = BaselineAlignment.Center };
         }
 
         public static TextBlock GroupCaption(string text)

@@ -38,6 +38,9 @@ namespace Marabook.App
         /// <summary>Le menu contextuel d'une tuile : celui de la Pile pour le
         /// même item (BinderView.BuildContextMenu), posé par la coquille.</summary>
         public Func<BinderItem, ContextMenu> MenuProvider;
+        // Un clic simple sur une tuile de fiche (29/09) : le Général du rail
+        // la montre sans l'ouvrir (le double-clic ouvre).
+        public event Action<BinderItem> CardSelected;
 
         public event Action<BinderItem> Navigate; // ouvrir une fiche
         public event Action Changed;              // structure/projet modifiés
@@ -588,11 +591,20 @@ namespace Marabook.App
                 Child = layout
             };
             var sheetRef = sheet;
-            // Seul le clic GAUCHE ouvre (29/09) : le droit ne fait que le menu.
-            card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
-                if (e.InitialPressMouseButton != MouseButton.Left) return;
+            // Le DOUBLE-clic ouvre (29/09) ; le clic simple choisit la tuile,
+            // et le Général du rail montre la fiche — comme les cartes des
+            // écrits. Le droit ne fait que le menu.
+            card.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+            {
+                if (e.ClickCount != 2 || !e.GetCurrentPoint(card).Properties.IsLeftButtonPressed) return;
+                e.Handled = true;
                 var handler = Navigate;
                 if (handler != null) handler(sheetRef);
+            };
+            card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
+                if (e.InitialPressMouseButton != MouseButton.Left) return;
+                var chosen = CardSelected;
+                if (chosen != null) chosen(sheetRef);
             };
             card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
     if (e.InitialPressMouseButton != MouseButton.Right) return; ShowCardMenu(card, sheetRef); };

@@ -1352,8 +1352,12 @@ namespace Marabook.Print
             switch (c)
             {
                 case ' ': em = spaceEm; break;
-                case ' ': em = _fonts.TryGlyph(font, ' ', out other) ? _fonts.GlyphAdvance(font, other) : 0.2; break;
-                case ' ': em = _fonts.TryGlyph(font, ' ', out other) ? _fonts.GlyphAdvance(font, other) : 0.2; break;
+                // La fine insécable absente (29/09) : 70 % de l'espace de la
+                // face — la fine U+2009 d'EB Garamond ne fait que la moitié
+                // d'une espace (0,1 cadratin), trop maigre devant ; ! ? ; Times
+                // donne 0,2 pour une espace de 0,25, soit 80 %.
+                case ' ': em = spaceEm * 0.7; break;
+                case ' ': em = _fonts.TryGlyph(font, ' ', out other) ? _fonts.GlyphAdvance(font, other) : spaceEm * 0.5; break;
                 case ' ': em = 0.1; break;                       // ultrafine
                 case ' ': case ' ': em = 0.5; break;        // demi-cadratin
                 case ' ': case ' ': em = 1.0; break;        // cadratin
