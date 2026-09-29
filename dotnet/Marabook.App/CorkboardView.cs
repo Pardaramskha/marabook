@@ -62,6 +62,10 @@ namespace Marabook.App
 
         public event Action<BinderItem> Navigate;
         public event Action Changed; // synopsis edited or cards reordered
+        // Des fichiers de l'Explorateur / du Finder déposés sur le tableau
+        // (29/09) : (conteneur visé, chemins). La coquille importe — documents
+        // dans Écrits, médias dans Recherche. Non branché = dépôt refusé.
+        public event Action<BinderItem, string[]> FilesDropped;
         public event Action<BinderItem> ExportRequested;      // menu ⋮
         public event Action<BinderItem> DeleteRequested;      // menu ⋮ (corbeille)
         // Le menu de la Pile pour le même item (14/09) : les tuiles offrent
@@ -990,6 +994,7 @@ namespace Marabook.App
             // lui, fait entrer la carte dans la partie.
             box.AddHandler(DragDrop.DragOverEvent, delegate(object sender, DragEventArgs e)
             {
+                if (FilesOver(e)) return;
                 e.DragEffects = e.Data.Contains("MarabookCard")
                     ? DragDropEffects.Move : DragDropEffects.None;
                 e.Handled = true;
@@ -1000,6 +1005,7 @@ namespace Marabook.App
             });
             box.AddHandler(DragDrop.DropEvent, delegate(object sender, DragEventArgs e)
             {
+                if (DropFiles(folderRef, e)) return; // fichiers du système : dans la partie
                 HideDropBar();
                 var dragged = FindChild((string)e.Data.Get("MarabookCard"));
                 if (dragged == null || dragged == folderRef
@@ -1047,12 +1053,14 @@ namespace Marabook.App
             DragDrop.SetAllowDrop(legend, true);
             legend.AddHandler(DragDrop.DragOverEvent, delegate(object sender, DragEventArgs e)
             {
+                if (FilesOver(e)) return;
                 e.DragEffects = e.Data.Contains("MarabookCard") ? DragDropEffects.Move : DragDropEffects.None;
                 if (e.DragEffects == DragDropEffects.Move) ShowDropBar(box, false);
                 e.Handled = true;
             });
             legend.AddHandler(DragDrop.DropEvent, delegate(object sender, DragEventArgs e)
             {
+                if (DropFiles(folderRef, e)) return; // fichiers du système : dans la partie
                 HideDropBar();
                 var dragged = FindChild((string)e.Data.Get("MarabookCard"));
                 if (dragged == null || dragged == folderRef || folderRef.IsDescendantOf(dragged)) return;
@@ -1614,6 +1622,7 @@ namespace Marabook.App
             card.PointerMoved += OnCardMouseMove;
             card.AddHandler(DragDrop.DragOverEvent, delegate(object sender, DragEventArgs e)
             {
+                if (FilesOver(e)) return;
                 e.DragEffects = e.Data.Contains("MarabookCard")
                     ? DragDropEffects.Move : DragDropEffects.None;
                 e.Handled = true;
@@ -1647,8 +1656,45 @@ namespace Marabook.App
             DragDrop.DoDragDrop(e, Ui.DataOf("MarabookCard", dragged.Id), DragDropEffects.Move);
         }
 
+        /// <summary>Des fichiers du système survolent le tableau : Copie si la
+        /// coquille les prend (Écrits, Recherche et leurs dossiers), sinon rien.</summary>
+        private bool FilesOver(DragEventArgs e)
+        {
+            if (!e.Data.Contains(DataFormats.Files)) return false;
+            e.DragEffects = AcceptsFiles ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+            HideDropBar();
+            return true;
+        }
+
+        private bool AcceptsFiles
+        {
+            get
+            {
+                if (_folder == null || FilesDropped == null) return false;
+                var key = _folder.RootCategory().CategoryKey;
+                return key == Project.KeyWritings || key == Project.KeyResearch;
+            }
+        }
+
+        /// <summary>Le dépôt de fichiers du système dans « container » : vrai
+        /// si l'événement portait des fichiers (traité, même refusé).</summary>
+        private bool DropFiles(BinderItem container, DragEventArgs e)
+        {
+            if (!e.Data.Contains(DataFormats.Files)) return false;
+            e.Handled = true;
+            HideDropBar();
+            if (!AcceptsFiles || container == null) return true;
+            var paths = Ui.DroppedPaths(e.Data);
+            if (paths == null) return true;
+            var handler = FilesDropped;
+            if (handler != null) handler(container, paths);
+            return true;
+        }
+
         private void OnBoardDragOver(object sender, DragEventArgs e)
         {
+            if (FilesOver(e)) return;
             e.DragEffects = e.Data.Contains("MarabookCard") ? DragDropEffects.Move : DragDropEffects.None;
             e.Handled = true;
             // Espace vide : le dépôt enverra la carte en fin de liste.
@@ -1661,6 +1707,9 @@ namespace Marabook.App
 
         private void DropOnCard(BinderItem target, DragEventArgs e)
         {
+            // Des fichiers sur une carte : dans son conteneur (un livre ou un
+            // dossier visé les reçoit lui-même).
+            if (DropFiles(target.CanHaveChildren ? target : target.Parent, e)) return;
             HideDropBar();
             var dragged = FindChild((string)e.Data.Get("MarabookCard"));
             if (dragged == null || dragged == target
@@ -1681,6 +1730,7 @@ namespace Marabook.App
 
         private void OnBoardDrop(object sender, DragEventArgs e)
         {
+            if (DropFiles(_folder, e)) return; // fichiers du système : dans le dossier affiché
             HideDropBar();
             var dragged = FindChild((string)e.Data.Get("MarabookCard"));
             if (dragged == null || _folder.IsDescendantOf(dragged)) return;

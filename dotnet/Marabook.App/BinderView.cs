@@ -47,6 +47,10 @@ namespace Marabook.App
 
         public event Action<BinderItem> SelectionChanged;
         public event Action StructureChanged; // a user-initiated, undoable change happened
+        // Des fichiers du système déposés sur la Pile (29/09) : (conteneur
+        // visé, chemins). Branché, la coquille décide (documents dans Écrits,
+        // médias ailleurs) ; sinon la Pile importe en médias comme avant.
+        public event Action<BinderItem, string[]> FilesDropped;
         public event Action JournalRequested; // clic sur « Journal perso » (pied de Pile)
         // Épingler sur le côté (b47) : la coquille tient l'épingle ; la Pile
         // demande, et sait si l'item est déjà épinglé pour libeller le menu.
@@ -1201,7 +1205,9 @@ namespace Marabook.App
                     var under = node == null ? null : node.Tag as BinderItem;
                     var parent = under == null ? null
                                : under.CanHaveChildren ? under : under.Parent;
-                    ImportMediaFiles(parent, files);
+                    var handler = FilesDropped;
+                    if (handler != null && parent != null) handler(parent, files);
+                    else ImportMediaFiles(parent, files);
                 }
                 e.Handled = true;
                 return;

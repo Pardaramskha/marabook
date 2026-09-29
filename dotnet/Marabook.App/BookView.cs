@@ -45,6 +45,7 @@ namespace Marabook.App
         public event Action<BinderItem> ExportRequested;      // relais corkboard
         public event Action<BinderItem> DeleteRequested;
         public event Action<BinderItem> RenameRequested;      // (b43)
+        public event Action<BinderItem, string[]> FilesDropped; // fichiers du système sur le tableau des textes (29/09)
         public event Action<BinderItem, bool> CardImageRequested; // image de tuile / couverture : (élément, retirer)
         public event Action<List<BinderItem>> ApplyTemplateRequested;
         public event Action<BinderItem> NewTemplateRequested;    // book
@@ -172,6 +173,11 @@ namespace Marabook.App
             { var h = CopyTemplateRequested; if (h != null) h(gabarit); };
             corkboard.NewDocumentRequested += delegate(BinderItem book, string kind)
             { var h = NewDocumentRequested; if (h != null) h(book, kind); };
+            // Fichiers du système (29/09) : le tableau des TEXTES seulement —
+            // sur celui des gabarits, un document n'aurait pas de sens.
+            if (corkboard.BookTexts)
+                corkboard.FilesDropped += delegate(BinderItem container, string[] paths)
+                { var h = FilesDropped; if (h != null) h(container, paths); };
         }
 
         // ============================================================ lifecycle

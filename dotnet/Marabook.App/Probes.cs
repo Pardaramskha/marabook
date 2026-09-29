@@ -263,6 +263,41 @@ namespace Marabook.App
                 catch (Exception error) { Check(false, "le PDF s'écrit : " + error.Message); }
                 finally { try { System.IO.File.Delete(pdfPath); } catch { } }
 
+                // — Glisser-déposer de fichiers du système (29/09) : un .docx
+                // et un .md lâchés sur le livre deviennent ses écrits ; un
+                // fichier quelconque lâché dans Recherche devient un média.
+                var dropDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-drop-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    System.IO.Directory.CreateDirectory(dropDir);
+                    var docxPath = System.IO.Path.Combine(dropDir, "Chapitre déposé.docx");
+                    var mdPath = System.IO.Path.Combine(dropDir, "Note déposée.md");
+                    var binPath = System.IO.Path.Combine(dropDir, "Pièce déposée.dat");
+                    Exchange.Docx.Export(document, shell.Project.Styles, docxPath, shell.Project.Page, null, shell.Project);
+                    System.IO.File.WriteAllText(mdPath, "# Une note\n\nDéposée depuis l'Explorateur.");
+                    System.IO.File.WriteAllBytes(binPath, new byte[] { 1, 2, 3, 4 });
+                    var bookBefore = book.Children.Count;
+                    shell.ImportDroppedFiles(book, new[] { docxPath, mdPath });
+                    await Settle();
+                    var droppedDocx = book.Children.FirstOrDefault(c => c.Title == "Chapitre déposé");
+                    var droppedMd = book.Children.FirstOrDefault(c => c.Title == "Note déposée");
+                    Check(book.Children.Count == bookBefore + 2 && droppedDocx != null && droppedMd != null
+                        && droppedDocx.Kind == ItemKind.Text && droppedMd.Kind == ItemKind.Text,
+                        "deux documents déposés sur le livre deviennent ses écrits (" + (book.Children.Count - bookBefore) + ")");
+                    Check(droppedDocx != null && droppedDocx.Document.ToPlainText().Contains(document.Paragraphs[0].ToPlainText().Substring(0, 12)),
+                        "…le .docx a gardé son texte");
+                    Check(droppedMd != null && droppedMd.Document.ToPlainText().Contains("Déposée depuis"), "…le .md aussi");
+                    var research = shell.Project.Category(Project.KeyResearch);
+                    var researchBefore = research.Children.Count;
+                    shell.ImportDroppedFiles(research, new[] { binPath });
+                    await Settle();
+                    var media = research.Children.FirstOrDefault(c => c.Title == "Pièce déposée");
+                    Check(research.Children.Count == researchBefore + 1 && media != null && media.Kind == ItemKind.Media && media.MediaExtension == ".dat",
+                        "un fichier déposé dans Recherche devient un média");
+                }
+                catch (Exception error) { Check(false, "glisser-déposer de fichiers : " + error.Message); }
+                finally { try { System.IO.Directory.Delete(dropDir, true); } catch { } }
+
                 // — P3 : le tour des vues — chaque racine, chaque élément, les
                 // panneaux de droite ; une vue qui lève une exception fait
                 // tomber le processus, c'est le verdict.

@@ -603,6 +603,7 @@ namespace Marabook.App
             };
             _binder.SelectionChanged += OnBinderSelection;
             _binder.JournalRequested += ShowJournal;
+            _binder.FilesDropped += ImportDroppedFiles; // fichiers du système sur la Pile (29/09)
             _binder.AchievementEvent += UnlockAchievement; // « Ooh la boulette ! » (12/09)
             _binder.StructureChanged += delegate
             {
@@ -708,6 +709,7 @@ namespace Marabook.App
             _corkboard.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _corkboard.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             _corkboard.ExportRequested += ExportItem;
+            _corkboard.FilesDropped += ImportDroppedFiles; // fichiers du système (29/09)
             _corkboard.RenameRequested += delegate(BinderItem item)
             { _binder.RenameQuiet(item); RefreshOpenCorkboards(); UpdateInspector(); };
             _corkboard.CardImageRequested += CardImageRequested;
@@ -837,6 +839,7 @@ namespace Marabook.App
             _bookView.ImportTemplateRequested += ImportPageTemplate;
             _bookView.CopyTemplateRequested += CopyPageTemplate;
             _bookView.NewDocumentRequested += NewBookDocument;
+            _bookView.FilesDropped += ImportDroppedFiles; // fichiers du système sur le tableau du livre (29/09)
             _bookView.MenuProvider = delegate(BinderItem item) { return _binder.BuildContextMenu(item, true); }; // le corkboard du livre aussi (14/09)
             center.Children.Add(_bookView);
 
@@ -2846,11 +2849,60 @@ namespace Marabook.App
         {
             var dialogPaths = await Ui.PickOpenFiles(this, "", DocumentImportFilter);
             if (dialogPaths == null || dialogPaths.Length == 0) return;
+            ImportDocumentFiles(_binder.CurrentContainer(), dialogPaths, true);
+        }
 
-            var parent = _binder.CurrentContainer();
+        /// <summary>Les extensions que « Importer des documents » sait lire —
+        /// les mêmes pour le glisser-déposer (29/09).</summary>
+        private static readonly string[] DocumentExtensions = { ".docx", ".odt", ".rtf", ".md", ".markdown", ".txt", ".doc", ".gdoc" };
+
+        public static bool IsDocumentPath(string path)
+        {
+            var ext = System.IO.Path.GetExtension(path ?? "").ToLowerInvariant();
+            return Array.IndexOf(DocumentExtensions, ext) >= 0;
+        }
+
+        /// <summary>Des fichiers de l'Explorateur / du Finder déposés sur la
+        /// Pile ou un tableau (29/09) : dans Écrits (racine, livre, partie,
+        /// dossier), les documents deviennent des écrits du conteneur visé ;
+        /// ailleurs (Recherche), ils entrent en médias comme avant. Un fichier
+        /// qui n'est pas un document, lâché dans Écrits, est signalé — jamais
+        /// importé en douce ailleurs.</summary>
+        internal void ImportDroppedFiles(BinderItem container, string[] paths) // internal : la sonde le joue sans souris
+        {
+            if (_project == null || container == null || paths == null || paths.Length == 0) return;
+            if (!container.CanHaveChildren) container = container.Parent;
+            if (container == null) return;
+            if (container.RootCategory().CategoryKey != Project.KeyWritings)
+            {
+                _binder.ImportMediaFiles(container, paths);
+                return;
+            }
+            var documents = new List<string>();
+            var others = new List<string>();
+            foreach (var path in paths)
+                (IsDocumentPath(path) ? documents : others).Add(path);
+            if (documents.Count > 0) ImportDocumentFiles(container, documents.ToArray(), false);
+            if (others.Count > 0)
+            {
+                var names = new List<string>();
+                foreach (var path in others) names.Add(System.IO.Path.GetFileName(path));
+                MessageDialog.Show(this,
+                    "Dans Écrits, seuls les documents s'importent par glisser-déposer (Word, LibreOffice, RTF, Markdown, texte brut). "
+                    + "Pour les autres fichiers, déposez-les dans Recherche :\n\n" + string.Join("\n", names.ToArray()),
+                    AppName, MessageButtons.OK, MessageIcon.Information);
+            }
+        }
+
+        /// <summary>Importe des documents comme écrits de « parent » (menu
+        /// Fichier › Importer, ou glisser-déposer). select = ouvrir le dernier
+        /// importé ; sinon la Pile et les tableaux se rafraîchissent sur place.</summary>
+        private void ImportDocumentFiles(BinderItem parent, string[] paths, bool select)
+        {
+            if (parent == null || paths == null || paths.Length == 0) return;
             var items = new List<BinderItem>();
             var errors = new List<string>();
-            foreach (var path in dialogPaths)
+            foreach (var path in paths)
             {
                 var name = System.IO.Path.GetFileNameWithoutExtension(path);
                 try
@@ -2872,7 +2924,8 @@ namespace Marabook.App
                 _editor.SetStyleSheet(_project.Styles);
                 _stylesBefore = _project.Styles.Clone(); // nouvelle base, sans point d'annulation (28/09)
                 _sheetView.SetStyleSheet(_project.Styles);
-                _binder.SelectItem(items[items.Count - 1].Id);
+                if (select) _binder.SelectItem(items[items.Count - 1].Id);
+                else { _binder.Rebuild(); RefreshOpenCorkboards(); UpdateInspector(); }
             }
             if (errors.Count > 0)
                 MessageDialog.Show(this, "Documents non importés :\n\n" + string.Join("\n", errors.ToArray()),
