@@ -72,6 +72,12 @@ namespace Marabook.App
                     -(card.Padding.Bottom + card.BorderThickness.Bottom)),
                 IsHitTestVisible = false
             };
+            // L'ombre au repos est la MÊME ombre, transparente — et non
+            // « aucune ombre » : entre zéro et une ombre, l'animateur de
+            // BoxShadows d'Avalonia ne sait pas interpoler et bascule d'un
+            // coup à mi-parcours (l'ombre arrivait en retard, puis sèche —
+            // 29/09). De même forme des deux côtés, elle se fond.
+            shadowHost.BoxShadow = Rest;
             shadowHost.Transitions = new Transitions
             {
                 new BoxShadowsTransition { Property = Border.BoxShadowProperty, Duration = Down, Easing = new CubicEaseOut() }
@@ -88,15 +94,20 @@ namespace Marabook.App
                 // verticale compense la montée.
                 var growth = card.Bounds.Height * (Scale - 1) / 2;
                 translate.Y = -(RaisePx - growth);
-                shadowHost.BoxShadow = new BoxShadows(new BoxShadow { OffsetX = 0, OffsetY = 4, Blur = 14, Color = Color.FromArgb(0x38, 0, 0, 0) });
+                shadowHost.BoxShadow = Lifted;
             };
             card.PointerExited += delegate
             {
                 scale.ScaleX = 1;
                 scale.ScaleY = 1;
                 translate.Y = 0;
-                shadowHost.BoxShadow = new BoxShadows();
+                shadowHost.BoxShadow = Rest;
             };
         }
+
+        // L'ombre soulevée et son double au repos (mêmes décalage et flou,
+        // alpha nul) : seule la couleur s'anime.
+        private static readonly BoxShadows Lifted = new BoxShadows(new BoxShadow { OffsetX = 0, OffsetY = 4, Blur = 14, Color = Color.FromArgb(0x38, 0, 0, 0) });
+        private static readonly BoxShadows Rest = new BoxShadows(new BoxShadow { OffsetX = 0, OffsetY = 4, Blur = 14, Color = Color.FromArgb(0x00, 0, 0, 0) });
     }
 }

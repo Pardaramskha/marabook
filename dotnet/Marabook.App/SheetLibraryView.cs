@@ -390,14 +390,29 @@ namespace Marabook.App
             var inside = new List<BinderItem>();
             Collect(folder, inside);
             foreach (var item in inside) if (item.Kind == ItemKind.Sheet) count++;
-            var layout = new StackPanel { Width = 132 };
+            // Icône en haut, compte en bas, le nom CENTRÉ dans ce qui reste
+            // (29/09) : le WrapPanel étire chaque tuile à la hauteur de sa
+            // rangée, et le nom d'une tuile courte restait collé en haut de
+            // la zone qu'un voisin au titre long avait fait grandir.
+            var layout = new DockPanel { Width = 132 };
             var icon = Icons.Make("folder-bold", 34, Chrome.Accent) as Control;
             if (icon != null)
             {
                 icon.HorizontalAlignment = HorizontalAlignment.Center;
                 icon.Margin = new Thickness(0, 22, 0, 6);
+                DockPanel.SetDock(icon, Dock.Top);
                 layout.Children.Add(icon);
             }
+            var countText = new TextBlock
+            {
+                Text = count == 0 ? "vide" : count == 1 ? "1 fiche" : count + " fiches",
+                FontSize = 11,
+                Foreground = Chrome.SoftText,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(6, 0, 6, 10)
+            };
+            DockPanel.SetDock(countText, Dock.Bottom);
+            layout.Children.Add(countText);
             layout.Children.Add(new TextBlock
             {
                 Text = folder.Title,
@@ -408,15 +423,9 @@ namespace Marabook.App
                 TextWrapping = TextWrapping.Wrap,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 MaxHeight = 34,
+                MaxLines = 2, // points de suspension en fin de 2e ligne, plutôt qu'une coupe nette (29/09)
+                VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(6, 0, 6, 2)
-            });
-            layout.Children.Add(new TextBlock
-            {
-                Text = count == 0 ? "vide" : count == 1 ? "1 fiche" : count + " fiches",
-                FontSize = 11,
-                Foreground = Chrome.SoftText,
-                TextAlignment = TextAlignment.Center,
-                Margin = new Thickness(6, 0, 6, 10)
             });
             var card = new Border
             {
@@ -429,7 +438,12 @@ namespace Marabook.App
                 Child = layout
             };
             var folderRef = folder;
-            card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) { var handler = Navigate; if (handler != null) handler(folderRef); };
+            // Seul le clic GAUCHE ouvre (29/09) : le droit ne fait que le menu.
+            card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            {
+                if (e.InitialPressMouseButton != MouseButton.Left) return;
+                var handler = Navigate; if (handler != null) handler(folderRef);
+            };
             card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
             {
                 if (e.InitialPressMouseButton != MouseButton.Right) return;
@@ -449,7 +463,7 @@ namespace Marabook.App
         /// le modèle diffère du modèle de base de sa catégorie.</summary>
         private Control BuildCard(BinderItem sheet, SheetCategory category)
         {
-            var layout = new StackPanel { Width = 132 };
+            var layout = new DockPanel { Width = 132 }; // photo en haut, nom centré dans le reste (29/09)
 
             // — la photo, ou son emplacement réservé. Batch 36 : l'image est
             // CENTRÉE dans son cadre (l'équivalent de background-position:
@@ -529,9 +543,26 @@ namespace Marabook.App
                     });
                     break;
                 }
+            DockPanel.SetDock(grid, Dock.Top);
             layout.Children.Add(grid);
 
-            layout.Children.Add(new TextBlock
+            // La couleur attribuée à la fiche (29/09) : un ruban plein sous la
+            // photo, et la zone du nom éclaircie dans la même teinte — elle
+            // n'apparaissait nulle part sur la tuile.
+            var nameZone = new Border { CornerRadius = new CornerRadius(0, 0, 3, 3) };
+            if (sheet.CardColor != null)
+            {
+                var accent = Ink.Parse(sheet.CardColor).ToColor();
+                var ribbon = new Border { Height = 4, Background = new SolidColorBrush(accent) };
+                DockPanel.SetDock(ribbon, Dock.Top);
+                layout.Children.Add(ribbon);
+                nameZone.Background = new SolidColorBrush(Chrome.Blend(accent, Chrome.CardBg.Color, 0.86));
+            }
+            // Le nom CENTRÉ dans la zone qui reste (29/09) : le WrapPanel
+            // étire chaque tuile à la hauteur de sa rangée, et le nom d'une
+            // tuile courte restait collé sous la photo quand un voisin au
+            // titre long avait fait grandir la rangée.
+            nameZone.Child = new TextBlock
             {
                 Text = sheet.Title,
                 FontWeight = FontWeight.SemiBold,
@@ -541,8 +572,11 @@ namespace Marabook.App
                 TextWrapping = TextWrapping.Wrap,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 MaxHeight = 34,
+                MaxLines = 2, // points de suspension en fin de 2e ligne, plutôt qu'une coupe nette (29/09)
+                VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(6, 5, 6, 7)
-            });
+            };
+            layout.Children.Add(nameZone);
 
             var card = new Border
             {
@@ -555,7 +589,9 @@ namespace Marabook.App
                 Child = layout
             };
             var sheetRef = sheet;
+            // Seul le clic GAUCHE ouvre (29/09) : le droit ne fait que le menu.
             card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
+                if (e.InitialPressMouseButton != MouseButton.Left) return;
                 var handler = Navigate;
                 if (handler != null) handler(sheetRef);
             };

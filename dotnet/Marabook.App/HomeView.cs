@@ -377,7 +377,8 @@ namespace Marabook.App
             };
             host.PointerEntered += delegate { host.Background = Chrome.AccentTint; };
             host.PointerExited += delegate { host.Background = Brushes.Transparent; };
-            host.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) { Open(item); };
+            // Seul le clic GAUCHE ouvre (29/09) : le droit ne fait que le menu.
+            host.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) { if (e.InitialPressMouseButton == MouseButton.Left) Open(item); };
             host.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
             {
                 if (e.InitialPressMouseButton != MouseButton.Right) return;

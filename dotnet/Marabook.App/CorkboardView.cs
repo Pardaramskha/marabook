@@ -1416,6 +1416,7 @@ namespace Marabook.App
                 Foreground = Chrome.Ink,
                 FontWeight = FontWeight.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center, // centré si la barre grandit (29/09)
                 MaxWidth = divergent ? 133 : 150
             });
             titleRow.Children.Add(titleLeft);

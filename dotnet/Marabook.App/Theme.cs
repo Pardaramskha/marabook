@@ -199,7 +199,16 @@ namespace Marabook.App
                 new Setter(TextBox.CaretBrushProperty, Chrome.Ink),
                 new Setter(TextBox.SelectionBrushProperty, Chrome.Accent),
                 new Setter(TextBox.SelectionForegroundBrushProperty, Chrome.PaperBg),
-                new Setter(TextBox.VerticalContentAlignmentProperty, VerticalAlignment.Center)));
+                new Setter(TextBox.VerticalContentAlignmentProperty, VerticalAlignment.Center),
+                // Le curseur texte sur TOUT le champ (29/09) : le thème ne le
+                // pose que sur le présentateur, soit les lignes écrites — dans
+                // une zone multiligne, le pointeur restait une flèche sous la
+                // ligne active. Cursor s'hérite : les enfants le reçoivent.
+                new Setter(InputElement.CursorProperty, new Cursor(StandardCursorType.Ibeam))));
+            // … sauf la barre de défilement d'un champ multiligne, qui reste
+            // une flèche comme partout ailleurs.
+            styles.Add(Style(x => x.OfType<TextBox>().Descendant().OfType<ScrollBar>(),
+                new Setter(InputElement.CursorProperty, new Cursor(StandardCursorType.Arrow))));
             // Le cadre du gabarit Simple s'appelle « border » (TextBox et
             // ComboBox) ; les coins y sont posés directement (27/09) : le
             // thème de contrôle gardait ses angles droits.

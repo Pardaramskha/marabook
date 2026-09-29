@@ -242,7 +242,7 @@ public static Project SampleProject()
             var sheets = project.Category(Project.KeySheets);
             var folder = new BinderItem { Title = "Personnages", Kind = ItemKind.Folder, Parent = sheets };
             sheets.Children.Add(folder);
-            folder.Children.Add(new BinderItem { Title = "Keira Varenh", Kind = ItemKind.Sheet, Parent = folder });
+            folder.Children.Add(new BinderItem { Title = "Keira Varenh", Kind = ItemKind.Sheet, Parent = folder, CardColor = "#C0392B" });
             folder.Children.Add(new BinderItem { Title = "Le marabout", Kind = ItemKind.Sheet, Parent = folder });
             var plans = project.Category(Project.KeyPlans);
             plans.Children.Add(new BinderItem { Title = "Plan en trois actes", Kind = ItemKind.Plan, Parent = plans });

@@ -276,7 +276,7 @@ namespace Marabook.App
         /// en texte.</summary>
         private static void AddRow(StackPanel infobox, string label, string kind, string value, Project project, Action<BinderItem> navigate)
         {
-            infobox.Children.Add(new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeight.SemiBold, Foreground = Chrome.SoftText, Margin = new Thickness(0, 4, 0, 0) });
+            infobox.Children.Add(new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeight.Bold, Foreground = Chrome.SoftText, Margin = new Thickness(0, 4, 0, 0) }); // gras franc (29/09) : le demi-gras se lisait comme du maigre
             switch (FieldKinds.Normalize(kind))
             {
                 case FieldKinds.List:

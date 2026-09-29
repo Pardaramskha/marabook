@@ -77,14 +77,14 @@ namespace Marabook.App
             // le filtre anti-fantôme révoquait : un clic dans la Pile ne
             // faisait plus rien (27/09).
             _tree.AddHandler(InputElement.PointerPressedEvent, OnPreviewMouseDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
-            // Le clic droit sélectionne aussi (menu contextuel) : il doit être
-            // « attendu » pour passer le filtre anti-fantôme. Et l'élément
-            // VISÉ se surligne le temps du menu (batch 28) — sur l'interligne,
-            // on sait enfin à qui le menu s'applique.
+            // Le clic droit ne SÉLECTIONNE PLUS (29/09) : ouvrir l'élément
+            // en plus de son menu, c'était le bug du portage — le menu seul
+            // suffit. L'élément VISÉ se surligne le temps du menu (batch 28) —
+            // sur l'interligne, on sait enfin à qui le menu s'applique.
             _tree.AddHandler(InputElement.PointerPressedEvent, new EventHandler<PointerPressedEventArgs>(delegate(object sender, PointerPressedEventArgs e)
             {
                 var node = NodeFromSource(e.Source);
-                _expectedSelectId = node == null ? null : ((BinderItem)node.Tag).Id;
+                if (!IsRightClick(e)) _expectedSelectId = node == null ? null : ((BinderItem)node.Tag).Id;
                 ClearMenuHighlight();
                 if (node == null) return;
                 var header = node.Header as Panel;
@@ -118,6 +118,7 @@ namespace Marabook.App
             _tree.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
             {
                 if (_rebuilding || _renameBox != null) return;
+                if (e.InitialPressMouseButton != MouseButton.Left) return; // le droit = le menu, rien d'autre (29/09)
                 var node = NodeFromSource(e.Source);
                 if (node == null || !node.IsSelected) return;
                 var item = node.Tag as BinderItem;
@@ -339,6 +340,13 @@ namespace Marabook.App
                 _nodesById.Clear();
                 foreach (var root in _project.Roots)
                 {
+                    // La racine Cartes mentales n'apparaît qu'avec le module
+                    // Mental-o (29/09) — ou si le projet en contient déjà
+                    // (elles restent atteignables, avec leur tuile d'attente).
+                    // Le projet la garde : rien ne change dans le .plot.
+                    if (root.CategoryKey == Project.KeyMindMaps
+                        && MindMapModules.Provider == null && root.Children.Count == 0)
+                        continue;
                     _tree.Items.Add(BuildNode(root));
                     // Un filet sous l'Accueil (b41) : un point d'entrée, pas
                     // un dossier de travail comme les racines qui suivent.
@@ -1128,9 +1136,19 @@ namespace Marabook.App
 
         // ------------------------------------------------------- drag & drop
 
+        private bool IsRightClick(PointerPressedEventArgs e)
+        {
+            return e.GetCurrentPoint(_tree).Properties.IsRightButtonPressed;
+        }
+
         private void OnPreviewMouseDown(object sender, PointerPressedEventArgs e)
         {
             var node = NodeFromSource(e.Source);
+            // Le clic DROIT n'est jamais « attendu » (29/09) : le TreeView
+            // d'Avalonia sélectionne aussi sur ce bouton, et la sélection
+            // ouvrait l'élément au lieu de ne montrer que son menu. Le
+            // filtre anti-fantôme révoque cette sélection-là.
+            if (IsRightClick(e)) return;
             _expectedSelectId = node == null ? null : ((BinderItem)node.Tag).Id;
             _dragCandidate = node == null ? null : node.Tag as BinderItem;
             if (_dragCandidate != null && _dragCandidate.IsCategory) _dragCandidate = null;
