@@ -875,6 +875,60 @@ namespace Marabook.App
             }
         }
 
+        // ------------------------------------------------------- projecteur
+
+        // Le PROJECTEUR (29/09) : une plage éclairée le temps d'un survol —
+        // l'occurrence précédente d'une répétition quand on survole son
+        // signalement dans le menu contextuel. Des rectangles de l'overlay,
+        // retirés à la fin du survol ; rien dans le modèle ni la composition.
+        private readonly List<Control> _spotlightRects = new List<Control>();
+
+        public void SetSpotlight(int paragraph, int start, int length, IBrush brush)
+        {
+            ClearSpotlight();
+            if (_engine == null || _engine.Current == null || paragraph < 0 || length <= 0) return;
+            var composition = _engine.Current;
+            var end = start + length;
+            double firstTop = -1, firstHeight = 0;
+            for (var k = 0; k < composition.Pages.Count; k++)
+            {
+                foreach (var placed in composition.Pages[k].Lines)
+                {
+                    if (placed.ParagraphIndex != paragraph) continue;
+                    var line = placed.Line;
+                    var from = Math.Max(line.Start, start);
+                    var to = Math.Min(line.End, end);
+                    if (from >= to) continue;
+                    var pageLeft = composition.LeftPxFor(k);
+                    var x1 = CaretX(line, from, pageLeft);
+                    var x2 = CaretX(line, to, pageLeft);
+                    if (x2 - x1 < 2) x2 = x1 + 2;
+                    var rect = new Rectangle
+                    {
+                        Width = x2 - x1 + 2,
+                        Height = Math.Max(2, line.Height - 1),
+                        Fill = brush,
+                        RadiusX = 2,
+                        RadiusY = 2,
+                        IsHitTestVisible = false
+                    };
+                    Canvas.SetLeft(rect, x1 - 1);
+                    Canvas.SetTop(rect, PageTop(k) + placed.Y);
+                    _overlay.Children.Insert(0, rect);
+                    _spotlightRects.Add(rect);
+                    if (firstTop < 0) { firstTop = PageTop(k) + placed.Y; firstHeight = line.Height; }
+                }
+            }
+            // Hors de la fenêtre : on l'amène, sinon le survol ne montre rien.
+            if (firstTop >= 0) EnsureCaretVisible(firstTop, firstHeight);
+        }
+
+        public void ClearSpotlight()
+        {
+            foreach (var rect in _spotlightRects) _overlay.Children.Remove(rect);
+            _spotlightRects.Clear();
+        }
+
         private void RaisePageInfo()
         {
             var handler = PageInfoChanged;
@@ -1098,6 +1152,23 @@ namespace Marabook.App
                     IsEnabled = false,
                     Foreground = ComposedRenderer.FindingPen(finding).Brush
                 };
+                // Une répétition (29/09) : survoler le signalement éclaire
+                // l'occurrence précédente dans le texte (projecteur) — le
+                // clic ne fait rien. Actif, sinon la souris ne l'atteint pas.
+                if (finding.RelatedParagraph >= 0 && finding.RelatedLength > 0)
+                {
+                    header.IsEnabled = true;
+                    header.StaysOpenOnClick = true;
+                    header[ToolTip.TipProperty] = "L'occurrence précédente s'éclaire dans le texte";
+                    var pen = ComposedRenderer.FindingPen(finding);
+                    var solid = pen.Brush as ISolidColorBrush;
+                    var glow = solid != null ? new SolidColorBrush(solid.Color) { Opacity = 0.35 } : (IBrush)Chrome.AccentTint;
+                    header.PointerEntered += delegate
+                    { SetSpotlight(findingRef.RelatedParagraph, findingRef.RelatedStart, findingRef.RelatedLength, glow); };
+                    header.PointerExited += delegate { ClearSpotlight(); };
+                    header.Click += delegate(object sender, Avalonia.Interactivity.RoutedEventArgs args) { args.Handled = true; };
+                    menu.Closed += delegate { ClearSpotlight(); };
+                }
                 menu.Items.Add(header);
                 // Suggestions À LA DEMANDE (batch 27) : le calcul n'a pas eu
                 // lieu pendant la passe, il a lieu ici, au moment de montrer.
@@ -1295,7 +1366,7 @@ namespace Marabook.App
                 menu.Items.RemoveAt(menu.Items.Count - 1);
             }
             if (menu.Items.Count == 0) return;
-            menu.Open(this);
+            Ui.ShowMenu(menu, this);
             e.Handled = true;
         }
 

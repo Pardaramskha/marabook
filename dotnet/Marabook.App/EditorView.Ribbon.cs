@@ -153,7 +153,7 @@ namespace Marabook.App
             weightBtn.Click += delegate
             {
                 BuildWeightMenu(weightMenu); // graisses de LA police, coche incluse
-                weightMenu.Open(weightBtn);
+                Ui.ShowMenu(weightMenu, weightBtn);
             };
             typeTop.Children.Add(weightBtn);
 
@@ -1399,7 +1399,7 @@ namespace Marabook.App
             button.Click += delegate
             {
                 BuildPaletteMenu(menu, isForeground); // custom colors live per project
-                menu.Open(button);
+                Ui.ShowMenu(menu, button);
             };
             return button;
         }

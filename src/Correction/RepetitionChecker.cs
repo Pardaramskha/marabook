@@ -50,6 +50,7 @@ namespace Marabook.Correction
             var findings = new List<Finding>();
             var lastSeen = new Dictionary<string, int>();
             var lastSurface = new Dictionary<string, string>();
+            var lastPlace = new Dictionary<string, int[]>(); // paragraphe, début, longueur de l'occurrence précédente (29/09)
             var wordIndex = 0;
 
             for (var p = 0; p < document.Paragraphs.Count; p++)
@@ -76,11 +77,15 @@ namespace Marabook.Correction
                         var distance = wordIndex - previous;
                         var before = lastSurface[key];
                         var sameForm = FrenchTokenizer.Fold(before) == folded;
+                        var place = lastPlace[key];
                         findings.Add(new Finding
                         {
                             ParagraphIndex = p,
                             Start = token.CoreStart,
                             Length = token.CoreLength,
+                            RelatedParagraph = place[0], // l'occurrence précédente, à éclairer
+                            RelatedStart = place[1],
+                            RelatedLength = place[2],
                             Category = FindingCategory.Style,
                             Severity = FindingSeverity.Hint,
                             Message = "« " + token.CoreSurface + " »"
@@ -95,6 +100,7 @@ namespace Marabook.Correction
                     }
                     lastSeen[key] = wordIndex;
                     lastSurface[key] = token.CoreSurface;
+                    lastPlace[key] = new[] { p, token.CoreStart, token.CoreLength };
                 }
             }
             return findings;

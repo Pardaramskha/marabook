@@ -616,7 +616,7 @@ namespace Marabook.App
             {
                 var menu = BuildCardOptionsMenu(itemRef);
                 menu.PlacementTarget = button;
-                menu.Open(button); // une cible, sinon Avalonia lève (28/09)
+                Ui.ShowMenu(menu, button); // une cible, sinon Avalonia lève (28/09)
             };
             return button;
         }
@@ -1184,7 +1184,7 @@ namespace Marabook.App
                 delete.Click += delegate
                 { var h = DeleteRequested; if (h != null) h(gabaritRef); };
                 menu.Items.Add(delete);
-                menu.Open(button); // une cible, sinon Avalonia lève (28/09)
+                Ui.ShowMenu(menu, button); // une cible, sinon Avalonia lève (28/09)
             };
             return button;
         }
@@ -1316,7 +1316,7 @@ namespace Marabook.App
                 AddExtraEntry(menu, "Cartes et illustrations", ExtraPages.KindIllustrations,
                     "Une page d'accueil pour vos cartes et images");
             }
-            menu.Open(anchor); // une cible, sinon Avalonia lève (28/09)
+            Ui.ShowMenu(menu, anchor); // une cible, sinon Avalonia lève (28/09)
         }
 
         private void AddExtraEntry(ContextMenu menu, string label, string kind, string tip)
@@ -1616,7 +1616,7 @@ namespace Marabook.App
                     // Avalonia exige une CIBLE de placement, même au pointeur :
                     // Open() sans cible = ArgumentNullException, et le clic
                     // droit sur une carte emportait l'application (28/09).
-                    menu.Open(card);
+                    Ui.ShowMenu(menu, card);
                     e.Handled = true;
                 };
             card.PointerMoved += OnCardMouseMove;

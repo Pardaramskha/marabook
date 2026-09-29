@@ -25,6 +25,35 @@ namespace Marabook.App
             Dispatcher.UIThread.Post(action, priority);
         }
 
+        // UN SEUL MENU CONTEXTUEL À LA FOIS (29/09) : un clic droit dans
+        // l'éditeur pouvait ouvrir un second menu sans fermer le premier,
+        // qui restait alors planté à l'écran, sans moyen de le fermer. Tout
+        // menu ouvert à la main passe ici : le précédent se ferme d'abord.
+        private static ContextMenu _openMenu;
+
+        public static void ShowMenu(ContextMenu menu, Control target)
+        {
+            if (menu == null) return;
+            var previous = _openMenu;
+            if (previous != null && previous != menu && previous.IsOpen) previous.Close();
+            _openMenu = menu;
+            EventHandler<Avalonia.Interactivity.RoutedEventArgs> closed = null;
+            closed = delegate
+            {
+                menu.Closed -= closed;
+                if (_openMenu == menu) _openMenu = null;
+            };
+            menu.Closed += closed;
+            menu.Open(target);
+        }
+
+        /// <summary>Ferme le menu contextuel ouvert à la main, s'il y en a un.</summary>
+        public static void CloseOpenMenu()
+        {
+            var menu = _openMenu;
+            if (menu != null && menu.IsOpen) menu.Close();
+        }
+
         /// <summary>La fenêtre qui contient ce visuel, sinon la principale.</summary>
         public static Window OwnerOf(Visual visual)
         {

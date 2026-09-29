@@ -41,6 +41,11 @@ namespace Marabook.Correction
         public string Word = "";     // le mot signalé TEL QU'AFFICHÉ (casse
                                      // d'origine) — clé des listes d'ignorés
         public SuggestionSource Suggests = SuggestionSource.Inline;
+        // La plage LIÉE (29/09) : l'occurrence précédente d'une répétition —
+        // l'éditeur l'éclaire quand on survole le signalement. -1 = aucune.
+        public int RelatedParagraph = -1;
+        public int RelatedStart;
+        public int RelatedLength;
 
         public int End { get { return Start + Length; } }
 
@@ -64,7 +69,10 @@ namespace Marabook.Correction
                 RuleId = RuleId,
                 CheckerId = CheckerId,
                 Word = Word,
-                Suggests = Suggests
+                Suggests = Suggests,
+                RelatedParagraph = RelatedParagraph,
+                RelatedStart = RelatedStart,
+                RelatedLength = RelatedLength
             };
         }
     }

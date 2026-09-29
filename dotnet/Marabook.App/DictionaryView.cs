@@ -373,7 +373,7 @@ namespace Marabook.App
             export.Items.Add(exportProject);
             export.Items.Add(exportAll);
             menu.Items.Add(export);
-            menu.Open(anchor); // une cible, sinon Avalonia lève (28/09)
+            Ui.ShowMenu(menu, anchor); // une cible, sinon Avalonia lève (28/09)
         }
 
         private async void ImportInto(bool projectScope)

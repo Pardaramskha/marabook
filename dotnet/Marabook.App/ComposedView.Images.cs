@@ -794,7 +794,7 @@ namespace Marabook.App
             SelectImageRun(image.Run);
             var menu = BuildImageMenu();
             menu.Placement = PlacementMode.Pointer;
-            menu.Open(this);
+            Ui.ShowMenu(menu, this);
             return true;
         }
 

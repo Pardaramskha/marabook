@@ -4836,7 +4836,7 @@ namespace Marabook.App
             menu.Items.Add(custom);
             menu.PlacementTarget = _colorButton;
             menu.Placement = PlacementMode.Bottom;
-            menu.Open(_colorButton); // une cible, sinon Avalonia lève (28/09)
+            Ui.ShowMenu(menu, _colorButton); // une cible, sinon Avalonia lève (28/09)
         }
 
         private MenuItem ColorMenuItem(string value)
