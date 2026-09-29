@@ -546,17 +546,21 @@ namespace Marabook.App
             DockPanel.SetDock(grid, Dock.Top);
             layout.Children.Add(grid);
 
-            // La couleur attribuée à la fiche (29/09) : un ruban plein sous la
-            // photo, et la zone du nom éclaircie dans la même teinte — elle
-            // n'apparaissait nulle part sur la tuile.
+            // La couleur attribuée à la fiche (29/09) : le MÊME dégradé que la
+            // barre de titre des cartes de texte du tableau — plein à droite,
+            // fondu jusqu'à la moitié de la zone du nom (demande de Rémi).
             var nameZone = new Border { CornerRadius = new CornerRadius(0, 0, 3, 3) };
             if (sheet.CardColor != null)
             {
                 var accent = Ink.Parse(sheet.CardColor).ToColor();
-                var ribbon = new Border { Height = 4, Background = new SolidColorBrush(accent) };
-                DockPanel.SetDock(ribbon, Dock.Top);
-                layout.Children.Add(ribbon);
-                nameZone.Background = new SolidColorBrush(Chrome.Blend(accent, Chrome.CardBg.Color, 0.86));
+                var fade = new LinearGradientBrush
+                {
+                    StartPoint = new RelativePoint(0, 0.5, RelativeUnit.Relative),
+                    EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative)
+                };
+                fade.GradientStops.Add(new GradientStop(Color.FromArgb(0, accent.R, accent.G, accent.B), 0.5));
+                fade.GradientStops.Add(new GradientStop(accent, 1.0));
+                nameZone.Background = fade;
             }
             // Le nom CENTRÉ dans la zone qui reste (29/09) : le WrapPanel
             // étire chaque tuile à la hauteur de sa rangée, et le nom d'une
