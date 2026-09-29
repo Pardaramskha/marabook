@@ -66,6 +66,10 @@ namespace Marabook.App
         // (29/09) : (conteneur visé, chemins). La coquille importe — documents
         // dans Écrits, médias dans Recherche. Non branché = dépôt refusé.
         public event Action<BinderItem, string[]> FilesDropped;
+        // Un clic simple sur une tuile (29/09) : la carte choisie — le Général
+        // du rail montre son état, sa couleur, son synopsis sans l'ouvrir ;
+        // null = plus de sélection (Échap, clic dans le vide).
+        public event Action<BinderItem> CardSelected;
         public event Action<BinderItem> ExportRequested;      // menu ⋮
         public event Action<BinderItem> DeleteRequested;      // menu ⋮ (corbeille)
         // Le menu de la Pile pour le même item (14/09) : les tuiles offrent
@@ -275,12 +279,16 @@ namespace Marabook.App
                 if (IsWithinCard(e.Source as Visual)) return;
                 _selected.Clear();
                 RefreshSelectionVisuals();
+                var chosen = CardSelected;
+                if (chosen != null) chosen(null);
             };
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key != Key.Escape || _selected.Count == 0) return;
                 _selected.Clear();
                 RefreshSelectionVisuals();
+                var chosen = CardSelected;
+                if (chosen != null) chosen(null);
                 e.Handled = true;
             };
             Ui.OnSizeChanged(_cards, delegate { UpdateFolderBoxWidths(); });
@@ -850,6 +858,7 @@ namespace Marabook.App
             }
             else foreach (var child in arranged)
             {
+                if (child.IsOutOfBook) continue; // sa section vit en queue (29/09)
                 // Dans un LIVRE, un dossier est une PARTIE : une boîte à bords
                 // ronds qui contient les cartes de ses documents.
                 if (_folder.Kind == ItemKind.Book && child.Kind == ItemKind.Folder)
@@ -879,7 +888,67 @@ namespace Marabook.App
                     Foreground = Chrome.SoftText,
                     Margin = new Thickness(12)
                 });
+            // Le HORS-LIVRE (29/09) : en queue du tableau d'un livre, après un
+            // filet — notes, lettres d'accompagnement… hors du livre, de ses
+            // statistiques, de l'export et de la publication.
+            if (_folder.Kind == ItemKind.Book && BookTexts) AddOutOfBookSection();
             UpdateFolderBoxWidths();
+        }
+
+        /// <summary>La section Hors-livre d'un livre : un filet, le titre, la
+        /// note explicative, les cartes des documents du dossier Hors-livre,
+        /// et « Nouveau document » (NewDocumentRequested, sorte « outside »).</summary>
+        private void AddOutOfBookSection()
+        {
+            var rule = new Grid { Tag = "section", Margin = new Thickness(8, 22, 8, 4), Height = 1, Background = Chrome.Border };
+            _cards.Children.Add(rule);
+            var header = new Grid { Tag = "section", Margin = new Thickness(8, 8, 8, 2) };
+            var title = new StackPanel { Orientation = Orientation.Horizontal };
+            title.Children.Add(new TextBlock
+            {
+                Text = BinderItem.OutOfBookTitle,
+                FontSize = 13,
+                FontWeight = FontWeight.Bold,
+                Foreground = Chrome.Ink,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            var folder = _folder.OutOfBookFolder();
+            var count = 0;
+            if (folder != null) foreach (var child in folder.Children) if (child.Kind == ItemKind.Text) count++;
+            title.Children.Add(new TextBlock
+            {
+                Text = count.ToString(),
+                FontSize = 11,
+                Foreground = Chrome.SoftText,
+                Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            header.Children.Add(title);
+            _cards.Children.Add(header);
+            var note = new Grid { Tag = "section", Margin = new Thickness(8, 0, 8, 6) };
+            note.Children.Add(new TextBlock
+            {
+                Text = "Documents non comptabilisés dans le livre, ses statistiques, et laissés hors export et publication. "
+                    + "Utilisable pour des notes additionnelles ou des lettres d'accompagnement aux maisons d'édition.",
+                FontSize = 12,
+                Foreground = Chrome.SoftText,
+                TextWrapping = TextWrapping.Wrap
+            });
+            _cards.Children.Add(note);
+            if (folder != null)
+                foreach (var child in ArrangeChildren(folder.Children))
+                    if (child.Kind == ItemKind.Text) _cards.Children.Add(BuildCard(child));
+            var create = Buttons.IconText("plus-bold", "Nouveau document",
+                "Un document hors-livre : notes, lettre d'accompagnement… — dans le dossier Hors-livre du livre",
+                Buttons.Bar, Buttons.Look.Outline);
+            create.Margin = new Thickness(8, 6, 8, 12);
+            create.VerticalAlignment = VerticalAlignment.Top;
+            create.Click += delegate
+            {
+                var handler = NewDocumentRequested;
+                if (handler != null) handler(_folder, "outside");
+            };
+            _cards.Children.Add(create);
         }
 
         private bool IsRoot(string key)
@@ -1406,7 +1475,7 @@ namespace Marabook.App
             // la carte était trop discret.
             var enclosing = _folder == null ? null : _folder.EnclosingBook();
             var divergent = enclosing != null && enclosing.Book != null && item.Kind == ItemKind.Text
-                && _project != null && IsDivergent(item);
+                && _project != null && !item.IsInsideOutOfBook() && IsDivergent(item); // le Hors-livre ne suit pas le gabarit (29/09)
             if (divergent)
             {
                 var warning = Icons.Make("warning-fill", 12, new SolidColorBrush(Color.FromRgb(230, 126, 34))) as Control;
@@ -1602,6 +1671,8 @@ namespace Marabook.App
                     _selected.Add(item.Id);
                 }
                 RefreshSelectionVisuals();
+                var chosen = CardSelected;
+                if (chosen != null) chosen(_selected.Contains(item.Id) ? item : null);
             };
             // Clic droit : les mêmes options que le bouton ⋮ (batch 28). Une
             // carte divergente garde son ContextMenu propre (« appliquer le

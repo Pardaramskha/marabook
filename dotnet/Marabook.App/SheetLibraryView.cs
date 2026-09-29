@@ -395,7 +395,9 @@ namespace Marabook.App
             // rangée, et le nom d'une tuile courte restait collé en haut de
             // la zone qu'un voisin au titre long avait fait grandir.
             var layout = new DockPanel { Width = 132 };
-            var icon = Icons.Make("folder-bold", 34, Chrome.Accent) as Control;
+            // L'icône DU DOSSIER (29/09) : celle choisie dans la Pile, avec sa
+            // couleur — le dossier bleu fixe ignorait « Changer l'icône ».
+            var icon = ItemIcons.Render(folder, 34, Chrome.Accent) as Control;
             if (icon != null)
             {
                 icon.HorizontalAlignment = HorizontalAlignment.Center;
@@ -488,14 +490,7 @@ namespace Marabook.App
                     };
             }
             if (pictureContent == null)
-                pictureContent = new TextBlock
-                {
-                    Text = "🖼",
-                    FontSize = 30,
-                    Foreground = Chrome.SoftText,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
+                pictureContent = CategoryPlaceholder(category, 44);
             var picture = new Border
             {
                 Height = 108,
@@ -605,6 +600,42 @@ namespace Marabook.App
             card.PointerExited += delegate { card.BorderBrush = Chrome.Border; };
             CardLift.Attach(card); // soulèvement au survol (b35)
             return card;
+        }
+
+        /// <summary>Le symbole d'une fiche sans image (29/09) : l'icône de sa
+        /// catégorie (personnage, lieu, événement, système, peuple, bestiaire,
+        /// pays, faction — les huit « fiche-* » du jeu d'icônes), sinon le
+        /// cadre générique. Partagé avec la fiche ouverte.</summary>
+        public static Control CategoryPlaceholder(SheetCategory category, double size)
+        {
+            var icon = CategoryIcon(category);
+            if (icon != null)
+            {
+                var made = Icons.Make(icon, size, Chrome.SoftText);
+                made.HorizontalAlignment = HorizontalAlignment.Center;
+                made.VerticalAlignment = VerticalAlignment.Center;
+                return made;
+            }
+            return new TextBlock
+            {
+                Text = "🖼",
+                FontSize = size * 0.7,
+                Foreground = Chrome.SoftText,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        /// <summary>« fiche-personnage », « fiche-pays »… d'après le premier mot
+        /// du nom de la catégorie, accents pliés ; null si aucune icône.</summary>
+        public static string CategoryIcon(SheetCategory category)
+        {
+            if (category == null || string.IsNullOrEmpty(category.Name)) return null;
+            var folded = Correction.FrenchTokenizer.Fold(category.Name.Trim());
+            var cut = folded.IndexOfAny(new[] { ' ', '/', '-', ',' });
+            var word = cut > 0 ? folded.Substring(0, cut) : folded;
+            var name = "fiche-" + word;
+            return Icons.Has(name) ? name : null;
         }
 
         /// <summary>Un clip aux coins HAUTS arrondis : le rectangle déborde

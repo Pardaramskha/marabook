@@ -84,7 +84,14 @@ namespace Marabook.App
             _class.SelectedIndex = Array.IndexOf(LexiconEntry.Classes,
                 initial == null ? LexiconEntry.ClassNoun : initial.Class);
             if (_class.SelectedIndex < 0) _class.SelectedIndex = 0;
-            _class.SelectionChanged += delegate { UpdateVisibility(); UpdatePreview(); };
+            _class.SelectionChanged += delegate
+            {
+                // Un nom propre est invariable d'office (29/09) : l'accord
+                // bascule aussitôt — modifiable ensuite si besoin.
+                if (SelectedClass() == LexiconEntry.ClassProper && _plural != null) _plural.SelectedIndex = 2;
+                UpdateVisibility();
+                UpdatePreview();
+            };
             panel.Children.Add(_class);
 
             _nominal = new StackPanel();

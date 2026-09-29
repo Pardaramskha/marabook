@@ -43,6 +43,43 @@ namespace Marabook.History
         public void Undo() { _item.CardColor = _oldColor; }
     }
 
+    /// <summary>Classer les enfants d'un dossier par titre (29/09) — l'ordre
+    /// d'avant est gardé pour l'annulation.</summary>
+    public class SortChildrenAction : IUndoableAction
+    {
+        private readonly BinderItem _folder;
+        private readonly List<BinderItem> _before, _after;
+
+        public SortChildrenAction(BinderItem folder)
+        {
+            _folder = folder;
+            _before = new List<BinderItem>(folder.Children);
+            _after = new List<BinderItem>(folder.Children);
+            _after.Sort(delegate(BinderItem a, BinderItem b)
+            {
+                return string.Compare(a.Title ?? "", b.Title ?? "", StringComparison.CurrentCultureIgnoreCase);
+            });
+        }
+
+        public bool IsNoOp
+        {
+            get
+            {
+                for (var i = 0; i < _before.Count; i++) if (_before[i] != _after[i]) return false;
+                return true;
+            }
+        }
+
+        public void Do() { Apply(_after); }
+        public void Undo() { Apply(_before); }
+
+        private void Apply(List<BinderItem> order)
+        {
+            _folder.Children.Clear();
+            _folder.Children.AddRange(order);
+        }
+    }
+
     /// <summary>Une action dont l'ANNULATION détruit du contenu que rien ne
     /// rend sûrement (29/09) : défaire la création d'une fiche remplie la
     /// supprime avec tout ce qu'on y a écrit. La coquille demande avant.

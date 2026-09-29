@@ -66,7 +66,8 @@ namespace Marabook.App
         private bool _showRelations;
         private int _layoutMode = -1;
         private readonly Image _portrait;
-        private readonly TextBlock _portraitPlaceholder;
+        private readonly StackPanel _portraitPlaceholder;
+        private readonly ContentControl _portraitIcon; // le symbole de la catégorie (29/09)
         private readonly Button _removePortrait;
         private readonly TextBox _bodyBox;
         // La vue miroir du texte libre (14/09) : le rendu wiki à droite de
@@ -190,14 +191,18 @@ namespace Marabook.App
 
             // Image + options.
             _portrait = new Image { MaxHeight = 260, Stretch = Stretch.Uniform, IsVisible = false };
-            _portraitPlaceholder = new TextBlock
+            // Sans image (29/09) : le symbole de la catégorie de la fiche
+            // (personnage, lieu…), posé à l'ouverture, puis « Aucune image ».
+            _portraitIcon = new ContentControl { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 6) };
+            _portraitPlaceholder = new StackPanel { Margin = new Thickness(0, 22, 0, 22) };
+            _portraitPlaceholder.Children.Add(_portraitIcon);
+            _portraitPlaceholder.Children.Add(new TextBlock
             {
-                Text = "🖼\nAucune image",
+                Text = "Aucune image",
                 TextAlignment = TextAlignment.Center,
                 Foreground = Chrome.SoftText,
-                FontSize = 13,
-                Margin = new Thickness(0, 26, 0, 26)
-            };
+                FontSize = 13
+            });
             var portraitStack = new StackPanel();
             portraitStack.Children.Add(_portrait);
             portraitStack.Children.Add(_portraitPlaceholder);
@@ -1137,9 +1142,16 @@ namespace Marabook.App
                 foreach (var entry in entries)
                     foreach (var form in entry.Forms())
                         known.Add(Correction.FrenchTokenizer.Fold(form));
+            // Le dictionnaire général compte aussi (29/09) : « de », « la », un
+            // prénom courant que le correcteur connaît déjà n'ont rien à
+            // apprendre — seuls les mots qu'il soulignerait manquent.
+            var engine = Correction.SpellDictionary.Default;
             foreach (var word in NameWords(_item.Title))
-                if (!known.Contains(Correction.FrenchTokenizer.Fold(word)))
-                    missing.Add(word);
+            {
+                if (known.Contains(Correction.FrenchTokenizer.Fold(word))) continue;
+                if (engine != null && engine.Accepts(word)) continue;
+                missing.Add(word);
+            }
             return missing;
         }
 
@@ -1268,6 +1280,10 @@ namespace Marabook.App
             else foreach (var kind in RelationKinds.Defaults) kindBox.Items.Add(kind);
             kindBox.Items.Add(NewKindEntry);
             kindBox.Text = relation.Kind;
+            // L'autocomplétion (29/09) : les natures qui contiennent la frappe.
+            Suggestions.Attach(kindBox,
+                delegate { return _project != null ? (IEnumerable<string>)_project.AllRelationKinds() : RelationKinds.Defaults; },
+                delegate(string chosen) { kindBox.Text = chosen; CommitRelationKind(relation, kindBox); });
             kindBox.SelectionChanged += delegate
             {
                 if (_loading || kindBox.SelectedIndex < 0) return;
@@ -1317,6 +1333,10 @@ namespace Marabook.App
             _relationBoxes[relation.Id] = combo;
             foreach (var sheet in sheets) combo.Items.Add(sheet.Title);
             combo.Text = target != null ? target.Title : relation.Name;
+            // L'autocomplétion (29/09) : les fiches dont le titre contient la frappe.
+            Suggestions.Attach(combo,
+                delegate { var titles = new List<string>(); foreach (var sheet in sheets) titles.Add(sheet.Title); return titles; },
+                delegate(string chosen) { combo.Text = chosen; CommitRelationTarget(relation, combo, sheets, open); });
             combo.LostFocus += delegate { CommitRelationTarget(relation, combo, sheets, open); };
             combo.SelectionChanged += delegate
             {
@@ -1699,6 +1719,7 @@ namespace Marabook.App
             _template = template;
             _loading = true;
             var category = _project == null ? null : _project.SheetCategoryOf(item);
+            _portraitIcon.Content = SheetLibraryView.CategoryPlaceholder(category, 48);
             _titleLabel.Text = item.Title;
             _categoryLabel.Text = (category != null ? "Fiche " + category.Name : "Fiche")
                 + (template != null ? " — modèle " + template.Name : " (modèle introuvable — champs libres uniquement)");

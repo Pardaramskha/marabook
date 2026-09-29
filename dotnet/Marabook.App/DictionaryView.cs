@@ -315,8 +315,7 @@ namespace Marabook.App
                 Text = LexiconInflector.Preview(entry, 12),
                 Foreground = entry.Definition.Length > 0 ? Chrome.SoftText : Chrome.Ink,
                 FontSize = entry.Definition.Length > 0 ? 11 : 12,
-                TextWrapping = TextWrapping.Wrap,
-                [ToolTip.TipProperty] = string.Join("\n", entry.Forms().ToArray())
+                TextWrapping = TextWrapping.Wrap
             });
             if (entry.Note.Length > 0)
                 forms.Children.Add(new TextBlock
@@ -349,8 +348,7 @@ namespace Marabook.App
 
             // Un clic sur la rangée ouvre l'entrée (29/09) — plus de bouton
             // « Modifier… » ; « Retirer » garde son bouton.
-            row.Cursor = new Cursor(StandardCursorType.Hand);
-            ToolTip.SetTip(row, "Modifier cette entrée");
+            row.Cursor = new Cursor(StandardCursorType.Hand); // sans infobulle (29/09) : le survol suffit
             row.PointerEntered += delegate { row.BorderBrush = Chrome.Accent; };
             row.PointerExited += delegate { row.BorderBrush = Chrome.Border; };
             row.PointerReleased += async delegate(object sender, PointerReleasedEventArgs e)

@@ -504,7 +504,7 @@ namespace Marabook.App
 
             // Double-click renames in place (folders included: expansion is on
             // the chevron, Scrivener-style rename wins on the label).
-            if (!item.IsCategory)
+            if (!item.IsCategory && !item.IsOutOfBook) // Hors-livre : pas renommable (29/09)
             {
                 var itemRef = item;
                 panel.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
@@ -736,7 +736,8 @@ namespace Marabook.App
                     // autre livre.
                     if (rootKey == Project.KeyWritings && item.EnclosingBook() == null)
                         AddMenu(menu, "Nouveau livre", delegate { NewBook(item); });
-                    AddMenu(menu, "Nouveau dossier", delegate { NewFolder(item); });
+                    if (!item.IsInsideOutOfBook()) // pas de parties dans le Hors-livre (29/09)
+                        AddMenu(menu, "Nouveau dossier", delegate { NewFolder(item); });
                 }
             }
             // Depuis la Pile seulement (14/09) : créer AU MÊME NIVEAU que
@@ -773,6 +774,13 @@ namespace Marabook.App
                 }
                 if (item.Kind == ItemKind.Book)
                     AddMenu(menu, "Options du livre…", delegate { BookOptions(item); });
+                // Un dossier de Fiches, depuis la Pile (29/09) : classer ses
+                // fiches par ordre alphabétique — annulable.
+                if (fromPile && item.CanHaveChildren && item.Children.Count > 1
+                    && item.RootCategory().CategoryKey == Project.KeySheets)
+                    AddMenu(menu, "Classer par ordre alphabétique", delegate { SortChildren(item); });
+                // Le dossier Hors-livre (29/09) : ni renommé, ni changé d'icône, ni supprimé.
+                if (item.IsOutOfBook) return menu;
                 AddMenu(menu, "Renommer…", delegate { Rename(item); });
                 AddMenu(menu, "Changer l'icône…", delegate { ChangeIcon(item); });
                 // La couleur (29/09) : toute tuile colorable (écrit, fiche,
@@ -805,6 +813,16 @@ namespace Marabook.App
             var root = new MenuItem { Header = "Couleur", Icon = ColorMenus.Dot(item.CardColor, 1, Chrome.Border) };
             ColorMenus.Fill(root, Ui.OwnerOf(this), _project, item.CardColor, delegate(string value) { ApplyColor(item, value); });
             return root;
+        }
+
+        /// <summary>« Classer par ordre alphabétique » (29/09) : les enfants
+        /// d'un dossier de Fiches, par titre — annulable.</summary>
+        private void SortChildren(BinderItem folder)
+        {
+            if (folder == null || folder.Children.Count < 2) return;
+            var action = new SortChildrenAction(folder);
+            if (action.IsNoOp) return;
+            RunAndSelect(action, null, folder.Id);
         }
 
         private void ApplyColor(BinderItem item, string value)
@@ -993,6 +1011,7 @@ namespace Marabook.App
         {
             foreach (var child in item.Children)
             {
+                if (child.IsOutOfBook) continue; // le Hors-livre ne suit pas le gabarit (29/09)
                 if (child.Kind == ItemKind.Text)
                 {
                     var effective = child.Page ?? _project.Page;
@@ -1271,6 +1290,7 @@ namespace Marabook.App
             var node = NodeFromSource(e.Source);
             var target = node == null ? null : node.Tag as BinderItem;
             if (dragged == null || target == null || dragged == target) return null;
+            if (dragged.IsOutOfBook) return null; // le dossier Hors-livre ne bouge pas (29/09)
             if (target == dragged.Parent && target.CanHaveChildren) return null; // no-op move
             if (target.IsDescendantOf(dragged)) return null;
             if (target.RootCategory().CategoryKey == Project.KeyTrash) return null; // deletion has its own path

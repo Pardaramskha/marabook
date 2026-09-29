@@ -160,7 +160,10 @@ namespace Marabook.Persistence
         //      au-dessus et en dessous), "ifree" (placement libre). Un run
         //      image d'avant (sans ces clés) reste attaché, centré, réduit à
         //      la colonne.
-        private const int FormatVersion = 33;
+        // v34: HORS-LIVRE (29/09) — "outOfBook": true sur le dossier
+        //      « Hors-livre » d'un livre (omis au défaut) : ses documents ne
+        //      comptent ni dans le livre, ni dans l'export ou la publication.
+        private const int FormatVersion = 34;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -475,6 +478,7 @@ namespace Marabook.Persistence
             if (item.IsToc) node["toc"] = true;
             if (item.ExtraSection != null) node["extraSection"] = item.ExtraSection; // v26
             if (item.ExtraKind != null) node["extraKind"] = item.ExtraKind;          // v26
+            if (item.IsOutOfBook) node["outOfBook"] = true; // v34 (29/09) : le dossier « Hors-livre » d'un livre — omis au défaut
             if (item.Kind == ItemKind.PageTemplate)
             {
                 if (item.TemplateColor != null) node["chip"] = item.TemplateColor;
@@ -1258,6 +1262,7 @@ namespace Marabook.Persistence
             item.ExtraSection = Json.AsString(Json.Field(obj, "extraSection")); // v26
             item.ExtraKind = Json.AsString(Json.Field(obj, "extraKind"));       // v26 — absents sur une
                                                                                   // vieille page extra : liminaire (ExtraPages.SectionOf)
+            item.IsOutOfBook = Json.AsBool(Json.Field(obj, "outOfBook"), false); // v34
             if (item.Kind == ItemKind.PageTemplate)
             {
                 item.TemplateColor = Json.AsString(Json.Field(obj, "chip"));

@@ -66,6 +66,9 @@ namespace Marabook.App
                 return entry != null && entry.IsSeparator ? BuildRule() : BuildRow(entry);
             }, true);
             Rebuild(null);
+            // L'autocomplétion (29/09) : les polices dont le nom contient la
+            // frappe, dans un menu sous le champ ; un choix applique.
+            Suggestions.Attach(this, FontNames, delegate(string name) { Select(name); Announce(name, false); });
 
             SelectionChanged += OnSelectionChangedInternal;
             AddHandler(KeyDownEvent, OnPreviewKeyDownInternal, RoutingStrategies.Tunnel);
@@ -191,8 +194,24 @@ namespace Marabook.App
 
         // ------------------------------------------------------------ choix
 
+        /// <summary>Les noms du catalogue tel qu'affiché (sans le trait).</summary>
+        private IEnumerable<string> FontNames()
+        {
+            foreach (var item in Items)
+            {
+                var entry = item as FontCatalog.Entry;
+                if (entry != null && !entry.IsSeparator && !string.IsNullOrEmpty(entry.Name)) yield return entry.Name;
+            }
+        }
+
         private void OnPreviewKeyDownInternal(object sender, KeyEventArgs e)
         {
+            // Le menu de suggestions ouvert prend les flèches, et Entrée
+            // quand une ligne y est choisie (29/09).
+            if (Suggestions.IsOpenFor(this)
+                && (e.Key == Key.Up || e.Key == Key.Down
+                    || ((e.Key == Key.Enter || e.Key == Key.Return) && Suggestions.HasChoice(this))))
+                return;
             if (e.Key == Key.Enter || e.Key == Key.Return)
             {
                 // Le nom tapé (ou complété) s'applique ; le clavier repart.

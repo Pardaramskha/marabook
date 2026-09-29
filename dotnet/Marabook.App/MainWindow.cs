@@ -77,6 +77,8 @@ namespace Marabook.App
         private bool _calmMode;
         private TextBlock _placeholder;
         private BinderItem _current;
+        private BinderItem _inspected; // la tuile cliquée au tableau (29/09), null = l'élément ouvert
+        private BinderItem InspectedItem { get { return _inspected ?? _current; } }
 
         private Border _inspector;
         private Border _correctionHost; // le panneau de correction (batch 28)
@@ -716,6 +718,7 @@ namespace Marabook.App
             _corkboard.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             _corkboard.ExportRequested += ExportItem;
             _corkboard.FilesDropped += ImportDroppedFiles; // fichiers du système (29/09)
+            _corkboard.CardSelected += InspectCard; // clic simple sur une tuile : le Général la montre (29/09)
             _corkboard.RenameRequested += delegate(BinderItem item)
             { _binder.RenameQuiet(item); RefreshOpenCorkboards(); UpdateInspector(); };
             _corkboard.CardImageRequested += CardImageRequested;
@@ -846,6 +849,7 @@ namespace Marabook.App
             _bookView.CopyTemplateRequested += CopyPageTemplate;
             _bookView.NewDocumentRequested += NewBookDocument;
             _bookView.FilesDropped += ImportDroppedFiles; // fichiers du système sur le tableau du livre (29/09)
+            _bookView.CardSelected += InspectCard; // clic simple sur une tuile du livre (29/09)
             _bookView.MenuProvider = delegate(BinderItem item) { return _binder.BuildContextMenu(item, true); }; // le corkboard du livre aussi (14/09)
             center.Children.Add(_bookView);
 
@@ -1377,9 +1381,9 @@ namespace Marabook.App
                 _statusCombo.Items.Add(TextStatus.Label(key));
             _statusCombo.SelectionChanged += delegate
             {
-                if (_loadingInspector || _current == null) return;
+                if (_loadingInspector || InspectedItem == null) return;
                 var index = _statusCombo.SelectedIndex;
-                _current.Status = index <= 0 ? null : TextStatus.Keys[index - 1];
+                InspectedItem.Status = index <= 0 ? null : TextStatus.Keys[index - 1];
                 MarkDirty();
                 RefreshOpenCorkboards();
             };
@@ -1778,7 +1782,7 @@ namespace Marabook.App
             GlobalStyles.Sync(project);
             _project = project;
             _path = path;
-            _current = null;
+            _current = null; _inspected = null;
             _dirty = false;
             _readOnlyBanner.IsVisible = project.ReadOnlyNewerFormat
                 ? true : false;
@@ -2436,7 +2440,7 @@ namespace Marabook.App
             try
             {
                 CommitActive();
-                _current = item;
+                _current = item; _inspected = null;
                 ShowItem(item);
             }
             finally
@@ -2675,7 +2679,7 @@ namespace Marabook.App
             try
             {
                 CommitActive();
-                _current = null;
+                _current = null; _inspected = null;
                 ShowItem(null);
                 _placeholder.IsVisible = false;
                 _journalView.Load(_project);
@@ -2779,15 +2783,15 @@ namespace Marabook.App
 
         private void OnSynopsisChanged(object sender, TextChangedEventArgs e)
         {
-            if (_loadingInspector || _current == null || _current.IsCategory) return;
-            _current.Synopsis = _synopsisBox.Text;
+            if (_loadingInspector || InspectedItem == null || InspectedItem.IsCategory) return;
+            InspectedItem.Synopsis = _synopsisBox.Text;
             MarkDirty();
         }
 
         private void OnNotesChanged(object sender, TextChangedEventArgs e)
         {
-            if (_loadingInspector || _current == null || _current.IsCategory) return;
-            _current.Notes = _notesBox.Text;
+            if (_loadingInspector || InspectedItem == null || InspectedItem.IsCategory) return;
+            InspectedItem.Notes = _notesBox.Text;
             MarkDirty();
         }
 
@@ -2830,7 +2834,7 @@ namespace Marabook.App
             // The current item may have been removed (undone add) or brought back.
             if (_current != null && _project.FindById(_current.Id) == null)
             {
-                _current = null;
+                _current = null; _inspected = null;
                 ShowItem(null);
                 UpdateInspector();
                 UpdateStats();
@@ -3362,6 +3366,7 @@ namespace Marabook.App
         {
             foreach (var child in root.Children)
             {
+                if (child.IsOutOfBook) continue; // Hors-livre (29/09) : ni folios, ni pages, ni statistiques
                 if (child.Kind == ItemKind.Text) texts.Add(child);
                 CollectBookTexts(child, texts);
             }
@@ -3532,6 +3537,27 @@ namespace Marabook.App
             if (kind == "import") { _binder.ImportMediaDialog(book); RefreshOpenCorkboards(); return; }
             if (book == null || book.Book == null) return;
             BinderItem item;
+            if (kind == "outside")
+            {
+                // Un document HORS-LIVRE (29/09) : dans le dossier Hors-livre du
+                // livre, créé au premier usage — ni renommable, ni déplaçable.
+                var title = await InputDialog.Ask(this, "Nouveau document hors-livre",
+                    "Titre du document :", "Notes");
+                if (title == null) return;
+                var outside = book.OutOfBookFolder();
+                if (outside == null)
+                {
+                    outside = new BinderItem { Kind = ItemKind.Folder, Title = BinderItem.OutOfBookTitle, IsOutOfBook = true, Icon = "svg:exclude" };
+                    _history.Run(new AddItemAction(book, outside, -1));
+                }
+                item = new BinderItem { Kind = ItemKind.Text, Title = title };
+                item.Document = TextDocument.FromPlainText("");
+                _history.Run(new AddItemAction(outside, item, -1));
+                MarkDirty();
+                _binder.Rebuild();
+                if (_current == book) _bookView.Load(book, _history, _project);
+                return;
+            }
             if (kind == null)
             {
                 var title = await InputDialog.Ask(this, "Nouveau document",
@@ -4658,10 +4684,21 @@ namespace Marabook.App
             _recentMenu.IsEnabled = _recentMenu.Items.Count > 0;
         }
 
+        /// <summary>Une tuile cliquée au tableau (29/09) : le Général du rail
+        /// passe à cet élément — état, couleur, synopsis, notes s'éditent
+        /// sans l'ouvrir. Null (Échap, clic dans le vide) : retour à
+        /// l'élément ouvert.</summary>
+        private void InspectCard(BinderItem item)
+        {
+            _inspected = item;
+            UpdateInspector();
+        }
+
         private void UpdateInspector()
         {
             _loadingInspector = true;
-            if (_current == null)
+            var item = InspectedItem; // la tuile cliquée au tableau, sinon l'élément ouvert (29/09)
+            if (item == null)
             {
                 _inspTitle.Text = _project.Name;
                 _inspKind.Text = "Projet";
@@ -4675,44 +4712,44 @@ namespace Marabook.App
             }
             else
             {
-                _inspTitle.Text = _current.Title;
-                var template = _current.Kind == ItemKind.Sheet
-                    ? _project.FindTemplate(_current.TemplateId) : null;
-                _inspKind.Text = _current.IsCategory ? "Catégorie"
-                               : _current.Kind == ItemKind.Folder ? "Dossier"
-                               : _current.Kind == ItemKind.Sheet
+                _inspTitle.Text = item.Title;
+                var template = item.Kind == ItemKind.Sheet
+                    ? _project.FindTemplate(item.TemplateId) : null;
+                _inspKind.Text = item.IsCategory ? "Catégorie"
+                               : item.Kind == ItemKind.Folder ? "Dossier"
+                               : item.Kind == ItemKind.Sheet
                                     ? "Fiche" + (template != null ? " — " + template.Name : "")
-                               : _current.Kind == ItemKind.Media
-                                    ? "Document" + (_current.MediaExtension ?? "")
-                               : _current.Kind == ItemKind.Book ? "Livre"
-                               : _current.Kind == ItemKind.PageTemplate ? "Gabarit de pages"
-                               : _current.Kind == ItemKind.Plan ? "Plan"
-                               : _current.Kind == ItemKind.MindMap ? "Carte mentale"
+                               : item.Kind == ItemKind.Media
+                                    ? "Document" + (item.MediaExtension ?? "")
+                               : item.Kind == ItemKind.Book ? "Livre"
+                               : item.Kind == ItemKind.PageTemplate ? "Gabarit de pages"
+                               : item.Kind == ItemKind.Plan ? "Plan"
+                               : item.Kind == ItemKind.MindMap ? "Carte mentale"
                                : "Écrit";
-                _synopsisBox.Text = _current.Synopsis ?? "";
-                _synopsisBox.IsEnabled = !_current.IsCategory;
-                _notesBox.Text = _current.Notes ?? "";
-                _notesBox.IsEnabled = !_current.IsCategory;
+                _synopsisBox.Text = item.Synopsis ?? "";
+                _synopsisBox.IsEnabled = !item.IsCategory;
+                _notesBox.Text = item.Notes ?? "";
+                _notesBox.IsEnabled = !item.IsCategory;
                 // Sheets have no synopsis (their cards show notes only); a page
                 // gabarit has neither; notes exist on texts and sheets. Les
                 // CATÉGORIES (Écrits…) non plus (batch 28) : l'encart vide ne
                 // servait à rien.
                 SetInspectorFieldVisibility(
-                    _current.Kind != ItemKind.Sheet
-                        && _current.Kind != ItemKind.PageTemplate
-                        && _current.Kind != ItemKind.Plan // un plan : la couleur, rien d'autre (b35)
-                        && _current.Kind != ItemKind.Book // le synopsis d'un livre vit dans Édition (b43)
-                        && !_current.IsCategory,
-                    _current.Kind == ItemKind.Text || _current.Kind == ItemKind.Sheet);
+                    item.Kind != ItemKind.Sheet
+                        && item.Kind != ItemKind.PageTemplate
+                        && item.Kind != ItemKind.Plan // un plan : la couleur, rien d'autre (b35)
+                        && item.Kind != ItemKind.Book // le synopsis d'un livre vit dans Édition (b43)
+                        && !item.IsCategory,
+                    item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet);
 
                 // État (textes seulement) + couleur de carte (documents,
                 // fiches, médias — et dossiers, dont les boîtes de livre).
-                var showStatus = _current.Kind == ItemKind.Text;
-                var showColor = _current.Kind == ItemKind.Text
-                    || _current.Kind == ItemKind.Sheet
-                    || _current.Kind == ItemKind.Media
-                    || _current.Kind == ItemKind.Folder
-                    || _current.Kind == ItemKind.Plan;
+                var showStatus = item.Kind == ItemKind.Text;
+                var showColor = item.Kind == ItemKind.Text
+                    || item.Kind == ItemKind.Sheet
+                    || item.Kind == ItemKind.Media
+                    || item.Kind == ItemKind.Folder
+                    || item.Kind == ItemKind.Plan;
                 _statusSection.IsVisible = showStatus || showColor
                     ? true : false;
                 _statusLabel.IsVisible = showStatus ? true : false;
@@ -4721,13 +4758,13 @@ namespace Marabook.App
                 _colorButton.IsVisible = _colorLabel.IsVisible;
                 if (showStatus)
                 {
-                    var index = Array.IndexOf(TextStatus.Keys, _current.Status);
+                    var index = Array.IndexOf(TextStatus.Keys, item.Status);
                     _statusCombo.SelectedIndex = index < 0 ? 0 : index + 1;
                 }
                 if (showColor) RebuildColorSwatches();
-                var isPlan = _current.Kind == ItemKind.Plan;
+                var isPlan = item.Kind == ItemKind.Plan;
                 _planSection.IsVisible = isPlan ? true : false;
-                if (isPlan && _current.Plan != null) _planColumnWord.Text = _current.Plan.ColumnWord;
+                if (isPlan && item.Plan != null) _planColumnWord.Text = item.Plan.ColumnWord;
             }
             _loadingInspector = false;
 
@@ -4745,8 +4782,8 @@ namespace Marabook.App
             }
 
             // Le plan d'un livre ou d'un dossier (batch 35).
-            var linkedPlan = _current != null && (_current.Kind == ItemKind.Book || _current.Kind == ItemKind.Folder)
-                ? _project.PlanForContainer(_current.Id) : null;
+            var linkedPlan = item != null && (item.Kind == ItemKind.Book || item.Kind == ItemKind.Folder)
+                ? _project.PlanForContainer(item.Id) : null;
             _inspPlanLink.Tag = linkedPlan;
             _inspPlanLink.Text = linkedPlan == null ? "" : "⇱ Plan : " + linkedPlan.Title;
             _inspPlanLink.IsVisible = linkedPlan != null ? true : false;
@@ -4820,7 +4857,7 @@ namespace Marabook.App
         /// l'élément courant (batch 43 — l'ancienne rangée de pastilles).</summary>
         private void RebuildColorSwatches()
         {
-            var value = _current == null ? null : _current.CardColor;
+            var value = InspectedItem == null ? null : InspectedItem.CardColor;
             _colorDot.Background = value == null
                 ? Brushes.Transparent
                 : new SolidColorBrush(Ink.Parse(value).ToColor());
@@ -4831,7 +4868,7 @@ namespace Marabook.App
         /// personnalisées du projet, « Nouvelle couleur… ».</summary>
         private void OpenColorMenu()
         {
-            if (_current == null) return;
+            if (InspectedItem == null) return;
             var menu = new ContextMenu();
             foreach (var swatch in ItemIcons.TintSwatches)
                 menu.Items.Add(ColorMenuItem(swatch));
@@ -4858,7 +4895,7 @@ namespace Marabook.App
 
         private MenuItem ColorMenuItem(string value)
         {
-            var active = _current != null && _current.CardColor == value;
+            var active = InspectedItem != null && InspectedItem.CardColor == value;
             var item = new MenuItem
             {
                 Header = value == null ? "Aucune couleur" : value,
@@ -4881,8 +4918,8 @@ namespace Marabook.App
 
         private void SetCardColor(string value)
         {
-            if (_current == null) return;
-            _current.CardColor = value;
+            if (InspectedItem == null) return;
+            InspectedItem.CardColor = value;
             MarkDirty();
             RebuildColorSwatches();
             RefreshOpenCorkboards();

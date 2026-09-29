@@ -130,6 +130,30 @@ namespace Marabook.Model
         public string ExtraSection;
         public string ExtraKind;
 
+        // Le dossier HORS-LIVRE d'un livre (29/09, .plot v34) : ses documents
+        // (notes, lettres d'accompagnement) ne comptent ni dans le livre, ni
+        // dans ses statistiques, ni dans l'export ou la publication. Un seul
+        // par livre, titré « Hors-livre », ni renommable ni déplaçable.
+        public bool IsOutOfBook;
+        public const string OutOfBookTitle = "Hors-livre";
+
+        /// <summary>Le dossier Hors-livre d'un livre, s'il existe.</summary>
+        public BinderItem OutOfBookFolder()
+        {
+            foreach (var child in Children)
+                if (child.IsOutOfBook) return child;
+            return null;
+        }
+
+        /// <summary>Cet item vit-il dans le dossier Hors-livre d'un livre
+        /// (lui-même compris) ?</summary>
+        public bool IsInsideOutOfBook()
+        {
+            for (var item = this; item != null; item = item.Parent)
+                if (item.IsOutOfBook) return true;
+            return false;
+        }
+
         // PageTemplate items only: color chip + the four recto/verso slots.
         public string TemplateColor; // "#RRGGBB", null = pas de pastille
         public HeaderFooter HeaderRecto, FooterRecto, HeaderVerso, FooterVerso;

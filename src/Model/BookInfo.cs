@@ -159,6 +159,7 @@ namespace Marabook.Model
         {
             foreach (var child in item.Children)
             {
+                if (child.IsOutOfBook) continue; // Hors-livre (29/09) : hors du récit
                 if (child.Kind == ItemKind.Text && !child.IsExtraPage && !child.IsToc) texts.Add(child);
                 StoryTexts(child, texts);
             }
@@ -168,6 +169,7 @@ namespace Marabook.Model
         {
             foreach (var child in item.Children)
             {
+                if (child.IsOutOfBook) continue; // Hors-livre (29/09) : hors objectif
                 if (child.Kind == ItemKind.Text && !child.IsExtraPage && !child.IsToc)
                 {
                     progress.Present++;

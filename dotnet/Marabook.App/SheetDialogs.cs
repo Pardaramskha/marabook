@@ -824,6 +824,8 @@ namespace Marabook.App
             });
             _combo = new ComboBox { IsEditable = true };
             foreach (var title in titles) _combo.Items.Add(title);
+            // L'autocomplétion (29/09) : les titres qui contiennent la frappe.
+            Suggestions.Attach(_combo, delegate { return titles; }, delegate(string chosen) { _combo.Text = chosen; });
             panel.Children.Add(_combo);
 
             var buttons = new StackPanel

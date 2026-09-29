@@ -207,7 +207,10 @@ namespace Marabook.Exchange
         {
             if (root.Kind == ItemKind.Text) texts.Add(root);
             foreach (var child in root.Children)
+            {
+                if (child.IsOutOfBook) continue; // Hors-livre (29/09) : jamais compilé
                 CollectTexts(child, texts);
+            }
         }
     }
 }

@@ -69,6 +69,7 @@ namespace Marabook.Exchange
         {
             foreach (var child in item.Children)
             {
+                if (child.IsOutOfBook) continue; // Hors-livre (29/09) : jamais publié
                 if (child.Kind == ItemKind.Text)
                 {
                     if (ExtraPages.IsDynamic(child)) plan.Skipped.Add(child);
