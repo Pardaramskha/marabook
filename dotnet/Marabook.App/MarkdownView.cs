@@ -72,7 +72,7 @@ namespace Marabook.App
                     paragraph.FontSize = sizes[block.HeadingLevel - 1];
                     paragraph.FontWeight = FontWeight.Bold;
                     paragraph.Margin = new Thickness(0, block.HeadingLevel == 1 ? 6 : 10, 0, 4);
-                    FillInlines(paragraph.Inlines, block.Inlines, wikiClicked);
+                    FillInlines(paragraph, block.Inlines, wikiClicked);
                     if (block.HeadingLevel == 1)
                         return new Border
                         {
@@ -98,7 +98,7 @@ namespace Marabook.App
                         var paragraph = Paragraph();
                         paragraph.Foreground = Chrome.PaperSoftInk;
                         paragraph.Margin = new Thickness(0, 2, 0, 2);
-                        FillInlines(paragraph.Inlines, line, wikiClicked);
+                        FillInlines(paragraph, line, wikiClicked);
                         lines.Children.Add(paragraph);
                     }
                     return new Border
@@ -149,7 +149,7 @@ namespace Marabook.App
                         paragraph.Inlines.Add(new Run(block.Ordered
                             ? block.Number + ". " : "•  ")
                         { FontWeight = FontWeight.SemiBold });
-                    FillInlines(paragraph.Inlines, block.Inlines, wikiClicked);
+                    FillInlines(paragraph, block.Inlines, wikiClicked);
                     return paragraph;
                 }
                 case MdBlockKind.Table:
@@ -181,7 +181,7 @@ namespace Marabook.App
                 {
                     var paragraph = Paragraph();
                     paragraph.Margin = new Thickness(0, 4, 0, 8);
-                    FillInlines(paragraph.Inlines, block.Inlines, wikiClicked);
+                    FillInlines(paragraph, block.Inlines, wikiClicked);
                     return paragraph;
                 }
             }
@@ -194,7 +194,7 @@ namespace Marabook.App
             paragraph.TextAlignment = align == 1 ? TextAlignment.Center
                 : align == 2 ? TextAlignment.Right : TextAlignment.Left;
             if (header) paragraph.FontWeight = FontWeight.SemiBold;
-            FillInlines(paragraph.Inlines, inlines, wikiClicked);
+            FillInlines(paragraph, inlines, wikiClicked);
             var cell = new Border
             {
                 Background = header ? Chrome.BarBgLight : null,
@@ -210,41 +210,71 @@ namespace Marabook.App
 
         /// <summary>Un lien cliquable : Avalonia n'a pas d'Hyperlink — un
         /// TextBlock accent dans un conteneur en ligne.</summary>
-        private static InlineUIContainer Link(Run run, string tooltip, Action click)
+        /// <summary>Un lien EN LIGNE (29/09, comme SheetWiki.Anchor) : le Run
+        /// lui-même, accent et souligné — même police, même ligne de base que
+        /// le texte, plus aucun décalage — et le paragraphe retrouve le lien
+        /// sous la souris par son TextLayout (HitTestPoint) : clic = action,
+        /// main au survol, infobulle du lien. (Un InlineUIContainer, même
+        /// centré, flottait d'un ou deux pixels dans le Texte libre.)</summary>
+        private sealed class LinkSpan { public int Start, Length; public string Tooltip; public Action Click; }
+
+        private static Run Link(TextBlock owner, Run run, string tooltip, Action click)
         {
-            // Le lien prend la police et le corps DU PARAGRAPHE (29/09) : un
-            // Run détaché rend les valeurs par défaut d'Avalonia (Inter 12),
-            // et le lien flottait au-dessus de la ligne en cassant
-            // l'interligne. Même métrique, centré sur la ligne : il s'aligne.
-            var code = ReferenceEquals(run.FontFamily, Mono);
-            var text = new TextBlock
+            var spans = owner.Tag as List<LinkSpan>;
+            if (spans == null)
             {
-                Text = run.Text,
-                FontWeight = run.FontWeight,
-                FontStyle = run.FontStyle,
-                FontFamily = code ? Mono : Body,
-                FontSize = code ? 12.5 : 14.5,
-                Foreground = Chrome.Accent,
-                TextDecorations = TextDecorations.Underline,
-                Cursor = new Cursor(StandardCursorType.Hand),
-                Background = Brushes.Transparent,
-                Padding = new Thickness(0),
-                Margin = new Thickness(0),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            ToolTip.SetTip(text, tooltip);
-            text.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
-            {
-                if (!e.GetCurrentPoint(text).Properties.IsLeftButtonPressed) return;
-                e.Handled = true;
-                click();
-            };
-            return new InlineUIContainer(text) { BaselineAlignment = BaselineAlignment.Center };
+                spans = new List<LinkSpan>();
+                owner.Tag = spans;
+                owner.Background = Brushes.Transparent;
+                owner.PointerMoved += delegate(object sender, PointerEventArgs e)
+                {
+                    var over = SpanAt(owner, e.GetPosition(owner));
+                    owner.Cursor = over != null ? new Cursor(StandardCursorType.Hand) : new Cursor(StandardCursorType.Arrow);
+                    ToolTip.SetTip(owner, over != null ? over.Tooltip : null);
+                };
+                owner.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+                {
+                    if (!e.GetCurrentPoint(owner).Properties.IsLeftButtonPressed) return;
+                    var span = SpanAt(owner, e.GetPosition(owner));
+                    if (span == null) return;
+                    e.Handled = true;
+                    span.Click();
+                };
+            }
+            spans.Add(new LinkSpan { Start = TextLengthOf(owner), Length = (run.Text ?? "").Length, Tooltip = tooltip, Click = click });
+            run.Foreground = Chrome.Accent;
+            run.TextDecorations = TextDecorations.Underline;
+            return run;
         }
 
-        private static void FillInlines(InlineCollection into,
+        private static int TextLengthOf(TextBlock owner)
+        {
+            var length = 0;
+            foreach (var inline in owner.Inlines)
+            {
+                var run = inline as Run;
+                if (run != null) length += (run.Text ?? "").Length;
+                else if (inline is LineBreak) length += 1;
+            }
+            return length;
+        }
+
+        private static LinkSpan SpanAt(TextBlock owner, Point point)
+        {
+            var spans = owner.Tag as List<LinkSpan>;
+            var layout = owner.TextLayout;
+            if (spans == null || layout == null) return null;
+            var hit = layout.HitTestPoint(point);
+            if (!hit.IsInside) return null;
+            foreach (var span in spans)
+                if (hit.TextPosition >= span.Start && hit.TextPosition < span.Start + span.Length) return span;
+            return null;
+        }
+
+        private static void FillInlines(TextBlock owner,
             List<MdInline> inlines, Action<string> wikiClicked)
         {
+            var into = owner.Inlines;
             foreach (var inline in inlines)
             {
                 if (inline.Text == "\n") { into.Add(new LineBreak()); continue; }
@@ -269,7 +299,7 @@ namespace Marabook.App
                 if (inline.WikiTarget != null)
                 {
                     var target = inline.WikiTarget;
-                    into.Add(Link(run, "Ouvrir « " + target + " »", delegate
+                    into.Add(Link(owner, run, "Ouvrir « " + target + " »", delegate
                     {
                         if (wikiClicked != null) wikiClicked(target);
                     }));
@@ -277,7 +307,7 @@ namespace Marabook.App
                 else if (inline.LinkUrl != null)
                 {
                     var url = inline.LinkUrl;
-                    into.Add(Link(run, url, delegate
+                    into.Add(Link(owner, run, url, delegate
                     {
                         // Seuls les liens web s'ouvrent (jamais d'exécution
                         // de fichier local depuis un clic de fiche).

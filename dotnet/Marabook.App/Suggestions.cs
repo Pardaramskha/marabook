@@ -85,6 +85,10 @@ namespace Marabook.App
             box.PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs args)
             {
                 if (args.Property != ComboBox.TextProperty) return;
+                // La liste déroulante du ComboBox ouverte : c'est elle qui
+                // répond — le menu de suggestions couvrait ses premières
+                // lignes (les polices favorites, injoignables — 29/09).
+                if (box.IsDropDownOpen) { close(); return; }
                 if (syncing || !box.IsKeyboardFocusWithin) { return; }
                 var typed = (box.Text ?? "").Trim();
                 if (typed.Length == 0) { close(); return; }
@@ -130,6 +134,7 @@ namespace Marabook.App
                     else close();
                 }
             }, RoutingStrategies.Tunnel);
+            box.DropDownOpened += delegate { close(); }; // la liste du ComboBox prend la place
             box.LostFocus += delegate
             {
                 // Le focus part vers la liste (clic) : on la laisse répondre.
