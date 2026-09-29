@@ -63,6 +63,7 @@ namespace Marabook.App
             _collection = LineField(right, "Collection");
             _isbn = LineField(right, "ISBN");
             _year = LineField(right, "Année");
+            BuildColorField(right); // la couleur de la tuile du livre (29/09)
             Children.Add(identity);
 
             // — Couverture.
@@ -128,6 +129,51 @@ namespace Marabook.App
         }
 
         // --------------------------------------------------------- champs
+
+        private Button _colorButton;
+        private Border _colorDot;
+        private TextBlock _colorText;
+
+        /// <summary>« Couleur de la tuile » (29/09) : la pastille et le nom de la
+        /// couleur du livre, le nuancier partagé au clic — la même couleur
+        /// que le bouton du Général et le menu des tuiles.</summary>
+        private void BuildColorField(Panel host)
+        {
+            host.Children.Add(BookPanelParts.Label("Couleur de la tuile"));
+            _colorDot = ColorMenus.Dot(null, 1, Chrome.Border);
+            _colorText = new TextBlock { Text = "Aucune couleur", Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            var content = new StackPanel { Orientation = Orientation.Horizontal };
+            content.Children.Add(_colorDot);
+            content.Children.Add(_colorText);
+            _colorButton = new Button
+            {
+                Content = content,
+                Margin = new Thickness(0, 2, 0, 2),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                [ToolTip.TipProperty] = "La couleur de la carte du livre dans Écrits et sur l'Accueil"
+            };
+            _colorButton.Click += delegate
+            {
+                if (_item == null) return;
+                var menu = new ContextMenu { Placement = PlacementMode.Bottom, PlacementTarget = _colorButton };
+                ColorMenus.Fill(menu, Ui.OwnerOf(this), _project, _item.CardColor, delegate(string value)
+                {
+                    _item.CardColor = value;
+                    RefreshColorField();
+                    RaiseChanged();
+                });
+                Ui.ShowMenu(menu, _colorButton);
+            };
+            host.Children.Add(_colorButton);
+        }
+
+        private void RefreshColorField()
+        {
+            if (_colorDot == null || _item == null) return;
+            var value = _item.CardColor;
+            _colorDot.Background = value == null ? Brushes.Transparent : new SolidColorBrush(Ink.Parse(value).ToColor());
+            _colorText.Text = value ?? "Aucune couleur";
+        }
 
         private TextBox LineField(Panel host, string label)
         {
@@ -294,6 +340,7 @@ namespace Marabook.App
                 _collection.Text = book.Collection;
                 _isbn.Text = book.Isbn;
                 _year.Text = book.Year;
+                RefreshColorField();
                 _genre.Text = book.Genre;
                 _audience.Text = book.Audience;
                 _synopsis.Text = _item.Synopsis;

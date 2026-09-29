@@ -107,6 +107,19 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<MenuItem>(),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(4))));
+            // Les menus contextuels aux coins ronds (29/09) : le cadre du
+            // gabarit Simple a des angles droits — coins 8, un peu d'air, un
+            // filet. Les sous-menus (Popup d'un MenuItem) prennent les mêmes.
+            styles.Add(Style(x => x.OfType<ContextMenu>(),
+                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(8)),
+                new Setter(TemplatedControl.PaddingProperty, new Thickness(4)),
+                new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
+                new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1))));
+            styles.Add(Style(x => x.OfType<ContextMenu>().Template().OfType<Border>(),
+                new Setter(Border.CornerRadiusProperty, new CornerRadius(8))));
+            styles.Add(Style(x => x.OfType<MenuItem>().Template().OfType<Popup>().Child().OfType<Border>(),
+                new Setter(Border.CornerRadiusProperty, new CornerRadius(8)),
+                new Setter(Border.PaddingProperty, new Thickness(4))));
 
             // Les séparateurs : la couleur du fond de fenêtre (invisibles au
             // repos), l'accent doux sous le pointeur.

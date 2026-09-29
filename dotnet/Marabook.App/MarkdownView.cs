@@ -212,16 +212,25 @@ namespace Marabook.App
         /// TextBlock accent dans un conteneur en ligne.</summary>
         private static InlineUIContainer Link(Run run, string tooltip, Action click)
         {
+            // Le lien prend la police et le corps DU PARAGRAPHE (29/09) : un
+            // Run détaché rend les valeurs par défaut d'Avalonia (Inter 12),
+            // et le lien flottait au-dessus de la ligne en cassant
+            // l'interligne. Même métrique, centré sur la ligne : il s'aligne.
+            var code = ReferenceEquals(run.FontFamily, Mono);
             var text = new TextBlock
             {
                 Text = run.Text,
                 FontWeight = run.FontWeight,
                 FontStyle = run.FontStyle,
-                FontFamily = run.FontFamily,
-                FontSize = run.FontSize,
+                FontFamily = code ? Mono : Body,
+                FontSize = code ? 12.5 : 14.5,
                 Foreground = Chrome.Accent,
+                TextDecorations = TextDecorations.Underline,
                 Cursor = new Cursor(StandardCursorType.Hand),
-                Background = Brushes.Transparent
+                Background = Brushes.Transparent,
+                Padding = new Thickness(0),
+                Margin = new Thickness(0),
+                VerticalAlignment = VerticalAlignment.Center
             };
             ToolTip.SetTip(text, tooltip);
             text.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
@@ -230,7 +239,7 @@ namespace Marabook.App
                 e.Handled = true;
                 click();
             };
-            return new InlineUIContainer(text) { BaselineAlignment = BaselineAlignment.Baseline };
+            return new InlineUIContainer(text) { BaselineAlignment = BaselineAlignment.Center };
         }
 
         private static void FillInlines(InlineCollection into,

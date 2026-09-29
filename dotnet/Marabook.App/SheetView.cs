@@ -1165,12 +1165,42 @@ namespace Marabook.App
             _dictAdd.IsVisible = present ? false : true;
         }
 
+        /// <summary>Les chips du dialogue d'ajout (29/09) : chaque mot du titre
+        /// de la fiche, puis — champs « Nom », « Prénom », « Alias » du modèle
+        /// (personnages) — leurs valeurs, mot par mot ; sans doublon, dans
+        /// l'ordre, jamais un mot d'une lettre.</summary>
+        private List<string> DictionarySuggestions()
+        {
+            var words = new List<string>();
+            var seen = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
+            Action<string> add = delegate(string text)
+            {
+                if (string.IsNullOrEmpty(text)) return;
+                foreach (var raw in text.Split(new[] { ' ', ' ', ',', ';', '/', '(', ')', '«', '»', '"', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var word = raw.Trim('.', '…', '!', '?', ':', '\'', '’');
+                    if (word.Length < 2 || !seen.Add(word)) continue;
+                    words.Add(word);
+                }
+            };
+            add(_item.Title);
+            if (_template != null)
+                foreach (var field in _template.Fields)
+                {
+                    var name = (field.Name ?? "").Trim();
+                    if (name != "Nom" && name != "Prénom" && name != "Alias") continue;
+                    string value;
+                    if (_item.FieldValues.TryGetValue(field.Id, out value)) add(value);
+                }
+            return words;
+        }
+
         /// <summary>Nouvelle entrée du dictionnaire DU PROJET, le nom de la
         /// fiche prérempli et modifiable ; une entrée du même mot est remplacée.</summary>
         private async void AddNameToDictionary()
         {
             if (_item == null || _project == null) return;
-            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), _item.Title, true);
+            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), _item.Title, true, DictionarySuggestions());
             if (entry == null) return;
             var existing = LexiconEntry.Find(_project.Lexicon, entry.Word);
             if (existing != null) _project.Lexicon.Remove(existing);

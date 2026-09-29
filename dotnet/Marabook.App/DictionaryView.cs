@@ -28,6 +28,11 @@ namespace Marabook.App
         private Project _project;
         private readonly StackPanel _sections;
         private readonly TextBox _searchBox;
+        private readonly ComboBox _classFilter, _pageSize; // nature affichée, entrées par page (29/09)
+        private static readonly int[] PageSizes = { 25, 50, 100, 250 };
+        private readonly int[] _pages = { 0, 0 }; // page courante : [0] ce projet, [1] tous les projets
+
+        private void ResetPages() { _pages[0] = 0; _pages[1] = 0; }
 
         public event Action<bool> Changed; // projectScope
 
@@ -42,7 +47,7 @@ namespace Marabook.App
             var toolbar = new DockPanel { Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0) };
             SetDock(toolbar, Dock.Top);
             _searchBox = new TextBox { [ToolTip.TipProperty] = "Filtrer les entrées (mot ou forme acceptée)" };
-            _searchBox.TextChanged += delegate { Rebuild(); };
+            _searchBox.TextChanged += delegate { ResetPages(); Rebuild(); };
             var search = SheetLibraryView.SearchField(_searchBox);
             DockPanel.SetDock(search, Dock.Right);
             toolbar.Children.Add(search);
@@ -60,6 +65,19 @@ namespace Marabook.App
             options.Margin = new Thickness(6, 0, 0, 0);
             options.Click += delegate { OpenOptionsMenu(options); };
             left.Children.Add(options);
+            // Le filtre par nature (29/09) : toutes, ou une seule (nom propre,
+            // nom commun, adjectif…) ; et la taille de page — 25 par défaut.
+            _classFilter = new ComboBox { Margin = new Thickness(14, 0, 0, 0), MinWidth = 150, VerticalAlignment = VerticalAlignment.Center, [ToolTip.TipProperty] = "N'afficher qu'une nature grammaticale" };
+            _classFilter.Items.Add("Toutes natures");
+            foreach (var key in LexiconEntry.Classes) _classFilter.Items.Add(LexiconEntry.ClassLabel(key));
+            _classFilter.SelectedIndex = 0;
+            _classFilter.SelectionChanged += delegate { ResetPages(); Rebuild(); };
+            left.Children.Add(_classFilter);
+            _pageSize = new ComboBox { Margin = new Thickness(8, 0, 0, 0), MinWidth = 110, VerticalAlignment = VerticalAlignment.Center, [ToolTip.TipProperty] = "Entrées par page" };
+            foreach (var size in PageSizes) _pageSize.Items.Add(size + " par page");
+            _pageSize.SelectedIndex = 0;
+            _pageSize.SelectionChanged += delegate { ResetPages(); Rebuild(); };
+            left.Children.Add(_pageSize);
             toolbar.Children.Add(left);
             Children.Add(toolbar);
 
@@ -178,24 +196,64 @@ namespace Marabook.App
             if (entries == null) return;
 
             var filter = (_searchBox.Text ?? "").Trim();
+            var classIndex = _classFilter == null ? 0 : _classFilter.SelectedIndex;
+            var wantedClass = classIndex <= 0 ? null : LexiconEntry.Classes[classIndex - 1];
             var sorted = new List<LexiconEntry>(entries);
             sorted.Sort(delegate(LexiconEntry a, LexiconEntry b)
             { return string.Compare(a.Word, b.Word, StringComparison.CurrentCultureIgnoreCase); });
-            var shown = 0;
+            var matching = new List<LexiconEntry>();
             foreach (var entry in sorted)
             {
+                if (wantedClass != null && entry.Class != wantedClass) continue;
                 if (filter.Length > 0 && !Matches(entry, filter)) continue;
-                shown++;
-                _sections.Children.Add(BuildRow(entry, entries, projectScope));
+                matching.Add(entry);
             }
-            if (shown == 0)
+            if (matching.Count == 0)
+            {
                 _sections.Children.Add(new TextBlock
                 {
-                    Text = filter.Length > 0 ? "Aucune entrée ne correspond." : "Aucune entrée.",
+                    Text = filter.Length > 0 || wantedClass != null ? "Aucune entrée ne correspond." : "Aucune entrée.",
                     Foreground = Chrome.SoftText,
                     FontSize = 12,
                     Margin = new Thickness(4, 2, 0, 6)
                 });
+                return;
+            }
+            // La pagination (29/09) : « n par page », un sélecteur ‹ 1 / N ›
+            // par section — chaque section garde sa page.
+            var slot = projectScope ? 0 : 1;
+            var pageSize = PageSizes[Math.Max(0, _pageSize == null ? 0 : _pageSize.SelectedIndex)];
+            var pageCount = (matching.Count + pageSize - 1) / pageSize;
+            if (_pages[slot] >= pageCount) _pages[slot] = pageCount - 1;
+            if (_pages[slot] < 0) _pages[slot] = 0;
+            var page = _pages[slot];
+            for (var i = page * pageSize; i < Math.Min(matching.Count, (page + 1) * pageSize); i++)
+                _sections.Children.Add(BuildRow(matching[i], entries, projectScope));
+            if (pageCount > 1) _sections.Children.Add(BuildPager(slot, page, pageCount, matching.Count));
+        }
+
+        /// <summary>Le sélecteur de page d'une section : ‹, « page x sur N »
+        /// (le compte des entrées filtrées), ›.</summary>
+        private Control BuildPager(int slot, int page, int pageCount, int total)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 2, 0, 8) };
+            var previous = Buttons.Text("‹ Précédente", "Page précédente", Buttons.Compact, Buttons.Look.Calm);
+            previous.IsEnabled = page > 0;
+            previous.Click += delegate { _pages[slot] = Math.Max(0, _pages[slot] - 1); Rebuild(); };
+            row.Children.Add(previous);
+            row.Children.Add(new TextBlock
+            {
+                Text = "page " + (page + 1) + " sur " + pageCount + " — " + total + (total > 1 ? " entrées" : " entrée"),
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 8, 0)
+            });
+            var next = Buttons.Text("Suivante ›", "Page suivante", Buttons.Compact, Buttons.Look.Calm);
+            next.IsEnabled = page < pageCount - 1;
+            next.Click += delegate { _pages[slot] = Math.Min(pageCount - 1, _pages[slot] + 1); Rebuild(); };
+            row.Children.Add(next);
+            return row;
         }
 
         private static bool Matches(LexiconEntry entry, string filter)
@@ -273,21 +331,14 @@ namespace Marabook.App
             grid.Children.Add(forms);
 
             var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            var edit = new Button { Content = "Modifier…", Padding = new Thickness(8, 2, 8, 2), FontSize = 11, Margin = new Thickness(0, 0, 4, 0) };
-            edit.Click += async delegate
-            {
-                var choice = await LexiconEntryDialog.Ask(Ui.OwnerOf(this), entry, projectScope);
-                if (choice == null) return;
-                var edited = choice.Entry;
-                var scope = choice.ProjectScope;
-                list.Remove(entry);
-                AddEntry(edited, scope);
-                if (scope != projectScope) RaiseChanged(projectScope); // l'ancienne portée a changé aussi
-            };
-            actions.Children.Add(edit);
             var remove = new Button { Content = "Retirer", Padding = new Thickness(8, 2, 8, 2), FontSize = 11 };
-            remove.Click += delegate
+            remove.Click += async delegate
             {
+                // Retirer une entrée ne se rattrape pas (29/09) : on demande.
+                var answer = await MessageDialog.Show(Ui.OwnerOf(this),
+                    "Retirer « " + entry.Word + " » du dictionnaire ?\n\nLe correcteur soulignera de nouveau ce mot et ses formes.",
+                    "Dictionnaire", MessageButtons.YesNo, MessageIcon.Question);
+                if (answer != MessageResult.Yes) return;
                 list.Remove(entry);
                 Rebuild();
                 RaiseChanged(projectScope);
@@ -296,8 +347,38 @@ namespace Marabook.App
             Grid.SetColumn(actions, 2);
             grid.Children.Add(actions);
 
+            // Un clic sur la rangée ouvre l'entrée (29/09) — plus de bouton
+            // « Modifier… » ; « Retirer » garde son bouton.
+            row.Cursor = new Cursor(StandardCursorType.Hand);
+            ToolTip.SetTip(row, "Modifier cette entrée");
+            row.PointerEntered += delegate { row.BorderBrush = Chrome.Accent; };
+            row.PointerExited += delegate { row.BorderBrush = Chrome.Border; };
+            row.PointerReleased += async delegate(object sender, PointerReleasedEventArgs e)
+            {
+                if (e.InitialPressMouseButton != MouseButton.Left) return;
+                if (e.Source is Visual && IsInside((Visual)e.Source, actions)) return; // le bouton Retirer
+                var choice = await LexiconEntryDialog.Ask(Ui.OwnerOf(this), entry, projectScope);
+                if (choice == null) return;
+                var edited = choice.Entry;
+                var scope = choice.ProjectScope;
+                list.Remove(entry);
+                AddEntry(edited, scope);
+                if (scope != projectScope) RaiseChanged(projectScope); // l'ancienne portée a changé aussi
+            };
+
             row.Child = grid;
             return row;
+        }
+
+        private static bool IsInside(Visual source, Visual ancestor)
+        {
+            var current = source;
+            while (current != null)
+            {
+                if (current == ancestor) return true;
+                current = current.GetVisualParent();
+            }
+            return false;
         }
 
         private void RaiseChanged(bool projectScope)

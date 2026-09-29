@@ -775,6 +775,11 @@ namespace Marabook.App
                     AddMenu(menu, "Options du livre…", delegate { BookOptions(item); });
                 AddMenu(menu, "Renommer…", delegate { Rename(item); });
                 AddMenu(menu, "Changer l'icône…", delegate { ChangeIcon(item); });
+                // La couleur (29/09) : toute tuile colorable (écrit, fiche,
+                // livre, dossier) l'a dans son menu — le nuancier du Général.
+                if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet
+                    || item.Kind == ItemKind.Book || item.Kind == ItemKind.Folder)
+                    menu.Items.Add(BuildColorMenu(item));
                 if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Book)
                 {
                     AddMenu(menu, item.ImageId == null ? "Image de la carte…" : "Changer l'image de la carte…",
@@ -789,6 +794,23 @@ namespace Marabook.App
                 });
             }
             return menu;
+        }
+
+        /// <summary>Le sous-menu « Couleur » d'un item (29/09) : le nuancier,
+        /// les couleurs personnalisées du projet, « Nouvelle couleur… »,
+        /// « Aucune couleur » — la même palette que le bouton du Général.
+        /// Annulable (ChangeColorAction).</summary>
+        private MenuItem BuildColorMenu(BinderItem item)
+        {
+            var root = new MenuItem { Header = "Couleur", Icon = ColorMenus.Dot(item.CardColor, 1, Chrome.Border) };
+            ColorMenus.Fill(root, Ui.OwnerOf(this), _project, item.CardColor, delegate(string value) { ApplyColor(item, value); });
+            return root;
+        }
+
+        private void ApplyColor(BinderItem item, string value)
+        {
+            if (item == null || item.CardColor == value) return;
+            RunAndSelect(new ChangeColorAction(item, value), null, null);
         }
 
         /// <summary>« Supprimer » depuis une tuile (14/09) : on demande —

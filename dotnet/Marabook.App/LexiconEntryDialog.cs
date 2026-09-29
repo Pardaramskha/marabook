@@ -29,7 +29,8 @@ namespace Marabook.App
         private readonly StackPanel _nominal, _feminineRow;
         private bool _accepted;
 
-        private LexiconEntryDialog(Window owner, LexiconEntry initial, bool projectScope, bool allowScope)
+        private LexiconEntryDialog(Window owner, LexiconEntry initial, bool projectScope, bool allowScope,
+            IList<string> suggestions = null)
         {
             Title = initial == null ? "Nouvelle entrée du dictionnaire" : "Entrée du dictionnaire";
             Owner = owner;
@@ -40,6 +41,37 @@ namespace Marabook.App
             Background = Chrome.WindowBg;
 
             var panel = new StackPanel { Margin = new Thickness(16), Width = 520 };
+
+            // Les suggestions (29/09) : depuis une fiche, chaque mot du titre
+            // et — pour un personnage — le nom, le prénom et l'alias, en chips
+            // tout en haut ; un clic préremplit le mot (et devine sa nature).
+            if (suggestions != null && suggestions.Count > 0)
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "Suggestions de la fiche :",
+                    Foreground = Chrome.SoftText,
+                    FontSize = 12,
+                    Margin = new Thickness(0, 0, 0, 3)
+                });
+                var chips = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
+                foreach (var suggestion in suggestions)
+                {
+                    var wordRef = suggestion;
+                    var chip = Buttons.Text(suggestion, "Préremplir « " + suggestion + " »", Buttons.Compact, Buttons.Look.Outline);
+                    chip.Margin = new Thickness(0, 0, 6, 6);
+                    chip.Click += delegate
+                    {
+                        _word.Text = wordRef;
+                        var guessed = Array.IndexOf(LexiconEntry.Classes, LexiconInflector.GuessClass(wordRef));
+                        if (guessed >= 0) _class.SelectedIndex = guessed;
+                        _word.Focus();
+                        _word.SelectAll();
+                    };
+                    chips.Children.Add(chip);
+                }
+                panel.Children.Add(chips);
+            }
 
             panel.Children.Add(Label("Mot :"));
             _word = new TextBox { Text = initial == null ? "" : initial.Word };
@@ -220,10 +252,17 @@ namespace Marabook.App
 
         /// <summary>Variante « Ajouter au dictionnaire » : mot signalé
         /// pré-rempli, nature devinée, portée fixée par le sous-menu.</summary>
-        public static async Task<LexiconEntry> AskForWord(Window owner, string word, bool projectScope)
+        public static Task<LexiconEntry> AskForWord(Window owner, string word, bool projectScope)
+        {
+            return AskForWord(owner, word, projectScope, null);
+        }
+
+        /// <summary>Même dialogue, avec des chips de suggestions en tête
+        /// (les mots d'une fiche, 29/09) — un clic préremplit le mot.</summary>
+        public static async Task<LexiconEntry> AskForWord(Window owner, string word, bool projectScope, IList<string> suggestions)
         {
             var initial = new LexiconEntry { Word = word ?? "", Class = LexiconInflector.GuessClass(word) };
-            var dialog = new LexiconEntryDialog(owner, initial, projectScope, false);
+            var dialog = new LexiconEntryDialog(owner, initial, projectScope, false, suggestions);
             dialog.Title = "Ajouter au dictionnaire";
             await Dialogs.ShowModal(dialog, owner);
             return dialog._accepted ? dialog.Build() : null;

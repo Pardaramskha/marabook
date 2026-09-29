@@ -614,6 +614,12 @@ namespace Marabook.App
                 // renommé depuis le menu d'une tuile passe par la Pile.
                 RefreshOpenCorkboards();
                 if (_sheetLibrary.IsVisible) _sheetLibrary.Refresh();
+                // Le bandeau de la fiche, le plan et le Général suivent aussi
+                // (29/09) : le renommage est asynchrone (dialogue), les
+                // rafraîchissements posés juste après l'appel partaient trop tôt.
+                if (_sheetView.IsVisible) _sheetView.RefreshTitle();
+                if (_planView.IsVisible) _planView.Refresh();
+                UpdateInspector();
                 // Chauffe le cache de mots : un document importé entre au cache
                 // à sa taille réelle, sans jamais créditer le journal.
                 ProjectWords();
@@ -2789,11 +2795,22 @@ namespace Marabook.App
         /// while the writer types in it (its own native stack), the Binder
         /// history takes over otherwise. Prevents the window-level gesture from
         /// ever swallowing a text undo/redo into the (often empty) Pile stack.</summary>
-        private void DoUndo()
+        private async void DoUndo()
         {
             if (_editor.IsVisible && _editor.TryUndo()) return;
             if (_sheetView.IsVisible && _sheetView.TryUndo()) return;
             if (!_history.CanUndo) return;
+            // Une annulation qui détruit du contenu (29/09 : Rémi a perdu des
+            // fiches en défaisant leur création) demande d'abord.
+            var destructive = _history.PeekUndo as History.IDestructiveUndo;
+            var warning = destructive == null ? null : destructive.UndoWarning;
+            if (warning != null)
+            {
+                var answer = await MessageDialog.Show(this, warning + "\n\nAnnuler quand même ?",
+                    "Annuler", MessageButtons.YesNo, MessageIcon.Warning);
+                if (answer != MessageResult.Yes) return;
+                if (!_history.CanUndo) return;
+            }
             _history.Undo();
             AfterHistoryJump();
         }
