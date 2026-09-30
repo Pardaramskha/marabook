@@ -53,6 +53,7 @@ namespace Marabook.App
         public event Action<BinderItem> ExportTemplateRequested; // gabarit
         public event Action<BinderItem> ImportTemplateRequested; // book
         public event Action<BinderItem> CopyTemplateRequested;   // gabarit
+        public event Action<BinderItem> DuplicateTemplateRequested; // gabarit (30/09)
         public event Action<BinderItem, string> NewDocumentRequested; // livre, sorte extra
         public event Action<BinderItem> PublishRequested;        // « Publier… »
         public event Action<BinderItem> EpubRequested;           // « Créer un EPUB… » (22/09)
@@ -153,7 +154,14 @@ namespace Marabook.App
                 var handler = Navigate;
                 if (handler != null) handler(item);
             };
-            corkboard.Changed += delegate { RaiseChanged(); };
+            corkboard.Changed += delegate
+            {
+                // Le gabarit appliqué depuis une carte : l'alerte de Gabarit &
+                // Format et la check-list de Publication suivent (30/09).
+                _format.RefreshAlert();
+                if (_tabs.SelectedItem == _publicationTab) _publication.Refresh();
+                RaiseChanged();
+            };
             corkboard.ExportRequested += delegate(BinderItem item)
             { var h = ExportRequested; if (h != null) h(item); };
             corkboard.DeleteRequested += delegate(BinderItem item)
@@ -172,6 +180,8 @@ namespace Marabook.App
             { var h = ExportTemplateRequested; if (h != null) h(gabarit); };
             corkboard.CopyTemplateRequested += delegate(BinderItem gabarit)
             { var h = CopyTemplateRequested; if (h != null) h(gabarit); };
+            corkboard.DuplicateTemplateRequested += delegate(BinderItem gabarit)
+            { var h = DuplicateTemplateRequested; if (h != null) h(gabarit); };
             corkboard.NewDocumentRequested += delegate(BinderItem book, string kind)
             { var h = NewDocumentRequested; if (h != null) h(book, kind); };
             corkboard.CardSelected += delegate(BinderItem item)

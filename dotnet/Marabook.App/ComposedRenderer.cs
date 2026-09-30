@@ -599,14 +599,14 @@ namespace Marabook.App
                 var offset = face != null ? -face.UnderlinePosition * size : size * 0.09;
                 var thickness = face != null
                     ? Math.Max(0.8, face.UnderlineThickness * size) : Math.Max(0.8, size * 0.05);
-                dc.DrawRectangle(ink, null, new Rect(x, y + offset, w, thickness));
+                dc.DrawRectangle(ink, null, new Rect(x, y + offset - thickness / 2, w, thickness)); // le trait centré sur la position (30/09)
             }
             if (piece.Strike)
             {
                 var offset = face != null ? -face.StrikethroughPosition * size : -size * 0.3;
                 var thickness = face != null
                     ? Math.Max(0.8, face.StrikethroughThickness * size) : Math.Max(0.8, size * 0.05);
-                dc.DrawRectangle(ink, null, new Rect(x, y + offset, w, thickness));
+                dc.DrawRectangle(ink, null, new Rect(x, y + offset - thickness / 2, w, thickness));
             }
         }
 

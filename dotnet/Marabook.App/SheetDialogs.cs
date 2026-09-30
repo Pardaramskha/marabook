@@ -124,7 +124,7 @@ namespace Marabook.App
             sectionsFoot.Children.Add(addSection);
             _relationsCheck = new CheckBox
             {
-                Content = "Relations — le paper des liens entre fiches (frère, mentor, rivale…)",
+                Content = "Relations — la section des liens entre fiches (frère, mentor, rivale…)",
                 Margin = new Thickness(0, 12, 0, 0)
             };
             _relationsCheck.Checked += delegate { if (_current != null && !_syncing) _current.Relations = true; };
@@ -154,7 +154,7 @@ namespace Marabook.App
             _trackingCheck.Checked += delegate { if (_current != null && !_syncing) { _current.Tracking = true; RebuildScope(); } };
             _trackingCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Tracking = false; RebuildScope(); } };
             trackingHead.Children.Add(_trackingCheck);
-            trackingHead.Children.Add(Note("La fiche compte ses noms (titre, nom, prénom, alias) dans les écrits : le paper « Suivi » de la fiche et la présence du wiki.", 12));
+            trackingHead.Children.Add(Note("La fiche compte ses noms (titre, nom, prénom, alias) dans les écrits : la section « Suivi » de la fiche et la présence du wiki.", 12));
             trackingHead.Children.Add(new TextBlock { Text = "Amplitude du suivi", Foreground = Chrome.Ink, FontWeight = FontWeight.SemiBold, FontSize = 13, Margin = new Thickness(0, 0, 0, 4) });
             trackingHead.Children.Add(new TextBlock { Text = "L'échelle où les noms sont cherchés — tous les écrits, ou seulement certains écrits, groupes ou livres de la Pile.", Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) });
             _scopeAll = new RadioButton { Content = "Tous les écrits", GroupName = "scope", Margin = new Thickness(0, 0, 0, 4) };
@@ -177,7 +177,7 @@ namespace Marabook.App
             _evolutionCheck.Checked += delegate { if (_current != null && !_syncing) _current.Evolution = true; };
             _evolutionCheck.Unchecked += delegate { if (_current != null && !_syncing) _current.Evolution = false; };
             evolutionStack.Children.Add(_evolutionCheck);
-            evolutionStack.Children.Add(Note("Le paper des étapes de la fiche, écrit par écrit ou en étapes libres nommées (« perd son bras », « apprend la vérité »…). Une fiche qui porte déjà des étapes les garde, section désactivée ou non.", 0));
+            evolutionStack.Children.Add(Note("La section des étapes de la fiche, écrit par écrit ou en étapes libres nommées (« perd son bras », « apprend la vérité »…). Une fiche qui porte déjà des étapes les garde, section désactivée ou non.", 0));
             extras.Items.Add(new TabItem { Header = "Évolution", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = evolutionStack } });
             tabs.Items.Add(new TabItem { Header = "Sections extras", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = extras } });
 
@@ -615,7 +615,7 @@ namespace Marabook.App
             row.Children.Add(kindCombo);
 
             // La section du champ : Informations, ou l'une des sections du modèle.
-            var sectionCombo = new ComboBox { Margin = new Thickness(0, 0, 6, 0), [ToolTip.TipProperty] = "La section (le paper) où ce champ s'affiche sur la fiche" };
+            var sectionCombo = new ComboBox { Margin = new Thickness(0, 0, 6, 0), [ToolTip.TipProperty] = "La section où ce champ s'affiche sur la fiche" };
             sectionCombo.Items.Add(DefaultSectionLabel);
             foreach (var section in _current.Sections) sectionCombo.Items.Add(section);
             var index = field.Group.Length == 0 ? -1 : IndexOfSection(field.Group);

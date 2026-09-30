@@ -87,7 +87,7 @@ namespace Marabook.App
             var coverActions = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
             _coverHint = new TextBlock
             {
-                Text = "L'image du livre : sa tuile dans la Pile et sur les corkboards la montre aussi.",
+                Text = "L'image du livre : sa tuile dans la Pile et sur les tableaux la montre aussi.",
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 TextWrapping = TextWrapping.Wrap,

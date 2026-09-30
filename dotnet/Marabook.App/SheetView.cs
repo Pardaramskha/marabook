@@ -114,7 +114,7 @@ namespace Marabook.App
             {
                 Content = Icons.Label("arrow-left-bold", "Retour", 12, Chrome.Ink),
                 Padding = new Thickness(10, 4, 12, 4),
-                [ToolTip.TipProperty] = "Revenir au tableau (corkboard) de la fiche",
+                [ToolTip.TipProperty] = "Revenir au tableau de la fiche",
                 VerticalAlignment = VerticalAlignment.Center
             };
             back.Click += delegate { var h = BackRequested; if (h != null) h(); };
@@ -140,7 +140,7 @@ namespace Marabook.App
                 Content = Icons.Label("tree-bold", "Généalogie", 13, Chrome.Ink),
                 Padding = new Thickness(12, 4, 12, 4),
                 Margin = new Thickness(8, 0, 0, 0),
-                [ToolTip.TipProperty] = "L'arbre généalogique de la fiche, d'après ses relations (paper flottant)"
+                [ToolTip.TipProperty] = "L'arbre généalogique de la fiche, d'après ses relations (section flottante)"
             };
             _genealogyButton.Click += delegate { ShowGenealogy(); };
             rightTools.Children.Add(_genealogyButton);
@@ -530,7 +530,7 @@ namespace Marabook.App
             // Sans paper Relations, pas de généalogie (batch 43).
             _genealogyButton.IsEnabled = _showRelations;
             ToolTip.SetTip(_genealogyButton, _showRelations
-                ? "L'arbre généalogique de la fiche, d'après ses relations (paper flottant)"
+                ? "L'arbre généalogique de la fiche, d'après ses relations (section flottante)"
                 : "Généalogie indisponible : le modèle de cette fiche n'active pas les relations");
             LayoutPapers(true);
         }
@@ -1224,7 +1224,15 @@ namespace Marabook.App
         private async void AddNameToDictionary()
         {
             if (_item == null || _project == null) return;
-            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), _item.Title, true, DictionarySuggestions());
+            // Les propositions (30/09) : les mots qui MANQUENT seulement — ce
+            // qui est déjà au dictionnaire n'est plus proposé (doublons d'un
+            // « partiellement présent ») ; le titre reste prérempli tant qu'un
+            // de ses mots manque, sinon le premier mot manquant.
+            var missing = MissingWords();
+            var titleMissing = missing.Count == 0;
+            foreach (var word in missing)
+                if (_item.Title.IndexOf(word, StringComparison.CurrentCultureIgnoreCase) >= 0) { titleMissing = true; break; }
+            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), titleMissing ? _item.Title : missing[0], true, missing);
             if (entry == null) return;
             var existing = LexiconEntry.Find(_project.Lexicon, entry.Word);
             if (existing != null) _project.Lexicon.Remove(existing);

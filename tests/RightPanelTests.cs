@@ -44,7 +44,7 @@ namespace Marabook.Tests
             t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Sheet)), "une fiche : Général et Recherche (plus de Versions, b43), Épinglé");
             foreach (var kind in new[] { ItemKind.Media, ItemKind.Plan, ItemKind.Folder, ItemKind.PageTemplate })
                 t.Equal("inspector,search,pinned", Join(RightPanels.Offered(kind)), kind + " : Général et Recherche seulement (et l'épinglé)");
-            t.Equal("search,pinned", Join(RightPanels.Offered(ItemKind.Category)), "une racine de la Pile : Recherche seule (b43), et l'épinglé");
+            t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Category)), "une racine de la Pile : Général offert mais grisé (30/09), Recherche, l'épinglé");
             t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Category, true)), "l'Accueil garde son Général (les raccourcis)");
             t.Equal("inspector,search,pinned", Join(RightPanels.Offered(null)), "rien de sélectionné : Général et Recherche");
             t.Check(RightPanels.DescribesCurrent(RightPanel.Inspector) && !RightPanels.DescribesCurrent(RightPanel.Search)
@@ -85,7 +85,7 @@ namespace Marabook.Tests
             // — Le Lexique (18/09) : un onglet seulement quand il est demandé
             //   (épinglé ou ouvert pour une définition), en queue, partout.
             t.Equal("inspector,correction,search,versions,pinned,lexicon", Join(RightPanels.Offered(ItemKind.Text, false, true)), "un écrit, Lexique demandé : l'onglet en queue");
-            t.Equal("search,pinned,lexicon", Join(RightPanels.Offered(ItemKind.Category, false, true)), "une racine, Lexique demandé");
+            t.Equal("inspector,search,pinned,lexicon", Join(RightPanels.Offered(ItemKind.Category, false, true)), "une racine, Lexique demandé");
             t.Equal("inspector,search,pinned,lexicon", Join(RightPanels.Offered(null, false, true)), "rien de sélectionné, Lexique demandé");
             t.Check(ReferenceEquals(RightPanels.Offered(ItemKind.Text, false, true), RightPanels.Offered(ItemKind.Text, false, true)), "le tableau est le même d'un appel à l'autre (le rail compare par référence)");
             t.Check(!RightPanels.Available(RightPanel.Lexicon, false, true, ItemKind.Text), "Lexique sans épingle ni définition : indisponible");

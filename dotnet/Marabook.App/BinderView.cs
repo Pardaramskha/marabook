@@ -95,7 +95,10 @@ namespace Marabook.App
                 var node = NodeFromSource(e.Source);
                 if (!IsRightClick(e)) _expectedSelectId = node == null ? null : ((BinderItem)node.Tag).Id;
                 ClearMenuHighlight();
-                if (node == null) return;
+                // La teinte du menu : clic DROIT seul (30/09) — posée à tout
+                // clic, elle restait après un clic gauche et doublait la
+                // surbrillance de sélection d'un second rectangle.
+                if (node == null || !IsRightClick(e)) return;
                 var header = node.Header as Panel;
                 if (header == null) return;
                 _menuTarget = header;
@@ -114,6 +117,15 @@ namespace Marabook.App
             }), Avalonia.Interactivity.RoutingStrategies.Tunnel);
             _tree.KeyDown += delegate(object sender, KeyEventArgs e)
             {
+                // Suppr dans la Pile (30/09) : l'élément choisi part à la
+                // corbeille — la fenêtre n'a plus de raccourci global.
+                if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None && _renameBox == null
+                    && SelectedItem != null && !SelectedItem.IsCategory)
+                {
+                    e.Handled = true;
+                    Delete(null);
+                    return;
+                }
                 if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Left
                     || e.Key == Key.Right || e.Key == Key.Home || e.Key == Key.End
                     || e.Key == Key.PageUp || e.Key == Key.PageDown)
@@ -185,7 +197,7 @@ namespace Marabook.App
             _dropOverlay.Children.Add(_dropLine);
             _dropOverlay.Children.Add(_dropBox);
             host.Children.Add(_dropOverlay);
-            _tree.AddHandler(DragDrop.DragLeaveEvent, delegate { ClearDropIndicator(); });
+            _tree.AddHandler(DragDrop.DragLeaveEvent, delegate { StopDragScroll(); ClearDropIndicator(); });
 
             layout.Children.Add(host);
             Child = layout;
@@ -910,6 +922,10 @@ namespace Marabook.App
                     if (item.ImageId != null)
                         AddMenu(menu, "Retirer l'image de la carte", delegate { RemoveCardImage(item); });
                 }
+                // Dupliquer (30/09) : écrit, fiche ou gabarit — la copie juste
+                // après l'original, annulable.
+                if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet || item.Kind == ItemKind.PageTemplate)
+                    AddMenu(menu, "Dupliquer", delegate { Duplicate(item); });
                 // Suppression DOUCE (29/09) : vers la corbeille, en orange —
                 // elle se restaure ; la sèche (vider la corbeille) est rouge.
                 AddMenu(menu, "Envoyer à la corbeille", SoftDeleteInk, async delegate
@@ -1109,6 +1125,15 @@ namespace Marabook.App
             foreach (var c in name ?? "")
                 sb.Append(Array.IndexOf(System.IO.Path.GetInvalidFileNameChars(), c) >= 0 ? '_' : c);
             return sb.Length == 0 ? "carte" : sb.ToString();
+        }
+
+        /// <summary>La copie d'un item juste après lui (30/09), annulable, choisie.</summary>
+        public void Duplicate(BinderItem item)
+        {
+            if (item == null || item.Parent == null || item.IsCategory) return;
+            var copy = item.Duplicate();
+            var index = item.Parent.Children.IndexOf(item) + 1;
+            RunAndSelect(new AddItemAction(item.Parent, copy, index), copy.Id, item.Parent.Id);
         }
 
         public async void NewText(BinderItem parent)
@@ -1368,8 +1393,57 @@ namespace Marabook.App
             DragDrop.DoDragDrop(e, Ui.DataOf("MarabookItem", dragged.Id), DragDropEffects.Move);
         }
 
+        // ---- le défilement pendant un glisser (30/09)
+        private DispatcherTimer _dragScrollTimer;
+        private double _dragScrollStep;
+        private ScrollViewer _dragScroller;
+
+        /// <summary>Près du bord haut ou bas de la Pile, l'arbre défile pendant
+        /// un glisser — d'autant plus vite que le pointeur est près du bord.
+        /// DragOver n'arrive qu'au mouvement : un minuteur poursuit tant que
+        /// le pointeur reste dans la bande (la boucle du glisser pompe les
+        /// messages). L'indicateur de dépôt, posé en coordonnées, s'efface à
+        /// chaque pas et revient au prochain DragOver.</summary>
+        private void AutoScrollWhileDragging(DragEventArgs e)
+        {
+            if (_dragScroller == null)
+                foreach (var visual in _tree.GetVisualDescendants())
+                {
+                    var candidate = visual as ScrollViewer;
+                    if (candidate != null) { _dragScroller = candidate; break; }
+                }
+            if (_dragScroller == null) return;
+            const double band = 36, speed = 18;
+            var y = e.GetPosition(_dragScroller).Y;
+            var height = _dragScroller.Bounds.Height;
+            double step = 0;
+            if (y >= 0 && y < band) step = -(band - y) / band * speed;
+            else if (y <= height && y > height - band) step = (y - (height - band)) / band * speed;
+            _dragScrollStep = step;
+            if (step == 0) { StopDragScroll(); return; }
+            if (_dragScrollTimer == null)
+            {
+                _dragScrollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+                _dragScrollTimer.Tick += delegate
+                {
+                    if (_dragScroller == null || _dragScrollStep == 0) { StopDragScroll(); return; }
+                    var offset = _dragScroller.Offset;
+                    _dragScroller.Offset = new Vector(offset.X, Math.Max(0, offset.Y + _dragScrollStep));
+                    ClearDropIndicator();
+                };
+            }
+            if (!_dragScrollTimer.IsEnabled) _dragScrollTimer.Start();
+        }
+
+        private void StopDragScroll()
+        {
+            if (_dragScrollTimer != null) _dragScrollTimer.Stop();
+            _dragScrollStep = 0;
+        }
+
         private void OnDragOver(object sender, DragEventArgs e)
         {
+            AutoScrollWhileDragging(e);
             if (e.Data.Contains(DataFormats.Files))
             {
                 e.DragEffects = DragDropEffects.Copy; // Explorer files -> media import
@@ -1392,6 +1466,7 @@ namespace Marabook.App
 
         private void OnDrop(object sender, DragEventArgs e)
         {
+            StopDragScroll();
             ClearDropIndicator();
             if (e.Data.Contains(DataFormats.Files))
             {

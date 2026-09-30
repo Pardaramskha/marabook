@@ -172,6 +172,7 @@ namespace Marabook.App
             var count = 0;
             foreach (var child in item.Children)
             {
+                if (child.IsOutOfBook) continue; // le Hors-livre ne suit pas le gabarit (29/09) — compté à tort : alerte sans carte orange à corriger (30/09)
                 if (child.Kind == ItemKind.Text)
                 {
                     var effective = child.Page ?? project.Page;
@@ -193,6 +194,14 @@ namespace Marabook.App
         }
 
         public void Clear() { _item = null; }
+
+        /// <summary>L'alerte seule, sans toucher aux champs du formulaire :
+        /// après une correction depuis une carte du tableau (30/09).</summary>
+        public void RefreshAlert()
+        {
+            if (_item == null) return;
+            _divergence.IsVisible = DivergentCount(_item, _project) > 0 ? true : false;
+        }
 
         public void Sync()
         {

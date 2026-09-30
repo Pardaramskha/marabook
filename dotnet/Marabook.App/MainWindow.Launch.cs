@@ -259,6 +259,12 @@ public static Project SampleProject()
                     "La mer, au loin, avait la couleur d'une ardoise mouillée.");
                 book.Children.Add(text);
             }
+            // Une couverture (30/09) : la tuile du livre devient le livre vu de face.
+            // À côté de l'exe (publié), sinon à la racine du dépôt (Debug).
+            foreach (var coverPath in new[] {
+                System.IO.Path.Combine(AppContext.BaseDirectory, "assets", "marabook.png"),
+                System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "assets", "marabook.png") })
+                if (System.IO.File.Exists(coverPath)) { book.ImageId = project.AddImage(System.IO.File.ReadAllBytes(coverPath), ".png"); break; }
             var research = project.Category(Project.KeyResearch);
             research.Children.Add(new BinderItem { Title = "Carte du littoral", Kind = ItemKind.Media, Parent = research });
             research.Children.Add(new BinderItem { Title = "Notes sur les marées", Kind = ItemKind.Text, Parent = research });
@@ -272,8 +278,25 @@ public static Project SampleProject()
             // Une relation (29/09) : le wiki montre un lien vers une fiche (captures, sondes).
             keira.Relations.Add(new SheetRelation { Kind = "mentor", TargetId = marabout.Id });
             var plans = project.Category(Project.KeyPlans);
-            plans.Children.Add(new BinderItem { Title = "Plan en trois actes", Kind = ItemKind.Plan, Parent = plans });
+            // Un plan garni (30/09) : la vue Intensité a de quoi tracer.
+            var plan = new BinderItem { Title = "Plan en trois actes", Kind = ItemKind.Plan, Parent = plans, Plan = new PlanInfo() };
+            AddPlanColumn(plan, "Acte I — L'appel", "Le vent se lève|1", "La lettre du marabout|2");
+            AddPlanColumn(plan, "Acte II — La maison aux volets clos", "Le naufrage|4", "Une nuit sans lune|3");
+            AddPlanColumn(plan, "Acte III — La grande marée", "Le retour du marabout|5");
+            AddPlanColumn(plan, "Épilogue", "La mer, au loin|2");
+            plans.Children.Add(plan);
             return project;
+        }
+
+        private static void AddPlanColumn(BinderItem plan, string title, params string[] entries)
+        {
+            var column = new PlanColumn { Title = title };
+            foreach (var entry in entries)
+            {
+                var bar = entry.LastIndexOf('|');
+                column.Entries.Add(new PlanEntry { Text = entry.Substring(0, bar), Intensity = int.Parse(entry.Substring(bar + 1)) });
+            }
+            plan.Plan.Columns.Add(column);
         }
 
         // ------------------------------------------------------------ captures et laboratoire

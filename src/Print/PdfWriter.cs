@@ -537,7 +537,7 @@ namespace Marabook.Print
                 var thickness = face != null
                     ? Math.Max(0.8, face.UnderlineThickness * size)
                     : Math.Max(0.8, size * 0.05);
-                EmitRect(ops, x, y + offset, w, thickness, ink);
+                EmitRect(ops, x, y + offset - thickness / 2, w, thickness, ink); // le trait centré sur la position (30/09)
             }
             if (piece.Strike)
             {
@@ -545,7 +545,7 @@ namespace Marabook.Print
                 var thickness = face != null
                     ? Math.Max(0.8, face.StrikethroughThickness * size)
                     : Math.Max(0.8, size * 0.05);
-                EmitRect(ops, x, y + offset, w, thickness, ink);
+                EmitRect(ops, x, y + offset - thickness / 2, w, thickness, ink);
             }
         }
 

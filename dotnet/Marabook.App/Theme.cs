@@ -395,6 +395,21 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<TreeViewItem>(),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius))));
+            // La ligne choisie de l'arbre (30/09) : UNE bande d'accent-tint,
+            // la même que l'arbre ait le clavier ou non et sous le pointeur
+            // (le thème Simple fonçait la bande au focus et au survol : une
+            // fiche, qui laisse le clavier à l'arbre, ne se surlignait pas
+            // comme un écrit) ; le survol d'une autre ligne, à peine relevé.
+            styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":pointerover").Template().OfType<Border>().Name("SelectionBorder"),
+                new Setter(Border.BackgroundProperty, Chrome.BarBgLight)));
+            styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Template().OfType<Border>().Name("SelectionBorder"),
+                new Setter(Border.BackgroundProperty, Chrome.AccentTint)));
+            styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Class(":focus").Template().OfType<Border>().Name("SelectionBorder"),
+                new Setter(Border.BackgroundProperty, Chrome.AccentTint)));
+            styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Class(":pointerover").Template().OfType<Border>().Name("SelectionBorder"),
+                new Setter(Border.BackgroundProperty, Chrome.AccentTint)));
+            styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Class(":focus").Class(":pointerover").Template().OfType<Border>().Name("SelectionBorder"),
+                new Setter(Border.BackgroundProperty, Chrome.AccentTint)));
 
             // ---- infobulles : pilule inversée, texte blanc compact, et la
             // FLÈCHE qui pointe le contrôle (28/09 : perdue au portage). La

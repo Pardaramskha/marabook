@@ -32,6 +32,8 @@ namespace Marabook.App
         private readonly Button _openLinked;
         private readonly StackPanel _columns;
         private readonly ScrollViewer _scroll;
+        private readonly PlanChart _chart;           // la vue « Intensité » (30/09)
+        private readonly ToggleButton _chartToggle;
 
         private BinderItem _item;
         private Project _project;
@@ -102,15 +104,19 @@ namespace Marabook.App
             rename.VerticalAlignment = VerticalAlignment.Center;
             rename.Click += delegate { var h = RenameRequested; if (h != null) h(); };
             left.Children.Add(rename);
-            var chart = new Button
+            // La bascule « Intensité » (30/09) : le graphique est une VUE du
+            // plan, comme le mode wiki d'une fiche — plus une fenêtre à part.
+            _chartToggle = new ToggleButton
             {
-                Content = "📈  Graphique d'intensité",
+                Classes = { Marabook.App.Theme.Owned },
+                Content = "📈  Intensité",
+                FontWeight = FontWeight.SemiBold,
                 Padding = new Thickness(10, 4, 10, 4),
                 Margin = new Thickness(12, 0, 0, 0),
-                [ToolTip.TipProperty] = "L'intensité du plan entier, colonne par colonne"
+                [ToolTip.TipProperty] = "Voir l'intensité du plan entier, colonne par colonne — un clic de plus ramène les colonnes"
             };
-            chart.Click += delegate { if (_item != null) PlanChartWindow.Show(Ui.OwnerOf(this), _item); };
-            left.Children.Add(chart);
+            _chartToggle.IsCheckedChanged += delegate { ApplyChartMode(); };
+            left.Children.Add(_chartToggle);
             left.Children.Add(new TextBlock
             {
                 Text = "Relié à :",
@@ -164,7 +170,20 @@ namespace Marabook.App
                 _scroll.Offset = new Vector(_scroll.Offset.X - Ui.Wheel(e), _scroll.Offset.Y);
                 e.Handled = true;
             }, RoutingStrategies.Tunnel);
-            Children.Add(_scroll);
+            _chart = new PlanChart { IsVisible = false };
+            var center = new Grid();
+            center.Children.Add(_scroll);
+            center.Children.Add(_chart);
+            Children.Add(center);
+        }
+
+        /// <summary>Colonnes ou graphique, selon la bascule.</summary>
+        private void ApplyChartMode()
+        {
+            var chart = _chartToggle.IsChecked == true;
+            _scroll.IsVisible = !chart;
+            _chart.IsVisible = chart;
+            _chart.Show(chart ? _item : null);
         }
 
         // ================================================== cycle de vie
@@ -195,6 +214,7 @@ namespace Marabook.App
         {
             _item = null;
             _columns.Children.Clear();
+            _chart.Show(null);
         }
 
         public void Refresh()
@@ -226,6 +246,7 @@ namespace Marabook.App
         public void GoTo(SearchField field, int start, int length)
         {
             if (_item == null || field == null || field.RefId == null) return;
+            _chartToggle.IsChecked = false; // la recherche mène aux colonnes
             if (field.Kind == SearchField.KindColumn)
             {
                 TextBox box;
@@ -265,6 +286,7 @@ namespace Marabook.App
             _columnBoxes.Clear();
             _bricks.Clear();
             if (_item == null) return;
+            if (_chartToggle.IsChecked == true) _chart.Show(_item);
             var index = 0;
             foreach (var column in _item.Plan.Columns)
                 _columns.Children.Add(BuildColumn(column, index++));
@@ -684,6 +706,7 @@ namespace Marabook.App
         private void NotifyEdited()
         {
             if (_loading) return;
+            if (_chartToggle.IsChecked == true && _item != null) _chart.Show(_item); // la courbe suit
             var handler = Edited;
             if (handler != null) handler();
         }
@@ -718,7 +741,9 @@ namespace Marabook.App
                 AcceptsReturn = entry.IsNote,
                 TextWrapping = TextWrapping.Wrap,
                 MinHeight = entry.IsNote ? 72 : 28,
-                VerticalContentAlignment = VerticalAlignment.Top
+                // Une ligne : centrée comme les autres champs (le texte collait
+                // au bord haut, 30/09) ; la note, elle, commence en haut.
+                VerticalContentAlignment = entry.IsNote ? VerticalAlignment.Top : VerticalAlignment.Center
             };
             panel.Children.Add(_text);
 
@@ -798,104 +823,158 @@ namespace Marabook.App
         }
     }
 
-    /// <summary>Le graphique d'intensité du plan entier : une courbe, une
-    /// valeur par colonne (le pic de ses éléments), l'échelle des cinq
-    /// niveaux à gauche, les titres de colonnes en bas.</summary>
-    public class PlanChartWindow : Window
+    /// <summary>Le graphique d'intensité du plan : une VUE du plan (bascule
+    /// « Intensité » du bandeau, comme le mode wiki d'une fiche — avant, une
+    /// fenêtre à part ; 30/09). L'échelle des cinq niveaux à gauche, fixe ; la
+    /// courbe défile à l'horizontale quand les colonnes sont nombreuses ; les
+    /// titres de colonnes à plat sous leur point, centrés sur l'abscisse, sur
+    /// deux lignes au plus (les titres tournés étaient décalés : la rotation
+    /// se faisait autour du centre du bloc, pas de son coin).</summary>
+    public sealed class PlanChart : Grid
     {
-        private PlanChartWindow(Window owner, BinderItem plan)
+        private const double AxisWidth = 190;
+        private const double MinStep = 120;
+        private const double Top = 30;
+        private const double CaptionBand = 56;
+
+        private readonly Canvas _axis = new Canvas { Width = AxisWidth };
+        private readonly Canvas _plot = new Canvas();
+        private readonly ScrollViewer _scroll;
+        private BinderItem _plan;
+
+        public PlanChart()
         {
-            Title = "Intensité — " + plan.Title;
-            Owner = owner;
-            WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            Width = Math.Max(640, Math.Min(1200, 160 + plan.Plan.Columns.Count * 110));
-            Height = 440;
-            Background = Chrome.WindowBg;
-            var canvas = new Canvas { Margin = new Thickness(16) };
-            Content = canvas;
-            Ui.OnSizeChanged(this, delegate { Draw(canvas, plan); });
-            Loaded += delegate { Draw(canvas, plan); };
+            Margin = new Thickness(16, 14, 16, 14);
+            VerticalAlignment = VerticalAlignment.Top;
+            MaxHeight = 560; // une courbe, pas un mur : la vue haute laisse de l'air en bas
+            ColumnDefinitions = new ColumnDefinitions("Auto,*");
+            _scroll = new ScrollViewer
+            {
+                [ScrollViewer.HorizontalScrollBarVisibilityProperty] = ScrollBarVisibility.Auto,
+                [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Disabled,
+                Content = _plot
+            };
+            _scroll.AddHandler(InputElement.PointerWheelChangedEvent, delegate(object sender, PointerWheelEventArgs e)
+            {
+                // Molette seule = défilement horizontal, comme les colonnes.
+                if ((e.KeyModifiers & KeyModifiers.Shift) != 0 || (e.KeyModifiers & KeyModifiers.Control) != 0) return;
+                _scroll.Offset = new Vector(_scroll.Offset.X - Ui.Wheel(e), _scroll.Offset.Y);
+                e.Handled = true;
+            }, RoutingStrategies.Tunnel);
+            Grid.SetColumn(_scroll, 1);
+            Children.Add(_axis);
+            Children.Add(_scroll);
+            Ui.OnSizeChanged(this, Draw);
         }
 
-        /// <summary>Le tracé (public et statique : la sonde dessine hors fenêtre).</summary>
-        public static void Draw(Canvas canvas, BinderItem plan)
+        /// <summary>Montre ce plan (null : rien) et trace.</summary>
+        public void Show(BinderItem plan)
         {
-            canvas.Children.Clear();
-            var width = canvas.Bounds.Width;
-            var height = canvas.Bounds.Height;
-            if (width < 50 || height < 50) return;
-            var left = 190.0;
-            var right = width - 20;
-            var top = 20.0;
-            // Les noms de colonnes se lisent à la verticale (22/09) : la
-            // bande du bas leur laisse la place.
-            var captionLength = Math.Max(60, Math.Min(150, height * 0.32));
-            var bottom = height - captionLength - 20;
-            var profile = PlanIntensity.Profile(plan.Plan);
-            var columns = plan.Plan.Columns;
+            _plan = plan;
+            Draw();
+        }
 
-            // Les cinq niveaux : lignes de fond + libellés.
+        public void Draw()
+        {
+            _axis.Children.Clear();
+            _plot.Children.Clear();
+            var height = Bounds.Height - Marabook.App.Theme.ScrollBarSize;
+            var viewport = Bounds.Width - AxisWidth;
+            if (_plan == null || _plan.Plan == null || height < 80 || viewport < 50) return;
+            var columns = _plan.Plan.Columns;
+            var profile = PlanIntensity.Profile(_plan.Plan);
+            var bottom = height - CaptionBand;
+            var step = columns.Count == 0 ? viewport : Math.Max(MinStep, viewport / columns.Count);
+            var width = Math.Max(viewport, step * columns.Count);
+            _plot.Width = width;
+            _plot.Height = height;
+            _axis.Height = height;
+
+            // Les cinq niveaux : libellés et repères à gauche, lignes de fond.
             for (var level = PlanIntensity.Min; level <= PlanIntensity.Max; level++)
             {
-                var y = bottom - (level - 1) * (bottom - top) / (PlanIntensity.Max - 1);
-                canvas.Children.Add(new Line { StartPoint = new Point(left, y), EndPoint = new Point(right, y), Stroke = Chrome.Border, StrokeThickness = 1 });
-                var label = new TextBlock { Text = level + " · " + PlanIntensity.Label(level), FontSize = 11, Foreground = Chrome.SoftText, Width = left - 16, TextAlignment = TextAlignment.Right };
-                Canvas.SetLeft(label, 4);
+                var y = LevelY(level, bottom);
+                _plot.Children.Add(new Line { StartPoint = new Point(0, y), EndPoint = new Point(width, y), Stroke = Chrome.Border, StrokeThickness = 1 });
+                var label = new TextBlock
+                {
+                    Text = level + " · " + PlanIntensity.Label(level),
+                    FontSize = 11,
+                    Foreground = Chrome.SoftText,
+                    Width = AxisWidth - 14,
+                    TextAlignment = TextAlignment.Right,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                Canvas.SetLeft(label, 0);
                 Canvas.SetTop(label, y - 8);
-                canvas.Children.Add(label);
+                _axis.Children.Add(label);
+                _axis.Children.Add(new Line { StartPoint = new Point(AxisWidth - 8, y), EndPoint = new Point(AxisWidth, y), Stroke = Chrome.BorderStrong, StrokeThickness = 1 });
             }
             if (columns.Count == 0)
             {
-                var empty = new TextBlock { Text = "Aucune colonne.", Foreground = Chrome.SoftText };
-                Canvas.SetLeft(empty, left + 10);
-                Canvas.SetTop(empty, top + 10);
-                canvas.Children.Add(empty);
+                var empty = new TextBlock { Text = "Aucune colonne : la courbe suit les éléments du plan.", Foreground = Chrome.SoftText };
+                Canvas.SetLeft(empty, 12);
+                Canvas.SetTop(empty, Top);
+                _plot.Children.Add(empty);
                 return;
             }
 
-            var step = columns.Count == 1 ? 0 : (right - left) / (columns.Count - 1);
             var points = new Points();
             var area = new Points();
-            area.Add(new Point(left, bottom));
             for (var i = 0; i < columns.Count; i++)
             {
-                var x = columns.Count == 1 ? (left + right) / 2 : left + i * step;
+                var x = step * (i + 0.5);
                 var value = profile[i];
-                var y = value <= 0 ? bottom : bottom - (value - 1) * (bottom - top) / (PlanIntensity.Max - 1);
+                var y = value <= 0 ? bottom : LevelY(value, bottom);
+                if (i == 0) area.Add(new Point(x, bottom));
                 points.Add(new Point(x, y));
                 area.Add(new Point(x, y));
-                var dot = new Ellipse { Width = 10, Height = 10, Fill = value <= 0 ? (IBrush)Chrome.Border : Chrome.Accent, [ToolTip.TipProperty] = columns[i].Title + " — " + (value <= 0 ? "aucun élément" : PlanIntensity.Label(value)) };
-                Canvas.SetLeft(dot, x - 5);
-                Canvas.SetTop(dot, y - 5);
-                canvas.Children.Add(dot);
-                // Tourné d'un quart de tour vers la gauche : le nom se lit de
-                // bas en haut, sa fin (à droite avant rotation) touche l'axe.
+                if (i == columns.Count - 1) area.Add(new Point(x, bottom));
+                var title = columns[i].Title.Length == 0 ? "(sans titre)" : columns[i].Title;
+                _plot.Children.Add(new Line { StartPoint = new Point(x, bottom), EndPoint = new Point(x, bottom + 6), Stroke = Chrome.BorderStrong, StrokeThickness = 1 });
+                var dot = new Ellipse
+                {
+                    Width = 12,
+                    Height = 12,
+                    Fill = value <= 0 ? (IBrush)Chrome.Border : Chrome.Accent,
+                    Stroke = Chrome.WindowBg,
+                    StrokeThickness = 2,
+                    [ToolTip.TipProperty] = title + " — " + (value <= 0 ? "aucun élément" : PlanIntensity.Label(value))
+                };
+                Canvas.SetLeft(dot, x - 6);
+                Canvas.SetTop(dot, y - 6);
+                _plot.Children.Add(dot);
+                if (value > 0)
+                {
+                    // Le niveau en toutes lettres au-dessus du point.
+                    var tag = new TextBlock { Text = PlanIntensity.Label(value), FontSize = 10, Foreground = Chrome.SoftText, Width = step, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+                    Canvas.SetLeft(tag, x - step / 2);
+                    Canvas.SetTop(tag, y - 26);
+                    _plot.Children.Add(tag);
+                }
                 var caption = new TextBlock
                 {
-                    Text = columns[i].Title.Length == 0 ? "(sans titre)" : columns[i].Title,
+                    Text = title,
                     FontSize = 11,
                     Foreground = Chrome.Ink,
-                    Width = captionLength,
-                    Height = 16,
-                    TextAlignment = TextAlignment.Right,
+                    Width = step - 10,
+                    TextAlignment = TextAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap,
                     TextTrimming = TextTrimming.CharacterEllipsis,
-                    RenderTransform = new RotateTransform(-90),
-                    [ToolTip.TipProperty] = columns[i].Title
+                    MaxLines = 2,
+                    [ToolTip.TipProperty] = title
                 };
-                Canvas.SetLeft(caption, x - 8);
-                Canvas.SetTop(caption, bottom + 10);
-                canvas.Children.Add(caption);
+                Canvas.SetLeft(caption, x - (step - 10) / 2);
+                Canvas.SetTop(caption, bottom + 12);
+                _plot.Children.Add(caption);
             }
-            area.Add(new Point(points[points.Count - 1].X, bottom));
             var accent = ((SolidColorBrush)Chrome.Accent).Color;
-            canvas.Children.Insert(0, new Polygon { Points = area, Fill = new SolidColorBrush(Color.FromArgb(0x33, accent.R, accent.G, accent.B)) });
-            canvas.Children.Add(new Polyline { Points = points, Stroke = Chrome.Accent, StrokeThickness = 2.4, StrokeJoin = PenLineJoin.Round });
+            _plot.Children.Insert(0, new Polygon { Points = area, Fill = new SolidColorBrush(Color.FromArgb(0x33, accent.R, accent.G, accent.B)) });
+            _plot.Children.Insert(1, new Polyline { Points = points, Stroke = Chrome.Accent, StrokeThickness = 2.4, StrokeJoin = PenLineJoin.Round });
         }
 
-        public static void Show(Window owner, BinderItem plan)
+        private static double LevelY(int level, double bottom)
         {
-            if (plan.Plan == null) plan.Plan = new PlanInfo();
-            var _ = Dialogs.ShowModal(new PlanChartWindow(owner, plan), owner);
+            return bottom - (level - 1) * (bottom - Top) / (PlanIntensity.Max - 1);
         }
     }
 }

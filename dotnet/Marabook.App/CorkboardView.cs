@@ -31,6 +31,7 @@ namespace Marabook.App
         private StackPanel _folderActions; // dossier d'Écrits : Nouvel écrit / Nouveau sous-dossier (14/09)
         private StackPanel _writingsActions; // racine Écrits : Nouvel écrit / dossier / livre (12/09)
         private StackPanel _researchActions; // racine Recherche : Importer des fichiers (12/09)
+        private StackPanel _trashActions;    // racine Corbeille : Vider la corbeille (30/09)
         private BinderItem _folder;
         // La page livre (22/09) a deux corkboards : « Textes » (les écrits et
         // leurs boutons) et « Gabarits & Format » (les gabarits seuls).
@@ -83,6 +84,7 @@ namespace Marabook.App
         public event Action<BinderItem> ImportTemplateRequested; // livre
         public event Action<BinderItem> ExportTemplateRequested; // gabarit
         public event Action<BinderItem> CopyTemplateRequested;   // gabarit
+        public event Action<BinderItem> DuplicateTemplateRequested; // gabarit : Dupliquer (30/09)
         // Livres : « Nouveau document » et sa flèche — le second argument est
         // la sorte de page extra (ExtraPages.Kind*), null = document simple.
         public event Action<BinderItem, string> NewDocumentRequested;
@@ -233,6 +235,16 @@ namespace Marabook.App
                 "Ajouter des fichiers (images, PDF, documents…) dans Recherche", Buttons.Bar, Buttons.Look.Primary);
             import.Click += delegate { RequestNewDocument("import"); };
             _researchActions.Children.Add(import);
+            _trashActions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0),
+                IsVisible = false
+            };
+            var empty = Buttons.IconText("trash-bold", "Vider la corbeille",
+                "Supprimer définitivement tout ce que contient la corbeille — annulable par Ctrl+Z", Buttons.Bar, Buttons.Look.Primary);
+            empty.Click += delegate { RequestNewDocument("empty-trash"); };
+            _trashActions.Children.Add(empty);
             _cards = new WrapPanel { Margin = new Thickness(16, 8, 16, 16) };
             var layout = new StackPanel();
             layout.Children.Add(_bookActions);
@@ -241,6 +253,7 @@ namespace Marabook.App
             layout.Children.Add(_mindMapActions);
             layout.Children.Add(_writingsActions);
             layout.Children.Add(_researchActions);
+            layout.Children.Add(_trashActions);
             layout.Children.Add(BuildFilterHeader());
             layout.Children.Add(BuildFilterBar());
             layout.Children.Add(_cards);
@@ -284,7 +297,24 @@ namespace Marabook.App
             };
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
-                if (e.Key != Key.Escape || _selected.Count == 0) return;
+                if (_selected.Count == 0) return;
+                if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None)
+                {
+                    // Suppr sur le tableau (30/09) : la carte choisie part à la
+                    // corbeille (avec la confirmation du menu).
+                    BinderItem chosenItem = null;
+                    foreach (var card in AllCards())
+                    {
+                        var candidate = card.Tag as BinderItem;
+                        if (candidate != null && _selected.Contains(candidate.Id)) { chosenItem = candidate; break; }
+                    }
+                    if (chosenItem == null || chosenItem.IsCategory) return;
+                    e.Handled = true;
+                    var remove = DeleteRequested;
+                    if (remove != null) remove(chosenItem);
+                    return;
+                }
+                if (e.Key != Key.Escape) return;
                 _selected.Clear();
                 RefreshSelectionVisuals();
                 var chosen = CardSelected;
@@ -591,6 +621,8 @@ namespace Marabook.App
                 var item = card.Tag as BinderItem;
                 if (item == null) continue;
                 var selected = _selected.Contains(item.Id);
+                Border halo;
+                if (_haloOf.TryGetValue(card, out halo)) { halo.BorderBrush = selected ? (IBrush)Chrome.Accent : Brushes.Transparent; continue; }
                 // La divergence de gabarit n'est plus un liseré (22/09) mais
                 // une icône d'alerte à côté du titre : la bordure ne dit que
                 // la sélection.
@@ -789,6 +821,7 @@ namespace Marabook.App
         {
             _cards.Children.Clear();
             _templateCards.Children.Clear();
+            _haloOf.Clear();
             if (_folder == null) return;
             _bookActions.IsVisible = _folder.Kind == ItemKind.Book && BookTexts ? true : false;
             _folderActions.IsVisible = _folder.Kind == ItemKind.Folder && _folder.RootCategory().CategoryKey == Project.KeyWritings
@@ -797,6 +830,8 @@ namespace Marabook.App
             _mindMapActions.IsVisible = IsRoot(Project.KeyMindMaps) ? true : false;
             _writingsActions.IsVisible = IsRoot(Project.KeyWritings) ? true : false;
             _researchActions.IsVisible = IsRoot(Project.KeyResearch) ? true : false;
+            _trashActions.IsVisible = IsRoot(Project.KeyTrash) ? true : false;
+            _trashActions.IsEnabled = _folder.Children.Count > 0;
 
             // Livres (14/09) : deux SECTIONS titrées comme les catégories de
             // fiches — « Gabarits » (les cartes de gabarit et leurs boutons),
@@ -1248,6 +1283,10 @@ namespace Marabook.App
                 copy.Click += delegate
                 { var h = CopyTemplateRequested; if (h != null) h(gabaritRef); };
                 menu.Items.Add(copy);
+                var duplicate = new MenuItem { Header = "Dupliquer" };
+                duplicate.Click += delegate
+                { var h = DuplicateTemplateRequested; if (h != null) h(gabaritRef); };
+                menu.Items.Add(duplicate);
                 menu.Items.Add(new Separator());
                 var delete = new MenuItem { Header = "Envoyer à la corbeille", Foreground = BinderView.SoftDeleteInk }; // suppression douce, en orange (29/09)
                 delete.Click += delegate
@@ -1319,7 +1358,7 @@ namespace Marabook.App
                 // Partie : un dossier purement indicatif — la compilation et
                 // les folios l'ignorent, le corkboard l'affiche en boîte.
                 AddExtraEntry(menu, "Dossier (partie)", "folder",
-                    "Regroupe des documents dans une boîte du corkboard — sans "
+                    "Regroupe des documents dans une boîte du tableau — sans "
                     + "effet sur la compilation ni les folios");
                 menu.Items.Add(new Separator());
             }
@@ -1405,6 +1444,26 @@ namespace Marabook.App
         private Control BuildCard(BinderItem item)
         {
             var selected = _selected.Contains(item.Id);
+            // Un livre à couverture (30/09) : la tuile EST le livre, vu de face.
+            var cover = item.Kind == ItemKind.Book && _project != null ? _project.FindImage(item.ImageId) : null;
+            var coverSource = cover == null ? null : MediaView.TryImage(cover.Bytes, 320);
+            if (coverSource != null)
+            {
+                var mockup = new Border
+                {
+                    Width = 210,
+                    Background = Brushes.Transparent,
+                    BorderThickness = new Thickness(0),
+                    Margin = new Thickness(8),
+                    Tag = item,
+                    [DragDrop.AllowDropProperty] = true,
+                    Child = BuildBookMockup(item, coverSource, selected)
+                };
+                var haloBorder = ((StackPanel)mockup.Child).Children[0] as Border;
+                if (haloBorder != null) _haloOf[mockup] = haloBorder;
+                WireCard(mockup, item);
+                return mockup;
+            }
             var card = new Border
             {
                 Width = 210,
@@ -1644,6 +1703,93 @@ namespace Marabook.App
             layout.Children.Add(body);
 
             card.Child = layout;
+            WireCard(card, item);
+            return card;
+        }
+
+        /// <summary>La tuile d'un livre à couverture (30/09) : la couverture
+        /// sur un bloc de pages décalé, un dos ombré à gauche, une ombre
+        /// portée ; dessous, le titre et le ⋮ ; choisi = halo d'accent (la
+        /// bordure de carte n'existe plus : RefreshSelectionVisuals passe par
+        /// _haloOf).</summary>
+        private readonly Dictionary<Border, Border> _haloOf = new Dictionary<Border, Border>();
+
+        private Control BuildBookMockup(BinderItem item, Avalonia.Media.Imaging.Bitmap coverSource, bool selected)
+        {
+            var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 4) };
+            var book = new Grid { Width = 156, Height = 216 };
+            // Les pages : un bloc clair qui dépasse en bas à droite.
+            book.Children.Add(new Border
+            {
+                Width = 150, Height = 210,
+                Margin = new Thickness(6, 6, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+                Background = Chrome.PrintPaper,
+                BorderBrush = Chrome.BorderStrong, BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(1, 3, 3, 1)
+            });
+            book.Children.Add(new Border
+            {
+                Width = 150, Height = 210,
+                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+                CornerRadius = new CornerRadius(2, 5, 5, 2),
+                ClipToBounds = true,
+                Background = Chrome.CardBg,
+                BoxShadow = new BoxShadows(new BoxShadow { OffsetX = 2, OffsetY = 6, Blur = 14, Color = Color.FromArgb(0x55, 0, 0, 0) }),
+                Child = new Image { Source = coverSource, Stretch = Stretch.UniformToFill }
+            });
+            // Le dos : une ombre qui s'éteint vers la droite, un pli clair.
+            var spine = new LinearGradientBrush
+            {
+                StartPoint = new RelativePoint(0, 0.5, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative)
+            };
+            spine.GradientStops.Add(new GradientStop(Color.FromArgb(0x70, 0, 0, 0), 0));
+            spine.GradientStops.Add(new GradientStop(Color.FromArgb(0x14, 0, 0, 0), 0.7));
+            spine.GradientStops.Add(new GradientStop(Color.FromArgb(0x38, 0xFF, 0xFF, 0xFF), 0.85));
+            spine.GradientStops.Add(new GradientStop(Color.FromArgb(0x00, 0, 0, 0), 1));
+            book.Children.Add(new Border
+            {
+                Width = 14, Height = 210,
+                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+                Background = spine,
+                CornerRadius = new CornerRadius(2, 0, 0, 2),
+                IsHitTestVisible = false
+            });
+            var halo = new Border
+            {
+                Padding = new Thickness(6),
+                CornerRadius = new CornerRadius(8),
+                BorderBrush = selected ? (IBrush)Chrome.Accent : Brushes.Transparent,
+                BorderThickness = new Thickness(2),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Child = book
+            };
+            stack.Children.Add(halo);
+            var titleRow = new DockPanel { Width = 194, Margin = new Thickness(0, 6, 0, 0) };
+            titleRow.Children.Add(BuildCardMenu(item));
+            titleRow.Children.Add(new TextBlock
+            {
+                Text = item.Title,
+                FontWeight = FontWeight.SemiBold,
+                FontSize = 13,
+                Foreground = Chrome.Ink,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxLines = 2,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(24, 0, 0, 0) // l'équilibre du ⋮ à droite
+            });
+            stack.Children.Add(titleRow);
+            return stack;
+        }
+
+        /// <summary>Les branchements communs d'une tuile : clic (sélection,
+        /// double-clic = ouvrir), clic droit (options), glisser-déposer,
+        /// soulèvement au survol.</summary>
+        private void WireCard(Border card, BinderItem item)
+        {
             card.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
             {
                 _dragCandidate = item;
@@ -1711,7 +1857,6 @@ namespace Marabook.App
                 // la carte (14/09) ; l'alerte est l'icône du titre (22/09).
             }
             CardLift.Attach(card); // soulèvement au survol (b35)
-            return card;
         }
 
         // ------------------------------------------------------- drag reorder

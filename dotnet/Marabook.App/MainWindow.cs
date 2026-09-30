@@ -541,7 +541,15 @@ namespace Marabook.App
                 Key key;
                 KeyModifiers modifiers;
                 if (TryGesture(gesture, out key, out modifiers))
-                    { item.InputGesture = new KeyGesture(key, modifiers); KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(key, modifiers), Command = new DelegateCommand(guarded) }); }
+                {
+                    item.InputGesture = new KeyGesture(key, modifiers);
+                    // Suppr (30/09) : PAS de raccourci de fenêtre — il partait
+                    // avant l'éditeur et envoyait l'écrit ouvert à la corbeille
+                    // au lieu d'effacer après le caret. La Pile et le tableau
+                    // traitent la touche eux-mêmes, quand ils ont le clavier.
+                    if (actionId != "delete")
+                        KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(key, modifiers), Command = new DelegateCommand(guarded) });
+                }
             }
             if (when != null) _menuRules.Add(new KeyValuePair<MenuItem, Func<bool>>(item, when));
             return item;
@@ -877,6 +885,7 @@ namespace Marabook.App
             _bookView.ExportTemplateRequested += ExportPageTemplate;
             _bookView.ImportTemplateRequested += ImportPageTemplate;
             _bookView.CopyTemplateRequested += CopyPageTemplate;
+            _bookView.DuplicateTemplateRequested += delegate(BinderItem gabarit) { _binder.Duplicate(gabarit); };
             _bookView.NewDocumentRequested += NewBookDocument;
             _bookView.FilesDropped += ImportDroppedFiles; // fichiers du système sur le tableau du livre (29/09)
             _bookView.CardSelected += InspectCard; // clic simple sur une tuile du livre (29/09)
@@ -1424,7 +1433,7 @@ namespace Marabook.App
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 Margin = new Thickness(0, 8, 0, 4),
-                [ToolTip.TipProperty] = "Teinte de la barre de titre de la carte au corkboard "
+                [ToolTip.TipProperty] = "Teinte de la barre de titre de la carte au tableau "
                     + "— et de la boîte pour un dossier de livre"
             };
             _statusSection.Children.Add(_colorLabel);
@@ -1532,7 +1541,7 @@ namespace Marabook.App
                 Height = 90,
                 VerticalContentAlignment = VerticalAlignment.Top,
                 [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Auto,
-                [ToolTip.TipProperty] = "Notes de travail — affichées en priorité sur les cartes du corkboard"
+                [ToolTip.TipProperty] = "Notes de travail — affichées en priorité sur les cartes du tableau"
             };
             _notesBox.TextChanged += OnNotesChanged;
             panel.Children.Add(_notesBox);
@@ -3557,6 +3566,7 @@ namespace Marabook.App
 
         private async void NewBookDocument(BinderItem book, string kind)
         {
+            if (kind == "empty-trash") { _binder.EmptyTrash(); return; } // le bouton du tableau de la corbeille (30/09)
             if (kind == "plan") { _binder.NewPlan(book); return; } // racine Plans (b35)
             if (kind == "mindmap") { _binder.NewMindMap(book); return; } // racine Cartes mentales (22/09)
             if (kind == "mindmap-import") { _binder.ImportMindMapDialog(book); RefreshOpenCorkboards(); return; }
@@ -4301,8 +4311,43 @@ namespace Marabook.App
             AppSettings.BinderVisible = !AppSettings.BinderVisible;
             if (!AppSettings.BinderVisible && _binderCol.Width.Value > BinderStripWidth)
                 AppSettings.BinderWidth = _binderCol.Width.Value;
-            ApplyPanelVisibility();
+            AnimateBinder();
             AppSettings.Save();
+        }
+
+        private int _binderMotion; // la génération de la course en cours
+
+        /// <summary>Le repli et le dépli de la Pile GLISSENT (30/09) : la
+        /// largeur de la colonne court d'une valeur à l'autre en 240 ms,
+        /// ease-in-out cubique, image par image (RequestAnimationFrame, comme
+        /// SmoothScroll — ColumnDefinition n'a pas de Transitions). Au dépli
+        /// la Pile est montrée d'abord, au repli la bande n'apparaît qu'à la
+        /// fin ; ApplyPanelVisibility pose l'état final, comme avant. Une
+        /// bascule pendant la course reprend de la largeur du moment.</summary>
+        private void AnimateBinder()
+        {
+            var binderOn = AppSettings.BinderVisible && !_calmMode;
+            var from = _binderCol.Width.Value;
+            var to = binderOn ? AppSettings.BinderWidth : !_calmMode ? BinderStripWidth : 0;
+            var top = TopLevel.GetTopLevel(this);
+            if (top == null || Math.Abs(to - from) < 1) { ApplyPanelVisibility(); return; }
+            _binder.ClipToBounds = true; // la Pile se rogne au lieu de déborder sur le centre
+            _binder.IsVisible = true;
+            if (_binderStrip != null) _binderStrip.IsVisible = false;
+            _binderSplit.IsVisible = false;
+            var generation = ++_binderMotion;
+            var started = DateTime.Now;
+            Action frame = null;
+            frame = delegate
+            {
+                if (generation != _binderMotion) return;
+                var t = Math.Min(1, (DateTime.Now - started).TotalMilliseconds / 240.0);
+                var eased = t < 0.5 ? 4 * t * t * t : 1 - Math.Pow(-2 * t + 2, 3) / 2;
+                _binderCol.Width = new GridLength(from + (to - from) * eased);
+                if (t >= 1) ApplyPanelVisibility();
+                else top.RequestAnimationFrame(delegate { frame(); });
+            };
+            frame();
         }
 
         private void ToggleInspector()

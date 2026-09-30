@@ -115,8 +115,7 @@ namespace Marabook.App
         private static List<Border> BuildPapers(BinderItem item, SheetTemplate template, Project project, Action<BinderItem> navigate)
         {
             var papers = new List<Border>();
-            var infobox = BuildInfobox(item, template, project, navigate);
-            if (infobox.Children.Count > 0) papers.Add(Frame(infobox));
+            foreach (var section in BuildSections(item, template, project, navigate)) papers.Add(Frame(section));
             var relations = BuildRelations(item, project, navigate);
             if (relations != null) papers.Add(Frame(relations));
             var story = BuildEvolutionPresence(item, template, project, navigate);
@@ -141,33 +140,62 @@ namespace Marabook.App
             };
         }
 
-        /// <summary>L'infobox : portrait, champs de modèle remplis (par
-        /// groupe), champs libres.</summary>
-        private static StackPanel BuildInfobox(BinderItem item, SheetTemplate template, Project project, Action<BinderItem> navigate)
+        /// <summary>Les papers des sections (30/09, comme Relations) : le
+        /// portrait seul en tête, puis UN paper par section — « Infos » (le
+        /// groupe vide), les sections du modèle dans leur ordre, toute section
+        /// qu'un champ ou une info libre nomme encore — avec ses champs de
+        /// modèle remplis puis ses infos libres ; une section vide n'a pas de
+        /// paper. Avant, tout tenait dans une seule infobox, et les infos
+        /// libres perdaient leur section.</summary>
+        private static List<StackPanel> BuildSections(BinderItem item, SheetTemplate template, Project project, Action<BinderItem> navigate)
         {
-            var infobox = new StackPanel();
+            var result = new List<StackPanel>();
             var image = project == null ? null : project.FindImage(item.ImageId);
             var source = image == null ? null : MediaView.TryImage(image.Bytes, 480);
             if (source != null)
-                infobox.Children.Add(new Image { Source = source, Stretch = Stretch.Uniform, MaxHeight = 240, Margin = new Thickness(0, 0, 0, 10) });
+            {
+                var portrait = new StackPanel();
+                portrait.Children.Add(new Image { Source = source, Stretch = Stretch.Uniform, MaxHeight = 240 });
+                result.Add(portrait);
+            }
+            var names = new List<string> { "" };
             if (template != null)
             {
-                string lastGroup = null;
+                foreach (var section in template.Sections)
+                    if (SectionKey(names, section) == null) names.Add(section);
                 foreach (var field in template.Fields)
-                {
-                    string value;
-                    item.FieldValues.TryGetValue(field.Id, out value);
-                    if (string.IsNullOrEmpty(value)) continue;
-                    if (field.Group.Length > 0 && field.Group != lastGroup)
-                        infobox.Children.Add(GroupCaption(field.Group));
-                    lastGroup = field.Group.Length > 0 ? field.Group : lastGroup;
-                    AddRow(infobox, field.Name, field.Kind, value, project, navigate);
-                }
+                    if (SectionKey(names, field.Group) == null) names.Add(field.Group ?? "");
             }
             foreach (var entry in item.FreeInfo)
-                if (!string.IsNullOrEmpty(entry.Value))
-                    AddRow(infobox, entry.Title, entry.Kind, entry.Value, project, navigate);
-            return infobox;
+                if (SectionKey(names, entry.Group) == null) names.Add(entry.Group ?? "");
+            foreach (var name in names)
+            {
+                var paper = new StackPanel();
+                paper.Children.Add(PaperCaption(name.Length == 0 ? SheetDefaults.DefaultSectionLabel : name));
+                if (template != null)
+                    foreach (var field in template.Fields)
+                    {
+                        if (!string.Equals(SectionKey(names, field.Group), name, StringComparison.Ordinal)) continue;
+                        string value;
+                        item.FieldValues.TryGetValue(field.Id, out value);
+                        if (string.IsNullOrEmpty(value)) continue;
+                        AddRow(paper, field.Name, field.Kind, value, project, navigate);
+                    }
+                foreach (var entry in item.FreeInfo)
+                    if (!string.IsNullOrEmpty(entry.Value) && string.Equals(SectionKey(names, entry.Group), name, StringComparison.Ordinal))
+                        AddRow(paper, entry.Title, entry.Kind, entry.Value, project, navigate);
+                if (paper.Children.Count > 1) result.Add(paper);
+            }
+            return result;
+        }
+
+        /// <summary>Le nom de section déjà connu qui correspond (sans casse), ou null — comme SheetView.</summary>
+        private static string SectionKey(List<string> names, string group)
+        {
+            var wanted = group ?? "";
+            foreach (var name in names)
+                if (string.Equals(name, wanted, StringComparison.CurrentCultureIgnoreCase)) return name;
+            return null;
         }
 
         /// <summary>Relations : NOM (nature), le nom cliquable vers une fiche.

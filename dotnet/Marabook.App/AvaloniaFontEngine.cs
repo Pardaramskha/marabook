@@ -96,9 +96,13 @@ namespace Marabook.App
                 face.ActualWeight = (int)glyphs.Weight;
                 face.ActualItalic = glyphs.Style != FontStyle.Normal;
                 face.Baseline = Math.Abs(metrics.Ascent) / em;
-                face.UnderlinePosition = metrics.UnderlinePosition / em;
+                // Avalonia (Skia) compte l'axe vers le bas : position POSITIVE
+                // sous la ligne de base ; FaceInfo suit la convention WPF
+                // (négative dessous). Sans l'inversion, le trait montait dans
+                // le mot (30/09).
+                face.UnderlinePosition = -metrics.UnderlinePosition / em;
                 face.UnderlineThickness = metrics.UnderlineThickness / em;
-                face.StrikethroughPosition = metrics.StrikethroughPosition / em;
+                face.StrikethroughPosition = -metrics.StrikethroughPosition / em;
                 face.StrikethroughThickness = metrics.StrikethroughThickness / em;
                 face.SimulatedBold = emulateBold || (glyphs.FontSimulations & FontSimulations.Bold) != 0;
                 face.SimulatedItalic = (glyphs.FontSimulations & FontSimulations.Oblique) != 0;
