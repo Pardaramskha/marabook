@@ -400,15 +400,18 @@ namespace Marabook.App
             // (le thème Simple fonçait la bande au focus et au survol : une
             // fiche, qui laisse le clavier à l'arbre, ne se surlignait pas
             // comme un écrit) ; le survol d'une autre ligne, à peine relevé.
-            styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":pointerover").Template().OfType<Border>().Name("SelectionBorder"),
+            // Le survol se pose sur la BANDE (SelectionBorder:pointerover), pas
+            // sur le TreeViewItem : la pseudo-classe de l'item vaut aussi pour
+            // ses ancêtres — survoler un écrit relevait le livre et la racine (30/09).
+            styles.Add(Style(x => x.OfType<TreeViewItem>().Template().OfType<Border>().Name("SelectionBorder").Class(":pointerover"),
                 new Setter(Border.BackgroundProperty, Chrome.BarBgLight)));
             styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Template().OfType<Border>().Name("SelectionBorder"),
                 new Setter(Border.BackgroundProperty, Chrome.AccentTint)));
             styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Class(":focus").Template().OfType<Border>().Name("SelectionBorder"),
                 new Setter(Border.BackgroundProperty, Chrome.AccentTint)));
-            styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Class(":pointerover").Template().OfType<Border>().Name("SelectionBorder"),
+            styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Template().OfType<Border>().Name("SelectionBorder").Class(":pointerover"),
                 new Setter(Border.BackgroundProperty, Chrome.AccentTint)));
-            styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Class(":focus").Class(":pointerover").Template().OfType<Border>().Name("SelectionBorder"),
+            styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Class(":focus").Template().OfType<Border>().Name("SelectionBorder").Class(":pointerover"),
                 new Setter(Border.BackgroundProperty, Chrome.AccentTint)));
 
             // ---- infobulles : pilule inversée, texte blanc compact, et la

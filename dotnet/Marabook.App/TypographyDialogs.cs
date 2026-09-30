@@ -29,6 +29,9 @@ namespace Marabook.App
         private readonly List<KeyValuePair<CheckBox, string>> _liveRules = new List<KeyValuePair<CheckBox, string>>();
         private readonly CheckBox _liveMaster;
         private readonly Grid _rulesGrid;
+        private readonly ComboBox _open, _reprise; // la norme de dialogue (30/09)
+        private readonly TypographyOptions _source, _liveSource; // ce qu'on ne montre pas (raccourcis) survit à Build
+        private static readonly string[] OpenKeys = { "guillemets", "anglais", "demi", "cadratin" };
         private bool _accepted;
 
         private TypographyOptionsDialog(Window owner, TypographyOptions options,
@@ -41,9 +44,15 @@ namespace Marabook.App
             CanResize = false;
             ShowInTaskbar = false;
             Background = Chrome.RaisedBg;
+            _source = options;
+            _liveSource = live;
 
-            var panel = new StackPanel { Margin = new Thickness(16), Width = 440 };
-            panel.Children.Add(new TextBlock
+            // Plus large (30/09) : deux colonnes en tête — le préréglage à
+            // gauche, la NORME de dialogue à droite —, les règles dessous.
+            var panel = new StackPanel { Margin = new Thickness(16), Width = 700 };
+            var head = new Grid { ColumnDefinitions = new ColumnDefinitions("*,20,*") };
+            var presets = new StackPanel();
+            presets.Children.Add(new TextBlock
             {
                 Text = "Préréglage",
                 Foreground = Chrome.Ink,
@@ -53,9 +62,35 @@ namespace Marabook.App
             _in = Radio("Imprimerie nationale (strict) — fine avant ; ! ?, pleine avant : et dans « »", options.Preset == "in");
             _souple = Radio("Souple / maison — fine insécable partout", options.Preset == "souple");
             _minimal = Radio("Minimal — évidences seules (apostrophes, …, espaces)", options.Preset == "minimal");
-            panel.Children.Add(_in);
-            panel.Children.Add(_souple);
-            panel.Children.Add(_minimal);
+            presets.Children.Add(_in);
+            presets.Children.Add(_souple);
+            presets.Children.Add(_minimal);
+            head.Children.Add(presets);
+            var dialogue = new StackPanel();
+            Grid.SetColumn(dialogue, 2);
+            dialogue.Children.Add(new TextBlock
+            {
+                Text = "Norme de dialogue",
+                Foreground = Chrome.Ink,
+                FontWeight = FontWeight.SemiBold,
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            _open = Combo(new[] { "Guillemets français « »", "Guillemets anglais “ ”", "Tiret demi-cadratin –", "Tiret cadratin —" },
+                Math.Max(0, Array.IndexOf(OpenKeys, options.DialogueOpen)));
+            _reprise = Combo(new[] { "Tiret cadratin —", "Tiret demi-cadratin –" }, options.DialogueReprise == "demi" ? 1 : 0);
+            dialogue.Children.Add(FormRow("Ouverture", _open));
+            dialogue.Children.Add(FormRow("Reprise", _reprise));
+            dialogue.Children.Add(new TextBlock
+            {
+                Text = "L'ouverture pose le premier signe d'un bloc de répliques (et le guillemet des citations) ; "
+                    + "la reprise, le tiret des répliques suivantes. Les signes déjà posés suivent la norme choisie.",
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 6, 0, 0)
+            });
+            head.Children.Add(dialogue);
+            panel.Children.Add(head);
 
             panel.Children.Add(new TextBlock
             {
@@ -74,7 +109,7 @@ namespace Marabook.App
                         + "Ctrl+Z annule une correction automatique sans effacer la frappe",
                     Foreground = Chrome.Ink,
                     TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = 400
+                    MaxWidth = 660
                 },
                 IsChecked = liveEnabled,
                 Margin = new Thickness(0, 2, 0, 6)
@@ -97,7 +132,8 @@ namespace Marabook.App
             Rule("Guillemets français « » °", "quotes", options.Quotes, live.Quotes);
             Rule("Tirets de dialogue — °", "dialogueDashes", options.DialogueDashes, live.DialogueDashes);
             Rule("Intervalles 1914–1918 °", "ranges", options.Ranges, live.Ranges);
-            Rule("Point médian auteur::ice → auteur·ice", "middleDot", options.MiddleDot, live.MiddleDot);
+            Rule("Point médian auteur::ice → auteur·ice (raccourci : Préférences › Correction)", "middleDot", options.MiddleDot, live.MiddleDot);
+            Rule("Tirets tapés -- → –, --- → — (raccourcis : Préférences › Correction)", "dashes", options.Dashes, live.Dashes);
             Rule("Insécables de ponctuation ; ! ? : « » °", "noBreakPunctuation", options.NoBreakPunctuation, live.NoBreakPunctuation);
             Rule("Insécables d'unités 10 %, 10 €, 12 kg °", "noBreakUnits", options.NoBreakUnits, live.NoBreakUnits);
             Rule("Milliers en fine 10 000 °", "thousands", options.Thousands, live.Thousands);
@@ -130,15 +166,34 @@ namespace Marabook.App
             cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
+            Dialogs.Arrange(buttons, ok); // validation principale, à droite (30/09)
             panel.Children.Add(buttons);
             Content = panel;
+        }
+
+        private static ComboBox Combo(string[] labels, int index)
+        {
+            var combo = new ComboBox { MinWidth = 220, HorizontalAlignment = HorizontalAlignment.Left };
+            foreach (var label in labels) combo.Items.Add(label);
+            combo.SelectedIndex = Math.Max(0, Math.Min(labels.Length - 1, index));
+            return combo;
+        }
+
+        private static Control FormRow(string label, Control field)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
+            var caption = new TextBlock { Text = label, Foreground = Chrome.Ink, Width = 80, VerticalAlignment = VerticalAlignment.Center };
+            DockPanel.SetDock(caption, Dock.Left);
+            row.Children.Add(caption);
+            row.Children.Add(field);
+            return row;
         }
 
         private static RadioButton Radio(string label, bool isChecked)
         {
             return new RadioButton
             {
-                Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, MaxWidth = 400, Foreground = Chrome.Ink },
+                Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, MaxWidth = 320, Foreground = Chrome.Ink },
                 IsChecked = isChecked,
                 GroupName = "preset",
                 Margin = new Thickness(0, 2, 0, 2)
@@ -164,16 +219,16 @@ namespace Marabook.App
             _liveRules.Add(new KeyValuePair<CheckBox, string>(live, key));
         }
 
-        private TypographyOptions Build()
+        /// <summary>Les options reconstruites : à partir du jeu d'origine (les
+        /// raccourcis tapés, réglés ailleurs, restent), le préréglage, les
+        /// cases et la norme de dialogue par-dessus.</summary>
+        private TypographyOptions Build(TypographyOptions source, List<KeyValuePair<CheckBox, string>> rules)
         {
-            return Build(_rules);
-        }
-
-        private TypographyOptions Build(List<KeyValuePair<CheckBox, string>> rules)
-        {
-            var node = new Dictionary<string, object>();
+            var node = source.ToJson();
             node["preset"] = _souple.IsChecked == true ? "souple" : _minimal.IsChecked == true ? "minimal" : "in";
             foreach (var rule in rules) node[rule.Value] = rule.Key.IsChecked == true;
+            node["dialogueOpen"] = OpenKeys[Math.Max(0, Math.Min(OpenKeys.Length - 1, _open.SelectedIndex))];
+            node["dialogueReprise"] = _reprise.SelectedIndex == 1 ? "demi" : "cadratin";
             return TypographyOptions.FromJson(node);
         }
 
@@ -184,9 +239,9 @@ namespace Marabook.App
                 AppSettings.TypographyLive, AppSettings.TypographyLiveEnabled);
             await Dialogs.ShowModal(dialog, owner);
             if (!dialog._accepted) return false;
-            AppSettings.TypographyLive = dialog.Build(dialog._liveRules);
+            AppSettings.TypographyLive = dialog.Build(dialog._liveSource, dialog._liveRules);
             AppSettings.TypographyLiveEnabled = dialog._liveMaster.IsChecked == true;
-            AppSettings.Typography = dialog.Build();
+            AppSettings.Typography = dialog.Build(dialog._source, dialog._rules);
             AppSettings.Save();
             return true;
         }

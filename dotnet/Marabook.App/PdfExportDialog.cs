@@ -174,6 +174,8 @@ namespace Marabook.App
             cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
+            // [Aperçu du BAT…][Annuler][Exporter] : validation à droite, principale (30/09).
+            Dialogs.Arrange(buttons, ok);
             panel.Children.Add(buttons);
 
             Content = panel;

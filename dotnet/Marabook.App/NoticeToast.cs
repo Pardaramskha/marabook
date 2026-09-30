@@ -65,6 +65,7 @@ namespace Marabook.App
                 no.Click += delegate { Remove(toast); if (secondary != null) secondary(); };
                 buttons.Children.Add(no);
             }
+            Dialogs.Arrange(buttons, yes); // principal à droite, secondaire en contour à gauche (30/09)
             text.Children.Add(buttons);
             row.Children.Add(text);
             toast = new Border

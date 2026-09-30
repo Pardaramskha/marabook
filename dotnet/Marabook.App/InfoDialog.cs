@@ -78,9 +78,18 @@ namespace Marabook.App
             body.Children.Add(texts);
             panel.Children.Add(body);
 
-            var close = new Button { Content = "Fermer", IsDefault = true, IsCancel = true, MinWidth = 88, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
+            // Fermer seul : une rangée quand même, pour la règle des dialogues (30/09).
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+            var close = new Button { Content = "Fermer", IsDefault = true, IsCancel = true, MinWidth = 88 };
             close.Click += delegate { Close(); };
-            panel.Children.Add(close);
+            buttons.Children.Add(close);
+            Dialogs.Arrange(buttons, close);
+            panel.Children.Add(buttons);
             Content = panel;
         }
 

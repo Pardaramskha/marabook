@@ -274,6 +274,7 @@ namespace Marabook.App
             cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
+            Dialogs.Arrange(buttons, ok); // validation à droite, principale (30/09)
             Grid.SetColumn(buttons, 2);
             Grid.SetRow(buttons, 1);
             root.Children.Add(buttons);
@@ -772,6 +773,7 @@ namespace Marabook.App
             cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
+            Dialogs.Arrange(buttons, ok); // validation à droite, principale (30/09)
             panel.Children.Add(buttons);
 
             Content = panel;
@@ -840,6 +842,7 @@ namespace Marabook.App
             cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
+            Dialogs.Arrange(buttons, ok); // validation à droite, principale (30/09)
             panel.Children.Add(buttons);
 
             Content = panel;

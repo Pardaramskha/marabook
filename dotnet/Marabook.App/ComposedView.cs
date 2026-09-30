@@ -1653,8 +1653,11 @@ namespace Marabook.App
             var openQuotes = 0;
             for (var p = 0; p < _caretParagraph; p++)
                 openQuotes = Correction.Typography.QuoteDepth(PivotEdit.FlatText(_item.Document.Paragraphs[p]), openQuotes);
+            // La réplique d'avant (30/09) : le signe de reprise plutôt que celui d'ouverture.
+            var dialogueBefore = _caretParagraph > 0
+                && Correction.Typography.IsDialogueLine(PivotEdit.FlatText(_item.Document.Paragraphs[_caretParagraph - 1]));
             var cleaned = Correction.Typography.Clean(flat, options,
-                Correction.TypographyPass.NoProofSpans(paragraph), openQuotes);
+                Correction.TypographyPass.NoProofSpans(paragraph), openQuotes, dialogueBefore);
             if (cleaned.Text == flat) return false;
             var ops = CharDiff.Diff(flat, cleaned.Text);
             if (ops == null) return false;

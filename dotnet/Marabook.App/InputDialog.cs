@@ -54,6 +54,7 @@ namespace Marabook.App
             cancel.Click += delegate { Close(); };
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
+            Dialogs.Arrange(buttons, ok); // validation à droite, principale (30/09)
             panel.Children.Add(buttons);
             Content = panel;
             Opened += delegate { _input.Focus(); _input.SelectAll(); };

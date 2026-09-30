@@ -96,6 +96,7 @@ namespace Marabook.App
             _replace = new Button { Content = "Remplacer", Padding = new Thickness(14, 4, 14, 4), IsDefault = true };
             _replace.Click += delegate { _chosen = Chosen(); Close(true); };
             buttons.Children.Add(_replace);
+            Dialogs.Arrange(buttons, _replace); // validation à droite, principale (30/09)
             foot.Children.Add(buttons);
             root.Children.Add(foot);
 

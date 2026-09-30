@@ -99,6 +99,8 @@ namespace Marabook.App
             var close = new Button { Content = "Fermer", IsCancel = true, MinWidth = 90, Margin = new Thickness(8, 0, 0, 0) };
             close.Click += delegate { Close(); };
             buttons.Children.Add(close);
+            // [Désinstaller][Fermer][Installer] : action principale à droite (30/09).
+            Dialogs.Arrange(buttons, _install);
             panel.Children.Add(buttons);
             Content = panel;
             ModuleStore.Changed += Sync;

@@ -49,6 +49,7 @@ namespace Marabook.App
             cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
+            Dialogs.Arrange(buttons, ok); // validation à droite, principale (30/09)
             DockPanel.SetDock(buttons, Dock.Bottom);
             root.Children.Add(buttons);
 

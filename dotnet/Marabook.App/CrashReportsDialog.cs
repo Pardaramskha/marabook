@@ -86,6 +86,7 @@ namespace Marabook.App
             close.Click += delegate { Close(); };
             right.Children.Add(_copy);
             right.Children.Add(close);
+            Dialogs.Arrange(right, _copy); // [Fermer][Copier le rapport] : action principale à droite (30/09)
             buttons.Children.Add(right);
             root.Children.Add(buttons);
 

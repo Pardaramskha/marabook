@@ -80,6 +80,7 @@ namespace Marabook.App
         private TextBlock _placeholder;
         private BinderItem _current;
         private BinderItem _inspected; // la tuile cliquée au tableau (29/09), null = l'élément ouvert
+        private Border _emptyRightHost; // la colonne de droite sans panneau disponible ici (30/09)
         private BinderItem InspectedItem { get { return _inspected ?? _current; } }
 
         private Border _inspector;
@@ -678,6 +679,13 @@ namespace Marabook.App
             };
             Grid.SetColumn(_binderSplit, 1);
             grid.Children.Add(_binderSplit);
+            // La largeur de la Pile appartient à l'utilisateur (30/09) : un
+            // glisser du séparateur la retient — avant, le clic suivant la
+            // remettait à l'ancienne valeur enregistrée.
+            _binderSplit.DragCompleted += delegate
+            {
+                if (_binder.IsVisible && _binderCol.Width.Value > BinderStripWidth) AppSettings.BinderWidth = _binderCol.Width.Value;
+            };
 
             var center = new Grid();
             _placeholder = new TextBlock
@@ -1026,6 +1034,7 @@ namespace Marabook.App
             };
             Grid.SetColumn(_inspectorSplit, 3);
             grid.Children.Add(_inspectorSplit);
+            _inspectorSplit.DragCompleted += delegate { RememberRightWidth(); }; // idem à droite (30/09)
 
             _inspector = BuildInspector();
             Grid.SetColumn(_inspector, 4);
@@ -1078,6 +1087,24 @@ namespace Marabook.App
             _pinnedHost = new Border { Child = _pinnedPanel };
             Grid.SetColumn(_pinnedHost, 4);
             grid.Children.Add(_pinnedHost);
+            // La colonne de droite garde sa largeur (30/09) même quand le
+            // panneau actif n'a rien à dire ici (une racine sans Général) :
+            // un mot à la place — plus de colonne qui se replie puis revient.
+            _emptyRightHost = new Border
+            {
+                IsVisible = false,
+                Child = new TextBlock
+                {
+                    Text = "Rien à montrer ici",
+                    Foreground = Chrome.FaintText,
+                    FontSize = 12,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, 24, 0, 0)
+                }
+            };
+            Grid.SetColumn(_emptyRightHost, 4);
+            grid.Children.Add(_emptyRightHost);
             // Le LEXIQUE (18/09) : la définition d'un mot du dictionnaire
             // personnel, même colonne (MainWindow.Lexicon.cs).
             BuildLexiconPanel(grid);
@@ -2462,6 +2489,7 @@ namespace Marabook.App
             // view took over, and refreshes the side panels.
             if (item != null && item == _current && IsItemViewVisible(item))
             {
+                OpenInspectorForSheet(item);
                 UpdateInspector();
                 UpdateStats();
                 return;
@@ -2499,6 +2527,7 @@ namespace Marabook.App
             // BringIntoView : le défilement déplaçait la ligne sous la souris
             // entre les deux clics d'un double-clic (renommage cassé).
             if (item != null) _binder.SelectItem(item.Id, false);
+            if (!_restoringSelection && !_navTravelling) OpenInspectorForSheet(item);
             UpdateInspector();
             UpdateStats();
             _searchPanel.SetCurrent(item);
@@ -4411,11 +4440,14 @@ namespace Marabook.App
                 _pinnedHost.IsVisible = shown == RightPanel.Pinned ? true : false;
             if (_lexiconHost != null)
                 _lexiconHost.IsVisible = shown == RightPanel.Lexicon ? true : false;
-            var anyRight = shown != RightPanel.None;
+            // La colonne reste ouverte tant qu'un panneau est CHOISI (30/09) :
+            // indisponible ici, elle montre un mot au lieu de se replier — sa
+            // largeur ne bouge qu'à la main (une seule, quel que soit le panneau).
+            var wanted = AppSettings.RightPanel != RightPanel.None && !_journalOpen && !_calmMode && _project != null;
+            var anyRight = shown != RightPanel.None || wanted;
+            if (_emptyRightHost != null) _emptyRightHost.IsVisible = anyRight && shown == RightPanel.None ? true : false;
             _inspectorSplit.IsVisible = anyRight ? true : false;
-            _inspectorCol.Width = anyRight
-                ? new GridLength(AppSettings.InspectorWidth) // une seule largeur, quel que soit le panneau (29/09)
-                : new GridLength(0);
+            _inspectorCol.Width = anyRight ? new GridLength(AppSettings.InspectorWidth) : new GridLength(0);
             _inspectorMenu.IsChecked = shown == RightPanel.Inspector;
             _searchMenu.IsChecked = shown == RightPanel.Search;
             _versionsMenu.IsChecked = shown == RightPanel.Versions;
@@ -4433,7 +4465,20 @@ namespace Marabook.App
 
         private bool IsPanelAvailable(RightPanel panel)
         {
-            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, CurrentKind(), CurrentIsHomeRoot(), _sidePin != null, HasLexiconPanel);
+            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, PanelKind(), PanelHomeRoot(), _sidePin != null, HasLexiconPanel);
+        }
+
+        /// <summary>La nature qui décide du panneau de droite (30/09) : la
+        /// tuile inspectée quand il y en a une (une fiche cliquée dans la
+        /// bibliothèque a son Général), sinon l'élément courant.</summary>
+        private ItemKind? PanelKind()
+        {
+            return _inspected != null ? (ItemKind?)_inspected.Kind : CurrentKind();
+        }
+
+        private bool PanelHomeRoot()
+        {
+            return _inspected == null && CurrentIsHomeRoot();
         }
 
         /// <summary>La nature de l'élément courant, null sans sélection — ce
@@ -4650,7 +4695,7 @@ namespace Marabook.App
             var railOn = !_journalOpen && !_calmMode;
             _rail.IsVisible = railOn ? true : false;
             _railCol.Width = new GridLength(railOn ? RailWidth : 0);
-            var offered = RightPanels.Offered(CurrentKind(), CurrentIsHomeRoot(), HasLexiconPanel);
+            var offered = RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel);
             if (!ReferenceEquals(offered, _railOffered)) RebuildRailTabs(offered);
             UpdatePinTip();
             var shown = ShownRightPanel();
@@ -4773,7 +4818,17 @@ namespace Marabook.App
         private void InspectCard(BinderItem item)
         {
             _inspected = item;
+            OpenInspectorForSheet(item);
             UpdateInspector();
+        }
+
+        /// <summary>Une fiche cliquée montre ses détails (30/09) : le Général
+        /// s'ouvre s'il était replié — dans la Pile comme sur une tuile de la
+        /// bibliothèque. Un autre panneau choisi (Recherche…) reste.</summary>
+        private void OpenInspectorForSheet(BinderItem item)
+        {
+            if (item == null || item.Kind != ItemKind.Sheet || AppSettings.RightPanel != RightPanel.None) return;
+            SetRightPanel(RightPanel.Inspector);
         }
 
         private void UpdateInspector()

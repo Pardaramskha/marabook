@@ -90,6 +90,7 @@ namespace Marabook.App
             cancel.Click += delegate { Close(); };
             right.Children.Add(_create);
             right.Children.Add(cancel);
+            Dialogs.Arrange(right, _create); // [Ignorer][Créer les fiches] : validation à droite, principale (30/09)
             buttons.Children.Add(right);
             root.Children.Add(buttons);
 

@@ -468,10 +468,10 @@ namespace Marabook.Settings
                         Json.AsBool(Json.Field(root, "searchPanel"), false),
                         Json.AsBool(Json.Field(root, "versionsPanel"), false));
                 BinderWidth = Json.AsDouble(Json.Field(root, "binderWidth"), 260);
-                // Batch 43 : à l'ouverture, la colonne de droite fait TOUJOURS
-                // la largeur de la Pile — la clé « inspectorWidth » n'est plus
-                // ni lue ni écrite (redimensionner reste libre en session).
-                InspectorWidth = BinderWidth;
+                // La colonne de droite a sa largeur à elle (30/09) : celle que
+                // l'utilisateur a réglée, persistée — la Pile par défaut.
+                InspectorWidth = Json.AsDouble(Json.Field(root, "inspectorWidth"), BinderWidth);
+                if (InspectorWidth < 120) InspectorWidth = BinderWidth;
                 PinnedWidth = Json.AsDouble(Json.Field(root, "pinnedWidth"), BinderWidth * 1.25);
                 if (PinnedWidth < 200) PinnedWidth = BinderWidth * 1.25;
                 Zoom = Json.AsDouble(Json.Field(root, "zoom"), 100);
@@ -614,6 +614,7 @@ namespace Marabook.Settings
                 root["binderVisible"] = BinderVisible;
                 root["rightPanel"] = RightPanels.Name(RightPanel);
                 root["binderWidth"] = BinderWidth;
+                root["inspectorWidth"] = InspectorWidth;
                 root["pinnedWidth"] = PinnedWidth;
                 root["zoom"] = Zoom;
                 root["formattingMarks"] = ShowFormattingMarks;

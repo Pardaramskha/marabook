@@ -72,6 +72,7 @@ namespace Marabook.App
             close.IsCancel = true;
             close.Click += delegate { Close(); };
             buttons.Children.Add(close);
+            Dialogs.Arrange(buttons, close); // [Copier le bilan][Fermer] : règle des dialogues (30/09)
             root.Children.Add(buttons);
 
             var list = new StackPanel();

@@ -90,6 +90,7 @@ namespace Marabook.App
             close.IsCancel = true;
             close.Click += delegate { Close(); };
             buttons.Children.Add(close);
+            Dialogs.Arrange(buttons, close); // la règle des dialogues (30/09)
             DockPanel.SetDock(buttons, Dock.Bottom);
             layout.Children.Add(buttons);
             layout.Children.Add(Tabs);
@@ -396,7 +397,19 @@ namespace Marabook.App
         private Control BuildProofingTab()
         {
             var panel = TabPanel();
-            panel.Children.Add(Caption("Grammaire (Grammalecte)"));
+            // Les raccourcis typographiques (30/09) : les séquences tapées que
+            // l'éditeur (à la frappe) et la passe changent en signe — réglées
+            // pour les deux jeux de règles à la fois.
+            panel.Children.Add(Caption("Raccourcis typographiques"));
+            panel.Children.Add(Note("Tapez la séquence, le signe la remplace — à la frappe et dans la passe typographique (règles « Point médian » et « Tirets tapés »). Un raccourci vide désactive le signe."));
+            panel.Children.Add(TriggerRow("Point médian ·", AppSettings.Typography.MiddleDotTrigger,
+                delegate(string value) { AppSettings.Typography.MiddleDotTrigger = value; AppSettings.TypographyLive.MiddleDotTrigger = value; }));
+            panel.Children.Add(TriggerRow("Demi-cadratin –", AppSettings.Typography.EnDashTrigger,
+                delegate(string value) { AppSettings.Typography.EnDashTrigger = value; AppSettings.TypographyLive.EnDashTrigger = value; }));
+            panel.Children.Add(TriggerRow("Cadratin — (le demi-cadratin suivi de « - » le donne aussi)", AppSettings.Typography.EmDashTrigger,
+                delegate(string value) { AppSettings.Typography.EmDashTrigger = value; AppSettings.TypographyLive.EmDashTrigger = value; }));
+
+            panel.Children.Add(Caption("Grammaire (Grammalecte)", 18));
             var master = new CheckBox
             {
                 Content = "Vérification grammaticale (Grammalecte, en différé)",
@@ -444,7 +457,25 @@ namespace Marabook.App
                 options.Children.Add(check);
             }
             panel.Children.Add(options);
+
             return panel;
+        }
+
+        /// <summary>Une ligne « séquence → signe » : le champ à gauche, court
+        /// et à chasse fixe ; enregistré quand il perd le clavier.</summary>
+        private static Control TriggerRow(string label, string value, Action<string> store)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 6, 0, 0) };
+            var box = new TextBox { Text = value ?? "", Width = 72, FontFamily = new FontFamily("Consolas"), HorizontalContentAlignment = HorizontalAlignment.Center };
+            DockPanel.SetDock(box, Dock.Left);
+            box.LostFocus += delegate
+            {
+                store((box.Text ?? "").Trim());
+                AppSettings.Save();
+            };
+            row.Children.Add(box);
+            row.Children.Add(new TextBlock { Text = label, Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) });
+            return row;
         }
 
         // ------------------------------------------------------------ personnalisation

@@ -58,25 +58,33 @@ namespace Marabook.App
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Margin = new Thickness(0, 16, 0, 0)
             };
+            // La validation (OK, Oui) à droite, en principal ; Annuler et Non en
+            // contour à sa gauche (règle des dialogues, 30/09).
+            Button primary = null;
             switch (buttons)
             {
                 case MessageButtons.OK:
-                    row.Children.Add(Choice("OK", MessageResult.OK, true));
+                    primary = Choice("OK", MessageResult.OK, true);
+                    row.Children.Add(primary);
                     break;
                 case MessageButtons.OKCancel:
-                    row.Children.Add(Choice("OK", MessageResult.OK, true));
                     row.Children.Add(Choice("Annuler", MessageResult.Cancel, false));
+                    primary = Choice("OK", MessageResult.OK, true);
+                    row.Children.Add(primary);
                     break;
                 case MessageButtons.YesNo:
-                    row.Children.Add(Choice("Oui", MessageResult.Yes, true));
                     row.Children.Add(Choice("Non", MessageResult.No, false));
+                    primary = Choice("Oui", MessageResult.Yes, true);
+                    row.Children.Add(primary);
                     break;
                 case MessageButtons.YesNoCancel:
-                    row.Children.Add(Choice("Oui", MessageResult.Yes, true));
-                    row.Children.Add(Choice("Non", MessageResult.No, false));
                     row.Children.Add(Choice("Annuler", MessageResult.Cancel, false));
+                    row.Children.Add(Choice("Non", MessageResult.No, false));
+                    primary = Choice("Oui", MessageResult.Yes, true);
+                    row.Children.Add(primary);
                     break;
             }
+            Dialogs.Arrange(row, primary);
             panel.Children.Add(row);
             Content = panel;
 

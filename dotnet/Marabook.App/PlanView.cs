@@ -174,6 +174,10 @@ namespace Marabook.App
             var center = new Grid();
             center.Children.Add(_scroll);
             center.Children.Add(_chart);
+            // La hauteur du graphique suit la place, plafonnée : une courbe,
+            // pas un mur (30/09). PIÈGE : sans hauteur explicite, une grille de
+            // Canvas alignée en haut mesure 0 — rien ne se traçait chez Rémi.
+            Ui.OnSizeChanged(center, delegate { _chart.Height = Math.Max(0, Math.Min(560, center.Bounds.Height)); });
             Children.Add(center);
         }
 
@@ -845,8 +849,7 @@ namespace Marabook.App
         public PlanChart()
         {
             Margin = new Thickness(16, 14, 16, 14);
-            VerticalAlignment = VerticalAlignment.Top;
-            MaxHeight = 560; // une courbe, pas un mur : la vue haute laisse de l'air en bas
+            VerticalAlignment = VerticalAlignment.Top; // la hauteur : posée par PlanView selon la place (Height), sinon une grille de Canvas ne mesure rien
             ColumnDefinitions = new ColumnDefinitions("Auto,*");
             _scroll = new ScrollViewer
             {
