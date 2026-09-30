@@ -43,14 +43,14 @@ namespace Marabook.App
         {
             var list = new ListBox
             {
-                Background = Chrome.PaperBg,
+                Background = Chrome.FieldBg,
                 BorderThickness = new Thickness(0),
                 MaxHeight = 280,
                 MinWidth = 160
             };
             var frame = new Border
             {
-                Background = Chrome.PaperBg,
+                Background = Chrome.FieldBg,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),

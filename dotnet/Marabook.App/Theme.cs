@@ -201,9 +201,10 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<ToggleButton>().Class(Owned).Class(":disabled"),
                 new Setter(Visual.OpacityProperty, 0.45)));
 
-            // ---- champs : papier, filet, coins 6, accent au clavier
+            // ---- champs : fond de champ (Chrome.FieldBg — pas le papier,
+            // qui peut rester blanc au sombre, 30/09), filet, coins 6, accent au clavier
             styles.Add(Style(x => x.OfType<TextBox>(),
-                new Setter(TemplatedControl.BackgroundProperty, Chrome.PaperBg),
+                new Setter(TemplatedControl.BackgroundProperty, Chrome.FieldBg),
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius)),
@@ -229,16 +230,16 @@ namespace Marabook.App
                 new Setter(Border.CornerRadiusProperty, new CornerRadius(Radius))));
             styles.Add(Style(x => x.OfType<TextBox>().Class(":pointerover").Template().OfType<Border>().Name("border"),
                 new Setter(Border.BorderBrushProperty, Chrome.SoftText),
-                new Setter(Border.BackgroundProperty, Chrome.PaperBg)));
+                new Setter(Border.BackgroundProperty, Chrome.FieldBg)));
             styles.Add(Style(x => x.OfType<TextBox>().Class(":focus").Template().OfType<Border>().Name("border"),
                 new Setter(Border.BorderBrushProperty, Chrome.Accent),
-                new Setter(Border.BackgroundProperty, Chrome.PaperBg)));
+                new Setter(Border.BackgroundProperty, Chrome.FieldBg)));
             styles.Add(Style(x => x.OfType<TextBox>().Class(":disabled"),
                 new Setter(Visual.OpacityProperty, 0.45)));
 
             // ---- combos : le même champ, coins 6, flèche discrète
             styles.Add(Style(x => x.OfType<ComboBox>(),
-                new Setter(TemplatedControl.BackgroundProperty, Chrome.PaperBg),
+                new Setter(TemplatedControl.BackgroundProperty, Chrome.FieldBg),
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius)),
@@ -248,12 +249,31 @@ namespace Marabook.App
                 new Setter(Border.CornerRadiusProperty, new CornerRadius(Radius))));
             styles.Add(Style(x => x.OfType<ComboBox>().Class(":pointerover").Template().OfType<Border>().Name("border"),
                 new Setter(Border.BorderBrushProperty, Chrome.SoftText),
-                new Setter(Border.BackgroundProperty, Chrome.PaperBg)));
+                new Setter(Border.BackgroundProperty, Chrome.FieldBg)));
             styles.Add(Style(x => x.OfType<ComboBox>().Class(":focus").Template().OfType<Border>().Name("border"),
                 new Setter(Border.BorderBrushProperty, Chrome.Accent),
-                new Setter(Border.BackgroundProperty, Chrome.PaperBg)));
+                new Setter(Border.BackgroundProperty, Chrome.FieldBg)));
             styles.Add(Style(x => x.OfType<ComboBox>().Class(":disabled"),
                 new Setter(Visual.OpacityProperty, 0.45)));
+            // La liste déroulante (30/09) : le cadre du gabarit Simple (Popup
+            // > Border sans nom) a des angles droits et colle aux lignes —
+            // coins 8, un filet, 4 px d'air, le fond des champs, comme les
+            // menus contextuels. Les lignes : plus hautes et plus larges
+            // (8×4), coins 4, l'encre ; la ligne choisie en accent fort sur
+            // accent-tint (le thème de base pose déjà les fonds de survol et
+            // de sélection sur nos pinceaux d'accent).
+            styles.Add(Style(x => x.OfType<ComboBox>().Template().OfType<Popup>().Child().OfType<Border>(),
+                new Setter(Border.CornerRadiusProperty, new CornerRadius(8)),
+                new Setter(Border.PaddingProperty, new Thickness(4)),
+                new Setter(Border.BackgroundProperty, Chrome.FieldBg),
+                new Setter(Border.BorderBrushProperty, Chrome.Border),
+                new Setter(Border.BorderThicknessProperty, new Thickness(1))));
+            styles.Add(Style(x => x.OfType<ComboBoxItem>(),
+                new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
+                new Setter(TemplatedControl.PaddingProperty, new Thickness(8, 4)),
+                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(4))));
+            styles.Add(Style(x => x.OfType<ComboBoxItem>().Class(":selected"),
+                new Setter(TemplatedControl.ForegroundProperty, Chrome.AccentStrong)));
 
             // ---- barres de défilement : une piste transparente, un pouce
             // arrondi de 8 px dans une bande de 12, sans flèches (le style
@@ -288,7 +308,7 @@ namespace Marabook.App
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(InputElement.CursorProperty, new Cursor(StandardCursorType.Hand))));
             styles.Add(Style(x => x.OfType<CheckBox>().Template().OfType<Border>().Name("Box"),
-                new Setter(Border.BackgroundProperty, Chrome.PaperBg),
+                new Setter(Border.BackgroundProperty, Chrome.FieldBg),
                 new Setter(Border.BorderBrushProperty, Chrome.Border)));
             styles.Add(Style(x => x.OfType<CheckBox>().Template().OfType<Path>().Name("Check"),
                 new Setter(Visual.IsVisibleProperty, false)));
@@ -308,7 +328,7 @@ namespace Marabook.App
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(InputElement.CursorProperty, new Cursor(StandardCursorType.Hand))));
             styles.Add(Style(x => x.OfType<RadioButton>().Template().OfType<Border>().Name("Box"),
-                new Setter(Border.BackgroundProperty, Chrome.PaperBg),
+                new Setter(Border.BackgroundProperty, Chrome.FieldBg),
                 new Setter(Border.BorderBrushProperty, Chrome.Border)));
             styles.Add(Style(x => x.OfType<RadioButton>().Template().OfType<Ellipse>().Name("Dot"),
                 new Setter(Visual.IsVisibleProperty, false)));
@@ -360,7 +380,7 @@ namespace Marabook.App
 
             // ---- listes et arbres : la ligne active en accent-tint
             styles.Add(Style(x => x.OfType<ListBox>(),
-                new Setter(TemplatedControl.BackgroundProperty, Chrome.PaperBg),
+                new Setter(TemplatedControl.BackgroundProperty, Chrome.FieldBg),
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius)),

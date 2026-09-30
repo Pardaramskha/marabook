@@ -17,6 +17,12 @@ namespace Marabook.App
         public static readonly SolidColorBrush BarBgLight = Brush(0xF5, 0xF6, 0xFA); // raised (panneaux, papers)
         public static readonly SolidColorBrush RaisedBg = Brush(0xF5, 0xF6, 0xFA);   // raised (dialogues)
         public static readonly SolidColorBrush PaperBg = Brush(0xFF, 0xFF, 0xFF);    // paper
+        /// <summary>Le fond des CHAMPS (zones de texte, combos et leur liste,
+        /// listes, cases) : blanc au clair, un puits un peu plus clair que les
+        /// panneaux au sombre — et jamais le papier, dont le blanc peut être
+        /// gardé sous le thème sombre (les champs restaient alors blancs avec
+        /// une encre claire, illisibles, 30/09).</summary>
+        public static readonly SolidColorBrush FieldBg = Brush(0xFF, 0xFF, 0xFF);    // field
         public static readonly SolidColorBrush Border = Brush(0xD3, 0xD7, 0xE3);       // line : filets
         public static readonly SolidColorBrush BorderStrong = Brush(0xBF, 0xC5, 0xD8); // line-strong : bordures de contrôles
 
@@ -59,6 +65,7 @@ namespace Marabook.App
                 BarBgLight.Color = raised;
                 RaisedBg.Color = raised;
                 CardBg.Color = raised;
+                FieldBg.Color = Rgb(0x27, 0x2B, 0x35);
                 Border.Color = Rgb(0x2E, 0x33, 0x40);
                 BorderStrong.Color = Rgb(0x3D, 0x43, 0x54);
                 Ink.Color = Rgb(0xE7, 0xE9, 0xF0);
@@ -92,6 +99,7 @@ namespace Marabook.App
                 BarBgLight.Color = raised;
                 RaisedBg.Color = raised;
                 CardBg.Color = raised;
+                FieldBg.Color = Rgb(0xFF, 0xFF, 0xFF);
                 Border.Color = Rgb(0xD3, 0xD7, 0xE3);
                 BorderStrong.Color = Rgb(0xBF, 0xC5, 0xD8);
                 Ink.Color = Rgb(0x1E, 0x21, 0x28);
