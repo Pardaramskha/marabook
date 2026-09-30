@@ -229,17 +229,40 @@ namespace Marabook.App
             return null;
         }
 
+        /// <summary>Le trait n'est pas une ligne : conteneur inerte, sans
+        /// retrait. PIÈGE (30/09) : la liste virtualisée RECYCLE ses
+        /// ComboBoxItem — un conteneur qui a porté le trait ressert pour une
+        /// police, et gardait ses valeurs locales : ligne décalée à gauche
+        /// (sans le retrait du thème) et INSÉLECTIONNABLE (IsEnabled faux).
+        /// Les valeurs locales sont donc effacées pour toute autre entrée, et
+        /// au retrait du conteneur.</summary>
         protected override void PrepareContainerForItemOverride(Control element, object item, int index)
         {
             base.PrepareContainerForItemOverride(element, item, index);
             var entry = item as FontCatalog.Entry;
             var container = element as ComboBoxItem;
-            if (entry != null && entry.IsSeparator && container != null)
+            if (container == null) return;
+            if (entry != null && entry.IsSeparator)
             {
                 container.IsEnabled = false;
                 container.Focusable = false;
                 container.Padding = new Thickness(0);
             }
+            else ResetContainer(container);
+        }
+
+        protected override void ClearContainerForItemOverride(Control element)
+        {
+            var container = element as ComboBoxItem;
+            if (container != null) ResetContainer(container);
+            base.ClearContainerForItemOverride(element);
+        }
+
+        private static void ResetContainer(ComboBoxItem container)
+        {
+            container.ClearValue(IsEnabledProperty);
+            container.ClearValue(FocusableProperty);
+            container.ClearValue(PaddingProperty);
         }
 
         // ------------------------------------------------------------ choix
