@@ -66,15 +66,17 @@ namespace Marabook.App
             Children.Add(FormRow("Alignement", _alignCombo));
             Children.Add(FormRow("Espace avant (mm)", _beforeBox));
             Children.Add(FormRow("Espace après (mm)", _afterBox));
+            // L'aperçu montre le rendu AU PAPIER : blanc et encre sombre, même
+            // sous le thème sombre (30/09).
             _preview = new TextBlock
             {
-                Foreground = Chrome.Ink,
+                Foreground = Chrome.PrintInk,
                 Margin = new Thickness(0, 4, 0, 0),
                 HorizontalAlignment = HorizontalAlignment.Left
             };
             var previewFrame = new Border
             {
-                Background = Chrome.PaperBg,
+                Background = Chrome.PrintPaper,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(4),

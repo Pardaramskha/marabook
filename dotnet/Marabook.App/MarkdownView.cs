@@ -53,7 +53,7 @@ namespace Marabook.App
             {
                 FontFamily = Body,
                 FontSize = 14.5,
-                Foreground = Chrome.PaperInk,
+                Foreground = Chrome.Ink,
                 TextWrapping = TextWrapping.Wrap,
                 TextAlignment = TextAlignment.Left
             };
@@ -96,7 +96,7 @@ namespace Marabook.App
                     foreach (var line in block.QuoteLines)
                     {
                         var paragraph = Paragraph();
-                        paragraph.Foreground = Chrome.PaperSoftInk;
+                        paragraph.Foreground = Chrome.SoftText;
                         paragraph.Margin = new Thickness(0, 2, 0, 2);
                         FillInlines(paragraph, line, wikiClicked);
                         lines.Children.Add(paragraph);
@@ -290,7 +290,7 @@ namespace Marabook.App
                 if (inline.Strike)
                 {
                     run.TextDecorations = TextDecorations.Strikethrough;
-                    run.Foreground = Chrome.PaperSoftInk;
+                    run.Foreground = Chrome.SoftText;
                 }
                 if (inline.Underline)
                     run.TextDecorations = TextDecorations.Underline;
@@ -329,7 +329,7 @@ namespace Marabook.App
                     // italique doux.
                     run.Text = "🖼 " + ((inline.Text ?? "").Length > 0 ? inline.Text : inline.ImageUrl);
                     run.FontStyle = FontStyle.Italic;
-                    run.Foreground = Chrome.PaperSoftInk;
+                    run.Foreground = Chrome.SoftText;
                     into.Add(run);
                 }
                 else into.Add(run);

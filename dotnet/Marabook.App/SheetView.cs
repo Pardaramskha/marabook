@@ -341,7 +341,7 @@ namespace Marabook.App
             {
                 [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Auto,
                 [ScrollViewer.HorizontalScrollBarVisibilityProperty] = ScrollBarVisibility.Disabled,
-                Background = Chrome.PaperBg,
+                Background = Chrome.FieldBg, // le rendu wiki : la surface du wiki (30/09)
                 Padding = new Thickness(14, 8, 14, 12),
                 IsVisible = false
             };

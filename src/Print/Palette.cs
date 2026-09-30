@@ -9,6 +9,11 @@ namespace Marabook.Print
     public enum InkRole
     {
         Explicit,
+        /// <summary>Aucune couleur posée (ni run, ni style) : Ink vaut le
+        /// noir pour le papier et les exports ; l'écran montre l'encre du
+        /// papier du thème (claire en mode sombre sans papier blanc) — un
+        /// repère visuel, jamais une couleur du document (30/09).</summary>
+        Default,
         Faint,
         Accent
     }

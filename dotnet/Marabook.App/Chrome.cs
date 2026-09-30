@@ -23,6 +23,11 @@ namespace Marabook.App
         /// gardé sous le thème sombre (les champs restaient alors blancs avec
         /// une encre claire, illisibles, 30/09).</summary>
         public static readonly SolidColorBrush FieldBg = Brush(0xFF, 0xFF, 0xFF);    // field
+        /// <summary>Le papier IMPRIMÉ, figé : blanc et encre sombre quel que
+        /// soit le thème — pour un aperçu qui montre le rendu au papier (le
+        /// séparateur de scène, 30/09). Jamais recolorés par Toggle.</summary>
+        public static readonly SolidColorBrush PrintPaper = Brush(0xFF, 0xFF, 0xFF);
+        public static readonly SolidColorBrush PrintInk = Brush(0x1E, 0x21, 0x28);
         public static readonly SolidColorBrush Border = Brush(0xD3, 0xD7, 0xE3);       // line : filets
         public static readonly SolidColorBrush BorderStrong = Brush(0xBF, 0xC5, 0xD8); // line-strong : bordures de contrôles
 

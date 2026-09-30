@@ -164,7 +164,7 @@ namespace Marabook.App
                 Height = 430,
                 ItemsSource = _rows,
                 ItemTemplate = BuildRowTemplate(),
-                Background = Chrome.PaperBg,
+                Background = Chrome.FieldBg, // le fond des champs, pas le papier : lisible au sombre (30/09)
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1)
             };
@@ -294,7 +294,7 @@ namespace Marabook.App
             var sample = new TextBlock
             {
                 FontSize = 17,
-                Foreground = Chrome.PaperInk,
+                Foreground = Chrome.Ink,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Height = 26,
                 ClipToBounds = true,

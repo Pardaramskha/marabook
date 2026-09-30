@@ -33,7 +33,7 @@ namespace Marabook.App
         {
             var page = new Border
             {
-                Background = Chrome.PaperBg,
+                Background = Chrome.FieldBg, // une page d'interface, sombre au sombre — pas le papier (30/09)
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
@@ -84,7 +84,7 @@ namespace Marabook.App
                 Text = item.Title,
                 FontSize = column ? 20 : 26,
                 FontWeight = FontWeight.Bold,
-                Foreground = Chrome.PaperInk,
+                Foreground = Chrome.Ink,
                 TextWrapping = TextWrapping.Wrap
             });
             var category = project == null ? null : project.SheetCategoryOf(item);
@@ -92,7 +92,7 @@ namespace Marabook.App
             {
                 Text = category != null ? category.Name : template != null ? template.Name : "Fiche",
                 FontSize = 12,
-                Foreground = Chrome.PaperSoftInk,
+                Foreground = Chrome.SoftText,
                 Margin = new Thickness(0, 2, 0, 8)
             });
             head.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 0, 0, column ? 0 : 12) });

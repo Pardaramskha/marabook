@@ -886,6 +886,8 @@ namespace Marabook.Print
                 ink = Ink.Parse(run.Color);
             else if (style.Color != null)
                 ink = Ink.Parse(style.Color);
+            else if (inkRole == InkRole.Explicit)
+                inkRole = InkRole.Default; // le noir implicite : l'écran le rend dans l'encre du thème
 
             var underline = run != null && run.Underline == true && !superscript;
             var strike = run != null && run.Strike == true && !superscript;

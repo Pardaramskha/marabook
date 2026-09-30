@@ -503,12 +503,15 @@ namespace Marabook.App
             else if (entry.Color != null)
             {
                 var color = ParseOrDefault(entry.Color, Color.FromRgb(0x5B, 0x67, 0xD8));
-                brick.Background = new SolidColorBrush(Chrome.Blend(color, Colors.White, 0.78));
+                // La teinte sur le fond des champs (30/09) : au sombre, une
+                // brique colorée reste sombre — le blanc figeait les briques
+                // au clair.
+                brick.Background = new SolidColorBrush(Chrome.Blend(color, Chrome.FieldBg.Color, 0.78));
                 brick.BorderBrush = new SolidColorBrush(color);
             }
             else
             {
-                brick.Background = Chrome.PaperBg;
+                brick.Background = Chrome.FieldBg;
                 brick.BorderBrush = Chrome.Border;
             }
 
