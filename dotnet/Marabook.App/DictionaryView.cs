@@ -70,6 +70,7 @@ namespace Marabook.App
             _classFilter = new ComboBox { Margin = new Thickness(14, 0, 0, 0), MinWidth = 150, VerticalAlignment = VerticalAlignment.Center, [ToolTip.TipProperty] = "N'afficher qu'une nature grammaticale" };
             _classFilter.Items.Add("Toutes natures");
             foreach (var key in LexiconEntry.Classes) _classFilter.Items.Add(LexiconEntry.ClassLabel(key));
+            _classFilter.Items.Add("À revoir — migration nécessaire"); // les entrées de l'ancien format (30/09)
             _classFilter.SelectedIndex = 0;
             _classFilter.SelectionChanged += delegate { ResetPages(); Rebuild(); };
             left.Children.Add(_classFilter);
@@ -185,7 +186,7 @@ namespace Marabook.App
             header.Children.Add(new TextBlock
             {
                 Text = caption + (entries == null ? " (aucun projet ouvert)"
-                    : " — " + entries.Count + (entries.Count > 1 ? " entrées" : " entrée")),
+                    : " — " + entries.Count + (entries.Count > 1 ? " entrées" : " entrée") + ReviewSuffix(entries)),
                 Foreground = Chrome.Ink,
                 FontWeight = FontWeight.SemiBold,
                 FontSize = 14,
@@ -197,13 +198,15 @@ namespace Marabook.App
 
             var filter = (_searchBox.Text ?? "").Trim();
             var classIndex = _classFilter == null ? 0 : _classFilter.SelectedIndex;
-            var wantedClass = classIndex <= 0 ? null : LexiconEntry.Classes[classIndex - 1];
+            var reviewOnly = classIndex == LexiconEntry.Classes.Length + 1; // « À revoir » (30/09)
+            var wantedClass = classIndex <= 0 || reviewOnly ? null : LexiconEntry.Classes[classIndex - 1];
             var sorted = new List<LexiconEntry>(entries);
             sorted.Sort(delegate(LexiconEntry a, LexiconEntry b)
             { return string.Compare(a.Word, b.Word, StringComparison.CurrentCultureIgnoreCase); });
             var matching = new List<LexiconEntry>();
             foreach (var entry in sorted)
             {
+                if (reviewOnly && !entry.NeedsReview) continue;
                 if (wantedClass != null && entry.Class != wantedClass) continue;
                 if (filter.Length > 0 && !Matches(entry, filter)) continue;
                 matching.Add(entry);
@@ -212,7 +215,7 @@ namespace Marabook.App
             {
                 _sections.Children.Add(new TextBlock
                 {
-                    Text = filter.Length > 0 || wantedClass != null ? "Aucune entrée ne correspond." : "Aucune entrée.",
+                    Text = reviewOnly ? "Aucune entrée à revoir : tout est au nouveau format." : filter.Length > 0 || wantedClass != null ? "Aucune entrée ne correspond." : "Aucune entrée.",
                     Foreground = Chrome.SoftText,
                     FontSize = 12,
                     Margin = new Thickness(4, 2, 0, 6)
@@ -290,6 +293,7 @@ namespace Marabook.App
                 FontSize = 14,
                 TextTrimming = TextTrimming.CharacterEllipsis
             });
+            if (entry.NeedsReview) left.Children.Add(ReviewPill()); // l'ancien format, à confirmer (30/09)
             left.Children.Add(new TextBlock
             {
                 Text = entry.Summary(),
@@ -366,6 +370,30 @@ namespace Marabook.App
 
             row.Child = grid;
             return row;
+        }
+
+        /// <summary>« n à revoir » dans l'en-tête d'une section, ou rien.</summary>
+        private static string ReviewSuffix(List<LexiconEntry> entries)
+        {
+            var count = LexiconEntry.CountNeedingReview(entries);
+            return count == 0 ? "" : " · " + count + " à revoir";
+        }
+
+        /// <summary>La pastille orange « migration nécessaire » (30/09) : une
+        /// entrée venue de l'ancien dictionnaire, dont le type, la nature et
+        /// la flexion restent à confirmer dans le dialogue.</summary>
+        public static Border ReviewPill()
+        {
+            return new Border
+            {
+                Background = Chrome.Warn,
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(7, 1, 7, 2),
+                Margin = new Thickness(0, 3, 0, 2),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                [ToolTip.TipProperty] = "Entrée de l'ancien dictionnaire : ouvrez-la pour préciser son type, sa nature et sa flexion — Valider lève la pastille",
+                Child = new TextBlock { Text = "migration nécessaire", Foreground = Chrome.PrintPaper, FontSize = 10, FontWeight = FontWeight.SemiBold }
+            };
         }
 
         private static bool IsInside(Visual source, Visual ancestor)

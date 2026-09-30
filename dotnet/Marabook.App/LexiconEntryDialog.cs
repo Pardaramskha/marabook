@@ -17,17 +17,32 @@ using Marabook.Settings;
 
 namespace Marabook.App
 {
-    /// <summary>Le dialogue d'une entrée du dictionnaire (batch 33) : le mot,
-    /// sa nature, genre, pluriel, féminin, portée (projet / tous les
-    /// projets) — avec l'aperçu VIVANT des formes que le correcteur en
-    /// acceptera. Rend l'entrée validée, ou null.</summary>
+    /// <summary>Le dialogue d'une entrée du dictionnaire (batch 33, refondu le
+    /// 30/09 à la manière d'Antidote) : le mot, son TYPE (Nom, Adjectif,
+    /// Adverbe, Nom propre, Verbe), sa NATURE — des cases propres au type,
+    /// des boutons radio pour la sorte d'un nom propre —, sa FLEXION
+    /// (masculin et féminin, masculin, féminin) avec les quatre formes en
+    /// filigrane, dérivées par la règle et modifiables à la main, la
+    /// définition, la note, la portée (projet / tous les projets) — et
+    /// l'aperçu VIVANT des formes que le correcteur acceptera. Une entrée
+    /// migrée de l'ancien format porte la pastille orange « migration
+    /// nécessaire » ; la validation la lève. Rend l'entrée validée, ou null.</summary>
     public class LexiconEntryDialog : Window
     {
-        private readonly TextBox _word, _feminine, _definition, _note;
-        private readonly ComboBox _class, _gender, _plural, _scope;
+        private readonly TextBox _word, _definition, _note;
+        private readonly TextBox[] _forms = new TextBox[4]; // masc. sg., masc. pl., fém. sg., fém. pl.
+        private readonly ComboBox _scope;
         private readonly TextBlock _preview;
-        private readonly StackPanel _nominal, _feminineRow;
-        private bool _accepted;
+        private readonly Border _reviewPill;
+        private readonly Dictionary<string, RadioButton> _classRadios = new Dictionary<string, RadioButton>();
+        private readonly Dictionary<string, RadioButton> _genderRadios = new Dictionary<string, RadioButton>();
+        private readonly Dictionary<string, RadioButton> _properRadios = new Dictionary<string, RadioButton>();
+        private readonly Dictionary<string, CheckBox> _traitBoxes = new Dictionary<string, CheckBox>();
+        private readonly Dictionary<string, StackPanel> _naturePanels = new Dictionary<string, StackPanel>();
+        private readonly StackPanel _natureHost, _flexion;
+        private readonly CheckBox _invariable;
+        private readonly LexiconEntry _initial;
+        private bool _accepted, _syncing;
 
         private LexiconEntryDialog(Window owner, LexiconEntry initial, bool projectScope, bool allowScope,
             IList<string> suggestions = null)
@@ -39,12 +54,13 @@ namespace Marabook.App
             CanResize = false;
             ShowInTaskbar = false;
             Background = Chrome.WindowBg;
+            _initial = initial;
 
-            var panel = new StackPanel { Margin = new Thickness(16), Width = 520 };
+            var panel = new StackPanel { Margin = new Thickness(16), Width = 600 };
 
             // Les suggestions (29/09) : depuis une fiche, chaque mot du titre
             // et — pour un personnage — le nom, le prénom et l'alias, en chips
-            // tout en haut ; un clic préremplit le mot (et devine sa nature).
+            // tout en haut ; un clic préremplit le mot (et devine son type).
             if (suggestions != null && suggestions.Count > 0)
             {
                 panel.Children.Add(new TextBlock
@@ -63,8 +79,7 @@ namespace Marabook.App
                     chip.Click += delegate
                     {
                         _word.Text = wordRef;
-                        var guessed = Array.IndexOf(LexiconEntry.Classes, LexiconInflector.GuessClass(wordRef));
-                        if (guessed >= 0) _class.SelectedIndex = guessed;
+                        SelectClass(LexiconInflector.GuessClass(wordRef));
                         _word.Focus();
                         _word.SelectAll();
                     };
@@ -73,64 +88,115 @@ namespace Marabook.App
                 panel.Children.Add(chips);
             }
 
+            // La pastille « migration nécessaire » (30/09) : l'entrée vient de
+            // l'ancien dictionnaire ; type, nature et flexion sont à confirmer.
+            _reviewPill = new Border
+            {
+                Background = Chrome.Warn,
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(10, 4, 10, 4),
+                Margin = new Thickness(0, 0, 0, 8),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                IsVisible = initial != null && initial.NeedsReview,
+                Child = new TextBlock
+                {
+                    Text = "Migration nécessaire — cette entrée vient de l'ancien dictionnaire : précisez son type, sa nature et sa flexion ; Valider lève la pastille.",
+                    Foreground = Chrome.PrintPaper,
+                    FontSize = 11,
+                    FontWeight = FontWeight.SemiBold,
+                    TextWrapping = TextWrapping.Wrap
+                }
+            };
+            panel.Children.Add(_reviewPill);
+
             panel.Children.Add(Label("Mot :"));
             _word = new TextBox { Text = initial == null ? "" : initial.Word };
-            _word.TextChanged += delegate { UpdatePreview(); };
+            _word.TextChanged += delegate { RefreshForms(); };
             panel.Children.Add(_word);
 
-            panel.Children.Add(Label("Nature :"));
-            _class = new ComboBox();
-            foreach (var key in LexiconEntry.Classes) _class.Items.Add(LexiconEntry.ClassLabel(key));
-            _class.SelectedIndex = Array.IndexOf(LexiconEntry.Classes,
-                initial == null ? LexiconEntry.ClassNoun : initial.Class);
-            if (_class.SelectedIndex < 0) _class.SelectedIndex = 0;
-            _class.SelectionChanged += delegate
+            // ---- le type
+            panel.Children.Add(Label("Type de mot :"));
+            var classes = new WrapPanel();
+            var initialClass = initial == null ? LexiconEntry.ClassNoun : initial.Class;
+            foreach (var key in LexiconEntry.Classes)
             {
-                // Un nom propre est invariable d'office (29/09) : l'accord
-                // bascule aussitôt — modifiable ensuite si besoin.
-                if (SelectedClass() == LexiconEntry.ClassProper && _plural != null) _plural.SelectedIndex = 2;
-                UpdateVisibility();
-                UpdatePreview();
-            };
-            panel.Children.Add(_class);
+                // « Autre » n'est offert qu'à une entrée qui l'est déjà (mot
+                // importé ou migré) : on choisit un vrai type pour les autres.
+                if (key == LexiconEntry.ClassOther && initialClass != LexiconEntry.ClassOther) continue;
+                var radio = new RadioButton
+                {
+                    Content = LexiconEntry.ClassLabel(key),
+                    GroupName = "lexicon-class",
+                    IsChecked = key == initialClass,
+                    Margin = new Thickness(0, 0, 16, 2)
+                };
+                var keyRef = key;
+                radio.IsCheckedChanged += delegate { if (radio.IsChecked == true) OnClassChanged(keyRef); };
+                _classRadios[key] = radio;
+                classes.Children.Add(radio);
+            }
+            panel.Children.Add(classes);
 
-            _nominal = new StackPanel();
-            var pair = new Grid { Margin = new Thickness(0, 0, 0, 0) };
-            pair.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            pair.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-            pair.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var genderCol = new StackPanel();
-            genderCol.Children.Add(Label("Genre :"));
-            _gender = new ComboBox();
-            _gender.Items.Add("—");
-            _gender.Items.Add("masculin");
-            _gender.Items.Add("féminin");
-            _gender.SelectedIndex = initial == null ? 0 : initial.Gender == "m" ? 1 : initial.Gender == "f" ? 2 : 0;
-            _gender.SelectionChanged += delegate { UpdatePreview(); };
-            genderCol.Children.Add(_gender);
-            Grid.SetColumn(genderCol, 0);
-            pair.Children.Add(genderCol);
-            var pluralCol = new StackPanel();
-            pluralCol.Children.Add(Label("Pluriel :"));
-            _plural = new ComboBox();
-            _plural.Items.Add("régulier (-s)");
-            _plural.Items.Add("en -x (-al → -aux, -eau → -eaux)");
-            _plural.Items.Add("invariable");
-            _plural.SelectedIndex = initial == null ? 0
-                : initial.Plural == LexiconEntry.PluralX ? 1
-                : initial.Plural == LexiconEntry.PluralInvariable ? 2 : 0;
-            _plural.SelectionChanged += delegate { UpdatePreview(); };
-            pluralCol.Children.Add(_plural);
-            Grid.SetColumn(pluralCol, 2);
-            pair.Children.Add(pluralCol);
-            _nominal.Children.Add(pair);
-            _feminineRow = new StackPanel();
-            _feminineRow.Children.Add(Label("Féminin (vide = dérivé par la règle) :"));
-            _feminine = new TextBox { Text = initial == null ? "" : initial.Feminine };
-            _feminine.TextChanged += delegate { UpdatePreview(); };
-            _feminineRow.Children.Add(_feminine);
-            _nominal.Children.Add(_feminineRow);
-            panel.Children.Add(_nominal);
+            // ---- la nature : un panneau par type, un seul visible
+            _natureHost = new StackPanel();
+            _natureHost.Children.Add(Label("Nature :"));
+            _naturePanels[LexiconEntry.ClassNoun] = BuildTraitPanel(LexiconEntry.ClassNoun, initial);
+            _naturePanels[LexiconEntry.ClassAdjective] = BuildTraitPanel(LexiconEntry.ClassAdjective, initial);
+            _naturePanels[LexiconEntry.ClassAdverb] = BuildTraitPanel(LexiconEntry.ClassAdverb, initial);
+            _naturePanels[LexiconEntry.ClassProper] = BuildProperPanel(initial);
+            foreach (var pair in _naturePanels) _natureHost.Children.Add(pair.Value);
+            panel.Children.Add(_natureHost);
+
+            // ---- la flexion : un choix, puis les quatre formes
+            _flexion = new StackPanel();
+            _flexion.Children.Add(Label("Flexion :"));
+            var genders = new WrapPanel();
+            var initialGenders = initial == null ? "" : initial.EffectiveGenders();
+            foreach (var pair in new[] { new[] { LexiconEntry.GendersBoth, "Masculin et féminin" }, new[] { LexiconEntry.GendersMasculine, "Masculin" }, new[] { LexiconEntry.GendersFeminine, "Féminin" } })
+            {
+                var radio = new RadioButton
+                {
+                    Content = pair[1],
+                    GroupName = "lexicon-genders",
+                    IsChecked = pair[0] == initialGenders,
+                    Margin = new Thickness(0, 0, 16, 2)
+                };
+                radio.IsCheckedChanged += delegate { if (!_syncing) RefreshForms(); };
+                _genderRadios[pair[0]] = radio;
+                genders.Children.Add(radio);
+            }
+            _invariable = new CheckBox
+            {
+                Content = "Invariable au pluriel",
+                IsChecked = initial != null && initial.Plural == LexiconEntry.PluralInvariable,
+                Margin = new Thickness(8, 0, 0, 2)
+            };
+            _invariable.IsCheckedChanged += delegate { if (!_syncing) RefreshForms(); };
+            genders.Children.Add(_invariable);
+            _flexion.Children.Add(genders);
+            var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var captions = new[] { "masc. sg.", "masc. pl.", "fém. sg.", "fém. pl." };
+            var initialForms = initial == null ? new string[4] : new[] { initial.MascSg, initial.MascPl, initial.FemSg, initial.FemPl };
+            for (var i = 0; i < 4; i++)
+            {
+                var cell = new StackPanel();
+                cell.Children.Add(new TextBlock { Text = captions[i], Foreground = Chrome.SoftText, FontSize = 11, Margin = new Thickness(0, 0, 0, 2) });
+                var box = new TextBox { Text = initialForms[i] ?? "", [ToolTip.TipProperty] = "Vide : la forme dérivée par la règle (en filigrane) ; tapez pour la remplacer" };
+                box.TextChanged += delegate { if (!_syncing) RefreshPreview(); };
+                cell.Children.Add(box);
+                _forms[i] = box;
+                Grid.SetRow(cell, i / 2);
+                Grid.SetColumn(cell, (i % 2) * 2);
+                cell.Margin = new Thickness(0, i / 2 == 1 ? 6 : 0, 0, 0);
+                grid.Children.Add(cell);
+            }
+            _flexion.Children.Add(grid);
+            panel.Children.Add(_flexion);
 
             panel.Children.Add(Label("Définition :"));
             _definition = new TextBox
@@ -139,7 +205,7 @@ namespace Marabook.App
                 AcceptsReturn = true,
                 TextWrapping = TextWrapping.Wrap,
                 [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Auto,
-                Height = 72
+                Height = 64
             };
             panel.Children.Add(_definition);
 
@@ -185,43 +251,209 @@ namespace Marabook.App
             Dialogs.Arrange(buttons, ok); // validation à droite, principale (30/09)
             panel.Children.Add(buttons);
 
-            Content = panel;
+            Content = new ScrollViewer
+            {
+                Content = panel,
+                MaxHeight = 820,
+                [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Auto,
+                [ScrollViewer.HorizontalScrollBarVisibilityProperty] = ScrollBarVisibility.Disabled
+            };
             UpdateVisibility();
-            UpdatePreview();
+            RefreshForms();
             Loaded += delegate { _word.Focus(); _word.SelectAll(); };
         }
 
+        // ------------------------------------------------------------ natures
+
+        /// <summary>Les cases d'un type : une par nature, les sous-natures en
+        /// retrait et actives seulement quand la mère est cochée.</summary>
+        private StackPanel BuildTraitPanel(string cls, LexiconEntry initial)
+        {
+            var host = new StackPanel();
+            foreach (var trait in LexiconEntry.TraitsFor(cls))
+            {
+                if (trait.ProperKind != null) continue;
+                var box = new CheckBox
+                {
+                    Content = trait.Label,
+                    IsChecked = initial != null && initial.HasTrait(trait.Key),
+                    Margin = new Thickness(trait.Parent != null ? 26 : 0, 2, 0, 0)
+                };
+                _traitBoxes[trait.Key] = box;
+                var traitRef = trait;
+                box.IsCheckedChanged += delegate { UpdateChildren(traitRef.Key); };
+                host.Children.Add(box);
+            }
+            foreach (var trait in LexiconEntry.TraitsFor(cls)) UpdateChildren(trait.Key);
+            return host;
+        }
+
+        /// <summary>Les sous-natures d'une nature : actives si elle est cochée,
+        /// décochées sinon.</summary>
+        private void UpdateChildren(string parentKey)
+        {
+            CheckBox parent;
+            if (!_traitBoxes.TryGetValue(parentKey, out parent)) return;
+            foreach (var trait in LexiconEntry.TraitCatalog)
+            {
+                if (trait.Parent != parentKey) continue;
+                CheckBox child;
+                if (!_traitBoxes.TryGetValue(trait.Key, out child)) continue;
+                child.IsEnabled = parent.IsChecked == true;
+                if (parent.IsChecked != true) child.IsChecked = false;
+            }
+        }
+
+        /// <summary>Le nom propre : sa sorte en boutons radio ; sous « Lieu »,
+        /// les cases de ce qu'il est ; sous « Gentilé », la case « Langue ».</summary>
+        private StackPanel BuildProperPanel(LexiconEntry initial)
+        {
+            var host = new StackPanel();
+            var initialKind = initial == null ? "" : initial.ProperKind;
+            foreach (var kind in LexiconEntry.ProperKinds)
+            {
+                var radio = new RadioButton
+                {
+                    Content = LexiconEntry.ProperKindLabel(kind),
+                    GroupName = "lexicon-proper",
+                    IsChecked = kind == initialKind,
+                    Margin = new Thickness(0, 2, 0, 0)
+                };
+                _properRadios[kind] = radio;
+                radio.IsCheckedChanged += delegate { UpdateProperChildren(); };
+                host.Children.Add(radio);
+                var children = new WrapPanel { Margin = new Thickness(26, 0, 0, 0) };
+                foreach (var trait in LexiconEntry.TraitsFor(LexiconEntry.ClassProper))
+                {
+                    if (trait.ProperKind != kind) continue;
+                    var box = new CheckBox
+                    {
+                        Content = trait.Label,
+                        IsChecked = initial != null && initial.HasTrait(trait.Key),
+                        Margin = new Thickness(0, 2, 14, 0)
+                    };
+                    _traitBoxes[trait.Key] = box;
+                    children.Children.Add(box);
+                }
+                if (children.Children.Count > 0) host.Children.Add(children);
+            }
+            UpdateProperChildren();
+            return host;
+        }
+
+        private void UpdateProperChildren()
+        {
+            var kind = SelectedProperKind();
+            foreach (var trait in LexiconEntry.TraitsFor(LexiconEntry.ClassProper))
+            {
+                CheckBox box;
+                if (trait.ProperKind == null || !_traitBoxes.TryGetValue(trait.Key, out box)) continue;
+                box.IsEnabled = trait.ProperKind == kind;
+                if (trait.ProperKind != kind) box.IsChecked = false;
+            }
+        }
+
+        private string SelectedProperKind()
+        {
+            foreach (var pair in _properRadios) if (pair.Value.IsChecked == true) return pair.Key;
+            return "";
+        }
+
+        // ------------------------------------------------------------ type et flexion
+
         private string SelectedClass()
         {
-            var index = _class.SelectedIndex;
-            return index < 0 ? LexiconEntry.ClassOther : LexiconEntry.Classes[index];
+            foreach (var pair in _classRadios) if (pair.Value.IsChecked == true) return pair.Key;
+            return LexiconEntry.ClassOther;
+        }
+
+        private void SelectClass(string cls)
+        {
+            RadioButton radio;
+            if (_classRadios.TryGetValue(cls, out radio)) radio.IsChecked = true;
+        }
+
+        private string SelectedGenders()
+        {
+            foreach (var pair in _genderRadios) if (pair.Value.IsChecked == true) return pair.Key;
+            return "";
+        }
+
+        private void OnClassChanged(string cls)
+        {
+            _syncing = true;
+            try
+            {
+                // Un nom propre est invariable d'office (29/09), un adjectif se
+                // décline aux deux genres : des départs, modifiables ensuite.
+                if (cls == LexiconEntry.ClassProper) _invariable.IsChecked = true;
+                if (cls == LexiconEntry.ClassAdjective && SelectedGenders().Length == 0) _genderRadios[LexiconEntry.GendersBoth].IsChecked = true;
+                if (cls == LexiconEntry.ClassNoun && SelectedGenders().Length == 0) _genderRadios[LexiconEntry.GendersMasculine].IsChecked = true;
+            }
+            finally { _syncing = false; }
+            UpdateVisibility();
+            RefreshForms();
         }
 
         private void UpdateVisibility()
         {
             var cls = SelectedClass();
-            var nominal = cls == LexiconEntry.ClassNoun || cls == LexiconEntry.ClassProper || cls == LexiconEntry.ClassAdjective;
-            _nominal.IsVisible = nominal ? true : false;
-            _feminineRow.IsVisible = cls == LexiconEntry.ClassAdjective || cls == LexiconEntry.ClassNoun
-                ? true : false;
+            var hasNature = _naturePanels.ContainsKey(cls);
+            _natureHost.IsVisible = hasNature ? true : false;
+            foreach (var pair in _naturePanels) pair.Value.IsVisible = pair.Key == cls ? true : false;
+            var flexion = cls == LexiconEntry.ClassNoun || cls == LexiconEntry.ClassAdjective || cls == LexiconEntry.ClassProper;
+            _flexion.IsVisible = flexion ? true : false;
+        }
+
+        /// <summary>Les quatre champs : ceux que la flexion choisie n'a pas
+        /// sont éteints ; les autres montrent la forme dérivée en filigrane.</summary>
+        private void RefreshForms()
+        {
+            if (_forms[3] == null || _preview == null) return;
+            var probe = Build();
+            probe.MascSg = probe.MascPl = probe.FemSg = probe.FemPl = "";
+            var derived = probe.DerivedForms();
+            var genders = probe.EffectiveGenders();
+            for (var i = 0; i < 4; i++)
+            {
+                var masculine = i < 2;
+                var enabled = probe.HasFlexion && (masculine ? genders != LexiconEntry.GendersFeminine : genders != LexiconEntry.GendersMasculine && genders.Length > 0);
+                _forms[i].IsEnabled = enabled;
+                _forms[i].Watermark = !enabled ? "" : derived[i] ?? (i % 2 == 1 ? "(pas de pluriel)" : "");
+            }
+            RefreshPreview();
         }
 
         private LexiconEntry Build()
         {
-            return new LexiconEntry
+            var cls = SelectedClass();
+            var entry = new LexiconEntry
             {
                 Word = (_word.Text ?? "").Trim(),
-                Class = SelectedClass(),
-                Gender = _gender.SelectedIndex == 1 ? "m" : _gender.SelectedIndex == 2 ? "f" : "",
-                Plural = _plural.SelectedIndex == 1 ? LexiconEntry.PluralX
-                       : _plural.SelectedIndex == 2 ? LexiconEntry.PluralInvariable : "",
-                Feminine = (_feminine.Text ?? "").Trim(),
+                Class = cls,
+                Genders = cls == LexiconEntry.ClassNoun || cls == LexiconEntry.ClassAdjective || cls == LexiconEntry.ClassProper ? SelectedGenders() : "",
+                Plural = _invariable.IsChecked == true ? LexiconEntry.PluralInvariable : (_initial != null && _initial.Plural == LexiconEntry.PluralX ? LexiconEntry.PluralX : ""),
+                MascSg = (_forms[0].Text ?? "").Trim(),
+                MascPl = (_forms[1].Text ?? "").Trim(),
+                FemSg = (_forms[2].Text ?? "").Trim(),
+                FemPl = (_forms[3].Text ?? "").Trim(),
                 Definition = (_definition.Text ?? "").Trim(),
-                Note = (_note.Text ?? "").Trim()
+                Note = (_note.Text ?? "").Trim(),
+                ProperKind = cls == LexiconEntry.ClassProper ? SelectedProperKind() : ""
             };
+            foreach (var trait in LexiconEntry.TraitCatalog)
+            {
+                CheckBox box;
+                if (trait.Class != cls || !_traitBoxes.TryGetValue(trait.Key, out box)) continue;
+                if (box.IsChecked == true && box.IsEnabled) entry.Traits.Add(trait.Key);
+            }
+            // La pastille se lève à la validation d'une entrée complète ; une
+            // entrée restée « autre » ou sans flexion la garde.
+            entry.NeedsReview = _initial != null && _initial.NeedsReview && !entry.IsComplete();
+            return entry;
         }
 
-        private void UpdatePreview()
+        private void RefreshPreview()
         {
             if (_preview == null) return;
             var entry = Build();
@@ -259,7 +491,7 @@ namespace Marabook.App
         }
 
         /// <summary>Variante « Ajouter au dictionnaire » : mot signalé
-        /// pré-rempli, nature devinée, portée fixée par le sous-menu.</summary>
+        /// pré-rempli, type deviné, portée fixée par le sous-menu.</summary>
         public static Task<LexiconEntry> AskForWord(Window owner, string word, bool projectScope)
         {
             return AskForWord(owner, word, projectScope, null);
@@ -269,7 +501,14 @@ namespace Marabook.App
         /// (les mots d'une fiche, 29/09) — un clic préremplit le mot.</summary>
         public static async Task<LexiconEntry> AskForWord(Window owner, string word, bool projectScope, IList<string> suggestions)
         {
-            var initial = new LexiconEntry { Word = word ?? "", Class = LexiconInflector.GuessClass(word) };
+            var guessed = LexiconInflector.GuessClass(word);
+            var initial = new LexiconEntry
+            {
+                Word = word ?? "",
+                Class = guessed,
+                Genders = guessed == LexiconEntry.ClassAdjective ? LexiconEntry.GendersBoth : guessed == LexiconEntry.ClassNoun || guessed == LexiconEntry.ClassProper ? LexiconEntry.GendersMasculine : "",
+                Plural = guessed == LexiconEntry.ClassProper ? LexiconEntry.PluralInvariable : ""
+            };
             var dialog = new LexiconEntryDialog(owner, initial, projectScope, false, suggestions);
             dialog.Title = "Ajouter au dictionnaire";
             await Dialogs.ShowModal(dialog, owner);

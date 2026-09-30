@@ -19,6 +19,8 @@ namespace Marabook.Tests
             Migration(t);
             JsonRoundTrip(t);
             Guess(t);
+            Flexion(t);
+            Format2(t);
         }
 
         private static bool Has(LexiconEntry entry, string form)
@@ -108,6 +110,7 @@ namespace Marabook.Tests
             LexiconEntry.MergeWords(entries, new[] { "Kaladin", "Syl", "", null, "Syl" });
             t.Equal(2, entries.Count, "les mots nus rejoignent sans doublon ni vide");
             t.Equal(LexiconEntry.ClassOther, entries[1].Class, "un mot migré est « autre »");
+            t.Check(entries[1].NeedsReview, "…et porte la pastille « migration nécessaire » (30/09)");
             var mixed = LexiconEntry.FromJsonList(new List<object> { "Dalinar", new Dictionary<string, object> { { "word", "Navani" }, { "class", "proper" } } });
             t.Equal(2, mixed.Count, "une liste mêlant chaînes et objets se lit");
             t.Equal(LexiconEntry.ClassProper, mixed[1].Class, "l'objet garde sa nature");
@@ -135,6 +138,59 @@ namespace Marabook.Tests
             t.Equal(LexiconEntry.ClassOther, bogus.Class, "une nature inconnue retombe sur « autre »");
             t.Check(LexiconEntry.FromJson(new Dictionary<string, object> { { "class", "noun" } }) == null,
                 "sans mot : pas d'entrée");
+        }
+
+        /// <summary>La flexion à quatre formes (30/09) : masculin et féminin,
+        /// masculin, féminin ; les formes posées priment sur la règle.</summary>
+        private static void Flexion(Harness t)
+        {
+            var feminine = new LexiconEntry { Word = "licorne", Class = LexiconEntry.ClassNoun, Genders = LexiconEntry.GendersFeminine };
+            t.Check(Has(feminine, "licorne") && Has(feminine, "licornes") && feminine.Forms().Count == 2, "nom féminin : le mot et son pluriel, pas de masculin");
+            var both = new LexiconEntry { Word = "spren", Class = LexiconEntry.ClassNoun, Genders = LexiconEntry.GendersBoth, FemSg = "sprenne" };
+            t.Check(Has(both, "spren") && Has(both, "sprens") && Has(both, "sprenne") && Has(both, "sprennes"), "nom des deux genres : quatre formes, le féminin posé");
+            var posedPlural = new LexiconEntry { Word = "vorinal", Class = LexiconEntry.ClassAdjective, Genders = LexiconEntry.GendersBoth, MascPl = "vorinaux" };
+            t.Check(Has(posedPlural, "vorinaux") && !Has(posedPlural, "vorinals") && Has(posedPlural, "vorinale"), "une forme posée remplace la règle, les autres restent dérivées");
+            var derived = both.Clone(); derived.FemSg = "";
+            var forms = derived.DerivedForms();
+            t.Check(forms[0] == "spren" && forms[1] == "sprens" && forms[2] == "sprenne" && forms[3] == "sprennes", "les quatre formes dérivées, en filigrane");
+            var place = new LexiconEntry { Word = "Kholinar", Class = LexiconEntry.ClassProper, Genders = LexiconEntry.GendersMasculine, Plural = LexiconEntry.PluralInvariable, ProperKind = LexiconEntry.ProperPlace };
+            place.Traits.Add("city");
+            t.Equal(1, place.Forms().Count, "nom propre invariable : le mot seul");
+            t.Check(place.IsComplete(), "type, flexion et sorte : complet");
+            t.Check(!new LexiconEntry { Word = "x", Class = LexiconEntry.ClassNoun }.IsComplete(), "un nom sans flexion n'est pas complet");
+            t.Check(!new LexiconEntry { Word = "X", Class = LexiconEntry.ClassProper, Genders = LexiconEntry.GendersMasculine }.IsComplete(), "un nom propre sans sorte n'est pas complet");
+            var role = new LexiconEntry { Word = "radiant", Class = LexiconEntry.ClassNoun, Genders = LexiconEntry.GendersBoth };
+            role.Traits.Add("person"); role.Traits.Add("role");
+            t.Check(role.Summary().Contains("personne, fonction sociale") && role.Summary().Contains("masculin et féminin"), "le résumé dit la nature et la flexion (" + role.Summary() + ")");
+            t.Check(place.Summary().Contains("lieu, ville"), "le résumé d'un nom propre dit sa sorte et ses cases");
+        }
+
+        /// <summary>Le format 2 (30/09) : l'ancien format se convertit à la
+        /// lecture et porte la pastille ; le nouveau fait l'aller-retour.</summary>
+        private static void Format2(Harness t)
+        {
+            var legacy = LexiconEntry.FromJson(new Dictionary<string, object> { { "word", "dragon" }, { "class", "noun" }, { "gender", "m" }, { "feminine", "dragonne" } });
+            t.Check(legacy.NeedsReview, "une entrée sans « v » : migration nécessaire");
+            t.Equal(LexiconEntry.GendersBoth, legacy.Genders, "un féminin explicite : les deux genres");
+            t.Equal("dragonne", legacy.FemSg, "le féminin migre dans fém. sg.");
+            t.Check(Has(legacy, "dragonnes") && Has(legacy, "dragons"), "les formes d'avant restent acceptées");
+            var verb = LexiconEntry.FromJson(new Dictionary<string, object> { { "word", "sprenner" }, { "class", "verb" } });
+            t.Check(!verb.NeedsReview, "un verbe n'a rien à revoir");
+            var masculine = LexiconEntry.FromJson(new Dictionary<string, object> { { "word", "Kaladin" }, { "class", "proper" }, { "gender", "m" } });
+            t.Equal(LexiconEntry.GendersMasculine, masculine.Genders, "le genre d'avant devient la flexion");
+            var entry = new LexiconEntry { Word = "Kholinar", Class = LexiconEntry.ClassProper, Genders = LexiconEntry.GendersMasculine, Plural = LexiconEntry.PluralInvariable, ProperKind = LexiconEntry.ProperPlace, MascPl = "Kholinars" };
+            entry.Traits.Add("city"); entry.Traits.Add("world");
+            var back = LexiconEntry.FromJson(entry.ToJson());
+            t.Check(!back.NeedsReview, "le format 2 relu n'a rien à revoir");
+            t.Equal(LexiconEntry.ProperPlace, back.ProperKind, "la sorte fait l'aller-retour");
+            t.Check(back.HasTrait("city") && back.HasTrait("world") && back.Traits.Count == 2, "les cases aussi");
+            t.Equal("Kholinars", back.MascPl, "une forme posée aussi");
+            t.Equal("m", back.Gender, "le genre d'avant est écrit en miroir (une version d'avant relit l'entrée)");
+            var flagged = entry.Clone(); flagged.NeedsReview = true;
+            t.Check(LexiconEntry.FromJson(flagged.ToJson()).NeedsReview, "la pastille se persiste");
+            t.Equal(1, LexiconEntry.CountNeedingReview(new List<LexiconEntry> { flagged, entry }), "le compte des entrées à revoir");
+            var bogusTrait = LexiconEntry.FromJson(new Dictionary<string, object> { { "word", "x" }, { "class", "noun" }, { "v", 2.0 }, { "traits", new List<object> { "person", "licorne" } } });
+            t.Check(bogusTrait.HasTrait("person") && bogusTrait.Traits.Count == 2 && bogusTrait.Summary().Contains("personne") && !bogusTrait.Summary().Contains("licorne"), "une case inconnue est gardée (une version plus récente la connaît) mais ne se dit pas");
         }
 
         private static void Guess(Harness t)

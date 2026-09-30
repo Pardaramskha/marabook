@@ -4,14 +4,27 @@ using System.Text;
 
 namespace Marabook.Model
 {
-    /// <summary>Une entrée du dictionnaire personnel (batch 33) — à la manière
-    /// d'Antidote : le mot ET sa nature grammaticale, d'où le correcteur tire
-    /// les FORMES acceptées (pluriel, féminin, conjugaison). Une entrée sans
-    /// nature (« autre ») n'accepte que le mot tel quel — c'est la
-    /// migration des anciens mots appris (listes de chaînes, .plot v9).</summary>
+    /// <summary>Une entrée du dictionnaire personnel (batch 33, refondue le
+    /// 30/09 à la manière d'Antidote) : le mot, son TYPE (nom, adjectif,
+    /// adverbe, nom propre — verbe conservé pour les verbes forgés), sa
+    /// NATURE (des cases qui précisent : personne, fonction sociale, animal,
+    /// nom d'habitant, adverbe de temps… ; pour un nom propre, sa sorte et,
+    /// pour un lieu, ce qu'il est), et sa FLEXION : masculin et féminin,
+    /// masculin, ou féminin, avec les quatre formes — masc. sg., masc. pl.,
+    /// fém. sg., fém. pl. — dérivées par la règle quand elles restent vides,
+    /// posées à la main sinon. Le correcteur en tire les formes acceptées.
+    ///
+    /// MIGRATION : une entrée de l'ancien format (sans clé « v ») est
+    /// convertie à la lecture — genre → flexion, féminin explicite → fém.
+    /// sg. — et marquée « migration nécessaire » (NeedsReview) tant que
+    /// l'utilisateur ne l'a pas revue dans le dialogue ; les mots nus des
+    /// premiers .plot deviennent des entrées « autre » à revoir de même.</summary>
     public class LexiconEntry
     {
-        // Natures : clés stables persistées.
+        /// <summary>La version du format persisté ; absente = ancien format.</summary>
+        public const int Format = 2;
+
+        // Types : clés stables persistées.
         public const string ClassNoun = "noun";
         public const string ClassProper = "proper";
         public const string ClassAdjective = "adjective";
@@ -19,32 +32,129 @@ namespace Marabook.Model
         public const string ClassAdverb = "adverb";
         public const string ClassOther = "other";
 
+        /// <summary>Les types dans l'ordre d'affichage : Nom, Adjectif,
+        /// Adverbe, Nom propre (la liste d'Antidote), puis Verbe ; « autre »
+        /// n'est que le type des mots importés ou migrés sans nature.</summary>
         public static readonly string[] Classes =
-        { ClassNoun, ClassProper, ClassAdjective, ClassVerb, ClassAdverb, ClassOther };
+        { ClassNoun, ClassAdjective, ClassAdverb, ClassProper, ClassVerb, ClassOther };
 
         // Pluriels : "s" (régulier), "x", "inv" (invariable).
         public const string PluralS = "s";
         public const string PluralX = "x";
         public const string PluralInvariable = "inv";
 
+        // Flexions : masculin et féminin, masculin, féminin ; "" = inconnue / sans objet.
+        public const string GendersBoth = "mf";
+        public const string GendersMasculine = "m";
+        public const string GendersFeminine = "f";
+
+        // Sortes de nom propre (boutons radio).
+        public const string ProperSurname = "surname";
+        public const string ProperFirstName = "firstname";
+        public const string ProperCompany = "company";
+        public const string ProperBrand = "brand";
+        public const string ProperPlace = "place";
+        public const string ProperDemonym = "demonym";
+        public const string ProperTitle = "title";
+        public const string ProperOther = "other";
+        public static readonly string[] ProperKinds =
+        { ProperSurname, ProperFirstName, ProperCompany, ProperBrand, ProperPlace, ProperDemonym, ProperTitle, ProperOther };
+
         public string Word = "";
         public string Class = ClassOther;
-        public string Gender = "";    // "m" | "f" | "" (noms, noms propres, adjectifs)
-        public string Plural = "";    // "s" | "x" | "inv" | "" (= régulier)
-        public string Feminine = "";  // forme féminine explicite ("" = dérivée par règle)
+        public string Gender = "";    // ANCIEN format : "m" | "f" | "" — relu, encore écrit en miroir de Genders
+        public string Plural = "";    // "s" | "x" | "inv" | "" (= régulier) : la règle qui dérive un pluriel vide
+        public string Feminine = "";  // ANCIEN format : forme féminine explicite (migrée dans FemSg)
         public string Definition = ""; // définition du mot, affichée dans le dictionnaire
         public string Note = "";      // commentaire libre
 
+        // ---- le format 2 (30/09)
+        public string Genders = "";   // "mf" | "m" | "f" | "" (inconnue, ou sans objet : adverbe, verbe, autre)
+        public string MascSg = "";    // les quatre formes ; vide = dérivée par la règle
+        public string MascPl = "";
+        public string FemSg = "";
+        public string FemPl = "";
+        public List<string> Traits = new List<string>(); // les natures cochées (clés de TraitDefinition)
+        public string ProperKind = ""; // nom propre : sa sorte (ProperKinds), "" = non précisée
+        public bool NeedsReview;      // « migration nécessaire » : venue de l'ancien format, pas encore revue
+
         public static LexiconEntry Simple(string word)
         {
-            return new LexiconEntry { Word = word ?? "", Class = ClassOther };
+            return new LexiconEntry { Word = word ?? "", Class = ClassOther, NeedsReview = true };
         }
+
+        // ------------------------------------------------------------ natures
+
+        /// <summary>Une nature à cocher : sa clé persistée, son libellé, le type
+        /// qui l'offre, et sa nature MÈRE quand elle en précise une (« Entité
+        /// non comptable » sous « Chose ou concept ») ; pour un nom propre,
+        /// la sorte qui l'offre (ProperKind) : les sous-cases de « Lieu ».</summary>
+        public sealed class TraitDefinition
+        {
+            public string Key, Label, Class, Parent, ProperKind;
+        }
+
+        public static readonly TraitDefinition[] TraitCatalog =
+        {
+            new TraitDefinition { Key = "thing", Label = "Chose ou concept", Class = ClassNoun },
+            new TraitDefinition { Key = "uncountable", Label = "Entité non comptable", Class = ClassNoun, Parent = "thing" },
+            new TraitDefinition { Key = "person", Label = "Personne", Class = ClassNoun },
+            new TraitDefinition { Key = "role", Label = "Fonction sociale", Class = ClassNoun, Parent = "person" },
+            new TraitDefinition { Key = "animal", Label = "Animal", Class = ClassNoun },
+            new TraitDefinition { Key = "unit", Label = "Unité de mesure", Class = ClassNoun },
+            new TraitDefinition { Key = "demonym", Label = "Nom d'habitant", Class = ClassAdjective },
+            new TraitDefinition { Key = "language", Label = "Langue", Class = ClassAdjective, Parent = "demonym" },
+            new TraitDefinition { Key = "manner", Label = "De manière", Class = ClassAdverb },
+            new TraitDefinition { Key = "time", Label = "De temps", Class = ClassAdverb },
+            new TraitDefinition { Key = "place", Label = "De lieu", Class = ClassAdverb },
+            new TraitDefinition { Key = "city", Label = "Ville", Class = ClassProper, ProperKind = ProperPlace },
+            new TraitDefinition { Key = "island", Label = "Île", Class = ClassProper, ProperKind = ProperPlace },
+            new TraitDefinition { Key = "country", Label = "Pays / Région", Class = ClassProper, ProperKind = ProperPlace },
+            new TraitDefinition { Key = "water", Label = "Plan ou cours d'eau", Class = ClassProper, ProperKind = ProperPlace },
+            new TraitDefinition { Key = "star", Label = "Astre", Class = ClassProper, ProperKind = ProperPlace },
+            new TraitDefinition { Key = "world", Label = "Monde", Class = ClassProper, ProperKind = ProperPlace },
+            new TraitDefinition { Key = "proper-language", Label = "Langue", Class = ClassProper, ProperKind = ProperDemonym },
+        };
+
+        /// <summary>Les natures offertes par un type, dans l'ordre du catalogue.</summary>
+        public static List<TraitDefinition> TraitsFor(string cls)
+        {
+            var result = new List<TraitDefinition>();
+            foreach (var trait in TraitCatalog) if (trait.Class == cls) result.Add(trait);
+            return result;
+        }
+
+        public static TraitDefinition TraitByKey(string key)
+        {
+            foreach (var trait in TraitCatalog) if (trait.Key == key) return trait;
+            return null;
+        }
+
+        public bool HasTrait(string key) { return Traits != null && Traits.Contains(key); }
+
+        public static string ProperKindLabel(string key)
+        {
+            switch (key ?? "")
+            {
+                case ProperSurname: return "Nom de famille";
+                case ProperFirstName: return "Prénom";
+                case ProperCompany: return "Raison sociale";
+                case ProperBrand: return "Marque";
+                case ProperPlace: return "Lieu";
+                case ProperDemonym: return "Gentilé";
+                case ProperTitle: return "Titre d'œuvre";
+                case ProperOther: return "Autre";
+                default: return "";
+            }
+        }
+
+        // ------------------------------------------------------------ libellés
 
         public static string ClassLabel(string key)
         {
             switch (key ?? "")
             {
-                case ClassNoun: return "Nom commun";
+                case ClassNoun: return "Nom";
                 case ClassProper: return "Nom propre";
                 case ClassAdjective: return "Adjectif";
                 case ClassVerb: return "Verbe";
@@ -63,6 +173,17 @@ namespace Marabook.Model
             }
         }
 
+        public static string GendersLabel(string key)
+        {
+            switch (key ?? "")
+            {
+                case GendersBoth: return "masculin et féminin";
+                case GendersMasculine: return "masculin";
+                case GendersFeminine: return "féminin";
+                default: return "";
+            }
+        }
+
         public static string PluralLabel(string key)
         {
             switch (key ?? "")
@@ -73,32 +194,97 @@ namespace Marabook.Model
             }
         }
 
-        /// <summary>Un résumé d'une ligne : « Nom commun, masculin, pluriel en -s ».</summary>
+        /// <summary>Les types qui se fléchissent : nom, adjectif, nom propre.</summary>
+        public bool HasFlexion
+        {
+            get { return Class == ClassNoun || Class == ClassAdjective || Class == ClassProper; }
+        }
+
+        /// <summary>La flexion effective : celle posée, sinon celle que
+        /// l'ancien format laisse deviner (genre, féminin explicite, adjectif
+        /// = les deux) ; "" quand rien ne le dit.</summary>
+        public string EffectiveGenders()
+        {
+            if (!HasFlexion) return "";
+            if (Genders == GendersBoth || Genders == GendersMasculine || Genders == GendersFeminine) return Genders;
+            if (Feminine.Trim().Length > 0 || FemSg.Trim().Length > 0) return GendersBoth;
+            if (Class == ClassAdjective) return GendersBoth;
+            if (Gender == "m") return GendersMasculine;
+            if (Gender == "f") return GendersFeminine;
+            return "";
+        }
+
+        /// <summary>Un résumé d'une ligne : « Nom · personne, fonction sociale ·
+        /// masculin et féminin ».</summary>
         public string Summary()
         {
             var parts = new List<string> { ClassLabel(Class) };
-            if (Class == ClassNoun || Class == ClassProper || Class == ClassAdjective)
+            var natures = new List<string>();
+            if (Class == ClassProper && ProperKind.Length > 0) natures.Add(ProperKindLabel(ProperKind).ToLowerInvariant());
+            foreach (var key in Traits)
             {
-                var gender = GenderLabel(Gender);
-                if (gender.Length > 0) parts.Add(gender);
-                parts.Add(PluralLabel(Plural));
-                if (Class == ClassAdjective || (Class == ClassNoun && Feminine.Length > 0))
-                {
-                    var feminine = FeminineForm();
-                    if (feminine != null && feminine != Word) parts.Add("féminin " + feminine);
-                }
+                var trait = TraitByKey(key);
+                if (trait != null && trait.Class == Class) natures.Add(trait.Label.ToLowerInvariant());
+            }
+            if (natures.Count > 0) parts.Add(string.Join(", ", natures.ToArray()));
+            if (HasFlexion)
+            {
+                var genders = GendersLabel(EffectiveGenders());
+                if (genders.Length > 0) parts.Add(genders);
+                if (Plural == PluralInvariable) parts.Add("invariable");
+                else if (Plural == PluralX) parts.Add("pluriel en -x");
+                var feminine = FeminineForm();
+                if ((FemSg.Trim().Length > 0 || Feminine.Trim().Length > 0) && feminine != null && feminine != Word)
+                    parts.Add("féminin " + feminine);
             }
             if (Class == ClassVerb)
                 parts.Add(LexiconInflector.VerbGroup(Word) == 0 ? "infinitif seul" : "conjugaison régulière");
-            return string.Join(", ", parts.ToArray());
+            return string.Join(" · ", parts.ToArray());
         }
 
-        /// <summary>La forme féminine effective : explicite, sinon dérivée.</summary>
+        /// <summary>La forme féminine singulière effective : posée (fém. sg.,
+        /// ou l'ancien féminin explicite), sinon dérivée ; null quand la
+        /// flexion n'a pas de féminin.</summary>
         public string FeminineForm()
         {
+            if (FemSg.Trim().Length > 0) return FemSg.Trim();
             if (Feminine.Trim().Length > 0) return Feminine.Trim();
-            if (Class == ClassAdjective) return LexiconInflector.DeriveFeminine(Word);
-            return null;
+            var genders = EffectiveGenders();
+            if (genders == GendersFeminine) return MascSg.Trim().Length > 0 ? null : Word.Trim();
+            if (genders != GendersBoth) return null;
+            return LexiconInflector.DeriveFeminine(MasculineForm());
+        }
+
+        /// <summary>La forme masculine singulière : posée, sinon le mot.</summary>
+        public string MasculineForm()
+        {
+            return MascSg.Trim().Length > 0 ? MascSg.Trim() : Word.Trim();
+        }
+
+        /// <summary>Les quatre formes telles que la règle les DÉRIVERAIT si les
+        /// champs restaient vides (le dialogue les montre en filigrane) :
+        /// [masc. sg., masc. pl., fém. sg., fém. pl.], null = sans objet.</summary>
+        public string[] DerivedForms()
+        {
+            var result = new string[4];
+            if (!HasFlexion) return result;
+            var genders = EffectiveGenders();
+            if (genders.Length == 0) genders = GendersMasculine;
+            var word = Word.Trim();
+            if (genders != GendersFeminine)
+            {
+                result[0] = word;
+                result[1] = LexiconInflector.Pluralize(word, Plural);
+            }
+            if (genders != GendersMasculine)
+            {
+                var feminine = genders == GendersFeminine ? word
+                    : Feminine.Trim().Length > 0 ? Feminine.Trim()
+                    : LexiconInflector.DeriveFeminine(word);
+                result[2] = feminine;
+                result[3] = LexiconInflector.Pluralize(feminine, Plural == PluralInvariable ? PluralInvariable : PluralS);
+            }
+            return result;
         }
 
         /// <summary>Toutes les formes que le correcteur accepte pour cette
@@ -108,13 +294,26 @@ namespace Marabook.Model
             return LexiconInflector.Forms(this);
         }
 
+        /// <summary>L'entrée est-elle complète au sens du nouveau format : un
+        /// type, une flexion quand le type en a une, une sorte pour un nom
+        /// propre ? Le dialogue s'en sert pour lever la pastille.</summary>
+        public bool IsComplete()
+        {
+            if (Class == ClassOther) return false;
+            if (HasFlexion && EffectiveGenders().Length == 0) return false;
+            if (Class == ClassProper && ProperKind.Length == 0) return false;
+            return true;
+        }
+
         public LexiconEntry Clone()
         {
             return new LexiconEntry
             {
                 Word = Word, Class = Class, Gender = Gender,
                 Plural = Plural, Feminine = Feminine,
-                Definition = Definition, Note = Note
+                Definition = Definition, Note = Note,
+                Genders = Genders, MascSg = MascSg, MascPl = MascPl, FemSg = FemSg, FemPl = FemPl,
+                Traits = new List<string>(Traits), ProperKind = ProperKind, NeedsReview = NeedsReview
             };
         }
 
@@ -125,11 +324,25 @@ namespace Marabook.Model
             var node = new Dictionary<string, object>();
             node["word"] = Word;
             node["class"] = Class;
-            if (Gender.Length > 0) node["gender"] = Gender;
+            node["v"] = Format;
+            // Les clés de l'ancien format en miroir : une version d'avant lit
+            // encore le genre et le féminin de l'entrée.
+            var genders = EffectiveGenders();
+            var mirrorGender = genders == GendersMasculine ? "m" : genders == GendersFeminine ? "f" : Gender;
+            if (mirrorGender.Length > 0) node["gender"] = mirrorGender;
             if (Plural.Length > 0) node["plural"] = Plural;
-            if (Feminine.Length > 0) node["feminine"] = Feminine;
+            var feminine = Feminine.Trim().Length > 0 ? Feminine.Trim() : FemSg.Trim(); // l'ancien champ tel quel s'il vit encore, sinon la forme posée
+            if (feminine.Length > 0) node["feminine"] = feminine;
             if (Definition.Length > 0) node["definition"] = Definition;
             if (Note.Length > 0) node["note"] = Note;
+            if (Genders.Length > 0) node["genders"] = Genders;
+            if (MascSg.Length > 0) node["ms"] = MascSg;
+            if (MascPl.Length > 0) node["mp"] = MascPl;
+            if (FemSg.Length > 0) node["fs"] = FemSg;
+            if (FemPl.Length > 0) node["fp"] = FemPl;
+            if (Traits.Count > 0) node["traits"] = new List<object>(Traits.ToArray());
+            if (ProperKind.Length > 0) node["properKind"] = ProperKind;
+            if (NeedsReview) node["review"] = true;
             return node;
         }
 
@@ -147,7 +360,62 @@ namespace Marabook.Model
                 Note = Json.AsString(Json.Field(node, "note")) ?? ""
             };
             if (Array.IndexOf(Classes, entry.Class) < 0) entry.Class = ClassOther;
-            return entry.Word.Trim().Length == 0 ? null : entry;
+            if (entry.Word.Trim().Length == 0) return null;
+            var raw = Json.Field(node, "v");
+            var version = raw is int ? (int)raw : raw is long ? (int)(long)raw : (int)Json.AsDouble(raw, 0);
+            if (version < Format)
+            {
+                Migrate(entry);
+                return entry;
+            }
+            // Relu tel quel, sans filtre (30/09) : une valeur qu'une version
+            // plus récente connaît survit à l'aller-retour ; l'inconnu est
+            // simplement ignoré par les règles.
+            entry.Genders = Json.AsString(Json.Field(node, "genders")) ?? "";
+            entry.MascSg = Json.AsString(Json.Field(node, "ms")) ?? "";
+            entry.MascPl = Json.AsString(Json.Field(node, "mp")) ?? "";
+            entry.FemSg = Json.AsString(Json.Field(node, "fs")) ?? "";
+            entry.FemPl = Json.AsString(Json.Field(node, "fp")) ?? "";
+            var traits = Json.AsList(Json.Field(node, "traits"));
+            if (traits != null)
+                foreach (var item in traits)
+                {
+                    var key = Json.AsString(item);
+                    if (!string.IsNullOrEmpty(key) && !entry.Traits.Contains(key)) entry.Traits.Add(key);
+                }
+            entry.ProperKind = Json.AsString(Json.Field(node, "properKind")) ?? "";
+            entry.NeedsReview = Json.AsBool(Json.Field(node, "review"), false);
+            return entry;
+        }
+
+        /// <summary>La conversion d'une entrée de l'ANCIEN format (30/09) — le
+        /// script de migration, appliqué à la lecture des .plot, des réglages
+        /// et des dictionnaires exportés : le genre devient la flexion, le
+        /// féminin explicite la forme fém. sg. ; un verbe n'a rien à revoir,
+        /// tout le reste porte la pastille « migration nécessaire » jusqu'à
+        /// ce que type, nature et flexion aient été confirmés.</summary>
+        public static void Migrate(LexiconEntry entry)
+        {
+            if (entry == null) return;
+            if (entry.Feminine.Trim().Length > 0)
+            {
+                entry.FemSg = entry.Feminine.Trim();
+                entry.Genders = GendersBoth;
+            }
+            else if (entry.Class == ClassAdjective) entry.Genders = GendersBoth;
+            else if (entry.Gender == "m") entry.Genders = GendersMasculine;
+            else if (entry.Gender == "f") entry.Genders = GendersFeminine;
+            entry.Feminine = "";
+            entry.NeedsReview = entry.Class != ClassVerb;
+        }
+
+        /// <summary>Convertit une liste entière ; rend le nombre d'entrées
+        /// qui restent à revoir.</summary>
+        public static int CountNeedingReview(List<LexiconEntry> entries)
+        {
+            var count = 0;
+            if (entries != null) foreach (var entry in entries) if (entry.NeedsReview) count++;
+            return count;
         }
 
         public static List<object> ToJsonList(List<LexiconEntry> entries)
@@ -158,7 +426,7 @@ namespace Marabook.Model
         }
 
         /// <summary>Lit une liste d'entrées ; les chaînes nues (anciens mots
-        /// appris) deviennent des entrées « autre ».</summary>
+        /// appris) deviennent des entrées « autre » à revoir.</summary>
         public static List<LexiconEntry> FromJsonList(List<object> list)
         {
             var entries = new List<LexiconEntry>();
@@ -212,33 +480,27 @@ namespace Marabook.Model
     /// Testé en console (suite C11).</summary>
     public static class LexiconInflector
     {
+        /// <summary>Les formes acceptées : le mot, puis — nom, adjectif, nom
+        /// propre — les quatre formes de la flexion (posées, sinon dérivées),
+        /// — verbe — la conjugaison régulière.</summary>
         public static List<string> Forms(LexiconEntry entry)
         {
             var forms = new List<string>();
             var word = (entry.Word ?? "").Trim();
             if (word.Length == 0) return forms;
             Add(forms, word);
-            switch (entry.Class)
+            if (entry.HasFlexion)
             {
-                case LexiconEntry.ClassNoun:
-                case LexiconEntry.ClassProper:
-                    Add(forms, Pluralize(word, entry.Plural));
-                    if (entry.Feminine.Trim().Length > 0)
-                    {
-                        Add(forms, entry.Feminine.Trim());
-                        Add(forms, Pluralize(entry.Feminine.Trim(), LexiconEntry.PluralS));
-                    }
-                    break;
-                case LexiconEntry.ClassAdjective:
-                    Add(forms, Pluralize(word, entry.Plural));
-                    var feminine = entry.FeminineForm() ?? word;
-                    Add(forms, feminine);
-                    Add(forms, Pluralize(feminine, LexiconEntry.PluralS));
-                    break;
-                case LexiconEntry.ClassVerb:
-                    foreach (var form in Conjugate(word)) Add(forms, form);
-                    break;
+                var derived = entry.DerivedForms();
+                var explicitForms = new[] { entry.MascSg, entry.MascPl, entry.FemSg, entry.FemPl };
+                for (var i = 0; i < 4; i++)
+                {
+                    var posed = (explicitForms[i] ?? "").Trim();
+                    Add(forms, posed.Length > 0 ? posed : derived[i]);
+                }
             }
+            else if (entry.Class == LexiconEntry.ClassVerb)
+                foreach (var form in Conjugate(word)) Add(forms, form);
             return forms;
         }
 
@@ -252,7 +514,7 @@ namespace Marabook.Model
         /// -x (« -al » → « -aux », « -au/-eu » → « -x »), ou invariable.</summary>
         public static string Pluralize(string word, string plural)
         {
-            if (word.Length == 0 || plural == LexiconEntry.PluralInvariable) return null;
+            if (word == null || word.Length == 0 || plural == LexiconEntry.PluralInvariable) return null;
             var last = char.ToLowerInvariant(word[word.Length - 1]);
             if (last == 's' || last == 'x' || last == 'z') return null;
             if (plural == LexiconEntry.PluralX)
@@ -266,13 +528,13 @@ namespace Marabook.Model
             return word + "s";
         }
 
-        /// <summary>Le féminin régulier d'un adjectif masculin : -e → même
-        /// forme ; -eux → -euse ; -eur → -euse ; -teur → -trice ; -if → -ive ;
+        /// <summary>Le féminin régulier d'un masculin : -e → même forme ;
+        /// -eux → -euse ; -eur → -euse ; -teur → -trice ; -if → -ive ;
         /// -el/-eil/-en/-on/-et → consonne doublée + e ; -er → -ère ;
         /// -c → -que ; -g → -gue ; -x → -se ; sinon + e.</summary>
         public static string DeriveFeminine(string word)
         {
-            if (word.Length == 0) return word;
+            if (word == null || word.Length == 0) return word;
             var lower = word.ToLowerInvariant();
             if (lower.EndsWith("e")) return word;
             if (lower.EndsWith("eux")) return word.Substring(0, word.Length - 3) + "euse";
@@ -363,8 +625,8 @@ namespace Marabook.Model
             return forms;
         }
 
-        /// <summary>Devine la nature d'un mot signalé : une majuscule
-        /// initiale suggère un nom propre, une finale en -er/-ir un verbe.</summary>
+        /// <summary>Devine le type d'un mot signalé : une majuscule initiale
+        /// suggère un nom propre, une finale en -er/-ir un verbe.</summary>
         public static string GuessClass(string word)
         {
             if (string.IsNullOrEmpty(word)) return LexiconEntry.ClassOther;

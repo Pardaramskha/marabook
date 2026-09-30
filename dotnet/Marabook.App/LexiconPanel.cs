@@ -23,6 +23,7 @@ namespace Marabook.App
     public class LexiconPanel : DockPanel
     {
         private readonly TextBlock _word, _summary, _scope, _definition, _note, _empty;
+        private readonly Border _review; // « migration nécessaire » (30/09)
         private readonly StackPanel _body;
         private readonly ToggleButton _pin;
         private readonly Button _edit;
@@ -92,6 +93,9 @@ namespace Marabook.App
             _note = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, FontStyle = FontStyle.Italic, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0) };
             _body.Children.Add(_word);
             _body.Children.Add(_summary);
+            _review = DictionaryView.ReviewPill();
+            _review.Margin = new Thickness(0, 4, 0, 0);
+            _body.Children.Add(_review);
             _body.Children.Add(_scope);
             _body.Children.Add(_definition);
             _body.Children.Add(_note);
@@ -143,6 +147,7 @@ namespace Marabook.App
             if (!has) return;
             _word.Text = entry.Word;
             _summary.Text = entry.Summary();
+            _review.IsVisible = entry.NeedsReview ? true : false;
             _scope.Text = projectScope ? "Dictionnaire du projet" : "Dictionnaire de tous les projets";
             var definition = (entry.Definition ?? "").Trim();
             _definition.Text = definition.Length > 0 ? definition

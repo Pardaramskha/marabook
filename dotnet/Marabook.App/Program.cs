@@ -37,6 +37,32 @@ namespace Marabook.App
                 Console.WriteLine("Styles globaux remis aux défauts de Marabook.");
                 return 0;
             }
+            // « --convertir-dictionnaire <fichier> » (30/09) : le script de
+            // migration d'un dictionnaire EXPORTÉ (.json Marabook, ou liste
+            // .txt/.dic) vers le format à types, natures et flexion — écrit en
+            // .json à côté, l'original gardé en .bak. Les .plot et les réglages
+            // se convertissent d'eux-mêmes à l'ouverture (LexiconEntry.Migrate).
+            var convertAt = Array.IndexOf(Args, "--convertir-dictionnaire");
+            if (convertAt >= 0)
+            {
+                if (convertAt + 1 >= Args.Length) { Console.Error.WriteLine("Usage : --convertir-dictionnaire <fichier.json|.txt|.dic>"); return 2; }
+                var source = Args[convertAt + 1];
+                try
+                {
+                    var entries = Model.LexiconExchange.Read(source);
+                    System.IO.File.Copy(source, source + ".bak", true);
+                    var target = System.IO.Path.ChangeExtension(source, ".json");
+                    Model.LexiconExchange.Export(entries, target);
+                    Console.WriteLine(entries.Count + " entrée(s) converties dans " + target + " ; "
+                        + Model.LexiconEntry.CountNeedingReview(entries) + " à revoir (pastille « migration nécessaire ») ; original gardé : " + source + ".bak");
+                    return 0;
+                }
+                catch (Exception error)
+                {
+                    Console.Error.WriteLine("Conversion impossible : " + error.Message);
+                    return 1;
+                }
+            }
             // Les .plot s'ouvrent d'un double-clic si rien ne les ouvrait (22/09) —
             // jamais depuis une sonde ou une capture.
             if (!Launch.Parse(Args).Isolated) FileAssociation.EnsureRegistered();
