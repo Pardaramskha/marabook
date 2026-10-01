@@ -604,7 +604,7 @@ namespace Marabook.Tests
             watch.Stop();
             t.Info("50 000 mots vérifiés en " + watch.ElapsedMilliseconds
                 + " ms (" + findings.Count + " signalements)");
-            t.Check(watch.ElapsedMilliseconds < 500,
+            t.Check(watch.ElapsedMilliseconds < Harness.Budget(500),
                 "la passe complète tient largement sous la demi-seconde");
             t.Check(findings.Count > 0, "le texte zipfien produit des répétitions");
         }
