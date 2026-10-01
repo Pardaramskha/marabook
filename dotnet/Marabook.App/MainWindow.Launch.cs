@@ -28,6 +28,7 @@ namespace Marabook.App
         public MainWindow(Launch launch) : this()
         {
             _launch = launch ?? new Launch();
+            Opened += delegate { ScheduleUpdateCheck(); }; // la vérification silencieuse du lancement (01/10)
             if (_launch.Isolated)
             {
                 WindowState = WindowState.Normal;
@@ -78,6 +79,7 @@ namespace Marabook.App
                 }
                 if (_launch.Probe) { await Probes.Run(this); QuitNow(); return; }
                 if (_launch.FontProbe != null) { FontProbe(_launch.FontProbe); QuitNow(); return; }
+                if (_launch.UpdateProbe) { UpdateProbe(); QuitNow(); return; }
                 if (_launch.UpdateRolledBack)
                     await MessageDialog.Show(this, "La mise à jour n'a pas pu démarrer : la version précédente a été remise en place.\n\nRéessayez plus tard depuis Aide › Vérifier les mises à jour, ou téléchargez la release depuis GitHub.",
                         "Mise à jour annulée", MessageButtons.OK, MessageIcon.Warning);
@@ -125,6 +127,35 @@ namespace Marabook.App
 
         /// <summary>--open : l'élément de ce titre (ou « journal ») est ouvert
         /// avant la capture.</summary>
+        /// <summary>« --maj-test » (01/10) : le chemin de la mise à jour tel que
+        /// le lancement le suit — GitHub interrogé, la dernière release comparée
+        /// à 0.0.0 (pour toujours la trouver plus récente), l'archive de ce
+        /// système téléchargée et déballée dans un dossier temporaire, le
+        /// contenu compté — puis tout est jeté. Rien n'est installé.</summary>
+        private static void UpdateProbe()
+        {
+            Console.WriteLine("== Mise à jour (" + Updater.PortableZip + ")");
+            var check = Updater.Run("0.0.0");
+            Console.WriteLine("  GitHub : " + check.Message + (check.Latest == null ? "" : " — " + check.Latest.ZipUrl));
+            if (!check.Available || check.Latest == null) { Console.WriteLine("  MAJ ÉCHEC : rien à télécharger"); Environment.ExitCode = 1; return; }
+            try
+            {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                var prepared = Updater.Prepare(check.Latest);
+                var files = System.IO.Directory.GetFiles(prepared.Content, "*", System.IO.SearchOption.AllDirectories).Length;
+                Console.WriteLine("  téléchargée et déballée en " + watch.Elapsed.TotalSeconds.ToString("0.0") + " s : " + files + " fichiers, "
+                    + Updater.Exe + (System.IO.File.Exists(System.IO.Path.Combine(prepared.Content, Updater.Exe)) ? " présent" : " ABSENT")
+                    + " (version " + prepared.Info.Version + ")");
+                prepared.Discard();
+                Console.WriteLine("  MAJ OK");
+            }
+            catch (Exception failure)
+            {
+                Console.WriteLine("  MAJ ÉCHEC : " + failure.Message);
+                Environment.ExitCode = 1;
+            }
+        }
+
         /// <summary>« --police famille » (29/09) : comment le moteur résout la
         /// face pour chaque graisse — le nom réel, la graisse obtenue, les
         /// simulations (gras/oblique synthétiques). Diagnostic d'un corps

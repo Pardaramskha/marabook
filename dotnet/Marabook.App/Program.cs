@@ -99,8 +99,9 @@ namespace Marabook.App
         public string SettingsPath; // un settings.json à part
         public bool SaveProbe;      // --save-probe : ouvre le .plot donné, le marque modifié, l'enregistre (silencieux), dit OK ou la pile, quitte
         public string FontProbe;    // --police <famille> : dit comment la face se résout (graisse, simulations), puis quitte (29/09)
+        public bool UpdateProbe;    // --maj-test : interroge GitHub, télécharge et déballe la dernière release comme au lancement, dit le résultat, quitte (01/10)
 
-        public bool Isolated { get { return Demo || Probe || CapturePath != null || SaveProbe || FontProbe != null; } }
+        public bool Isolated { get { return Demo || Probe || CapturePath != null || SaveProbe || FontProbe != null || UpdateProbe; } }
 
         public static Launch Parse(string[] args)
         {
@@ -120,6 +121,7 @@ namespace Marabook.App
                 if (arg == "--lab") { launch.Lab = true; continue; }
                 if (arg == "--save-probe") { launch.SaveProbe = true; continue; }
                 if (arg == "--police" && i + 1 < args.Length) { launch.FontProbe = args[++i]; continue; } // diagnostic : comment la face se résout (29/09)
+                if (arg == "--maj-test") { launch.UpdateProbe = true; continue; } // diagnostic de la mise à jour (01/10)
                 if (arg == "--scale" && i + 1 < args.Length) { double.TryParse(args[++i], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out launch.Scale); continue; }
                 if (arg.StartsWith("--", StringComparison.Ordinal)) continue;
                 if (File.Exists(arg)) launch.PlotPath = Path.GetFullPath(arg);

@@ -439,7 +439,8 @@ namespace Marabook.App
 
             // --- Aide ---
             var help = new MenuItem { Header = "Aid_e" };
-            help.Items.Add(Entry(null, "Vérifier les mises à jour…", CheckUpdates));
+            _updatesMenu = Entry(null, "Vérifier les mises à jour…", CheckUpdates); // porte un ● quand une mise à jour est prête (01/10)
+            help.Items.Add(_updatesMenu);
             help.Items.Add(Entry(null, "Rapports de plantage…", ShowCrashReports));
             help.Items.Add(Entry(null, "Ouvrir le dossier d'installation", OpenInstallFolder));
             help.Items.Add(new Separator());
@@ -2155,46 +2156,131 @@ namespace Marabook.App
         /// <summary>Aide → Vérifier les mises à jour (standard de la famille
         /// Stargazer) : la vérification en fond, puis le verdict — et
         /// l'installation sur place si une version est publiée.</summary>
-        private void CheckUpdates()
+        // ============================================================= mises à jour
+
+        private Updater.Prepared _preparedUpdate; // téléchargée au lancement, prête à poser (01/10)
+        private MenuItem _updatesMenu;
+        private bool _updateCheckRunning;
+
+        /// <summary>La vérification SILENCIEUSE du lancement (01/10) : quelques
+        /// secondes après l'ouverture, GitHub est interrogé sur un fil de
+        /// fond ; s'il y a plus récent, l'archive est téléchargée et déballée
+        /// tranquillement, puis un toast propose d'installer et le menu Aide
+        /// porte un point ●. Rien ne se dit si le réseau manque. Jamais en
+        /// sonde, démo ou capture (lancements isolés).</summary>
+        private void ScheduleUpdateCheck()
         {
-            var version = AppVersion;
-            System.Threading.Tasks.Task.Factory.StartNew(delegate { return Updater.Run(version); })
-                .ContinueWith(delegate(System.Threading.Tasks.Task<Updater.Check> done)
+            if (_launch != null && _launch.Isolated) return;
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
+            timer.Tick += delegate
+            {
+                timer.Stop();
+                var version = AppVersion;
+                if (_updateCheckRunning || _preparedUpdate != null) return;
+                _updateCheckRunning = true;
+                System.Threading.Tasks.Task.Factory.StartNew(delegate
                 {
-                    var check = done.Status == System.Threading.Tasks.TaskStatus.RanToCompletion ? done.Result : null;
-                    Ui.Post(DispatcherPriority.Background, new Action(async delegate
+                    var check = Updater.Run(version);
+                    if (!check.Available || check.Latest == null) return null;
+                    return Updater.Prepare(check.Latest);
+                }).ContinueWith(delegate(System.Threading.Tasks.Task<Updater.Prepared> done)
+                {
+                    var prepared = done.Status == System.Threading.Tasks.TaskStatus.RanToCompletion ? done.Result : null;
+                    Ui.Post(DispatcherPriority.Background, new Action(delegate
                     {
-                        if (check == null)
-                        {
-                            MessageDialog.Show(this, "Vérification impossible.", "Mise à jour",
-                                MessageButtons.OK, MessageIcon.Warning);
-                            return;
-                        }
-                        if (!check.Available || check.Latest == null)
-                        {
-                            MessageDialog.Show(this, check.Message + " (" + version + ").", "Mise à jour",
-                                MessageButtons.OK, MessageIcon.Information);
-                            return;
-                        }
-                        var install = MessageDialog.Show(this,
-                            check.Message + ".\n\nL'installer et redémarrer Marabook ?\n"
-                            + "(l'archive est téléchargée, l'application se ferme, les fichiers "
-                            + "sont remplacés — vos projets et réglages restent — et Marabook redémarre)",
-                            "Mise à jour", MessageButtons.YesNo, MessageIcon.Question);
-                        if (await install != MessageResult.Yes) return;
-                        if (!await ConfirmDiscard()) return;
-                        try
-                        {
-                            Updater.Install(check.Latest, AppDomain.CurrentDomain.BaseDirectory);
-                            App.Exit();
-                        }
-                        catch (Exception failure)
-                        {
-                            MessageDialog.Show(this, "Mise à jour impossible : " + failure.Message,
-                                "Mise à jour", MessageButtons.OK, MessageIcon.Warning);
-                        }
+                        _updateCheckRunning = false;
+                        if (prepared == null) return;
+                        OfferPreparedUpdate(prepared);
                     }));
                 });
+            };
+            timer.Start();
+        }
+
+        /// <summary>Une mise à jour prête : le point ● sur le menu Aide et le
+        /// toast « Installer et redémarrer / Plus tard ».</summary>
+        private void OfferPreparedUpdate(Updater.Prepared prepared)
+        {
+            if (_preparedUpdate != null && _preparedUpdate != prepared) _preparedUpdate.Discard();
+            _preparedUpdate = prepared;
+            if (_updatesMenu != null) _updatesMenu.Header = "Vérifier les mises à jour… ●";
+            ShowNotice(NoticeToast.Build("file-arrow-down-bold", "Marabook " + prepared.Info.Version + " est prête",
+                "La mise à jour est téléchargée. L'installer ferme Marabook, remplace les fichiers (vos projets et réglages restent) et le relance.",
+                "Installer et redémarrer", delegate { var _ = InstallPreparedUpdate(); }, "Plus tard", null));
+        }
+
+        /// <summary>Pose la mise à jour préparée : enregistrement proposé,
+        /// script lancé, application fermée. Faux si l'utilisateur renonce.</summary>
+        private async System.Threading.Tasks.Task<bool> InstallPreparedUpdate()
+        {
+            var prepared = _preparedUpdate;
+            if (prepared == null) return false;
+            if (!await ConfirmDiscard()) return false;
+            await SaveCompletion();
+            try
+            {
+                Updater.Install(prepared, AppDomain.CurrentDomain.BaseDirectory);
+                _preparedUpdate = null;
+                App.Exit();
+                return true;
+            }
+            catch (Exception failure)
+            {
+                MessageDialog.Show(this, "Mise à jour impossible : " + failure.Message,
+                    "Mise à jour", MessageButtons.OK, MessageIcon.Warning);
+                return false;
+            }
+        }
+
+        /// <summary>Aide › Vérifier les mises à jour : si le lancement en a
+        /// déjà préparé une, la question d'installer tout de suite ; sinon la
+        /// vérification, le téléchargement sous l'anneau, puis la question.</summary>
+        private async void CheckUpdates()
+        {
+            var version = AppVersion;
+            if (_preparedUpdate != null)
+            {
+                var now = MessageDialog.Show(this,
+                    "Marabook " + _preparedUpdate.Info.Version + " est téléchargée et prête.\n\nL'installer et redémarrer Marabook ?",
+                    "Mise à jour", MessageButtons.YesNo, MessageIcon.Question);
+                if (await now == MessageResult.Yes) await InstallPreparedUpdate();
+                return;
+            }
+            Updater.Check check = null;
+            try { check = await System.Threading.Tasks.Task.Run(delegate { return Updater.Run(version); }); }
+            catch (Exception) { check = null; }
+            if (check == null)
+            {
+                MessageDialog.Show(this, "Vérification impossible.", "Mise à jour",
+                    MessageButtons.OK, MessageIcon.Warning);
+                return;
+            }
+            if (!check.Available || check.Latest == null)
+            {
+                MessageDialog.Show(this, check.Message + " (" + version + ").", "Mise à jour",
+                    MessageButtons.OK, MessageIcon.Information);
+                return;
+            }
+            var install = MessageDialog.Show(this,
+                check.Message + ".\n\nL'installer et redémarrer Marabook ?\n"
+                + "(l'archive est téléchargée, l'application se ferme, les fichiers "
+                + "sont remplacés — vos projets et réglages restent — et Marabook redémarre)",
+                "Mise à jour", MessageButtons.YesNo, MessageIcon.Question);
+            if (await install != MessageResult.Yes) return;
+            _busy.Begin();
+            Updater.Prepared prepared = null;
+            string error = null;
+            try { prepared = await System.Threading.Tasks.Task.Run(delegate { return Updater.Prepare(check.Latest); }); }
+            catch (Exception failure) { error = failure.Message; }
+            finally { _busy.End(); }
+            if (prepared == null)
+            {
+                MessageDialog.Show(this, "Mise à jour impossible : " + error, "Mise à jour", MessageButtons.OK, MessageIcon.Warning);
+                return;
+            }
+            _preparedUpdate = prepared;
+            if (_updatesMenu != null) _updatesMenu.Header = "Vérifier les mises à jour… ●";
+            await InstallPreparedUpdate();
         }
 
         private void DoOpen()
