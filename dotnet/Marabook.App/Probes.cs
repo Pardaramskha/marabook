@@ -106,7 +106,23 @@ namespace Marabook.App
 
                 // — Copier avec mise en forme, coller (28/09) : le gras voyage
                 // par le presse-papiers ; sans mise en forme, il ne voyage pas.
+                // Sous Xvfb (CI Ubuntu) le presse-papiers ne rend rien : la
+                // vérification est sautée quand un texte nu ne fait pas
+                // l'aller-retour (01/10).
+                var clipboardWorks = false;
                 try
+                {
+                    var top = TopLevel.GetTopLevel(composed);
+                    if (top != null && top.Clipboard != null)
+                    {
+                        await top.Clipboard.SetTextAsync("sonde-presse-papiers");
+                        await Settle();
+                        clipboardWorks = await top.Clipboard.GetTextAsync() == "sonde-presse-papiers";
+                    }
+                }
+                catch (Exception) { clipboardWorks = false; }
+                if (!clipboardWorks) Console.WriteLine("  (presse-papiers indisponible ici : copier/coller sauté)");
+                else try
                 {
                     var paragraphs = document.Paragraphs.Count;
                     composed.PlaceCaret(0, 0, false);

@@ -2363,8 +2363,23 @@ namespace Marabook.App
             OrderedSelection(out pa, out oa, out pb, out ob);
             var fragment = TextFragment.Extract(_item.Document, pa, oa, pb, ob);
             var text = fragment.ToPlainText().Replace("\n", Environment.NewLine);
-            if (withFormat) SetClipboardFragment(text, PlotFile.SerializeDocument(fragment));
-            else SetClipboardText(text);
+            if (withFormat)
+            {
+                var json = PlotFile.SerializeDocument(fragment);
+                // La copie de secours EN MÉMOIRE (01/10) : le format maison ne
+                // revient pas du presse-papiers de macOS (la sonde CI l'a montré)
+                // — Coller relit ce fragment quand le texte du presse-papiers
+                // est encore celui de la dernière copie mise en forme.
+                _lastCopiedText = text;
+                _lastCopiedJson = json;
+                SetClipboardFragment(text, json);
+            }
+            else
+            {
+                _lastCopiedText = null;
+                _lastCopiedJson = null;
+                SetClipboardText(text);
+            }
             if (cut)
             {
                 PushUndo(false);
@@ -2378,10 +2393,19 @@ namespace Marabook.App
         /// texte plat (venu d'ailleurs, ou copié sans mise en forme).</summary>
         private async void Paste() { await PasteAsync(); }
 
+        private static string _lastCopiedText, _lastCopiedJson; // la dernière copie mise en forme (secours mac, 01/10)
+
         public async System.Threading.Tasks.Task PasteAsync()
         {
             if (_item == null || ReadOnly) return;
             var json = await ClipboardFragment();
+            if (json == null && _lastCopiedJson != null)
+            {
+                // Le format maison absent (macOS) : si le texte du presse-papiers
+                // est celui de la dernière copie mise en forme, c'est elle.
+                var current = await ClipboardText();
+                if (current != null && current == _lastCopiedText) json = _lastCopiedJson;
+            }
             if (json != null)
             {
                 TextDocument fragment = null;

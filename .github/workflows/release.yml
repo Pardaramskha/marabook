@@ -143,8 +143,11 @@ jobs:
         if: ${{ runner.os != 'Linux' }}
         shell: pwsh
         run: |
-          $exe = if ($IsWindows) { 'dotnet/Marabook.App/bin/Release/net8.0/Marabook.exe' } else { 'dotnet/Marabook.App/bin/Release/net8.0/Marabook' }
-          & $exe --probe --settings (Join-Path ([IO.Path]::GetTempPath()) 'marabook-sonde.json')
+          # Par l'hôte « dotnet » et non Marabook.exe : sur Windows, l'exécutable
+          # est une application FENÊTRÉE que PowerShell n'attend pas ($LASTEXITCODE
+          # reste vide et la sonde continue en arrière-plan — 01/10) ; l'hôte
+          # console attend et rend le code de retour sur les deux systèmes.
+          dotnet dotnet/Marabook.App/bin/Release/net8.0/Marabook.dll --probe --settings (Join-Path ([IO.Path]::GetTempPath()) 'marabook-sonde.json')
           if ($LASTEXITCODE -ne 0) { throw "La sonde signale $LASTEXITCODE échec(s)." }
 
       - name: Sonde de l'application (Ubuntu, sous Xvfb)
