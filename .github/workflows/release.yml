@@ -1,4 +1,4 @@
-# Release automatique de Marabook.
+# Release automatique de Marabook (Avalonia, .NET 8 — trois systèmes).
 #
 # Organisation des branches :
 #   main  branche de release : ne reçoit que des fusions de dev
@@ -14,12 +14,17 @@
 # une release GitHub :
 #   1. lit VERSION (à incrémenter sur dev AVANT de fusionner : si le tag
 #      vVERSION existe déjà, le workflow échoue plutôt que d'écraser)
-#   2. compile et lance les tests (build-tests.bat)
-#   3. fabrique l'archive portable et l'installeur (tools\release.ps1)
-#   4. crée la release vVERSION avec les deux assets à noms stables
+#   2. sur Windows, Ubuntu et macOS : compile, lance les tests du cœur
+#      (dotnet test) et la sonde de l'application (--probe, sous Xvfb
+#      sur Ubuntu), fabrique l'archive du système (tools/publish.ps1)
+#      — plus l'installeur sur Windows (tools/release.ps1)
+#   3. crée la release vVERSION avec les assets à noms stables
 #      (le README et l'Updater pointent releases/latest → jamais en
-#      « pre-release », même avec un suffixe -beta)
-#   5. ne garde que les 3 releases les plus récentes, supprime les
+#      « pre-release », même avec un suffixe -beta) :
+#        marabook-windows-portable.zip   Marabook-Setup-Windows.exe
+#        marabook-linux-x64.tar.gz
+#        marabook-macos-x64.zip          marabook-macos-arm64.zip
+#   4. ne garde que les 3 releases les plus récentes, supprime les
 #      autres (release + tag)
 #
 # Lancement manuel (Actions > Release > Run workflow) : par défaut un
@@ -45,16 +50,18 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
-# On publie seulement depuis main, et jamais lors d'un essai à blanc
-# (les étapes de publication testent : ref main ET pas de dry_run).
-
 env:
   GH_TOKEN: ${{ github.token }}
   KEEP_RELEASES: "3"
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
-  release:
-    runs-on: windows-latest
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - name: Récupérer les sources
         uses: actions/checkout@v7
@@ -64,7 +71,7 @@ jobs:
         shell: pwsh
         run: |
           $v = ([IO.File]::ReadAllText('VERSION')).Trim()
-          if ($v -notmatch '^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$') {
+          if ($v -notmatch '^\d+\.\d+\.\d+(-[A-Za-z0-9.-]+)?$') {
             throw "VERSION doit être de la forme majeure.mineure.correctif[-suffixe] (lu : « $v »)."
           }
           "version=$v" >> $env:GITHUB_OUTPUT
@@ -78,7 +85,7 @@ jobs:
           $tag = '${{ steps.version.outputs.tag }}'
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            throw "La release $tag existe déjà. Incrémentez VERSION (et MainWindow.AppVersion) sur dev avant de fusionner sur main."
+            throw "La release $tag existe déjà. Incrémentez VERSION (et Model/AppInfo.cs) sur dev avant de fusionner sur main."
           }
           $tags = git ls-remote --tags origin "refs/tags/$tag"
           if ($tags) {
@@ -86,36 +93,107 @@ jobs:
           }
           Write-Host "OK : $tag est libre."
 
-      - name: Compiler et lancer les tests
-        shell: cmd
-        run: build-tests.bat
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            assets: "dist/marabook-windows-portable.zip dist/Marabook-Setup-Windows.exe"
+          - os: ubuntu-latest
+            rid: linux-x64
+            assets: "dist/marabook-linux-x64.tar.gz"
+          - os: macos-latest
+            rid: osx-arm64
+            assets: "dist/marabook-macos-arm64.zip"
+          - os: macos-13
+            rid: osx-x64
+            assets: "dist/marabook-macos-x64.zip"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v7
 
-      - name: Fabriquer l'archive portable et l'installeur
+      - name: Installer le SDK .NET 8
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Vérifier les données linguistiques embarquées
         shell: pwsh
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1
-          if ($LASTEXITCODE -ne 0) { throw "tools\release.ps1 a échoué." }
+          & ./tools/verify-dict.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Dictionnaire absent ou corrompu." }
+
+      - name: Tests du cœur (C1–C44, harnais console)
+        shell: pwsh
+        run: |
+          dotnet run --project dotnet/Marabook.Tests -c Release --nologo -v q
+          if ($LASTEXITCODE -ne 0) { throw "Les tests du cœur échouent (code $LASTEXITCODE)." }
+
+      - name: Compiler l'application
+        shell: pwsh
+        run: |
+          dotnet build dotnet/Marabook.App -c Release --nologo -v q
+          if ($LASTEXITCODE -ne 0) { throw "La compilation de l'application échoue." }
+
+      - name: Sonde de l'application (Windows, macOS)
+        if: ${{ runner.os != 'Linux' }}
+        shell: pwsh
+        run: |
+          $exe = if ($IsWindows) { 'dotnet/Marabook.App/bin/Release/net8.0/Marabook.exe' } else { 'dotnet/Marabook.App/bin/Release/net8.0/Marabook' }
+          & $exe --probe --settings (Join-Path ([IO.Path]::GetTempPath()) 'marabook-sonde.json')
+          if ($LASTEXITCODE -ne 0) { throw "La sonde signale $LASTEXITCODE échec(s)." }
+
+      - name: Sonde de l'application (Ubuntu, sous Xvfb)
+        if: ${{ runner.os == 'Linux' }}
+        shell: bash
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libx11-6 libice6 libsm6 libfontconfig1 fonts-liberation > /dev/null
+          xvfb-run -a dotnet/Marabook.App/bin/Release/net8.0/Marabook --probe --settings /tmp/marabook-sonde.json
+
+      - name: Fabriquer l'archive (${{ matrix.rid }})
+        shell: pwsh
+        run: |
+          & ./tools/publish.ps1 -Rid ${{ matrix.rid }}
+          if ($LASTEXITCODE -ne 0) { throw "tools/publish.ps1 a échoué." }
+
+      - name: Fabriquer l'installeur Windows
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          & ./tools/release.ps1 -SkipPublish
+          if ($LASTEXITCODE -ne 0) { throw "tools/release.ps1 a échoué." }
           Get-ChildItem dist | Format-Table Name, Length
 
-      - name: Conserver les artefacts de l'essai
-        if: ${{ github.ref != 'refs/heads/main' || inputs.dry_run }}
+      - name: Conserver les artefacts
         uses: actions/upload-artifact@v7
         with:
-          name: marabook-${{ steps.version.outputs.version }}-essai
-          path: |
-            dist/marabook-windows-portable.zip
-            dist/Marabook-Setup-Windows.exe
+          name: marabook-${{ needs.version.outputs.version }}-${{ matrix.rid }}
+          path: ${{ matrix.assets }}
           retention-days: 7
 
+  publish:
+    needs: [version, build]
+    if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer les artefacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artefacts
+          merge-multiple: true
+
       - name: Publier la release
-        if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
         shell: pwsh
         run: |
-          $tag = '${{ steps.version.outputs.tag }}'
-          $version = '${{ steps.version.outputs.version }}'
-          gh release create $tag `
-            'dist/marabook-windows-portable.zip' `
-            'dist/Marabook-Setup-Windows.exe' `
+          $tag = '${{ needs.version.outputs.tag }}'
+          $version = '${{ needs.version.outputs.version }}'
+          $assets = Get-ChildItem artefacts -Recurse -File | ForEach-Object { $_.FullName }
+          Write-Host "Assets : $($assets -join ', ')"
+          gh release create $tag @assets `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:GITHUB_SHA `
             --title "Marabook $version" `
@@ -125,7 +203,6 @@ jobs:
           Write-Host "Release $tag publiée."
 
       - name: Ne garder que les ${{ env.KEEP_RELEASES }} releases les plus récentes
-        if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
         shell: pwsh
         run: |
           $keep = [int]$env:KEEP_RELEASES

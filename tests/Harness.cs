@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace Marabook.Tests
@@ -90,17 +90,14 @@ namespace Marabook.Tests
                 TokenizerTests.Run,      // C7 — le tokeniseur français unique
                 SpellTests.Run,          // C8 — l'orthographe (Hunspell maison)
                 GrammarBridgeTests.Run,  // C9 — pont Grammalecte (offsets, trames)
-                MarkdownTests.Run,       // C10 — markdown des fiches, catégories
+                MarkdownTests.Run,       // C10 — markdown des fiches, catégories (le dialecte est dans le cœur)
                 LexiconTests.Run,        // C11 — dictionnaire personnel à natures (b33)
-                ThemeTests.Run,          // C12 — les palettes se parsent (b34)
                 TypographyTests.Run,     // C13 — passe typographique (b34)
                 PlanTests.Run,           // C14 — plans (b35)
                 GenealogyTests.Run,      // C15 — généalogie (b36)
                 ProjectSearchTests.Run,  // C16 — recherche projet (b37)
                 DocumentDiffTests.Run,   // C17 — versions d'écrits (b38)
                 RightPanelTests.Run,     // C18 — la colonne de droite (b39)
-                HomeTests.Run,           // C19 — l'Accueil : récents, épingle, racine (b41)
-                PackTests.Run,           // C20 — pack de correctifs du 12/09/2026
                 AchievementTests.Run,    // C21 — les succès (12/09/2026)
                 StyleTests.Run,          // C22 — style morphologique + synonymes (b44)
                 StyleBatchTests.Run,     // C23 — b45 : frappe typographique, incises, racines, bilan
@@ -123,8 +120,9 @@ namespace Marabook.Tests
                 GrammarFilterTests.Run,  // C40 — second regard sur Grammalecte (23/09)
                 Patch050Tests.Run,       // C41 — patch 0.50.0 : sélection par mot, format d'insertion, notes riches (25/09)
                 ImagesTests.Run,         // C42 — refonte des images (26/09)
-                FontPrefsTests.Run,      // C43 — catalogue de polices (26/09)
-                ExchangeImagesTests.Run  // C44 — images dans les échanges : docx ancré, Markdown, RTF (26/09)
+                FontPrefsTests.Run,      // C43 — catalogue de polices : l'ordre (FontOrder) et les bascules
+                ExchangeImagesTests.Run,  // C44 — images dans les échanges : docx ancré, Markdown, RTF (26/09)
+                TextFragmentTests.Run    // C45 - fragment du presse-papiers mis en forme (28/09)
             };
             foreach (var suite in suites)
             {

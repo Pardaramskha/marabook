@@ -19,6 +19,68 @@ namespace Marabook.Tests
             Migration(t);
             JsonRoundTrip(t);
             Guess(t);
+            Flexion(t);
+            Format2(t);
+            Natures(t);
+            Demonyms(t);
+        }
+
+        /// <summary>Les natures changent les formes (01/10) : non comptable =
+        /// pas de pluriel, nom d'habitant = aussi la majuscule, gentilé (nom
+        /// propre) = aussi la minuscule ; un nom propre d'une autre sorte ne
+        /// se fléchit pas.</summary>
+        private static void Natures(Harness t)
+        {
+            var mass = new LexiconEntry { Word = "stormlight", Class = LexiconEntry.ClassNoun, Genders = LexiconEntry.GendersMasculine };
+            mass.Traits.Add("thing"); mass.Traits.Add("uncountable");
+            t.Equal(1, mass.Forms().Count, "entité non comptable : pas de pluriel");
+            t.Equal(LexiconEntry.PluralInvariable, mass.EffectivePlural(), "le pluriel effectif est « invariable »");
+
+            var demonymAdjective = new LexiconEntry { Word = "alethi", Class = LexiconEntry.ClassAdjective, Genders = LexiconEntry.GendersBoth };
+            demonymAdjective.Traits.Add("demonym");
+            t.Check(Has(demonymAdjective, "alethie") && Has(demonymAdjective, "Alethi") && Has(demonymAdjective, "Alethies"), "nom d'habitant : l'adjectif et l'habitant à majuscule");
+
+            var demonymProper = new LexiconEntry { Word = "Alethi", Class = LexiconEntry.ClassProper, ProperKind = LexiconEntry.ProperDemonym, Genders = LexiconEntry.GendersBoth };
+            t.Check(demonymProper.HasFlexion, "un gentilé se fléchit");
+            t.Check(Has(demonymProper, "Alethis") && Has(demonymProper, "alethi") && Has(demonymProper, "alethies"), "gentilé : l'habitant et l'adjectif en minuscule");
+
+            var surname = new LexiconEntry { Word = "Kholin", Class = LexiconEntry.ClassProper, ProperKind = LexiconEntry.ProperSurname, Genders = LexiconEntry.GendersBoth };
+            t.Check(!surname.HasFlexion, "un nom de famille ne se fléchit pas");
+            t.Equal(1, surname.Forms().Count, "nom de famille : le mot seul");
+            t.Check(surname.IsComplete(), "complet sans flexion");
+            var place = new LexiconEntry { Word = "Kholinar", Class = LexiconEntry.ClassProper, ProperKind = LexiconEntry.ProperPlace };
+            t.Check(!place.HasFlexion && place.IsComplete(), "un lieu non plus");
+        }
+
+        /// <summary>Le gentilé dérivé (01/10) : Mànis → mànisien, mànisienne,
+        /// Mànisiens… par suffixe ; la forme posée prime ; l'aller-retour JSON.</summary>
+        private static void Demonyms(Harness t)
+        {
+            t.Equal("mànisien", LexiconInflector.DeriveDemonym("Mànis", "ien"), "Mànis + -ien");
+            t.Equal("romain", LexiconInflector.DeriveDemonym("Rome", "ain"), "la voyelle finale muette tombe");
+            t.Equal("nantais", LexiconInflector.DeriveDemonym("Nantes", "-ais"), "-es tombe, le tiret du suffixe aussi");
+            t.Equal("mexicain", LexiconInflector.DeriveDemonym("Mexico", "ain"), "-o tombe");
+            t.Equal("parisien", LexiconInflector.DeriveDemonym("Paris", "ien"), "Paris + -ien");
+            t.Equal(null, LexiconInflector.DeriveDemonym("Mànis", ""), "sans suffixe : rien");
+
+            var city = new LexiconEntry { Word = "Mànis", Class = LexiconEntry.ClassProper, ProperKind = LexiconEntry.ProperPlace, DemonymSuffix = "ien" };
+            city.Traits.Add("city");
+            t.Check(city.HasDemonym, "un lieu à suffixe a son gentilé");
+            t.Equal("mànisien", city.DemonymBase(), "la forme dérivée");
+            t.Check(Has(city, "Mànis") && Has(city, "mànisien") && Has(city, "mànisiens") && Has(city, "mànisienne") && Has(city, "mànisiennes")
+                && Has(city, "Mànisien") && Has(city, "Mànisiennes"), "les huit formes du gentilé s'ajoutent au mot (" + LexiconInflector.Preview(city, 20) + ")");
+            t.Check(city.Summary().Contains("gentilé mànisien"), "le résumé dit le gentilé");
+
+            var posed = city.Clone(); posed.Word = "Bordeaux"; posed.DemonymForm = "bordelais";
+            t.Check(Has(posed, "bordelaise") && Has(posed, "Bordelais") && !Has(posed, "bordeauxien"), "la forme posée remplace la règle");
+
+            var surname = new LexiconEntry { Word = "Kholin", Class = LexiconEntry.ClassProper, ProperKind = LexiconEntry.ProperSurname, DemonymSuffix = "ien" };
+            t.Check(!surname.HasDemonym && surname.Forms().Count == 1, "un nom de famille n'a pas de gentilé, même avec un suffixe oublié");
+
+            var back = LexiconEntry.FromJson(posed.ToJson());
+            t.Equal("ien", back.DemonymSuffix, "le suffixe fait l'aller-retour");
+            t.Equal("bordelais", back.DemonymForm, "la forme posée aussi");
+            t.Check(Has(back, "Bordelaises"), "et les formes avec");
         }
 
         private static bool Has(LexiconEntry entry, string form)
@@ -108,6 +170,7 @@ namespace Marabook.Tests
             LexiconEntry.MergeWords(entries, new[] { "Kaladin", "Syl", "", null, "Syl" });
             t.Equal(2, entries.Count, "les mots nus rejoignent sans doublon ni vide");
             t.Equal(LexiconEntry.ClassOther, entries[1].Class, "un mot migré est « autre »");
+            t.Check(entries[1].NeedsReview, "…et porte la pastille « migration nécessaire » (30/09)");
             var mixed = LexiconEntry.FromJsonList(new List<object> { "Dalinar", new Dictionary<string, object> { { "word", "Navani" }, { "class", "proper" } } });
             t.Equal(2, mixed.Count, "une liste mêlant chaînes et objets se lit");
             t.Equal(LexiconEntry.ClassProper, mixed[1].Class, "l'objet garde sa nature");
@@ -135,6 +198,59 @@ namespace Marabook.Tests
             t.Equal(LexiconEntry.ClassOther, bogus.Class, "une nature inconnue retombe sur « autre »");
             t.Check(LexiconEntry.FromJson(new Dictionary<string, object> { { "class", "noun" } }) == null,
                 "sans mot : pas d'entrée");
+        }
+
+        /// <summary>La flexion à quatre formes (30/09) : masculin et féminin,
+        /// masculin, féminin ; les formes posées priment sur la règle.</summary>
+        private static void Flexion(Harness t)
+        {
+            var feminine = new LexiconEntry { Word = "licorne", Class = LexiconEntry.ClassNoun, Genders = LexiconEntry.GendersFeminine };
+            t.Check(Has(feminine, "licorne") && Has(feminine, "licornes") && feminine.Forms().Count == 2, "nom féminin : le mot et son pluriel, pas de masculin");
+            var both = new LexiconEntry { Word = "spren", Class = LexiconEntry.ClassNoun, Genders = LexiconEntry.GendersBoth, FemSg = "sprenne" };
+            t.Check(Has(both, "spren") && Has(both, "sprens") && Has(both, "sprenne") && Has(both, "sprennes"), "nom des deux genres : quatre formes, le féminin posé");
+            var posedPlural = new LexiconEntry { Word = "vorinal", Class = LexiconEntry.ClassAdjective, Genders = LexiconEntry.GendersBoth, MascPl = "vorinaux" };
+            t.Check(Has(posedPlural, "vorinaux") && !Has(posedPlural, "vorinals") && Has(posedPlural, "vorinale"), "une forme posée remplace la règle, les autres restent dérivées");
+            var derived = both.Clone(); derived.FemSg = "";
+            var forms = derived.DerivedForms();
+            t.Check(forms[0] == "spren" && forms[1] == "sprens" && forms[2] == "sprenne" && forms[3] == "sprennes", "les quatre formes dérivées, en filigrane");
+            var place = new LexiconEntry { Word = "Kholinar", Class = LexiconEntry.ClassProper, Genders = LexiconEntry.GendersMasculine, Plural = LexiconEntry.PluralInvariable, ProperKind = LexiconEntry.ProperPlace };
+            place.Traits.Add("city");
+            t.Equal(1, place.Forms().Count, "nom propre invariable : le mot seul");
+            t.Check(place.IsComplete(), "type, flexion et sorte : complet");
+            t.Check(!new LexiconEntry { Word = "x", Class = LexiconEntry.ClassNoun }.IsComplete(), "un nom sans flexion n'est pas complet");
+            t.Check(!new LexiconEntry { Word = "X", Class = LexiconEntry.ClassProper, Genders = LexiconEntry.GendersMasculine }.IsComplete(), "un nom propre sans sorte n'est pas complet");
+            var role = new LexiconEntry { Word = "radiant", Class = LexiconEntry.ClassNoun, Genders = LexiconEntry.GendersBoth };
+            role.Traits.Add("person"); role.Traits.Add("role");
+            t.Check(role.Summary().Contains("personne, fonction sociale") && role.Summary().Contains("masculin et féminin"), "le résumé dit la nature et la flexion (" + role.Summary() + ")");
+            t.Check(place.Summary().Contains("lieu, ville"), "le résumé d'un nom propre dit sa sorte et ses cases");
+        }
+
+        /// <summary>Le format 2 (30/09) : l'ancien format se convertit à la
+        /// lecture et porte la pastille ; le nouveau fait l'aller-retour.</summary>
+        private static void Format2(Harness t)
+        {
+            var legacy = LexiconEntry.FromJson(new Dictionary<string, object> { { "word", "dragon" }, { "class", "noun" }, { "gender", "m" }, { "feminine", "dragonne" } });
+            t.Check(legacy.NeedsReview, "une entrée sans « v » : migration nécessaire");
+            t.Equal(LexiconEntry.GendersBoth, legacy.Genders, "un féminin explicite : les deux genres");
+            t.Equal("dragonne", legacy.FemSg, "le féminin migre dans fém. sg.");
+            t.Check(Has(legacy, "dragonnes") && Has(legacy, "dragons"), "les formes d'avant restent acceptées");
+            var verb = LexiconEntry.FromJson(new Dictionary<string, object> { { "word", "sprenner" }, { "class", "verb" } });
+            t.Check(!verb.NeedsReview, "un verbe n'a rien à revoir");
+            var masculine = LexiconEntry.FromJson(new Dictionary<string, object> { { "word", "Kaladin" }, { "class", "proper" }, { "gender", "m" } });
+            t.Equal(LexiconEntry.GendersMasculine, masculine.Genders, "le genre d'avant devient la flexion");
+            var entry = new LexiconEntry { Word = "Kholinar", Class = LexiconEntry.ClassProper, Genders = LexiconEntry.GendersMasculine, Plural = LexiconEntry.PluralInvariable, ProperKind = LexiconEntry.ProperPlace, MascPl = "Kholinars" };
+            entry.Traits.Add("city"); entry.Traits.Add("world");
+            var back = LexiconEntry.FromJson(entry.ToJson());
+            t.Check(!back.NeedsReview, "le format 2 relu n'a rien à revoir");
+            t.Equal(LexiconEntry.ProperPlace, back.ProperKind, "la sorte fait l'aller-retour");
+            t.Check(back.HasTrait("city") && back.HasTrait("world") && back.Traits.Count == 2, "les cases aussi");
+            t.Equal("Kholinars", back.MascPl, "une forme posée aussi");
+            t.Equal("m", back.Gender, "le genre d'avant est écrit en miroir (une version d'avant relit l'entrée)");
+            var flagged = entry.Clone(); flagged.NeedsReview = true;
+            t.Check(LexiconEntry.FromJson(flagged.ToJson()).NeedsReview, "la pastille se persiste");
+            t.Equal(1, LexiconEntry.CountNeedingReview(new List<LexiconEntry> { flagged, entry }), "le compte des entrées à revoir");
+            var bogusTrait = LexiconEntry.FromJson(new Dictionary<string, object> { { "word", "x" }, { "class", "noun" }, { "v", 2.0 }, { "traits", new List<object> { "person", "licorne" } } });
+            t.Check(bogusTrait.HasTrait("person") && bogusTrait.Traits.Count == 2 && bogusTrait.Summary().Contains("personne") && !bogusTrait.Summary().Contains("licorne"), "une case inconnue est gardée (une version plus récente la connaît) mais ne se dit pas");
         }
 
         private static void Guess(Harness t)

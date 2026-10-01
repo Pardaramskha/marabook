@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Windows.Input;
 using Marabook.Settings;
 
 namespace Marabook.Tests
@@ -58,21 +57,35 @@ namespace Marabook.Tests
             try
             {
                 AppSettings.Shortcuts.Clear();
-                t.Check(AppSettings.EditorActionFor(Key.B, ModifierKeys.Control) == "bold", "Ctrl+B : gras (défaut)");
-                t.Check(AppSettings.EditorActionFor(Key.I, ModifierKeys.Control) == "italic", "Ctrl+I : italique (défaut)");
-                t.Check(AppSettings.EditorActionFor(Key.Return, ModifierKeys.Control) == "page-break", "Ctrl+Entrée : saut de page, de « Mise en page »");
-                t.Check(AppSettings.EditorActionFor(Key.B, ModifierKeys.Control | ModifierKeys.Shift) == null, "Ctrl+Maj+B : rien — les modificateurs doivent correspondre");
-                t.Check(AppSettings.EditorActionFor(Key.B, ModifierKeys.None) == null, "B seul : rien");
-                t.Check(AppSettings.EditorActionFor(Key.S, ModifierKeys.Control) == null, "Ctrl+S n'est pas un geste de l'éditeur : il remonte à la fenêtre");
-                t.Check(AppSettings.EditorActionFor(Key.F7, ModifierKeys.None) == null, "une fonction sans raccourci (séparateur, point médian…) ne répond à rien");
+                // Les touches voyagent par leur nom WPF (Key.B.ToString()) — le
+                // cœur ne connaît plus l'énumération (P0) ; la vue lui passe
+                // e.Key.ToString() et Geo.ToCore(Keyboard.Modifiers).
+                // (les noms sont ceux de Key.X.ToString() : « B », « Return », « F7 », « None »)
+                t.Check(AppSettings.EditorActionFor("B", KeyModifiers.Control) == "bold", "Ctrl+B : gras (défaut)");
+                t.Check(AppSettings.EditorActionFor("I", KeyModifiers.Control) == "italic", "Ctrl+I : italique (défaut)");
+                t.Check(AppSettings.EditorActionFor("Return", KeyModifiers.Control) == "page-break", "Ctrl+Entrée : saut de page, de « Mise en page »");
+                t.Check(AppSettings.EditorActionFor("Enter", KeyModifiers.Control) == "page-break", "Enter et Return sont la même touche (doublon de l'énumération WPF)");
+                t.Check(AppSettings.EditorActionFor("b", KeyModifiers.Control) == "bold", "le nom d'une touche se compare sans la casse (Enum.Parse ignorait la casse)");
+                t.Check(AppSettings.EditorActionFor("B", KeyModifiers.Control | KeyModifiers.Shift) == null, "Ctrl+Maj+B : rien — les modificateurs doivent correspondre");
+                t.Check(AppSettings.EditorActionFor("B", KeyModifiers.None) == null, "B seul : rien");
+                t.Check(AppSettings.EditorActionFor("S", KeyModifiers.Control) == null, "Ctrl+S n'est pas un geste de l'éditeur : il remonte à la fenêtre");
+                t.Check(AppSettings.EditorActionFor("F7", KeyModifiers.None) == null, "une fonction sans raccourci (séparateur, point médian…) ne répond à rien");
+                t.Check(AppSettings.EditorActionFor("None", KeyModifiers.Control) == null, "Key.None ne déclenche rien");
 
                 AppSettings.Shortcuts["bold"] = "Ctrl+Shift+G";
                 AppSettings.Shortcuts["middle-dot"] = "F7";
-                t.Check(AppSettings.EditorActionFor(Key.G, ModifierKeys.Control | ModifierKeys.Shift) == "bold", "gras personnalisé en Ctrl+Maj+G");
-                t.Check(AppSettings.EditorActionFor(Key.B, ModifierKeys.Control) == null, "Ctrl+B ne répond plus une fois le gras déplacé");
-                t.Check(AppSettings.EditorActionFor(Key.F7, ModifierKeys.None) == "middle-dot", "un raccourci créé pour le point médian");
+                t.Check(AppSettings.EditorActionFor("G", KeyModifiers.Control | KeyModifiers.Shift) == "bold", "gras personnalisé en Ctrl+Maj+G");
+                t.Check(AppSettings.EditorActionFor("B", KeyModifiers.Control) == null, "Ctrl+B ne répond plus une fois le gras déplacé");
+                t.Check(AppSettings.EditorActionFor("F7", KeyModifiers.None) == "middle-dot", "un raccourci créé pour le point médian");
                 AppSettings.Shortcuts["bold"] = "";
-                t.Check(AppSettings.EditorActionFor(Key.B, ModifierKeys.Control) == null, "raccourci retiré : plus de gras au clavier");
+                t.Check(AppSettings.EditorActionFor("B", KeyModifiers.Control) == null, "raccourci retiré : plus de gras au clavier");
+
+                string keyName;
+                KeyModifiers modifiers;
+                t.Check(AppSettings.ParseGesture("Ctrl+Maj+G", out keyName, out modifiers) && keyName == "G"
+                    && modifiers == (KeyModifiers.Control | KeyModifiers.Shift), "ParseGesture : « Maj » vaut Shift, la touche est le dernier jeton");
+                t.Check(!AppSettings.ParseGesture("Ctrl+", out keyName, out modifiers), "ParseGesture : un modificateur sans touche n'est pas un geste");
+                t.Check(!AppSettings.ParseGesture("A+B", out keyName, out modifiers), "ParseGesture : deux touches, geste mal formé");
 
                 var editorActions = 0;
                 foreach (var action in AppSettings.Actions) if (action.Category == AppSettings.EditorCategory) editorActions++;
@@ -80,8 +93,8 @@ namespace Marabook.Tests
                 t.Check(AppSettings.Definition("compile").Name == "Compiler les écrits", "« Compiler les écrits » (ex-manuscrit)");
                 // Le fichier VERSION (release.ps1, installeur) suit AppVersion.
                 var versionFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "VERSION");
-                t.Check(File.Exists(versionFile) && File.ReadAllText(versionFile).Trim() == MainWindow.AppVersion,
-                    "VERSION vaut MainWindow.AppVersion (" + MainWindow.AppVersion + ")");
+                t.Check(File.Exists(versionFile) && File.ReadAllText(versionFile).Trim() == Marabook.Model.AppInfo.Version,
+                    "VERSION vaut AppInfo.Version (" + Marabook.Model.AppInfo.Version + ")");
             }
             finally
             {

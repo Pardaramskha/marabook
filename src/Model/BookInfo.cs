@@ -6,6 +6,24 @@ namespace Marabook.Model
     /// continuous pagination.</summary>
     public class BookInfo
     {
+        /// <summary>Le titre du livre tel qu'il se publie (01/10) — vide = le
+        /// nom du livre dans la Pile. C'est la valeur du jeton {livre} des
+        /// en-têtes et pieds, de la page de titre et de l'EPUB.</summary>
+        public string Title = "";
+        /// <summary>« Série ou cycle » (01/10) : informatif, avec le rang du
+        /// livre dans la série (texte libre : « 2 », « II », « 2 sur 5 »).</summary>
+        public bool Series;
+        public string SeriesNumber = "";
+
+        /// <summary>Le titre effectif d'un livre : celui posé dans Édition,
+        /// sinon le nom de l'élément.</summary>
+        public static string TitleOf(BinderItem book)
+        {
+            if (book == null) return "";
+            var posed = book.Book == null ? null : book.Book.Title;
+            return !string.IsNullOrEmpty(posed) && posed.Trim().Length > 0 ? posed.Trim() : (book.Title ?? "");
+        }
+
         public string Subtitle = "";
         public string AuthorOverride = "";  // empty = project author
         public string Publisher = "";
@@ -159,6 +177,7 @@ namespace Marabook.Model
         {
             foreach (var child in item.Children)
             {
+                if (child.IsOutOfBook) continue; // Hors-livre (29/09) : hors du récit
                 if (child.Kind == ItemKind.Text && !child.IsExtraPage && !child.IsToc) texts.Add(child);
                 StoryTexts(child, texts);
             }
@@ -168,6 +187,7 @@ namespace Marabook.Model
         {
             foreach (var child in item.Children)
             {
+                if (child.IsOutOfBook) continue; // Hors-livre (29/09) : hors objectif
                 if (child.Kind == ItemKind.Text && !child.IsExtraPage && !child.IsToc)
                 {
                     progress.Present++;

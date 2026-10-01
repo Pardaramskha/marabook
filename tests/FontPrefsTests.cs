@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Windows.Media;
 using Marabook.Settings;
-using Marabook.View;
+using Marabook.Model;
 
 namespace Marabook.Tests
 {
@@ -20,38 +19,36 @@ namespace Marabook.Tests
             Toggles(t);
         }
 
-        private static List<FontCatalog.Entry> Catalog(params string[] names)
+        private static List<string> Catalog(params string[] names)
         {
-            var list = new List<FontCatalog.Entry>();
-            foreach (var name in names) list.Add(new FontCatalog.Entry { Name = name, Family = new FontFamily("Times New Roman") });
-            return list;
+            return new List<string>(names);
         }
 
-        private static string Names(List<FontCatalog.Entry> entries)
+        private static string Names(List<FontOrder.Slot> slots)
         {
             var parts = new List<string>();
-            foreach (var entry in entries) parts.Add(entry.IsSeparator ? "|" : (entry.IsFavoriteCopy ? "*" : "") + entry.Name);
+            foreach (var slot in slots) parts.Add(slot.IsSeparator ? "|" : (slot.IsFavoriteCopy ? "*" : "") + slot.Name);
             return string.Join(" ", parts.ToArray());
         }
 
         private static void Arrange(Harness t)
         {
             var catalog = Catalog("Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot");
-            var arranged = FontCatalog.Arrange(catalog,
+            var arranged = FontOrder.Arrange(catalog,
                 new List<string> { "Charlie", "Inconnue", "Echo", "charlie" },
                 new List<string> { "Echo", "Alpha", "Bravo", "Delta", "Foxtrot" },
                 new List<string> { "bravo", "Echo" }, 3);
             t.Equal("*Charlie | Alpha Delta Foxtrot | Alpha Charlie Delta Foxtrot", Names(arranged),
                 "favorites (doublons marqués, sans l'exclue ni l'inconnue ni le doublon), trait, récentes (3 au plus, sans exclues), trait, catalogue sans exclues");
-            t.Check(!ReferenceEquals(arranged[0], catalog[2]) && ReferenceEquals(arranged[7], catalog[2]),
-                "la favorite en tête est une copie, celle du catalogue reste l'objet d'origine");
+            t.Check(arranged[0].IsCopy && !arranged[7].IsCopy,
+                "la favorite en tête est une copie, celle du catalogue reste l'entrée d'origine");
             t.Equal("★", arranged[0].Badge, "le doublon d'une favorite porte l'étoile");
             t.Equal("", arranged[7].Badge, "l'entrée du catalogue n'en porte pas");
 
-            var plain = FontCatalog.Arrange(catalog, new List<string>(), new List<string>(), new List<string>(), 5);
+            var plain = FontOrder.Arrange(catalog, new List<string>(), new List<string>(), new List<string>(), 5);
             t.Equal("Alpha Bravo Charlie Delta Echo Foxtrot", Names(plain), "sans favorites ni récentes : le catalogue seul, sans trait");
 
-            var onlyFavorites = FontCatalog.Arrange(catalog, new List<string> { "Delta" }, new List<string> { "Delta" }, new List<string>(), 5);
+            var onlyFavorites = FontOrder.Arrange(catalog, new List<string> { "Delta" }, new List<string> { "Delta" }, new List<string>(), 5);
             t.Equal("*Delta | Alpha Bravo Charlie Delta Echo Foxtrot", Names(onlyFavorites),
                 "une récente déjà favorite ne se double pas en récente");
         }

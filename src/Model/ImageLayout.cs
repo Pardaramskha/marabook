@@ -1,5 +1,4 @@
 using System;
-using System.Windows;
 
 namespace Marabook.Model
 {
@@ -92,11 +91,11 @@ namespace Marabook.Model
 
         /// <summary>Ramène un rectangle dans un cadre (position seulement : la
         /// taille est supposée déjà réduite par FitInside).</summary>
-        public static Rect ClampInto(Rect rect, Rect area)
+        public static Box ClampInto(Box rect, Box area)
         {
             var x = Math.Max(area.X, Math.Min(area.Right - rect.Width, rect.X));
             var y = Math.Max(area.Y, Math.Min(area.Bottom - rect.Height, rect.Y));
-            return new Rect(x, y, rect.Width, rect.Height);
+            return new Box(x, y, rect.Width, rect.Height);
         }
 
         /// <summary>L'abscisse (dans la zone de texte) d'un alignement
@@ -152,7 +151,7 @@ namespace Marabook.Model
         /// bas-droite, 5 bas, 6 bas-gauche, 7 gauche), le côté opposé fixe.
         /// Proportionnel sauf <paramref name="free"/> (Maj enfoncée) ; jamais
         /// sous MinSizePx.</summary>
-        public static Rect Resize(Rect start, int handle, double dx, double dy, bool free)
+        public static Box Resize(Box start, int handle, double dx, double dy, bool free)
         {
             var left = start.X;
             var top = start.Y;
@@ -189,7 +188,7 @@ namespace Marabook.Model
                 if (movesLeft) left = right - width; else right = left + width;
                 if (movesTop) top = bottom - height; else bottom = top + height;
             }
-            return new Rect(Math.Min(left, right), Math.Min(top, bottom), width, height);
+            return new Box(Math.Min(left, right), Math.Min(top, bottom), width, height);
         }
     }
 }

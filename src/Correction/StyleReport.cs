@@ -201,7 +201,7 @@ namespace Marabook.Correction
         {
             var trimmed = text.TrimStart(' ', ' ', ' ', ' ');
             return trimmed.StartsWith("—") || trimmed.StartsWith("–") || trimmed.StartsWith("- ")
-                || text.IndexOf('«') >= 0;
+                || text.IndexOf('«') >= 0 || text.IndexOf('\u201C') >= 0;
         }
 
         /// <summary>Découpe en phrases : un point, un point d'exclamation ou

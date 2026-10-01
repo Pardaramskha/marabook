@@ -91,7 +91,7 @@ namespace Marabook.Correction
         {
             var trimmed = text.TrimStart(' ', ' ', ' ', ' ');
             if (trimmed.StartsWith("—") || trimmed.StartsWith("–") || trimmed.StartsWith("- ")) return true;
-            return text.IndexOf('«') >= 0 || text.IndexOf('»') >= 0;
+            return text.IndexOf('«') >= 0 || text.IndexOf('»') >= 0 || text.IndexOf('\u201C') >= 0; // “ ” : la norme anglaise (30/09)
         }
 
         private string KeyOf(string surface)

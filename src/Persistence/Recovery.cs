@@ -43,9 +43,7 @@ namespace Marabook.Persistence
 
         public static string Folder()
         {
-            var folder = Root ?? Path.Combine(
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Marabook"),
-                "recovery");
+            var folder = Root ?? Path.Combine(Platform.Current.DataFolder, "recovery");
             Directory.CreateDirectory(folder);
             return folder;
         }

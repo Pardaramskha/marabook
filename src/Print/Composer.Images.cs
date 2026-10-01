@@ -1,21 +1,22 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
-using System.Windows;
-using System.Windows.Media;
 using Marabook.Model;
 
 namespace Marabook.Print
 {
     /// <summary>Une image posée sur une page (refonte des images, 0.50.0) :
     /// son run (l'ancre dans le texte), son rectangle en coordonnées de page
-    /// et sa source décodée (null = illisible, un cadre de substitution).</summary>
+    /// et l'image du magasin qu'elle montre (P0 : plus de bitmap décodée ici —
+    /// le rendu la décode et la met en cache ; Readable = false : illisible,
+    /// un cadre de substitution).</summary>
     public class PlacedImage
     {
         public TextRun Run;
         public int ParagraphIndex;
-        public Rect Rect;
-        public ImageSource Source;
+        public Box Rect;
+        public ProjectImage Stored;
+        public bool Readable;
         public bool Wrap;     // texte de part et d'autre
         public bool Attached; // suit la ligne de l'ancre (Y nul)
     }
@@ -398,7 +399,7 @@ namespace Marabook.Print
 
         /// <summary>Une image (avec son air) touche-t-elle la bande [y, y+h)
         /// de la colonne ?</summary>
-        private static bool Overlaps(Rect rect, double y, double h, double left, double width)
+        private static bool Overlaps(Box rect, double y, double h, double left, double width)
         {
             return rect.Bottom + ImageGap > y + 0.01 && rect.Y - ImageGap < y + h - 0.01
                 && rect.Right > left + 0.01 && rect.X < left + width - 0.01;
@@ -477,7 +478,7 @@ namespace Marabook.Print
         private static bool HasVisibleContent(ComposedLine line)
         {
             foreach (var piece in line.Pieces)
-                if (piece.Glyphs != null || piece.Fallback != null || piece.IsRule) return true;
+                if (piece.HasText || piece.IsRule) return true;
             return false;
         }
 
@@ -657,7 +658,7 @@ namespace Marabook.Print
                             var w = image.Rect.Width;
                             var h = image.Rect.Height;
                             ImageLayout.FitInside(ref w, ref h, contentWidth, Math.Max(ImageLayout.MinSizePx, limit - image.Rect.Y));
-                            image.Rect = new Rect(image.Rect.X, image.Rect.Y, w, h);
+                            image.Rect = new Box(image.Rect.X, image.Rect.Y, w, h);
                         }
                         imagesHere.Add(image);
                     }
@@ -690,17 +691,18 @@ namespace Marabook.Print
         // ============================================================ géométrie des images
 
         /// <summary>La taille affichée d'une image : celle du placement, sinon
-        /// ses pixels (à 96 dpi), sinon un cadre de substitution.</summary>
-        private static void NaturalSize(ImageLayout layout, ImageSource source, ProjectImage stored,
+        /// ses pixels (à 96 dpi), sinon un cadre de substitution. pixelWidth /
+        /// pixelHeight : les dimensions lues par le codec (0 = illisible).</summary>
+        private static void NaturalSize(ImageLayout layout, int pixelWidth, int pixelHeight,
             out double width, out double height)
         {
-            var ratio = source != null && source.Width > 0 ? source.Height / source.Width : 2.0 / 3.0;
+            var readable = pixelWidth > 0 && pixelHeight > 0;
+            var ratio = readable ? (double)pixelHeight / pixelWidth : 2.0 / 3.0;
             if (layout.Width > 0 && layout.Height > 0) { width = layout.Width; height = layout.Height; return; }
             if (layout.Width > 0) { width = layout.Width; height = width * ratio; return; }
             if (layout.Height > 0 && ratio > 0) { height = layout.Height; width = height / ratio; return; }
-            if (source == null) { width = 120; height = 80; return; }
-            var pixels = stored == null ? 0 : View.ImageCache.PixelWidthOf(stored.Bytes);
-            width = pixels > 0 ? pixels : source.Width;
+            if (!readable) { width = 120; height = 80; return; }
+            width = pixelWidth;
             height = width * ratio;
         }
 
@@ -712,31 +714,38 @@ namespace Marabook.Print
         {
             var layout = run.Image ?? new ImageLayout();
             var stored = _project == null ? null : _project.FindImage(run.ImageId);
-            var source = View.ImageCache.For(stored); // décodée une fois, pas à chaque frappe (23/09)
+            // Les dimensions par l'en-tête (le codec ne décode qu'en dernier
+            // recours) : rien n'est décodé à chaque frappe, le rendu garde la
+            // bitmap dans son cache (ImageCache, 23/09).
+            var pixelWidth = 0;
+            var pixelHeight = 0;
+            var readable = stored != null && stored.Bytes != null
+                && Platform.Images.TryGetSize(stored.Bytes, out pixelWidth, out pixelHeight);
             var left = Current.LeftPxFor(pageIndex);
             var top = Current.TopPx;
             var contentWidth = _setup.ContentWidthPx;
             var contentHeight = ContentHeight;
             var area = layout.Free
-                ? new Rect(0, 0, Current.PageWidthPx, Current.PageHeightPx)
-                : new Rect(left, top, contentWidth, contentHeight);
+                ? new Box(0, 0, Current.PageWidthPx, Current.PageHeightPx)
+                : new Box(left, top, contentWidth, contentHeight);
             double w, h;
-            NaturalSize(layout, source, stored, out w, out h);
+            NaturalSize(layout, readable ? pixelWidth : 0, readable ? pixelHeight : 0, out w, out h);
             ImageLayout.FitInside(ref w, ref h, area.Width, area.Height);
             var x = layout.X.HasValue ? left + layout.X.Value : left + (contentWidth - w) / 2;
             var y = layout.Y.HasValue ? top + layout.Y.Value
                 : (anchorLineEmpty ? anchorTop : anchorBottom + ImageGap);
-            var rect = new Rect(x, y, w, h);
+            var rect = new Box(x, y, w, h);
             // Dans la zone (ou la page) : une image attachée ne borne que son
             // abscisse — son bas qui déborde la pousse à la page suivante.
             var clamped = ImageLayout.ClampInto(rect, area);
-            rect = new Rect(clamped.X, layout.Y.HasValue ? clamped.Y : rect.Y, w, h);
+            rect = new Box(clamped.X, layout.Y.HasValue ? clamped.Y : rect.Y, w, h);
             return new PlacedImage
             {
                 Run = run,
                 ParagraphIndex = paragraphIndex,
                 Rect = rect,
-                Source = source,
+                Stored = stored,
+                Readable = readable,
                 Wrap = layout.IsWrap,
                 Attached = !layout.Y.HasValue
             };
