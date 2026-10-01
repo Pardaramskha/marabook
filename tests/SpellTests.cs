@@ -37,8 +37,8 @@ namespace Marabook.Tests
             watch.Stop();
             t.Info("chargement du dictionnaire : " + watch.ElapsedMilliseconds
                 + " ms (" + engine.StemCount + " radicaux)");
-            t.Check(watch.ElapsedMilliseconds < 300,
-                "budget de chargement tenu (< 300 ms)");
+            t.Check(watch.ElapsedMilliseconds < Harness.Budget(300),
+                "budget de chargement tenu (< " + Harness.Budget(300) + " ms)");
 
             SelfCheck(t, engine, dic);
             PositiveCorpus(t, engine);

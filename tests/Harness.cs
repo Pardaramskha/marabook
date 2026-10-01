@@ -62,6 +62,16 @@ namespace Marabook.Tests
                 + " — attendu " + typeof(TException).Name + ", rien n'a été levé");
         }
 
+        /// <summary>Un budget de temps (ms) : tel quel sur un poste, quadruplé
+        /// sur un runner CI (variable CI posée par GitHub) — un runner Windows
+        /// partagé a tenu le chargement du dictionnaire en 300 ms trois fois,
+        /// puis l'a raté une fois (01/10) : le test mesure la régression, pas
+        /// la machine.</summary>
+        public static int Budget(int localMs)
+        {
+            return string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CI")) ? localMs : localMs * 4;
+        }
+
         public void Info(string message)
         {
             Console.WriteLine("  " + message);
