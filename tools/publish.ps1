@@ -41,7 +41,7 @@ $assetNames = @{
 }
 if (-not $assetNames.ContainsKey($Rid)) { throw "RID inconnu : $Rid (win-x64, linux-x64, osx-x64, osx-arm64)." }
 $asset = $assetNames[$Rid]
-$isWindows = $Rid.StartsWith('win')
+$ridWindows = $Rid.StartsWith('win')
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 New-Item -ItemType Directory -Force 'dist' | Out-Null
@@ -85,7 +85,7 @@ if (-not $SkipBuild) {
     & dotnet publish (Join-Path 'dotnet' 'Marabook.App') -c $Configuration -r $Rid --self-contained -o $stage -nologo -v q
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish ($Rid) a échoué." }
 }
-$exe = if ($isWindows) { 'Marabook.exe' } else { 'Marabook' }
+$exe = if ($ridWindows) { 'Marabook.exe' } else { 'Marabook' }
 if (-not (Test-Path (Join-Path $stage $exe))) { throw "La publication ne contient pas $exe." }
 # Le .pdb ne part pas.
 Get-ChildItem $stage -Filter '*.pdb' | Remove-Item -Force
@@ -96,9 +96,9 @@ $fichiers = @('VERSION', 'marabook.stargazer.json', 'LICENSE', 'APPROVISIONNEMEN
               (Join-Path 'assets' 'plot-file.png'), (Join-Path 'assets' 'marabook.png'))
 foreach ($f in $fichiers) { Copier $f $stage }
 $dossiers = @((Join-Path 'assets' 'achievements'), 'dict', 'grammalecte')
-if ($isWindows) { $dossiers += 'python' }
+if ($ridWindows) { $dossiers += 'python' }
 foreach ($d in $dossiers) { CopierDossier $d $stage }
-if (-not $isWindows) {
+if (-not $ridWindows) {
     # Le lanceur de bureau et le type MIME des .plot (Linux) sont posés par
     # l'application au premier lancement (FileAssociation) ; le script
     # d'installation ne fait que déballer et rendre l'exécutable exécutable.
@@ -115,7 +115,7 @@ $out = Join-Path $dist $asset
 if (Test-Path $out) { Remove-Item -Force $out }
 if ($asset.EndsWith('.tar.gz')) {
     # tar conserve le bit d'exécution (chmod +x avant), ce que le zip ne fait pas.
-    if (-not $isWindows -and (Get-Command chmod -ErrorAction SilentlyContinue)) {
+    if (-not $ridWindows -and (Get-Command chmod -ErrorAction SilentlyContinue)) {
         & chmod +x (Join-Path $stage 'Marabook') (Join-Path $stage 'marabook.sh')
     }
     & tar -czf $out -C $stage .
