@@ -3,8 +3,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Pardaramskha/marabook/releases/latest/download/Marabook-Setup-Windows.exe"><img src="assets/downloads/install-windows.png" alt="Installeur Windows" width="24%"></a>
-  <a href="https://github.com/Pardaramskha/marabook/releases/latest/download/marabook-windows-portable.zip"><img src="assets/downloads/portable-windows.png" alt="Version portable Windows" width="24%"></a>
+  <b>Télécharger :</b>
+  <a href="https://github.com/Pardaramskha/marabook/releases/latest/download/Marabook-Setup-Windows.exe">Windows</a> ·
+  <a href="https://github.com/Pardaramskha/marabook/releases/latest/download/marabook-macos-arm64.zip">Mac</a> (<a href="https://github.com/Pardaramskha/marabook/releases/latest/download/marabook-macos-x64.zip">Intel</a>) ·
+  <a href="https://github.com/Pardaramskha/marabook/releases/latest/download/marabook-linux-x64.tar.gz">Linux</a>
 </p>
 
 # Marabook
