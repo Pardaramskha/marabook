@@ -204,31 +204,77 @@ namespace Marabook.App
         /// juste après. Lève une exception parlante en cas d'échec.</summary>
         public static void Install(Info info, string appDir)
         {
+            Install(Prepare(info), appDir);
+        }
+
+        /// <summary>Une mise à jour TÉLÉCHARGÉE ET DÉBALLÉE (01/10) : prête à
+        /// être posée par Install, ou oubliée (Discard). Le lancement la
+        /// prépare en silence ; le toast et le menu Aide l'installent.</summary>
+        public sealed class Prepared
+        {
+            public Info Info;
+            public string Temp;    // le dossier de travail (archive + contenu + script)
+            public string Content; // le contenu déballé, Marabook(.exe) à sa racine
+
+            public void Discard()
+            {
+                try { if (Directory.Exists(Temp)) Directory.Delete(Temp, true); } catch { }
+            }
+        }
+
+        /// <summary>Télécharge l'archive de la release et la déballe dans un
+        /// dossier temporaire — sur un fil de fond, sans toucher à
+        /// l'application qui tourne. Lève une exception parlante en cas
+        /// d'échec (le dossier est alors nettoyé).</summary>
+        public static Prepared Prepare(Info info)
+        {
             if (string.IsNullOrEmpty(info.ZipUrl))
                 throw new Exception("La release ne contient pas " + PortableZip);
             var temp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-maj-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(temp);
-            var zip = System.IO.Path.Combine(temp, PortableZip);
-            ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
-            using (var client = new WebClient())
+            var prepared = new Prepared { Info = info, Temp = temp, Content = System.IO.Path.Combine(temp, "contenu") };
+            try
             {
-                client.Headers[HttpRequestHeader.UserAgent] = "Marabook";
-                // Un jeton ne s'envoie qu'à l'API de l'asset : l'URL publique
-                // redirige vers un stockage qui refuse l'en-tête d'autorisation
-                // (revue 22/09 ; même logique que ModuleStore.Download).
-                var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-                if (!string.IsNullOrEmpty(token) && !string.IsNullOrEmpty(info.AssetApiUrl))
+                var zip = System.IO.Path.Combine(temp, PortableZip);
+                ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
+                using (var client = new WebClient())
                 {
-                    client.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
-                    client.Headers[HttpRequestHeader.Accept] = "application/octet-stream";
-                    client.DownloadFile(info.AssetApiUrl, zip);
+                    client.Headers[HttpRequestHeader.UserAgent] = "Marabook";
+                    // Un jeton ne s'envoie qu'à l'API de l'asset : l'URL publique
+                    // redirige vers un stockage qui refuse l'en-tête d'autorisation
+                    // (revue 22/09 ; même logique que ModuleStore.Download).
+                    var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+                    if (!string.IsNullOrEmpty(token) && !string.IsNullOrEmpty(info.AssetApiUrl))
+                    {
+                        client.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
+                        client.Headers[HttpRequestHeader.Accept] = "application/octet-stream";
+                        client.DownloadFile(info.AssetApiUrl, zip);
+                    }
+                    else client.DownloadFile(info.ZipUrl, zip);
                 }
-                else client.DownloadFile(info.ZipUrl, zip);
+                Extract(zip, prepared.Content);
+                if (!File.Exists(System.IO.Path.Combine(prepared.Content, Exe)))
+                    throw new Exception("L'archive ne contient pas " + Exe);
+                try { File.Delete(zip); } catch { } // le contenu suffit ; l'archive pesait 60 Mo
+                return prepared;
             }
-            var content = System.IO.Path.Combine(temp, "contenu");
-            Extract(zip, content);
+            catch
+            {
+                prepared.Discard();
+                throw;
+            }
+        }
+
+        /// <summary>Pose une mise à jour préparée : écrit le script qui finit
+        /// le travail une fois l'app fermée et le lance. L'appelant ferme
+        /// l'application juste après.</summary>
+        public static void Install(Prepared prepared, string appDir)
+        {
+            var info = prepared.Info;
+            var temp = prepared.Temp;
+            var content = prepared.Content;
             if (!File.Exists(System.IO.Path.Combine(content, Exe)))
-                throw new Exception("L'archive ne contient pas " + Exe);
+                throw new Exception("La mise à jour préparée a disparu (" + content + ")");
 
             // Le script qui finit le travail une fois l'app fermée (P4, trois
             // OS) : SAUVEGARDE de l'ancien dossier, copie par-dessus, relance
