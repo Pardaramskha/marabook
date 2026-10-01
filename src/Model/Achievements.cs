@@ -215,7 +215,7 @@ namespace Marabook.Model
             new Achievement("sanderson", "Sanderson serait fier", "Ayez plus de cinq livres dans un seul projet."),
 
             new Achievement("besoin-de-lunettes", "Besoin de lunettes ?", "Écrivez cent mots avec un zoom de 300 %."),
-            new Achievement(Minimalist, "Minimaliste", "Exportez un livre terminé sans avoir utilisé de couleur personnalisée pour les fichiers, d'objectif de chapitre et d'état de finition des documents."),
+            new Achievement(Minimalist, "Minimaliste", "Exportez un livre sans avoir utilisé de couleur personnalisée pour les fichiers, d'objectif de chapitre ni d'état de finition des documents."),
             new Achievement("pensez-a-vous-etirer", "Pensez à vous étirer", "Gardez l'application ouverte pendant plus de 8 heures consécutives."),
             new Achievement(Cretin, "Crétin des alpes", "Recherchez une fiche alors que vous n'en avez pas encore créée."),
             new Achievement(About, "Enfin quelqu'un qui en a quelque chose à faire !", "Cliquez sur « À propos de Marabook »."),

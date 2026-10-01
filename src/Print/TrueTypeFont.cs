@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using System.Windows.Media;
 
 namespace Marabook.Print
 {
@@ -33,40 +32,22 @@ namespace Marabook.Print
         private int _numGlyphs;
         private bool _longLoca;
 
-        public static TrueTypeFont Load(GlyphTypeface typeface)
+        /// <summary>Le fichier d'une face (P0 : les octets viennent du moteur
+        /// de polices, IFontEngine.FontFile — plus de GlyphTypeface ici).
+        /// faceIndex : la face dans une collection (TTC) ; fallbackName : le
+        /// nom de famille si le fichier n'a pas de nom PostScript.</summary>
+        public static TrueTypeFont Load(byte[] data, int faceIndex, string fallbackName)
         {
+            if (data == null) return null;
             try
             {
-                byte[] data;
-                using (var stream = typeface.GetFontStream())
-                using (var buffer = new MemoryStream())
-                {
-                    stream.CopyTo(buffer);
-                    data = buffer.ToArray();
-                }
-                var faceIndex = 0;
-                try
-                {
-                    // Collections address the face in the uri fragment (#N).
-                    var fragment = typeface.FontUri.Fragment;
-                    if (!string.IsNullOrEmpty(fragment))
-                        int.TryParse(fragment.TrimStart('#'), out faceIndex);
-                }
-                catch { }
                 var font = new TrueTypeFont { Bytes = data };
                 font.Parse(faceIndex);
                 if (font.PostScriptName.Length == 0)
-                    font.PostScriptName = FallbackName(typeface);
+                    font.PostScriptName = fallbackName != null ? Sanitize(fallbackName) : "Embedded";
                 return font;
             }
             catch { return null; }
-        }
-
-        private static string FallbackName(GlyphTypeface typeface)
-        {
-            foreach (var name in typeface.FamilyNames.Values)
-                return Sanitize(name);
-            return "Embedded";
         }
 
         private static string Sanitize(string name)

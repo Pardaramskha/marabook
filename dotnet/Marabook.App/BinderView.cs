@@ -1,0 +1,1802 @@
+using System;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.IO;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Shapes;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+
+using Marabook.History;
+using Marabook.Model;
+
+namespace Marabook.App
+{
+    /// <summary>The Binder ("la Pile"): the left-hand tree of the project.
+    /// Owns tree construction, context menus and drag &amp; drop; every mutation
+    /// goes through the shared HistoryManager so it is undoable. The tree is
+    /// rebuilt after each change, preserving expansion and selection by id.</summary>
+    public class BinderView : Border
+    {
+        private readonly TreeView _tree;
+        private Project _project;
+        private HistoryManager _history;
+        private bool _subscribed;
+        private readonly Dictionary<string, TreeViewItem> _nodesById = new Dictionary<string, TreeViewItem>();
+        private readonly HashSet<string> _expandedIds = new HashSet<string>();
+        private string _selectedId;
+        private bool _rebuilding;
+
+        // Drag & drop state
+        private BinderItem _dragCandidate;
+        private Point _dragStart;
+        private Canvas _dropOverlay;   // indicateur d'insertion pendant le drag
+        private Border _dropLine, _dropBox;
+        private string _expectedSelectId; // seule sélection légitime (anti-fantôme)
+        private bool _keyboardNav;        // flèches/Home/End en cours
+
+        // Inline rename state
+        private TextBox _renameBox;
+        private bool _renameClosing;
+
+        public event Action<BinderItem> SelectionChanged;
+        public event Action StructureChanged; // a user-initiated, undoable change happened
+        // Des fichiers du système déposés sur la Pile (29/09) : (conteneur
+        // visé, chemins). Branché, la coquille décide (documents dans Écrits,
+        // médias ailleurs) ; sinon la Pile importe en médias comme avant.
+        public event Action<BinderItem, string[]> FilesDropped;
+        public event Action CollapseRequested; // le caret de repli sur la ligne Accueil (29/09)
+        public event Action JournalRequested; // clic sur « Journal perso » (pied de Pile)
+        // Épingler sur le côté (b47) : la coquille tient l'épingle ; la Pile
+        // demande, et sait si l'item est déjà épinglé pour libeller le menu.
+        public event Action<BinderItem> SidePinRequested;
+        public Func<BinderItem, bool> IsSidePinned;
+
+        // Fourni par MainWindow (cache de composition) : total de pages d'un
+        // livre, pour le garde-fou « page finale impaire ». Null = pas d'icône.
+        public Func<BinderItem, int> BookPageTotal;
+        public event Action DictionaryEntryRequested; // « Nouvelle entrée… » de la racine Dictionnaire (b33)
+
+        private TextBox _searchBox;
+        private ComboBox _searchFilter;
+        private ListBox _results;
+
+        public BinderView()
+        {
+            Background = Chrome.BarBg; // la Pile est du chrome (batch 40)
+            BorderBrush = Chrome.Border;
+            BorderThickness = new Thickness(0, 0, 1, 0);
+
+            // AutoScrollToSelectedItem (29/09) : l'arbre d'Avalonia amène LUI
+            // AUSSI la sélection dans la fenêtre, à l'horizontale comprise —
+            // la Pile filait vers la droite devant un titre long. La Pile s'en
+            // charge, verticalement seulement (BringIntoViewVertically).
+            _tree = new TreeView { [DragDrop.AllowDropProperty] = true, AutoScrollToSelectedItem = false };
+            _tree.SelectionChanged += OnSelectedItemChanged;
+            // En TUNNEL, comme le PreviewMouseDown de WPF : le TreeView
+            // d'Avalonia sélectionne dans son gestionnaire de classe (phase
+            // bulle), AVANT les gestionnaires d'instance — abonnés en bulle,
+            // les nôtres posaient _expectedSelectId après la sélection, que
+            // le filtre anti-fantôme révoquait : un clic dans la Pile ne
+            // faisait plus rien (27/09).
+            _tree.AddHandler(InputElement.PointerPressedEvent, OnPreviewMouseDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            // Le clic droit ne SÉLECTIONNE PLUS (29/09) : ouvrir l'élément
+            // en plus de son menu, c'était le bug du portage — le menu seul
+            // suffit. L'élément VISÉ se surligne le temps du menu (batch 28) —
+            // sur l'interligne, on sait enfin à qui le menu s'applique.
+            _tree.AddHandler(InputElement.PointerPressedEvent, new EventHandler<PointerPressedEventArgs>(delegate(object sender, PointerPressedEventArgs e)
+            {
+                var node = NodeFromSource(e.Source);
+                if (!IsRightClick(e)) _expectedSelectId = node == null ? null : ((BinderItem)node.Tag).Id;
+                ClearMenuHighlight();
+                // La teinte du menu : clic DROIT seul (30/09) — posée à tout
+                // clic, elle restait après un clic gauche et doublait la
+                // surbrillance de sélection d'un second rectangle.
+                if (node == null || !IsRightClick(e)) return;
+                var header = node.Header as Panel;
+                if (header == null) return;
+                _menuTarget = header;
+                header.Background = Chrome.AccentTint;
+                var menu = node.ContextMenu;
+                if (menu != null)
+                {
+                    EventHandler<RoutedEventArgs> closed = null;
+                    closed = delegate
+                    {
+                        menu.Closed -= closed;
+                        ClearMenuHighlight();
+                    };
+                    menu.Closed += closed;
+                }
+            }), Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            _tree.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                // Suppr dans la Pile (30/09) : l'élément choisi part à la
+                // corbeille — la fenêtre n'a plus de raccourci global.
+                if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None && _renameBox == null
+                    && SelectedItem != null && !SelectedItem.IsCategory)
+                {
+                    e.Handled = true;
+                    Delete(null);
+                    return;
+                }
+                if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Left
+                    || e.Key == Key.Right || e.Key == Key.Home || e.Key == Key.End
+                    || e.Key == Key.PageUp || e.Key == Key.PageDown)
+                    _keyboardNav = true;
+            };
+            _tree.PointerMoved += OnPreviewMouseMove;
+            _tree.AddHandler(DragDrop.DragOverEvent, OnDragOver);
+            _tree.AddHandler(DragDrop.DropEvent, OnDrop);
+            // Clicking the already-selected row fires no SelectedItemChanged;
+            // re-announce it so the main window can bring its view back.
+            _tree.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            {
+                if (_rebuilding || _renameBox != null) return;
+                if (e.InitialPressMouseButton != MouseButton.Left) return; // le droit = le menu, rien d'autre (29/09)
+                var node = NodeFromSource(e.Source);
+                if (node == null || !node.IsSelected) return;
+                var item = node.Tag as BinderItem;
+                if (item == null || _selectedId != item.Id) return;
+                var handler = SelectionChanged;
+                if (handler != null) handler(item);
+            };
+
+            var layout = new DockPanel();
+            layout.Children.Add(BuildSearchBar());
+            layout.Children.Add(BuildJournalRow());
+
+            _results = new ListBox
+            {
+                IsVisible = false,
+                BorderThickness = new Thickness(0),
+                Background = Brushes.Transparent
+            };
+            _results.SelectionChanged += OnResultChosen;
+            // Re-clicking the already-selected result fires no SelectionChanged;
+            // announce it on mouse-up so the item always opens.
+            _results.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            {
+                var current = e.Source as Visual;
+                while (current != null && !(current is ListBoxItem))
+                    current = (current as Visual)?.GetVisualParent();
+                var entry = current as ListBoxItem;
+                if (entry == null || entry.Tag == null || !entry.IsSelected) return;
+                _selectedId = (string)entry.Tag;
+                var handler = SelectionChanged;
+                if (handler != null) handler(SelectedItem);
+            };
+
+            var host = new Grid();
+            host.Children.Add(_tree);
+            host.Children.Add(_results);
+
+            // Indicateur de dépôt : filet d'insertion entre deux lignes, ou
+            // cadre autour d'un conteneur qui avalera l'élément.
+            _dropLine = new Border
+            {
+                Height = 2.5,
+                CornerRadius = new CornerRadius(1.25),
+                Background = Chrome.Accent,
+                IsVisible = false
+            };
+            _dropBox = new Border
+            {
+                CornerRadius = new CornerRadius(5),
+                BorderBrush = Chrome.Accent,
+                BorderThickness = new Thickness(1.5),
+                IsVisible = false
+            };
+            _dropOverlay = new Canvas { IsHitTestVisible = false };
+            _dropOverlay.Children.Add(_dropLine);
+            _dropOverlay.Children.Add(_dropBox);
+            host.Children.Add(_dropOverlay);
+            _tree.AddHandler(DragDrop.DragLeaveEvent, delegate { StopDragScroll(); ClearDropIndicator(); });
+
+            layout.Children.Add(host);
+            Child = layout;
+        }
+
+        private void ClearDropIndicator()
+        {
+            _dropLine.IsVisible = false;
+            _dropBox.IsVisible = false;
+        }
+
+        /// <summary>Montre où le dépôt agira : filet accent SOUS la ligne visée
+        /// (insertion après elle) ou cadre autour d'un conteneur (imbrication).</summary>
+        private void ShowDropIndicator(TreeViewItem node, bool asChild)
+        {
+            var header = FirstBorderOf(node);
+            if (header == null) { ClearDropIndicator(); return; }
+            Point origin;
+            try { origin = header.TranslatePoint(new Point(0, 0), _dropOverlay) ?? new Point(); }
+            catch { ClearDropIndicator(); return; }
+            if (asChild)
+            {
+                _dropLine.IsVisible = false;
+                _dropBox.Width = Math.Max(20, header.Bounds.Width);
+                _dropBox.Height = Math.Max(8, header.Bounds.Height);
+                Canvas.SetLeft(_dropBox, origin.X);
+                Canvas.SetTop(_dropBox, origin.Y);
+                _dropBox.IsVisible = true;
+            }
+            else
+            {
+                _dropBox.IsVisible = false;
+                _dropLine.Width = Math.Max(20, header.Bounds.Width - 18);
+                Canvas.SetLeft(_dropLine, origin.X + 18); // aligné sur le libellé
+                Canvas.SetTop(_dropLine, origin.Y + header.Bounds.Height - 1);
+                _dropLine.IsVisible = true;
+            }
+        }
+
+        private static Border FirstBorderOf(Visual node)
+        {
+            foreach (var child in node.GetVisualChildren())
+            {
+                var border = child as Border;
+                if (border != null) return border;
+                var inner = FirstBorderOf(child);
+                if (inner != null) return inner;
+            }
+            return null;
+        }
+
+        private Control BuildSearchBar()
+        {
+            var bar = new Border
+            {
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(6, 6, 6, 6)
+            };
+            DockPanel.SetDock(bar, Dock.Top);
+            var row = new DockPanel();
+
+            _searchFilter = new ComboBox { Width = 74, Margin = new Thickness(4, 0, 0, 0) };
+            _searchFilter.Items.Add("Tout");
+            _searchFilter.Items.Add("Écrits");
+            _searchFilter.Items.Add("Fiches");
+            _searchFilter.Items.Add("Plans");
+            _searchFilter.Items.Add("Dictionnaire");
+            _searchFilter.Items.Add("Médias");
+            _searchFilter.SelectedIndex = 0;
+            _searchFilter.SelectionChanged += delegate { RunSearch(); };
+            DockPanel.SetDock(_searchFilter, Dock.Right);
+            row.Children.Add(_searchFilter);
+
+            _searchBox = new TextBox { [ToolTip.TipProperty] = "Recherche dans tout le projet (titres, textes, fiches, plans, dictionnaire — sans casse ni accents)" };
+            _searchBox.TextChanged += delegate { ScheduleSearch(); };
+            _searchBox.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key == Key.Escape) { _searchBox.Text = ""; e.Handled = true; }
+            };
+            row.Children.Add(_searchBox);
+            bar.Child = row;
+            return bar;
+        }
+
+        /// <summary>Pied de Pile : l'entrée fixe « Journal perso ». Hors de
+        /// l'arbre (aucun BinderItem, aucune persistance d'arborescence) — un
+        /// clic ouvre la vue journal au centre.</summary>
+        private Control BuildJournalRow()
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            var icon = Icons.Make("journal-perso", 15, Chrome.SoftText) as Control;
+            if (icon != null)
+            {
+                icon.VerticalAlignment = VerticalAlignment.Center;
+                icon.Margin = new Thickness(0, 0, 8, 0);
+                row.Children.Add(icon);
+            }
+            row.Children.Add(new TextBlock
+            {
+                Text = "Journal perso",
+                Foreground = Chrome.Ink,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            var bar = new Border
+            {
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(12, 8, 12, 8),
+                Background = Brushes.Transparent,
+                Cursor = new Cursor(StandardCursorType.Hand),
+                [ToolTip.TipProperty] = "Statistiques d'écriture et objectif journalier",
+                Child = row
+            };
+            bar.PointerEntered += delegate { bar.Background = Chrome.BarBg; };
+            bar.PointerExited += delegate { bar.Background = Brushes.Transparent; };
+            bar.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
+                var handler = JournalRequested;
+                if (handler != null) handler();
+            };
+            DockPanel.SetDock(bar, Dock.Bottom);
+            return bar;
+        }
+
+        public void FocusSearch()
+        {
+            _searchBox.Focus();
+            _searchBox.SelectAll();
+        }
+
+        public BinderItem SelectedItem
+        {
+            get { return _selectedId == null || _project == null ? null : _project.FindById(_selectedId); }
+        }
+
+        public void LoadProject(Project project, HistoryManager history)
+        {
+            _project = project;
+            _history = history;
+            if (!_subscribed)
+            {
+                _history.Changed += Rebuild;
+                _subscribed = true;
+            }
+            _expandedIds.Clear();
+            foreach (var root in project.Roots) _expandedIds.Add(root.Id); // categories start open
+            _selectedId = null;
+            if (_searchBox != null) _searchBox.Text = ""; // also restores the tree
+            Rebuild();
+        }
+
+        // ------------------------------------------------------- tree construction
+
+        public void Rebuild()
+        {
+            if (_project == null) return;
+            _rebuilding = true;
+            try
+            {
+                _tree.Items.Clear();
+                _nodesById.Clear();
+                foreach (var root in _project.Roots)
+                {
+                    // La racine Cartes mentales n'apparaît qu'avec le module
+                    // Mental-o (29/09) — ou si le projet en contient déjà
+                    // (elles restent atteignables, avec leur tuile d'attente).
+                    // Le projet la garde : rien ne change dans le .plot.
+                    if (root.CategoryKey == Project.KeyMindMaps
+                        && MindMapModules.Provider == null && root.Children.Count == 0)
+                        continue;
+                    _tree.Items.Add(BuildNode(root));
+                    // Un filet sous l'Accueil (b41) : un point d'entrée, pas
+                    // un dossier de travail comme les racines qui suivent.
+                    if (root.IsHomeRoot)
+                        _tree.Items.Add(new TreeViewItem
+                        {
+                            Header = new Border
+                            {
+                                Height = 1,
+                                Background = Chrome.Border,
+                                Margin = new Thickness(0, 3, 8, 3),
+                                MinWidth = 120
+                            },
+                            IsEnabled = false,
+                            Focusable = false
+                        });
+                }
+
+                TreeViewItem selected;
+                if (_selectedId != null && _nodesById.TryGetValue(_selectedId, out selected))
+                    selected.IsSelected = true;
+                else
+                    _selectedId = null;
+            }
+            finally
+            {
+                _rebuilding = false;
+            }
+        }
+
+        // L'en-tête surligné pendant un menu contextuel (batch 28).
+        private Panel _menuTarget;
+
+        private void ClearMenuHighlight()
+        {
+            if (_menuTarget == null) return;
+            _menuTarget.ClearValue(Panel.BackgroundProperty);
+            _menuTarget = null;
+        }
+
+        private TreeViewItem BuildNode(BinderItem item)
+        {
+            var node = new TreeViewItem
+            {
+                Tag = item,
+                Header = BuildHeader(item),
+                IsExpanded = _expandedIds.Contains(item.Id)
+            };
+            node.Expanded += OnNodeExpandedChanged;
+            node.Collapsed += OnNodeExpandedChanged;
+            node.ContextMenu = BuildContextMenu(item);
+            if (item.Kind == ItemKind.Book)
+            {
+                // Les gabarits d'abord, puis un filet, puis les documents.
+                var gabarits = 0;
+                foreach (var child in item.Children)
+                    if (child.Kind == ItemKind.PageTemplate)
+                    { node.Items.Add(BuildNode(child)); gabarits++; }
+                if (gabarits > 0)
+                    node.Items.Add(new TreeViewItem
+                    {
+                        Header = new Border
+                        {
+                            Height = 1,
+                            Background = Chrome.Border,
+                            Margin = new Thickness(0, 2, 8, 2),
+                            MinWidth = 120
+                        },
+                        IsEnabled = false,
+                        Focusable = false
+                    });
+                foreach (var child in item.Children)
+                    if (child.Kind != ItemKind.PageTemplate)
+                        node.Items.Add(BuildNode(child));
+            }
+            else if (IsSheetContainer(item))
+                AddSheetChildren(node, item);
+            else
+                foreach (var child in item.Children)
+                    node.Items.Add(BuildNode(child));
+            _nodesById[item.Id] = node;
+            return node;
+        }
+
+        /// <summary>Un conteneur de la racine Fiches (la racine, un dossier, un
+        /// sous-dossier) qui contient au moins une fiche.</summary>
+        private bool IsSheetContainer(BinderItem item)
+        {
+            if (_project == null || item.RootCategory().CategoryKey != Project.KeySheets) return false;
+            foreach (var child in item.Children) if (child.Kind == ItemKind.Sheet) return true;
+            return false;
+        }
+
+        /// <summary>Les enfants d'un conteneur de Fiches (29/09) : les dossiers
+        /// et le reste dans leur ordre, puis les fiches PAR CATÉGORIE (l'ordre
+        /// des catégories du projet, les sans-catégorie en dernier) et, dans
+        /// chaque catégorie, par ordre alphabétique. Chaque catégorie s'annonce
+        /// par une ligne — son nom et un filet — au même niveau que ses
+        /// fiches : ni un dossier, ni un item, rien au tableau. Affichage
+        /// seulement : l'ordre du modèle ne bouge pas.</summary>
+        private void AddSheetChildren(TreeViewItem node, BinderItem item)
+        {
+            foreach (var child in item.Children)
+                if (child.Kind != ItemKind.Sheet) node.Items.Add(BuildNode(child));
+            var groups = new List<KeyValuePair<SheetCategory, List<BinderItem>>>();
+            foreach (var category in _project.SheetCategories)
+                groups.Add(new KeyValuePair<SheetCategory, List<BinderItem>>(category, new List<BinderItem>()));
+            var loose = new List<BinderItem>();
+            foreach (var child in item.Children)
+            {
+                if (child.Kind != ItemKind.Sheet) continue;
+                var category = _project.SheetCategoryOf(child);
+                var placed = false;
+                foreach (var group in groups)
+                    if (group.Key == category) { group.Value.Add(child); placed = true; break; }
+                if (!placed) loose.Add(child);
+            }
+            foreach (var group in groups)
+            {
+                if (group.Value.Count == 0) continue;
+                node.Items.Add(CategoryRow(group.Key.Name));
+                foreach (var sheet in Alphabetical(group.Value)) node.Items.Add(BuildNode(sheet));
+            }
+            if (loose.Count > 0)
+            {
+                node.Items.Add(CategoryRow("Sans catégorie"));
+                foreach (var sheet in Alphabetical(loose)) node.Items.Add(BuildNode(sheet));
+            }
+        }
+
+        private static List<BinderItem> Alphabetical(List<BinderItem> sheets)
+        {
+            var sorted = new List<BinderItem>(sheets);
+            sorted.Sort(delegate(BinderItem a, BinderItem b)
+            { return string.Compare(a.Title ?? "", b.Title ?? "", StringComparison.CurrentCultureIgnoreCase); });
+            return sorted;
+        }
+
+        /// <summary>La ligne d'une catégorie : son nom en petit, un filet
+        /// jusqu'au bord — inerte (ni sélection, ni menu, ni dépôt).</summary>
+        private static TreeViewItem CategoryRow(string name)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 5, 8, 2), MinWidth = 120 };
+            var label = new TextBlock
+            {
+                Text = name,
+                Foreground = Chrome.SoftText,
+                FontSize = 10.5,
+                FontWeight = FontWeight.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+            DockPanel.SetDock(label, Dock.Left);
+            row.Children.Add(label);
+            row.Children.Add(new Border { Height = 1, Background = Chrome.Border, VerticalAlignment = VerticalAlignment.Center });
+            return new TreeViewItem { Header = row, IsEnabled = false, Focusable = false }; // Tag nul, comme le filet sous l'Accueil
+        }
+
+        private Control BuildHeader(BinderItem item)
+        {
+            var panel = new StackPanel { Orientation = Orientation.Horizontal };
+            // Gabarits de pages : blueprint teinté de leur couleur.
+            if (item.Kind == ItemKind.PageTemplate)
+            {
+                var brush = item.TemplateColor != null
+                    ? (IBrush)new SolidColorBrush(Ink.Parse(item.TemplateColor).ToColor())
+                    : Chrome.SoftText;
+                var icon = Icons.Make("blueprint-bold", 12, brush) as Control;
+                if (icon != null)
+                {
+                    icon.VerticalAlignment = VerticalAlignment.Center;
+                    icon.Margin = new Thickness(0, 0, 6, 0);
+                    panel.Children.Add(icon);
+                }
+            }
+            else
+                panel.Children.Add(ItemIcons.Render(item, 12,
+                    item.IsCategory ? (IBrush)Chrome.Accent : Chrome.SoftText));
+
+            var title = new TextBlock
+            {
+                Text = item.Title,
+                Foreground = Chrome.Ink,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            if (item.IsCategory)
+            {
+                title.FontWeight = FontWeight.SemiBold;
+                title.Foreground = Chrome.SoftText;
+            }
+            panel.Children.Add(title);
+
+            // Le bouton de repli de la Pile (29/09), collé à droite de la
+            // ligne Accueil : un caret vers la gauche ; la coquille cache la
+            // Pile et ne laisse qu'un caret vers la droite pour la rouvrir.
+            // La pression est absorbée : elle ne sélectionne pas l'Accueil.
+            if (item.IsHomeRoot)
+            {
+                var toggle = new Border
+                {
+                    Padding = new Thickness(6, 2, 4, 2),
+                    Background = Brushes.Transparent,
+                    Cursor = new Cursor(StandardCursorType.Hand),
+                    Child = Icons.Make("caret-left-bold", 11, Chrome.SoftText),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    [ToolTip.TipProperty] = "Replier la Pile"
+                };
+                toggle.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e) { e.Handled = true; }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+                toggle.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+                {
+                    if (e.InitialPressMouseButton != MouseButton.Left) return;
+                    e.Handled = true;
+                    var handler = CollapseRequested;
+                    if (handler != null) handler();
+                };
+                var row = new DockPanel { HorizontalAlignment = HorizontalAlignment.Stretch };
+                DockPanel.SetDock(toggle, Dock.Right);
+                row.Children.Add(toggle);
+                row.Children.Add(panel);
+                return row;
+            }
+
+            // Books: alert chip when a document strays from the gabarit.
+            if (item.Kind == ItemKind.Book && BookHasDivergentDocs(item))
+                panel.Children.Add(new Ellipse
+                {
+                    Width = 7,
+                    Height = 7,
+                    Margin = new Thickness(5, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Fill = new SolidColorBrush(Color.FromRgb(230, 126, 34)),
+                    [ToolTip.TipProperty] = "Des documents de ce livre ne suivent pas son gabarit "
+                        + "(clic droit → Appliquer le gabarit à tous les documents)"
+                });
+
+            // Livres : garde-fou d'imposition — icône danger quand la page
+            // finale n'est pas impaire (erreur de mise en page courante).
+            if (item.Kind == ItemKind.Book && BookPageTotal != null)
+            {
+                var total = BookPageTotal(item);
+                if (total > 0 && total % 2 == 0)
+                {
+                    var danger = Icons.Make("warning-fill", 12,
+                        new SolidColorBrush(Color.FromRgb(241, 196, 15))) as Control;
+                    if (danger != null)
+                    {
+                        danger.VerticalAlignment = VerticalAlignment.Center;
+                        danger.Margin = new Thickness(5, 0, 0, 0);
+                        ToolTip.SetTip(danger, "La page finale de ce livre (" + total
+                            + ") n'est pas impaire — ajoutez ou retirez une page "
+                            + "pour une imposition correcte.");
+                        panel.Children.Add(danger);
+                    }
+                }
+            }
+
+            // Double-click renames in place (folders included: expansion is on
+            // the chevron, Scrivener-style rename wins on the label).
+            if (!item.IsCategory && !item.IsOutOfBook) // Hors-livre : pas renommable (29/09)
+            {
+                var itemRef = item;
+                panel.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+                {
+                    if (e.ClickCount != 2) return;
+                    e.Handled = true;
+                    BeginInlineRename(itemRef, panel, title);
+                };
+            }
+            return panel;
+        }
+
+        // ------------------------------------------------------- inline rename
+
+        /// <summary>Swaps the header label for a TextBox. Enter or clicking
+        /// elsewhere commits (undoable), Escape cancels.</summary>
+        private void BeginInlineRename(BinderItem item, StackPanel header, TextBlock title)
+        {
+            if (_renameBox != null) return; // one rename at a time
+            var box = new TextBox
+            {
+                Text = item.Title,
+                MinWidth = 120,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            _renameBox = box;
+            _renameClosing = false;
+            var index = header.Children.IndexOf(title);
+            header.Children.RemoveAt(index);
+            header.Children.Insert(index, box);
+
+            Action<bool> finish = delegate(bool commit)
+            {
+                if (_renameClosing) return;
+                _renameClosing = true;
+                _renameBox = null;
+                var newTitle = (box.Text ?? "").Trim();
+                if (commit && newTitle.Length > 0 && newTitle != item.Title)
+                    RunAndSelect(new RenameItemAction(item, newTitle), item.Id, null);
+                else
+                    Rebuild(); // restore the plain label
+            };
+            box.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key == Key.Enter) { e.Handled = true; finish(true); }
+                else if (e.Key == Key.Escape) { e.Handled = true; finish(false); }
+            };
+            box.LostFocus += delegate { finish(true); };
+            box.Loaded += delegate { box.Focus(); box.SelectAll(); };
+        }
+
+        private void OnNodeExpandedChanged(object sender, RoutedEventArgs e)
+        {
+            var node = e.Source as TreeViewItem;
+            if (node == null) return;
+            var item = node.Tag as BinderItem;
+            if (item == null) return;
+            if (node.IsExpanded) _expandedIds.Add(item.Id);
+            else _expandedIds.Remove(item.Id);
+            e.Handled = true;
+        }
+
+        private TreeViewItem _selectedNode; // TreeView.SelectedItem d'Avalonia ignore les nœuds imbriqués : suivi ici
+
+        private void OnSelectedItemChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_rebuilding) return;
+            // Avalonia : SelectedItem n'est pas encore à jour quand l'événement
+            // part d'un nœud imbriqué — le nœud ajouté fait foi.
+            TreeViewItem node;
+            if (e == null)
+            {
+                // Annonce directe depuis SelectItem : le nœud demandé.
+                if (_selectedId == null || !_nodesById.TryGetValue(_selectedId, out node)) node = null;
+            }
+            else node = (e.AddedItems != null && e.AddedItems.Count > 0 ? e.AddedItems[0] : _selectedNode) as TreeViewItem;
+            _selectedNode = node;
+            var id = node == null || !(node.Tag is BinderItem)
+                ? null : ((BinderItem)node.Tag).Id;
+            if (Environment.GetEnvironmentVariable("MARABOOK_TRACE") == "1") Console.WriteLine("  [trace] Pile : sélection " + (id ?? "null") + " attendu=" + _expectedSelectId + " rebuilding=" + _rebuilding);
+
+            // WPF selects a TreeViewItem the moment it RECEIVES the keyboard
+            // focus (TreeViewItem.OnGotFocus → Select) — and masquer une vue
+            // qui portait le focus le fait retomber sur un nœud de l'arbre.
+            // Toute sélection qui ne vient ni d'un clic sur CE nœud, ni du
+            // clavier, ni de SelectItem, est un fantôme : révoquée.
+            var allowed = id == null || _keyboardNav || id == _expectedSelectId;
+            _keyboardNav = false;
+            if (!allowed)
+            {
+                RestoreSelection(node);
+                return;
+            }
+
+            _selectedId = id;
+            var handler = SelectionChanged;
+            if (handler != null) handler(node == null ? null : (BinderItem)node.Tag);
+        }
+
+        /// <summary>Revokes a phantom selection: the previously selected node
+        /// takes the selection back (silently), the phantom is deselected.</summary>
+        private void RestoreSelection(TreeViewItem phantom)
+        {
+            _rebuilding = true;
+            try
+            {
+                TreeViewItem node;
+                if (_selectedId != null && _nodesById.TryGetValue(_selectedId, out node))
+                    node.IsSelected = true;
+                else if (phantom != null)
+                    phantom.IsSelected = false;
+            }
+            finally
+            {
+                _rebuilding = false;
+            }
+        }
+
+        public void SelectItem(string id)
+        {
+            SelectItem(id, true);
+        }
+
+        /// <summary>bringIntoView false = re-sélection silencieuse (le rappel
+        /// anti-fantôme) : NE PAS faire défiler l'arbre, sinon la ligne bouge
+        /// sous la souris entre les deux clics d'un double-clic (renommage).</summary>
+        public void SelectItem(string id, bool bringIntoView)
+        {
+            _selectedId = id;
+            _expectedSelectId = id; // sélection programmée = légitime
+            TreeViewItem node;
+            if (id != null && _nodesById.TryGetValue(id, out node))
+            {
+                // Open the path down to the item so the selection is visible.
+                var parent = node.Parent as TreeViewItem;
+                while (parent != null)
+                {
+                    parent.IsExpanded = true;
+                    parent = parent.Parent as TreeViewItem;
+                }
+                node.IsSelected = true;
+                if (bringIntoView) BringIntoViewVertically(node);
+                // Avalonia ne lève pas toujours SelectionChanged pour un nœud
+                // imbriqué (parent replié à l'instant, arbre rebâti) : la vue
+                // annonce elle-même la sélection — OnBinderSelection ignore
+                // un doublon sur l'élément déjà ouvert.
+                if (_selectedNode != node) OnSelectedItemChanged(_tree, null);
+            }
+        }
+
+        // ------------------------------------------------------- context menus
+
+        /// <summary>Le menu contextuel d'un item — public depuis le 14/09 :
+        /// les tuiles de la bibliothèque de fiches offrent le même.</summary>
+        public ContextMenu BuildContextMenu(BinderItem item)
+        {
+            return BuildContextMenu(item, false, true);
+        }
+
+        /// <summary>Le même menu pour les TUILES des corkboards, de la
+        /// bibliothèque et de l'Accueil (14/09) : « Supprimer » demande
+        /// confirmation, et les créations « au même niveau » de la Pile
+        /// (Nouvelle fiche, Nouvel import, Nouveau plan) n'y sont pas.</summary>
+        public ContextMenu BuildContextMenu(BinderItem item, bool confirmDelete)
+        {
+            return BuildContextMenu(item, confirmDelete, false);
+        }
+
+        private ContextMenu BuildContextMenu(BinderItem item, bool confirmDelete, bool fromPile)
+        {
+            var menu = new ContextMenu();
+            var inTrash = item.RootCategory().CategoryKey == Project.KeyTrash;
+
+            if (inTrash)
+            {
+                if (!item.IsCategory)
+                    AddMenu(menu, "Restaurer dans Écrits", delegate { Restore(item); });
+                AddMenu(menu, "Vider la corbeille", HardDeleteInk, delegate { EmptyTrash(); });
+                return menu;
+            }
+            // L'Accueil (batch 41) : rien à créer, rien à renommer, rien à
+            // supprimer — pas de menu du tout.
+            if (item.IsHomeRoot) return null;
+            // La racine Dictionnaire (batch 33) n'a pas d'enfants dans la
+            // Pile : ses entrées vivent dans son écran.
+            if (item.IsCategory && item.CategoryKey == Project.KeyDictionary)
+            {
+                AddMenu(menu, "Nouvelle entrée…", delegate
+                {
+                    var handler = DictionaryEntryRequested;
+                    if (handler != null) handler();
+                });
+                return menu;
+            }
+            // La racine Plans (batch 35) ne reçoit que des plans.
+            if (item.IsCategory && item.CategoryKey == Project.KeyPlans)
+            {
+                AddMenu(menu, "Nouveau plan", delegate { NewPlan(item); });
+                return menu;
+            }
+            // La racine Cartes mentales (22/09) ne reçoit que des cartes.
+            if (item.IsCategory && item.CategoryKey == Project.KeyMindMaps)
+            {
+                AddMenu(menu, "Nouvelle carte mentale", delegate { NewMindMap(item); });
+                AddMenu(menu, "Importer une carte (.tea)…", delegate { ImportMindMapDialog(item); });
+                return menu;
+            }
+
+            if (item.CanHaveChildren)
+            {
+                var rootKey = item.RootCategory().CategoryKey;
+                // Chaque racine ne propose que son contenu natif (pack de
+                // correctifs du 12/09/2026) : Fiches = fiches et dossiers,
+                // Recherche = import seulement, Écrits = écrits, livres,
+                // dossiers. Le dépôt par glisser-déposer reste libre.
+                if (rootKey == Project.KeySheets)
+                {
+                    AddMenu(menu, "Nouvelle fiche", delegate { NewSheet(item); });
+                    AddMenu(menu, "Nouveau dossier", delegate { NewFolder(item); });
+                }
+                else if (rootKey == Project.KeyResearch)
+                {
+                    AddMenu(menu, "Importer des fichiers…", delegate { ImportMediaDialog(item); });
+                }
+                else
+                {
+                    AddMenu(menu, "Nouvel écrit", delegate { NewText(item); });
+                    // Un Livre se crée dans Écrits uniquement, jamais dans un
+                    // autre livre.
+                    if (rootKey == Project.KeyWritings && item.EnclosingBook() == null)
+                        AddMenu(menu, "Nouveau livre", delegate { NewBook(item); });
+                    if (!item.IsInsideOutOfBook()) // pas de parties dans le Hors-livre (29/09)
+                        AddMenu(menu, "Nouveau dossier", delegate { NewFolder(item); });
+                }
+            }
+            // Depuis la Pile seulement (14/09) : créer AU MÊME NIVEAU que
+            // l'item cliqué — une fiche à côté d'une fiche, un import à côté
+            // d'un document de Recherche, un plan à côté d'un plan.
+            if (fromPile && !item.IsCategory)
+            {
+                var parent = item.Parent;
+                if (item.Kind == ItemKind.Sheet)
+                    AddMenu(menu, "Nouvelle fiche", delegate { NewSheet(parent); });
+                else if (item.Kind == ItemKind.Media)
+                    AddMenu(menu, "Nouvel import…", delegate { ImportMediaDialog(parent); });
+                else if (item.Kind == ItemKind.Plan)
+                    AddMenu(menu, "Nouveau plan", delegate { NewPlan(null); });
+                else if (item.Kind == ItemKind.MindMap)
+                {
+                    AddMenu(menu, "Nouvelle carte mentale", delegate { NewMindMap(null); });
+                    AddMenu(menu, "Exporter la carte (.tea)…", delegate { ExportMindMap(item); });
+                }
+            }
+            if (!item.IsCategory)
+            {
+                if (menu.Items.Count > 0) menu.Items.Add(new Separator()); // pas de filet en tête (fiche, écrit sans enfant — 14/09)
+                // Épingler sur l'Accueil (batch 41) : une bascule annulable.
+                AddMenu(menu, item.Pinned ? "Ne plus épingler à l'accueil" : "Épingler à l'accueil", delegate { TogglePin(item); });
+                if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
+                {
+                    var sidePinned = IsSidePinned != null && IsSidePinned(item);
+                    AddMenu(menu, sidePinned ? "Retirer du rail" : "Épingler au rail", delegate
+                    {
+                        var handler = SidePinRequested;
+                        if (handler != null) handler(item);
+                    });
+                }
+                if (item.Kind == ItemKind.Book)
+                    AddMenu(menu, "Options du livre…", delegate { BookOptions(item); });
+                // Un dossier de Fiches, depuis la Pile (29/09) : classer ses
+                // fiches par ordre alphabétique — annulable.
+                if (fromPile && item.CanHaveChildren && item.Children.Count > 1
+                    && item.RootCategory().CategoryKey == Project.KeySheets)
+                    AddMenu(menu, "Classer par ordre alphabétique", delegate { SortChildren(item); });
+                // Le dossier Hors-livre (29/09) : ni renommé, ni changé d'icône, ni supprimé.
+                if (item.IsOutOfBook) return menu;
+                AddMenu(menu, "Renommer…", delegate { Rename(item); });
+                AddMenu(menu, "Changer l'icône…", delegate { ChangeIcon(item); });
+                // La couleur de l'icône (29/09) : la teinte seule, l'icône
+                // reste — le nuancier partagé, sur l'icône choisie ou celle
+                // par défaut de l'item.
+                if (!item.IsCategory) menu.Items.Add(BuildIconColorMenu(item));
+                // La couleur (29/09) : toute tuile colorable (écrit, fiche,
+                // livre, dossier) l'a dans son menu — le nuancier du Général.
+                if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet
+                    || item.Kind == ItemKind.Book || item.Kind == ItemKind.Folder)
+                    menu.Items.Add(BuildColorMenu(item));
+                if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Book)
+                {
+                    AddMenu(menu, item.ImageId == null ? "Image de la carte…" : "Changer l'image de la carte…",
+                        delegate { ChangeCardImage(item); });
+                    if (item.ImageId != null)
+                        AddMenu(menu, "Retirer l'image de la carte", delegate { RemoveCardImage(item); });
+                }
+                // Dupliquer (30/09) : écrit, fiche ou gabarit — la copie juste
+                // après l'original, annulable.
+                if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet || item.Kind == ItemKind.PageTemplate)
+                    AddMenu(menu, "Dupliquer", delegate { Duplicate(item); });
+                // Suppression DOUCE (29/09) : vers la corbeille, en orange —
+                // elle se restaure ; la sèche (vider la corbeille) est rouge.
+                AddMenu(menu, "Envoyer à la corbeille", SoftDeleteInk, async delegate
+                {
+                    if (confirmDelete && !await ConfirmTrash(item)) return;
+                    Delete(item);
+                });
+            }
+            return menu;
+        }
+
+        /// <summary>Le sous-menu « Couleur » d'un item (29/09) : le nuancier,
+        /// les couleurs personnalisées du projet, « Nouvelle couleur… »,
+        /// « Aucune couleur » — la même palette que le bouton du Général.
+        /// Annulable (ChangeColorAction).</summary>
+        private MenuItem BuildColorMenu(BinderItem item)
+        {
+            var root = new MenuItem { Header = "Couleur", Icon = ColorMenus.Dot(item.CardColor, 1, Chrome.Border) };
+            ColorMenus.Fill(root, Ui.OwnerOf(this), _project, item.CardColor, delegate(string value) { ApplyColor(item, value); });
+            return root;
+        }
+
+        /// <summary>Le sous-menu « Couleur de l'icône » (29/09) : teinte l'icône
+        /// vectorielle de l'item (la sienne, ou celle par défaut de sa nature)
+        /// sans la changer — icône « svg:nom:#hex ». Une icône fichier ou
+        /// glyphe ne se teinte pas : l'entrée est là, éteinte.</summary>
+        private MenuItem BuildIconColorMenu(BinderItem item)
+        {
+            var current = item.Icon;
+            string name = null, tint = null;
+            if (current == null) name = ItemIcons.DefaultSvg(item);
+            else if (current.StartsWith("svg:", StringComparison.Ordinal))
+            {
+                var token = current.Substring(4);
+                var colon = token.IndexOf(':');
+                name = colon < 0 ? token : token.Substring(0, colon);
+                tint = colon < 0 ? null : token.Substring(colon + 1);
+            }
+            var root = new MenuItem { Header = "Couleur de l'icône", IsEnabled = name != null };
+            if (name == null) return root;
+            var iconName = name;
+            ColorMenus.Fill(root, Ui.OwnerOf(this), _project, tint, delegate(string value)
+            {
+                var icon = value == null ? (item.Icon == null ? null : "svg:" + iconName) : "svg:" + iconName + ":" + value;
+                if (icon == item.Icon) return;
+                RunAndSelect(new ChangeIconAction(item, icon), null, null);
+            });
+            return root;
+        }
+
+        /// <summary>« Classer par ordre alphabétique » (29/09) : les enfants
+        /// d'un dossier de Fiches, par titre — annulable.</summary>
+        private void SortChildren(BinderItem folder)
+        {
+            if (folder == null || folder.Children.Count < 2) return;
+            var action = new SortChildrenAction(folder);
+            if (action.IsNoOp) return;
+            RunAndSelect(action, null, folder.Id);
+        }
+
+        private void ApplyColor(BinderItem item, string value)
+        {
+            if (item == null || item.CardColor == value) return;
+            RunAndSelect(new ChangeColorAction(item, value), null, null);
+        }
+
+        /// <summary>« Supprimer » depuis une tuile (14/09) : on demande —
+        /// l'item part à la corbeille, d'où on le restaure, mais une tuile
+        /// se clique vite.</summary>
+        public async Task<bool> ConfirmTrash(BinderItem item)
+        {
+            if (item == null) return false;
+            var what = item.Kind == ItemKind.Book ? "le livre" : item.Kind == ItemKind.Folder ? "le dossier"
+                : item.Kind == ItemKind.Sheet ? "la fiche" : item.Kind == ItemKind.Plan ? "le plan" : item.Kind == ItemKind.MindMap ? "la carte"
+                : item.Kind == ItemKind.PageTemplate ? "le gabarit" : item.Kind == ItemKind.Media ? "le document" : "l'écrit";
+            var answer = MessageDialog.Show(Ui.OwnerOf(this),
+                "Envoyer " + what + " « " + item.Title + " » à la corbeille ?"
+                + (item.Children.Count > 0 ? "\nSon contenu part avec." : ""),
+                AppInfo.Name, MessageButtons.YesNo, MessageIcon.Question);
+            return await answer == MessageResult.Yes;
+        }
+
+        private static void AddMenu(ContextMenu menu, string label, EventHandler<RoutedEventArgs> onClick)
+        {
+            AddMenu(menu, label, null, onClick);
+        }
+
+        /// <summary>ink : l'encre de l'entrée (29/09) — orange pour une
+        /// suppression douce (corbeille), rouge pour une suppression sèche.</summary>
+        private static void AddMenu(ContextMenu menu, string label, IBrush ink, EventHandler<RoutedEventArgs> onClick)
+        {
+            var entry = new MenuItem { Header = label };
+            if (ink != null) entry.Foreground = ink;
+            entry.Click += onClick;
+            menu.Items.Add(entry);
+        }
+
+        public static readonly IBrush SoftDeleteInk = Chrome.Warn;   // vers la corbeille : se restaure
+        public static readonly IBrush HardDeleteInk = Chrome.Danger; // définitif
+
+        // ------------------------------------------------------- operations
+
+        /// <summary>The parent that receives a new item, given the current
+        /// selection. Texts can carry children, but new items land as their
+        /// siblings — nesting under a text is an explicit act (Ctrl+drop).</summary>
+        private BinderItem TargetParent()
+        {
+            var selected = SelectedItem;
+            if (selected == null || IsSpecialRoot(selected))
+                return _project.Category(Project.KeyWritings);
+            return selected.IsContainer ? selected : selected.Parent;
+        }
+
+        /// <summary>Corbeille et Dictionnaire : des racines qui ne reçoivent
+        /// rien par création, import ou dépôt.</summary>
+        private static bool IsSpecialRoot(BinderItem item)
+        {
+            var key = item.RootCategory().CategoryKey;
+            return key == Project.KeyTrash || key == Project.KeyDictionary || key == Project.KeyPlans
+                || key == Project.KeyHome; // l'Accueil (b41) : un point d'entrée, pas un dossier
+        }
+
+        /// <summary>Un nouveau plan (batch 35), toujours dans la racine Plans.</summary>
+        public async void NewPlan(BinderItem parent)
+        {
+            var root = _project.Category(Project.KeyPlans);
+            if (root == null) return;
+            var title = await InputDialog.Ask(Ui.OwnerOf(this), "Nouveau plan", "Nom du plan :", "Nouveau plan");
+            if (title == null) return;
+            var item = new BinderItem { Kind = ItemKind.Plan, Title = title, Plan = new PlanInfo() };
+            RunAndSelect(new AddItemAction(root, item, -1), item.Id, root.Id);
+        }
+
+        // ============================================================ cartes mentales (22/09)
+
+        /// <summary>Une carte neuve : le module Mental-o fabrique le .tea vierge.</summary>
+        public async void NewMindMap(BinderItem parent)
+        {
+            var root = _project.Category(Project.KeyMindMaps);
+            if (root == null) return;
+            var provider = MindMapModules.Provider;
+            if (provider == null)
+            {
+                MessageDialog.Show(Ui.OwnerOf(this),
+                    "Les cartes mentales demandent le module Mental-o : Préférences › DLC.",
+                    "Cartes mentales", MessageButtons.OK, MessageIcon.Information);
+                return;
+            }
+            var title = await InputDialog.Ask(Ui.OwnerOf(this), "Nouvelle carte mentale", "Nom de la carte :", "Nouvelle carte");
+            if (title == null) return;
+            var item = new BinderItem { Kind = ItemKind.MindMap, Title = title, MapBytes = provider.NewMap(title) };
+            RunAndSelect(new AddItemAction(root, item, -1), item.Id, root.Id);
+        }
+
+        /// <summary>Un .tea de Mental-o entre tel quel dans le projet.</summary>
+        public async void ImportMindMapDialog(BinderItem parent)
+        {
+            var root = _project.Category(Project.KeyMindMaps);
+            if (root == null) return;
+            var dialogPaths = await Ui.PickOpenFiles(this, "", MindMaps.OpenFilter);
+            if (dialogPaths == null || dialogPaths.Length == 0) return;
+            var items = new List<BinderItem>();
+            foreach (var path in dialogPaths)
+            {
+                try
+                {
+                    var bytes = File.ReadAllBytes(path);
+                    if (!MindMaps.Inspect(bytes).Readable) throw new InvalidDataException("ce n'est pas une carte Mental-o");
+                    items.Add(new BinderItem { Kind = ItemKind.MindMap, Title = System.IO.Path.GetFileNameWithoutExtension(path), MapBytes = bytes });
+                }
+                catch (Exception error)
+                {
+                    MessageDialog.Show(Ui.OwnerOf(this), "Import impossible de « " + System.IO.Path.GetFileName(path) + "» : " + error.Message,
+                        "Cartes mentales", MessageButtons.OK, MessageIcon.Warning);
+                }
+            }
+            if (items.Count == 0) return;
+            RunAndSelect(new AddItemsAction(root, items), items[items.Count - 1].Id, root.Id);
+        }
+
+        /// <summary>La carte redevient un .tea ouvrable dans Mental-o.</summary>
+        public async void ExportMindMap(BinderItem item)
+        {
+            if (item == null || item.Kind != ItemKind.MindMap || item.MapBytes == null) return;
+            var dialogPath = await Ui.PickSaveFile(this, "", MindMaps.SaveFilter, SafeName(item.Title) + MindMaps.Extension);
+            if (dialogPath == null) return;
+            try { File.WriteAllBytes(dialogPath, item.MapBytes); }
+            catch (Exception error)
+            {
+                MessageDialog.Show(Ui.OwnerOf(this), "Export impossible : " + error.Message, "Cartes mentales", MessageButtons.OK, MessageIcon.Warning);
+            }
+        }
+
+        private static string SafeName(string name)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var c in name ?? "")
+                sb.Append(Array.IndexOf(System.IO.Path.GetInvalidFileNameChars(), c) >= 0 ? '_' : c);
+            return sb.Length == 0 ? "carte" : sb.ToString();
+        }
+
+        /// <summary>La copie d'un item juste après lui (30/09), annulable, choisie.</summary>
+        public void Duplicate(BinderItem item)
+        {
+            if (item == null || item.Parent == null || item.IsCategory) return;
+            var copy = item.Duplicate();
+            var index = item.Parent.Children.IndexOf(item) + 1;
+            RunAndSelect(new AddItemAction(item.Parent, copy, index), copy.Id, item.Parent.Id);
+        }
+
+        public async void NewText(BinderItem parent)
+        {
+            if (parent == null) parent = TargetParent();
+            var title = await InputDialog.Ask(Ui.OwnerOf(this), "Nouvel écrit", "Titre de l'écrit :", "Nouvel écrit");
+            if (title == null) return;
+            var item = new BinderItem { Kind = ItemKind.Text, Title = title };
+            item.Document = TextDocument.FromPlainText(""); // jamais zéro paragraphe
+            // Created inside a book: the document inherits the gabarit.
+            var book = parent.EnclosingBook();
+            if (book != null && book.Book != null)
+                item.Page = book.Book.Template.Clone();
+            RunAndSelect(new AddItemAction(parent, item, -1), item.Id, parent.Id);
+        }
+
+        public async void NewFolder(BinderItem parent)
+        {
+            if (parent == null) parent = TargetParent();
+            var title = await InputDialog.Ask(Ui.OwnerOf(this), "Nouveau dossier", "Nom du dossier :", "Nouveau dossier");
+            if (title == null) return;
+            var item = new BinderItem { Kind = ItemKind.Folder, Title = title };
+            RunAndSelect(new AddItemAction(parent, item, -1), item.Id, parent.Id);
+        }
+
+        /// <summary>Books live in Écrits only (never nested in another book):
+        /// out-of-scope parents fall back to the Écrits category.</summary>
+        public async void NewBook(BinderItem parent)
+        {
+            if (parent == null) parent = TargetParent();
+            if (parent.RootCategory().CategoryKey != Project.KeyWritings
+                || parent.EnclosingBook() != null)
+                parent = _project.Category(Project.KeyWritings);
+            var title = await InputDialog.Ask(Ui.OwnerOf(this), "Nouveau livre", "Titre du livre :", "Nouveau livre");
+            if (title == null) return;
+            var item = new BinderItem { Kind = ItemKind.Book, Title = title, Book = new BookInfo() };
+            Defaults.Seed(item.Book); // éditeur et collection par défaut (Préférences › Auteur, 22/09)
+            RunAndSelect(new AddItemAction(parent, item, -1), item.Id, parent.Id);
+        }
+
+        private string TemplateColorOf(string id)
+        {
+            var gabarit = _project.FindById(id);
+            return gabarit == null ? null : gabarit.TemplateColor;
+        }
+
+        /// <summary>True when a text of the book does not follow its gabarit —
+        /// the alert chip next to the book's name.</summary>
+        public bool BookHasDivergentDocs(BinderItem book)
+        {
+            if (book.Book == null || _project == null) return false;
+            return DivergesRecursive(book, book.Book.Template);
+        }
+
+        private bool DivergesRecursive(BinderItem item, Model.PageSetup template)
+        {
+            foreach (var child in item.Children)
+            {
+                if (child.IsOutOfBook) continue; // le Hors-livre ne suit pas le gabarit (29/09)
+                if (child.Kind == ItemKind.Text)
+                {
+                    var effective = child.Page ?? _project.Page;
+                    if (!effective.SameLayout(template)) return true;
+                }
+                if (DivergesRecursive(child, template)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Renames in place when the item's row is on screen (F2, menu,
+        /// context menu); falls back to a dialog otherwise (search mode).</summary>
+        /// <summary>Épingler / ne plus épingler (batch 41) — par l'historique,
+        /// comme toute mutation de la Pile ; jamais une racine.</summary>
+        public void TogglePin(BinderItem item)
+        {
+            if (item == null) item = SelectedItem;
+            if (item == null || item.IsCategory) return;
+            RunAndSelect(new PinItemAction(item), null, null);
+        }
+
+        public async void Rename(BinderItem item)
+        {
+            if (item == null) item = SelectedItem;
+            if (item == null || item.IsCategory) return;
+
+            TreeViewItem node;
+            if (_tree.IsVisible
+                && _nodesById.TryGetValue(item.Id, out node))
+            {
+                SelectItem(item.Id);
+                var header = node.Header as StackPanel;
+                TextBlock title = null;
+                if (header != null)
+                    foreach (var child in header.Children)
+                        if (child is TextBlock && !(child is TextBox)) title = (TextBlock)child;
+                if (header != null && title != null)
+                {
+                    BeginInlineRename(item, header, title);
+                    return;
+                }
+            }
+            var answer = await InputDialog.Ask(Ui.OwnerOf(this), "Renommer", "Nouveau titre :", item.Title);
+            if (answer == null || answer == item.Title) return;
+            RunAndSelect(new RenameItemAction(item, answer), item.Id, null);
+        }
+
+        /// <summary>Renommage par dialogue SANS déplacer la sélection — le
+        /// « Renommer… » d'une carte de corkboard (b43) reste sur le tableau.</summary>
+        public async void RenameQuiet(BinderItem item)
+        {
+            if (item == null || item.IsCategory) return;
+            var answer = await InputDialog.Ask(Ui.OwnerOf(this), "Renommer", "Nouveau titre :", item.Title);
+            if (answer == null || answer == item.Title) return;
+            RunAndSelect(new RenameItemAction(item, answer), null, null);
+        }
+
+        /// <summary>« Options du livre » (batch 32) : nom, icône, objectif de
+        /// chapitres — un dialogue, une action annulable.</summary>
+        public async void BookOptions(BinderItem item)
+        {
+            if (item == null) item = SelectedItem;
+            if (item == null || item.Kind != ItemKind.Book) return;
+            var result = await BookOptionsDialog.Ask(Ui.OwnerOf(this), item);
+            if (result == null) return;
+            var action = new BookOptionsAction(item, result.Title, result.Icon, result.ChapterGoal,
+                result.Deadline, result.SizeGoal, result.SizeUnit);
+            if (action.IsNoOp) return;
+            RunAndSelect(action, item.Id, null);
+        }
+
+        /// <summary>L'image de la tuile d'un écrit ou d'un livre (pack du
+        /// 12/09/2026) : au tableau, elle remplace l'extrait du texte ou les
+        /// notes. La sélection ne bouge pas (on l'appelle depuis une carte).</summary>
+        public async void ChangeCardImage(BinderItem item)
+        {
+            if (item == null || item.IsCategory || _project == null) return;
+            var dialogPath = await Ui.PickOpenFile(this, "", "Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp");
+            if (dialogPath == null) return;
+            string imageId;
+            try
+            {
+                var info = new System.IO.FileInfo(dialogPath);
+                if (info.Length > 20 * 1024 * 1024)
+                    throw new InvalidOperationException("image de plus de 20 Mo — réduisez-la d'abord.");
+                var bytes = System.IO.File.ReadAllBytes(dialogPath);
+                imageId = _project.AddImage(bytes, System.IO.Path.GetExtension(dialogPath));
+            }
+            catch (Exception error)
+            {
+                MessageDialog.Show(Ui.OwnerOf(this), "Image refusée : " + error.Message,
+                    "Marabook", MessageButtons.OK, MessageIcon.Warning);
+                return;
+            }
+            RunAndSelect(new ChangeImageAction(item, imageId), null, null);
+        }
+
+        public void RemoveCardImage(BinderItem item)
+        {
+            if (item == null || item.ImageId == null) return;
+            RunAndSelect(new ChangeImageAction(item, null), null, null);
+        }
+
+        public async void ChangeIcon(BinderItem item)
+        {
+            if (item == null) item = SelectedItem;
+            if (item == null || item.IsCategory) return;
+            var chosen = await IconPickerDialog.Ask(Ui.OwnerOf(this));
+            if (chosen == null) return; // cancelled
+            var icon = chosen.Length == 0 ? null : chosen;
+            if (icon == item.Icon) return;
+            RunAndSelect(new ChangeIconAction(item, icon), item.Id, null);
+        }
+
+        public void Delete(BinderItem item)
+        {
+            if (item == null) item = SelectedItem;
+            if (item == null || item.IsCategory) return;
+            if (item.RootCategory().CategoryKey == Project.KeyTrash) return; // already in trash
+            // « Ooh la boulette ! » (12/09) : un livre d'au moins cinq chapitres.
+            var blunder = item.Kind == ItemKind.Book && Achievements.ChapterCount(item) >= 5;
+            RunAndSelect(new DeleteToTrashAction(_project.Trash, item), null, _project.Trash.Id);
+            if (blunder) RaiseAchievement(Achievements.Blunder);
+        }
+
+        /// <summary>Un succès à événement gagné depuis la Pile (12/09).</summary>
+        public event Action<string> AchievementEvent;
+
+        private void RaiseAchievement(string id)
+        {
+            var handler = AchievementEvent;
+            if (handler != null) handler(id);
+        }
+
+        public async void EmptyTrash()
+        {
+            if (_project.Trash.Children.Count == 0) return;
+            var answer = MessageDialog.Show(Ui.OwnerOf(this),
+                "Vider définitivement la corbeille ?", "Marabook",
+                MessageButtons.YesNo, MessageIcon.Question);
+            if (await answer != MessageResult.Yes) return;
+            // « Terre brûlée » / « Masochiste » : les suppressions DÉFINITIVES,
+            // descendants compris (12/09).
+            Settings.AppSettings.PermanentlyDeleted += Achievements.CountAll(_project.Trash.Children);
+            RunAndSelect(new EmptyTrashAction(_project.Trash), null, null);
+        }
+
+        private void Restore(BinderItem item)
+        {
+            var writings = _project.Category(Project.KeyWritings);
+            RunAndSelect(new MoveItemAction(item, writings, -1), item.Id, writings.Id);
+        }
+
+        private void RunAndSelect(IUndoableAction action, string selectId, string expandId)
+        {
+            if (expandId != null) _expandedIds.Add(expandId);
+            if (selectId != null) _selectedId = selectId;
+            _history.Run(action); // Changed fires -> Rebuild restores expansion + selection
+            var handler = StructureChanged;
+            if (handler != null) handler();
+            if (selectId != null)
+            {
+                var chosen = SelectionChanged;
+                if (chosen != null) chosen(SelectedItem);
+            }
+        }
+
+        // ------------------------------------------------------- drag & drop
+
+        private bool IsRightClick(PointerPressedEventArgs e)
+        {
+            return e.GetCurrentPoint(_tree).Properties.IsRightButtonPressed;
+        }
+
+        private void OnPreviewMouseDown(object sender, PointerPressedEventArgs e)
+        {
+            var node = NodeFromSource(e.Source);
+            // Le clic DROIT n'est jamais « attendu » (29/09) : le TreeView
+            // d'Avalonia sélectionne aussi sur ce bouton, et la sélection
+            // ouvrait l'élément au lieu de ne montrer que son menu. Le
+            // filtre anti-fantôme révoque cette sélection-là.
+            if (IsRightClick(e)) return;
+            _expectedSelectId = node == null ? null : ((BinderItem)node.Tag).Id;
+            _dragCandidate = node == null ? null : node.Tag as BinderItem;
+            if (_dragCandidate != null && _dragCandidate.IsCategory) _dragCandidate = null;
+            _dragStart = e.GetPosition(_tree);
+        }
+
+        private void OnPreviewMouseMove(object sender, PointerEventArgs e)
+        {
+            if (_dragCandidate == null || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+            var position = e.GetPosition(_tree);
+            if (Math.Abs(position.X - _dragStart.X) < 4.0 &&
+                Math.Abs(position.Y - _dragStart.Y) < 4.0) return;
+
+            var dragged = _dragCandidate;
+            _dragCandidate = null;
+            DragDrop.DoDragDrop(e, Ui.DataOf("MarabookItem", dragged.Id), DragDropEffects.Move);
+        }
+
+        // ---- le défilement pendant un glisser (30/09)
+        private DispatcherTimer _dragScrollTimer;
+        private double _dragScrollStep;
+        private ScrollViewer _dragScroller;
+
+        /// <summary>Près du bord haut ou bas de la Pile, l'arbre défile pendant
+        /// un glisser — d'autant plus vite que le pointeur est près du bord.
+        /// DragOver n'arrive qu'au mouvement : un minuteur poursuit tant que
+        /// le pointeur reste dans la bande (la boucle du glisser pompe les
+        /// messages). L'indicateur de dépôt, posé en coordonnées, s'efface à
+        /// chaque pas et revient au prochain DragOver.</summary>
+        private void AutoScrollWhileDragging(DragEventArgs e)
+        {
+            if (_dragScroller == null)
+                foreach (var visual in _tree.GetVisualDescendants())
+                {
+                    var candidate = visual as ScrollViewer;
+                    if (candidate != null) { _dragScroller = candidate; break; }
+                }
+            if (_dragScroller == null) return;
+            const double band = 36, speed = 18;
+            var y = e.GetPosition(_dragScroller).Y;
+            var height = _dragScroller.Bounds.Height;
+            double step = 0;
+            if (y >= 0 && y < band) step = -(band - y) / band * speed;
+            else if (y <= height && y > height - band) step = (y - (height - band)) / band * speed;
+            _dragScrollStep = step;
+            if (step == 0) { StopDragScroll(); return; }
+            if (_dragScrollTimer == null)
+            {
+                _dragScrollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+                _dragScrollTimer.Tick += delegate
+                {
+                    if (_dragScroller == null || _dragScrollStep == 0) { StopDragScroll(); return; }
+                    var offset = _dragScroller.Offset;
+                    _dragScroller.Offset = new Vector(offset.X, Math.Max(0, offset.Y + _dragScrollStep));
+                    ClearDropIndicator();
+                };
+            }
+            if (!_dragScrollTimer.IsEnabled) _dragScrollTimer.Start();
+        }
+
+        private void StopDragScroll()
+        {
+            if (_dragScrollTimer != null) _dragScrollTimer.Stop();
+            _dragScrollStep = 0;
+        }
+
+        private void OnDragOver(object sender, DragEventArgs e)
+        {
+            AutoScrollWhileDragging(e);
+            if (e.Data.Contains(DataFormats.Files))
+            {
+                e.DragEffects = DragDropEffects.Copy; // Explorer files -> media import
+                e.Handled = true;
+                return;
+            }
+            var target = DropTarget(e);
+            e.DragEffects = target == null ? DragDropEffects.None : DragDropEffects.Move;
+            e.Handled = true;
+            if (target == null) { ClearDropIndicator(); return; }
+            var node = NodeFromSource(e.Source);
+            if (node == null) { ClearDropIndicator(); return; }
+            // Même règle que le dépôt : conteneur = imbrication, sinon
+            // insertion après la ligne (Ctrl force l'imbrication).
+            var asChild = target.IsContainer
+                || (target.CanHaveChildren
+                    && (e.KeyModifiers & KeyModifiers.Control) == KeyModifiers.Control);
+            ShowDropIndicator(node, asChild);
+        }
+
+        private void OnDrop(object sender, DragEventArgs e)
+        {
+            StopDragScroll();
+            ClearDropIndicator();
+            if (e.Data.Contains(DataFormats.Files))
+            {
+                var files = Ui.DroppedPaths(e.Data);
+                if (files != null && files.Length > 0)
+                {
+                    var node = NodeFromSource(e.Source);
+                    var under = node == null ? null : node.Tag as BinderItem;
+                    var parent = under == null ? null
+                               : under.CanHaveChildren ? under : under.Parent;
+                    var handler = FilesDropped;
+                    if (handler != null && parent != null) handler(parent, files);
+                    else ImportMediaFiles(parent, files);
+                }
+                e.Handled = true;
+                return;
+            }
+            var target = DropTarget(e);
+            if (target == null) return;
+            var dragged = _project.FindById((string)e.Data.Get("MarabookItem"));
+            if (dragged == null) return;
+
+            // Containers swallow the drop; on a document the default is sibling
+            // reordering (insert right after) and Ctrl makes it a child.
+            var asChild = target.IsContainer
+                || (target.CanHaveChildren
+                    && (e.KeyModifiers & KeyModifiers.Control) == KeyModifiers.Control);
+
+            BinderItem newParent;
+            int newIndex;
+            if (asChild)
+            {
+                newParent = target;
+                newIndex = -1;
+            }
+            else
+            {
+                newParent = target.Parent;
+                newIndex = newParent.Children.IndexOf(target) + 1;
+                var oldIndex = dragged.Parent == newParent ? newParent.Children.IndexOf(dragged) : -1;
+                if (oldIndex >= 0 && oldIndex < newIndex) newIndex--;
+            }
+            RunAndSelect(new MoveItemAction(dragged, newParent, newIndex), dragged.Id, newParent.Id);
+            e.Handled = true;
+        }
+
+        /// <summary>The valid drop target under the cursor, or null.</summary>
+        private BinderItem DropTarget(DragEventArgs e)
+        {
+            if (!e.Data.Contains("MarabookItem")) return null;
+            var dragged = _project.FindById((string)e.Data.Get("MarabookItem"));
+            var node = NodeFromSource(e.Source);
+            var target = node == null ? null : node.Tag as BinderItem;
+            if (dragged == null || target == null || dragged == target) return null;
+            if (dragged.IsOutOfBook) return null; // le dossier Hors-livre ne bouge pas (29/09)
+            if (target == dragged.Parent && target.CanHaveChildren) return null; // no-op move
+            if (target.IsDescendantOf(dragged)) return null;
+            if (target.RootCategory().CategoryKey == Project.KeyTrash) return null; // deletion has its own path
+            if (target.RootCategory().CategoryKey == Project.KeyDictionary) return null; // pas un conteneur (b33)
+            if (target.RootCategory().CategoryKey == Project.KeyHome) return null; // l'Accueil non plus (b41)
+            // La racine Plans n'accepte que des plans, et un plan ne sort pas de sa racine (b35).
+            if ((target.RootCategory().CategoryKey == Project.KeyPlans) != (dragged.Kind == ItemKind.Plan)) return null;
+            if (dragged.Kind == ItemKind.Plan && !target.IsCategory) return null;
+            // Même règle pour les cartes mentales (22/09).
+            if ((target.RootCategory().CategoryKey == Project.KeyMindMaps) != (dragged.Kind == ItemKind.MindMap)) return null;
+            if (dragged.Kind == ItemKind.MindMap && !target.IsCategory) return null;
+            if (!target.CanHaveChildren && target.Parent == null) return null;
+            return target;
+        }
+
+        // ------------------------------------------------------- project search
+
+        /// <summary>Accent- and case-insensitive contains, for French comfort.</summary>
+        private static bool ContainsLoose(string haystack, string needle)
+        {
+            if (string.IsNullOrEmpty(needle)) return false;
+            return System.Globalization.CultureInfo.CurrentCulture.CompareInfo.IndexOf(
+                haystack, needle,
+                System.Globalization.CompareOptions.IgnoreCase
+                | System.Globalization.CompareOptions.IgnoreNonSpace) >= 0;
+        }
+
+        // Recherche de la Pile (batch 37) : anti-rebond de 200 ms sur la
+        // frappe, moteur ProjectSearch (champs en cache, sans casse ni
+        // accents) sur un FIL DE FOND annulable — une nouvelle frappe annule
+        // la précédente, un résultat périmé (génération) est jeté (motif du
+        // pipeline différé b29).
+        private DispatcherTimer _searchDebounce;
+        private System.Threading.CancellationTokenSource _searchCancel;
+        private int _searchGeneration;
+
+        private void ScheduleSearch()
+        {
+            if (_searchDebounce == null)
+            {
+                _searchDebounce = new DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(200)
+                };
+                _searchDebounce.Tick += delegate { _searchDebounce.Stop(); RunSearch(); };
+            }
+            _searchDebounce.Stop();
+            _searchDebounce.Start();
+        }
+
+        private static SearchKind KindOfFilter(int index)
+        {
+            switch (index)
+            {
+                case 1: return SearchKind.Texts;
+                case 2: return SearchKind.Sheets;
+                case 3: return SearchKind.Plans;
+                case 4: return SearchKind.Dictionary;
+                case 5: return SearchKind.Media;
+                default: return SearchKind.All;
+            }
+        }
+
+        private void RunSearch()
+        {
+            if (_project == null || _results == null) return;
+            if (_searchCancel != null) { _searchCancel.Cancel(); _searchCancel = null; }
+            var query = (_searchBox.Text ?? "").Trim();
+            if (query.Length == 0)
+            {
+                _results.IsVisible = false;
+                _tree.IsVisible = true;
+                return;
+            }
+            _tree.IsVisible = false;
+            _results.IsVisible = true;
+
+            var targets = ProjectSearch.Collect(_project, SearchScope.Project, SelectedItem,
+                KindOfFilter(_searchFilter.SelectedIndex), false);
+            var compiled = SearchQuery.Create(query, false, false, true, false);
+            var cancel = new System.Threading.CancellationTokenSource();
+            _searchCancel = cancel;
+            var generation = ++_searchGeneration;
+            var dispatcher = Dispatcher.UIThread;
+            System.Threading.Tasks.Task.Factory.StartNew<SearchResult>(delegate
+            {
+                return ProjectSearch.Run(targets, compiled, ProjectSearch.DefaultCap, ProjectSearch.DefaultBudget, cancel.Token);
+            }, cancel.Token).ContinueWith(delegate(System.Threading.Tasks.Task<SearchResult> done)
+            {
+                var ignored = done.Exception; // observée : une recherche en faute se tait
+                if (done.Status != System.Threading.Tasks.TaskStatus.RanToCompletion || done.Result.Cancelled) return;
+                dispatcher.Post(new Action(delegate
+                {
+                    if (generation != _searchGeneration) return; // périmé
+                    ShowSearchResult(done.Result);
+                }));
+            });
+        }
+
+        private void ShowSearchResult(SearchResult result)
+        {
+            _results.Items.Clear();
+            var counts = new Dictionary<string, int>();
+            var order = new List<BinderItem>();
+            foreach (var hit in result.Hits)
+            {
+                if (!counts.ContainsKey(hit.Item.Id)) { counts[hit.Item.Id] = 0; order.Add(hit.Item); }
+                counts[hit.Item.Id]++;
+            }
+            foreach (var item in order) _results.Items.Add(BuildResultRow(item, counts[item.Id]));
+            var summary = result.Total == 0 ? "Aucun résultat" : result.Summary();
+            if (!string.IsNullOrEmpty(result.Message)) summary += "\n" + result.Message;
+            _results.Items.Add(new ListBoxItem
+            {
+                Content = new TextBlock { Text = summary, Foreground = Chrome.SoftText, FontSize = 11, TextWrapping = TextWrapping.Wrap },
+                IsEnabled = false
+            });
+        }
+
+        private ListBoxItem BuildResultRow(BinderItem item, int count)
+        {
+            var panel = new StackPanel();
+            var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+            titleRow.Children.Add(ItemIcons.Render(item, 11, Chrome.SoftText));
+            titleRow.Children.Add(new TextBlock
+            {
+                Text = item.Title,
+                Foreground = Chrome.Ink,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            panel.Children.Add(titleRow);
+
+            var path = "";
+            var parent = item.Parent;
+            while (parent != null)
+            {
+                path = parent.Title + (path.Length > 0 ? " › " + path : "");
+                parent = parent.Parent;
+            }
+            var occurrences = count == 1 ? "1 occurrence" : count + " occurrences";
+            panel.Children.Add(new TextBlock
+            {
+                Text = path.Length > 0 ? path + " · " + occurrences : occurrences,
+                Foreground = Chrome.SoftText,
+                FontSize = 10,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            return new ListBoxItem { Content = panel, Tag = item.Id };
+        }
+
+        private void OnResultChosen(object sender, SelectionChangedEventArgs e)
+        {
+            var entry = _results.SelectedItem as ListBoxItem;
+            if (entry == null || entry.Tag == null) return;
+            _selectedId = (string)entry.Tag;
+            var handler = SelectionChanged;
+            if (handler != null) handler(SelectedItem);
+        }
+
+        // ------------------------------------------------------- item creation & import
+
+        /// <summary>The container new/imported items should land in, given the
+        /// current selection (never the trash).</summary>
+        public BinderItem CurrentContainer()
+        {
+            var selected = SelectedItem;
+            if (selected == null || IsSpecialRoot(selected))
+                return _project.Category(Project.KeyWritings);
+            return selected.IsContainer ? selected : selected.Parent;
+        }
+
+        public async void NewSheet(BinderItem parent)
+        {
+            if (parent == null)
+            {
+                var selected = SelectedItem;
+                parent = selected != null && selected.IsContainer
+                    && !IsSpecialRoot(selected)
+                    ? selected : _project.Category(Project.KeySheets);
+            }
+            var choice = await NewSheetDialog.Ask(Ui.OwnerOf(this), _project);
+            if (choice == null) return;
+            var title = choice.Title;
+            var categoryId = choice.CategoryId;
+            // La fiche naît dans sa catégorie, avec le modèle de base de
+            // celle-ci (batch 31) — sans catégorie : champs libres seuls.
+            var category = _project.FindSheetCategory(categoryId);
+            var item = new BinderItem
+            {
+                Kind = ItemKind.Sheet,
+                Title = title,
+                CategoryId = category != null ? category.Id : null,
+                TemplateId = category != null ? category.TemplateId : null
+            };
+            RunAndSelect(new AddItemAction(parent, item, -1), item.Id, parent.Id);
+        }
+
+        public async void ImportMediaDialog(BinderItem parent)
+        {
+            var dialogPaths = await Ui.PickOpenFiles(this, "", "Tous les fichiers (*.*)|*.*");
+            if (dialogPaths == null || dialogPaths.Length == 0) return;
+            ImportMediaFiles(parent, dialogPaths);
+        }
+
+        /// <summary>Imports files as media cards. Default destination: the
+        /// Recherche category.</summary>
+        public void ImportMediaFiles(BinderItem parent, string[] paths)
+        {
+            if (parent == null || !parent.CanHaveChildren || IsSpecialRoot(parent))
+                parent = _project.Category(Project.KeyResearch);
+
+            var items = new List<BinderItem>();
+            var errors = new List<string>();
+            foreach (var path in paths)
+            {
+                try
+                {
+                    var info = new System.IO.FileInfo(path);
+                    if (info.Length > 200 * 1024 * 1024)
+                    {
+                        errors.Add(info.Name + " (plus de 200 Mo)");
+                        continue;
+                    }
+                    items.Add(new BinderItem
+                    {
+                        Kind = ItemKind.Media,
+                        Title = System.IO.Path.GetFileNameWithoutExtension(path),
+                        MediaExtension = System.IO.Path.GetExtension(path),
+                        MediaBytes = System.IO.File.ReadAllBytes(path)
+                    });
+                }
+                catch (Exception error)
+                {
+                    errors.Add(System.IO.Path.GetFileName(path) + " (" + error.Message + ")");
+                }
+            }
+            if (items.Count > 0)
+                RunAndSelect(new AddItemsAction(parent, items),
+                    items[items.Count - 1].Id, parent.Id);
+            if (errors.Count > 0)
+                MessageDialog.Show(Ui.OwnerOf(this),
+                    "Fichiers non importés :\n" + string.Join("\n", errors.ToArray()),
+                    "Import", MessageButtons.OK, MessageIcon.Warning);
+        }
+
+        /// <summary>Amène la ligne dans la fenêtre VERTICALEMENT seulement
+        /// (29/09) : BringIntoView faisait aussi défiler l'arbre vers la
+        /// droite devant un titre long, et la Pile « s'élargissait » — les
+        /// icônes et chevrons sortaient du champ. La position horizontale
+        /// reste celle de l'utilisateur (il défile à la main s'il veut lire).</summary>
+        private void BringIntoViewVertically(TreeViewItem node)
+        {
+            Ui.Post(DispatcherPriority.Background, delegate
+            {
+                var scroller = node.FindAncestorOfType<ScrollViewer>();
+                var header = node.Header as Control;
+                if (scroller == null || header == null) { node.BringIntoView(); return; }
+                var top = header.TranslatePoint(new Point(0, 0), scroller);
+                if (top == null) return;
+                var offset = scroller.Offset;
+                var y = top.Value.Y + offset.Y; // dans le contenu
+                var height = Math.Max(1, header.Bounds.Height);
+                if (y < offset.Y)
+                    scroller.Offset = new Vector(offset.X, Math.Max(0, y - 8));
+                else if (y + height > offset.Y + scroller.Viewport.Height)
+                    scroller.Offset = new Vector(offset.X, Math.Max(0, y + height - scroller.Viewport.Height + 8));
+            });
+        }
+
+        private static TreeViewItem NodeFromSource(object source)
+        {
+            var current = source as Visual;
+            while (current != null && !(current is TreeViewItem))
+                current = (current as Visual)?.GetVisualParent();
+            return current as TreeViewItem;
+        }
+    }
+}

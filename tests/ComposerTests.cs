@@ -106,6 +106,39 @@ namespace Marabook.Tests
             IndentOverride(t);
             DocumentLeading(t);
             IncrementalStats(t);
+            RunBoundaryGlued(t);
+        }
+
+        /// <summary>Une frontière de run au milieu d'un mot (29/09) : « vraiment »
+        /// dans un run, « ? » collé par une fine insécable dans le run suivant.
+        /// Les deux atomes forment UN mot pour la coupure : le « ? » ne part
+        /// jamais seul en tête de ligne — le mot se coupe à la césure, ou
+        /// passe entier à la ligne avec sa ponctuation.</summary>
+        private static void RunBoundaryGlued(Harness t)
+        {
+            // Colonne de 37 caractères : « aaaa bbbb cccc dddd eeee ff vraiment »
+            // fait 36 — le « ? » (fine + ?) déborde. Sans soudure, la ligne
+            // finissait à 36 et « ? » ouvrait la suivante.
+            var document = new TextDocument();
+            var paragraph = new TextParagraph();
+            paragraph.Runs.Add(new TextRun { Text = "aaaa bbbb cccc dddd eeee ff vraiment", Italic = true });
+            paragraph.Runs.Add(new TextRun { Text = " ? Suite du texte." });
+            document.Paragraphs.Add(paragraph);
+            var lines = Compose(document).Current.Paragraphs[0].Lines;
+            t.Check(lines.Count >= 2, "deux lignes au moins");
+            t.Check(lines[0].Hyphenated, "le mot se coupe à la césure (vrai-)");
+            t.Equal(32, lines[0].End, "la ligne finit après « vrai », jamais à 36 devant le « ? »");
+
+            // Mot incoupable : le groupe entier passe à la ligne, ponctuation comprise.
+            var stuck = new TextDocument();
+            var p2 = new TextParagraph();
+            p2.Runs.Add(new TextRun { Text = "aaaa bbbb cccc dddd eeee ff vra1ment", Italic = true });
+            p2.Runs.Add(new TextRun { Text = " ? Suite du texte." });
+            stuck.Paragraphs.Add(p2);
+            var lines2 = Compose(stuck).Current.Paragraphs[0].Lines;
+            t.Check(lines2.Count >= 2, "deux lignes au moins (incoupable)");
+            t.Equal(28, lines2[0].End, "la ligne finit avant le mot : « vra1ment ? » part entier");
+            t.Equal(28, lines2[1].Start, "…et la suivante commence sur le mot, pas sur « ? »");
         }
 
         /// <summary>Le décalage d'un paragraphe (17/09) remplace d'un bloc

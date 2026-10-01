@@ -29,8 +29,27 @@ namespace Marabook.Correction
         public bool Dimensions = true;   // 10 x 15 → 10 × 15 °
         public bool Ordinals = true;     // 2ème → 2ᵉ (exposants Unicode, comme Grammalecte)
         public bool FlagCapitals = true; // signaler Etat/A… (jamais corrigé)
+        public bool Dashes = true;       // -- → –, --- (ou –-) → — : les raccourcis tapés (30/09)
+
+        // La NORME de dialogue (30/09) : les signes que la passe pose.
+        public string DialogueOpen = "guillemets";  // "guillemets" « » | "anglais" “ ” | "demi" – en tête | "cadratin" — en tête
+        public string DialogueReprise = "cadratin"; // "cadratin" — | "demi" –
+        // Les raccourcis tapés (Préférences › Correction) : la séquence qui
+        // devient le signe ; vide = signe désactivé.
+        public string MiddleDotTrigger = "::";
+        public string EnDashTrigger = "--";
+        public string EmDashTrigger = "---";
 
         public bool Minimal { get { return Preset == "minimal"; } }
+
+        /// <summary>Les guillemets anglais “ ” tiennent lieu de « » (30/09).</summary>
+        public bool EnglishQuotes { get { return DialogueOpen == "anglais"; } }
+        public char QuoteOpen { get { return EnglishQuotes ? '\u201C' : '«'; } }
+        public char QuoteClose { get { return EnglishQuotes ? '\u201D' : '»'; } }
+        /// <summary>Le tiret qui OUVRE un bloc de répliques ; '\0' quand ce sont les guillemets.</summary>
+        public char OpeningDash { get { return DialogueOpen == "demi" ? '\u2013' : DialogueOpen == "cadratin" ? '\u2014' : '\0'; } }
+        /// <summary>Le tiret des répliques suivantes.</summary>
+        public char RepriseDash { get { return DialogueReprise == "demi" ? '\u2013' : '\u2014'; } }
 
         /// <summary>Avant ; ! ? — fine dans les deux préréglages.</summary>
         public char BeforeHighPunctuation { get { return '\u202F'; } }
@@ -50,6 +69,9 @@ namespace Marabook.Correction
             node["noBreakPunctuation"] = NoBreakPunctuation; node["noBreakUnits"] = NoBreakUnits;
             node["thousands"] = Thousands; node["ligaturesOe"] = LigaturesOe; node["ligaturesAe"] = LigaturesAe;
             node["dimensions"] = Dimensions; node["ordinals"] = Ordinals; node["flagCapitals"] = FlagCapitals;
+            node["dashes"] = Dashes;
+            node["dialogueOpen"] = DialogueOpen; node["dialogueReprise"] = DialogueReprise;
+            node["middleDotTrigger"] = MiddleDotTrigger; node["enDashTrigger"] = EnDashTrigger; node["emDashTrigger"] = EmDashTrigger;
             return node;
         }
 
@@ -74,6 +96,14 @@ namespace Marabook.Correction
             o.Dimensions = Json.AsBool(Json.Field(node, "dimensions"), o.Dimensions);
             o.Ordinals = Json.AsBool(Json.Field(node, "ordinals"), o.Ordinals);
             o.FlagCapitals = Json.AsBool(Json.Field(node, "flagCapitals"), o.FlagCapitals);
+            o.Dashes = Json.AsBool(Json.Field(node, "dashes"), o.Dashes);
+            var open = Json.AsString(Json.Field(node, "dialogueOpen"));
+            if (open == "guillemets" || open == "anglais" || open == "demi" || open == "cadratin") o.DialogueOpen = open;
+            var reprise = Json.AsString(Json.Field(node, "dialogueReprise"));
+            if (reprise == "cadratin" || reprise == "demi") o.DialogueReprise = reprise;
+            if (Json.Field(node, "middleDotTrigger") != null) o.MiddleDotTrigger = Json.AsString(Json.Field(node, "middleDotTrigger")) ?? "";
+            if (Json.Field(node, "enDashTrigger") != null) o.EnDashTrigger = Json.AsString(Json.Field(node, "enDashTrigger")) ?? "";
+            if (Json.Field(node, "emDashTrigger") != null) o.EmDashTrigger = Json.AsString(Json.Field(node, "emDashTrigger")) ?? "";
             return o;
         }
     }
@@ -165,8 +195,8 @@ namespace Marabook.Correction
             for (var i = 0; i < text.Length; i++)
             {
                 var c = text[i];
-                if (c == '«') { if (i != first) depth++; }
-                else if (c == '»' && depth > 0) depth--;
+                if (c == '«' || c == '\u201C') { if (i != first) depth++; }
+                else if ((c == '»' || c == '\u201D') && depth > 0) depth--;
             }
             return depth;
         }
@@ -179,7 +209,7 @@ namespace Marabook.Correction
             if (openBefore <= 0) return -1;
             var i = 0;
             while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
-            return i < text.Length && text[i] == '«' ? i : -1;
+            return i < text.Length && (text[i] == '«' || text[i] == '\u201C') ? i : -1;
         }
 
         /// <summary>La passe, en sachant combien de « » sont déjà ouverts avant
@@ -187,7 +217,7 @@ namespace Marabook.Correction
         /// une citation ouverte deviennent des guillemets courbes “ ”, pas
         /// des « » — c'est la règle : « Elle a dit “non” ».</summary>
         public static TypographyResult Clean(string text, TypographyOptions o, List<int[]> extraProtected,
-            int openQuotesBefore)
+            int openQuotesBefore, bool dialogueBefore = false)
         {
             var r = new TypographyResult();
             if (text == null) { r.Text = ""; return r; }
@@ -233,7 +263,14 @@ namespace Marabook.Correction
                 // 13/09, un seul orphelin gelait le paragraphe entier — à la
                 // frappe, plus aucun guillemet ne se convertissait jamais.
                 int count;
-                work = ConvertQuotes(work, o.InsideQuotes.ToString(), openQuotesBefore, out count);
+                if (o.EnglishQuotes)
+                {
+                    // La norme anglaise (30/09) : les « » déjà posés deviennent
+                    // “ ”, sans espace intérieur.
+                    work = Replace(work, "«[ \u00A0\u202F\u2009]*", "\u201C", out n, null); r.Count("guillemets anglais", n);
+                    work = Replace(work, "[ \u00A0\u202F\u2009]*»", "\u201D", out n, null); r.Count("guillemets anglais", n);
+                }
+                work = ConvertQuotes(work, o, openQuotesBefore, out count);
                 r.Count("guillemets français", count);
                 // Signalé seulement s'il en RESTE un : l'ouvrant ou le fermant
                 // d'un dialogue sur plusieurs lignes vient d'être converti.
@@ -247,8 +284,12 @@ namespace Marabook.Correction
                 // espace ordinaire après le cadratin, c'est « il manque un
                 // espace insécable » chez Grammalecte à chaque réplique — et
                 // la passe ne le corrigeait jamais.
-                work = Replace(work, @"(?m)^([ \t]*)-{1,2}[ \t]+", "$1— ", out n, null); r.Count("tirets de dialogue", n);
-                work = Replace(work, @"(?m)^([ \t]*—)[ \t ]+", "$1 ", out n, null); r.Count("insécable après le tiret", n);
+                // La NORME (30/09) : le signe d'ouverture (quand c'est un tiret)
+                // pour la première réplique d'un bloc, celui de reprise ensuite ;
+                // un tiret déjà posé est ramené au signe choisi, suivi de l'insécable.
+                var opening = o.OpeningDash;
+                var sign = (opening != '\0' && !dialogueBefore ? opening : o.RepriseDash).ToString();
+                work = Replace(work, "(?m)^([ \\t]*)(?:-{1,2}|[\u2014\u2013])[ \\t\u00A0\u202F]+", "$1" + sign + "\u00A0", out n, null); r.Count("tirets de dialogue", n);
             }
             // (4b) intervalles
             if (o.Ranges && !o.Minimal)
@@ -258,33 +299,53 @@ namespace Marabook.Correction
             }
             // (4c) point médian : deux deux-points, comme deux traits d'union
             // font un tiret (22/09) — « auteur::ice » → « auteur·ice ».
-            if (o.MiddleDot)
+            if (o.MiddleDot && !string.IsNullOrEmpty(o.MiddleDotTrigger))
             {
-                work = Replace(work, @"::", "·", out n, null);
+                work = Replace(work, Regex.Escape(o.MiddleDotTrigger), "·", out n, null);
                 r.Count("points médians", n);
             }
-            // (5a) insécables de ponctuation
+            // (4d) tirets tapés (30/09) : « --- » (ou demi-cadratin + « - ») →
+            // cadratin, « -- » → demi-cadratin — les séquences se règlent dans
+            // Préférences › Correction. Le long d'abord, et jamais au sein
+            // d'une suite de tirets plus longue (un filet « ----- » reste).
+            if (o.Dashes)
+            {
+                if (!string.IsNullOrEmpty(o.EmDashTrigger))
+                {
+                    work = Replace(work, "(?<![-\u2013\u2014])(?:" + Regex.Escape(o.EmDashTrigger) + "|\u2013-)(?![-\u2013\u2014])", "\u2014", out n, null);
+                    r.Count("cadratins", n);
+                }
+                if (!string.IsNullOrEmpty(o.EnDashTrigger))
+                {
+                    work = Replace(work, "(?<![-\u2013\u2014])" + Regex.Escape(o.EnDashTrigger) + "(?![-\u2013\u2014])", "\u2013", out n, null);
+                    r.Count("demi-cadratins", n);
+                }
+            }
+            // (5a) insécables de ponctuation — les autres blancs d'Unicode
+            // (fine U+2009, ultrafine, cadratins… venus de Word, d'InDesign ou
+            // d'un copier-coller) sont des espaces à normaliser aussi : ils
+            // passaient inaperçus, ni signalés ni corrigés (29/09).
             if (o.NoBreakPunctuation && !o.Minimal)
             {
                 var fine = o.BeforeHighPunctuation.ToString();
                 var colon = o.BeforeColon.ToString();
                 var inside = o.InsideQuotes.ToString();
-                work = Replace(work, "(?<=[^\\s;!?:«\u00A0\u202F])[ \u00A0\u202F]*(?=[;!?])", fine, out n, fine);
+                work = Replace(work, "(?<=[^\\s;!?:«\u00A0\u202F])[ \u00A0\u202F\u2000-\u200A\u205F]*(?=[;!?])", fine, out n, fine);
                 r.Count("insécables avant ; ! ?", n);
-                work = Replace(work, "(?<=[^\\s:«\u00A0\u202F])[ \u00A0\u202F]*(?=:(?=\\s|$))", colon, out n, colon);
+                work = Replace(work, "(?<=[^\\s:«\u00A0\u202F])[ \u00A0\u202F\u2000-\u200A\u205F]*(?=:(?=\\s|$))", colon, out n, colon);
                 r.Count("insécables avant :", n);
-                work = Replace(work, "(?<=«)[ \u00A0\u202F]*(?=\\S)", inside, out n, inside);
+                work = Replace(work, "(?<=«)[ \u00A0\u202F\u2000-\u200A\u205F]*(?=\\S)", inside, out n, inside);
                 r.Count("insécables dans « »", n);
-                work = Replace(work, "(?<=\\S)[ \u00A0\u202F]*(?=»)", inside, out n, inside);
+                work = Replace(work, "(?<=\\S)[ \u00A0\u202F\u2000-\u200A\u205F]*(?=»)", inside, out n, inside);
                 r.Count("insécables dans « »", n);
             }
             // (5b) insécables d'unités
             if (o.NoBreakUnits && !o.Minimal)
             {
-                work = Replace(work, "(?<=\\d)[ \u00A0\u202F]*(?=[%€$])", "\u00A0", out n, "\u00A0");
+                work = Replace(work, "(?<=\\d)[ \u00A0\u202F\u2000-\u200A\u205F]*(?=[%€$])", "\u00A0", out n, "\u00A0");
                 r.Count("insécables d'unités", n);
                 work = Replace(work,
-                    "(?<=\\d)[ \u00A0\u202F]+(?=(?:kg|km|cm|mm|mn|min|ans|an|h|g|m|s|l|cl|ml|ko|mo|go|Ko|Mo|Go)\\b)",
+                    "(?<=\\d)[ \u00A0\u202F\u2000-\u200A\u205F]+(?=(?:kg|km|cm|mm|mn|min|ans|an|h|g|m|s|l|cl|ml|ko|mo|go|Ko|Mo|Go)\\b)",
                     "\u00A0", out n, "\u00A0");
                 r.Count("insécables d'unités", n);
             }
@@ -300,7 +361,7 @@ namespace Marabook.Correction
             // (6c) dimensions
             if (o.Dimensions && !o.Minimal)
             {
-                work = Replace(work, "(?<=\\d)[ \u00A0\u202F]*[xX][ \u00A0\u202F]*(?=\\d)", "\u00A0×\u00A0", out n, "\u00A0×\u00A0");
+                work = Replace(work, "(?<=\\d)[ \u00A0\u202F\u2000-\u200A\u205F]*[xX][ \u00A0\u202F\u2000-\u200A\u205F]*(?=\\d)", "\u00A0×\u00A0", out n, "\u00A0×\u00A0");
                 r.Count("dimensions ×", n);
             }
             // (6d) ordinaux
@@ -378,9 +439,13 @@ namespace Marabook.Correction
             return result;
         }
 
-        private static string ConvertQuotes(string work, string nbsp, int openQuotesBefore, out int count)
+        private static string ConvertQuotes(string work, TypographyOptions o, int openQuotesBefore, out int count)
         {
             count = 0;
+            // La norme (30/09) : « » avec l'insécable intérieure, ou “ ” collés.
+            var nbsp = o.EnglishQuotes ? "" : o.InsideQuotes.ToString();
+            var openSign = o.QuoteOpen;
+            var closeSign = o.QuoteClose;
             var sb = new StringBuilder(work.Length + 8);
             // Avant ce paragraphe, une citation est ouverte ou ne l'est pas :
             // la convention des « guillemets de suite » (un « en tête de
@@ -423,18 +488,18 @@ namespace Marabook.Correction
             while (i < work.Length)
             {
                 var c = work[i];
-                if (c == '«') { if (i != continuation) depth++; sb.Append(c); i++; continue; }
-                if (c == '»') { if (depth > 0) depth--; sb.Append(c); i++; continue; }
+                if (c == '«' || c == '\u201C') { if (i != continuation) depth++; sb.Append(c); i++; continue; }
+                if (c == '»' || c == '\u201D') { if (depth > 0) depth--; sb.Append(c); i++; continue; }
                 if (c != '"') { sb.Append(c); i++; continue; }
                 if (openAtStart && i == quotes[0])
                 {
                     // l'ouvrant d'un dialogue : « et, si rien n'était ouvert,
                     // la citation commence (sinon c'est une suite)
-                    sb.Append('«').Append(nbsp);
+                    sb.Append(openSign).Append(nbsp);
                     if (depth == 0) depth++;
                     count++;
                     i++;
-                    while (i < work.Length && (work[i] == ' ' || work[i] == '\u00A0' || work[i] == '\u202F')) i++;
+                    while (i < work.Length && (work[i] == ' ' || work[i] == '\u00A0' || work[i] == '\u202F' || work[i] == '\u2009')) i++;
                     continue;
                 }
                 if (i == reservedClose)
@@ -448,7 +513,7 @@ namespace Marabook.Correction
                         sb.Append(work[i]);
                         i++;
                     }
-                    sb.Append(nbsp).Append('»');
+                    sb.Append(nbsp).Append(closeSign);
                     if (depth > 0) depth--;
                     count++;
                     continue;
@@ -456,9 +521,9 @@ namespace Marabook.Correction
                 var close = work.IndexOf('"', i + 1);
                 if (close == reservedClose) close = -1; // réservé au fermant
                 if (close < 0 || work.IndexOf('\n', i, close - i) >= 0) { sb.Append(c); i++; continue; }
-                var inner = work.Substring(i + 1, close - i - 1).Trim(' ', '\u00A0', '\u202F');
-                if (depth > 0) sb.Append('\u201C').Append(inner).Append('\u201D');
-                else sb.Append('«').Append(nbsp).Append(inner).Append(nbsp).Append('»');
+                var inner = work.Substring(i + 1, close - i - 1).Trim(' ', '\u00A0', '\u202F', '\u2009');
+                if (depth > 0) sb.Append(o.EnglishQuotes ? '\u2018' : '\u201C').Append(inner).Append(o.EnglishQuotes ? '\u2019' : '\u201D');
+                else sb.Append(openSign).Append(nbsp).Append(inner).Append(nbsp).Append(closeSign);
                 count++;
                 i = close + 1;
             }
@@ -467,6 +532,20 @@ namespace Marabook.Correction
 
         /// <summary>Le guillemet est le premier signe du paragraphe — rien
         /// avant lui que des blancs, ou un tiret de dialogue et ses blancs.</summary>
+        /// <summary>Ce paragraphe est-il une réplique (30/09) : tiret en tête,
+        /// ou guillemet ouvrant en tête — pour que le suivant prenne le signe
+        /// de REPRISE plutôt que celui d'ouverture.</summary>
+        public static bool IsDialogueLine(string text)
+        {
+            if (text == null) return false;
+            var i = 0;
+            while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
+            if (i >= text.Length) return false;
+            var c = text[i];
+            return c == '\u2014' || c == '\u2013' || c == '«' || c == '\u201C'
+                || (c == '-' && i + 1 < text.Length && (text[i + 1] == ' ' || text[i + 1] == '-'));
+        }
+
         private static bool IsAtParagraphStart(string text, int index)
         {
             for (var i = 0; i < index; i++)
@@ -491,7 +570,7 @@ namespace Marabook.Correction
         private static bool IsAtParagraphEnd(string text, int index)
         {
             var before = index - 1;
-            while (before >= 0 && (text[before] == ' ' || text[before] == '\u00A0' || text[before] == '\u202F')) before--;
+            while (before >= 0 && (text[before] == ' ' || text[before] == '\u00A0' || text[before] == '\u202F' || text[before] == '\u2009')) before--;
             if (before < 0) return false;
             if (!IsSpeechEnd(text[before])) return false;
             for (var i = index + 1; i < text.Length; i++)
@@ -513,7 +592,7 @@ namespace Marabook.Correction
             var after = index + 1;
             var punctuationAfter = after < text.Length && IsSpeechEnd(text[after]);
             var before = index - 1;
-            while (before >= 0 && (text[before] == ' ' || text[before] == '\u00A0' || text[before] == '\u202F')) before--;
+            while (before >= 0 && (text[before] == ' ' || text[before] == '\u00A0' || text[before] == '\u202F' || text[before] == '\u2009')) before--;
             if (before < 0) return false;
             var punctuationBefore = IsSpeechEnd(text[before]);
             if (!punctuationBefore && !punctuationAfter) return false;
@@ -521,7 +600,7 @@ namespace Marabook.Correction
             else if (punctuationAfter) return false; // « ami,", » : on ne devine pas
             var j = after;
             var blanks = 0;
-            while (j < text.Length && (text[j] == ' ' || text[j] == '\u00A0' || text[j] == '\u202F')) { j++; blanks++; }
+            while (j < text.Length && (text[j] == ' ' || text[j] == '\u00A0' || text[j] == '\u202F' || text[j] == '\u2009')) { j++; blanks++; }
             if (blanks == 0 || j >= text.Length) return false;
             return char.IsLower(text[j]);
         }
@@ -531,7 +610,7 @@ namespace Marabook.Correction
             while (sb.Length > 0)
             {
                 var last = sb[sb.Length - 1];
-                if (last != ' ' && last != '\u00A0' && last != '\u202F') break;
+                if (last != ' ' && last != '\u00A0' && last != '\u202F' && last != '\u2009') break;
                 sb.Length--;
             }
         }
@@ -711,12 +790,14 @@ namespace Marabook.Correction
         {
             var result = new TypographyPassResult();
             var openQuotes = 0; // les « » restés ouverts avant le paragraphe
+            var dialogueBefore = false; // le paragraphe d'avant est une réplique (30/09) : reprise, pas ouverture
             for (var i = 0; i < document.Paragraphs.Count; i++)
             {
                 var paragraph = document.Paragraphs[i];
                 var flat = PivotEdit.FlatText(paragraph);
-                var cleaned = Typography.Clean(flat, options, NoProofSpans(paragraph), openQuotes);
+                var cleaned = Typography.Clean(flat, options, NoProofSpans(paragraph), openQuotes, dialogueBefore);
                 openQuotes = Typography.QuoteDepth(cleaned.Text, openQuotes);
+                dialogueBefore = Typography.IsDialogueLine(cleaned.Text);
                 result.Summary.Merge(cleaned);
                 if (cleaned.Text == flat) { result.Paragraphs.Add(paragraph); continue; }
                 var ops = CharDiff.Diff(flat, cleaned.Text);
@@ -812,13 +893,18 @@ namespace Marabook.Correction
                 run.Text = piece.Value.ToString();
                 copy.Runs.Add(run);
             }
+            // Les pièces d'un même run se ressoudent (29/09) : la repasse
+            // laissait un run par blanc inséré (« vole… », « », « » »), et le
+            // compositeur — qui ne coupe qu'aux espaces MAIS entre deux
+            // atomes — voyait une occasion de couper devant chaque signe.
+            PivotEdit.MergeAdjacent(copy);
             if (copy.Runs.Count == 0) copy.Runs.Add(new TextRun());
             return copy;
         }
 
         private static bool IsBlank(char c)
         {
-            return c == ' ' || c == '\u00A0' || c == '\u202F' || c == '\t';
+            return c == ' ' || c == '\u00A0' || c == '\u202F' || c == '\u2009' || c == '\t';
         }
 
         /// <summary>L'appariement des insertions d'un bloc aux suppressions

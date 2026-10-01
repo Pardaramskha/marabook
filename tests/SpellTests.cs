@@ -472,7 +472,7 @@ namespace Marabook.Tests
             // « Alethi » (nom, pluriel -s), l'adjectif « kholinar » (féminin
             // dérivé), le verbe « ravir » ne rougissent sous aucune forme.
             var natured = new SpellChecker(engine);
-            natured.ProjectWords.Add(new LexiconEntry { Word = "Alethi", Class = LexiconEntry.ClassProper });
+            natured.ProjectWords.Add(new LexiconEntry { Word = "Alethi", Class = LexiconEntry.ClassProper, ProperKind = LexiconEntry.ProperDemonym, Genders = LexiconEntry.GendersMasculine }); // un gentilé : seul nom propre à flexion (01/10)
             natured.ProjectWords.Add(new LexiconEntry { Word = "shardique", Class = LexiconEntry.ClassAdjective });
             natured.ProjectWords.Add(new LexiconEntry { Word = "sprenir", Class = LexiconEntry.ClassVerb });
             var hostNatured = new CheckerHost();

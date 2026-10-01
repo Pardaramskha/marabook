@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Windows;
-using System.Windows.Media;
+using Marabook.Model;
 
 namespace Marabook.Print
 {
@@ -19,7 +17,7 @@ namespace Marabook.Print
     /// <summary>The composition engine's ONLY road to character advances and
     /// face metrics (batch 24). Behind this seam, composition — line breaking,
     /// hyphenation, pagination — runs headless and deterministic in console
-    /// tests (StubGlyphMetrics in tests/); the app injects WpfGlyphMetrics.
+    /// tests (StubGlyphMetrics in tests/); the app injects its font engine.
     /// « weight » is an OpenType weight (400 normal, 700 bold) : le pivot
     /// porte des graisses fines (TextRun.Weight), un booléen les écraserait
     /// et fausserait les largeurs mesurées.</summary>
@@ -31,112 +29,180 @@ namespace Marabook.Print
         FontMetrics Metrics(string fontFamily, double emSize, int weight, bool italic);
     }
 
-    /// <summary>A resolved face: the glyph typeface for exact advances and
-    /// piece building, the Typeface for the FormattedText fallback (characters
-    /// outside the face). Cached — see FontCache.</summary>
-    internal sealed class FontInfo
+    /// <summary>Une face résolue (portage Avalonia, P0) : ce que le compositeur
+    /// et le PDF savent d'une police sans toucher à System.Windows. Native
+    /// porte la poignée de la plate-forme (GlyphTypeface en WPF, SKTypeface
+    /// demain) : le rendu la reprend, le cœur ne la regarde jamais.</summary>
+    public sealed class FaceInfo
     {
-        public GlyphTypeface Glyphs;
-        public Typeface Typeface;
-        public double Baseline;
         public string Family;
-        public int WeightValue; // OpenType weight
-        public bool Italic;
+        public int Weight;            // OpenType, la graisse DEMANDÉE (mesure, cache)
+        public bool Italic;           // le style demandé
+        /// <summary>La graisse et le style que la face SERT : une demande de
+        /// demi-gras sur une famille qui n'en a pas rend le fichier regular —
+        /// c'est lui que le PDF embarque et décrit (et il fusionne alors avec
+        /// la face regular, comme toujours).</summary>
+        public int ActualWeight;
+        public bool ActualItalic;
+        /// <summary>L'identité de la face : fichier + graisse + style +
+        /// simulations. PIÈGE historique : deux instances d'une fonte variable
+        /// partagent le fichier mais pas les métriques — la clé les sépare.</summary>
+        public string Key;
+        /// <summary>L'identité du FICHIER de police seul (l'uri en WPF, le
+        /// chemin demain) : l'étiquette de sous-ensemble du PDF en dérive.</summary>
+        public string File;
+        /// <summary>La face a des glyphes adressables (sinon tout passe par le
+        /// repli de la plate-forme : mesure et dessin du texte entier).</summary>
+        public bool HasGlyphs;
+        public double Baseline;       // ascendante, en cadratins (0,8 sans face)
+        // Décorations, en cadratins, conventions WPF (position négative = sous
+        // la ligne de base) ; 0 = inconnu, le rendu prend ses ratios.
+        public double UnderlinePosition, UnderlineThickness;
+        public double StrikethroughPosition, StrikethroughThickness;
+        public bool SimulatedBold;    // la plate-forme épaissit une face qui n'a pas la graisse
+        public bool SimulatedItalic;
+        public object Native;
     }
 
-    /// <summary>The measuring cache the composer always had (résolution
-    /// GlyphTypeface une fois par famille|graisse|italique), shared by the
-    /// engine's piece building and by WpfGlyphMetrics.</summary>
-    internal static class FontCache
+    /// <summary>La mesure d'un texte par la plate-forme (repli : caractères
+    /// hors police, libellés du PDF).</summary>
+    public struct TextExtent
     {
-        private static readonly Dictionary<string, FontInfo> _fonts =
-            new Dictionary<string, FontInfo>();
-
-        internal static FontInfo Resolve(string family, FontWeight weight, bool italic)
-        {
-            var key = family + "|" + weight + "|" + italic;
-            FontInfo info;
-            lock (_fonts)
-            {
-                if (_fonts.TryGetValue(key, out info)) return info;
-            }
-            info = new FontInfo();
-            info.Typeface = new Typeface(new FontFamily(family),
-                italic ? FontStyles.Italic : FontStyles.Normal,
-                weight,
-                FontStretches.Normal);
-            GlyphTypeface glyphs;
-            info.Glyphs = info.Typeface.TryGetGlyphTypeface(out glyphs) ? glyphs : null;
-            info.Baseline = info.Glyphs != null ? info.Glyphs.Baseline : 0.8;
-            info.Family = family;
-            info.WeightValue = weight.ToOpenTypeWeight();
-            info.Italic = italic;
-            lock (_fonts)
-            {
-                _fonts[key] = info;
-            }
-            return info;
-        }
+        public double Width;
+        public double Height;
+        public double Baseline;
     }
 
-    /// <summary>WPF implementation: GlyphTypeface advances, FormattedText
-    /// fallback for characters outside the face — the exact algorithm the
-    /// composer always used, cache included. No behavior change.</summary>
-    public sealed class WpfGlyphMetrics : IGlyphMetrics
+    /// <summary>La couture complète entre le cœur et les polices réelles :
+    /// résolution des faces, glyphes et avances (pièces composées, PDF),
+    /// mesure du repli, fichier de police à embarquer, rastérisation du
+    /// repli. L'app WPF l'implémente sur GlyphTypeface (Wpf/WpfFontEngine),
+    /// l'app Avalonia sur SkiaSharp/HarfBuzz ; un simple IGlyphMetrics
+    /// (le stub des tests) est enveloppé par FallbackFontEngine.</summary>
+    public interface IFontEngine : IGlyphMetrics
     {
-        public double AdvanceWidth(string fontFamily, double emSize, int weight,
-            bool italic, char c)
+        FaceInfo Resolve(string family, int weight, bool italic);
+        /// <summary>L'index de glyphe d'un caractère dans la face ; false =
+        /// hors police.</summary>
+        bool TryGlyph(FaceInfo face, char c, out ushort glyph);
+        /// <summary>L'avance naturelle d'un glyphe, en cadratins.</summary>
+        double GlyphAdvance(FaceInfo face, ushort glyph);
+        /// <summary>La table caractère → glyphe entière (ToUnicode du PDF).</summary>
+        IEnumerable<KeyValuePair<int, ushort>> CharacterMap(FaceInfo face);
+        /// <summary>La mesure d'un texte par le moteur de texte de la
+        /// plate-forme — la route du repli, et des libellés.</summary>
+        TextExtent Measure(FaceInfo face, string text, double emSize);
+        /// <summary>Le fichier de police (TTF, OTF, TTC) et l'index de la face
+        /// dans une collection ; null = pas embarquable.</summary>
+        byte[] FontFile(FaceInfo face, out int faceIndex, out string fallbackName);
+        /// <summary>Le texte rastérisé en RVB24 sur fond blanc, à
+        /// <paramref name="scale"/> pixels par px ; null = impossible.</summary>
+        byte[] RasterizeText(FaceInfo face, string text, double emSize, Ink ink, double scale,
+            out int width, out int height);
+    }
+
+    /// <summary>Un IGlyphMetrics nu (le stub des tests) vu comme moteur de
+    /// polices : aucune face n'a de glyphes, chaque pièce est un « repli »
+    /// mesuré par les avances du stub — la composition reste déterministe et
+    /// sans police installée.</summary>
+    public sealed class FallbackFontEngine : IFontEngine
+    {
+        private readonly IGlyphMetrics _metrics;
+        private readonly Dictionary<string, FaceInfo> _faces = new Dictionary<string, FaceInfo>();
+
+        public FallbackFontEngine(IGlyphMetrics metrics)
         {
-            return AdvanceWidth(fontFamily, emSize, weight, italic, c.ToString());
+            _metrics = metrics;
         }
 
-        public double AdvanceWidth(string fontFamily, double emSize, int weight,
-            bool italic, string s)
+        /// <summary>Le moteur de polices derrière des métriques : lui-même
+        /// s'il en est un, sinon une enveloppe.</summary>
+        public static IFontEngine Wrap(IGlyphMetrics metrics)
         {
-            var font = FontCache.Resolve(fontFamily,
-                FontWeight.FromOpenTypeWeight(weight), italic);
-            if (font.Glyphs != null)
-            {
-                double width = 0;
-                var complete = true;
-                foreach (var c in s)
-                {
-                    ushort glyph;
-                    if (font.Glyphs.CharacterToGlyphMap.TryGetValue(c, out glyph))
-                        width += font.Glyphs.AdvanceWidths[glyph] * emSize;
-                    else { complete = false; break; }
-                }
-                if (complete) return width;
-            }
-            // Un seul caractère hors police fait basculer TOUTE la chaîne sur
-            // FormattedText (même règle que le rendu : la pièce entière est
-            // rendue en repli, les largeurs doivent suivre le même chemin).
-            return new FormattedText(s, CultureInfo.CurrentCulture,
-                FlowDirection.LeftToRight, font.Typeface, emSize, Brushes.Black, 1.0)
-                .WidthIncludingTrailingWhitespace;
+            return metrics as IFontEngine ?? new FallbackFontEngine(metrics);
+        }
+
+        public double AdvanceWidth(string fontFamily, double emSize, int weight, bool italic, char c)
+        {
+            return _metrics.AdvanceWidth(fontFamily, emSize, weight, italic, c);
+        }
+
+        public double AdvanceWidth(string fontFamily, double emSize, int weight, bool italic, string s)
+        {
+            return _metrics.AdvanceWidth(fontFamily, emSize, weight, italic, s);
         }
 
         public bool HasGlyph(string fontFamily, int weight, bool italic, char c)
         {
-            var font = FontCache.Resolve(fontFamily,
-                FontWeight.FromOpenTypeWeight(weight), italic);
-            return font.Glyphs != null && font.Glyphs.CharacterToGlyphMap.ContainsKey(c);
+            return _metrics.HasGlyph(fontFamily, weight, italic, c);
         }
 
         public FontMetrics Metrics(string fontFamily, double emSize, int weight, bool italic)
         {
-            var font = FontCache.Resolve(fontFamily,
-                FontWeight.FromOpenTypeWeight(weight), italic);
-            // Historique du compositeur : ascendante = Baseline × em, hauteur
-            // de ligne = 1,25 × em. Le découpage Ascent/Descent reproduit ces
-            // deux valeurs à l'identique (non-régression byte à byte du PDF).
-            var ascent = font.Baseline * emSize;
-            return new FontMetrics
+            return _metrics.Metrics(fontFamily, emSize, weight, italic);
+        }
+
+        public FaceInfo Resolve(string family, int weight, bool italic)
+        {
+            var key = family + "|" + weight + "|" + italic;
+            FaceInfo face;
+            if (_faces.TryGetValue(key, out face)) return face;
+            var metrics = _metrics.Metrics(family, 1.0, weight, italic);
+            face = new FaceInfo
             {
-                Ascent = ascent,
-                Descent = emSize * 1.25 - ascent,
-                LineGap = 0
+                Family = family,
+                Weight = weight,
+                Italic = italic,
+                ActualWeight = weight,
+                ActualItalic = italic,
+                Key = key,
+                HasGlyphs = false,
+                Baseline = metrics != null && metrics.Ascent > 0 ? metrics.Ascent : 0.8
             };
+            _faces[key] = face;
+            return face;
+        }
+
+        public bool TryGlyph(FaceInfo face, char c, out ushort glyph)
+        {
+            glyph = 0;
+            return false;
+        }
+
+        public double GlyphAdvance(FaceInfo face, ushort glyph)
+        {
+            return 0;
+        }
+
+        public IEnumerable<KeyValuePair<int, ushort>> CharacterMap(FaceInfo face)
+        {
+            return new KeyValuePair<int, ushort>[0];
+        }
+
+        public TextExtent Measure(FaceInfo face, string text, double emSize)
+        {
+            var metrics = _metrics.Metrics(face.Family, emSize, face.Weight, face.Italic);
+            return new TextExtent
+            {
+                Width = _metrics.AdvanceWidth(face.Family, emSize, face.Weight, face.Italic, text ?? ""),
+                Height = metrics.LineHeight,
+                Baseline = metrics.Ascent
+            };
+        }
+
+        public byte[] FontFile(FaceInfo face, out int faceIndex, out string fallbackName)
+        {
+            faceIndex = 0;
+            fallbackName = null;
+            return null;
+        }
+
+        public byte[] RasterizeText(FaceInfo face, string text, double emSize, Ink ink, double scale,
+            out int width, out int height)
+        {
+            width = 0;
+            height = 0;
+            return null;
         }
     }
 }

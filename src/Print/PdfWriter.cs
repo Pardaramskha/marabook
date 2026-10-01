@@ -4,9 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
-using System.Windows;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using Marabook.Model;
 
 namespace Marabook.Print
@@ -59,7 +56,7 @@ namespace Marabook.Print
 
         private sealed class FontEntry
         {
-            public GlyphTypeface Typeface;
+            public FaceInfo Face;
             public TrueTypeFont Data;
             public HashSet<ushort> Used = new HashSet<ushort>();
             public string Res;                       // /F1
@@ -86,22 +83,22 @@ namespace Marabook.Print
         // leurs métriques diffèrent (bug des mots collés du chapitre 1 : le
         // /W du corps venait de l'instance grasse du titre). Clé composite
         // fichier+graisse+style+simulations obligatoire.
-        private readonly Dictionary<string, FontEntry> _fonts =
+        private readonly Dictionary<string, FontEntry> _fontEntries =
             new Dictionary<string, FontEntry>();
         private readonly List<FontEntry> _fontList = new List<FontEntry>();
-        private readonly Dictionary<ImageSource, ImageEntry> _imageMap =
-            new Dictionary<ImageSource, ImageEntry>();
+        private readonly Dictionary<ProjectImage, ImageEntry> _imageMap =
+            new Dictionary<ProjectImage, ImageEntry>();
         private readonly List<ImageEntry> _images = new List<ImageEntry>();
 
-        // GlyphTypeface instances are NOT canonical: TryGetGlyphTypeface can
-        // hand a fresh object each call, and _fonts keys by reference. Labels
-        // (folio, line numbers) resolve through this cache instead.
-        private readonly Dictionary<string, GlyphTypeface> _labelTypefaces =
-            new Dictionary<string, GlyphTypeface>();
+        /// <summary>Le moteur de polices de la composition (P0) : faces,
+        /// glyphes, fichiers à embarquer, repli rastérisé.</summary>
+        private readonly IFontEngine _fonts;
 
-        // Graphics state trackers (per content stream).
-        private Color _fill;
-        private Color _stroke;
+        // Graphics state trackers (per content stream). La sentinelle
+        // (alpha 0) : aucune encre ne l'égale, la première est toujours écrite.
+        private static readonly Ink Sentinel = Ink.Argb(0, 0, 0, 0);
+        private Ink _fill;
+        private Ink _stroke;
         private double _tz;
 
         // Réglages effectifs : l'imposition en cahier neutralise fond perdu et
@@ -114,6 +111,9 @@ namespace Marabook.Print
         {
             _composition = composition;
             _options = options;
+            if (composition.Fonts == null)
+                throw new InvalidOperationException("La composition n'a pas de moteur de polices (Composition.Fonts).");
+            _fonts = composition.Fonts;
             _booklet = options.Booklet;
             _bleedPt = _booklet ? 0 : options.BleedMm * MmToPt;
             _cropMarks = !_booklet && options.CropMarks;
@@ -304,8 +304,8 @@ namespace Marabook.Print
             // Sentinel trackers: the first ink of the page is always written
             // out — a FOGRA39 proof must carry its 0/0/0/1 explicitly, not
             // ride on the DeviceGray default.
-            _fill = Color.FromArgb(0, 0, 0, 0);
-            _stroke = Color.FromArgb(0, 0, 0, 0);
+            _fill = Sentinel;
+            _stroke = Sentinel;
             _tz = 100;
             var setup = _composition.Setup;
             var page = _composition.Pages[index];
@@ -318,8 +318,8 @@ namespace Marabook.Print
             // Les images de la page (0.50.0), sous le texte.
             foreach (var image in page.Images)
             {
-                if (image.Source == null) continue;
-                var entry = RegisterImage(image.Source, image.Rect.Width);
+                if (!image.Readable || image.Stored == null) continue;
+                var entry = RegisterImage(image.Stored, image.Rect.Width);
                 if (entry != null)
                     EmitImage(ops, entry, image.Rect.X, image.Rect.Y, image.Rect.Width, image.Rect.Height);
             }
@@ -332,7 +332,7 @@ namespace Marabook.Print
                 if (page.NotesRuleY >= 0)
                 {
                     var ruleWidth = Math.Min(160, Math.Max(40, setup.ContentWidthPx / 3));
-                    EmitRect(ops, left, page.NotesRuleY, ruleWidth, 0.8, Colors.Black);
+                    EmitRect(ops, left, page.NotesRuleY, ruleWidth, 0.8, Ink.Black);
                 }
                 foreach (var placed in page.NoteLines)
                     EmitLine(ops, placed.Line, left, placed.Y);
@@ -341,18 +341,16 @@ namespace Marabook.Print
             if (setup.LineNumbers)
             {
                 var number = 0;
-                var typeface = new Typeface("Segoe UI");
+                var face = _fonts.Resolve("Segoe UI", TextWeights.Normal, false);
                 foreach (var placed in page.Lines)
                 {
                     number++;
                     var line = placed.Line;
-                    var label = new FormattedText(
-                        number.ToString(), CultureInfo.CurrentCulture,
-                        FlowDirection.LeftToRight, typeface, 9, Brushes.Gray, 1.0);
-                    EmitSimpleText(ops, number.ToString(), typeface, 9,
+                    var label = _fonts.Measure(face, number.ToString(), 9);
+                    EmitSimpleText(ops, number.ToString(), face, 9,
                         Math.Max(2, left - 8 - label.Width),
                         placed.Y + Math.Max(0, (line.Height - label.Height) / 2) + label.Baseline,
-                        Colors.Gray);
+                        Ink.Gray);
                 }
             }
 
@@ -384,16 +382,14 @@ namespace Marabook.Print
                     && (decor == null || !decor.SuppressFolio))
                 {
                     var label = _composition.FolioOf(index).ToString();
-                    var typeface = new Typeface(setup.FooterFont ?? "Times New Roman");
+                    var face = _fonts.Resolve(setup.FooterFont ?? "Times New Roman", TextWeights.Normal, false);
                     var size = Math.Max(6, setup.FooterSizePt * 4.0 / 3.0);
-                    var folio = new FormattedText(label,
-                        CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-                        typeface, size, Brushes.Black, 1.0);
-                    EmitSimpleText(ops, label, typeface, size,
+                    var folio = _fonts.Measure(face, label, size);
+                    EmitSimpleText(ops, label, face, size,
                         (_composition.PageWidthPx - folio.Width) / 2,
                         _composition.PageHeightPx - _composition.BottomPx / 2
                             - folio.Height / 2 + folio.Baseline,
-                        Colors.Black);
+                        Ink.Black);
                 }
             }
             return ops.ToString();
@@ -402,10 +398,10 @@ namespace Marabook.Print
         private sealed class DecorRun
         {
             public string Text;
-            public Typeface Typeface;
+            public FaceInfo Face;
             public double SizePx;
-            public Color Ink;
-            public FormattedText Measured;
+            public Ink Ink;
+            public TextExtent Measured;
         }
 
         private void EmitDecor(StringBuilder ops, HeaderFooter decor, int index,
@@ -426,15 +422,13 @@ namespace Marabook.Print
                     runs.Add(new DecorRun
                     {
                         Text = text,
-                        Typeface = new Typeface(
-                            new FontFamily(run.FontFamily ?? setup.FooterFont ?? "Times New Roman"),
-                            run.Italic == true ? FontStyles.Italic : FontStyles.Normal,
-                            run.Weight != null ? Marabook.View.FlowConverter.ParseWeight(run.Weight)
-                                : run.Bold == true ? FontWeights.Bold : FontWeights.Normal,
-                            FontStretches.Normal),
+                        Face = _fonts.Resolve(
+                            run.FontFamily ?? setup.FooterFont ?? "Times New Roman",
+                            run.Weight != null ? TextWeights.Parse(run.Weight)
+                                : run.Bold == true ? TextWeights.Bold : TextWeights.Normal,
+                            run.Italic == true),
                         SizePx = run.FontSize ?? Math.Max(6, decor.SizePt * 4.0 / 3.0),
-                        Ink = run.Color != null
-                            ? Marabook.View.FlowConverter.ParseColor(run.Color) : Colors.Black
+                        Ink = run.Color != null ? Ink.Parse(run.Color) : Ink.Black
                     });
                 }
             }
@@ -445,13 +439,12 @@ namespace Marabook.Print
                 runs.Add(new DecorRun
                 {
                     Text = text,
-                    Typeface = new Typeface(
-                        new FontFamily(decor.FontFamily ?? setup.FooterFont ?? "Times New Roman"),
-                        decor.Italic ? FontStyles.Italic : FontStyles.Normal,
-                        decor.Bold ? FontWeights.Bold : FontWeights.Normal,
-                        FontStretches.Normal),
+                    Face = _fonts.Resolve(
+                        decor.FontFamily ?? setup.FooterFont ?? "Times New Roman",
+                        decor.Bold ? TextWeights.Bold : TextWeights.Normal,
+                        decor.Italic),
                     SizePx = Math.Max(6, decor.SizePt * 4.0 / 3.0),
-                    Ink = Colors.Black
+                    Ink = Ink.Black
                 });
             }
             if (runs.Count == 0) return;
@@ -459,9 +452,8 @@ namespace Marabook.Print
             double totalWidth = 0, maxHeight = 0, maxBaseline = 0;
             foreach (var run in runs)
             {
-                run.Measured = new FormattedText(run.Text, CultureInfo.CurrentCulture,
-                    FlowDirection.LeftToRight, run.Typeface, run.SizePx, Brushes.Black, 1.0);
-                totalWidth += run.Measured.WidthIncludingTrailingWhitespace;
+                run.Measured = _fonts.Measure(run.Face, run.Text, run.SizePx);
+                totalWidth += run.Measured.Width;
                 if (run.Measured.Height > maxHeight) maxHeight = run.Measured.Height;
                 if (run.Measured.Baseline > maxBaseline) maxBaseline = run.Measured.Baseline;
             }
@@ -481,9 +473,9 @@ namespace Marabook.Print
                     height - bottom / 2 - maxHeight / 2 + gap);
             foreach (var run in runs)
             {
-                EmitSimpleText(ops, run.Text, run.Typeface, run.SizePx,
+                EmitSimpleText(ops, run.Text, run.Face, run.SizePx,
                     x, y + maxBaseline, run.Ink);
-                x += run.Measured.WidthIncludingTrailingWhitespace;
+                x += run.Measured.Width;
             }
         }
 
@@ -495,15 +487,14 @@ namespace Marabook.Print
             // d'annotation (semi-transparentes) ne vont jamais au papier.
             foreach (var piece in line.Pieces)
             {
-                if (piece.Highlight == null) continue;
-                var solidHighlight = piece.Highlight as SolidColorBrush;
-                if (solidHighlight != null && solidHighlight.Color.A < 0xFF) continue;
+                if (!piece.Highlight.HasValue) continue;
+                if (piece.Highlight.Value.IsTranslucent) continue;
                 var w = piece.VisualWidth();
                 if (w < 0.1) continue;
                 var size = piece.FontSizePx > 0 ? piece.FontSizePx : 16;
                 EmitRect(ops, leftPx + piece.Origin.X,
                     baseline + piece.Origin.Y - size * 0.8, w, size * 1.05,
-                    InkColor(piece.Highlight));
+                    piece.Highlight.Value);
             }
 
             foreach (var piece in line.Pieces)
@@ -513,16 +504,16 @@ namespace Marabook.Print
                 if (piece.IsRule)
                 {
                     EmitRect(ops, leftPx + piece.Rect.X, topPx + line.Height / 2,
-                        piece.Rect.Width, piece.Rect.Height, Colors.Black);
+                        piece.Rect.Width, piece.Rect.Height, Ink.Black);
                     continue;
                 }
                 if (piece.IsAnchor) continue; // l'ancre d'une image : rien sur le papier
-                if (piece.Glyphs != null)
+                if (piece.IsGlyphs)
                 {
                     EmitGlyphs(ops, piece, leftPx, baseline);
                     continue;
                 }
-                if (piece.Fallback != null)
+                if (piece.IsFallback)
                     EmitFallback(ops, piece, leftPx, baseline);
             }
         }
@@ -536,25 +527,25 @@ namespace Marabook.Print
             var w = piece.VisualWidth();
             if (w < 0.1) return;
             var size = piece.FontSizePx > 0 ? piece.FontSizePx : 16;
-            var typeface = piece.Glyphs != null ? piece.Glyphs.GlyphTypeface : null;
-            var ink = InkColor(piece.Ink);
+            var face = piece.IsGlyphs ? piece.Face : null;
+            var ink = piece.Ink;
             var x = leftPx + piece.Origin.X;
             var y = baselinePx + piece.Origin.Y;
             if (piece.Underline)
             {
-                var offset = typeface != null ? -typeface.UnderlinePosition * size : size * 0.09;
-                var thickness = typeface != null
-                    ? Math.Max(0.8, typeface.UnderlineThickness * size)
+                var offset = face != null ? -face.UnderlinePosition * size : size * 0.09;
+                var thickness = face != null
+                    ? Math.Max(0.8, face.UnderlineThickness * size)
                     : Math.Max(0.8, size * 0.05);
-                EmitRect(ops, x, y + offset, w, thickness, ink);
+                EmitRect(ops, x, y + offset - thickness / 2, w, thickness, ink); // le trait centré sur la position (30/09)
             }
             if (piece.Strike)
             {
-                var offset = typeface != null ? -typeface.StrikethroughPosition * size : -size * 0.3;
-                var thickness = typeface != null
-                    ? Math.Max(0.8, typeface.StrikethroughThickness * size)
+                var offset = face != null ? -face.StrikethroughPosition * size : -size * 0.3;
+                var thickness = face != null
+                    ? Math.Max(0.8, face.StrikethroughThickness * size)
                     : Math.Max(0.8, size * 0.05);
-                EmitRect(ops, x, y + offset, w, thickness, ink);
+                EmitRect(ops, x, y + offset - thickness / 2, w, thickness, ink);
             }
         }
 
@@ -564,12 +555,11 @@ namespace Marabook.Print
         private void EmitGlyphs(StringBuilder ops, ComposedPiece piece,
             double leftPx, double baselinePx)
         {
-            var run = piece.Glyphs;
-            var font = GetFont(run.GlyphTypeface);
-            var sizePx = run.FontRenderingEmSize;
+            var font = GetFont(piece.Face);
+            var sizePx = piece.EmSize;
             if (sizePx <= 0) return;
 
-            var ink = InkColor(piece.Ink);
+            var ink = piece.Ink;
             SetFill(ops, ink);
             ops.Append("BT /").Append(font.Res).Append(" ")
                 .Append(N(sizePx * PxToPt)).Append(" Tf\n");
@@ -595,15 +585,16 @@ namespace Marabook.Print
             else
                 ops.Append(N(x)).Append(" ").Append(N(y)).Append(" Td\n[<");
 
-            for (var i = 0; i < run.GlyphIndices.Count; i++)
+            var indices = piece.GlyphIndices;
+            for (var i = 0; i < indices.Length; i++)
             {
-                var glyph = run.GlyphIndices[i];
+                var glyph = indices[i];
                 font.Used.Add(glyph);
                 ops.Append(glyph.ToString("X4"));
-                var natural = Math.Round(run.GlyphTypeface.AdvanceWidths[glyph] * 1000);
-                var wanted = run.AdvanceWidths[i] * 1000.0 / sizePx;
+                var natural = Math.Round(_fonts.GlyphAdvance(piece.Face, glyph) * 1000);
+                var wanted = piece.Advances[i] * 1000.0 / sizePx;
                 var adjust = (int)Math.Round(natural - wanted);
-                if (adjust != 0 && i < run.GlyphIndices.Count - 1)
+                if (adjust != 0 && i < indices.Length - 1)
                     ops.Append("> ").Append(adjust).Append(" <");
             }
             ops.Append(">] TJ\n");
@@ -611,53 +602,38 @@ namespace Marabook.Print
             ops.Append("ET\n");
         }
 
-        /// <summary>Characters outside the font (the composer's FormattedText
-        /// fallback) are rasterized — rare, and paper-exact.</summary>
+        /// <summary>Characters outside the font (the composer's platform
+        /// fallback) are rasterized by the font engine — rare, and paper-exact.</summary>
         private void EmitFallback(StringBuilder ops, ComposedPiece piece,
             double leftPx, double baselinePx)
         {
-            var text = piece.Fallback;
             const double scale = 3.0;
-            var wPx = text.WidthIncludingTrailingWhitespace;
-            var hPx = text.Height;
+            var wPx = piece.FallbackWidth;
+            var hPx = piece.FallbackHeight;
             if (wPx < 0.1 || hPx < 0.1) return;
-            var pixelW = Math.Max(1, (int)Math.Ceiling(wPx * scale));
-            var pixelH = Math.Max(1, (int)Math.Ceiling(hPx * scale));
-            var visual = new DrawingVisual();
-            using (var dc = visual.RenderOpen())
-            {
-                dc.PushTransform(new ScaleTransform(scale, scale));
-                dc.DrawText(text, new Point(0, 0));
-                dc.Pop();
-            }
-            var bitmap = new RenderTargetBitmap(pixelW, pixelH, 96, 96, PixelFormats.Pbgra32);
-            bitmap.Render(visual);
-            var entry = AddImage(bitmap);
+            int pixelW, pixelH;
+            var rgb = _fonts.RasterizeText(piece.Face, piece.Text, piece.EmSize, piece.Ink, scale,
+                out pixelW, out pixelH);
+            if (rgb == null) return;
+            var entry = AddImage(rgb, pixelW, pixelH);
             if (entry == null) return;
             var x = leftPx + piece.Origin.X;
-            var top = baselinePx + piece.Origin.Y - text.Baseline;
+            var top = baselinePx + piece.Origin.Y - piece.FallbackBaseline;
             EmitImage(ops, entry, x, top, wPx * piece.ScaleX, hPx);
         }
 
         /// <summary>Plain label (folio, line numbers): natural advances, no
-        /// justification. baselinePx matches the on-screen FormattedText.</summary>
-        private void EmitSimpleText(StringBuilder ops, string text, Typeface typeface,
-            double sizePx, double xPx, double baselinePx, Color color)
+        /// justification. baselinePx matches the on-screen measure.</summary>
+        private void EmitSimpleText(StringBuilder ops, string text, FaceInfo face,
+            double sizePx, double xPx, double baselinePx, Ink color)
         {
-            var key = (typeface.FontFamily.Source ?? "") + "|" + typeface.Weight + "|" + typeface.Style;
-            GlyphTypeface glyphs;
-            if (!_labelTypefaces.TryGetValue(key, out glyphs))
-            {
-                if (!typeface.TryGetGlyphTypeface(out glyphs)) glyphs = null;
-                _labelTypefaces[key] = glyphs;
-            }
-            if (glyphs == null) return;
-            var font = GetFont(glyphs);
+            if (face == null || !face.HasGlyphs) return;
+            var font = GetFont(face);
             var hex = new StringBuilder();
             foreach (var c in text)
             {
                 ushort glyph;
-                if (!glyphs.CharacterToGlyphMap.TryGetValue(c, out glyph)) continue;
+                if (!_fonts.TryGlyph(face, c, out glyph)) continue;
                 font.Used.Add(glyph);
                 hex.Append(glyph.ToString("X4"));
             }
@@ -670,7 +646,7 @@ namespace Marabook.Print
         }
 
         private void EmitRect(StringBuilder ops, double xPx, double yPx,
-            double wPx, double hPx, Color color)
+            double wPx, double hPx, Ink color)
         {
             SetFill(ops, color);
             ops.Append(N(XPt(xPx))).Append(" ").Append(N(YPt(yPx + hPx))).Append(" ")
@@ -697,7 +673,7 @@ namespace Marabook.Print
             var y0 = _margin;
             var y1 = _margin + _trimH;
             ops.Append("0.25 w ").Append(_options.Cmyk ? "0 0 0 1 K\n" : "0 G\n");
-            _stroke = Color.FromArgb(0, 0, 0, 0); // tracker invalidated
+            _stroke = Sentinel; // tracker invalidated
             // horizontal marks (left/right of the trim corners)
             AppendMark(ops, x0 - gap - len, y0, x0 - gap, y0);
             AppendMark(ops, x0 - gap - len, y1, x0 - gap, y1);
@@ -724,7 +700,7 @@ namespace Marabook.Print
                 ops.Append(N(_margin)).Append(" ").Append(N(_margin)).Append(" ")
                     .Append(N(_trimW)).Append(" ").Append(N(_trimH)).Append(" re S\n");
             // Invalidate the stroke tracker (sentinel no ink will ever equal).
-            _stroke = Color.FromArgb(0, 0, 0, 0);
+            _stroke = Sentinel;
         }
 
         private static void AppendMark(StringBuilder ops,
@@ -734,14 +710,14 @@ namespace Marabook.Print
                 .Append(N(xb)).Append(" ").Append(N(yb)).Append(" l S\n");
         }
 
-        private void SetFill(StringBuilder ops, Color color)
+        private void SetFill(StringBuilder ops, Ink color)
         {
             if (color == _fill) return;
             _fill = color;
             ops.Append(ColorOps(color, false));
         }
 
-        private void SetStroke(StringBuilder ops, Color color)
+        private void SetStroke(StringBuilder ops, Ink color)
         {
             if (color == _stroke) return;
             _stroke = color;
@@ -751,7 +727,7 @@ namespace Marabook.Print
         /// <summary>rg/RG in RGB output, k/K in CMYK output. The CMYK
         /// conversion keeps true black on the K channel alone (0 0 0 1) —
         /// what a printer expects for text.</summary>
-        private string ColorOps(Color color, bool stroke)
+        private string ColorOps(Ink color, bool stroke)
         {
             if (!_options.Cmyk)
                 return N(color.R / 255.0) + " " + N(color.G / 255.0) + " "
@@ -773,12 +749,6 @@ namespace Marabook.Print
             y = (1 - b - k) / (1 - k);
         }
 
-        private static Color InkColor(Brush ink)
-        {
-            var solid = ink as SolidColorBrush;
-            return solid == null ? Colors.Black : solid.Color;
-        }
-
         // px → pt with the bleed/marks offset; PDF y grows upward.
         private double XPt(double xPx) { return _margin + xPx * PxToPt; }
         private double YPt(double yPx)
@@ -788,41 +758,45 @@ namespace Marabook.Print
 
         // ============================================================ fonts
 
-        private FontEntry GetFont(GlyphTypeface typeface)
+        private FontEntry GetFont(FaceInfo face)
         {
-            var key = typeface.FontUri + "|" + typeface.Weight.ToOpenTypeWeight()
-                + "|" + typeface.Style + "|" + (int)typeface.StyleSimulations;
+            // La clé de la face (fichier + graisse + style + simulations) :
+            // deux instances d'une fonte variable ne se confondent pas.
+            var key = face.Key;
             FontEntry entry;
-            if (_fonts.TryGetValue(key, out entry)) return entry;
+            if (_fontEntries.TryGetValue(key, out entry)) return entry;
+            int faceIndex;
+            string fallbackName;
+            var file = _fonts.FontFile(face, out faceIndex, out fallbackName);
             entry = new FontEntry
             {
-                Typeface = typeface,
-                Data = TrueTypeFont.Load(typeface),
+                Face = face,
+                Data = TrueTypeFont.Load(file, faceIndex, fallbackName),
                 Res = "F" + (_fontList.Count + 1)
             };
             var fileWeight = entry.Data != null ? entry.Data.WeightClass : 400;
-            entry.EmulateBold =
-                (typeface.StyleSimulations & StyleSimulations.BoldSimulation) != 0
-                || typeface.Weight.ToOpenTypeWeight() >= fileWeight + 150;
-            entry.EmulateItalic =
-                (typeface.StyleSimulations & StyleSimulations.ItalicSimulation) != 0;
-            _fonts[key] = entry;
+            // La graisse SERVIE (pas la demandée) : une instance de fonte
+            // variable plus lourde que le fichier s'épaissit ; un demi-gras
+            // rendu par le fichier regular reste regular, comme à l'écran.
+            entry.EmulateBold = face.SimulatedBold || face.ActualWeight >= fileWeight + 150;
+            entry.EmulateItalic = face.SimulatedItalic;
+            _fontEntries[key] = entry;
             _fontList.Add(entry);
             return entry;
         }
 
         private void WriteFont(MemoryStream output, long[] offsets, FontEntry font)
         {
-            var typeface = font.Typeface;
+            var face = font.Face;
             var data = font.Data;
             var scale = data != null ? 1000.0 / data.UnitsPerEm : 1.0;
             var psName = data != null ? data.PostScriptName : "Embedded";
             // Variable-font instances share one PostScript name; suffix the
             // requested weight so the two faces stay distinct for viewers.
-            if (data != null && typeface.Weight.ToOpenTypeWeight() != data.WeightClass)
-                psName += "-W" + typeface.Weight.ToOpenTypeWeight();
+            if (data != null && face.ActualWeight != data.WeightClass)
+                psName += "-W" + face.ActualWeight;
             var baseName = SubsetTag(font) + "+" + psName;
-            var italic = typeface.Style != FontStyles.Normal;
+            var italic = face.ActualItalic;
 
             byte[] fontFile = null;
             var fontFileKey = "/FontFile2";
@@ -856,7 +830,7 @@ namespace Marabook.Print
                 for (var g = i; g <= j; g++)
                 {
                     if (g > i) w.Append(" ");
-                    w.Append(N(Math.Round(typeface.AdvanceWidths[used[g]] * 1000)));
+                    w.Append(N(Math.Round(_fonts.GlyphAdvance(face, used[g]) * 1000)));
                 }
                 w.Append("] ");
                 i = j + 1;
@@ -869,7 +843,7 @@ namespace Marabook.Print
             // Descriptor
             offsets[font.DescId] = output.Position;
             var flags = 4 | (italic ? 64 : 0); // symbolic (+ italic)
-            var bold = typeface.Weight.ToOpenTypeWeight() >= 600;
+            var bold = face.ActualWeight >= 600;
             var descriptor = new StringBuilder();
             descriptor.Append(font.DescId).Append(" 0 obj\n<< /Type /FontDescriptor /FontName /")
                 .Append(baseName).Append(" /Flags ").Append(flags);
@@ -910,7 +884,7 @@ namespace Marabook.Print
         private static string SubsetTag(FontEntry font)
         {
             var hash = 5381;
-            var name = font.Typeface.FontUri.ToString() + font.Res;
+            var name = (font.Face.File ?? font.Face.Key) + font.Res;
             foreach (var c in name) hash = hash * 33 + c;
             var tag = new char[6];
             for (var i = 0; i < 6; i++)
@@ -925,7 +899,7 @@ namespace Marabook.Print
         {
             // Reverse cmap: glyph id → first Unicode that produces it.
             var reverse = new Dictionary<ushort, int>();
-            foreach (var pair in font.Typeface.CharacterToGlyphMap)
+            foreach (var pair in _fonts.CharacterMap(font.Face))
                 if (!reverse.ContainsKey(pair.Value)) reverse[pair.Value] = pair.Key;
 
             var entries = new List<string>();
@@ -954,53 +928,33 @@ namespace Marabook.Print
 
         // ============================================================ images
 
-        private ImageEntry RegisterImage(ImageSource source, double targetWidthPx)
+        private ImageEntry RegisterImage(ProjectImage stored, double targetWidthPx)
         {
             ImageEntry entry;
-            if (_imageMap.TryGetValue(source, out entry)) return entry;
-            var bitmap = source as BitmapSource;
-            if (bitmap == null) return null;
-            // Cap the embedded resolution at ~3× the placed size (≈ 290 dpi).
-            var factor = Math.Min(1.0, targetWidthPx * 3.0 / Math.Max(1, bitmap.PixelWidth));
-            BitmapSource frame = bitmap;
-            if (factor < 0.999)
-                frame = new TransformedBitmap(bitmap, new ScaleTransform(factor, factor));
-            entry = AddImage(frame);
-            if (entry != null) _imageMap[source] = entry;
+            if (_imageMap.TryGetValue(stored, out entry)) return entry;
+            // Cap the embedded resolution at ~3× the placed size (≈ 290 dpi) :
+            // le codec de la plate-forme décode, réduit et aplatit sur blanc.
+            int width, height;
+            var rgb = Platform.Images.ToRgb24(stored.Bytes, targetWidthPx * 3.0, out width, out height);
+            if (rgb == null) return null;
+            entry = AddImage(rgb, width, height);
+            if (entry != null) _imageMap[stored] = entry;
             return entry;
         }
 
         /// <summary>RGB24 over white (paper), Flate-compressed at write time.</summary>
-        private ImageEntry AddImage(BitmapSource source)
+        private ImageEntry AddImage(byte[] rgb, int width, int height)
         {
-            try
+            if (rgb == null || width <= 0 || height <= 0 || rgb.Length < width * height * 3) return null;
+            var entry = new ImageEntry
             {
-                var converted = new FormatConvertedBitmap(source, PixelFormats.Pbgra32, null, 0);
-                var width = converted.PixelWidth;
-                var height = converted.PixelHeight;
-                var stride = width * 4;
-                var pixels = new byte[stride * height];
-                converted.CopyPixels(pixels, stride, 0);
-                var rgb = new byte[width * height * 3];
-                var o = 0;
-                for (var i = 0; i < pixels.Length; i += 4)
-                {
-                    var alpha = 255 - pixels[i + 3]; // premultiplied: add the white
-                    rgb[o++] = (byte)Math.Min(255, pixels[i + 2] + alpha);
-                    rgb[o++] = (byte)Math.Min(255, pixels[i + 1] + alpha);
-                    rgb[o++] = (byte)Math.Min(255, pixels[i] + alpha);
-                }
-                var entry = new ImageEntry
-                {
-                    Res = "Im" + (_images.Count + 1),
-                    W = width,
-                    H = height,
-                    Rgb = rgb
-                };
-                _images.Add(entry);
-                return entry;
-            }
-            catch { return null; }
+                Res = "Im" + (_images.Count + 1),
+                W = width,
+                H = height,
+                Rgb = rgb
+            };
+            _images.Add(entry);
+            return entry;
         }
 
         // ============================================================ low level

@@ -92,7 +92,8 @@ namespace Marabook.Exchange
             sb.Append("/>");
             sb.Append("<style:text-properties style:font-name=\"").Append(Esc(style.FontFamily))
               .Append("\" fo:font-size=\"").Append(Pt(style.FontSize)).Append("\"");
-            if (style.Bold) sb.Append(" fo:font-weight=\"bold\"");
+            if (style.Weight != null) sb.Append(" fo:font-weight=\"").Append(style.EffectiveWeight()).Append("\""); // la variante de police (01/10)
+            else if (style.Bold) sb.Append(" fo:font-weight=\"bold\"");
             if (style.Italic) sb.Append(" fo:font-style=\"italic\"");
             if (style.Color != null) sb.Append(" fo:color=\"").Append(style.Color).Append("\"");
             sb.Append("/>");

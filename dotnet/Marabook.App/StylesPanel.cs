@@ -1,0 +1,816 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Shapes;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+
+using Marabook.Model;
+
+namespace Marabook.App
+{
+    /// <summary>Où l'on édite les styles : quel projet, quel livre, quel écrit
+    /// — ce qui décide des portées offertes et des styles listés (22/09).</summary>
+    public class StyleScopeContext
+    {
+        public Project Project;
+        public BinderItem Book;       // le livre courant (portée « livre »), null sinon
+        public BinderItem Document;   // l'écrit courant (portée « document »), null sinon
+        public string DefaultScope = ParagraphStyle.ScopeGlobal; // portée d'un style neuf
+
+        public bool AllowBook { get { return Book != null; } }
+        public bool AllowDocument { get { return Document != null; } }
+
+        /// <summary>Les Préférences : rien que les styles globaux.</summary>
+        public static StyleScopeContext GlobalOnly()
+        {
+            return new StyleScopeContext();
+        }
+
+        /// <summary>Depuis l'éditeur : le livre de l'écrit courant, l'écrit.</summary>
+        public static StyleScopeContext ForItem(Project project, BinderItem item)
+        {
+            var context = new StyleScopeContext { Project = project };
+            if (item != null && item.Kind == ItemKind.Text)
+            {
+                context.Document = item;
+                context.Book = item.EnclosingBook();
+            }
+            else if (item != null && item.Kind == ItemKind.Book) context.Book = item;
+            return context;
+        }
+
+        /// <summary>L'onglet Styles d'un livre : le global et ce livre.</summary>
+        public static StyleScopeContext ForBook(Project project, BinderItem book)
+        {
+            return new StyleScopeContext { Project = project, Book = book, DefaultScope = ParagraphStyle.ScopeBook };
+        }
+
+        public bool Lists(ParagraphStyle style)
+        {
+            if (style.IsSeparator) return false;
+            if (style.IsGlobal) return true;
+            if (style.Scope == ParagraphStyle.ScopeBook) return Book != null && style.OwnerId == Book.Id;
+            return Document != null && style.OwnerId == Document.Id;
+        }
+    }
+
+    /// <summary>L'outil de gestion des styles de paragraphe (22/09) : la liste
+    /// à gauche (préfixe d'icône selon la portée : rien en global, livre,
+    /// document), les attributs à droite en cinq onglets — Caractère,
+    /// Paragraphe, Césure, Justification, Enchaînements — et, fixes en bas,
+    /// le Nom et la Portée. Travaille DIRECTEMENT sur la feuille reçue :
+    /// le dialogue lui donne un clone (Valider / Annuler), les onglets
+    /// incrustés (livre, Préférences) la vraie feuille, avec Changed à
+    /// chaque édition. Les séparateurs de scène ne sont pas listés : ils
+    /// ont leur propre éditeur (SeparatorEditor). « Corps » reste global et
+    /// ne se supprime pas.</summary>
+    public class StylesPanel : Grid
+    {
+        private const double PxPerMm = 96.0 / 25.4;
+
+        public readonly StyleSheet Sheet;
+        private readonly StyleScopeContext _context;
+        private readonly ListBox _list;
+        private ParagraphStyle _current;
+        private ListBoxItem _currentEntry; // row of _current — never SelectedItem,
+                                           // already moved when SelectionChanged commits
+        private bool _syncing;
+
+        /// <summary>Une édition a été commise dans la feuille.</summary>
+        public event Action Changed;
+
+        private TextBox _nameBox;
+        private ComboBox _scopeCombo;
+        // Caractère
+        private FontPicker _fontCombo; // le sélecteur partagé du ruban (0.50.0)
+        private TextBox _sizeBox, _leadingBox, _colorBox;
+        private CheckBox _boldCheck, _italicCheck, _ligaturesCheck;
+        private ComboBox _weightCombo;   // la variante de police (01/10) : les graisses installées
+        private TextBlock _weightHint;
+        // Paragraphe
+        private ComboBox _alignCombo;
+        private TextBox _leftBox, _rightBox, _firstBox, _lastBox, _beforeBox, _afterBox;
+        // Césure
+        private CheckBox _hyphenCheck;
+        private TextBox _hyphenWordBox, _hyphenBeforeBox, _hyphenAfterBox, _hyphenLimitBox;
+        // Justification
+        private TextBox[] _justifyBoxes; // word min/opt/max, letter, glyph (9)
+        private TextBox _autoLeadingBox;
+        // Enchaînements
+        private CheckBox _keepPrevCheck, _keepLinesCheck;
+        private TextBox _keepNextBox;
+
+        public StylesPanel(StyleSheet sheet, StyleScopeContext context)
+        {
+            Sheet = sheet;
+            _context = context ?? StyleScopeContext.GlobalOnly();
+
+            ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
+            ColumnDefinitions.Add(new ColumnDefinition());
+
+            // --- left: style list + list actions (icônes, comme les modèles de fiche) ---
+            var left = new DockPanel { Margin = new Thickness(0, 0, 12, 0) };
+            var listButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            listButtons.Children.Add(ListButton("plus-bold", "Nouveau style", NewStyle));
+            listButtons.Children.Add(ListButton("copy-simple-bold", "Dupliquer le style", DuplicateStyle));
+            listButtons.Children.Add(ListButton("trash", "Supprimer le style", DeleteStyle));
+            DockPanel.SetDock(listButtons, Dock.Bottom);
+            left.Children.Add(listButtons);
+
+            _list = new ListBox();
+            _list.SelectionChanged += delegate { CommitForm(); ShowStyle(SelectedStyle()); };
+            left.Children.Add(_list);
+            Grid.SetColumn(left, 0);
+            Children.Add(left);
+
+            // --- right: tabs, then the fixed Nom / Portée rows ---
+            var right = new DockPanel();
+            var fixedRows = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+            var nameRow = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+            nameRow.Children.Add(FixedLabel("Nom"));
+            _nameBox = new TextBox();
+            Hook(_nameBox);
+            nameRow.Children.Add(_nameBox);
+            fixedRows.Children.Add(nameRow);
+
+            var scopeRow = new DockPanel();
+            scopeRow.Children.Add(FixedLabel("Portée"));
+            _scopeCombo = new ComboBox { Width = 200, HorizontalAlignment = HorizontalAlignment.Left };
+            _scopeCombo.Items.Add(new ComboBoxItem { Content = "Globale (tous les projets)", Tag = ParagraphStyle.ScopeGlobal });
+            _scopeCombo.Items.Add(new ComboBoxItem
+            {
+                Content = _context.Book != null ? "Ce livre — " + _context.Book.Title : "Ce livre",
+                Tag = ParagraphStyle.ScopeBook,
+                IsEnabled = _context.AllowBook
+            });
+            _scopeCombo.Items.Add(new ComboBoxItem
+            {
+                Content = _context.Document != null ? "Ce document — " + _context.Document.Title : "Ce document",
+                Tag = ParagraphStyle.ScopeDocument,
+                IsEnabled = _context.AllowDocument
+            });
+            _scopeCombo.SelectionChanged += delegate
+            {
+                if (_syncing || _current == null) return;
+                ApplyScope();
+                RaiseChanged();
+            };
+            scopeRow.Children.Add(_scopeCombo);
+            // « Réinitialiser » (28/09) : toute la feuille revient aux styles
+            // de Marabook tels qu'à l'installation — après confirmation.
+            var reset = Buttons.Text("Réinitialiser", "Revenir aux styles de Marabook tels qu'à l'installation : tous les styles de cette feuille sont remplacés",
+                Buttons.Compact, Buttons.Look.Outline);
+            reset.Margin = new Thickness(8, 0, 0, 0);
+            reset.VerticalAlignment = VerticalAlignment.Center;
+            reset.Click += async delegate
+            {
+                var answer = await MessageDialog.Show(Ui.OwnerOf(this),
+                    "Remettre TOUS les styles de cette feuille aux valeurs de Marabook à l'installation ?\n\n"
+                    + "Les styles ajoutés disparaissent et les styles modifiés reprennent leurs valeurs d'origine. "
+                    + "Les paragraphes d'un style disparu reviennent au style « Corps ».",
+                    "Styles", MessageButtons.YesNo, MessageIcon.Question);
+                if (answer != MessageResult.Yes) return;
+                ResetToDefaults();
+            };
+            scopeRow.Children.Add(reset);
+            scopeRow.Children.Add(new TextBlock
+            {
+                Text = "Global : tous les projets · Livre : les écrits de ce livre · Document : cet écrit seul",
+                Foreground = Chrome.FaintText,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 0, 0),
+                TextWrapping = TextWrapping.Wrap
+            });
+            fixedRows.Children.Add(scopeRow);
+            DockPanel.SetDock(fixedRows, Dock.Bottom);
+            right.Children.Add(fixedRows);
+
+            var tabs = new TabControl { Background = Brushes.Transparent };
+            tabs.Items.Add(new TabItem { Header = "Caractère", Content = BuildCharacterTab() });
+            tabs.Items.Add(new TabItem { Header = "Paragraphe", Content = BuildParagraphTab() });
+            tabs.Items.Add(new TabItem { Header = "Césure", Content = BuildHyphenationTab() });
+            tabs.Items.Add(new TabItem { Header = "Justification", Content = BuildJustificationTab() });
+            tabs.Items.Add(new TabItem { Header = "Enchaînements", Content = BuildKeepsTab() });
+            right.Children.Add(tabs);
+
+            Grid.SetColumn(right, 1);
+            Children.Add(right);
+            FillList(null);
+        }
+
+        /// <summary>Commet le formulaire dans le style courant (avant Valider).</summary>
+        public void Commit()
+        {
+            CommitForm();
+        }
+
+        /// <summary>Le style sélectionné (pour un appelant qui veut le montrer).</summary>
+        public ParagraphStyle Current { get { return _current; } }
+
+        // ------------------------------------------------------- tabs
+
+        private Control BuildCharacterTab()
+        {
+            var form = new StackPanel { Margin = new Thickness(10) };
+
+            // Le même sélecteur que le ruban (0.50.0) : récentes, aperçu,
+            // frappe + Entrée, flèches — un choix commet la feuille.
+            _fontCombo = new FontPicker { [ToolTip.TipProperty] = "Police du style — tapez un nom puis Entrée, ou parcourez aux flèches" };
+            form.Children.Add(FormRow("Police", _fontCombo));
+
+            // La variante de police (01/10) : les graisses réellement
+            // installées de la famille (Léger, Moyen, Demi-gras…) — quand la
+            // police en a, on les demande telles quelles au lieu de forcer
+            // la case Gras (qui émule). « Selon la case Gras » = l'ancien
+            // comportement.
+            var weightRow = new StackPanel { Orientation = Orientation.Horizontal };
+            _weightCombo = new ComboBox
+            {
+                MinWidth = 190,
+                VerticalAlignment = VerticalAlignment.Center,
+                [ToolTip.TipProperty] = "La graisse installée à employer — une variante posée remplace la case Gras"
+            };
+            weightRow.Children.Add(_weightCombo);
+            _weightHint = new TextBlock
+            {
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 0, 0)
+            };
+            weightRow.Children.Add(_weightHint);
+            form.Children.Add(FormRow("Variante", weightRow));
+            _fontCombo.FontChosen += delegate(string name, bool preview)
+            {
+                if (!preview && !_syncing) RefreshWeightChoices(name, _current == null ? null : _current.Weight);
+            };
+
+            var sizeRow = new StackPanel { Orientation = Orientation.Horizontal };
+            sizeRow.Children.Add(_sizeBox = new TextBox { Width = 60 });
+            _boldCheck = new CheckBox { Content = "Gras", Margin = new Thickness(16, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            _italicCheck = new CheckBox { Content = "Italique", Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            sizeRow.Children.Add(_boldCheck);
+            sizeRow.Children.Add(_italicCheck);
+            form.Children.Add(FormRow("Taille (pt)", sizeRow));
+
+            var leadingRow = new StackPanel { Orientation = Orientation.Horizontal };
+            leadingRow.Children.Add(_leadingBox = new TextBox { Width = 60, [ToolTip.TipProperty] = "0 = automatique" });
+            leadingRow.Children.Add(new TextBlock
+            {
+                Text = "pt (0 = auto) — l'interligne du document la multiplie",
+                Foreground = Chrome.SoftText,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 0, 0)
+            });
+            form.Children.Add(FormRow("Valeur d'interligne", leadingRow));
+
+            _ligaturesCheck = new CheckBox { Content = "Ligatures", VerticalAlignment = VerticalAlignment.Center };
+            form.Children.Add(FormRow("", _ligaturesCheck));
+
+            form.Children.Add(FormRow("Couleur", _colorBox = new TextBox
+            {
+                Width = 110,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                [ToolTip.TipProperty] = "« auto » ou #RRGGBB"
+            }));
+            return form;
+        }
+
+        private Control BuildParagraphTab()
+        {
+            var form = new StackPanel { Margin = new Thickness(10) };
+
+            _alignCombo = new ComboBox { Width = 120, HorizontalAlignment = HorizontalAlignment.Left };
+            _alignCombo.Items.Add("Gauche");
+            _alignCombo.Items.Add("Centré");
+            _alignCombo.Items.Add("Droite");
+            _alignCombo.Items.Add("Justifié");
+            form.Children.Add(FormRow("Alignement", _alignCombo));
+
+            form.Children.Add(FormRow("Retrait gauche (mm)", _leftBox = Small()));
+            form.Children.Add(FormRow("Retrait droit (mm)", _rightBox = Small()));
+            form.Children.Add(FormRow("Retrait 1re ligne (mm)", _firstBox = Small()));
+            form.Children.Add(FormRow("Retrait dernière ligne (mm)", _lastBox = new TextBox
+            {
+                Width = 60,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                [ToolTip.TipProperty] = "Appliqué à l'impression (compositeur 4b)"
+            }));
+            form.Children.Add(FormRow("Espace avant (mm)", _beforeBox = Small()));
+            form.Children.Add(FormRow("Espace après (mm)", _afterBox = Small()));
+            return form;
+        }
+
+        private Control BuildHyphenationTab()
+        {
+            var form = new StackPanel { Margin = new Thickness(10) };
+            _hyphenCheck = new CheckBox { Content = "Césure activée", VerticalAlignment = VerticalAlignment.Center };
+            form.Children.Add(FormRow("", _hyphenCheck));
+            form.Children.Add(FormRow("Mots d'au moins (lettres)", _hyphenWordBox = Small()));
+            form.Children.Add(FormRow("Après les premières (lettres)", _hyphenBeforeBox = Small()));
+            form.Children.Add(FormRow("Avant les dernières (lettres)", _hyphenAfterBox = Small()));
+            form.Children.Add(FormRow("Limite de césures consécutives", _hyphenLimitBox = Small()));
+            form.Children.Add(Note("L'éditeur applique la césure marche/arrêt ; les réglages fins\n" +
+                       "s'appliquent à l'export Word et au compositeur d'impression (4b)."));
+            return form;
+        }
+
+        private Control BuildJustificationTab()
+        {
+            var form = new StackPanel { Margin = new Thickness(10) };
+            _justifyBoxes = new TextBox[9];
+
+            var grid = new Grid();
+            for (var c = 0; c < 4; c++)
+                grid.ColumnDefinitions.Add(new ColumnDefinition
+                {
+                    Width = c == 0 ? new GridLength(150) : new GridLength(70)
+                });
+            for (var r = 0; r < 4; r++)
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            AddCell(grid, 0, 1, HeaderCell("Min. %"));
+            AddCell(grid, 0, 2, HeaderCell("Opt. %"));
+            AddCell(grid, 0, 3, HeaderCell("Max. %"));
+            string[] rows = { "Intermots", "Interlettrage", "Mise à l'échelle glyphe" };
+            for (var r = 0; r < 3; r++)
+            {
+                AddCell(grid, r + 1, 0, new TextBlock
+                {
+                    Text = rows[r],
+                    Foreground = Chrome.SoftText,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 3, 8, 3)
+                });
+                for (var c = 0; c < 3; c++)
+                {
+                    var box = new TextBox { Width = 60, Margin = new Thickness(2) };
+                    Hook(box);
+                    _justifyBoxes[r * 3 + c] = box;
+                    AddCell(grid, r + 1, c + 1, box);
+                }
+            }
+            form.Children.Add(grid);
+
+            form.Children.Add(FormRow("Valeur d'interligne auto (%)", _autoLeadingBox = Small()));
+            form.Children.Add(Note("Ces plages guident le compositeur de paragraphe : la justification\n" +
+                       "resserre ou élargit les espaces entre ces bornes, à l'écran comme à l'impression."));
+            return form;
+        }
+
+        private Control BuildKeepsTab()
+        {
+            var form = new StackPanel { Margin = new Thickness(10) };
+            _keepPrevCheck = new CheckBox
+            {
+                Content = "Solidaire avec le paragraphe précédent",
+                VerticalAlignment = VerticalAlignment.Center,
+                [ToolTip.TipProperty] = "Jamais de saut de page entre ce paragraphe et le précédent"
+            };
+            form.Children.Add(FormRow("", _keepPrevCheck));
+
+            var nextRow = new StackPanel { Orientation = Orientation.Horizontal };
+            nextRow.Children.Add(_keepNextBox = Small());
+            nextRow.Children.Add(new TextBlock
+            {
+                Text = "lignes du paragraphe suivant",
+                Foreground = Chrome.SoftText,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 0, 0)
+            });
+            form.Children.Add(FormRow("Paragraphes solidaires", nextRow));
+
+            _keepLinesCheck = new CheckBox
+            {
+                Content = "Lignes solidaires (paragraphe insécable entre deux pages)",
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            form.Children.Add(FormRow("", _keepLinesCheck));
+
+            form.Children.Add(Note("Appliqués par le compositeur : mode Composition, aperçu des\n" +
+                       "pages et impression. L'éditeur honore « solidaire avec le\n" +
+                       "précédent » et garde toujours les paragraphes entiers."));
+            return form;
+        }
+
+        // ------------------------------------------------------- helpers
+
+        private static TextBox Small()
+        {
+            return new TextBox { Width = 60, HorizontalAlignment = HorizontalAlignment.Left };
+        }
+
+        private static TextBlock Note(string text)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+        }
+
+        private static TextBlock HeaderCell(string text)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(2)
+            };
+        }
+
+        private static void AddCell(Grid grid, int row, int column, Control element)
+        {
+            Grid.SetRow(element, row);
+            Grid.SetColumn(element, column);
+            grid.Children.Add(element);
+        }
+
+        private static TextBlock FixedLabel(string text)
+        {
+            var label = new TextBlock
+            {
+                Text = text,
+                Width = 60,
+                Foreground = Chrome.SoftText,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            DockPanel.SetDock(label, Dock.Left);
+            return label;
+        }
+
+        private DockPanel FormRow(string label, Control field)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+            var caption = new TextBlock
+            {
+                Text = label,
+                Width = 175,
+                Foreground = Chrome.SoftText,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            DockPanel.SetDock(caption, Dock.Left);
+            row.Children.Add(caption);
+            row.Children.Add(field);
+            Hook(field);
+            return row;
+        }
+
+        /// <summary>Chaque champ commet la feuille dès qu'il est quitté ou
+        /// cliqué : les onglets incrustés voient l'édition tout de suite.</summary>
+        private void Hook(Control element)
+        {
+            var box = element as TextBox;
+            if (box != null) { box.LostFocus += delegate { OnFieldEdited(); }; return; }
+            var check = element as CheckBox;
+            if (check != null) { check.Click += delegate { OnFieldEdited(); }; return; }
+            var picker = element as FontPicker;
+            if (picker != null) { picker.FontChosen += delegate { OnFieldEdited(); }; return; } // pas la frappe, le choix
+            var combo = element as ComboBox;
+            if (combo != null) { combo.SelectionChanged += delegate { OnFieldEdited(); }; return; }
+            var panel = element as Panel;
+            if (panel != null) foreach (Control child in panel.Children) Hook(child);
+        }
+
+        private void OnFieldEdited()
+        {
+            if (_syncing || _current == null) return;
+            CommitForm();
+            RaiseChanged();
+        }
+
+        private void RaiseChanged()
+        {
+            var handler = Changed;
+            if (handler != null) handler();
+        }
+
+        private Button ListButton(string icon, string tooltip, Action onClick)
+        {
+            var button = Buttons.Icon(icon, tooltip, Buttons.Bar, Buttons.Look.Outline);
+            button.Margin = new Thickness(0, 0, 6, 0);
+            button.Click += delegate { onClick(); };
+            return button;
+        }
+
+        private ParagraphStyle SelectedStyle()
+        {
+            var entry = _list.SelectedItem as ListBoxItem;
+            return entry == null ? null : Sheet.Find((string)entry.Tag);
+        }
+
+        /// <summary>La ligne d'un style : l'icône de sa portée (livre,
+        /// document — rien en global) puis son nom, dans la police de
+        /// l'interface (01/10 : plus d'aperçu dans la police du style, la
+        /// liste se lit d'un trait).</summary>
+        public static Control RowContent(ParagraphStyle style)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            var icon = ScopeIcon(style, 11);
+            if (icon != null) row.Children.Add(icon);
+            row.Children.Add(new TextBlock
+            {
+                Text = style.Name,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            return row;
+        }
+
+        public static Control ScopeIcon(ParagraphStyle style, double size)
+        {
+            string name = null;
+            if (style.Scope == ParagraphStyle.ScopeBook) name = "book-bold";
+            else if (style.Scope == ParagraphStyle.ScopeDocument) name = "document";
+            if (name == null) return null;
+            var icon = Icons.Make(name, size, Chrome.SoftText) as Control;
+            if (icon == null) return null;
+            icon.VerticalAlignment = VerticalAlignment.Center;
+            icon.Margin = new Thickness(0, 0, 5, 0);
+            ToolTip.SetTip(icon, style.Scope == ParagraphStyle.ScopeBook ? "Style du livre" : "Style du document");
+            return icon;
+        }
+
+        private void FillList(string selectId)
+        {
+            _list.Items.Clear();
+            foreach (var style in Sheet.Styles)
+            {
+                if (!_context.Lists(style)) continue;
+                var entry = new ListBoxItem { Content = RowContent(style), Tag = style.Id };
+                _list.Items.Add(entry);
+                if (selectId == null && style.Id == "body") _list.SelectedItem = entry;
+                if (selectId != null && style.Id == selectId) _list.SelectedItem = entry;
+            }
+            if (_list.SelectedItem == null && _list.Items.Count > 0) _list.SelectedIndex = 0;
+        }
+
+        // ------------------------------------------------------- form <-> style
+
+        private void ShowStyle(ParagraphStyle style)
+        {
+            _current = style;
+            _currentEntry = _list.SelectedItem as ListBoxItem;
+            if (style == null) return;
+            _syncing = true;
+
+            _nameBox.Text = style.Name;
+            _scopeCombo.SelectedIndex = style.Scope == ParagraphStyle.ScopeBook ? 1
+                                      : style.Scope == ParagraphStyle.ScopeDocument ? 2 : 0;
+            // « Corps » est le style de secours : global, toujours.
+            _scopeCombo.IsEnabled = style.Id != "body" && (_context.AllowBook || _context.AllowDocument);
+            _fontCombo.Select(style.FontFamily);
+            RefreshWeightChoices(style.FontFamily, style.Weight);
+            _sizeBox.Text = Pt(style.FontSize);
+            _boldCheck.IsChecked = style.Bold;
+            _boldCheck.IsEnabled = style.Weight == null; // une variante posée remplace la case
+            _italicCheck.IsChecked = style.Italic;
+            _leadingBox.Text = Pt(style.LineHeight);
+            _ligaturesCheck.IsChecked = style.Ligatures;
+            _colorBox.Text = style.Color ?? "auto";
+
+            _alignCombo.SelectedIndex = style.Align == "center" ? 1
+                                      : style.Align == "right" ? 2
+                                      : style.Align == "justify" ? 3 : 0;
+            _leftBox.Text = Mm(style.LeftIndent);
+            _rightBox.Text = Mm(style.RightIndent);
+            _firstBox.Text = Mm(style.FirstLineIndent);
+            _lastBox.Text = Mm(style.LastLineIndent);
+            _beforeBox.Text = Mm(style.SpaceBefore);
+            _afterBox.Text = Mm(style.SpaceAfter);
+
+            _hyphenCheck.IsChecked = style.HyphenationEnabled;
+            _hyphenWordBox.Text = style.HyphenMinWordLength.ToString();
+            _hyphenBeforeBox.Text = style.HyphenMinBefore.ToString();
+            _hyphenAfterBox.Text = style.HyphenMinAfter.ToString();
+            _hyphenLimitBox.Text = style.HyphenConsecutiveLimit.ToString();
+
+            double[] justify =
+            {
+                style.JustifyWordMin, style.JustifyWordOpt, style.JustifyWordMax,
+                style.JustifyLetterMin, style.JustifyLetterOpt, style.JustifyLetterMax,
+                style.JustifyGlyphMin, style.JustifyGlyphOpt, style.JustifyGlyphMax
+            };
+            for (var i = 0; i < 9; i++)
+                _justifyBoxes[i].Text = justify[i].ToString("0.#", CultureInfo.CurrentCulture);
+            _autoLeadingBox.Text = style.AutoLeadingPercent.ToString("0.#", CultureInfo.CurrentCulture);
+
+            _keepPrevCheck.IsChecked = style.KeepWithPrevious;
+            _keepNextBox.Text = style.KeepNextLines.ToString();
+            _keepLinesCheck.IsChecked = style.KeepLinesTogether;
+
+            _syncing = false;
+        }
+
+        /// <summary>Rebâtit le combo des variantes pour une famille (01/10) :
+        /// « Selon la case Gras », puis chaque graisse installée ; la variante
+        /// du style est resélectionnée (gardée même si la police ne l'offre
+        /// plus ici : un autre poste l'avait). Une police à une seule graisse
+        /// laisse le combo éteint.</summary>
+        private void RefreshWeightChoices(string family, string selected)
+        {
+            if (_weightCombo == null) return;
+            var was = _syncing;
+            _syncing = true;
+            try
+            {
+                _weightCombo.Items.Clear();
+                var auto = new ComboBoxItem { Content = "Selon la case Gras", Tag = null };
+                _weightCombo.Items.Add(auto);
+                var weights = FontCatalog.RealWeights(family);
+                ComboBoxItem match = null;
+                var wanted = selected == null ? -1 : TextWeights.Parse(selected);
+                foreach (var weight in weights)
+                {
+                    var item = new ComboBoxItem { Content = TextWeights.Label(weight) + " (" + weight + ")", Tag = TextWeights.StyleName(weight) };
+                    _weightCombo.Items.Add(item);
+                    if (weight == wanted) match = item;
+                }
+                if (selected != null && match == null)
+                {
+                    match = new ComboBoxItem { Content = TextWeights.Label(wanted) + " (" + wanted + ") — non installée ici", Tag = selected };
+                    _weightCombo.Items.Add(match);
+                }
+                _weightCombo.SelectedItem = match ?? auto;
+                var several = weights.Count > 1;
+                _weightCombo.IsEnabled = several || match != null;
+                _weightHint.Text = several ? "les graisses installées de cette police"
+                    : "une seule graisse installée : la case Gras l'émule";
+            }
+            finally { _syncing = was; }
+        }
+
+        /// <summary>La portée choisie dans le combo devient celle du style.</summary>
+        private void ApplyScope()
+        {
+            var chosen = _scopeCombo.SelectedItem as ComboBoxItem;
+            if (chosen == null || _current == null || _current.Id == "body") return;
+            var scope = (string)chosen.Tag;
+            _current.Scope = scope;
+            _current.OwnerId = scope == ParagraphStyle.ScopeBook ? (_context.Book == null ? null : _context.Book.Id)
+                             : scope == ParagraphStyle.ScopeDocument ? (_context.Document == null ? null : _context.Document.Id)
+                             : null;
+            if (_currentEntry != null) _currentEntry.Content = RowContent(_current);
+        }
+
+        /// <summary>Writes the form back into the style being edited.</summary>
+        private void CommitForm()
+        {
+            if (_current == null || _syncing) return;
+            var name = (_nameBox.Text ?? "").Trim();
+            if (name.Length > 0) _current.Name = name;
+
+            if (_fontCombo.SelectedFontName != null) _current.FontFamily = _fontCombo.SelectedFontName;
+            _current.FontSize = FromPt(_sizeBox.Text, _current.FontSize, 4, 150);
+            _current.Bold = _boldCheck.IsChecked == true;
+            _current.Italic = _italicCheck.IsChecked == true;
+            var chosenWeight = _weightCombo.SelectedItem as ComboBoxItem;
+            _current.Weight = chosenWeight == null ? null : chosenWeight.Tag as string;
+            _boldCheck.IsEnabled = _current.Weight == null;
+            _current.LineHeight = FromPt(_leadingBox.Text, _current.LineHeight, 0, 200);
+            _current.Ligatures = _ligaturesCheck.IsChecked == true;
+            var color = (_colorBox.Text ?? "").Trim();
+            _current.Color = (color.Length == 0 || color.Equals("auto", StringComparison.OrdinalIgnoreCase))
+                ? null : color;
+
+            _current.Align = _alignCombo.SelectedIndex == 1 ? "center"
+                           : _alignCombo.SelectedIndex == 2 ? "right"
+                           : _alignCombo.SelectedIndex == 3 ? "justify" : "left";
+            _current.LeftIndent = FromMm(_leftBox.Text, _current.LeftIndent, 0, 100);
+            _current.RightIndent = FromMm(_rightBox.Text, _current.RightIndent, 0, 100);
+            _current.FirstLineIndent = FromMm(_firstBox.Text, _current.FirstLineIndent, 0, 100);
+            _current.LastLineIndent = FromMm(_lastBox.Text, _current.LastLineIndent, 0, 100);
+            _current.SpaceBefore = FromMm(_beforeBox.Text, _current.SpaceBefore, 0, 100);
+            _current.SpaceAfter = FromMm(_afterBox.Text, _current.SpaceAfter, 0, 100);
+
+            _current.HyphenationEnabled = _hyphenCheck.IsChecked == true;
+            _current.HyphenMinWordLength = ParseInt(_hyphenWordBox.Text, _current.HyphenMinWordLength, 2, 20);
+            _current.HyphenMinBefore = ParseInt(_hyphenBeforeBox.Text, _current.HyphenMinBefore, 1, 10);
+            _current.HyphenMinAfter = ParseInt(_hyphenAfterBox.Text, _current.HyphenMinAfter, 1, 10);
+            _current.HyphenConsecutiveLimit = ParseInt(_hyphenLimitBox.Text, _current.HyphenConsecutiveLimit, 0, 20);
+
+            _current.JustifyWordMin = ParsePercent(_justifyBoxes[0], _current.JustifyWordMin);
+            _current.JustifyWordOpt = ParsePercent(_justifyBoxes[1], _current.JustifyWordOpt);
+            _current.JustifyWordMax = ParsePercent(_justifyBoxes[2], _current.JustifyWordMax);
+            _current.JustifyLetterMin = ParsePercent(_justifyBoxes[3], _current.JustifyLetterMin);
+            _current.JustifyLetterOpt = ParsePercent(_justifyBoxes[4], _current.JustifyLetterOpt);
+            _current.JustifyLetterMax = ParsePercent(_justifyBoxes[5], _current.JustifyLetterMax);
+            _current.JustifyGlyphMin = ParsePercent(_justifyBoxes[6], _current.JustifyGlyphMin);
+            _current.JustifyGlyphOpt = ParsePercent(_justifyBoxes[7], _current.JustifyGlyphOpt);
+            _current.JustifyGlyphMax = ParsePercent(_justifyBoxes[8], _current.JustifyGlyphMax);
+            _current.AutoLeadingPercent = ParsePercent(_autoLeadingBox, _current.AutoLeadingPercent);
+
+            _current.KeepWithPrevious = _keepPrevCheck.IsChecked == true;
+            _current.KeepNextLines = ParseInt(_keepNextBox.Text, _current.KeepNextLines, 0, 20);
+            _current.KeepLinesTogether = _keepLinesCheck.IsChecked == true;
+
+            // Refresh the edited style's own list label (name, font, scope).
+            if (_currentEntry != null) _currentEntry.Content = RowContent(_current);
+        }
+
+        // px <-> UI units
+        private static string Pt(double px) { return (px * 0.75).ToString("0.#", CultureInfo.CurrentCulture); }
+        private static string Mm(double px) { return (px / PxPerMm).ToString("0.#", CultureInfo.CurrentCulture); }
+
+        private static double FromPt(string text, double fallbackPx, double minPt, double maxPt)
+        {
+            return Parse(text, fallbackPx * 0.75, minPt, maxPt) * 4.0 / 3.0;
+        }
+
+        private static double FromMm(string text, double fallbackPx, double minMm, double maxMm)
+        {
+            return Parse(text, fallbackPx / PxPerMm, minMm, maxMm) * PxPerMm;
+        }
+
+        private static double ParsePercent(TextBox box, double fallback)
+        {
+            return Parse(box.Text, fallback, 0, 400);
+        }
+
+        private static int ParseInt(string text, int fallback, int min, int max)
+        {
+            int value;
+            if (!int.TryParse(text.Trim(), out value)) return fallback;
+            return Math.Max(min, Math.Min(max, value));
+        }
+
+        internal static double Parse(string text, double fallback, double min, double max)
+        {
+            double value;
+            if (!double.TryParse(text.Replace(',', '.'), NumberStyles.Float,
+                CultureInfo.InvariantCulture, out value)) return fallback;
+            return Math.Max(min, Math.Min(max, value));
+        }
+
+        // ------------------------------------------------------- list actions
+
+        private void NewStyle()
+        {
+            CommitForm();
+            var style = new ParagraphStyle { Name = "Nouveau style", Scope = _context.DefaultScope };
+            if (style.Scope == ParagraphStyle.ScopeBook && _context.Book != null) style.OwnerId = _context.Book.Id;
+            else if (style.Scope == ParagraphStyle.ScopeDocument && _context.Document != null) style.OwnerId = _context.Document.Id;
+            else style.Scope = ParagraphStyle.ScopeGlobal;
+            Sheet.Styles.Add(style);
+            FillList(style.Id);
+            RaiseChanged();
+        }
+
+        private void DuplicateStyle()
+        {
+            CommitForm();
+            var source = SelectedStyle();
+            if (source == null) return;
+            var copy = source.Clone();
+            copy.Id = Guid.NewGuid().ToString("N");
+            copy.Name = source.Name + " (copie)";
+            Sheet.Styles.Insert(Sheet.Styles.IndexOf(source) + 1, copy);
+            FillList(copy.Id);
+            RaiseChanged();
+        }
+
+        /// <summary>Toute la feuille revient aux styles de Marabook tels qu'à
+        /// l'installation (28/09) : les styles ajoutés disparaissent, les
+        /// modifiés reprennent leurs valeurs — les paragraphes d'un style
+        /// disparu retombent sur « Corps » au rendu.</summary>
+        private void ResetToDefaults()
+        {
+            _current = null; // le formulaire ne recommet rien dans un style retiré
+            var defaults = StyleSheet.CreateDefault();
+            defaults.EnsureFootnoteStyle();
+            Sheet.Styles.Clear();
+            foreach (var style in defaults.Styles) Sheet.Styles.Add(style);
+            FillList(null);
+            RaiseChanged();
+        }
+
+        private void DeleteStyle()
+        {
+            var style = SelectedStyle();
+            if (style == null) return;
+            if (style.Id == "body")
+            {
+                MessageDialog.Show(Ui.OwnerOf(this), "Le style « Corps » est le style de secours : il ne peut pas être supprimé.",
+                    "Styles", MessageButtons.OK, MessageIcon.Information);
+                return;
+            }
+            // Paragraphs using a deleted style silently fall back to "body" at render time.
+            _current = null;
+            Sheet.Styles.Remove(style);
+            FillList(null);
+            RaiseChanged();
+        }
+    }
+}

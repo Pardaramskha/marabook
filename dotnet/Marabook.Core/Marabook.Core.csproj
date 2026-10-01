@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Marabook.Core (portage Avalonia, P1) : le cœur — Model, Persistence,
+       Correction, History, Settings, Print, Exchange et Json.cs — compilé en
+       bibliothèque .NET 8, sans System.Windows. Les sources restent dans
+       src/ (l'app WPF les compile encore avec csc, build.bat) : ce projet
+       les référence en place, il ne les déplace pas. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>Marabook.Core</AssemblyName>
+    <RootNamespace>Marabook</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Version>1.0.0</Version>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    <!-- Le code est écrit en C# 5 (style maison) : pas d'avertissements de
+         modernisation, ni de nullabilité. -->
+    <NoWarn>CS0618;CS0108;CS0414;CS0169;CS0649;CS0219;CS1591;SYSLIB0001;SYSLIB0014;SYSLIB0011</NoWarn>
+    <SatelliteResourceLanguages>fr</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Les tests lisent quelques internes du cœur (constantes du compositeur),
+         comme quand csc compilait sources et tests ensemble. -->
+    <InternalsVisibleTo Include="MarabookTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\Json.cs" Link="Json.cs" />
+    <Compile Include="..\..\src\CrashReport.cs" Link="CrashReport.cs" />
+    <Compile Include="..\..\src\Model\**\*.cs" Link="Model\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\..\src\Persistence\**\*.cs" Link="Persistence\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\..\src\Correction\**\*.cs" Link="Correction\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\..\src\History\**\*.cs" Link="History\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\..\src\Settings\**\*.cs" Link="Settings\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\..\src\Print\**\*.cs" Link="Print\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\..\src\Exchange\**\*.cs" Link="Exchange\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,395 @@
+using System;
+using System.Collections.Generic;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Shapes;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Controls.Templates;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+
+using Marabook.Settings;
+using Marabook.Model;
+
+namespace Marabook.App
+{
+    /// <summary>LE sélecteur de police (0.50.0), partagé par le ruban,
+    /// l'éditeur de styles, le séparateur et les gabarits :
+    ///   • les 5 dernières polices employées, un trait, puis toutes les
+    ///     polices par ordre alphabétique (FontCatalog) ;
+    ///   • chaque rangée montre le nom et « Marabook » écrit dans la police ;
+    ///   • éditable : on tape un nom (l'autocomplétion suit), Entrée
+    ///     applique — la frappe elle-même n'applique rien et ne rend pas le
+    ///     clavier (avant, la première lettre appliquait et le reste de la
+    ///     frappe partait dans le texte) ;
+    ///   • flèches haut/bas sans ouvrir la liste : la police change à chaque
+    ///     pas, aperçu vivant (FontChosen avec preview = vrai), le clavier
+    ///     reste ici ;
+    ///   • un choix dans la liste ou Entrée : FontChosen avec preview = faux,
+    ///     la police entre dans les récentes.
+    /// ShowMixed vide le champ quand la sélection mêle plusieurs polices.</summary>
+    public sealed class FontPicker : ComboBox
+    {
+        public const int RecentCount = 5;
+
+        /// <summary>Le thème de contrôle se cherche par type : une classe
+        /// dérivée n'a pas de gabarit sans cette clé (le pendant du
+        /// SetResourceReference(StyleProperty, typeof(ComboBox)) de WPF).</summary>
+        protected override Type StyleKeyOverride { get { return typeof(ComboBox); } }
+
+        /// <summary>(nom, aperçu) — aperçu = flèches sans ouvrir la liste :
+        /// appliquer sans reprendre le clavier ; sinon choix définitif.</summary>
+        public event Action<string, bool> FontChosen;
+
+        private static readonly FontCatalog.Entry Separator = new FontCatalog.Entry { Name = "" };
+
+        private bool _syncing, _arrowNav;
+        private object _openedWith;
+        private bool _announcedWhileOpen;
+
+        public FontPicker()
+        {
+            // Le style implicite du thème (bords arrondis, popup, flèche…) est
+            // clé sur typeof(ComboBox) : une classe dérivée ne le reçoit pas
+            // d'elle-même — référence dynamique, qui suit aussi le passage
+            // clair/sombre (correctif 0.50.0).
+            IsEditable = true;
+            MaxDropDownHeight = 440;
+            // Une rangée par entrée, le trait pour le séparateur (la liste
+            // d'Avalonia virtualise d'elle-même).
+            ItemTemplate = new FuncDataTemplate<FontCatalog.Entry>(delegate(FontCatalog.Entry entry, INameScope scope)
+            {
+                return entry != null && entry.IsSeparator ? BuildRule() : BuildRow(entry);
+            }, true);
+            Rebuild(null);
+            // L'autocomplétion (29/09) : les polices dont le nom contient la
+            // frappe, dans un menu sous le champ ; un choix applique.
+            Suggestions.Attach(this, FontNames, delegate(string name) { Select(name); Announce(name, false); });
+
+            SelectionChanged += OnSelectionChangedInternal;
+            AddHandler(KeyDownEvent, OnPreviewKeyDownInternal, RoutingStrategies.Tunnel);
+            DropDownOpened += delegate
+            {
+                _announcedWhileOpen = false;
+                Rebuild(SelectedFontName); // les récentes du moment
+                _openedWith = SelectedItem; // après la reconstruction : les copies changent d'objet
+                // Avalonia cale au bord haut la ligne choisie AVANT cette
+                // reconstruction — celle cliquée à l'ouverture précédente :
+                // une favorite en troisième ligne cachait les deux du dessus,
+                // « injoignables » (29/09). La liste s'ouvre sur son haut
+                // quand la police montrée y figure (favorites, récentes),
+                // sinon sur sa ligne de la partie alphabétique.
+                var index = SelectedIndex;
+                var head = HeadCount();
+                Dispatcher.UIThread.Post(delegate
+                {
+                    if (!IsDropDownOpen || Items.Count == 0) return;
+                    if (index >= 0 && index < Items.Count && !IsInHead(index, head)) { ScrollIntoView(index); return; }
+                    // Tout en haut, au pixel (ScrollIntoView(0) laissait la
+                    // première ligne rognée de quelques pixels).
+                    var scroll = Presenter == null ? null : Presenter.FindAncestorOfType<ScrollViewer>();
+                    if (scroll != null) scroll.Offset = new Vector(scroll.Offset.X, 0);
+                    else ScrollIntoView(0);
+                }, DispatcherPriority.Background);
+            };
+            DropDownClosed += delegate
+            {
+                // Un choix à la souris ou au clavier dans la liste ouverte :
+                // définitif à la fermeture (la sélection a bougé).
+                if (_syncing) return;
+                if (SelectedItem != null && SelectedItem != _openedWith) Announce(SelectedFontName, false);
+                else if (_announcedWhileOpen) Announce(SelectedFontName, false);
+            };
+            Loaded += delegate
+            {
+                FontCatalog.Changed += OnCatalogChanged;
+                AppSettings.FontPrefsChanged += OnCatalogChanged; // favorites / exclues (0.50.0)
+            };
+            Unloaded += delegate
+            {
+                FontCatalog.Changed -= OnCatalogChanged;
+                AppSettings.FontPrefsChanged -= OnCatalogChanged;
+            };
+        }
+
+        /// <summary>Le nom de la police montrée : l'entrée choisie, sinon ce
+        /// qui est tapé ; null si rien (sélection mixte).</summary>
+        public string SelectedFontName
+        {
+            get
+            {
+                var entry = SelectedItem as FontCatalog.Entry;
+                if (entry != null && !entry.IsSeparator) return entry.Name;
+                var typed = (Text ?? "").Trim();
+                return typed.Length > 0 ? typed : null;
+            }
+        }
+
+        /// <summary>Montre cette police sans rien annoncer (synchro depuis le
+        /// caret ou un style). Un nom hors catalogue s'affiche en texte.</summary>
+        public void Select(string name)
+        {
+            _syncing = true;
+            try
+            {
+                var entry = FindEntry(name);
+                SelectedItem = entry;
+                // Le champ éditable d'Avalonia n'affiche que Text : posé aussi
+                // pour une entrée du catalogue.
+                Text = entry != null ? entry.Name : name ?? "";
+            }
+            finally { _syncing = false; }
+        }
+
+        /// <summary>Sélection mixte : le champ se vide.</summary>
+        public void ShowMixed()
+        {
+            _syncing = true;
+            try
+            {
+                SelectedItem = null;
+                Text = "";
+            }
+            finally { _syncing = false; }
+        }
+
+        // ------------------------------------------------------------ liste
+
+        private void OnCatalogChanged()
+        {
+            Dispatcher.UIThread.Post(delegate { Rebuild(SelectedFontName); });
+        }
+
+        /// <summary>Favorites, trait, récentes, trait, tout le catalogue sans
+        /// les exclues (FontCatalog.Arrange) — en gardant la police montrée.
+        /// Favorites et récentes sont des copies : un même objet deux fois
+        /// dans Items rendrait SelectedItem ambigu.</summary>
+        private void Rebuild(string keep)
+        {
+            var wasSyncing = _syncing;
+            _syncing = true;
+            try
+            {
+                Items.Clear();
+                foreach (var entry in FontCatalog.Arrange(FontCatalog.Entries, AppSettings.FavoriteFonts,
+                    AppSettings.RecentFonts, AppSettings.ExcludedFonts, RecentCount))
+                    Items.Add(entry.IsSeparator ? Separator : entry);
+                if (keep != null)
+                {
+                    var entry = FindEntry(keep);
+                    SelectedItem = entry;
+                    if (entry != null) Text = entry.Name;
+                    if (entry == null) Text = keep;
+                }
+            }
+            finally { _syncing = wasSyncing; }
+        }
+
+        /// <summary>Le début de la partie alphabétique : après le dernier trait.</summary>
+        private int HeadCount()
+        {
+            for (var i = Items.Count - 1; i >= 0; i--)
+                if (ReferenceEquals(Items[i], Separator)) return i + 1;
+            return 0;
+        }
+
+        /// <summary>La police de cette ligne figure-t-elle en tête de liste
+        /// (favorite ou récente) ?</summary>
+        private bool IsInHead(int index, int head)
+        {
+            if (index < head) return true;
+            var entry = index < Items.Count ? Items[index] as FontCatalog.Entry : null;
+            if (entry == null) return false;
+            for (var i = 0; i < head && i < Items.Count; i++)
+            {
+                var other = Items[i] as FontCatalog.Entry;
+                if (other != null && !other.IsSeparator && string.Equals(other.Name, entry.Name, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>L'entrée de ce nom dans la partie alphabétique (les objets
+        /// du catalogue eux-mêmes ; les récentes sont des copies).</summary>
+        private FontCatalog.Entry FindEntry(string name)
+        {
+            // La PREMIÈRE ligne de ce nom (29/09) : la copie favorite ou
+            // récente avant l'entrée alphabétique. Choisir l'entrée du bas
+            // faisait réaliser la liste très loin à l'ouverture, et le retour
+            // en haut laissait un blanc fantôme au-dessus des favorites.
+            if (string.IsNullOrEmpty(name)) return null;
+            foreach (var item in Items)
+            {
+                var entry = item as FontCatalog.Entry;
+                if (entry != null && !entry.IsSeparator && string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase)) return entry;
+            }
+            return null;
+        }
+
+        /// <summary>Le trait n'est pas une ligne : conteneur inerte, sans
+        /// retrait. PIÈGE (30/09) : la liste virtualisée RECYCLE ses
+        /// ComboBoxItem — un conteneur qui a porté le trait ressert pour une
+        /// police, et gardait ses valeurs locales : ligne décalée à gauche
+        /// (sans le retrait du thème) et INSÉLECTIONNABLE (IsEnabled faux).
+        /// Les valeurs locales sont donc effacées pour toute autre entrée, et
+        /// au retrait du conteneur.</summary>
+        protected override void PrepareContainerForItemOverride(Control element, object item, int index)
+        {
+            base.PrepareContainerForItemOverride(element, item, index);
+            var entry = item as FontCatalog.Entry;
+            var container = element as ComboBoxItem;
+            if (container == null) return;
+            if (entry != null && entry.IsSeparator)
+            {
+                container.IsEnabled = false;
+                container.Focusable = false;
+                container.Padding = new Thickness(0);
+            }
+            else ResetContainer(container);
+        }
+
+        protected override void ClearContainerForItemOverride(Control element)
+        {
+            var container = element as ComboBoxItem;
+            if (container != null) ResetContainer(container);
+            base.ClearContainerForItemOverride(element);
+        }
+
+        private static void ResetContainer(ComboBoxItem container)
+        {
+            container.ClearValue(IsEnabledProperty);
+            container.ClearValue(FocusableProperty);
+            container.ClearValue(PaddingProperty);
+        }
+
+        // ------------------------------------------------------------ choix
+
+        /// <summary>Les noms du catalogue tel qu'affiché (sans le trait).</summary>
+        private IEnumerable<string> FontNames()
+        {
+            foreach (var item in Items)
+            {
+                var entry = item as FontCatalog.Entry;
+                if (entry != null && !entry.IsSeparator && !string.IsNullOrEmpty(entry.Name)) yield return entry.Name;
+            }
+        }
+
+        private void OnPreviewKeyDownInternal(object sender, KeyEventArgs e)
+        {
+            // Le menu de suggestions ouvert prend les flèches, et Entrée
+            // quand une ligne y est choisie (29/09).
+            if (Suggestions.IsOpenFor(this)
+                && (e.Key == Key.Up || e.Key == Key.Down
+                    || ((e.Key == Key.Enter || e.Key == Key.Return) && Suggestions.HasChoice(this))))
+                return;
+            if (e.Key == Key.Enter || e.Key == Key.Return)
+            {
+                // Le nom tapé (ou complété) s'applique ; le clavier repart.
+                e.Handled = true;
+                if (IsDropDownOpen) IsDropDownOpen = false;
+                var name = SelectedFontName;
+                if (name != null) Announce(name, false);
+                return;
+            }
+            if ((e.Key == Key.Up || e.Key == Key.Down) && !IsDropDownOpen)
+                _arrowNav = true; // parcours sans ouvrir : aperçu vivant
+        }
+
+        private void OnSelectionChangedInternal(object sender, SelectionChangedEventArgs e)
+        {
+            if (_syncing) return;
+            var entry = SelectedItem as FontCatalog.Entry;
+            if (entry != null && entry.IsSeparator)
+            {
+                // Le trait n'est pas une police : on saute par-dessus dans le
+                // sens du mouvement.
+                var index = Items.IndexOf(entry);
+                var previous = e.RemovedItems.Count > 0 ? Items.IndexOf(e.RemovedItems[0]) : -1;
+                var target = previous >= 0 && previous > index ? index - 1 : index + 1;
+                if (target >= 0 && target < Items.Count) SelectedIndex = target;
+                return;
+            }
+            if (_arrowNav)
+            {
+                _arrowNav = false;
+                Announce(SelectedFontName, true);
+                return;
+            }
+            if (IsDropDownOpen)
+            {
+                // Flèches dans la liste ouverte : aperçu ; la fermeture
+                // tranche (DropDownClosed).
+                _announcedWhileOpen = true;
+                Announce(SelectedFontName, true);
+                return;
+            }
+            // Liste fermée, clavier dans le champ : l'autocomplétion de la
+            // frappe — rien, Entrée décidera. Sans clavier ici, c'est un
+            // réglage par code (Select) qui passe par _syncing.
+        }
+
+        private void Announce(string name, bool preview)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+            if (!preview) AppSettings.NoteRecentFont(name);
+            var handler = FontChosen;
+            if (handler != null) handler(name, preview);
+        }
+
+        // ------------------------------------------------------------ rangées
+
+        /// <summary>Le nom à gauche (police d'interface), « Marabook » à
+        /// droite dans la police. Largeur FIXE (correctif 0.50.0) : une police
+        /// large ou haute ne fait plus respirer la liste — l'exemple est rogné
+        /// à droite et la rangée garde sa hauteur.</summary>
+        public const double RowWidth = 330;
+        private const double NameWidth = 170;
+        private const double RowHeight = 24;
+
+        private static Control BuildRow(FontCatalog.Entry entry)
+        {
+            var row = new DockPanel { Width = RowWidth, Height = RowHeight, ClipToBounds = true, LastChildFill = true };
+            // L'étoile d'une favorite (0.50.0), devant le nom.
+            var badge = new TextBlock
+            {
+                Text = entry.Badge,
+                Foreground = Chrome.Accent,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 3, 0)
+            };
+            DockPanel.SetDock(badge, Dock.Left);
+            row.Children.Add(badge);
+            var name = new TextBlock
+            {
+                Text = entry.Name,
+                Width = NameWidth,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            DockPanel.SetDock(name, Dock.Left);
+            row.Children.Add(name);
+            row.Children.Add(new TextBlock
+            {
+                Text = "Marabook",
+                FontFamily = entry.Family,
+                FontSize = 15,
+                Foreground = Chrome.SoftText,
+                TextTrimming = TextTrimming.None,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(14, 0, 0, 0),
+                ClipToBounds = true
+            });
+            return row;
+        }
+
+        private static Control BuildRule()
+        {
+            return new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(8, 3, 8, 3) };
+        }
+    }
+}

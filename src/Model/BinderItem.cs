@@ -130,6 +130,30 @@ namespace Marabook.Model
         public string ExtraSection;
         public string ExtraKind;
 
+        // Le dossier HORS-LIVRE d'un livre (29/09, .plot v34) : ses documents
+        // (notes, lettres d'accompagnement) ne comptent ni dans le livre, ni
+        // dans ses statistiques, ni dans l'export ou la publication. Un seul
+        // par livre, titré « Hors-livre », ni renommable ni déplaçable.
+        public bool IsOutOfBook;
+        public const string OutOfBookTitle = "Hors-livre";
+
+        /// <summary>Le dossier Hors-livre d'un livre, s'il existe.</summary>
+        public BinderItem OutOfBookFolder()
+        {
+            foreach (var child in Children)
+                if (child.IsOutOfBook) return child;
+            return null;
+        }
+
+        /// <summary>Cet item vit-il dans le dossier Hors-livre d'un livre
+        /// (lui-même compris) ?</summary>
+        public bool IsInsideOutOfBook()
+        {
+            for (var item = this; item != null; item = item.Parent)
+                if (item.IsOutOfBook) return true;
+            return false;
+        }
+
         // PageTemplate items only: color chip + the four recto/verso slots.
         public string TemplateColor; // "#RRGGBB", null = pas de pastille
         public HeaderFooter HeaderRecto, FooterRecto, HeaderVerso, FooterVerso;
@@ -145,6 +169,66 @@ namespace Marabook.Model
         // text entry was unreadable in the .plot: the document opened empty
         // (title preserved) instead of failing the whole project.
         public bool LoadDamaged;
+
+        /// <summary>Une COPIE de l'item pour « Dupliquer » (30/09) : nouvel id,
+        /// même contenu — document cloné à fond (PivotEdit.Clone), champs de
+        /// fiche, infos libres, relations, étapes (nouveaux ids), image de
+        /// carte partagée, mise en page et gabarit recopiés, enfants dupliqués
+        /// de même ; l'épingle ne suit pas. L'original prend « (copie) ».</summary>
+        public BinderItem Duplicate(bool renamed = true)
+        {
+            var copy = new BinderItem
+            {
+                Kind = Kind,
+                CategoryKey = CategoryKey,
+                Title = renamed ? Title + " (copie)" : Title,
+                Synopsis = Synopsis,
+                Notes = Notes,
+                Icon = Icon,
+                Status = Status,
+                CardColor = CardColor,
+                Document = Document == null ? null : PivotEdit.Clone(Document),
+                ImageId = ImageId,
+                TemplateId = TemplateId,
+                CategoryId = CategoryId,
+                FieldValues = new Dictionary<string, string>(FieldValues),
+                RadarValues = new Dictionary<string, double>(RadarValues),
+                MediaBytes = MediaBytes == null ? null : (byte[])MediaBytes.Clone(),
+                MediaExtension = MediaExtension,
+                MapBytes = MapBytes == null ? null : (byte[])MapBytes.Clone(),
+                Page = Page == null ? null : Page.Clone(),
+                Header = Header == null ? null : Header.Clone(),
+                Footer = Footer == null ? null : Footer.Clone(),
+                PageTemplateId = PageTemplateId,
+                IsExtraPage = IsExtraPage,
+                IsToc = IsToc,
+                ExtraSection = ExtraSection,
+                ExtraKind = ExtraKind,
+                TemplateColor = TemplateColor,
+                HeaderRecto = HeaderRecto == null ? null : HeaderRecto.Clone(),
+                FooterRecto = FooterRecto == null ? null : FooterRecto.Clone(),
+                HeaderVerso = HeaderVerso == null ? null : HeaderVerso.Clone(),
+                FooterVerso = FooterVerso == null ? null : FooterVerso.Clone(),
+                HeaderGapMm = HeaderGapMm,
+                FooterGapMm = FooterGapMm,
+                HeaderHideFirst = HeaderHideFirst,
+                FooterHideFirst = FooterHideFirst
+            };
+            foreach (var pair in ModuleValues) copy.ModuleValues[pair.Key] = new Dictionary<string, string>(pair.Value);
+            foreach (var info in FreeInfo)
+                copy.FreeInfo.Add(new InfoEntry { Title = info.Title, Value = info.Value, Group = info.Group, Kind = info.Kind, Options = new List<string>(info.Options) });
+            foreach (var relation in Relations)
+                copy.Relations.Add(new SheetRelation { Kind = relation.Kind, TargetId = relation.TargetId, Name = relation.Name });
+            foreach (var step in Evolution)
+                copy.Evolution.Add(new EvolutionEntry { TextId = step.TextId, Title = step.Title, Note = step.Note });
+            foreach (var child in Children)
+            {
+                var twin = child.Duplicate(false);
+                twin.Parent = copy;
+                copy.Children.Add(twin);
+            }
+            return copy;
+        }
 
         public bool IsCategory { get { return Kind == ItemKind.Category; } }
 

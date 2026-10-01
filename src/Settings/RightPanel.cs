@@ -33,8 +33,10 @@ namespace Marabook.Settings
             { RightPanel.Inspector, RightPanel.Search, RightPanel.Pinned };
         private static readonly RightPanel[] ForOthers =
             { RightPanel.Inspector, RightPanel.Search, RightPanel.Pinned };
+        // Une racine (30/09) : Général OFFERT — l'onglet reste au rail, grisé
+        // (Available le refuse) — au lieu de disparaître puis de manquer.
         private static readonly RightPanel[] ForCategory =
-            { RightPanel.Search, RightPanel.Pinned };
+            { RightPanel.Inspector, RightPanel.Search, RightPanel.Pinned };
         // Le Lexique (18/09) n'a d'onglet que demandé : épinglé au rail, ou
         // ouvert le temps d'une définition. Mêmes tableaux, un onglet de plus
         // en queue — des instances fixes, le rail compare par référence.
@@ -133,6 +135,9 @@ namespace Marabook.Settings
         {
             if (columnHidden || !hasProject) return false;
             if (!Offers(kind, panel, homeRoot, panel == RightPanel.Lexicon)) return false;
+            // Le Général d'une racine ne montre rien (b43) : offert pour que
+            // l'onglet reste visible, indisponible donc grisé (30/09).
+            if (panel == RightPanel.Inspector && kind == ItemKind.Category && !homeRoot) return false;
             if (panel == RightPanel.Pinned) return hasPin;
             // Le Lexique (18/09) : épinglé au rail ou ouvert pour une
             // définition — élément courant ou non, comme l'épinglé.

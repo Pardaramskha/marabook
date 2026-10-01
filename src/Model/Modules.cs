@@ -111,6 +111,17 @@ namespace Marabook.Model
     /// il déclare une fiche (papers et champs) pour des catégories de fiches,
     /// et des succès sur des règles connues. Sans module installé, rien
     /// n'apparaît nulle part.</summary>
+    /// <summary>Ce que l'application fait d'un module à code chargé par le
+    /// cœur (P0) : le reconnaître (IMarabookModule), l'enregistrer, le retirer.</summary>
+    public interface ICodeModuleHost
+    {
+        bool IsLoaded(string id);
+        /// <summary>Enregistre l'instance du type d'entrée ; lève si elle n'est
+        /// pas du contrat attendu.</summary>
+        void Register(string id, object instance);
+        void Unregister(string id);
+    }
+
     public static class Modules
     {
         public const string Manifest = "module.json";
@@ -134,24 +145,14 @@ namespace Marabook.Model
                     "Une phénoménale perte de temps pour les plus pointilleux",
                     "De nouveaux succès"
                 }
-            },
-            // Mental-o en DLC (22/09) : un module À CODE — sa DLL apporte les
-            // cartes mentales (racine « Cartes mentales », éditeur, tuiles).
-            new ModuleSource
-            {
-                Id = "mental-o",
-                Name = "Mental-o",
-                Title = "Cartes mentales",
-                Repository = "Pardaramskha/marabook-dlc-mental-o",
-                Asset = "mental-o.mdlc",
-                Features =
-                {
-                    "Une racine « Cartes mentales » dans la Pile : vos cartes vivent dans le projet",
-                    "Le canevas de Mental-o à la sauce Marabook : boîtes, liens, groupes, images, notes",
-                    "Chaque carte en tuile sur le corkboard, import et export des .tea",
-                    "Trois succès"
-                }
             }
+            // Mental-o en DLC (22/09) : un module À CODE — sa DLL WPF apporte
+            // les cartes mentales. RETIRÉ DU CATALOGUE le 27/09/2026 (décision
+            // de Rémi, portage Avalonia) : le module sera porté sur Avalonia
+            // après la V1, dans un chantier à part ; d'ici là il ne se propose
+            // plus. L'infrastructure des modules à code (ICodeModuleHost,
+            // manifeste « entry », ModuleRegistry) reste en place, et un
+            // .mdlc installé à la main se charge toujours.
         };
 
         /// <summary>Le dossier des modules installés : %APPDATA%\Marabook\dlc,
@@ -163,8 +164,7 @@ namespace Marabook.Model
             get
             {
                 if (RootOverride != null) return RootOverride;
-                var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                return Path.Combine(Path.Combine(appData, "Marabook"), "dlc");
+                return Path.Combine(Platform.Current.DataFolder, "dlc");
             }
         }
 
@@ -345,7 +345,9 @@ namespace Marabook.Model
                 foreach (var entry in archive.Entries)
                 {
                     if (entry.Name.Length == 0) continue; // un dossier
-                    var target = Path.GetFullPath(Path.Combine(fresh, entry.FullName.Replace('/', '\\')));
+                    // Le séparateur du système (P1 : sous Linux, « \ » est un
+                    // caractère de nom de fichier, pas un séparateur).
+                    var target = Path.GetFullPath(Path.Combine(fresh, entry.FullName.Replace('/', Path.DirectorySeparatorChar)));
                     if (!target.StartsWith(Path.GetFullPath(fresh), StringComparison.OrdinalIgnoreCase)) continue;
                     Directory.CreateDirectory(Path.GetDirectoryName(target));
                     entry.ExtractToFile(target, true);
@@ -364,7 +366,7 @@ namespace Marabook.Model
             // (un AppDomain ne décharge pas) : le module se retire du
             // registre, ses fichiers partent — sauf verrouillés, alors au
             // prochain lancement.
-            Extensions.ModuleRegistry.Unregister(id);
+            if (CodeHost != null) CodeHost.Unregister(id);
             try { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
             catch (IOException) { MarkForRemoval(dir); }
             catch (UnauthorizedAccessException) { MarkForRemoval(dir); }
@@ -415,18 +417,24 @@ namespace Marabook.Model
             };
         }
 
+        /// <summary>Le registre des modules à code, côté application (P0 : le
+        /// cœur charge la DLL et instancie le type d'entrée, l'interface le
+        /// reconnaît comme IMarabookModule et le rattache à son hôte). Null
+        /// (tests console, cœur seul) : les modules à code ne se chargent pas.</summary>
+        public static ICodeModuleHost CodeHost;
+
         private static void LoadCode(string dir, ModuleInfo module)
         {
-            if (Extensions.ModuleRegistry.Find(module.Id) != null) return;
+            if (CodeHost == null) return;
+            if (CodeHost.IsLoaded(module.Id)) return;
             EnsureResolver();
-            var path = Path.GetFullPath(Path.Combine(dir, module.EntryAssembly.Replace('/', '\\')));
+            var path = Path.GetFullPath(Path.Combine(dir, module.EntryAssembly.Replace('/', Path.DirectorySeparatorChar)));
             if (!File.Exists(path)) throw new FileNotFoundException("DLL du module introuvable", path);
             var assembly = System.Reflection.Assembly.LoadFrom(path); // la même DLL rend le même assembly
             _loadedAssemblies.Add(path);
             var type = assembly.GetType(module.EntryType, true);
-            var instance = Activator.CreateInstance(type) as Extensions.IMarabookModule;
-            if (instance == null) throw new InvalidOperationException(module.EntryType + " n'est pas un IMarabookModule");
-            Extensions.ModuleRegistry.Register(module.Id, instance);
+            var instance = Activator.CreateInstance(type);
+            CodeHost.Register(module.Id, instance); // lève si ce n'est pas un IMarabookModule
         }
 
         private static void RaiseChanged()

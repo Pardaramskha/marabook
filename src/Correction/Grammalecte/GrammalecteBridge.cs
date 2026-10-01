@@ -147,7 +147,7 @@ namespace Marabook.Correction.Grammalecte
 
         public static string PythonPath
         {
-            get { return Path.Combine(BaseFolder, Path.Combine("python", "python.exe")); }
+            get { return Marabook.Model.Platform.Current.PythonExecutable(BaseFolder); }
         }
 
         public static string ScriptPath

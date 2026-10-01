@@ -328,7 +328,10 @@ namespace Marabook.Model
             MergeAdjacent(paragraph);
         }
 
-        private static void MergeAdjacent(TextParagraph paragraph)
+        /// <summary>Soude les runs voisins de même format (public depuis le 29/09 :
+        /// la repasse typographique rend un paragraphe fragmenté — un run par
+        /// blanc inséré — et le compositeur y voyait autant d'occasions de couper).</summary>
+        public static void MergeAdjacent(TextParagraph paragraph)
         {
             for (var i = paragraph.Runs.Count - 1; i > 0; i--)
             {

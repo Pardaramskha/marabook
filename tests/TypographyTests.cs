@@ -40,6 +40,23 @@ namespace Marabook.Tests
             t.Equal("— Viens.", Clean("-- Viens."), "double tiret de dialogue");
             t.Equal("1914–1918", Clean("1914-1918"), "intervalle en demi-cadratin");
             t.Equal("auteur·ice et lect·eur·ice", Clean("auteur::ice et lect::eur::ice"), "deux deux-points : point médian (22/09)");
+            // Les raccourcis tapés et la norme de dialogue (30/09).
+            t.Equal("mot – mot et mot — mot", Clean("mot -- mot et mot --- mot"), "tirets tapés : -- → demi-cadratin, --- → cadratin");
+            t.Equal("mot — mot", Clean("mot –- mot"), "demi-cadratin + tiret → cadratin");
+            t.Equal("-----", Clean("-----"), "un filet de tirets reste un filet");
+            t.Equal("a::b", Typography.Clean("a::b", new TypographyOptions { MiddleDotTrigger = "" }).Text, "raccourci vide : le point médian se tait");
+            t.Equal("a·b", Typography.Clean("a;;b", new TypographyOptions { MiddleDotTrigger = ";;" }).Text, "raccourci du point médian modifiable");
+            var english = new TypographyOptions { DialogueOpen = "anglais" };
+            t.Equal("\u201CBonjour\u201D", Typography.Clean("\"Bonjour\"", english).Text, "norme anglaise : “ ” sans espace");
+            t.Equal("\u201CBonjour\u201D", Typography.Clean("«" + Nbsp + "Bonjour" + Nbsp + "»", english).Text, "norme anglaise : les « » déjà posés suivent");
+            var dashes = new TypographyOptions { DialogueOpen = "demi", DialogueReprise = "cadratin" };
+            t.Equal("–" + Nbsp + "Viens.", Typography.Clean("- Viens.", dashes).Text, "ouverture au demi-cadratin : la première réplique");
+            t.Equal("—" + Nbsp + "Viens.", Typography.Clean("- Viens.", dashes, null, 0, true).Text, "reprise au cadratin : la réplique suivante");
+            t.Equal("–" + Nbsp + "Viens.", Typography.Clean("— Viens.", new TypographyOptions { DialogueReprise = "demi" }).Text, "un cadratin posé suit la norme demi-cadratin");
+            t.Check(Typography.IsDialogueLine("— Oui") && Typography.IsDialogueLine("« Oui") && !Typography.IsDialogueLine("Oui — non"), "une réplique se reconnaît à sa tête");
+            var roundTrip = TypographyOptions.FromJson(new TypographyOptions { DialogueOpen = "cadratin", DialogueReprise = "demi", MiddleDotTrigger = ";;", EmDashTrigger = "==", Dashes = false }.ToJson());
+            t.Check(roundTrip.DialogueOpen == "cadratin" && roundTrip.DialogueReprise == "demi" && roundTrip.MiddleDotTrigger == ";;" && roundTrip.EmDashTrigger == "==" && !roundTrip.Dashes,
+                "la norme et les raccourcis font l'aller-retour JSON");
             t.Equal("Oui" + Fine + "! Non" + Fine + "?", Clean("Oui ! Non?"), "fine avant ! et ? (posée ou ajoutée)");
             t.Equal("Note" + Nbsp + ": suite", Clean("Note : suite"), "pleine avant : (in)");
             t.Equal("10" + Nbsp + "% et 12" + Nbsp + "kg", Clean("10 % et 12 kg"), "insécables d'unités");

@@ -29,6 +29,10 @@ namespace Marabook.History
         public bool CanRedo { get { return _redoStack.Count > 0; } }
         public int Count { get { return _undoStack.Count; } }
 
+        /// <summary>La prochaine action qu'Undo défera, sans la défaire (29/09 :
+        /// la coquille demande confirmation quand elle détruit du contenu).</summary>
+        public IUndoableAction PeekUndo { get { return _undoStack.Count == 0 ? null : _undoStack.Last.Value; } }
+
         public void Run(IUndoableAction action)
         {
             action.Do();

@@ -23,8 +23,109 @@ namespace Marabook.History
         public void Undo() { _item.Pinned = !_pinned; }
     }
 
+    /// <summary>La couleur de carte d'un item (29/09) : depuis le sous-menu
+    /// « Couleur » des tuiles et de la Pile — annulable, null = aucune.</summary>
+    public class ChangeColorAction : IUndoableAction
+    {
+        private readonly BinderItem _item;
+        private readonly string _oldColor, _newColor;
+
+        public ChangeColorAction(BinderItem item, string color)
+        {
+            _item = item;
+            _oldColor = item.CardColor;
+            _newColor = color;
+        }
+
+        public BinderItem Item { get { return _item; } }
+
+        public void Do() { _item.CardColor = _newColor; }
+        public void Undo() { _item.CardColor = _oldColor; }
+    }
+
+    /// <summary>Classer les enfants d'un dossier par titre (29/09) — l'ordre
+    /// d'avant est gardé pour l'annulation.</summary>
+    public class SortChildrenAction : IUndoableAction
+    {
+        private readonly BinderItem _folder;
+        private readonly List<BinderItem> _before, _after;
+
+        public SortChildrenAction(BinderItem folder)
+        {
+            _folder = folder;
+            _before = new List<BinderItem>(folder.Children);
+            _after = new List<BinderItem>(folder.Children);
+            _after.Sort(delegate(BinderItem a, BinderItem b)
+            {
+                return string.Compare(a.Title ?? "", b.Title ?? "", StringComparison.CurrentCultureIgnoreCase);
+            });
+        }
+
+        public bool IsNoOp
+        {
+            get
+            {
+                for (var i = 0; i < _before.Count; i++) if (_before[i] != _after[i]) return false;
+                return true;
+            }
+        }
+
+        public void Do() { Apply(_after); }
+        public void Undo() { Apply(_before); }
+
+        private void Apply(List<BinderItem> order)
+        {
+            _folder.Children.Clear();
+            _folder.Children.AddRange(order);
+        }
+    }
+
+    /// <summary>Une action dont l'ANNULATION détruit du contenu que rien ne
+    /// rend sûrement (29/09) : défaire la création d'une fiche remplie la
+    /// supprime avec tout ce qu'on y a écrit. La coquille demande avant.
+    /// Null = rien à craindre.</summary>
+    public interface IDestructiveUndo
+    {
+        string UndoWarning { get; }
+    }
+
     /// <summary>Adds an item under a parent (new text, new folder).</summary>
-    public class AddItemAction : IUndoableAction
+    /// <summary>Ce que l'annulation d'une création détruirait (29/09) : les
+    /// items qui portent du contenu — un texte écrit, une fiche remplie
+    /// (champs, notes, image), un dossier ou un livre qui contient quelque
+    /// chose. Null si tout est vide (rien à regretter).</summary>
+    public static class UndoWarnings
+    {
+        public static bool HasContent(BinderItem item)
+        {
+            if (item == null) return false;
+            if (item.Children.Count > 0) return true;
+            if (item.Document != null && item.Document.ToPlainText().Trim().Length > 0) return true;
+            if (!string.IsNullOrEmpty(item.Notes) && item.Notes.Trim().Length > 0) return true;
+            if (!string.IsNullOrEmpty(item.Synopsis) && item.Synopsis.Trim().Length > 0) return true;
+            if (item.ImageId != null) return true;
+            foreach (var value in item.FieldValues.Values)
+                if (!string.IsNullOrEmpty(value) && value.Trim().Length > 0) return true;
+            foreach (var module in item.ModuleValues.Values)
+                foreach (var value in module.Values)
+                    if (!string.IsNullOrEmpty(value) && value.Trim().Length > 0) return true;
+            return false;
+        }
+
+        public static string ForCreation(IList<BinderItem> items)
+        {
+            var filled = new List<string>();
+            foreach (var item in items)
+                if (HasContent(item)) filled.Add("« " + item.Title + " »");
+            if (filled.Count == 0) return null;
+            return (filled.Count == 1
+                ? "Annuler cette création supprime " + filled[0] + " avec son contenu."
+                : "Annuler cette création supprime " + string.Join(", ", filled.ToArray()) + " avec leur contenu.")
+                + "\n\nRétablir (Ctrl+Y) le rendra, tant que vous ne faites rien d'autre entre-temps.";
+        }
+    }
+
+    public class AddItemAction : IUndoableAction, IDestructiveUndo
     {
         private readonly BinderItem _parent;
         private readonly BinderItem _item;
@@ -38,6 +139,7 @@ namespace Marabook.History
         }
 
         public BinderItem Item { get { return _item; } }
+        public string UndoWarning { get { return UndoWarnings.ForCreation(new[] { _item }); } }
 
         public void Do()
         {
@@ -53,7 +155,7 @@ namespace Marabook.History
 
     /// <summary>Adds several items at once (multi-file media import) as a single
     /// undoable step.</summary>
-    public class AddItemsAction : IUndoableAction
+    public class AddItemsAction : IUndoableAction, IDestructiveUndo
     {
         private readonly BinderItem _parent;
         private readonly List<BinderItem> _items;
@@ -63,6 +165,8 @@ namespace Marabook.History
             _parent = parent;
             _items = items;
         }
+
+        public string UndoWarning { get { return UndoWarnings.ForCreation(_items); } }
 
         public void Do()
         {
