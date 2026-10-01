@@ -27,7 +27,8 @@ namespace Marabook.App
         private BinderItem _item;
         private Project _project;
         private bool _syncing;
-        private TextBox _subtitle, _author, _publisher, _collection, _isbn, _year;
+        private TextBox _title, _subtitle, _author, _publisher, _collection, _isbn, _year, _seriesNumber;
+        private CheckBox _series;
         private TextBox _genre, _audience, _synopsis, _pitch, _backCover, _themeBox;
         private WrapPanel _themeChips;
         private Image _coverImage;
@@ -57,12 +58,14 @@ namespace Marabook.App
             Grid.SetColumn(right, 2);
             identity.Children.Add(left);
             identity.Children.Add(right);
+            _title = LineField(left, "Titre (vide = le nom du livre dans la Pile)"); // le jeton {livre}, la page de titre, l'EPUB (01/10)
             _subtitle = LineField(left, "Sous-titre");
             _author = LineField(left, "Auteur·ice (vide = auteur·ice par défaut des Préférences)");
             _publisher = LineField(left, "Éditeur");
             _collection = LineField(right, "Collection");
             _isbn = LineField(right, "ISBN");
             _year = LineField(right, "Année");
+            BuildSeriesField(right); // « Série ou cycle » (01/10), informatif
             BuildColorField(right); // la couleur de la tuile du livre (29/09)
             Children.Add(identity);
 
@@ -175,6 +178,37 @@ namespace Marabook.App
             _colorText.Text = value ?? "Aucune couleur";
         }
 
+        /// <summary>« Série ou cycle » (01/10) : une case, puis le rang du livre
+        /// dans la série — informatif seulement, rien ne le compile.</summary>
+        private void BuildSeriesField(Panel host)
+        {
+            host.Children.Add(BookPanelParts.Label("Série ou cycle"));
+            var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
+            _series = new CheckBox
+            {
+                Content = "Ce livre fait partie d'une série",
+                VerticalAlignment = VerticalAlignment.Center,
+                [DockPanel.DockProperty] = Dock.Left,
+                [ToolTip.TipProperty] = "Informatif : le rang du livre dans sa série ou son cycle"
+            };
+            _series.IsCheckedChanged += delegate
+            {
+                if (_seriesNumber != null) _seriesNumber.IsEnabled = _series.IsChecked == true;
+                OnFieldEdited();
+            };
+            row.Children.Add(_series);
+            _seriesNumber = new TextBox
+            {
+                Watermark = "Rang (2, II, 2 sur 5…)",
+                Margin = new Thickness(10, 0, 0, 0),
+                MinWidth = 90,
+                IsEnabled = false
+            };
+            _seriesNumber.TextChanged += delegate { OnFieldEdited(); };
+            row.Children.Add(_seriesNumber);
+            host.Children.Add(row);
+        }
+
         private TextBox LineField(Panel host, string label)
         {
             host.Children.Add(BookPanelParts.Label(label));
@@ -205,6 +239,9 @@ namespace Marabook.App
         {
             if (_syncing || _item == null) return;
             var book = _item.Book;
+            book.Title = (_title.Text ?? "").Trim();
+            book.Series = _series.IsChecked == true;
+            book.SeriesNumber = (_seriesNumber.Text ?? "").Trim();
             book.Subtitle = _subtitle.Text;
             book.AuthorOverride = _author.Text;
             book.Publisher = _publisher.Text;
@@ -334,6 +371,10 @@ namespace Marabook.App
             try
             {
                 var book = _item.Book;
+                _title.Text = book.Title;
+                _series.IsChecked = book.Series;
+                _seriesNumber.Text = book.SeriesNumber;
+                _seriesNumber.IsEnabled = book.Series;
                 _subtitle.Text = book.Subtitle;
                 _author.Text = book.AuthorOverride;
                 _publisher.Text = book.Publisher;

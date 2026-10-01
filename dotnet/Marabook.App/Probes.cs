@@ -485,6 +485,50 @@ namespace Marabook.App
                 var answer = await askTask;
                 Check(answer == null, "fermé sans valider : null");
 
+                // — Le dialogue du dictionnaire (01/10) : un nom part au
+                //   masculin ; un nom propre « Lieu » cache la flexion et
+                //   propose le gentilé ; « Gentilé » rend la flexion.
+                var lexiconTask = LexiconEntryDialog.AskForWord(shell, "mànis", true);
+                await Settle();
+                LexiconEntryDialog lexicon = null;
+                foreach (var window in ((Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)Avalonia.Application.Current.ApplicationLifetime).Windows)
+                    if (window is LexiconEntryDialog) lexicon = (LexiconEntryDialog)window;
+                Check(lexicon != null, "le dialogue du dictionnaire est ouvert");
+                if (lexicon != null)
+                {
+                    Func<string, RadioButton> radio = delegate(string content)
+                    {
+                        foreach (var candidate in lexicon.GetVisualDescendants().OfType<RadioButton>())
+                            if ((candidate.Content as string) == content) return candidate;
+                        return null;
+                    };
+                    Func<string, CheckBox> checkBox = delegate(string prefix)
+                    {
+                        foreach (var candidate in lexicon.GetVisualDescendants().OfType<CheckBox>())
+                            if ((candidate.Content as string ?? "").StartsWith(prefix)) return candidate;
+                        return null;
+                    };
+                    var masculine = radio("Masculin");
+                    var flexionLabel = lexicon.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(t => t.Text == "Flexion :");
+                    Check(masculine != null && masculine.IsChecked == true, "un nom neuf part au masculin");
+                    var proper = radio("Nom propre");
+                    if (proper != null) proper.IsChecked = true;
+                    var place = radio("Lieu");
+                    if (place != null) place.IsChecked = true;
+                    await Settle();
+                    Check(flexionLabel != null && !flexionLabel.IsEffectivelyVisible, "nom propre « Lieu » : la flexion est masquée");
+                    var demonym = checkBox("Dériver le gentilé");
+                    Check(demonym != null && demonym.IsEffectivelyVisible, "…et le gentilé est proposé");
+                    var gentile = radio("Gentilé");
+                    if (gentile != null) gentile.IsChecked = true;
+                    await Settle();
+                    Check(flexionLabel != null && flexionLabel.IsEffectivelyVisible, "« Gentilé » : la flexion revient");
+                    Check(demonym != null && !demonym.IsEffectivelyVisible, "…et le gentilé dérivé disparaît");
+                    lexicon.Close();
+                }
+                var lexiconAnswer = await lexiconTask;
+                Check(lexiconAnswer == null, "fermé sans valider : null");
+
                 // — Fermer le projet : l'Accueil se pose sur la coquille.
                 shell.CloseProjectPublic();
                 await Settle();

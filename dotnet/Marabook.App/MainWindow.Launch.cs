@@ -62,6 +62,7 @@ namespace Marabook.App
                     _path = path;
                     AdoptFileName(_project, _path);
                     DoSave();
+                    await SaveCompletion();
                     Console.WriteLine(LastSaveError == null ? "SAVE OK    projet neuf" : "SAVE ERROR projet neuf\n" + LastSaveError);
                     _binder.NewText(null);
                     await Task.Delay(600);
@@ -165,9 +166,11 @@ namespace Marabook.App
         private async Task SaveProbeSweep(string temporaryPath)
         {
             DoSave();
+            await SaveCompletion();
             Console.WriteLine(LastSaveError == null ? "SAVE OK    manuel" : "SAVE ERROR manuel\n" + LastSaveError);
             MarkDirty();
             Autosave();
+            await SaveCompletion();
             Console.WriteLine(LastSaveError == null ? "SAVE OK    automatique" : "SAVE ERROR automatique\n" + LastSaveError);
             var seen = new HashSet<ItemKind>();
             foreach (var item in new List<BinderItem>(_project.AllItems()))
@@ -177,6 +180,7 @@ namespace Marabook.App
                 await Task.Delay(700);
                 MarkDirty();
                 SaveProject(true);
+                await SaveCompletion();
                 Console.WriteLine((LastSaveError == null ? "SAVE OK    " : "SAVE ERROR ") + item.Kind + " « " + item.Title + " » (" + VisibleView + ")" + (LastSaveError == null ? "" : "\n" + LastSaveError));
             }
             foreach (RightPanel panel in Enum.GetValues(typeof(RightPanel)))
@@ -185,6 +189,7 @@ namespace Marabook.App
                 await Task.Delay(300);
                 MarkDirty();
                 SaveProject(true);
+                await SaveCompletion();
                 Console.WriteLine((LastSaveError == null ? "SAVE OK    " : "SAVE ERROR ") + "panneau " + panel + (LastSaveError == null ? "" : "\n" + LastSaveError));
             }
             if (temporaryPath != null) { try { System.IO.File.Delete(temporaryPath); } catch { } }

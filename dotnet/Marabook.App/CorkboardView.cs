@@ -1708,8 +1708,8 @@ namespace Marabook.App
         }
 
         /// <summary>La tuile d'un livre à couverture (30/09) : la couverture
-        /// sur un bloc de pages décalé, un dos ombré à gauche, une ombre
-        /// portée ; dessous, le titre et le ⋮ ; choisi = halo d'accent (la
+        /// seule avec son ombre portée (01/10 : plus de bloc de pages ni de
+        /// dos) ; dessous, le titre et le ⋮ ; choisi = halo d'accent (la
         /// bordure de carte n'existe plus : RefreshSelectionVisuals passe par
         /// _haloOf).</summary>
         private readonly Dictionary<Border, Border> _haloOf = new Dictionary<Border, Border>();
@@ -1718,43 +1718,17 @@ namespace Marabook.App
         {
             var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 4) };
             var book = new Grid { Width = 156, Height = 216 };
-            // Les pages : un bloc clair qui dépasse en bas à droite.
+            // La première de couverture seule, avec son ombre portée (01/10 :
+            // plus de bloc de pages ni de dos — la couverture suffit).
             book.Children.Add(new Border
             {
                 Width = 150, Height = 210,
-                Margin = new Thickness(6, 6, 0, 0),
-                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
-                Background = Chrome.PrintPaper,
-                BorderBrush = Chrome.BorderStrong, BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(1, 3, 3, 1)
-            });
-            book.Children.Add(new Border
-            {
-                Width = 150, Height = 210,
-                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
                 CornerRadius = new CornerRadius(2, 5, 5, 2),
                 ClipToBounds = true,
                 Background = Chrome.CardBg,
                 BoxShadow = new BoxShadows(new BoxShadow { OffsetX = 2, OffsetY = 6, Blur = 14, Color = Color.FromArgb(0x55, 0, 0, 0) }),
                 Child = new Image { Source = coverSource, Stretch = Stretch.UniformToFill }
-            });
-            // Le dos : une ombre qui s'éteint vers la droite, un pli clair.
-            var spine = new LinearGradientBrush
-            {
-                StartPoint = new RelativePoint(0, 0.5, RelativeUnit.Relative),
-                EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative)
-            };
-            spine.GradientStops.Add(new GradientStop(Color.FromArgb(0x70, 0, 0, 0), 0));
-            spine.GradientStops.Add(new GradientStop(Color.FromArgb(0x14, 0, 0, 0), 0.7));
-            spine.GradientStops.Add(new GradientStop(Color.FromArgb(0x38, 0xFF, 0xFF, 0xFF), 0.85));
-            spine.GradientStops.Add(new GradientStop(Color.FromArgb(0x00, 0, 0, 0), 1));
-            book.Children.Add(new Border
-            {
-                Width = 14, Height = 210,
-                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
-                Background = spine,
-                CornerRadius = new CornerRadius(2, 0, 0, 2),
-                IsHitTestVisible = false
             });
             var halo = new Border
             {

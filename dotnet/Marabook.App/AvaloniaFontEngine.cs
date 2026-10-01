@@ -123,7 +123,7 @@ namespace Marabook.App
         /// <summary>La famille (dans ce style) est-elle une police VARIABLE ?
         /// Lu une fois dans le fichier de la face maigre : une table « fvar »
         /// dans le répertoire OpenType. Mémorisé par famille et style.</summary>
-        private static bool IsVariableFamily(string family, bool italic, Typeface regularFace)
+        internal static bool IsVariableFamily(string family, bool italic, Typeface regularFace)
         {
             var key = (family ?? "") + "|" + italic;
             bool known;

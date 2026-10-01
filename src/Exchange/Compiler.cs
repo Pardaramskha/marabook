@@ -30,7 +30,9 @@ namespace Marabook.Exchange
             if (options.TitlePage)
             {
                 var title = new TextParagraph { StyleId = "title1" };
-                title.Runs.Add(new TextRun { Text = options.Title ?? project.Name });
+                // Le titre : celui des options, sinon celui posé dans l'onglet
+                // Édition du livre (01/10), sinon le nom du projet.
+                title.Runs.Add(new TextRun { Text = options.Title ?? (root != null && root.Kind == ItemKind.Book ? BookInfo.TitleOf(root) : project.Name) });
                 output.Paragraphs.Add(title);
                 if (!string.IsNullOrEmpty(options.Subtitle))
                 {

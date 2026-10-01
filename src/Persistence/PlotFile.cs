@@ -177,13 +177,38 @@ namespace Marabook.Persistence
         /// d'origine). Un tel fichier se rouvre comme un .plot ordinaire.</summary>
         public static void Save(Project project, string path, bool textsOnly = false)
         {
+            Write(Prepare(project, textsOnly), path, textsOnly);
+        }
+
+        /// <summary>Un enregistrement PRÉPARÉ (01/10, performance) : toutes
+        /// les entrées de l'archive, déjà sérialisées en octets, dans l'ordre.
+        /// Prepare() le bâtit sur le fil de l'interface (il lit le modèle) ;
+        /// Write() le compresse et l'écrit, et peut tourner sur un fil de
+        /// fond : le modèle n'est plus lu, l'auteur reprend la frappe pendant
+        /// que le deflate et le disque travaillent.</summary>
+        public sealed class SavePlan
+        {
+            internal sealed class Entry
+            {
+                public string Name;
+                public byte[] Bytes;
+                public CompressionLevel Level = CompressionLevel.Optimal;
+                public byte[] Tail; // les instantanés : en-tête JSON + données telles quelles
+            }
+            internal readonly List<Entry> Entries = new List<Entry>();
+            public int Count { get { return Entries.Count; } }
+        }
+
+        private static readonly UTF8Encoding Utf8 = new UTF8Encoding(false);
+
+        /// <summary>Sérialise le projet en entrées prêtes à écrire — sur le fil
+        /// qui possède le modèle. Lève si deux items partagent un id.</summary>
+        public static SavePlan Prepare(Project project, bool textsOnly = false)
+        {
             var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
             if (string.IsNullOrEmpty(project.CreatedAt)) project.CreatedAt = now;
             project.ModifiedAt = now;
 
-            // Write to a temporary file first, then swap in atomically so a crash
-            // mid-save can never corrupt the project. The previous version becomes .bak.
-            var tempPath = path + ".tmp";
             // Les images que plus rien ne cite ne sont pas écrites — mais elles
             // restent en mémoire : un Ctrl+Z après une sauvegarde automatique
             // les retrouve intactes (revue 22/09 ; la purge en mémoire cassait
@@ -201,64 +226,80 @@ namespace Marabook.Persistence
                         "Bug interne : deux éléments partagent l'identifiant « "
                         + item.Id + " » (dont « " + item.Title + " »). "
                         + "Enregistrement refusé pour ne perdre aucun document.");
+
+            var plan = new SavePlan();
+            plan.Entries.Add(Text("manifest.json", Json.Write(BuildManifest(project))));
+            plan.Entries.Add(Text("styles.json", Json.Write(BuildStyles(project.Styles))));
+            plan.Entries.Add(Text("sheets/templates.json", Json.Write(BuildTemplates(project))));
+            foreach (var kv in project.Images)
+            {
+                if (kv.Value.Bytes == null || textsOnly || !usedImages.Contains(kv.Key)) continue;
+                // Un PNG, un JPEG ou un GIF est déjà compressé : le
+                // recompresser coûte des secondes par enregistrement sur
+                // un projet illustré et ne gagne rien (23/09). PIÈGE .NET 4 :
+                // NoCompression = Deflate à blocs stockés (pas d'entrée
+                // Stored), ce qui suffit — c'est la recherche LZ77 qui coûte.
+                var extension = kv.Value.Extension ?? "";
+                var packed = extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".gif";
+                plan.Entries.Add(new SavePlan.Entry
+                {
+                    Name = "images/" + kv.Key + extension,
+                    Bytes = kv.Value.Bytes,
+                    Level = packed ? CompressionLevel.NoCompression : CompressionLevel.Optimal
+                });
+            }
+            foreach (var item in project.AllItems())
+            {
+                if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
+                    plan.Entries.Add(Text("texts/" + item.Id + ".json", Json.Write(BuildDocument(item.Document))));
+                if (item.Kind == ItemKind.Media && item.MediaBytes != null && !textsOnly)
+                    plan.Entries.Add(new SavePlan.Entry { Name = "research/" + item.Id + (item.MediaExtension ?? ""), Bytes = item.MediaBytes });
+                // Les cartes mentales suivent aussi le secours (quelques Ko,
+                // à la différence des médias) — revue 22/09.
+                if (item.Kind == ItemKind.MindMap && item.MapBytes != null) // v29
+                    plan.Entries.Add(new SavePlan.Entry { Name = "maps/" + item.Id + ".tea", Bytes = item.MapBytes });
+            }
+            // Les instantanés (v17) : une entrée chacun, JSON du document
+            // écrit tel quel — jamais resérialisé, jamais purgé ici.
+            foreach (var snapshot in project.Snapshots)
+            {
+                if (textsOnly) break;
+                // Compression rapide : un instantané se relit rarement, et
+                // c'est le deflate qui coûte à chaque sauvegarde (A3).
+                plan.Entries.Add(new SavePlan.Entry
+                {
+                    Name = "snapshots/" + snapshot.ItemId + "/" + snapshot.Id + ".json",
+                    Bytes = Utf8.GetBytes(Json.Write(BuildSnapshotMeta(snapshot)) + "\n"),
+                    Tail = snapshot.Data,
+                    Level = CompressionLevel.Fastest
+                });
+            }
+            return plan;
+        }
+
+        private static SavePlan.Entry Text(string name, string content)
+        {
+            return new SavePlan.Entry { Name = name, Bytes = Utf8.GetBytes(content) };
+        }
+
+        /// <summary>Compresse et écrit un enregistrement préparé — sur
+        /// n'importe quel fil. Écrit d'abord un fichier temporaire, puis
+        /// l'échange atomiquement : un plantage en pleine écriture ne corrompt
+        /// jamais le projet ; la version d'avant devient .bak.</summary>
+        public static void Write(SavePlan plan, string path, bool textsOnly = false)
+        {
+            var tempPath = path + ".tmp";
             using (var stream = new FileStream(tempPath, FileMode.Create))
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
-            {
-                WriteEntry(archive, "manifest.json", Json.Write(BuildManifest(project)));
-                WriteEntry(archive, "styles.json", Json.Write(BuildStyles(project.Styles)));
-                WriteEntry(archive, "sheets/templates.json", Json.Write(BuildTemplates(project)));
-                foreach (var kv in project.Images)
+                foreach (var entry in plan.Entries)
                 {
-                    if (kv.Value.Bytes == null || textsOnly || !usedImages.Contains(kv.Key)) continue;
-                    // Un PNG, un JPEG ou un GIF est déjà compressé : le
-                    // recompresser coûte des secondes par enregistrement sur
-                    // un projet illustré et ne gagne rien (23/09). PIÈGE .NET 4 :
-                    // NoCompression = Deflate à blocs stockés (pas d'entrée
-                    // Stored), ce qui suffit — c'est la recherche LZ77 qui coûte.
-                    var extension = kv.Value.Extension ?? "";
-                    var packed = extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".gif";
-                    var imageEntry = archive.CreateEntry("images/" + kv.Key + extension,
-                        packed ? CompressionLevel.NoCompression : CompressionLevel.Optimal);
-                    using (var imageStream = imageEntry.Open())
-                        imageStream.Write(kv.Value.Bytes, 0, kv.Value.Bytes.Length);
-                }
-                foreach (var item in project.AllItems())
-                {
-                    if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
-                        WriteEntry(archive, "texts/" + item.Id + ".json",
-                            Json.Write(BuildDocument(item.Document)));
-                    if (item.Kind == ItemKind.Media && item.MediaBytes != null && !textsOnly)
+                    var zipEntry = archive.CreateEntry(entry.Name, entry.Level);
+                    using (var entryStream = zipEntry.Open())
                     {
-                        var media = archive.CreateEntry("research/" + item.Id + (item.MediaExtension ?? ""));
-                        using (var mediaStream = media.Open())
-                            mediaStream.Write(item.MediaBytes, 0, item.MediaBytes.Length);
-                    }
-                    // Les cartes mentales suivent aussi le secours (quelques Ko,
-                    // à la différence des médias) — revue 22/09.
-                    if (item.Kind == ItemKind.MindMap && item.MapBytes != null) // v29
-                    {
-                        var map = archive.CreateEntry("maps/" + item.Id + ".tea");
-                        using (var mapStream = map.Open())
-                            mapStream.Write(item.MapBytes, 0, item.MapBytes.Length);
+                        entryStream.Write(entry.Bytes, 0, entry.Bytes.Length);
+                        if (entry.Tail != null) entryStream.Write(entry.Tail, 0, entry.Tail.Length);
                     }
                 }
-                // Les instantanés (v17) : une entrée chacun, JSON du document
-                // écrit tel quel — jamais resérialisé, jamais purgé ici.
-                foreach (var snapshot in project.Snapshots)
-                {
-                    if (textsOnly) break;
-                    // Compression rapide : un instantané se relit rarement, et
-                    // c'est le deflate qui coûte à chaque sauvegarde (A3).
-                    var entry = archive.CreateEntry("snapshots/" + snapshot.ItemId + "/" + snapshot.Id + ".json",
-                        System.IO.Compression.CompressionLevel.Fastest);
-                    using (var entryStream = entry.Open())
-                    {
-                        var head = new UTF8Encoding(false).GetBytes(Json.Write(BuildSnapshotMeta(snapshot)) + "\n");
-                        entryStream.Write(head, 0, head.Length);
-                        if (snapshot.Data != null) entryStream.Write(snapshot.Data, 0, snapshot.Data.Length);
-                    }
-                }
-            }
 
             if (File.Exists(path))
                 File.Replace(tempPath, path, textsOnly ? null : path + ".bak"); // pas de .bak pour le secours
@@ -346,13 +387,6 @@ namespace Marabook.Persistence
             // L'ordre chronologique (l'ordre des entrées du zip n'en garantit aucun).
             loaded.Sort(delegate(Snapshot a, Snapshot b) { return string.CompareOrdinal(a.Date, b.Date); });
             project.Snapshots.AddRange(loaded);
-        }
-
-        private static void WriteEntry(ZipArchive archive, string name, string content)
-        {
-            var entry = archive.CreateEntry(name);
-            using (var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false)))
-                writer.Write(content);
         }
 
         private static Dictionary<string, object> BuildManifest(Project project)
@@ -523,6 +557,9 @@ namespace Marabook.Persistence
             if (item.Kind == ItemKind.Book && item.Book != null)
             {
                 var book = new Dictionary<string, object>();
+                if (item.Book.Title.Length > 0) book["title"] = item.Book.Title; // 01/10
+                if (item.Book.Series) book["series"] = true;
+                if (item.Book.SeriesNumber.Length > 0) book["seriesNumber"] = item.Book.SeriesNumber;
                 if (item.Book.Subtitle.Length > 0) book["subtitle"] = item.Book.Subtitle;
                 if (item.Book.AuthorOverride.Length > 0) book["author"] = item.Book.AuthorOverride;
                 if (item.Book.Publisher.Length > 0) book["publisher"] = item.Book.Publisher;
@@ -650,6 +687,7 @@ namespace Marabook.Persistence
                 s["size"] = style.FontSize;
                 if (style.Bold) s["bold"] = true;
                 if (style.Italic) s["italic"] = true;
+                if (style.Weight != null) s["weight"] = style.Weight; // la variante de police (01/10)
                 if (style.Color != null) s["color"] = style.Color;
                 s["align"] = style.Align;
                 if (style.SpaceBefore != 0) s["spaceBefore"] = style.SpaceBefore;
@@ -1074,6 +1112,7 @@ namespace Marabook.Persistence
                     style.FontSize = Json.AsDouble(Json.Field(s, "size"), 15);
                     style.Bold = Json.AsBool(Json.Field(s, "bold"), false);
                     style.Italic = Json.AsBool(Json.Field(s, "italic"), false);
+                    style.Weight = Json.AsString(Json.Field(s, "weight")); // la variante de police (01/10), null = selon Gras
                     style.Color = Json.AsString(Json.Field(s, "color"));
                     style.Align = Json.AsString(Json.Field(s, "align")) ?? "left";
                     style.SpaceBefore = Json.AsDouble(Json.Field(s, "spaceBefore"), 0);
@@ -1321,6 +1360,9 @@ namespace Marabook.Persistence
                 var book = Json.AsObject(Json.Field(obj, "book"));
                 if (book != null)
                 {
+                    item.Book.Title = Json.AsString(Json.Field(book, "title")) ?? ""; // 01/10
+                    item.Book.Series = Json.AsBool(Json.Field(book, "series"), false);
+                    item.Book.SeriesNumber = Json.AsString(Json.Field(book, "seriesNumber")) ?? "";
                     item.Book.Subtitle = Json.AsString(Json.Field(book, "subtitle")) ?? "";
                     item.Book.AuthorOverride = Json.AsString(Json.Field(book, "author")) ?? "";
                     item.Book.Publisher = Json.AsString(Json.Field(book, "publisher")) ?? "";

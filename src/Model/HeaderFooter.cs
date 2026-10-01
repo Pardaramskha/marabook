@@ -94,7 +94,7 @@ namespace Marabook.Model
         {
             var decor = new PageDecor { Title = item.Title, SuppressFolio = item.IsExtraPage };
             for (var ancestor = item.Parent; ancestor != null; ancestor = ancestor.Parent)
-                if (ancestor.Kind == ItemKind.Book) { decor.BookTitle = ancestor.Title; break; }
+                if (ancestor.Kind == ItemKind.Book) { decor.BookTitle = BookInfo.TitleOf(ancestor); break; } // le titre posé dans Édition prime (01/10)
             BinderItem gabarit = null;
             // Pages extra : pas de folio ni de titre courant par défaut — le
             // gabarit (porteur des {page}) est ignoré ; seul un en-tête/pied

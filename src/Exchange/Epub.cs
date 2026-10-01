@@ -85,7 +85,7 @@ namespace Marabook.Exchange
         {
             var options = new EpubOptions();
             if (root == null) return options;
-            options.Title = root.Title;
+            options.Title = root.Kind == ItemKind.Book ? BookInfo.TitleOf(root) : root.Title; // le titre posé dans Édition (01/10)
             var info = root.Kind == ItemKind.Book ? root.Book : null;
             if (info != null)
             {
@@ -440,7 +440,8 @@ namespace Marabook.Exchange
                     sb.Append(".").Append(ClassOf(style.Id)).Append(" { ");
                     sb.Append("font-family: ").Append(FontFamilyCss(style.FontFamily)).Append("; ");
                     sb.Append("font-size: ").Append(Pt(style.FontSize)).Append("pt; ");
-                    if (style.Bold) sb.Append("font-weight: bold; ");
+                    if (style.Weight != null) sb.Append("font-weight: ").Append(style.EffectiveWeight()).Append("; "); // la variante de police (01/10)
+                    else if (style.Bold) sb.Append("font-weight: bold; ");
                     if (style.Italic) sb.Append("font-style: italic; ");
                     if (style.Color != null) sb.Append("color: ").Append(style.Color).Append("; ");
                     sb.Append("text-align: ").Append(style.Align == "justify" ? "justify" : style.Align == "center" ? "center" : style.Align == "right" ? "right" : "left").Append("; ");

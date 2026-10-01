@@ -105,6 +105,49 @@ namespace Marabook.App
             return count;
         }
 
+        private static readonly Dictionary<string, List<int>> _realWeights = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Les graisses RÉELLEMENT installées d'une famille, droites
+        /// (01/10, variante de police des styles) : 400 au moins. Une police
+        /// variable n'en offre qu'une — demander une graisse à son axe
+        /// empoisonne la face maigre (AvaloniaFontEngine, 29/09), le gras y
+        /// reste émulé. Mémorisé par famille ; InvalidateRealWeights après un
+        /// rechargement du catalogue.</summary>
+        public static List<int> RealWeights(string family)
+        {
+            if (string.IsNullOrEmpty(family)) return new List<int> { 400 };
+            List<int> cached;
+            lock (_realWeights)
+            {
+                if (_realWeights.TryGetValue(family, out cached)) return new List<int>(cached);
+            }
+            var result = new List<int>();
+            try
+            {
+                var fontFamily = new FontFamily(family);
+                var regular = new Typeface(fontFamily, FontStyle.Normal, FontWeight.Normal);
+                if (!AvaloniaFontEngine.IsVariableFamily(family, false, regular))
+                    foreach (var weight in new[] { 100, 200, 300, 400, 500, 600, 700, 800, 900 })
+                    {
+                        IGlyphTypeface glyphs;
+                        if (!FontManager.Current.TryGetGlyphTypeface(new Typeface(fontFamily, FontStyle.Normal, (FontWeight)weight), out glyphs)) continue;
+                        if (glyphs == null || (int)glyphs.Weight != weight || glyphs.Style != FontStyle.Normal || glyphs.FontSimulations != FontSimulations.None) continue;
+                        if (!string.Equals(glyphs.FamilyName, family, StringComparison.OrdinalIgnoreCase)) continue; // la face de repli d'une autre famille ne compte pas
+                        result.Add(weight);
+                    }
+            }
+            catch (Exception) { }
+            if (!result.Contains(400)) result.Insert(0, 400);
+            result.Sort();
+            lock (_realWeights) _realWeights[family] = result;
+            return new List<int>(result);
+        }
+
+        public static void InvalidateRealWeights()
+        {
+            lock (_realWeights) _realWeights.Clear();
+        }
+
         private static List<Entry> _entries;
         private static DispatcherTimer _refresh;
 
@@ -151,6 +194,7 @@ namespace Marabook.App
         public static void Refresh()
         {
             _entries = Enumerate();
+            InvalidateRealWeights();
             var handler = Changed;
             if (handler != null) handler();
         }

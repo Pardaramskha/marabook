@@ -507,7 +507,7 @@ namespace Marabook.Print
             // commence là (layout.Style.LeftIndent) et fait la largeur restante.
             var prefix = NotePrefix(index);
             var numberWidth = _metrics.AdvanceWidth(style.FontFamily, style.FontSize,
-                style.Bold ? 700 : 400, style.Italic, prefix);
+                style.EffectiveWeight(), style.Italic, prefix);
             style.LeftIndent = numberWidth;
             style.FirstLineIndent = -numberWidth;
             style.LastLineIndent = 0;
@@ -876,9 +876,12 @@ namespace Marabook.Print
             var italic = run != null && run.Italic.HasValue ? run.Italic.Value : style.Italic;
             var size = run != null && run.FontSize.HasValue ? run.FontSize.Value : style.FontSize;
             if (superscript) size = Math.Max(6, size * 0.65);
+            // La graisse : celle du run (fine, ou Gras posé), sinon la
+            // variante du style (01/10), sinon 400/700 selon Gras.
             var weight = run != null && run.Weight != null
                 ? TextWeights.Parse(run.Weight)
-                : (bold ? TextWeights.Bold : TextWeights.Normal);
+                : run != null && run.Bold.HasValue ? (run.Bold.Value ? TextWeights.Bold : TextWeights.Normal)
+                : style.EffectiveWeight();
             var font = _fonts.Resolve(family, weight, italic);
             var palette = CompositionPalette.Current;
             var ink = Ink.Black;

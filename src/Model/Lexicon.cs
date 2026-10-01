@@ -78,6 +78,42 @@ namespace Marabook.Model
         public string ProperKind = ""; // nom propre : sa sorte (ProperKinds), "" = non précisée
         public bool NeedsReview;      // « migration nécessaire » : venue de l'ancien format, pas encore revue
 
+        // ---- le gentilé dérivé (01/10) : d'un lieu (ou d'une raison sociale,
+        // d'une marque, d'un nom propre « autre »), la variante d'appartenance
+        // — Mànis → mànisien, mànisienne, Mànisiens… — par un suffixe choisi
+        // ou tapé ; la forme masculine se pose à la main si la règle se trompe.
+        public string DemonymSuffix = ""; // "ien", "ais"… ; "" = pas de gentilé dérivé
+        public string DemonymForm = "";   // masc. sg. posé ("" = dérivé du mot et du suffixe)
+
+        /// <summary>Les suffixes de gentilés proposés en préconfiguration.</summary>
+        public static readonly string[] DemonymSuffixes =
+        { "ien", "ais", "ois", "ain", "éen", "in", "an", "on", "ard", "ite", "ol" };
+
+        /// <summary>Les sortes de nom propre dont on dérive un gentilé : un
+        /// lieu, une raison sociale, une marque, un nom propre « autre » (un
+        /// peuple, une planète…). Un gentilé, un prénom, un nom de famille ou
+        /// un titre n'en ont pas.</summary>
+        public static bool AllowsDemonym(string properKind)
+        {
+            return properKind == ProperPlace || properKind == ProperCompany
+                || properKind == ProperBrand || properKind == ProperOther;
+        }
+
+        /// <summary>Un gentilé est-il dérivé de cette entrée ?</summary>
+        public bool HasDemonym
+        {
+            get { return Class == ClassProper && AllowsDemonym(ProperKind) && DemonymSuffix.Trim().Length > 0; }
+        }
+
+        /// <summary>Le gentilé masculin singulier : posé, sinon dérivé du mot
+        /// et du suffixe ; null sans gentilé.</summary>
+        public string DemonymBase()
+        {
+            if (!HasDemonym) return null;
+            if (DemonymForm.Trim().Length > 0) return DemonymForm.Trim();
+            return LexiconInflector.DeriveDemonym(Word, DemonymSuffix);
+        }
+
         public static LexiconEntry Simple(string word)
         {
             return new LexiconEntry { Word = word ?? "", Class = ClassOther, NeedsReview = true };
@@ -194,10 +230,20 @@ namespace Marabook.Model
             }
         }
 
-        /// <summary>Les types qui se fléchissent : nom, adjectif, nom propre.</summary>
+        /// <summary>Les types qui se fléchissent : nom, adjectif — et, parmi
+        /// les noms propres, le seul gentilé (01/10) : un nom de famille, un
+        /// prénom, un lieu, une marque ne se déclinent pas.</summary>
         public bool HasFlexion
         {
-            get { return Class == ClassNoun || Class == ClassAdjective || Class == ClassProper; }
+            get { return Class == ClassNoun || Class == ClassAdjective || (Class == ClassProper && ProperKind == ProperDemonym); }
+        }
+
+        /// <summary>Le pluriel effectif : « invariable » quand la nature le
+        /// dit (entité non comptable, 01/10), le réglage sinon.</summary>
+        public string EffectivePlural()
+        {
+            if (Class == ClassNoun && HasTrait("uncountable")) return PluralInvariable;
+            return Plural;
         }
 
         /// <summary>La flexion effective : celle posée, sinon celle que
@@ -239,6 +285,8 @@ namespace Marabook.Model
             }
             if (Class == ClassVerb)
                 parts.Add(LexiconInflector.VerbGroup(Word) == 0 ? "infinitif seul" : "conjugaison régulière");
+            var demonym = DemonymBase();
+            if (!string.IsNullOrEmpty(demonym)) parts.Add("gentilé " + demonym);
             return string.Join(" · ", parts.ToArray());
         }
 
@@ -271,10 +319,11 @@ namespace Marabook.Model
             var genders = EffectiveGenders();
             if (genders.Length == 0) genders = GendersMasculine;
             var word = Word.Trim();
+            var plural = EffectivePlural();
             if (genders != GendersFeminine)
             {
                 result[0] = word;
-                result[1] = LexiconInflector.Pluralize(word, Plural);
+                result[1] = LexiconInflector.Pluralize(word, plural);
             }
             if (genders != GendersMasculine)
             {
@@ -282,9 +331,29 @@ namespace Marabook.Model
                     : Feminine.Trim().Length > 0 ? Feminine.Trim()
                     : LexiconInflector.DeriveFeminine(word);
                 result[2] = feminine;
-                result[3] = LexiconInflector.Pluralize(feminine, Plural == PluralInvariable ? PluralInvariable : PluralS);
+                result[3] = LexiconInflector.Pluralize(feminine, plural == PluralInvariable ? PluralInvariable : PluralS);
             }
             return result;
+        }
+
+        /// <summary>Les formes du gentilé dérivé (01/10) : masc. sg., masc.
+        /// pl., fém. sg., fém. pl. — en minuscule (l'adjectif : « une rue
+        /// mànisienne ») et à majuscule initiale (l'habitant : « les
+        /// Mànisiens »). Vide sans gentilé.</summary>
+        public List<string> DemonymForms()
+        {
+            var forms = new List<string>();
+            var masculine = DemonymBase();
+            if (string.IsNullOrEmpty(masculine)) return forms;
+            var feminine = LexiconInflector.DeriveFeminine(masculine);
+            foreach (var form in new[] { masculine, LexiconInflector.Pluralize(masculine, PluralS), feminine, LexiconInflector.Pluralize(feminine, PluralS) })
+            {
+                if (string.IsNullOrEmpty(form)) continue;
+                if (!forms.Contains(form)) forms.Add(form);
+                var capital = LexiconInflector.Capitalize(form);
+                if (!forms.Contains(capital)) forms.Add(capital);
+            }
+            return forms;
         }
 
         /// <summary>Toutes les formes que le correcteur accepte pour cette
@@ -313,7 +382,8 @@ namespace Marabook.Model
                 Plural = Plural, Feminine = Feminine,
                 Definition = Definition, Note = Note,
                 Genders = Genders, MascSg = MascSg, MascPl = MascPl, FemSg = FemSg, FemPl = FemPl,
-                Traits = new List<string>(Traits), ProperKind = ProperKind, NeedsReview = NeedsReview
+                Traits = new List<string>(Traits), ProperKind = ProperKind, NeedsReview = NeedsReview,
+                DemonymSuffix = DemonymSuffix, DemonymForm = DemonymForm
             };
         }
 
@@ -328,6 +398,7 @@ namespace Marabook.Model
             // Les clés de l'ancien format en miroir : une version d'avant lit
             // encore le genre et le féminin de l'entrée.
             var genders = EffectiveGenders();
+            if (genders.Length == 0 && (Genders == GendersMasculine || Genders == GendersFeminine)) genders = Genders; // un nom propre sans flexion garde son genre en miroir (01/10)
             var mirrorGender = genders == GendersMasculine ? "m" : genders == GendersFeminine ? "f" : Gender;
             if (mirrorGender.Length > 0) node["gender"] = mirrorGender;
             if (Plural.Length > 0) node["plural"] = Plural;
@@ -343,6 +414,8 @@ namespace Marabook.Model
             if (Traits.Count > 0) node["traits"] = new List<object>(Traits.ToArray());
             if (ProperKind.Length > 0) node["properKind"] = ProperKind;
             if (NeedsReview) node["review"] = true;
+            if (DemonymSuffix.Length > 0) node["gentileSuffix"] = DemonymSuffix;
+            if (DemonymForm.Length > 0) node["gentile"] = DemonymForm;
             return node;
         }
 
@@ -385,6 +458,8 @@ namespace Marabook.Model
                 }
             entry.ProperKind = Json.AsString(Json.Field(node, "properKind")) ?? "";
             entry.NeedsReview = Json.AsBool(Json.Field(node, "review"), false);
+            entry.DemonymSuffix = Json.AsString(Json.Field(node, "gentileSuffix")) ?? "";
+            entry.DemonymForm = Json.AsString(Json.Field(node, "gentile")) ?? "";
             return entry;
         }
 
@@ -493,15 +568,59 @@ namespace Marabook.Model
             {
                 var derived = entry.DerivedForms();
                 var explicitForms = new[] { entry.MascSg, entry.MascPl, entry.FemSg, entry.FemPl };
+                var flexion = new List<string>();
                 for (var i = 0; i < 4; i++)
                 {
                     var posed = (explicitForms[i] ?? "").Trim();
-                    Add(forms, posed.Length > 0 ? posed : derived[i]);
+                    Add(flexion, posed.Length > 0 ? posed : derived[i]);
                 }
+                foreach (var form in flexion) Add(forms, form);
+                // La nature change les formes (01/10) : un nom d'habitant
+                // (adjectif) s'écrit aussi avec la majuscule de l'habitant ;
+                // un gentilé (nom propre) s'écrit aussi en minuscule, l'adjectif.
+                if (entry.Class == LexiconEntry.ClassAdjective && entry.HasTrait("demonym"))
+                    foreach (var form in flexion) Add(forms, Capitalize(form));
+                if (entry.Class == LexiconEntry.ClassProper && entry.ProperKind == LexiconEntry.ProperDemonym)
+                    foreach (var form in flexion) Add(forms, Uncapitalize(form));
             }
             else if (entry.Class == LexiconEntry.ClassVerb)
                 foreach (var form in Conjugate(word)) Add(forms, form);
+            foreach (var form in entry.DemonymForms()) Add(forms, form);
             return forms;
+        }
+
+        /// <summary>Majuscule initiale (« mànisien » → « Mànisien »).</summary>
+        public static string Capitalize(string form)
+        {
+            if (string.IsNullOrEmpty(form)) return form;
+            return char.ToUpperInvariant(form[0]) + form.Substring(1);
+        }
+
+        /// <summary>Minuscule initiale (« Mànisien » → « mànisien »).</summary>
+        public static string Uncapitalize(string form)
+        {
+            if (string.IsNullOrEmpty(form)) return form;
+            return char.ToLowerInvariant(form[0]) + form.Substring(1);
+        }
+
+        /// <summary>Le gentilé masculin singulier dérivé d'un nom de lieu et
+        /// d'un suffixe (01/10) : le mot en minuscules, sa voyelle finale
+        /// muette retirée (Rome → romain, Nantes → nantais, Mexico →
+        /// mexicain), le suffixe collé — Mànis → mànisien. La règle se trompe
+        /// sur les gentilés irréguliers (Bordeaux, Saint-Malo…) : la forme se
+        /// pose alors à la main.</summary>
+        public static string DeriveDemonym(string word, string suffix)
+        {
+            var stem = (word ?? "").Trim().ToLowerInvariant();
+            var ending = (suffix ?? "").Trim().TrimStart('-').ToLowerInvariant();
+            if (stem.Length == 0 || ending.Length == 0) return null;
+            if (stem.Length > 4 && stem.EndsWith("es")) stem = stem.Substring(0, stem.Length - 2);
+            else if (stem.Length > 3 && (stem.EndsWith("e") || stem.EndsWith("a") || stem.EndsWith("o")))
+                stem = stem.Substring(0, stem.Length - 1);
+            // Deux voyelles identiques à la jointure (Mànisi + ien) : une seule.
+            if (stem.Length > 0 && ending.Length > 0 && stem[stem.Length - 1] == ending[0] && "aeiou".IndexOf(ending[0]) >= 0)
+                stem = stem.Substring(0, stem.Length - 1);
+            return stem + ending;
         }
 
         private static void Add(List<string> forms, string form)

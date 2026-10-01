@@ -46,6 +46,18 @@ namespace Marabook.Model
         public string FontFamily = "Times New Roman";
         public double FontSize = 16; // px: 16 px = 12 pt
         public bool Bold, Italic;
+        /// <summary>La variante de police (01/10) : la graisse OpenType
+        /// demandée en clair (« Light », « Medium », « Bold »… — TextWeights)
+        /// quand la famille installée porte de vraies graisses ; null = selon
+        /// la case Gras (400 ou 700, gras émulé si la face manque).</summary>
+        public string Weight;
+
+        /// <summary>La graisse effective du style : la variante posée, sinon
+        /// 700 pour Gras, 400 sinon.</summary>
+        public int EffectiveWeight()
+        {
+            return Weight != null ? TextWeights.Parse(Weight) : (Bold ? TextWeights.Bold : TextWeights.Normal);
+        }
         public string Color;              // "#RRGGBB", null = automatic
         public bool Ligatures = true;
         public double LineHeight = 19.2;  // px: 14,4 pt — leading, InDesign-style

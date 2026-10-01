@@ -93,6 +93,8 @@ namespace Marabook.App
         private FontPicker _fontCombo; // le sélecteur partagé du ruban (0.50.0)
         private TextBox _sizeBox, _leadingBox, _colorBox;
         private CheckBox _boldCheck, _italicCheck, _ligaturesCheck;
+        private ComboBox _weightCombo;   // la variante de police (01/10) : les graisses installées
+        private TextBlock _weightHint;
         // Paragraphe
         private ComboBox _alignCombo;
         private TextBox _leftBox, _rightBox, _firstBox, _lastBox, _beforeBox, _afterBox;
@@ -225,6 +227,33 @@ namespace Marabook.App
             _fontCombo = new FontPicker { [ToolTip.TipProperty] = "Police du style — tapez un nom puis Entrée, ou parcourez aux flèches" };
             form.Children.Add(FormRow("Police", _fontCombo));
 
+            // La variante de police (01/10) : les graisses réellement
+            // installées de la famille (Léger, Moyen, Demi-gras…) — quand la
+            // police en a, on les demande telles quelles au lieu de forcer
+            // la case Gras (qui émule). « Selon la case Gras » = l'ancien
+            // comportement.
+            var weightRow = new StackPanel { Orientation = Orientation.Horizontal };
+            _weightCombo = new ComboBox
+            {
+                MinWidth = 190,
+                VerticalAlignment = VerticalAlignment.Center,
+                [ToolTip.TipProperty] = "La graisse installée à employer — une variante posée remplace la case Gras"
+            };
+            weightRow.Children.Add(_weightCombo);
+            _weightHint = new TextBlock
+            {
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 0, 0)
+            };
+            weightRow.Children.Add(_weightHint);
+            form.Children.Add(FormRow("Variante", weightRow));
+            _fontCombo.FontChosen += delegate(string name, bool preview)
+            {
+                if (!preview && !_syncing) RefreshWeightChoices(name, _current == null ? null : _current.Weight);
+            };
+
             var sizeRow = new StackPanel { Orientation = Orientation.Horizontal };
             sizeRow.Children.Add(_sizeBox = new TextBox { Width = 60 });
             _boldCheck = new CheckBox { Content = "Gras", Margin = new Thickness(16, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
@@ -333,8 +362,8 @@ namespace Marabook.App
             form.Children.Add(grid);
 
             form.Children.Add(FormRow("Valeur d'interligne auto (%)", _autoLeadingBox = Small()));
-            form.Children.Add(Note("Copie d'InDesign : ces plages guident le compositeur de\n" +
-                       "paragraphe de l'impression (4b) — l'écran suit la justification WPF."));
+            form.Children.Add(Note("Ces plages guident le compositeur de paragraphe : la justification\n" +
+                       "resserre ou élargit les espaces entre ces bornes, à l'écran comme à l'impression."));
             return form;
         }
 
@@ -484,7 +513,9 @@ namespace Marabook.App
         }
 
         /// <summary>La ligne d'un style : l'icône de sa portée (livre,
-        /// document — rien en global) puis son nom dans sa police.</summary>
+        /// document — rien en global) puis son nom, dans la police de
+        /// l'interface (01/10 : plus d'aperçu dans la police du style, la
+        /// liste se lit d'un trait).</summary>
         public static Control RowContent(ParagraphStyle style)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal };
@@ -493,7 +524,6 @@ namespace Marabook.App
             row.Children.Add(new TextBlock
             {
                 Text = style.Name,
-                FontFamily = new FontFamily(style.FontFamily),
                 VerticalAlignment = VerticalAlignment.Center
             });
             return row;
@@ -542,8 +572,10 @@ namespace Marabook.App
             // « Corps » est le style de secours : global, toujours.
             _scopeCombo.IsEnabled = style.Id != "body" && (_context.AllowBook || _context.AllowDocument);
             _fontCombo.Select(style.FontFamily);
+            RefreshWeightChoices(style.FontFamily, style.Weight);
             _sizeBox.Text = Pt(style.FontSize);
             _boldCheck.IsChecked = style.Bold;
+            _boldCheck.IsEnabled = style.Weight == null; // une variante posée remplace la case
             _italicCheck.IsChecked = style.Italic;
             _leadingBox.Text = Pt(style.LineHeight);
             _ligaturesCheck.IsChecked = style.Ligatures;
@@ -582,6 +614,44 @@ namespace Marabook.App
             _syncing = false;
         }
 
+        /// <summary>Rebâtit le combo des variantes pour une famille (01/10) :
+        /// « Selon la case Gras », puis chaque graisse installée ; la variante
+        /// du style est resélectionnée (gardée même si la police ne l'offre
+        /// plus ici : un autre poste l'avait). Une police à une seule graisse
+        /// laisse le combo éteint.</summary>
+        private void RefreshWeightChoices(string family, string selected)
+        {
+            if (_weightCombo == null) return;
+            var was = _syncing;
+            _syncing = true;
+            try
+            {
+                _weightCombo.Items.Clear();
+                var auto = new ComboBoxItem { Content = "Selon la case Gras", Tag = null };
+                _weightCombo.Items.Add(auto);
+                var weights = FontCatalog.RealWeights(family);
+                ComboBoxItem match = null;
+                var wanted = selected == null ? -1 : TextWeights.Parse(selected);
+                foreach (var weight in weights)
+                {
+                    var item = new ComboBoxItem { Content = TextWeights.Label(weight) + " (" + weight + ")", Tag = TextWeights.StyleName(weight) };
+                    _weightCombo.Items.Add(item);
+                    if (weight == wanted) match = item;
+                }
+                if (selected != null && match == null)
+                {
+                    match = new ComboBoxItem { Content = TextWeights.Label(wanted) + " (" + wanted + ") — non installée ici", Tag = selected };
+                    _weightCombo.Items.Add(match);
+                }
+                _weightCombo.SelectedItem = match ?? auto;
+                var several = weights.Count > 1;
+                _weightCombo.IsEnabled = several || match != null;
+                _weightHint.Text = several ? "les graisses installées de cette police"
+                    : "une seule graisse installée : la case Gras l'émule";
+            }
+            finally { _syncing = was; }
+        }
+
         /// <summary>La portée choisie dans le combo devient celle du style.</summary>
         private void ApplyScope()
         {
@@ -606,6 +676,9 @@ namespace Marabook.App
             _current.FontSize = FromPt(_sizeBox.Text, _current.FontSize, 4, 150);
             _current.Bold = _boldCheck.IsChecked == true;
             _current.Italic = _italicCheck.IsChecked == true;
+            var chosenWeight = _weightCombo.SelectedItem as ComboBoxItem;
+            _current.Weight = chosenWeight == null ? null : chosenWeight.Tag as string;
+            _boldCheck.IsEnabled = _current.Weight == null;
             _current.LineHeight = FromPt(_leadingBox.Text, _current.LineHeight, 0, 200);
             _current.Ligatures = _ligaturesCheck.IsChecked == true;
             var color = (_colorBox.Text ?? "").Trim();

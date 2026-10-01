@@ -42,6 +42,9 @@ namespace Marabook.App
         private readonly StackPanel _natureHost, _flexion;
         private readonly CheckBox _invariable;
         private readonly LexiconEntry _initial;
+        private StackPanel _demonymPanel;
+        private CheckBox _demonymCheck;
+        private TextBox _demonymSuffix, _demonymForm;
         private bool _accepted, _syncing;
 
         private LexiconEntryDialog(Window owner, LexiconEntry initial, bool projectScope, bool allowScope,
@@ -151,7 +154,9 @@ namespace Marabook.App
             _flexion = new StackPanel();
             _flexion.Children.Add(Label("Flexion :"));
             var genders = new WrapPanel();
-            var initialGenders = initial == null ? "" : initial.EffectiveGenders();
+            // Une entrée neuve part au masculin (01/10) : un nom, le cas le
+            // plus fréquent, ne demande plus un clic de plus.
+            var initialGenders = initial == null ? LexiconEntry.GendersMasculine : initial.EffectiveGenders();
             foreach (var pair in new[] { new[] { LexiconEntry.GendersBoth, "Masculin et féminin" }, new[] { LexiconEntry.GendersMasculine, "Masculin" }, new[] { LexiconEntry.GendersFeminine, "Féminin" } })
             {
                 var radio = new RadioButton
@@ -281,7 +286,21 @@ namespace Marabook.App
                 };
                 _traitBoxes[trait.Key] = box;
                 var traitRef = trait;
-                box.IsCheckedChanged += delegate { UpdateChildren(traitRef.Key); };
+                box.IsCheckedChanged += delegate
+                {
+                    UpdateChildren(traitRef.Key);
+                    if (_syncing || _forms[3] == null) return;
+                    // La nature change les formes (01/10) : une personne, une
+                    // fonction, un animal se déclinent aux deux genres (le
+                    // masculin seul posé par défaut cède) ; une entité non
+                    // comptable n'a pas de pluriel ; un nom d'habitant prend
+                    // aussi sa majuscule — RefreshForms relit tout.
+                    if (box.IsChecked == true
+                        && (traitRef.Key == "person" || traitRef.Key == "role" || traitRef.Key == "animal")
+                        && SelectedGenders() == LexiconEntry.GendersMasculine)
+                        _genderRadios[LexiconEntry.GendersBoth].IsChecked = true;
+                    RefreshForms();
+                };
                 host.Children.Add(box);
             }
             foreach (var trait in LexiconEntry.TraitsFor(cls)) UpdateChildren(trait.Key);
@@ -333,12 +352,85 @@ namespace Marabook.App
                         Margin = new Thickness(0, 2, 14, 0)
                     };
                     _traitBoxes[trait.Key] = box;
+                    box.IsCheckedChanged += delegate { if (!_syncing) RefreshForms(); };
                     children.Children.Add(box);
                 }
                 if (children.Children.Count > 0) host.Children.Add(children);
             }
+            host.Children.Add(BuildDemonymPanel(initial));
             UpdateProperChildren();
             return host;
+        }
+
+        /// <summary>Le gentilé dérivé d'un lieu (01/10) : une case, le suffixe
+        /// (tapé, ou l'une des préconfigurations en chips), la forme masculine
+        /// posée si la règle se trompe. Les formes entrent dans l'aperçu.</summary>
+        private StackPanel BuildDemonymPanel(LexiconEntry initial)
+        {
+            _demonymPanel = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+            var initialSuffix = initial == null ? "" : initial.DemonymSuffix.Trim();
+            _demonymCheck = new CheckBox
+            {
+                Content = "Dériver le gentilé (les habitants et l'adjectif : Mànis → Mànisien, mànisienne…)",
+                IsChecked = initialSuffix.Length > 0
+            };
+            _demonymCheck.IsCheckedChanged += delegate
+            {
+                if (_syncing) return;
+                if (_demonymCheck.IsChecked == true && (_demonymSuffix.Text ?? "").Trim().Length == 0)
+                    _demonymSuffix.Text = LexiconEntry.DemonymSuffixes[0];
+                UpdateDemonymState();
+                RefreshForms();
+            };
+            _demonymPanel.Children.Add(_demonymCheck);
+
+            var row = new WrapPanel { Margin = new Thickness(26, 4, 0, 0) };
+            row.Children.Add(new TextBlock { Text = "Suffixe :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
+            _demonymSuffix = new TextBox
+            {
+                Width = 64,
+                Text = initialSuffix,
+                Watermark = "ien",
+                Margin = new Thickness(0, 0, 8, 4),
+                [ToolTip.TipProperty] = "Le suffixe collé au nom du lieu — l'une des préconfigurations, ou le vôtre"
+            };
+            _demonymSuffix.TextChanged += delegate { if (!_syncing) RefreshForms(); };
+            row.Children.Add(_demonymSuffix);
+            foreach (var preset in LexiconEntry.DemonymSuffixes)
+            {
+                var suffix = preset;
+                var chip = Buttons.Text("-" + preset, "Suffixe « -" + preset + " »", Buttons.Compact, Buttons.Look.Outline);
+                chip.Margin = new Thickness(0, 0, 4, 4);
+                chip.Click += delegate { _demonymSuffix.Text = suffix; };
+                row.Children.Add(chip);
+            }
+            _demonymPanel.Children.Add(row);
+
+            var formRow = new DockPanel { Margin = new Thickness(26, 2, 0, 0) };
+            formRow.Children.Add(new TextBlock { Text = "Forme masculine :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0), [DockPanel.DockProperty] = Dock.Left });
+            _demonymForm = new TextBox
+            {
+                Text = initial == null ? "" : initial.DemonymForm,
+                [ToolTip.TipProperty] = "Vide : la forme dérivée par la règle (en filigrane) ; tapez-la si la règle se trompe (Bordeaux → bordelais)"
+            };
+            _demonymForm.TextChanged += delegate { if (!_syncing) RefreshForms(); };
+            formRow.Children.Add(_demonymForm);
+            _demonymPanel.Children.Add(formRow);
+            UpdateDemonymState();
+            return _demonymPanel;
+        }
+
+        private void UpdateDemonymState()
+        {
+            if (_demonymPanel == null) return;
+            var on = _demonymCheck.IsChecked == true;
+            _demonymSuffix.IsEnabled = on;
+            _demonymForm.IsEnabled = on;
+            foreach (var child in ((WrapPanel)_demonymPanel.Children[1]).Children)
+            {
+                var chip = child as Button;
+                if (chip != null) chip.IsEnabled = on;
+            }
         }
 
         private void UpdateProperChildren()
@@ -350,6 +442,25 @@ namespace Marabook.App
                 if (trait.ProperKind == null || !_traitBoxes.TryGetValue(trait.Key, out box)) continue;
                 box.IsEnabled = trait.ProperKind == kind;
                 if (trait.ProperKind != kind) box.IsChecked = false;
+            }
+            if (_demonymPanel != null) _demonymPanel.IsVisible = LexiconEntry.AllowsDemonym(kind) ? true : false;
+            // Un gentilé se décline aux deux genres (Mànisien, Mànisienne) ;
+            // un autre nom propre ne se fléchit pas (01/10).
+            if (kind == LexiconEntry.ProperDemonym && !_syncing && _forms[3] != null)
+            {
+                _syncing = true;
+                try
+                {
+                    if (SelectedGenders().Length == 0 || SelectedGenders() == LexiconEntry.GendersMasculine)
+                        _genderRadios[LexiconEntry.GendersBoth].IsChecked = true;
+                    _invariable.IsChecked = false;
+                }
+                finally { _syncing = false; }
+            }
+            if (_forms[3] != null)
+            {
+                UpdateVisibility();
+                RefreshForms();
             }
         }
 
@@ -384,15 +495,25 @@ namespace Marabook.App
             _syncing = true;
             try
             {
-                // Un nom propre est invariable d'office (29/09), un adjectif se
-                // décline aux deux genres : des départs, modifiables ensuite.
-                if (cls == LexiconEntry.ClassProper) _invariable.IsChecked = true;
+                // Un adjectif se décline aux deux genres, un nom part au
+                // masculin : des départs, modifiables ensuite. Un nom propre
+                // ne se fléchit plus (01/10), sauf le gentilé (UpdateProperChildren).
                 if (cls == LexiconEntry.ClassAdjective && SelectedGenders().Length == 0) _genderRadios[LexiconEntry.GendersBoth].IsChecked = true;
                 if (cls == LexiconEntry.ClassNoun && SelectedGenders().Length == 0) _genderRadios[LexiconEntry.GendersMasculine].IsChecked = true;
             }
             finally { _syncing = false; }
+            if (cls == LexiconEntry.ClassProper) UpdateProperChildren();
             UpdateVisibility();
             RefreshForms();
+        }
+
+        /// <summary>La flexion s'affiche pour un nom, un adjectif, un gentilé —
+        /// pas pour un nom de famille, un prénom, un lieu… (01/10).</summary>
+        private bool FlexionApplies()
+        {
+            var cls = SelectedClass();
+            return cls == LexiconEntry.ClassNoun || cls == LexiconEntry.ClassAdjective
+                || (cls == LexiconEntry.ClassProper && SelectedProperKind() == LexiconEntry.ProperDemonym);
         }
 
         private void UpdateVisibility()
@@ -401,8 +522,7 @@ namespace Marabook.App
             var hasNature = _naturePanels.ContainsKey(cls);
             _natureHost.IsVisible = hasNature ? true : false;
             foreach (var pair in _naturePanels) pair.Value.IsVisible = pair.Key == cls ? true : false;
-            var flexion = cls == LexiconEntry.ClassNoun || cls == LexiconEntry.ClassAdjective || cls == LexiconEntry.ClassProper;
-            _flexion.IsVisible = flexion ? true : false;
+            _flexion.IsVisible = FlexionApplies() ? true : false;
         }
 
         /// <summary>Les quatre champs : ceux que la flexion choisie n'a pas
@@ -421,26 +541,40 @@ namespace Marabook.App
                 _forms[i].IsEnabled = enabled;
                 _forms[i].Watermark = !enabled ? "" : derived[i] ?? (i % 2 == 1 ? "(pas de pluriel)" : "");
             }
+            // Une entité non comptable n'a pas de pluriel : la case le dit.
+            _invariable.IsEnabled = !(probe.Class == LexiconEntry.ClassNoun && probe.HasTrait("uncountable"));
+            if (_demonymForm != null)
+            {
+                probe.DemonymForm = "";
+                _demonymForm.Watermark = probe.DemonymBase() ?? "";
+            }
             RefreshPreview();
         }
 
         private LexiconEntry Build()
         {
             var cls = SelectedClass();
+            var flexion = FlexionApplies();
             var entry = new LexiconEntry
             {
                 Word = (_word.Text ?? "").Trim(),
                 Class = cls,
-                Genders = cls == LexiconEntry.ClassNoun || cls == LexiconEntry.ClassAdjective || cls == LexiconEntry.ClassProper ? SelectedGenders() : "",
-                Plural = _invariable.IsChecked == true ? LexiconEntry.PluralInvariable : (_initial != null && _initial.Plural == LexiconEntry.PluralX ? LexiconEntry.PluralX : ""),
-                MascSg = (_forms[0].Text ?? "").Trim(),
-                MascPl = (_forms[1].Text ?? "").Trim(),
-                FemSg = (_forms[2].Text ?? "").Trim(),
-                FemPl = (_forms[3].Text ?? "").Trim(),
+                Genders = flexion ? SelectedGenders() : "",
+                Plural = !flexion ? "" : _invariable.IsChecked == true ? LexiconEntry.PluralInvariable : (_initial != null && _initial.Plural == LexiconEntry.PluralX ? LexiconEntry.PluralX : ""),
+                MascSg = flexion ? (_forms[0].Text ?? "").Trim() : "",
+                MascPl = flexion ? (_forms[1].Text ?? "").Trim() : "",
+                FemSg = flexion ? (_forms[2].Text ?? "").Trim() : "",
+                FemPl = flexion ? (_forms[3].Text ?? "").Trim() : "",
                 Definition = (_definition.Text ?? "").Trim(),
                 Note = (_note.Text ?? "").Trim(),
                 ProperKind = cls == LexiconEntry.ClassProper ? SelectedProperKind() : ""
             };
+            if (cls == LexiconEntry.ClassProper && LexiconEntry.AllowsDemonym(entry.ProperKind)
+                && _demonymCheck != null && _demonymCheck.IsChecked == true)
+            {
+                entry.DemonymSuffix = (_demonymSuffix.Text ?? "").Trim().TrimStart('-');
+                entry.DemonymForm = (_demonymForm.Text ?? "").Trim();
+            }
             foreach (var trait in LexiconEntry.TraitCatalog)
             {
                 CheckBox box;

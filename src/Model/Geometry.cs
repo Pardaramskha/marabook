@@ -186,12 +186,51 @@ namespace Marabook.Model
             switch (name)
             {
                 case "Thin": return 100;
+                case "ExtraLight": return 200;
                 case "Light": return 300;
+                case "Regular": return Normal;
                 case "Medium": return 500;
                 case "SemiBold": return 600;
                 case "Bold": return Bold;
+                case "ExtraBold": return 800;
                 case "Black": return 900;
                 default: return Normal;
+            }
+        }
+
+        /// <summary>Le nom persisté d'une graisse de STYLE (01/10) : toutes
+        /// les graisses ont un nom, Regular et Bold compris (un style dit sa
+        /// graisse en clair, un run ne nomme que les fines).</summary>
+        public static string StyleName(int weight)
+        {
+            switch (weight)
+            {
+                case 100: return "Thin";
+                case 200: return "ExtraLight";
+                case 300: return "Light";
+                case 500: return "Medium";
+                case 600: return "SemiBold";
+                case 700: return "Bold";
+                case 800: return "ExtraBold";
+                case 900: return "Black";
+                default: return "Regular";
+            }
+        }
+
+        /// <summary>Le libellé français d'une graisse OpenType.</summary>
+        public static string Label(int weight)
+        {
+            switch (weight)
+            {
+                case 100: return "Fin";
+                case 200: return "Extra-léger";
+                case 300: return "Léger";
+                case 500: return "Moyen";
+                case 600: return "Demi-gras";
+                case 700: return "Gras";
+                case 800: return "Extra-gras";
+                case 900: return "Noir";
+                default: return "Normal";
             }
         }
 
@@ -202,9 +241,11 @@ namespace Marabook.Model
             switch (weight)
             {
                 case 100: return "Thin";
+                case 200: return "ExtraLight";
                 case 300: return "Light";
                 case 500: return "Medium";
                 case 600: return "SemiBold";
+                case 800: return "ExtraBold";
                 case 900: return "Black";
                 default: return null;
             }

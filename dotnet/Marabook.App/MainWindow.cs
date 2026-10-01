@@ -131,7 +131,7 @@ namespace Marabook.App
         private Slider _zoomSlider;   // 50–300 %, pas de 10 (batch 34)
         private bool _syncingZoom;
         private TextBlock _statusWarmup; // préchauffage de l'ouverture (b30)
-        private DispatcherTimer _statsTimer, _autosaveTimer;
+        private DispatcherTimer _statsTimer, _autosaveTimer, _binderRebuildTimer;
 
         private MenuItem _undoMenu, _redoMenu, _darkMenu, _binderMenu, _inspectorMenu, _recentMenu, _rulersMenu;
         // La feuille de styles telle qu'elle était AVANT le changement en
@@ -441,6 +441,7 @@ namespace Marabook.App
             var help = new MenuItem { Header = "Aid_e" };
             help.Items.Add(Entry(null, "Vérifier les mises à jour…", CheckUpdates));
             help.Items.Add(Entry(null, "Rapports de plantage…", ShowCrashReports));
+            help.Items.Add(Entry(null, "Ouvrir le dossier d'installation", OpenInstallFolder));
             help.Items.Add(new Separator());
             help.Items.Add(Entry(null, "Réinitialiser les succès…", ResetAchievements));
             help.Items.Add(new Separator());
@@ -716,7 +717,16 @@ namespace Marabook.App
             {
                 _sheetView.ApplyPageSetup(_project.Page);
                 MarkDirty();
-                _binder.Rebuild(); // book alert chips follow margin edits
+                // Les pastilles d'alerte des livres suivent les marges — mais la
+                // Pile entière ne se rebâtit pas à chaque cran de la molette
+                // (01/10, performance) : un seul Rebuild, 300 ms après le dernier.
+                if (_binderRebuildTimer == null)
+                {
+                    _binderRebuildTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+                    _binderRebuildTimer.Tick += delegate { _binderRebuildTimer.Stop(); _binder.Rebuild(); };
+                }
+                _binderRebuildTimer.Stop();
+                _binderRebuildTimer.Start();
             };
             _editor.PageInfoChanged += delegate(int page, int pages)
             {
@@ -2235,6 +2245,8 @@ namespace Marabook.App
                     AppName, MessageButtons.OK, MessageIcon.Warning);
                 return;
             }
+            PlotFile.SavePlan plan = null;
+            var path = _path;
             try
             {
                 // Every editable view must flush before writing: the sheet body
@@ -2244,26 +2256,87 @@ namespace Marabook.App
                 _busy.Run(delegate
                 {
                     CommitActive();
-                    PlotFile.Save(_project, _path);
+                    // La sérialisation lit le modèle : sur le fil de l'interface.
+                    plan = PlotFile.Prepare(_project);
                 });
-                _dirty = false;
-                LastSaveError = null;
-                DropRecovery(); // le .plot complet est à jour : le secours est périmé (18/09)
-                AppSettings.AddRecentFile(_path);
-                AppSettings.Save();
-                UpdateRecentMenu();
-                UpdateTitle();
-                UpdateInspector();
-                try { _lastSavedBytes = new FileInfo(_path).Length; } catch (IOException) { }
-                _dirtySince = null;
-                UnlockAchievement(Achievements.FirstProject); // le premier projet enregistré
-                ScheduleAchievementCheck(); // « Damn boi, he thicc! »
-                _autosaveWarned = false;
-                // Le toast « enregistré » (0.50.0) : à la demande explicite
-                // seulement — l'automatique reste muet.
-                if (!silent) ShowSavedToast();
             }
             catch (Exception error)
+            {
+                ReportSaveError(error, silent);
+                return;
+            }
+            _dirty = false;
+            LastSaveError = null;
+            DropRecovery(); // le .plot complet est à jour : le secours est périmé (18/09)
+            AppSettings.AddRecentFile(path);
+            AppSettings.Save();
+            UpdateRecentMenu();
+            UpdateTitle();
+            UpdateInspector();
+            _dirtySince = null;
+            UnlockAchievement(Achievements.FirstProject); // le premier projet enregistré
+            ScheduleAchievementCheck(); // « Damn boi, he thicc! »
+            _autosaveWarned = false;
+
+            // L'ÉCRITURE HORS DU FIL DE L'INTERFACE (01/10, performance) : le
+            // deflate et le disque tournent sur un fil de fond, l'auteur reprend
+            // la frappe tout de suite — l'anneau tourne jusqu'au bout. Les
+            // écritures s'enchaînent dans l'ordre (un Ctrl+S pendant une
+            // sauvegarde automatique attend la précédente) ; la fermeture et
+            // les sondes attendent SaveCompletion().
+            var previous = _saveTask ?? Task.CompletedTask;
+            var done = new TaskCompletionSource<bool>();
+            _saveDone = done;
+            _busy.Begin();
+            var task = Task.Run(delegate
+            {
+                try { previous.Wait(); } catch (Exception) { }
+                PlotFile.Write(plan, path);
+            });
+            _saveTask = task;
+            task.ContinueWith(delegate(Task finished)
+            {
+                Dispatcher.UIThread.Post(delegate
+                {
+                    try { OnSaveWritten(finished, path, silent); }
+                    finally { done.TrySetResult(true); }
+                });
+            });
+        }
+
+        private Task _saveTask;                      // l'écriture en cours, ou null
+        private TaskCompletionSource<bool> _saveDone; // levé quand son verdict est traité
+
+        /// <summary>Attend que la dernière écriture lancée soit terminée ET
+        /// jugée (fermeture de la fenêtre, sondes, « Enregistrer puis… »).</summary>
+        public Task SaveCompletion()
+        {
+            return _saveDone == null ? Task.CompletedTask : _saveDone.Task;
+        }
+
+        /// <summary>Le verdict d'une écriture de fond : réussie, la taille du
+        /// fichier et le toast ; échouée, le projet redevient modifié et
+        /// l'erreur se dit comme avant.</summary>
+        private void OnSaveWritten(Task task, string path, bool silent)
+        {
+            _busy.End();
+            if (task.IsFaulted)
+            {
+                var error = task.Exception != null && task.Exception.InnerException != null ? task.Exception.InnerException : (Exception)task.Exception;
+                _dirty = true;
+                _recoveryDirty = true;
+                UpdateTitle();
+                ReportSaveError(error, silent);
+                return;
+            }
+            try { _lastSavedBytes = new FileInfo(path).Length; } catch (IOException) { }
+            // Le toast « enregistré » (0.50.0) : à la demande explicite
+            // seulement — l'automatique reste muet.
+            if (!silent) ShowSavedToast();
+        }
+
+        private void ReportSaveError(Exception error, bool silent)
+        {
             {
                 // La sonde lit l'échec ; la console garde la pile complète
                 // (un « Object reference… » sans pile ne dit rien, 27/09).
@@ -2338,7 +2411,8 @@ namespace Marabook.App
             if (await answer == MessageResult.Yes)
             {
                 DoSave();
-                return !_dirty; // save may have been cancelled in the Save As dialog
+                await SaveCompletion(); // l'écriture de fond, jusqu'au verdict (01/10)
+                return !_dirty; // save may have been cancelled in the Save As dialog, or have failed
             }
             return true;
         }
@@ -2351,6 +2425,7 @@ namespace Marabook.App
             {
                 e.Cancel = true;
                 if (!await ConfirmDiscard()) return;
+                await SaveCompletion(); // une écriture de fond encore en route finit avant de quitter (01/10)
                 _closeConfirmed = true;
                 Close();
                 return;
@@ -5391,27 +5466,19 @@ namespace Marabook.App
         private void ShowAbout()
         {
             UnlockAchievement(Achievements.About); // « Enfin quelqu'un qui en a quelque chose à faire ! »
-            MessageDialog.Show(this,
-                AppName + " " + AppVersion + "\n\n" +
-                "Traitement de texte et construction narrative.\n" +
-                "Bêta : pages composées, livres et gabarits, fiches wiki, plans,\n" +
-                "cartes mentales (module), échanges docx/odt/RTF/Markdown/Scrivener,\n" +
-                "EPUB, PDF, impression, correction (orthographe, grammaire, typographie, style),\n" +
-                "versions, secours, succès.\n\n" +
-                "© 2026 Rémi Escamilla — logiciel libre sous licence GNU GPL v3 ou ultérieure\n" +
-                "(fichier LICENSE ; sources : " + Updater.RepositoryUrl + ").\n\n" +
-                "Ressources embarquées :\n" +
-                "• Dictionnaire orthographique français « toutes variantes » v7.7\n" +
-                "  par Olivier R. — licence MPL-2.0 — https://grammalecte.net/\n" +
-                "  (notice complète : dict\\README_dict_fr.txt)\n" +
-                "• Grammalecte 2.3.0, correcteur grammatical par Olivier R.\n" +
-                "  — licence GPL-3.0+ — https://grammalecte.net/\n" +
-                "  (le source Python livré dans grammalecte\\ EST le source)\n" +
-                "• Python " + Correction.Grammalecte.GrammalecteBridge.EmbeddedPythonVersion + " embeddable (runtime de Grammalecte)\n" +
-                "  — licence PSF — https://www.python.org/\n" +
-                "• Icônes Phosphor — licence MIT — https://phosphoricons.com/\n" +
-                "• Icônes Flaticon — https://www.flaticon.com/ (crédit exigé)",
-                "À propos", MessageButtons.OK, MessageIcon.Information);
+            AboutDialog.Show(this);
+        }
+
+        /// <summary>« Ouvrir le dossier d'installation » (Aide, 01/10) : le
+        /// répertoire de l'exécutable dans l'explorateur du système.</summary>
+        private void OpenInstallFolder()
+        {
+            try { AppPlatform.OpenWithShell(AppContext.BaseDirectory); }
+            catch (Exception ex)
+            {
+                MessageDialog.Show(this, "Le dossier d'installation n'a pas pu être ouvert :\n" + ex.Message,
+                    "Dossier d'installation", MessageButtons.OK, MessageIcon.Warning);
+            }
         }
     }
 

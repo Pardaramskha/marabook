@@ -468,7 +468,7 @@ namespace Marabook.Exchange
                   .Append("</w:pPr><w:rPr>")
                   .Append("<w:rFonts w:ascii=\"").Append(Esc(style.FontFamily))
                   .Append("\" w:hAnsi=\"").Append(Esc(style.FontFamily)).Append("\"/>");
-                if (style.Bold) sb.Append("<w:b/>");
+                if (style.EffectiveWeight() >= 600) sb.Append("<w:b/>"); // la variante de police (01/10) : demi-gras et plus = gras Word
                 if (style.Italic) sb.Append("<w:i/>");
                 if (style.Color != null)
                     sb.Append("<w:color w:val=\"").Append(HexVal(style.Color)).Append("\"/>");
