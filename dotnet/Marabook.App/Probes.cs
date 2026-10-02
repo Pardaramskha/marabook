@@ -555,6 +555,46 @@ namespace Marabook.App
                 await Settle();
                 Check(shell.Welcome != null && shell.Welcome.IsVisible, "projet fermé : l'accueil est posé sur la coquille");
                 Check(shell.Welcome.Width >= 640 && shell.Welcome.Height >= 420, "l'accueil fait au moins 640×420 (" + shell.Welcome.Width.ToString("0") + "×" + shell.Welcome.Height.ToString("0") + ")");
+                // — Le statut de mise à jour au pied (02/10) : en sonde, la
+                //   vérification est sautée et le pied le dit ; l'ancien texte
+                //   « la vérification arrive » n'existe plus.
+                TextBlock foot = null;
+                foreach (var block in shell.Welcome.GetVisualDescendants().OfType<TextBlock>())
+                    if (block.Text != null && block.Text.StartsWith("Mise à jour")) foot = block;
+                Check(foot != null && foot.Text.Contains("non vérifiée"), "l'accueil dit que la mise à jour n'est pas vérifiée en sonde (" + (foot == null ? "-" : foot.Text) + ")");
+
+                // — La fenêtre des nouveautés (02/10) : le nom de la version,
+                //   les patch notes rendues depuis le Markdown, le bouton
+                //   d'installation ; « Plus tard » ferme sans installer.
+                var installed = false;
+                var info = new Updater.Info
+                {
+                    Version = "9.9.9",
+                    PageUrl = Updater.RepositoryUrl + "/releases/tag/v9.9.9",
+                    PublishedAt = "2026-10-02T09:12:33Z",
+                    Notes = "## Fonctionnalités\n\n* Une **fenêtre** des nouveautés\n  * et sa sous-liste\n\n## Correctifs\n\n* Le pied de l'accueil"
+                };
+                var notesTask = UpdateNotesDialog.Show(shell.Welcome, info, "1.0.1", false, delegate { installed = true; });
+                await Settle();
+                UpdateNotesDialog notes = null;
+                foreach (var window in ((Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)Avalonia.Application.Current.ApplicationLifetime).Windows)
+                    if (window is UpdateNotesDialog) notes = (UpdateNotesDialog)window;
+                Check(notes != null && notes.IsVisible, "la fenêtre des nouveautés est ouverte");
+                if (notes != null)
+                {
+                    var texts = notes.GetVisualDescendants().OfType<TextBlock>().Select(delegate(TextBlock b) { return b.Text ?? ""; }).ToList();
+                    var inlineTexts = notes.GetVisualDescendants().OfType<TextBlock>()
+                        .SelectMany(delegate(TextBlock b) { return b.Inlines == null ? new string[0] : b.Inlines.OfType<Avalonia.Controls.Documents.Run>().Select(delegate(Avalonia.Controls.Documents.Run r) { return r.Text ?? ""; }); }).ToList();
+                    Check(texts.Any(delegate(string t) { return t == "Marabook 9.9.9"; }), "le nom de la version est en titre");
+                    Check(texts.Any(delegate(string t) { return t.Contains("02/10/2026") && t.Contains("vous avez la 1.0.1"); }), "la date de publication et la version locale sont dites");
+                    Check(inlineTexts.Any(delegate(string t) { return t.Contains("sous-liste"); }) && inlineTexts.Any(delegate(string t) { return t == "fenêtre"; }), "les patch notes sont rendues depuis le Markdown (liste imbriquée, gras)");
+                    Check(FindButton(notes, "Installer") != null, "le bouton « Installer et redémarrer » est là");
+                    var later = FindButton(notes, "Plus tard");
+                    Check(later != null, "le bouton « Plus tard » est là");
+                    if (later != null) later.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else notes.Close();
+                }
+                var chosen = await notesTask;
+                Check(!chosen && !installed, "« Plus tard » ferme sans installer");
             }
             catch (Exception error)
             {
