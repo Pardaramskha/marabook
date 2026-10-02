@@ -16,8 +16,8 @@
     <LangVersion>latest</LangVersion>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ApplicationIcon>..\..\tools\app.ico</ApplicationIcon>
-    <Version>1.0.1</Version>
-    <InformationalVersion>1.0.1</InformationalVersion>
+    <Version>1.0.2</Version>
+    <InformationalVersion>1.0.2</InformationalVersion>
     <SatelliteResourceLanguages>fr</SatelliteResourceLanguages>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <!-- CS4014 : les boîtes de message lancées sans await (« feu et oublie »)

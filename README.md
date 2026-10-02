@@ -98,62 +98,6 @@ Pour les versions suivantes, certaines améliorations sont déjà prévues :
 * Un tutoriel pour les dbéutant.e.s
 * Une petite refonte des textes pour qu'ils vous insultent encore plus
 
-## Patch notes (version 1.0.0)
+## Patch notes
 
-* Fonctionnalités majeures
-  * Portage de l'application sur le moteur Avalonia + version Mac/Linux
-    * L'application tourne sur un nouveau moteur. **De nouveaux bugs sont à prévoir vu que plus de 60% du code a été changé**. Ce portage sert notamment à créer d'une traite les versions Mac et Linux de Marabook.
-  * Ajout des documents hors-livre pour les livres : utile pour les notes ou les lettres d'accompagneemnt. Non sompilés dans les manuscrit ou comptabilisés dans les statistiques du livre
-
-
-* Fonctionnalités mineures
-  * Ajout de "copier sans la mise en forme" et "couper sans la mise en forme" (ctrl+alt+c et ctrl+alt+x).
-  * Ajout du bouton "réinitialiser" pour les styles de paragraphe
-  * Ajout du tri par catégorie, de la pagination et de la sélection rapide dans le dictionnaire
-  * Ajout de la suggestion d'ajout intelligente au dictionnaire (propose des fragments de noms et le contenu des Alias)
-  * Ajout de dialogues de confirmation de suppression pour éviter un CTRL+Z destructif
-  * Les livres peuvent désormais avoir une couleur
-  * On peut désormais classer les fiches de la pile par ordre alphabétique, par dossier
-  * Icônes personnalisés de Game-Icons pour les différentes fiches
-  * En cliquant sur une tuile sans l'ouvrir, on peut désormais voir ses informations générales et les éditer
-  * Ajout d'un bouton de repli pour la Pile
-  * Classification des fiches dans la pile par catégorie
-  * Nouvelles options dans la fenêtre des options de la passe typographique pour changer de standard de dialogue
-  * Nouveaux raccourcis pour les demi-cadratins et les cadratins
-
-
-* Correctifs
-  * Copier et couper gardent désormais la mise ne forme du texte 
-  * Correctif de la hauteur de ligne des liens entre fiches, dans le menu Texte Libre et le panneau Relations des fiches
-  * Correctif sur le changement de nom dynamique des fiches
-  * Correctifs généraux de qualité de vie (clics droits, animations, textes, arrondi des angles)
-  * Amélioration de la qualité de détection des entrées manquantes du dictionnaire (particules, noms communs...)
-  * Correction des combo-box autocomplete pour avoir des suggestions dynamiques (polices, styles)
-  * Correction générale de l'UI du mode sombre
-  * Correction de comportements inégaux de la pile
-Version 0.50.0-beta (26/09/2026)
-
-* Fonctionnalités majeures
-
-  * Refonte complète de l'import d'images dans les documents
-  * Catalogue de polices
-  * Mise en forme : petites majuscules et caractères spéciaux
-  * Ajout d'un modificateur de vitesse de défilement
-
-
-* Fonctionnalités mineures
-
-  * Amélioration de la sélection de texte par-mot
-  * Indicateur de charge/sauvegarde et notifications
-  * Possibilité de mettre en forme les notes de bas de page
-	
-
-* Correctifs
-
-  * Correctif des styles de paragraphe (police et formatage non appliqués)
-  * Correctif du sélecteur de police
-  * Correctif de la sélection de texte
-  * Recharge à chaud des nouvelles polices de caractère
-  * Meilleur sélecteur de polices dans l'éditeur de style de paragraphe
-
-
+Les notes de chaque version sont dans le dossier [patchnotes](patchnotes/) : un fichier par version, repris tel quel comme texte de la release et dans la fenêtre « Nouveautés » de l'application.

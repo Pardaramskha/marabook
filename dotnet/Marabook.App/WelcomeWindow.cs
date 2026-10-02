@@ -22,8 +22,9 @@ namespace Marabook.App
     /// version, les cinq derniers projets en tuiles sur une ligne, la tuile
     /// pointillée « + », les DLC. Elle n'est PAS fermable : elle disparaît
     /// quand un projet s'ouvre, ou avec l'app (Release). Suit la fenêtre
-    /// principale quand elle bouge ou change de taille. La vérification de
-    /// mise à jour arrive avec la livraison (P4).</summary>
+    /// principale quand elle bouge ou change de taille. Au pied, le statut de
+    /// mise à jour (02/10) : « vérification… », « Vous êtes à jour » ou
+    /// « Nouvelle version X disponible » — cliquable, vers les nouveautés.</summary>
     public class WelcomeWindow : Window
     {
         private readonly MainWindow _shell;
@@ -35,6 +36,8 @@ namespace Marabook.App
         private UniformGrid _tiles;
         private Button _openButton;
         private DispatcherTimer _sweep;
+        private TextBlock _updateText;
+        private Border _updateDot;
 
         public WelcomeWindow(MainWindow shell)
         {
@@ -64,6 +67,52 @@ namespace Marabook.App
             Opened += delegate { Fit(); };
             shell.PositionChanged += delegate { Fit(); };
             shell.SizeChanged += delegate { Fit(); };
+            Action refresh = RefreshUpdateStatus;
+            shell.UpdateStateChanged += refresh;
+            Closed += delegate { shell.UpdateStateChanged -= refresh; };
+            RefreshUpdateStatus();
+        }
+
+        /// <summary>Le statut de mise à jour du pied (02/10), relu à chaque pas
+        /// de la coquille : le verdict de GitHub, cliquable quand il y a plus
+        /// récent (la fenêtre des nouveautés : nom de la version, patch notes,
+        /// installer). Ce que dit la vérification en cas d'échec (pas de
+        /// réseau…) s'affiche tel quel, sans bruit.</summary>
+        private void RefreshUpdateStatus()
+        {
+            if (_updateText == null) return;
+            var check = _shell.LastUpdateCheck;
+            var available = check != null && check.Available && check.Latest != null;
+            string text;
+            IBrush color = Chrome.FaintText;
+            IBrush dot = Chrome.Border;
+            if (available)
+            {
+                text = "Nouvelle version " + check.Latest.Version + " disponible"
+                    + (_shell.UpdatePrepared ? ", prête à installer" : "") + " — voir les nouveautés";
+                color = Chrome.Accent;
+                dot = Chrome.Accent;
+            }
+            else if (_shell.UpdateCheckSkipped)
+                text = "Mise à jour : non vérifiée dans ce mode de lancement";
+            else if (check == null)
+                text = _shell.UpdateCheckRunning ? "Mise à jour : vérification…" : "Mise à jour : vérification au lancement…";
+            else if (check.Latest == null)
+                text = "Mise à jour : " + check.Message;
+            else
+            {
+                text = "Vous êtes à jour — Marabook " + AppInfo.Version;
+                color = Chrome.SoftText;
+                dot = Chrome.Ok;
+            }
+            _updateText.Text = text;
+            _updateText.Foreground = color;
+            _updateText.TextDecorations = available ? TextDecorations.Underline : null;
+            _updateText.Cursor = new Cursor(available ? StandardCursorType.Hand : StandardCursorType.Arrow);
+            _updateDot.Background = dot;
+            ToolTip.SetTip(_updateText, available
+                ? "Le nom de la nouvelle version et ses nouveautés — et le bouton pour l'installer"
+                : null);
         }
 
         /// <summary>Un projet est ouvert (ou l'app se ferme) : l'accueil se
@@ -147,16 +196,31 @@ namespace Marabook.App
             });
             root.Children.Add(head);
 
-            // ---- en pied : la mise à jour (P4)
+            // ---- en pied : le statut de mise à jour (02/10), rempli par RefreshUpdateStatus
             var foot = new StackPanel { Orientation = Orientation.Horizontal };
             DockPanel.SetDock(foot, Dock.Bottom);
-            foot.Children.Add(new TextBlock
+            _updateDot = new Border
             {
-                Text = "Mise à jour : la vérification arrive avec la livraison sur trois systèmes.",
+                Width = 8,
+                Height = 8,
+                CornerRadius = new CornerRadius(4),
+                Background = Chrome.Border,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 1, 8, 0)
+            };
+            foot.Children.Add(_updateDot);
+            _updateText = new TextBlock
+            {
                 FontSize = 12,
                 Foreground = Chrome.FaintText,
                 VerticalAlignment = VerticalAlignment.Center
-            });
+            };
+            _updateText.PointerReleased += delegate
+            {
+                var check = _shell.LastUpdateCheck;
+                if (check != null && check.Available) _shell.ShowUpdateNotes(this);
+            };
+            foot.Children.Add(_updateText);
             root.Children.Add(foot);
 
             // ---- au centre : les tuiles, sur UNE ligne

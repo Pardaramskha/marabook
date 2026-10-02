@@ -30,8 +30,9 @@ namespace Marabook.App
     /// recopie les fichiers par-dessus et relance l'exe. Sans WPF : la
     /// vérification tourne sur un thread de fond, l'appelant marshale.
     ///
-    /// TANT QU'AUCUNE RELEASE N'EST PUBLIÉE, la vérification répond « aucune
-    /// version publiée » (404) — l'écran d'accueil le dit sans bruit. Les
+    /// L'écran d'accueil montre le verdict — « Vous êtes à jour » ou « Nouvelle
+    /// version X disponible », cliquable vers UpdateNotesDialog (02/10) ; le
+    /// texte de la release est patchnotes/&lt;version&gt;.md, publié par le workflow. Les
     /// noms des assets suivent la convention de la famille : STABLES, sans
     /// numéro de version (le bouton du README pointe releases/latest).
     ///
@@ -66,7 +67,8 @@ namespace Marabook.App
             public string ZipUrl = "";   // l'archive portable Windows de la release
             public string AssetApiUrl = ""; // l'asset par l'API (dépôt privé : avec jeton, Accept octet-stream)
             public string PageUrl = "";  // la page de la release
-            public string Notes = "";    // le texte de la release (Markdown brut)
+            public string Notes = "";    // le texte de la release (Markdown brut) — les patch notes de Rémi (patchnotes/<version>.md)
+            public string PublishedAt = ""; // « 2026-10-02T09:12:33Z » (02/10)
         }
 
         /// <summary>Le résultat d'une vérification, lisible tel quel.</summary>
@@ -136,7 +138,8 @@ namespace Marabook.App
             {
                 Version = Field(json, "tag_name").TrimStart('v', 'V'),
                 PageUrl = Field(json, "html_url"),
-                Notes = Field(json, "body")
+                Notes = Field(json, "body"),
+                PublishedAt = Field(json, "published_at")
             };
             // L'asset au nom voulu : son URL de téléchargement, et son URL
             // d'API — le dernier champ « url …/releases/assets/N » qui la
