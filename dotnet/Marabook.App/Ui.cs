@@ -25,6 +25,31 @@ namespace Marabook.App
             Dispatcher.UIThread.Post(action, priority);
         }
 
+        // LA TOUCHE DE COMMANDE (02/10) : Ctrl sur Windows et Linux, ⌘ sur
+        // macOS — où Ctrl ne porte presque rien (Ctrl+clic y est le clic
+        // droit). Les réglages gardent « Ctrl+S » sur les trois systèmes ;
+        // c'est ici, au bord de la vue, que « Ctrl » devient la touche du
+        // système : Geo.ToCore/ToAvalonia pour les gestes, HasCommand pour
+        // les tests directs des vues, CommandKey et Keys pour les textes.
+        public static readonly KeyModifiers Command = AppPlatform.IsMac ? KeyModifiers.Meta : KeyModifiers.Control;
+
+        /// <summary>La touche de commande du système est-elle enfoncée ?</summary>
+        public static bool HasCommand(KeyModifiers modifiers)
+        {
+            return (modifiers & Command) != 0;
+        }
+
+        /// <summary>Le nom de la touche de commande dans un texte : « ⌘ » ou « Ctrl »
+        /// (« Ctrl+clic », « ⌘+molette »).</summary>
+        public static readonly string CommandKey = AppPlatform.IsMac ? "⌘" : "Ctrl";
+
+        /// <summary>Un geste au format des réglages (« Ctrl+Shift+N ») tel qu'il
+        /// se lit sur ce système : « Ctrl+Maj+N », ou « ⇧⌘N » sur macOS.</summary>
+        public static string Keys(string gesture)
+        {
+            return Settings.AppSettings.DisplayGesture(gesture);
+        }
+
         // UN SEUL MENU CONTEXTUEL À LA FOIS (29/09) : un clic droit dans
         // l'éditeur pouvait ouvrir un second menu sans fermer le premier,
         // qui restait alors planté à l'écran, sans moyen de le fermer. Tout

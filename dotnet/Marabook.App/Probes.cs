@@ -527,9 +527,14 @@ namespace Marabook.App
                     var masculine = radio("Masculin");
                     var flexionLabel = lexicon.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(t => t.Text == "Flexion :");
                     Check(masculine != null && masculine.IsChecked == true, "un nom neuf part au masculin");
+                    var place = radio("Lieu");
+                    Check(place != null && !place.IsEffectivelyVisible, "un nom : les natures du nom propre sont cachées");
+                    // (02/10) Avalonia coche le nouveau bouton avant de décocher
+                    // l'ancien : la nature doit suivre le type dès ce changement.
                     var proper = radio("Nom propre");
                     if (proper != null) proper.IsChecked = true;
-                    var place = radio("Lieu");
+                    await Settle();
+                    Check(place != null && place.IsEffectivelyVisible, "« Nom propre » : ses natures apparaissent aussitôt");
                     if (place != null) place.IsChecked = true;
                     await Settle();
                     Check(flexionLabel != null && !flexionLabel.IsEffectivelyVisible, "nom propre « Lieu » : la flexion est masquée");

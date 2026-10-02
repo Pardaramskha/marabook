@@ -288,7 +288,7 @@ namespace Marabook.App
             };
             _bodyBox.AddHandler(InputElement.PointerWheelChangedEvent, delegate(object sender, PointerWheelEventArgs e)
             {
-                if ((e.KeyModifiers & KeyModifiers.Control) == 0) return;
+                if (!Ui.HasCommand(e.KeyModifiers)) return;
                 e.Handled = true;
                 var handler = ZoomStepRequested;
                 if (handler != null) handler(Ui.Wheel(e) > 0 ? 10 : -10);
@@ -1470,9 +1470,9 @@ namespace Marabook.App
             // Les icônes de l'éditeur de texte, en boutons CARRÉS (batch 42) ;
             // ce qui n'a pas d'icône dans le jeu reste en lettres, carré aussi.
             var bar = new WrapPanel { Margin = new Thickness(10, 8, 10, 4) };
-            bar.Children.Add(IconTool("bold", "Gras (Ctrl+B)", delegate { Wrap("**", "**"); }));
-            bar.Children.Add(IconTool("italic", "Italique (Ctrl+I)", delegate { Wrap("*", "*"); }));
-            bar.Children.Add(IconTool("underline", "Souligné (Ctrl+U)", delegate { Wrap("<u>", "</u>"); }));
+            bar.Children.Add(IconTool("bold", "Gras (" + Ui.Keys("Ctrl+B") + ")", delegate { Wrap("**", "**"); }));
+            bar.Children.Add(IconTool("italic", "Italique (" + Ui.Keys("Ctrl+I") + ")", delegate { Wrap("*", "*"); }));
+            bar.Children.Add(IconTool("underline", "Souligné (" + Ui.Keys("Ctrl+U") + ")", delegate { Wrap("<u>", "</u>"); }));
             bar.Children.Add(IconTool("strikethrough", "Barré", delegate { Wrap("~~", "~~"); }));
             bar.Children.Add(Gap());
             bar.Children.Add(TextTool("H1", "Titre de niveau 1", delegate { ApplyHeading(1); }));
@@ -1489,7 +1489,7 @@ namespace Marabook.App
             bar.Children.Add(IconTool("horizontal-rule", "Filet horizontal", delegate { InsertRule(); }));
             bar.Children.Add(TextTool("🔗", "Lien hypertexte", delegate { InsertLink(); }));
             bar.Children.Add(IconTool("image-square-bold", "Image", delegate { InsertImage(); }));
-            bar.Children.Add(IconTool("fiche-individual", "Lien vers une fiche (Ctrl+K)", delegate { Wrap("[[", "]]"); }));
+            bar.Children.Add(IconTool("fiche-individual", "Lien vers une fiche (" + Ui.Keys("Ctrl+K") + ")", delegate { Wrap("[[", "]]"); }));
             return bar;
         }
 
@@ -1560,7 +1560,7 @@ namespace Marabook.App
 
         private void OnBodyKeyDown(object sender, KeyEventArgs e)
         {
-            if ((e.KeyModifiers & KeyModifiers.Control) == 0) return;
+            if (!Ui.HasCommand(e.KeyModifiers)) return;
             if (e.Key == Key.B) { Wrap("**", "**"); e.Handled = true; }
             else if (e.Key == Key.I) { Wrap("*", "*"); e.Handled = true; }
             else if (e.Key == Key.U) { Wrap("<u>", "</u>"); e.Handled = true; }

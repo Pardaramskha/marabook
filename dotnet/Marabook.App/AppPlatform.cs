@@ -43,6 +43,7 @@ namespace Marabook.App
             Platform.Init();
             Platform.Current = new AppPlatform();
             Platform.Images = new AvaloniaImageCodec();
+            Settings.AppSettings.MacKeys = IsMac; // les raccourcis s'écrivent « ⇧⌘S » (02/10)
         }
 
         /// <summary>« Windows », « Linux » ou « macOS » — pour la barre d'état.</summary>

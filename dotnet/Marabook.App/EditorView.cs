@@ -543,7 +543,7 @@ namespace Marabook.App
         {
             var panel = TabPanel();
             var footnote = BigSquare("footnote", "Note de bas de page",
-                "Insère un appel de note au curseur (Ctrl+Maj+N) — la note "
+                "Insère un appel de note au curseur (" + Ui.Keys("Ctrl+Shift+N") + ") — la note "
                 + "s'édite en place, au bas de la page : cliquez-la, ou son appel");
             footnote.Click += delegate { InsertFootnote(); };
             panel.Children.Add(footnote);
@@ -557,8 +557,8 @@ namespace Marabook.App
             panel.Children.Add(VerticalRuleTall());
 
             var link = OneLine("connection", "Lien vers une fiche",
-                "Insère un [[lien]] vers une fiche ou un écrit (Ctrl+K) : l'expression "
-                + "sélectionnée reste le texte du lien — Ctrl+clic sur le lien pour l'ouvrir");
+                "Insère un [[lien]] vers une fiche ou un écrit (" + Ui.Keys("Ctrl+K") + ") : l'expression "
+                + "sélectionnée reste le texte du lien — " + Ui.CommandKey + "+clic sur le lien pour l'ouvrir");
             link.Click += delegate
             {
                 var handler = LinkRequested;
@@ -569,14 +569,14 @@ namespace Marabook.App
             // clic l'ouvre ; masqués (défaut), le texte seul, Ctrl+clic.
             _linksBtn = OneLineToggle("apercu", "Afficher les liens",
                 "Montrer les marques [[…]] des liens et leur texte en évidence — "
-                + "un clic sur un lien l'ouvre ; masqués, seul Ctrl+clic l'ouvre");
+                + "un clic sur un lien l'ouvre ; masqués, seul " + Ui.CommandKey + "+clic l'ouvre");
             _linksBtn.IsChecked = Settings.AppSettings.ShowLinks;
             _linksBtn.Click += delegate { SetShowLinks(_linksBtn.IsChecked == true); };
             panel.Children.Add(Stacked(link, _linksBtn));
             panel.Children.Add(VerticalRuleTall());
 
             var pageBreak = OneLine("file-arrow-down-bold", "Saut de page",
-                "Commencer une nouvelle page au paragraphe du curseur (Ctrl+Entrée)");
+                "Commencer une nouvelle page au paragraphe du curseur (" + Ui.Keys("Ctrl+Return") + ")");
             pageBreak.Click += delegate { InsertPageBreak(); };
             panel.Children.Add(pageBreak);
             return panel;
@@ -1856,7 +1856,7 @@ namespace Marabook.App
 
             AddHandler(PointerWheelChangedEvent, delegate(object sender, PointerWheelEventArgs e)
             {
-                if ((e.KeyModifiers & KeyModifiers.Control) == 0) return;
+                if (!Ui.HasCommand(e.KeyModifiers)) return;
                 e.Handled = true;
                 var handler = ZoomStepRequested;
                 if (handler != null) handler(e.Delta.Y > 0 ? 10 : -10);
