@@ -68,7 +68,7 @@ namespace Marabook.App
                 sb.Append("\n— ").Append(result.Lost).Append(result.Lost == 1 ? " perdu" : " perdus").Append(" (l'écrit est vide)");
             if (!AppSettings.ShowAnnotations)
                 sb.Append("\n\nLes annotations sont masquées : onglet Révision › « Afficher les annotations ».");
-            sb.Append("\n\nCtrl+Z pour annuler.");
+            sb.Append("\n\n" + Ui.Keys("Ctrl+Z") + " pour annuler.");
             MessageDialog.Show(this, sb.ToString(), AppName, MessageButtons.OK, MessageIcon.Information);
         }
 

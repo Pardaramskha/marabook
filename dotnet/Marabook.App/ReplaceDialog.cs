@@ -84,7 +84,7 @@ namespace Marabook.App
             if (touchesCurrent && current != null && (current.Kind == ItemKind.Text || current.Kind == ItemKind.Sheet))
             {
                 _warning.Text = "Le document ouvert est concerné : son historique d'annulation sera réinitialisé "
-                    + "(le remplacement entier s'annule ensuite en un seul Ctrl+Z).";
+                    + "(le remplacement entier s'annule ensuite en un seul " + Ui.Keys("Ctrl+Z") + ").";
                 _warning.IsVisible = true;
             }
             _summary = new TextBlock { Foreground = Chrome.Ink, FontSize = 12, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 8) };

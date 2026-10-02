@@ -178,7 +178,7 @@ namespace Marabook.App
                 Content = new TextBlock { Text = "Tout remplacer…", FontSize = 11 },
                 Padding = new Thickness(8, 1, 8, 1),
                 Margin = new Thickness(0, 0, 4, 3),
-                [ToolTip.TipProperty] = "Prévisualiser puis remplacer toutes les occurrences de la portée — annulable en un Ctrl+Z",
+                [ToolTip.TipProperty] = "Prévisualiser puis remplacer toutes les occurrences de la portée — annulable en un " + Ui.Keys("Ctrl+Z"),
                 Focusable = false
             };
             _replaceAll.Click += delegate

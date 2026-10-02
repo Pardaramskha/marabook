@@ -82,11 +82,13 @@ namespace Marabook.App
             }
         }
 
-        /// <summary>Les modificateurs Avalonia vers ceux du cœur (raccourcis).</summary>
+        /// <summary>Les modificateurs Avalonia vers ceux du cœur (raccourcis).
+        /// Le « Control » du cœur est la touche de commande du système : Ctrl
+        /// sur Windows et Linux, ⌘ sur macOS (Ui.Command, 02/10).</summary>
         public static Settings.KeyModifiers ToCore(KeyModifiers modifiers)
         {
             var result = Settings.KeyModifiers.None;
-            if ((modifiers & KeyModifiers.Control) != 0) result |= Settings.KeyModifiers.Control;
+            if (Ui.HasCommand(modifiers)) result |= Settings.KeyModifiers.Control;
             if ((modifiers & KeyModifiers.Shift) != 0) result |= Settings.KeyModifiers.Shift;
             if ((modifiers & KeyModifiers.Alt) != 0) result |= Settings.KeyModifiers.Alt;
             return result;
@@ -96,7 +98,7 @@ namespace Marabook.App
         public static KeyModifiers ToAvalonia(Settings.KeyModifiers modifiers)
         {
             var result = KeyModifiers.None;
-            if ((modifiers & Settings.KeyModifiers.Control) != 0) result |= KeyModifiers.Control;
+            if ((modifiers & Settings.KeyModifiers.Control) != 0) result |= Ui.Command;
             if ((modifiers & Settings.KeyModifiers.Shift) != 0) result |= KeyModifiers.Shift;
             if ((modifiers & Settings.KeyModifiers.Alt) != 0) result |= KeyModifiers.Alt;
             return result;

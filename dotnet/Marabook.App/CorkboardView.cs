@@ -242,7 +242,7 @@ namespace Marabook.App
                 IsVisible = false
             };
             var empty = Buttons.IconText("trash-bold", "Vider la corbeille",
-                "Supprimer définitivement tout ce que contient la corbeille — annulable par Ctrl+Z", Buttons.Bar, Buttons.Look.Primary);
+                "Supprimer définitivement tout ce que contient la corbeille — annulable par " + Ui.Keys("Ctrl+Z"), Buttons.Bar, Buttons.Look.Primary);
             empty.Click += delegate { RequestNewDocument("empty-trash"); };
             _trashActions.Children.Add(empty);
             _cards = new WrapPanel { Margin = new Thickness(16, 8, 16, 16) };
@@ -1781,7 +1781,7 @@ namespace Marabook.App
             card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
                 if (_dragCandidate != item) return; // un glisser est parti
                 _dragCandidate = null;
-                if ((e.KeyModifiers & KeyModifiers.Control) != 0)
+                if (Ui.HasCommand(e.KeyModifiers))
                 {
                     if (!_selected.Remove(item.Id)) _selected.Add(item.Id);
                 }
