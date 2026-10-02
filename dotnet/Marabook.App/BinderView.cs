@@ -1460,7 +1460,7 @@ namespace Marabook.App
             // insertion après la ligne (Ctrl force l'imbrication).
             var asChild = target.IsContainer
                 || (target.CanHaveChildren
-                    && (e.KeyModifiers & KeyModifiers.Control) == KeyModifiers.Control);
+                    && Ui.HasCommand(e.KeyModifiers));
             ShowDropIndicator(node, asChild);
         }
 
@@ -1493,7 +1493,7 @@ namespace Marabook.App
             // reordering (insert right after) and Ctrl makes it a child.
             var asChild = target.IsContainer
                 || (target.CanHaveChildren
-                    && (e.KeyModifiers & KeyModifiers.Control) == KeyModifiers.Control);
+                    && Ui.HasCommand(e.KeyModifiers));
 
             BinderItem newParent;
             int newIndex;

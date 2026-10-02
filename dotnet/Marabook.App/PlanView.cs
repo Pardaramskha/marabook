@@ -166,7 +166,7 @@ namespace Marabook.App
             {
                 // Molette seule = défilement HORIZONTAL (les colonnes vont de
                 // gauche à droite) ; Maj+molette rend le vertical.
-                if ((e.KeyModifiers & KeyModifiers.Shift) != 0 || (e.KeyModifiers & KeyModifiers.Control) != 0) return;
+                if ((e.KeyModifiers & KeyModifiers.Shift) != 0 || Ui.HasCommand(e.KeyModifiers)) return;
                 _scroll.Offset = new Vector(_scroll.Offset.X - Ui.Wheel(e), _scroll.Offset.Y);
                 e.Handled = true;
             }, RoutingStrategies.Tunnel);
@@ -860,7 +860,7 @@ namespace Marabook.App
             _scroll.AddHandler(InputElement.PointerWheelChangedEvent, delegate(object sender, PointerWheelEventArgs e)
             {
                 // Molette seule = défilement horizontal, comme les colonnes.
-                if ((e.KeyModifiers & KeyModifiers.Shift) != 0 || (e.KeyModifiers & KeyModifiers.Control) != 0) return;
+                if ((e.KeyModifiers & KeyModifiers.Shift) != 0 || Ui.HasCommand(e.KeyModifiers)) return;
                 _scroll.Offset = new Vector(_scroll.Offset.X - Ui.Wheel(e), _scroll.Offset.Y);
                 e.Handled = true;
             }, RoutingStrategies.Tunnel);

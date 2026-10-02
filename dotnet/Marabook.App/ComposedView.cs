@@ -311,7 +311,7 @@ namespace Marabook.App
                 case Key.Escape: case Key.Tab:
                     return true;
                 case Key.A: case Key.C:
-                    return (e.KeyModifiers & KeyModifiers.Control) != 0;
+                    return Ui.HasCommand(e.KeyModifiers);
                 default:
                     return false;
             }
@@ -1026,7 +1026,7 @@ namespace Marabook.App
 
             // Les liens (18/09) : montrés, un simple clic les suit ; masqués,
             // Ctrl+clic comme toujours.
-            if ((e.KeyModifiers & KeyModifiers.Control) != 0 || Settings.AppSettings.ShowLinks)
+            if (Ui.HasCommand(e.KeyModifiers) || Settings.AppSettings.ShowLinks)
             {
                 var title = WikiLinkAt(paragraph, offset);
                 if (title != null)
@@ -1704,7 +1704,7 @@ namespace Marabook.App
             // raccourcis (Préférences › Raccourcis › Éditeur) décide.
             var action = Settings.AppSettings.EditorActionFor(e.Key.ToString(), Geo.ToCore(e.KeyModifiers));
             if (action != null && RunEditorAction(action)) { e.Handled = true; return; }
-            var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+            var ctrl = Ui.HasCommand(e.KeyModifiers);
             var shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
             var alt = (e.KeyModifiers & KeyModifiers.Alt) != 0;
             var handled = true;

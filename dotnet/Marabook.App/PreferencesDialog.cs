@@ -685,7 +685,7 @@ namespace Marabook.App
                 if (key == Key.Escape) { ClearFocus(); sync(); return; }
                 if (key == Key.Back) { store(""); return; }
                 var gesture = "";
-                if ((e.KeyModifiers & Avalonia.Input.KeyModifiers.Control) != 0) gesture += "Ctrl+";
+                if (Ui.HasCommand(e.KeyModifiers)) gesture += "Ctrl+"; // ⌘ sur macOS, enregistré « Ctrl » (02/10)
                 if ((e.KeyModifiers & Avalonia.Input.KeyModifiers.Shift) != 0) gesture += "Shift+";
                 if ((e.KeyModifiers & Avalonia.Input.KeyModifiers.Alt) != 0) gesture += "Alt+";
                 store(gesture + key);

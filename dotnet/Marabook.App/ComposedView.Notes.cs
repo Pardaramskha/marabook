@@ -557,7 +557,7 @@ namespace Marabook.App
         private bool NoteKeyDown(KeyEventArgs e)
         {
             var key = e.Key;
-            var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+            var ctrl = Ui.HasCommand(e.KeyModifiers);
             var shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
             switch (key)
             {

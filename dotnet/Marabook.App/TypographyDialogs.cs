@@ -106,7 +106,7 @@ namespace Marabook.App
                 Content = new TextBlock
                 {
                     Text = "Corriger aussi au moment où j'écris (dans les pages composées) — "
-                        + "Ctrl+Z annule une correction automatique sans effacer la frappe",
+                        + Ui.Keys("Ctrl+Z") + " annule une correction automatique sans effacer la frappe",
                     Foreground = Chrome.Ink,
                     TextWrapping = TextWrapping.Wrap,
                     MaxWidth = 660

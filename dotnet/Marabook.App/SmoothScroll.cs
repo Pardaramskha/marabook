@@ -43,7 +43,7 @@ namespace Marabook.App
         private static void OnPreviewWheel(ScrollViewer viewer, PointerWheelEventArgs e)
         {
             if (e.Handled || Math.Abs(e.Delta.Y) < 0.001) return;
-            if ((e.KeyModifiers & (Avalonia.Input.KeyModifiers.Control | Avalonia.Input.KeyModifiers.Shift)) != 0) return;
+            if (Ui.HasCommand(e.KeyModifiers) || (e.KeyModifiers & Avalonia.Input.KeyModifiers.Shift) != 0) return;
             // Le tunnel passe d'abord par les ScrollViewer EXTÉRIEURS : seul
             // le plus profond qui peut encore défiler dans ce sens agit — les
             // autres laissent passer (l'intérieur aura son tour, ou le parent

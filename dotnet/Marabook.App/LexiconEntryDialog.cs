@@ -46,6 +46,13 @@ namespace Marabook.App
         private CheckBox _demonymCheck;
         private TextBox _demonymSuffix, _demonymForm;
         private bool _accepted, _syncing;
+        // Le choix de chaque groupe de boutons radio, tenu à jour par le
+        // bouton qui vient d'être coché (02/10). Avalonia lève
+        // IsCheckedChanged sur le nouveau bouton AVANT de décocher l'ancien :
+        // relire le groupe à cet instant rendait encore l'ancien type, et la
+        // nature, la flexion, l'aperçu restaient ceux d'avant — « Nom » vers
+        // « Nom propre » gardait les cases d'un nom.
+        private string _class, _genders, _properKind = "";
 
         private LexiconEntryDialog(Window owner, LexiconEntry initial, bool projectScope, bool allowScope,
             IList<string> suggestions = null)
@@ -121,6 +128,7 @@ namespace Marabook.App
             panel.Children.Add(Label("Type de mot :"));
             var classes = new WrapPanel();
             var initialClass = initial == null ? LexiconEntry.ClassNoun : initial.Class;
+            _class = initialClass;
             foreach (var key in LexiconEntry.Classes)
             {
                 // « Autre » n'est offert qu'à une entrée qui l'est déjà (mot
@@ -134,7 +142,12 @@ namespace Marabook.App
                     Margin = new Thickness(0, 0, 16, 2)
                 };
                 var keyRef = key;
-                radio.IsCheckedChanged += delegate { if (radio.IsChecked == true) OnClassChanged(keyRef); };
+                radio.IsCheckedChanged += delegate
+                {
+                    if (radio.IsChecked != true) return;
+                    _class = keyRef;
+                    OnClassChanged(keyRef);
+                };
                 _classRadios[key] = radio;
                 classes.Children.Add(radio);
             }
@@ -157,6 +170,7 @@ namespace Marabook.App
             // Une entrée neuve part au masculin (01/10) : un nom, le cas le
             // plus fréquent, ne demande plus un clic de plus.
             var initialGenders = initial == null ? LexiconEntry.GendersMasculine : initial.EffectiveGenders();
+            _genders = initialGenders;
             foreach (var pair in new[] { new[] { LexiconEntry.GendersBoth, "Masculin et féminin" }, new[] { LexiconEntry.GendersMasculine, "Masculin" }, new[] { LexiconEntry.GendersFeminine, "Féminin" } })
             {
                 var radio = new RadioButton
@@ -166,7 +180,12 @@ namespace Marabook.App
                     IsChecked = pair[0] == initialGenders,
                     Margin = new Thickness(0, 0, 16, 2)
                 };
-                radio.IsCheckedChanged += delegate { if (!_syncing) RefreshForms(); };
+                var gendersRef = pair[0];
+                radio.IsCheckedChanged += delegate
+                {
+                    if (radio.IsChecked == true) _genders = gendersRef;
+                    if (!_syncing) RefreshForms();
+                };
                 _genderRadios[pair[0]] = radio;
                 genders.Children.Add(radio);
             }
@@ -329,6 +348,7 @@ namespace Marabook.App
         {
             var host = new StackPanel();
             var initialKind = initial == null ? "" : initial.ProperKind;
+            _properKind = initialKind ?? "";
             foreach (var kind in LexiconEntry.ProperKinds)
             {
                 var radio = new RadioButton
@@ -339,7 +359,12 @@ namespace Marabook.App
                     Margin = new Thickness(0, 2, 0, 0)
                 };
                 _properRadios[kind] = radio;
-                radio.IsCheckedChanged += delegate { UpdateProperChildren(); };
+                var kindRef = kind;
+                radio.IsCheckedChanged += delegate
+                {
+                    if (radio.IsChecked == true) _properKind = kindRef;
+                    UpdateProperChildren();
+                };
                 host.Children.Add(radio);
                 var children = new WrapPanel { Margin = new Thickness(26, 0, 0, 0) };
                 foreach (var trait in LexiconEntry.TraitsFor(LexiconEntry.ClassProper))
@@ -466,16 +491,14 @@ namespace Marabook.App
 
         private string SelectedProperKind()
         {
-            foreach (var pair in _properRadios) if (pair.Value.IsChecked == true) return pair.Key;
-            return "";
+            return _properKind;
         }
 
         // ------------------------------------------------------------ type et flexion
 
         private string SelectedClass()
         {
-            foreach (var pair in _classRadios) if (pair.Value.IsChecked == true) return pair.Key;
-            return LexiconEntry.ClassOther;
+            return _class ?? LexiconEntry.ClassOther;
         }
 
         private void SelectClass(string cls)
@@ -486,8 +509,7 @@ namespace Marabook.App
 
         private string SelectedGenders()
         {
-            foreach (var pair in _genderRadios) if (pair.Value.IsChecked == true) return pair.Key;
-            return "";
+            return _genders ?? "";
         }
 
         private void OnClassChanged(string cls)

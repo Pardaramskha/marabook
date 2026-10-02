@@ -696,10 +696,18 @@ namespace Marabook.Settings
 
         // ------------------------------------------------------- gestures
 
-        /// <summary>Invariant storage ("Ctrl+Shift+G") to French display ("Ctrl+Maj+G").</summary>
+        /// <summary>Les raccourcis s'affichent à la manière de macOS (02/10) :
+        /// « Ctrl » des réglages y est la touche Commande, rendue « ⌘ », avec
+        /// « ⇧ » et « ⌥ », sans « + » (« ⇧⌘S »). Posé par la vue au démarrage ;
+        /// le format ENREGISTRÉ reste « Ctrl+Shift+S » sur les trois systèmes.</summary>
+        public static bool MacKeys;
+
+        /// <summary>Invariant storage ("Ctrl+Shift+G") to French display ("Ctrl+Maj+G"),
+        /// or macOS display ("⇧⌘G") when MacKeys is set.</summary>
         public static string DisplayGesture(string gesture)
         {
             if (string.IsNullOrEmpty(gesture)) return "";
+            if (MacKeys) return DisplayMacGesture(gesture);
             var parts = gesture.Split('+');
             for (var i = 0; i < parts.Length; i++)
             {
@@ -714,6 +722,30 @@ namespace Marabook.Settings
                 else if (p.Length == 2 && p[0] == 'D' && char.IsDigit(p[1])) parts[i] = p[1].ToString();
             }
             return string.Join("+", parts);
+        }
+
+        /// <summary>« Ctrl+Shift+G » → « ⇧⌘G » : les modificateurs dans l'ordre
+        /// de macOS (⌥ ⇧ ⌘), collés à la touche, qui garde ses noms français.</summary>
+        private static string DisplayMacGesture(string gesture)
+        {
+            bool alt = false, shift = false, command = false;
+            var key = "";
+            foreach (var raw in gesture.Split('+'))
+            {
+                var p = raw.Trim();
+                if (p == "Alt") alt = true;
+                else if (p == "Shift" || p == "Maj") shift = true;
+                else if (p == "Ctrl") command = true;
+                else if (p == "Delete") key = "Suppr";
+                else if (p == "Return") key = "Entrée";
+                else if (p == "Add") key = "+ (pavé)";
+                else if (p == "Subtract") key = "- (pavé)";
+                else if (p == "OemPlus") key = "=";
+                else if (p == "OemMinus") key = "-";
+                else if (p.Length == 2 && p[0] == 'D' && char.IsDigit(p[1])) key = p[1].ToString();
+                else if (p.Length > 0) key = p;
+            }
+            return (alt ? "⌥" : "") + (shift ? "⇧" : "") + (command ? "⌘" : "") + key;
         }
 
         /// <summary>« Ctrl+Shift+G » → la touche (le nom WPF, tel quel) et ses

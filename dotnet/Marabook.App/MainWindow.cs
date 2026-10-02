@@ -692,7 +692,7 @@ namespace Marabook.App
             var center = new Grid();
             _placeholder = new TextBlock
             {
-                Text = "Sélectionnez un écrit dans la Pile,\nou créez-en un (Ctrl+T).",
+                Text = "Sélectionnez un écrit dans la Pile,\nou créez-en un (" + Ui.Keys("Ctrl+T") + ").",
                 Foreground = Chrome.SoftText,
                 FontSize = 15,
                 TextAlignment = TextAlignment.Center,
@@ -1187,7 +1187,7 @@ namespace Marabook.App
         {
             var text = "Remettre « " + item.Title + " » dans l'état de la version « " + snapshot.DisplayLabel + " » ("
                 + VersionsPanel.FormatDate(snapshot.Date) + ") ?\n\nL'état actuel est d'abord figé dans un instantané « avant restauration » ; "
-                + "la restauration s'annule ensuite en un seul Ctrl+Z.";
+                + "la restauration s'annule ensuite en un seul " + Ui.Keys("Ctrl+Z") + ".";
             if (item == _current && (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet))
                 text += "\n\nLe document est ouvert : son historique d'annulation sera réinitialisé.";
             return text;
@@ -1330,8 +1330,8 @@ namespace Marabook.App
                 _versionsPanel.SetNotice(conflict
                     ? "Rien n'a été écrit : le texte avait changé entre-temps."
                     : restore != null
-                        ? (undone ? "Restauration annulée." : "Version « " + restore.SnapshotLabel + " » restaurée — Ctrl+Z pour annuler.")
-                        : (undone ? "Restauration du paragraphe annulée." : "Paragraphe restauré — Ctrl+Z pour annuler."));
+                        ? (undone ? "Restauration annulée." : "Version « " + restore.SnapshotLabel + " » restaurée — " + Ui.Keys("Ctrl+Z") + " pour annuler.")
+                        : (undone ? "Restauration du paragraphe annulée." : "Paragraphe restauré — " + Ui.Keys("Ctrl+Z") + " pour annuler."));
                 return;
             }
             // Un document remplacé d'un bloc (b49 : commentaires relus) :
@@ -1741,7 +1741,7 @@ namespace Marabook.App
                 Width = 120,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(6, 0, 4, 0),
-                [ToolTip.TipProperty] = "Zoom de la page (Ctrl+molette aussi)",
+                [ToolTip.TipProperty] = "Zoom de la page (" + Ui.CommandKey + "+molette aussi)",
                 Focusable = false
             };
             _zoomSlider.ValueChanged += delegate
@@ -1756,7 +1756,7 @@ namespace Marabook.App
                 VerticalAlignment = VerticalAlignment.Center,
                 MinWidth = 44,
                 TextAlignment = TextAlignment.Center,
-                [ToolTip.TipProperty] = "Zoom de la page (Ctrl+molette) — double-clic : 100 %",
+                [ToolTip.TipProperty] = "Zoom de la page (" + Ui.CommandKey + "+molette) — double-clic : 100 %",
                 Cursor = new Cursor(StandardCursorType.Hand)
             };
             _zoomLabel.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
@@ -2891,7 +2891,7 @@ namespace Marabook.App
             _editor.Clear();
             _sheetView.Clear();
             _placeholder.IsVisible = true;
-            _placeholder.Text = "Sélectionnez un élément dans la Pile,\nou créez un écrit (Ctrl+T).";
+            _placeholder.Text = "Sélectionnez un élément dans la Pile,\nou créez un écrit (" + Ui.Keys("Ctrl+T") + ").";
         }
 
         /// <summary>Ouvre le Journal perso au centre (entrée fixe de la Pile).
@@ -3218,7 +3218,7 @@ namespace Marabook.App
                 _dirty = true; // freshly migrated, not yet saved as .plot
                 UpdateTitle();
                 MessageDialog.Show(this,
-                    "Projet Scrivener importé. Pensez à l'enregistrer au format .plot (Ctrl+S).",
+                    "Projet Scrivener importé. Pensez à l'enregistrer au format .plot (" + Ui.Keys("Ctrl+S") + ").",
                     AppName, MessageButtons.OK, MessageIcon.Information);
             }
             catch (Exception error)
@@ -5300,7 +5300,7 @@ namespace Marabook.App
             var row = new DockPanel
             {
                 Margin = new Thickness(0, 1, 0, 1),
-                [ToolTip.TipProperty] = resolved ? "Ouvrir" : "Cible inexistante (Ctrl+clic dans le texte pour la créer)",
+                [ToolTip.TipProperty] = resolved ? "Ouvrir" : "Cible inexistante (" + Ui.CommandKey + "+clic dans le texte pour la créer)",
                 Background = Brushes.Transparent
             };
             var arrow = Icons.Make(icon, 10, brush) as Control;
