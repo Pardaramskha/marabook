@@ -65,6 +65,13 @@ namespace Marabook.App
         private MediaView _mediaView;
         private JournalView _journalView;
         private bool _journalOpen; // le journal masque l'inspecteur
+        // La FEUILLE du journal (03/10) : un papier aux coins hauts arrondis
+        // qui se glisse depuis le bas par-dessus la vue en cours, et redescend
+        // quand on la quitte. C'est elle qui est dans la grille du centre.
+        private Border _journalSheet;
+        private Panel _journalHost; // transparent pendant la glisse (la vue d'en dessous se voit), fond de fenêtre une fois posée
+        private TranslateTransform _journalSlide;
+        private int _journalMotion;
         private Grid _centerHost; // hôte du toast de célébration
         private StackPanel _toastHost;          // succès : toasts en bas à droite de la fenêtre (12/09)
         private BusyIndicator _busy;            // l'anneau d'activité de la ligne des menus (0.50.0)
@@ -935,10 +942,25 @@ namespace Marabook.App
             _mediaView = new MediaView { IsVisible = false };
             center.Children.Add(_mediaView);
 
-            _journalView = new JournalView { IsVisible = false };
+            _journalView = new JournalView { IsVisible = false, Background = Brushes.Transparent }; // le fond est celui de la feuille (coins ronds)
             _journalView.Changed += delegate { MarkDirty(); CheckDailyGoal(); };
             _journalView.SprintRequested += StartSprint; // « Démarrer un sprint » de la carte Sprints (14/09)
-            center.Children.Add(_journalView);
+            _journalSlide = new TranslateTransform(0, 0);
+            _journalSheet = new Border
+            {
+                IsVisible = false,
+                Background = Chrome.WindowBg,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                CornerRadius = new CornerRadius(14, 14, 0, 0),
+                Margin = new Thickness(0, 14, 0, 0), // la page « commence » sous une bande de la vue d'en dessous et continue vers le bas
+                BoxShadow = new BoxShadows(new BoxShadow { OffsetX = 0, OffsetY = -6, Blur = 22, Color = Color.FromArgb(0x38, 0, 0, 0) }),
+                RenderTransform = _journalSlide,
+                Child = _journalView
+            };
+            _journalHost = new Grid { IsVisible = false, Background = Brushes.Transparent, ZIndex = 10 }; // par-dessus toutes les vues du centre
+            _journalHost.Children.Add(_journalSheet);
+            center.Children.Add(_journalHost);
 
             // Sortie du mode calme : une pastille discrète en haut à droite des
             // pages — s'affirme au survol.
@@ -2847,28 +2869,8 @@ namespace Marabook.App
             // contre la réentrance pendant ShowItem, puis ramène la sélection
             // de l'arbre sur l'élément réellement ouvert.
 
-            _editor.IsVisible = false;
-            _sheetView.IsVisible = false;
-            _sheetLibrary.IsVisible = false;
-            _dictionaryView.IsVisible = false;
-            _homeView.IsVisible = false;
-            _planView.IsVisible = false;
-            _planView.Clear();
-            CommitMindMap(); // la carte quittée rend ses octets (22/09)
-            _mindMapHost.IsVisible = false;
-            _corkboard.IsVisible = false;
-            _bookView.IsVisible = false;
-            _bookView.Clear();
-            _templateView.IsVisible = false;
-            _templateView.Clear();
-            _mediaView.IsVisible = false;
-            _journalView.IsVisible = false;
-            if (_journalOpen)
-            {
-                _journalOpen = false;
-                ApplyPanelVisibility(); // l'inspecteur revient en quittant le journal
-            }
-            _placeholder.IsVisible = false;
+            HideCenterViews();
+            SlideJournalOut(); // la feuille du journal redescend sur la vue qui arrive (03/10)
             if (item == null || item.Kind != ItemKind.Text) _statusPages.Text = "";
 
             if (item != null && item.Kind == ItemKind.Text)
@@ -3001,9 +3003,34 @@ namespace Marabook.App
             _placeholder.Text = "Sélectionnez un élément dans la Pile,\nou créez un écrit (" + Ui.Keys("Ctrl+T") + ").";
         }
 
+        /// <summary>Toutes les vues du centre se rangent (sauf la feuille du
+        /// journal, qui a sa glisse) ; les vues qui tiennent des ressources
+        /// les rendent.</summary>
+        private void HideCenterViews()
+        {
+            _editor.IsVisible = false;
+            _sheetView.IsVisible = false;
+            _sheetLibrary.IsVisible = false;
+            _dictionaryView.IsVisible = false;
+            _homeView.IsVisible = false;
+            _planView.IsVisible = false;
+            _planView.Clear();
+            CommitMindMap(); // la carte quittée rend ses octets (22/09)
+            _mindMapHost.IsVisible = false;
+            _corkboard.IsVisible = false;
+            _bookView.IsVisible = false;
+            _bookView.Clear();
+            _templateView.IsVisible = false;
+            _templateView.Clear();
+            _mediaView.IsVisible = false;
+            _placeholder.IsVisible = false;
+        }
+
         /// <summary>Ouvre le Journal perso au centre (entrée fixe de la Pile).
         /// Aucun élément d'arbre : la sélection courante est simplement rendue,
-        /// et tout clic dans la Pile reprend la main.</summary>
+        /// et tout clic dans la Pile reprend la main. La feuille se glisse
+        /// depuis le bas par-dessus la vue en cours (03/10) ; celle-ci se
+        /// range une fois couverte.</summary>
         private void ShowJournal()
         {
             if (_journalView.IsVisible)
@@ -3016,13 +3043,12 @@ namespace Marabook.App
             {
                 CommitActive();
                 _current = null; _inspected = null; _inspectedGroup = null;
-                ShowItem(null);
                 _placeholder.IsVisible = false;
                 _journalView.Load(_project);
-                _journalView.IsVisible = true;
                 RememberRightWidth();
                 _journalOpen = true;
                 ApplyPanelVisibility();
+                SlideJournalIn();
             }
             finally
             {
@@ -3030,6 +3056,77 @@ namespace Marabook.App
             }
             UpdateInspector();
             UpdateStats();
+        }
+
+        /// <summary>La feuille monte depuis le bas (320 ms, sortie cubique),
+        /// image par image comme la Pile ; sans animation (sonde, démarrage)
+        /// elle est posée d'un coup. Arrivée, la vue d'en dessous se range.</summary>
+        private void SlideJournalIn()
+        {
+            _journalView.IsVisible = true;
+            _journalSheet.IsVisible = true;
+            _journalHost.IsVisible = true;
+            _journalHost.Background = Brushes.Transparent;
+            var generation = ++_journalMotion;
+            var top = _rightAnimationsOn ? TopLevel.GetTopLevel(this) : null;
+            var travel = _journalHost.Bounds.Height;
+            if (top == null || travel < 1)
+            {
+                _journalSlide.Y = 0;
+                _journalHost.Background = Chrome.WindowBg;
+                HideCenterViews();
+                return;
+            }
+            _journalSlide.Y = travel;
+            var started = DateTime.Now;
+            Action frame = null;
+            frame = delegate
+            {
+                if (generation != _journalMotion) return;
+                var t = Math.Min(1, (DateTime.Now - started).TotalMilliseconds / 320.0);
+                var eased = 1 - Math.Pow(1 - t, 3);
+                _journalSlide.Y = travel * (1 - eased);
+                if (t >= 1) { _journalSlide.Y = 0; _journalHost.Background = Chrome.WindowBg; HideCenterViews(); }
+                else top.RequestAnimationFrame(delegate { frame(); });
+            };
+            frame();
+        }
+
+        /// <summary>La feuille redescend (260 ms, entrée cubique) par-dessus la
+        /// vue qui arrive, puis se range ; l'inspecteur revient aussitôt.</summary>
+        private void SlideJournalOut()
+        {
+            var wasOpen = _journalOpen;
+            if (_journalOpen)
+            {
+                _journalOpen = false;
+                ApplyPanelVisibility(); // l'inspecteur revient en quittant le journal
+            }
+            _journalView.IsVisible = false; // les rafraîchissements du journal s'arrêtent tout de suite
+            if (!_journalHost.IsVisible) return;
+            _journalHost.Background = Brushes.Transparent; // la vue qui arrive se voit sous la feuille
+            var generation = ++_journalMotion;
+            var top = wasOpen && _rightAnimationsOn ? TopLevel.GetTopLevel(this) : null;
+            var travel = _journalHost.Bounds.Height;
+            if (top == null || travel < 1)
+            {
+                _journalHost.IsVisible = false;
+                _journalSlide.Y = 0;
+                return;
+            }
+            var from = _journalSlide.Y;
+            var started = DateTime.Now;
+            Action frame = null;
+            frame = delegate
+            {
+                if (generation != _journalMotion) return;
+                var t = Math.Min(1, (DateTime.Now - started).TotalMilliseconds / 260.0);
+                var eased = t * t * t;
+                _journalSlide.Y = from + (travel - from) * eased;
+                if (t >= 1) { _journalHost.IsVisible = false; _journalSlide.Y = 0; }
+                else top.RequestAnimationFrame(delegate { frame(); });
+            };
+            frame();
         }
 
         // ----- routing to whichever editor is on screen -----
