@@ -54,6 +54,7 @@
 #     tables de flexion le permettent ; vide si le mot est inconnu.)
 # ==============================================================================
 
+import contextlib
 import io
 import json
 import sys
@@ -70,6 +71,31 @@ sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8-sig")
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="\n")
 
 import grammalecte
+
+
+def load_personal(spell, entries):
+    """Le dictionnaire personnel de Marabook (1.0.3) : des triplets
+    [forme, lemme, étiquette] (voir PersonalLexicon.cs), chargés comme
+    dictionnaire personnel du vérificateur — Grammalecte accorde alors
+    autour des mots inventés (prénoms genrés, noms, adjectifs). Une liste
+    vide le retire. Un échec ne tue ni la requête ni le pont."""
+    try:
+        if not entries:
+            spell.deactivatePersonalDictionary()
+        else:
+            from grammalecte.graphspell.dawg import DAWG
+            sink = io.StringIO()
+            # Le constructeur du DAWG écrit sa progression sur stdout : le
+            # tube JSON n'en veut pas.
+            with contextlib.redirect_stdout(sink):
+                dawg = DAWG([tuple(entry) for entry in entries], "S", "fr", "Français", "marabook")
+                obj = dawg.getBinaryAsJSON()
+            if isinstance(obj, str):
+                obj = json.loads(obj)
+            spell.setPersonalDictionary(obj)
+        spell.clearStorage()  # le cache morphologique date d'avant
+    except Exception as exception:
+        print("dictionnaire personnel ignoré : " + str(exception), file=sys.stderr, flush=True)
 
 
 def main():
@@ -93,6 +119,8 @@ def main():
             if request.get("quit"):
                 break
             request_id = request.get("id")
+            if "lexicon" in request:
+                load_personal(spell, request.get("lexicon"))
             if "style" in request:
                 import marabook_style
                 findings = marabook_style.analyze_style(

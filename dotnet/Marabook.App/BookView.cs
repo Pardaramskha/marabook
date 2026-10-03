@@ -47,6 +47,8 @@ namespace Marabook.App
         public event Action<BinderItem> RenameRequested;      // (b43)
         public event Action<BinderItem, string[]> FilesDropped; // fichiers du système sur le tableau des textes (29/09)
         public event Action<BinderItem> CardSelected; // clic simple sur une tuile : le Général la montre (29/09)
+        public event Action<List<BinderItem>> SelectionChanged; // la sélection multiple (1.0.3)
+        public event Action<List<BinderItem>> DeleteManyRequested;
         public event Action<BinderItem, bool> CardImageRequested; // image de tuile / couverture : (élément, retirer)
         public event Action<List<BinderItem>> ApplyTemplateRequested;
         public event Action<BinderItem> NewTemplateRequested;    // book
@@ -186,6 +188,10 @@ namespace Marabook.App
             { var h = NewDocumentRequested; if (h != null) h(book, kind); };
             corkboard.CardSelected += delegate(BinderItem item)
             { var h = CardSelected; if (h != null) h(item); };
+            corkboard.SelectionChanged += delegate(List<BinderItem> items)
+            { var h = SelectionChanged; if (h != null) h(items); };
+            corkboard.DeleteManyRequested += delegate(List<BinderItem> items)
+            { var h = DeleteManyRequested; if (h != null) h(items); };
             // Fichiers du système (29/09) : le tableau des TEXTES seulement —
             // sur celui des gabarits, un document n'aurait pas de sens.
             if (corkboard.BookTexts)
@@ -241,6 +247,17 @@ namespace Marabook.App
         {
             set { _texts.MenuProvider = value; _templates.MenuProvider = value; }
         }
+
+        /// <summary>Le menu d'une sélection multiple (1.0.3), de la coquille.</summary>
+        public Func<List<BinderItem>, ContextMenu> BatchMenuProvider
+        {
+            set { _texts.BatchMenuProvider = value; _templates.BatchMenuProvider = value; }
+        }
+
+        public void ClearSelection() { _texts.ClearSelection(); _templates.ClearSelection(); }
+
+        /// <summary>Le tableau des textes du livre (sonde).</summary>
+        internal CorkboardView TextsBoard { get { return _texts; } }
 
         /// <summary>Relais du compteur de pages vers le corkboard du livre
         /// (tri « Pages » des filtres, batch 28) et la check-list.</summary>

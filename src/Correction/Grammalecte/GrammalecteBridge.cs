@@ -126,6 +126,25 @@ namespace Marabook.Correction.Grammalecte
         private Timer _watchdog;
         private int _watchdogToken;
 
+        // Le DICTIONNAIRE PERSONNEL (1.0.3) : les triplets de PersonalLexicon,
+        // posés par l'éditeur, envoyés avec la PREMIÈRE requête qui suit un
+        // changement ou un (re)démarrage du fils. Le pont reste sans état
+        // durable : Python n'en garde qu'un cache, reconstruit à la demande.
+        private List<string[]> _lexicon = new List<string[]>();
+        private string _lexiconHash = PersonalLexicon.Hash(new List<string[]>());
+        private string _lexiconSent = PersonalLexicon.Hash(new List<string[]>());
+
+        /// <summary>Pose le dictionnaire personnel ; sans effet si rien n'a
+        /// changé. La prochaine requête (quel que soit le métier) l'emporte.</summary>
+        public void SetLexicon(List<string[]> entries)
+        {
+            lock (_gate)
+            {
+                _lexicon = entries ?? new List<string[]>();
+                _lexiconHash = PersonalLexicon.Hash(_lexicon);
+            }
+        }
+
         /// <summary>La version du runtime embarqué (lot E) — pour l'À propos
         /// et APPROVISIONNEMENT.md ; à tenir avec chaque corrective.</summary>
         public const string EmbeddedPythonVersion = "3.13.15";
@@ -216,6 +235,13 @@ namespace Marabook.Correction.Grammalecte
                 }
                 id = _nextId++;
                 request["id"] = id;
+                if (_lexiconSent != _lexiconHash)
+                {
+                    var rows = new List<object>();
+                    foreach (var entry in _lexicon) rows.Add(new List<object> { entry[0], entry[1], entry[2] });
+                    request["lexicon"] = rows;
+                    _lexiconSent = _lexiconHash;
+                }
                 // Sérialisée AVANT d'enregistrer le vol : une requête
                 // inécrivable (type non supporté — erreur de programmation)
                 // échoue seule, sans rien laisser derrière elle.
@@ -243,6 +269,9 @@ namespace Marabook.Correction.Grammalecte
         /// script manquent (état Unavailable, silencieux).</summary>
         private bool StartLocked()
         {
+            // Un fils neuf ne sait rien : le dictionnaire personnel repart
+            // avec la première requête (sauf s'il est vide — rien à dire).
+            _lexiconSent = _lexicon.Count == 0 ? _lexiconHash : null;
             if (_failedStarts >= 3)
             {
                 SetStateLocked(BridgeState.Unavailable,

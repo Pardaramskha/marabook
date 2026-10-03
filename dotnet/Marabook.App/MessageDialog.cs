@@ -21,6 +21,88 @@ namespace Marabook.App
     public class MessageDialog : Window
     {
         private MessageResult _result;
+        private int _choice = -1; // ShowChoices : l'index du bouton cliqué, -1 = fermée
+
+        /// <summary>La même boîte, avec des boutons LIBELLÉS (1.0.3) :
+        /// « Écraser / Enregistrer sous… / Annuler ». Le dernier libellé
+        /// désigné « primary » est à droite, en principal ; les autres à sa
+        /// gauche dans l'ordre donné. Fermer rend -1.</summary>
+        private MessageDialog(string text, string caption, MessageIcon icon, string[] labels, int primaryIndex)
+        {
+            Title = caption ?? "";
+            SizeToContent = SizeToContent.WidthAndHeight;
+            CanResize = false;
+            ShowInTaskbar = false;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            Background = Chrome.RaisedBg;
+
+            var panel = new StackPanel { Margin = new Thickness(18, 16, 18, 14), MaxWidth = 520 };
+            var body = new DockPanel();
+            var glyph = Glyph(icon);
+            if (glyph != null)
+            {
+                glyph.VerticalAlignment = VerticalAlignment.Top;
+                glyph.Margin = new Thickness(0, 2, 12, 0);
+                DockPanel.SetDock(glyph, Dock.Left);
+                body.Children.Add(glyph);
+            }
+            body.Children.Add(new TextBlock
+            {
+                Text = text ?? "",
+                Foreground = Chrome.Ink,
+                FontSize = 13,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            panel.Children.Add(body);
+
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 16, 0, 0)
+            };
+            Button primary = null;
+            for (var i = 0; i < labels.Length; i++)
+            {
+                var index = i;
+                var isPrimary = i == primaryIndex;
+                var button = Buttons.Text(labels[i], null, Buttons.Bar, isPrimary ? Buttons.Look.Primary : Buttons.Look.Outline);
+                button.MinWidth = 88;
+                button.Margin = new Thickness(8, 0, 0, 0);
+                button.IsDefault = isPrimary;
+                button.Focusable = true;
+                button.Click += delegate { _choice = index; Close(); };
+                if (isPrimary) primary = button;
+                row.Children.Add(button);
+            }
+            Dialogs.Arrange(row, primary);
+            panel.Children.Add(row);
+            Content = panel;
+
+            KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key == Key.Escape) { Close(); e.Handled = true; }
+            };
+        }
+
+        /// <summary>Montre la boîte à choix libellés et rend l'index cliqué
+        /// (-1 : fermée par la croix ou Échap).</summary>
+        public static async Task<int> ShowChoices(Window owner, string text, string caption, MessageIcon icon,
+            string[] labels, int primaryIndex)
+        {
+            var dialog = new MessageDialog(text, caption, icon, labels, primaryIndex);
+            if (owner != null)
+            {
+                await dialog.ShowDialog(owner);
+                return dialog._choice;
+            }
+            dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            var done = new TaskCompletionSource<int>();
+            dialog.Closed += delegate { done.TrySetResult(dialog._choice); };
+            dialog.Show();
+            return await done.Task;
+        }
 
         private MessageDialog(string text, string caption, MessageButtons buttons, MessageIcon icon)
         {

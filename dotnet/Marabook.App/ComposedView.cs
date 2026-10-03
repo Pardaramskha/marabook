@@ -118,6 +118,14 @@ namespace Marabook.App
         // et « mots entiers » quand le glisser suit un double-clic.
         private int _dragOriginParagraph = -1, _dragOriginOffset;
         private bool _dragWholeWords;
+        // Le GLISSER-DÉPOSER de la sélection (1.0.3, règle de Word) : un clic
+        // DANS la sélection n'y touche pas ; tiré au-delà du seuil, il emporte
+        // le texte et un caret de dépôt (accent) suit la souris ; relâché sans
+        // bouger, le caret se pose au clic.
+        private bool _textDragPending, _textDragging;
+        private Point _textDragStart;
+        private int _dropParagraph = -1, _dropOffset;
+        private Rectangle _dropCaret;
         // Le FORMAT D'INSERTION (0.50.0) : ce que prend le prochain caractère
         // tapé quand un format a été choisi SANS sélection (police, taille,
         // gras…), ou qu'un paragraphe vient d'être créé ou vidé — le format
@@ -252,6 +260,8 @@ namespace Marabook.App
                 IsVisible = false
             };
             _overlay.Children.Add(_caretBar);
+            _dropCaret = new Rectangle { Width = 2, Fill = Chrome.Accent, IsVisible = false };
+            _overlay.Children.Add(_dropCaret);
             _column = new Grid
             {
                 Margin = new Thickness(24, 20, 24, 20),
@@ -278,6 +288,13 @@ namespace Marabook.App
             PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
             {
                 if (ImageMouseUp(e)) { e.Handled = true; return; }
+                if (_textDragPending || _textDragging)
+                {
+                    TextDragReleaseAt(e.GetPosition(_pages));
+                    e.Pointer.Capture(null);
+                    e.Handled = true;
+                    return;
+                }
                 _mouseSelecting = false;
                 _dragOriginParagraph = -1;
                 _dragWholeWords = false;
@@ -291,6 +308,10 @@ namespace Marabook.App
             };
             TextInput += OnTextInput;
             KeyDown += OnKeyDown;
+            // La capture perdue sans relâchement (Alt+Tab, dialogue, toast) :
+            // le glisser de la sélection s'oublie, sinon la souris resterait
+            // muette (1.0.3).
+            PointerCaptureLost += delegate { CancelTextDrag(); };
             InitImageDrop(); // un fichier image glissé depuis l'Explorateur (0.50.0)
         }
 
@@ -784,7 +805,7 @@ namespace Marabook.App
         private void ClearOverlay()
         {
             for (var i = _overlay.Children.Count - 1; i >= 0; i--)
-                if (!ReferenceEquals(_overlay.Children[i], _caretBar))
+                if (!ReferenceEquals(_overlay.Children[i], _caretBar) && !ReferenceEquals(_overlay.Children[i], _dropCaret))
                     _overlay.Children.RemoveAt(i);
         }
 
@@ -1040,6 +1061,15 @@ namespace Marabook.App
             // Marques masquées : un clic dedans se pose au bord visible.
             if (!Settings.AppSettings.ShowLinks)
                 offset = Links.SnapOutOfHidden(PivotEdit.FlatText(_item.Document.Paragraphs[paragraph]), offset);
+
+            // Un simple clic DANS la sélection : le glisser-déposer de la
+            // sélection (1.0.3) prend la main, la sélection reste intacte.
+            if (e.ClickCount == 1 && (e.KeyModifiers & KeyModifiers.Shift) == 0 && TextDragPressAt(pagePoint, paragraph, offset))
+            {
+                e.Pointer.Capture(this);
+                e.Handled = true;
+                return;
+            }
 
             if (e.ClickCount == 2)
             {
@@ -1443,6 +1473,12 @@ namespace Marabook.App
         private void OnMouseMoveDrag(object sender, PointerEventArgs e)
         {
             if (ImageMouseMove(e)) { e.Handled = true; return; }
+            if (_textDragPending || _textDragging)
+            {
+                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) TextDragTo(e.GetPosition(_pages), e.Source as PageElement);
+                e.Handled = true;
+                return;
+            }
             if (!_mouseSelecting) UpdateHoverCursor(e);
             if (!_mouseSelecting || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
             if (NoteEditing) { NoteDragTo(e.GetPosition(_pages)); return; } // le glisser est à la note (27/09)
@@ -1479,8 +1515,10 @@ namespace Marabook.App
             var imageCursor = ImageCursorAt(e.GetPosition(_pages));
             if (imageCursor != null) { page.Cursor = imageCursor; return; }
             int paragraph, offset;
-            var over = Settings.AppSettings.ShowLinks
-                && HitTestPosition(e, out paragraph, out offset) && WikiLinkAt(paragraph, offset) != null;
+            var hit = HitTestPosition(e, out paragraph, out offset);
+            // La flèche sur la sélection : elle se tire (1.0.3).
+            if (hit && TextDragAllowed() && InsideSelection(paragraph, offset)) { page.Cursor = new Cursor(StandardCursorType.Arrow); return; }
+            var over = Settings.AppSettings.ShowLinks && hit && WikiLinkAt(paragraph, offset) != null;
             page.Cursor = over ? new Cursor(StandardCursorType.Hand) : new Cursor(StandardCursorType.Ibeam);
         }
 
@@ -1687,6 +1725,7 @@ namespace Marabook.App
 
         private void OnKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Escape && (_textDragPending || _textDragging)) { CancelTextDrag(); e.Handled = true; return; } // le glisser s'annule (1.0.3)
             if (ReadOnly && !IsNavigationKey(e)) { e.Handled = true; return; }
             if (FocusWithin(_bubbleLayer)) return; // le clavier est à la bulle (b34)
             if (NoteEditing)
@@ -2439,6 +2478,151 @@ namespace Marabook.App
 
         /// <summary>Insère le fragment au caret (TextFragment.Insert) et
         /// apprend au compositeur chaque paragraphe ajouté.</summary>
+        // ============================================================ glisser-déposer de la sélection (1.0.3)
+
+        private bool TextDragAllowed()
+        {
+            return !ReadOnly && !NoteEditing && Settings.AppSettings.TextDragDrop && HasSelection();
+        }
+
+        /// <summary>Strictement à l'intérieur de la sélection (bornes exclues :
+        /// un clic au bord pose le caret, comme Word).</summary>
+        private bool InsideSelection(int paragraph, int offset)
+        {
+            if (!HasSelection()) return false;
+            int pa, oa, pb, ob;
+            OrderedSelection(out pa, out oa, out pb, out ob);
+            var afterStart = paragraph > pa || (paragraph == pa && offset > oa);
+            var beforeEnd = paragraph < pb || (paragraph == pb && offset < ob);
+            return afterStart && beforeEnd;
+        }
+
+        /// <summary>Le clic qui peut ouvrir un glisser de la sélection : vrai
+        /// s'il tombe dans la sélection (le geste attend alors le seuil).
+        /// Point en coordonnées de _pages, position déjà testée.</summary>
+        internal bool TextDragPressAt(Point point, int paragraph, int offset)
+        {
+            if (!TextDragAllowed() || !InsideSelection(paragraph, offset)) return false;
+            _textDragPending = true;
+            _textDragging = false;
+            _textDragStart = point;
+            _dropParagraph = -1;
+            return true;
+        }
+
+        /// <summary>La souris bouge pendant le geste : au-delà du seuil le
+        /// glisser commence ; le caret de dépôt suit la position survolée,
+        /// caché quand elle tombe dans la sélection (rien à déplacer là).</summary>
+        private void TextDragTo(Point point, PageElement page)
+        {
+            if (_textDragPending)
+            {
+                if (Math.Abs(point.X - _textDragStart.X) < 3 && Math.Abs(point.Y - _textDragStart.Y) < 3) return;
+                _textDragPending = false;
+                _textDragging = true;
+            }
+            if (!_textDragging) return;
+            if (page != null) page.Cursor = new Cursor(StandardCursorType.DragMove);
+            int paragraph, offset;
+            if (!HitTestAt(point, out paragraph, out offset) || InsideSelection(paragraph, offset))
+            {
+                _dropParagraph = -1;
+                _dropCaret.IsVisible = false;
+                return;
+            }
+            _dropParagraph = paragraph;
+            _dropOffset = offset;
+            int pageIndex;
+            double lineY;
+            var line = LineOf(paragraph, offset, out pageIndex, out lineY);
+            if (line == null) { _dropCaret.IsVisible = false; return; }
+            var x = CaretX(line, offset, _engine.Current.LeftPxFor(pageIndex));
+            var y = PageTop(pageIndex) + lineY;
+            Canvas.SetLeft(_dropCaret, x - 0.5);
+            Canvas.SetTop(_dropCaret, y + 1);
+            _dropCaret.Height = Math.Max(8, line.Height - 2);
+            _dropCaret.IsVisible = true;
+            EnsureCaretVisible(y, line.Height); // la page défile quand on tire vers un bord
+        }
+
+        /// <summary>Le geste s'oublie sans rien déplacer (Échap, capture perdue).</summary>
+        private void CancelTextDrag()
+        {
+            if (!_textDragPending && !_textDragging) return;
+            _textDragPending = false;
+            _textDragging = false;
+            _dropParagraph = -1;
+            _dropCaret.IsVisible = false;
+        }
+
+        /// <summary>Le bouton se relâche : déplacement si un glisser était en
+        /// cours vers un point valide ; sinon (clic sans tirer) le caret se
+        /// pose au clic et la sélection tombe.</summary>
+        internal void TextDragReleaseAt(Point point)
+        {
+            var wasDragging = _textDragging;
+            var wasPending = _textDragPending;
+            _textDragPending = false;
+            _textDragging = false;
+            _dropCaret.IsVisible = false;
+            if (wasDragging)
+            {
+                if (_dropParagraph >= 0) MoveSelectionTo(_dropParagraph, _dropOffset);
+                _dropParagraph = -1;
+                return;
+            }
+            if (!wasPending) return;
+            int paragraph, offset;
+            if (!HitTestAt(point, out paragraph, out offset)) return;
+            ClearSelection();
+            _caretParagraph = paragraph;
+            _caretOffset = offset;
+            _caretDesiredX = -1;
+            UpdateCaretVisual();
+        }
+
+        /// <summary>Déplace la sélection (mise en forme, notes, images et
+        /// ancres comprises) pour qu'elle commence au point donné, en UNE
+        /// étape d'annulation ; le texte déplacé reste sélectionné. Rend faux
+        /// si le point tombe dans la sélection ou s'il n'y a rien à déplacer.
+        /// Exposé pour la sonde.</summary>
+        internal bool MoveSelectionTo(int paragraph, int offset)
+        {
+            if (_item == null || ReadOnly || !HasSelection()) return false;
+            int pa, oa, pb, ob;
+            OrderedSelection(out pa, out oa, out pb, out ob);
+            var document = _item.Document;
+            if (paragraph < 0 || paragraph >= document.Paragraphs.Count) return false;
+            offset = Math.Max(0, Math.Min(offset, PivotEdit.FlatLength(document.Paragraphs[paragraph])));
+            var insideOrAtEdge = (paragraph > pa || (paragraph == pa && offset >= oa))
+                && (paragraph < pb || (paragraph == pb && offset <= ob));
+            if (insideOrAtEdge) return false;
+
+            PushUndo(false);
+            var fragment = TextFragment.Extract(document, pa, oa, pb, ob, false);
+            // La cible se corrige de la suppression qui la précède : même
+            // paragraphe que la fin, après elle → recule de la longueur ôtée
+            // (la fin rejoint pa:oa) ; paragraphe au-delà → remonte des
+            // paragraphes fondus.
+            if (paragraph == pb && offset >= ob) { paragraph = pa; offset = oa + (offset - ob); }
+            else if (paragraph > pb) paragraph -= pb - pa;
+            DeleteSelectionIfAny();
+            var startParagraph = paragraph;
+            var startOffset = offset;
+            var added = TextFragment.Insert(document, fragment, ref paragraph, ref offset);
+            var first = _engine.RecomposeParagraph(startParagraph);
+            for (var i = 1; i <= added; i++)
+                first = Math.Min(first, _engine.ParagraphInserted(startParagraph + i));
+            _anchorParagraph = startParagraph;
+            _anchorOffset = startOffset;
+            _caretParagraph = paragraph;
+            _caretOffset = offset;
+            _caretDesiredX = -1;
+            _pendingFormat = null;
+            AfterEdit(Math.Min(first, 0));
+            return true;
+        }
+
         private void PasteFragment(TextDocument fragment)
         {
             PushUndo(false);

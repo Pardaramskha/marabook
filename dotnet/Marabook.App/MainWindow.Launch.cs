@@ -29,6 +29,7 @@ namespace Marabook.App
         {
             _launch = launch ?? new Launch();
             Opened += delegate { ScheduleUpdateCheck(); }; // la vérification silencieuse du lancement (01/10)
+            Opened += delegate { _rightAnimationsOn = !_launch.Probe; }; // la colonne de droite glisse (1.0.3) — pas en sonde
             if (_launch.Isolated)
             {
                 WindowState = WindowState.Normal;
@@ -76,6 +77,7 @@ namespace Marabook.App
                     if (_welcome != null) _welcome.Close();
                     LoadProject(SampleProject(), null);
                     if (_launch.Demo && !_launch.Probe) { await Task.Delay(200); if (_launch.OpenTitle != null) OpenByTitle(_launch.OpenTitle); else SelectFirstText(); }
+                    if (_launch.Demo && !_launch.Probe && _launch.SelectTitle != null) { await Task.Delay(300); SelectTileByTitle(_launch.SelectTitle, _launch.Tint, _launch.TintAfter); }
                 }
                 if (_launch.Probe) { await Probes.Run(this); QuitNow(); return; }
                 if (_launch.FontProbe != null) { FontProbe(_launch.FontProbe); QuitNow(); return; }
@@ -91,6 +93,15 @@ namespace Marabook.App
         // ------------------------------------------------------------ exposé aux sondes
         public Project Project { get { return _project; } }
         public BinderView Binder { get { return _binder; } }
+        public BookView BookViewPublic { get { return _bookView; } }
+        public CorkboardView Corkboard { get { return _corkboard; } }
+        public SheetLibraryView SheetLibrary { get { return _sheetLibrary; } }
+        /// <summary>La sélection multiple inspectée (1.0.3) : son compte, 0 sans lot.</summary>
+        public int InspectedGroupCount { get { return _inspectedGroup == null ? 0 : _inspectedGroup.Count; } }
+        public void BatchColorPublic(string hex) { if (_inspectedGroup != null) BatchColor(_inspectedGroup, hex); }
+        public bool UndoPublic() { if (!_history.CanUndo) return false; _history.Undo(); return true; }
+        public double RightColumnWidth { get { return _inspectorCol.Width.Value; } }
+        public void MarkDirtyPublic() { MarkDirty(); }
         public WelcomeWindow Welcome { get { return _welcome; } }
         public string InspectorTitle { get { return _inspTitle == null ? "" : _inspTitle.Text ?? ""; } }
         public string InspectorKind { get { return _inspKind == null ? "" : _inspKind.Text ?? ""; } }
@@ -176,6 +187,36 @@ namespace Marabook.App
             foreach (var installed in Avalonia.Media.FontManager.Current.SystemFonts)
                 if (installed.Name.IndexOf(family.Split(' ')[0], StringComparison.OrdinalIgnoreCase) >= 0)
                     Console.WriteLine("    " + installed.Name);
+        }
+
+        /// <summary>Diagnostic de la sélection (1.0.3) : la tuile de ce titre,
+        /// colorée si demandé, choisie dans la vue affichée (tableau d'un
+        /// livre ou d'un dossier, bibliothèque de fiches).</summary>
+        private void SelectTileByTitle(string title, string tint, bool tintAfter)
+        {
+            if (_project == null) return;
+            BinderItem target = null;
+            foreach (var item in _project.AllItems())
+                if (string.Equals(item.Title, title, StringComparison.OrdinalIgnoreCase)) { target = item; break; }
+            if (target == null) return;
+            if (!string.IsNullOrEmpty(tint) && !tintAfter)
+            {
+                target.CardColor = tint;
+                RefreshOpenCorkboards();
+                if (_sheetLibrary.IsVisible) _sheetLibrary.Refresh();
+            }
+            var ids = new[] { target.Id };
+            if (_bookView.IsVisible) _bookView.TextsBoard.SelectForProbe(ids);
+            else if (_corkboard.IsVisible) _corkboard.SelectForProbe(ids);
+            else if (_sheetLibrary.IsVisible) _sheetLibrary.SelectForProbe(ids);
+            // La carte CHOISIE puis recolorée : le tableau se rebâtit avec la
+            // carte déjà sélectionnée (le cas du liseré perdu, 03/10).
+            if (!string.IsNullOrEmpty(tint) && tintAfter)
+            {
+                target.CardColor = tint;
+                RefreshOpenCorkboards();
+                if (_sheetLibrary.IsVisible) _sheetLibrary.Refresh();
+            }
         }
 
         public void OpenByTitle(string title)

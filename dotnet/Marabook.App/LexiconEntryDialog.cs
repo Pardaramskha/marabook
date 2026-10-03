@@ -37,6 +37,9 @@ namespace Marabook.App
         private readonly Dictionary<string, RadioButton> _classRadios = new Dictionary<string, RadioButton>();
         private readonly Dictionary<string, RadioButton> _genderRadios = new Dictionary<string, RadioButton>();
         private readonly Dictionary<string, RadioButton> _properRadios = new Dictionary<string, RadioButton>();
+        // Le genre d'un prénom (1.0.3) : masculin, féminin, neutre (défaut).
+        private readonly List<RadioButton> _firstNameRadios = new List<RadioButton>();
+        private string _firstNameGender = "";
         private readonly Dictionary<string, CheckBox> _traitBoxes = new Dictionary<string, CheckBox>();
         private readonly Dictionary<string, StackPanel> _naturePanels = new Dictionary<string, StackPanel>();
         private readonly StackPanel _natureHost, _flexion;
@@ -380,6 +383,31 @@ namespace Marabook.App
                     box.IsCheckedChanged += delegate { if (!_syncing) RefreshForms(); };
                     children.Children.Add(box);
                 }
+                if (kind == LexiconEntry.ProperFirstName)
+                {
+                    // Le genre d'un prénom (1.0.3) : neutre par défaut — le
+                    // correcteur n'accorde que sur un prénom genré.
+                    var initialFirstName = initial != null && initial.ProperKind == LexiconEntry.ProperFirstName ? initial.Genders : "";
+                    _firstNameGender = initialFirstName == LexiconEntry.GendersMasculine || initialFirstName == LexiconEntry.GendersFeminine ? initialFirstName : "";
+                    foreach (var pair in new[] { new[] { LexiconEntry.GendersMasculine, "Masculin" }, new[] { LexiconEntry.GendersFeminine, "Féminin" }, new[] { "", "Neutre" } })
+                    {
+                        var genderRadio = new RadioButton
+                        {
+                            Content = pair[1],
+                            GroupName = "lexicon-firstname",
+                            IsChecked = pair[0] == _firstNameGender,
+                            Margin = new Thickness(0, 2, 14, 0)
+                        };
+                        var genderRef = pair[0];
+                        genderRadio.IsCheckedChanged += delegate
+                        {
+                            if (genderRadio.IsChecked == true) _firstNameGender = genderRef;
+                            if (!_syncing) RefreshForms();
+                        };
+                        _firstNameRadios.Add(genderRadio);
+                        children.Children.Add(genderRadio);
+                    }
+                }
                 if (children.Children.Count > 0) host.Children.Add(children);
             }
             host.Children.Add(BuildDemonymPanel(initial));
@@ -469,6 +497,7 @@ namespace Marabook.App
                 if (trait.ProperKind != kind) box.IsChecked = false;
             }
             if (_demonymPanel != null) _demonymPanel.IsVisible = LexiconEntry.AllowsDemonym(kind) ? true : false;
+            foreach (var genderRadio in _firstNameRadios) genderRadio.IsEnabled = kind == LexiconEntry.ProperFirstName;
             // Un gentilé se décline aux deux genres (Mànisien, Mànisienne) ;
             // un autre nom propre ne se fléchit pas (01/10).
             if (kind == LexiconEntry.ProperDemonym && !_syncing && _forms[3] != null)
@@ -581,7 +610,8 @@ namespace Marabook.App
             {
                 Word = (_word.Text ?? "").Trim(),
                 Class = cls,
-                Genders = flexion ? SelectedGenders() : "",
+                Genders = flexion ? SelectedGenders()
+                    : cls == LexiconEntry.ClassProper && SelectedProperKind() == LexiconEntry.ProperFirstName ? _firstNameGender : "",
                 Plural = !flexion ? "" : _invariable.IsChecked == true ? LexiconEntry.PluralInvariable : (_initial != null && _initial.Plural == LexiconEntry.PluralX ? LexiconEntry.PluralX : ""),
                 MascSg = flexion ? (_forms[0].Text ?? "").Trim() : "",
                 MascPl = flexion ? (_forms[1].Text ?? "").Trim() : "",
