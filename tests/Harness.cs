@@ -132,7 +132,8 @@ namespace Marabook.Tests
                 ImagesTests.Run,         // C42 — refonte des images (26/09)
                 FontPrefsTests.Run,      // C43 — catalogue de polices : l'ordre (FontOrder) et les bascules
                 ExchangeImagesTests.Run,  // C44 — images dans les échanges : docx ancré, Markdown, RTF (26/09)
-                TextFragmentTests.Run    // C45 - fragment du presse-papiers mis en forme (28/09)
+                TextFragmentTests.Run,   // C45 - fragment du presse-papiers mis en forme (28/09)
+                PersonalLexiconTests.Run // C46 - dictionnaire personnel vers Grammalecte, prénoms genrés (1.0.3)
             };
             foreach (var suite in suites)
             {
