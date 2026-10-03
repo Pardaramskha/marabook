@@ -309,19 +309,13 @@ namespace Marabook.App
             _binder.Rebuild();
         }
 
-        /// <summary>Chaque copie juste après son original — du dernier au
-        /// premier, pour que les insertions ne décalent pas les suivantes.
-        /// Appliqué au fil de l'eau puis poussé en une étape.</summary>
+        /// <summary>Chaque copie juste après son original : l'index se
+        /// calcule au moment d'insérer (après les copies déjà posées), appliqué
+        /// au fil de l'eau puis poussé en une étape.</summary>
         private void BatchDuplicate(List<BinderItem> items)
         {
-            var ordered = new List<BinderItem>(items);
-            ordered.Sort(delegate(BinderItem a, BinderItem b)
-            {
-                if (a.Parent != b.Parent) return 0;
-                return b.Parent.Children.IndexOf(b).CompareTo(a.Parent.Children.IndexOf(a));
-            });
             var actions = new List<IUndoableAction>();
-            foreach (var item in ordered)
+            foreach (var item in items)
             {
                 if (item.Parent == null) continue;
                 var copy = item.Duplicate();
@@ -378,9 +372,15 @@ namespace Marabook.App
                 if (item.Parent == trash) slots.Add(new KeyValuePair<BinderItem, int>(item, trash.Children.IndexOf(item)));
             if (slots.Count == 0) return;
             slots.Sort(delegate(KeyValuePair<BinderItem, int> a, KeyValuePair<BinderItem, int> b) { return a.Value.CompareTo(b.Value); });
-            AppSettings.PermanentlyDeleted += Achievements.CountAll(new List<BinderItem>(items));
+            // « Terre brûlée » / « Masochiste » : ce qui part vraiment, descendants
+            // compris (comme Vider la corbeille).
+            var gone = new List<BinderItem>();
+            foreach (var slot in slots) gone.Add(slot.Key);
+            AppSettings.PermanentlyDeleted += Achievements.CountAll(gone);
             _inspectedGroup = null;
             _corkboard.ClearSelection();
+            _bookView.ClearSelection();
+            _sheetLibrary.ClearSelection();
             _binder.ClearMultiSelection();
             RunBatch(new DelegateAction(
                 delegate { foreach (var slot in slots) trash.Children.Remove(slot.Key); },

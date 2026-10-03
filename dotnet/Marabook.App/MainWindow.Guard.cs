@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Avalonia.Controls;
 using Marabook.Model;
 using Marabook.Persistence;
 
@@ -49,7 +50,7 @@ namespace Marabook.App
             var stamp = PlotFile.Stamp(path);
             if (stamp != null && stamp == _diskStamp) return DiskState.Same;
             var onDisk = PlotFile.ReadSaveId(path);
-            if (!string.IsNullOrEmpty(onDisk) && onDisk == _diskSaveId)
+            if (onDisk != null && onDisk == _diskSaveId) // « » == « » : un fichier d'avant l'empreinte, seulement touché
             {
                 _diskStamp = stamp;
                 return DiskState.Same;
@@ -62,7 +63,7 @@ namespace Marabook.App
 
         /// <summary>Le conflit vu avant un enregistrement demandé : on
         /// explique et on laisse choisir.</summary>
-        private async void ResolveConflictThenSave(DiskState state)
+        private async Task ResolveConflictThenSave(DiskState state)
         {
             var name = Path.GetFileName(_path ?? "");
             string text;
@@ -85,8 +86,35 @@ namespace Marabook.App
             var choice = await MessageDialog.ShowChoices(this, text, AppName, MessageIcon.Warning, choices, choices.Length - 1);
             if (choice <= 0) return;
             var label = choices[choice];
-            if (label == "Enregistrer sous…") DoSaveAs();
+            if (label == "Enregistrer sous…") await DoSaveAsAsync();
             else SaveProject(false, true);
+        }
+
+        private bool _resolvingSave; // un dialogue règle l'enregistrement (conflit, Enregistrer sous) : l'automatique attend
+        private string _queuedSaveId; // l'empreinte que la dernière écriture lancée va poser (les écritures s'enchaînent)
+
+        /// <summary>Une résolution INTERACTIVE avant l'écriture (Enregistrer
+        /// sous, conflit) : SaveCompletion() — la fermeture, ConfirmDiscard,
+        /// les sondes — attend qu'elle soit réglée ET que l'écriture qu'elle a
+        /// pu lancer soit jugée ; sans écriture (annulée), _dirty reste vrai
+        /// et l'appelant le voit.</summary>
+        private async void GateAround(Func<Task> interaction)
+        {
+            var gate = new TaskCompletionSource<bool>();
+            _saveDone = gate;
+            _resolvingSave = true;
+            try
+            {
+                await interaction();
+                var after = _saveDone;
+                if (!ReferenceEquals(after, gate)) await after.Task; // l'écriture lancée par la résolution
+            }
+            catch (Exception error) { ReportSaveError(error, false); }
+            finally
+            {
+                _resolvingSave = false;
+                gate.TrySetResult(true);
+            }
         }
 
         /// <summary>La sauvegarde automatique devant un fichier changé : elle
@@ -155,7 +183,8 @@ namespace Marabook.App
                 + "L'ouvrir ici aussi peut produire des copies en conflit si le dossier est synchronisé "
                 + "(OneDrive, Dropbox, NAS…) : les enregistrements de l'une écraseraient ceux de l'autre.\n\n"
                 + "Si ce projet n'est plus ouvert là-bas (fermeture brutale), ouvrez-le : le verrou se périme de lui-même.";
-            var choice = await MessageDialog.ShowChoices(this, text, AppName, MessageIcon.Warning,
+            // Possédé par l'accueil quand il est là : c'est lui qu'on regarde.
+            var choice = await MessageDialog.ShowChoices(_welcome != null ? (Window)_welcome : this, text, AppName, MessageIcon.Warning,
                 new[] { "Annuler", "Ouvrir quand même" }, 0);
             return choice == 1;
         }

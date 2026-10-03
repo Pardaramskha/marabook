@@ -308,6 +308,10 @@ namespace Marabook.App
             };
             TextInput += OnTextInput;
             KeyDown += OnKeyDown;
+            // La capture perdue sans relâchement (Alt+Tab, dialogue, toast) :
+            // le glisser de la sélection s'oublie, sinon la souris resterait
+            // muette (1.0.3).
+            PointerCaptureLost += delegate { CancelTextDrag(); };
             InitImageDrop(); // un fichier image glissé depuis l'Explorateur (0.50.0)
         }
 
@@ -1721,6 +1725,7 @@ namespace Marabook.App
 
         private void OnKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Escape && (_textDragPending || _textDragging)) { CancelTextDrag(); e.Handled = true; return; } // le glisser s'annule (1.0.3)
             if (ReadOnly && !IsNavigationKey(e)) { e.Handled = true; return; }
             if (FocusWithin(_bubbleLayer)) return; // le clavier est à la bulle (b34)
             if (NoteEditing)
@@ -2538,6 +2543,16 @@ namespace Marabook.App
             _dropCaret.Height = Math.Max(8, line.Height - 2);
             _dropCaret.IsVisible = true;
             EnsureCaretVisible(y, line.Height); // la page défile quand on tire vers un bord
+        }
+
+        /// <summary>Le geste s'oublie sans rien déplacer (Échap, capture perdue).</summary>
+        private void CancelTextDrag()
+        {
+            if (!_textDragPending && !_textDragging) return;
+            _textDragPending = false;
+            _textDragging = false;
+            _dropParagraph = -1;
+            _dropCaret.IsVisible = false;
         }
 
         /// <summary>Le bouton se relâche : déplacement si un glisser était en

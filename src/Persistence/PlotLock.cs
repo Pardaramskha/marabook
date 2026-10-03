@@ -92,12 +92,15 @@ namespace Marabook.Persistence
         public static bool IsForeignAndAlive(LockInfo info, DateTime nowUtc)
         {
             if (info == null) return false;
+            var fresh = nowUtc - info.HeartbeatUtc < StaleAfter;
             if (string.Equals(info.Machine, MachineNameProvider(), StringComparison.OrdinalIgnoreCase))
             {
                 if (info.Pid == CurrentPid()) return false; // le nôtre
-                return AliveProbe(info.Pid);
+                // Vivant ET battant : un pid réattribué à un autre processus
+                // après un plantage ne tient pas le verrou au-delà de la péremption.
+                return AliveProbe(info.Pid) && fresh;
             }
-            return nowUtc - info.HeartbeatUtc < StaleAfter;
+            return fresh;
         }
 
         /// <summary>Pose (ou reprend) le verrou pour ce processus.</summary>
@@ -111,8 +114,12 @@ namespace Marabook.Persistence
         /// (une autre machine a pu le reprendre : on ne l'écrase pas).</summary>
         public static void Heartbeat(string plotPath)
         {
+            if (string.IsNullOrEmpty(plotPath)) return;
+            // Disparu (retiré par une autre machine qui l'avait repris, puis
+            // refermé) : le projet est toujours ouvert ici, on le repose.
+            try { if (!File.Exists(PathFor(plotPath))) { Acquire(plotPath); return; } } catch { return; }
             var info = Read(plotPath);
-            if (info == null || !IsOurs(info)) return;
+            if (info == null || !IsOurs(info)) return; // illisible (en cours d'écriture ailleurs) ou à un autre : on n'y touche pas
             WriteOurs(plotPath, info.Started);
         }
 
@@ -122,8 +129,10 @@ namespace Marabook.Persistence
             if (string.IsNullOrEmpty(plotPath)) return;
             try
             {
+                // Seulement le NÔTRE, lu et reconnu : un verrou illisible (en
+                // cours d'écriture par une autre machine) reste en place.
                 var info = Read(plotPath);
-                if (info != null && !IsOurs(info)) return;
+                if (info == null || !IsOurs(info)) return;
                 var lockPath = PathFor(plotPath);
                 if (File.Exists(lockPath)) File.Delete(lockPath);
             }

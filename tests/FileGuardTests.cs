@@ -134,6 +134,8 @@ namespace Marabook.Tests
                 var dead = new LockInfo { Machine = "PC-BUREAU", Pid = 99, HeartbeatUtc = now };
                 t.Check(PlotLock.IsForeignAndAlive(alive, now), "même machine, autre Marabook vivant : occupé");
                 t.Check(!PlotLock.IsForeignAndAlive(dead, now), "même machine, processus mort : libre (plantage)");
+                var reused = new LockInfo { Machine = "PC-BUREAU", Pid = 4242, HeartbeatUtc = now.AddMinutes(-40) };
+                t.Check(!PlotLock.IsForeignAndAlive(reused, now), "même machine, pid vivant mais sans battement depuis 40 min : périmé (pid réattribué)");
 
                 // Une autre machine : battement frais → occupé ; périmé → libre.
                 var fresh = new LockInfo { Machine = "PC-SALON", Pid = 1, HeartbeatUtc = now.AddMinutes(-3) };
@@ -158,6 +160,14 @@ namespace Marabook.Tests
                 File.WriteAllText(PlotLock.PathFor(path), "{ pas du json");
                 t.Equal(null, PlotLock.Read(path), "un verrou illisible vaut absent");
                 t.Equal(null, PlotLock.Probe(path), "…et libre");
+                PlotLock.Release(path);
+                t.Check(File.Exists(PlotLock.PathFor(path)), "…mais Release ne le supprime pas (il peut être en cours d'écriture ailleurs)");
+                File.Delete(PlotLock.PathFor(path));
+                PlotLock.Acquire(path);
+                File.Delete(PlotLock.PathFor(path));
+                PlotLock.Heartbeat(path);
+                t.Check(PlotLock.IsOurs(PlotLock.Read(path)), "le battement repose un verrou disparu");
+                PlotLock.Release(path);
             }
             finally
             {

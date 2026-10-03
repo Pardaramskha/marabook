@@ -1943,6 +1943,18 @@ namespace Marabook.App
 
         public void OpenFile(string path)
         {
+            // Un verrou étranger vivant (1.0.3) : on demande avant de lire.
+            if (PlotLock.Probe(path) != null) { OpenFileAfterLock(path); return; }
+            OpenFileCore(path);
+        }
+
+        private async void OpenFileAfterLock(string path)
+        {
+            if (await ConfirmForeignLock(path)) OpenFileCore(path);
+        }
+
+        private void OpenFileCore(string path)
+        {
             _busy.Begin();
             _busy.Pump();
             try
@@ -1964,8 +1976,11 @@ namespace Marabook.App
         /// est ensuite installé sur le fil d'interface, comme OpenFile.
         /// PlotFile et le modèle ne touchent à rien de WPF. « finished » est
         /// toujours appelé, réussite ou non — l'accueil regarde HasProjectPath.</summary>
-        public void OpenFileInBackground(string path, Action finished)
+        public async void OpenFileInBackground(string path, Action finished)
         {
+            // Un verrou étranger vivant (1.0.3) : on demande avant de lire —
+            // la boîte appartient à l'accueil, qui attend « finished ».
+            if (!await ConfirmForeignLock(path)) { if (finished != null) finished(); return; }
             var warnings = new List<string>();
             _busy.Begin(); // rendu dans le BeginInvoke ci-dessous, réussite ou non
             System.Threading.Tasks.Task.Factory
@@ -1993,10 +2008,8 @@ namespace Marabook.App
 
         /// <summary>Le projet lu : installé, ajouté aux récents, l'accueil
         /// relâché, le .tmp orphelin nettoyé, les réserves montrées.</summary>
-        private async void InstallOpened(Project project, string path, List<string> warnings)
+        private void InstallOpened(Project project, string path, List<string> warnings)
         {
-            // Un verrou étranger vivant (1.0.3) : on prévient avant d'installer.
-            if (!await ConfirmForeignLock(path)) return;
             AdoptFileName(project, path);
             LoadProject(project, path);
             // Un projet est ouvert : l'accueil (13/09) se retire — quel
@@ -2384,7 +2397,8 @@ namespace Marabook.App
         /// dehors de Marabook (1.0.3) — la garde ne compare plus.</summary>
         private void SaveProject(bool silent, bool force)
         {
-            if (_path == null) { if (!silent) DoSaveAs(); return; }
+            if (_path == null) { if (!silent) GateAround(DoSaveAsAsync); return; }
+            if (silent && _resolvingSave) return; // un dialogue règle déjà l'enregistrement
             if (_project.ReadOnlyNewerFormat)
             {
                 MessageDialog.Show(this,
@@ -2398,17 +2412,21 @@ namespace Marabook.App
             var path = _path;
             // La GARDE du .plot (1.0.3) : modifié en dehors de Marabook depuis
             // la référence ? On demande (ou l'automatique se suspend).
-            if (!force)
+            // Une écriture encore en route (ou pas encore jugée) : le disque
+            // va porter SON empreinte — on ne compare pas à l'ancienne, et
+            // l'écriture qui suit attend celle-là (pas de faux conflit).
+            var inFlight = _saveDone != null && !_saveDone.Task.IsCompleted;
+            if (!force && !inFlight)
             {
                 var state = DiskStateOf(path);
                 if (state != DiskState.Same)
                 {
                     if (silent) WarnAutosaveConflict(state);
-                    else ResolveConflictThenSave(state);
+                    else GateAround(delegate { return ResolveConflictThenSave(state); });
                     return;
                 }
             }
-            var expectedSaveId = force ? null : _diskSaveId;
+            var expectedSaveId = force ? null : inFlight ? _queuedSaveId : _diskSaveId;
             try
             {
                 // Every editable view must flush before writing: the sheet body
@@ -2451,6 +2469,7 @@ namespace Marabook.App
             _saveDone = done;
             _busy.Begin();
             var written = plan.SaveId;
+            _queuedSaveId = written;
             var task = Task.Run(delegate
             {
                 try { previous.Wait(); } catch (Exception) { }
@@ -2488,6 +2507,7 @@ namespace Marabook.App
                 var error = task.Exception != null && task.Exception.InnerException != null ? task.Exception.InnerException : (Exception)task.Exception;
                 _dirty = true;
                 _recoveryDirty = true;
+                _queuedSaveId = _diskSaveId; // rien n'a été posé : la file repart de la référence
                 UpdateTitle();
                 ReportSaveError(error, silent);
                 return;
@@ -2528,7 +2548,14 @@ namespace Marabook.App
             }
         }
 
-        private async void DoSaveAs()
+        private void DoSaveAs()
+        {
+            GateAround(DoSaveAsAsync);
+        }
+
+        /// <summary>Enregistrer sous, attendable (1.0.3) : la porte de
+        /// SaveCompletion se referme quand l'écriture lancée est jugée.</summary>
+        private async Task DoSaveAsAsync()
         {
             if (_project.ReadOnlyNewerFormat)
             {
