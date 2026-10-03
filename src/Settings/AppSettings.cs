@@ -196,6 +196,9 @@ namespace Marabook.Settings
         // L'auto-sélecteur de mot (0.50.0) : un cliquer-glisser qui déborde
         // du mot de départ sélectionne des mots entiers, façon Word.
         public static bool AutoSelectWord = true;
+        // Glisser-déposer de la sélection de texte dans l'éditeur (1.0.3) :
+        // tirer une sélection la déplace là où le caret de dépôt se pose.
+        public static bool TextDragDrop = true;
         // La vitesse du défilement à la molette (0.50.0) : un multiplicateur
         // du pas de Windows, 0,25 à 3 — Préférences › Personnalisation.
         public static double ScrollSpeed = 1;
@@ -500,6 +503,7 @@ namespace Marabook.Settings
                 if (SnapshotCap > 100) SnapshotCap = 100;
                 DailySnapshot = Json.AsBool(Json.Field(root, "dailySnapshot"), true);
                 AutoSelectWord = Json.AsBool(Json.Field(root, "autoSelectWord"), true);
+                TextDragDrop = Json.AsBool(Json.Field(root, "textDragDrop"), true);
                 ScrollSpeed = Json.AsDouble(Json.Field(root, "scrollSpeed"), 1);
                 if (ScrollSpeed < 0.25 || ScrollSpeed > 3) ScrollSpeed = 1;
                 var specials = Json.AsList(Json.Field(root, "recentSpecialChars"));
@@ -636,6 +640,7 @@ namespace Marabook.Settings
                 root["snapshotCap"] = SnapshotCap;
                 root["dailySnapshot"] = DailySnapshot;
                 root["autoSelectWord"] = AutoSelectWord;
+                root["textDragDrop"] = TextDragDrop;
                 if (Math.Abs(ScrollSpeed - 1) > 0.001) root["scrollSpeed"] = ScrollSpeed;
                 if (RecentSpecialChars.Count > 0) root["recentSpecialChars"] = new List<object>(RecentSpecialChars.ToArray());
                 root["grammarEnabled"] = GrammarEnabled;

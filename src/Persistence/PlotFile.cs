@@ -197,6 +197,22 @@ namespace Marabook.Persistence
             }
             internal readonly List<Entry> Entries = new List<Entry>();
             public int Count { get { return Entries.Count; } }
+            /// <summary>L'empreinte écrite dans ce plan (1.0.3).</summary>
+            public string SaveId = "";
+        }
+
+        /// <summary>Le .plot a changé sous nos pieds entre la préparation et
+        /// l'échange des fichiers (1.0.3) : rien n'a été écrasé. Une IOException,
+        /// pour que l'échec se dise sans rapport de plantage.</summary>
+        public class PlotConflictException : IOException
+        {
+            public readonly string OnDiskSaveId;
+            public PlotConflictException(string path, string onDiskSaveId)
+                : base("Le fichier « " + Path.GetFileName(path) + " » a été modifié par un autre programme pendant l'enregistrement "
+                      + "(synchronisation, autre machine) : rien n'a été écrasé. Réessayez Fichier › Enregistrer pour choisir.")
+            {
+                OnDiskSaveId = onDiskSaveId;
+            }
         }
 
         private static readonly UTF8Encoding Utf8 = new UTF8Encoding(false);
@@ -208,6 +224,7 @@ namespace Marabook.Persistence
             var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
             if (string.IsNullOrEmpty(project.CreatedAt)) project.CreatedAt = now;
             project.ModifiedAt = now;
+            project.SaveId = Guid.NewGuid().ToString("N"); // l'empreinte de CET enregistrement (1.0.3)
 
             // Les images que plus rien ne cite ne sont pas écrites — mais elles
             // restent en mémoire : un Ctrl+Z après une sauvegarde automatique
@@ -227,7 +244,7 @@ namespace Marabook.Persistence
                         + item.Id + " » (dont « " + item.Title + " »). "
                         + "Enregistrement refusé pour ne perdre aucun document.");
 
-            var plan = new SavePlan();
+            var plan = new SavePlan { SaveId = project.SaveId };
             plan.Entries.Add(Text("manifest.json", Json.Write(BuildManifest(project))));
             plan.Entries.Add(Text("styles.json", Json.Write(BuildStyles(project.Styles))));
             plan.Entries.Add(Text("sheets/templates.json", Json.Write(BuildTemplates(project))));
@@ -288,6 +305,16 @@ namespace Marabook.Persistence
         /// jamais le projet ; la version d'avant devient .bak.</summary>
         public static void Write(SavePlan plan, string path, bool textsOnly = false)
         {
+            Write(plan, path, textsOnly, null);
+        }
+
+        /// <summary>Même écriture, GARDÉE (1.0.3) : <paramref name="expectedSaveId"/>
+        /// non null = l'empreinte que le fichier sur le disque doit encore
+        /// porter juste avant l'échange ; une autre (ou un fichier devenu
+        /// illisible) → PlotConflictException, le .tmp retiré, le .plot intact.
+        /// Un fichier sans empreinte (version d'avant) vaut « ».</summary>
+        public static void Write(SavePlan plan, string path, bool textsOnly, string expectedSaveId)
+        {
             var tempPath = path + ".tmp";
             using (var stream = new FileStream(tempPath, FileMode.Create))
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
@@ -302,9 +329,55 @@ namespace Marabook.Persistence
                 }
 
             if (File.Exists(path))
+            {
+                if (expectedSaveId != null)
+                {
+                    var onDisk = ReadSaveId(path);
+                    if (onDisk == null || onDisk != expectedSaveId)
+                    {
+                        try { File.Delete(tempPath); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                        throw new PlotConflictException(path, onDisk);
+                    }
+                }
                 File.Replace(tempPath, path, textsOnly ? null : path + ".bak"); // pas de .bak pour le secours
+            }
             else
                 File.Move(tempPath, path);
+        }
+
+        /// <summary>L'empreinte d'enregistrement d'un .plot sans le charger
+        /// (1.0.3) : « » pour un fichier d'avant l'empreinte, null si le
+        /// fichier manque ou ne se lit pas.</summary>
+        public static string ReadSaveId(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return null;
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+                {
+                    var entry = archive.GetEntry("manifest.json");
+                    if (entry == null) return null;
+                    var manifest = Json.AsObject(Json.Parse(ReadEntry(entry)));
+                    if (manifest == null) return null;
+                    return Json.AsString(Json.Field(manifest, "saveId")) ?? "";
+                }
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Date de modification et taille du fichier, en une chaîne :
+        /// le test rapide d'un changement avant de relire l'empreinte. Null
+        /// si le fichier manque.</summary>
+        public static string Stamp(string path)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists) return null;
+                return info.LastWriteTimeUtc.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + info.Length.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+            catch { return null; }
         }
 
         private static Dictionary<string, object> BuildSnapshotMeta(Snapshot snapshot)
@@ -423,6 +496,7 @@ namespace Marabook.Persistence
             if (!string.IsNullOrEmpty(project.SidePinId)) manifest["sidePin"] = project.SidePinId; // v21
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
+            if (!string.IsNullOrEmpty(project.SaveId)) manifest["saveId"] = project.SaveId; // l'empreinte (1.0.3, clé additive : les versions d'avant l'ignorent)
             manifest["page"] = BuildPageSetup(project.Page);
             if (project.Journal.DailyGoal > 0 || project.Journal.Days.Count > 0 || project.Journal.Sprints.Count > 0)
             {
@@ -881,6 +955,7 @@ namespace Marabook.Persistence
                     project.ReadOnlyNewerFormat = true;
                 project.Name = Json.AsString(Json.Field(manifest, "name")) ?? "Sans titre";
                 project.Author = Json.AsString(Json.Field(manifest, "author")) ?? "";
+                project.SaveId = Json.AsString(Json.Field(manifest, "saveId")) ?? "";
                 project.GlobalStylesStamp = Json.AsString(Json.Field(manifest, "globalStylesStamp")) ?? "";
                 // Le séparateur de scène d'avant la v28 (texte, police, taille
                 // du manifeste) devient le style « separator » s'il manque.

@@ -225,6 +225,7 @@ namespace Marabook.App
             // Le style morphologique (batch 44) : même pont, même différé,
             // même silence si le pont manque.
             _styleChecker = new Correction.Grammalecte.StyleChecker(_grammarBridge);
+            PushLexiconToGrammar();
             ApplyStyleSettings();
             if (Settings.AppSettings.StyleEnabled && _styleChecker.Wanted)
                 _checkHost.Add(_styleChecker);
@@ -277,6 +278,7 @@ namespace Marabook.App
                 // vérificateurs locaux doit oublier ses verdicts — et les
                 // clés pliées des appris aussi (batch 29, 0.3).
                 _spellChecker.InvalidateLearned();
+                PushLexiconToGrammar();
                 _checkHost.InvalidateCache();
                 RunCheck();
             };
@@ -959,9 +961,22 @@ namespace Marabook.App
             RebuildCorrectionPanel();
         }
 
+        /// <summary>Le dictionnaire personnel (projet + global) part au pont
+        /// Grammalecte (1.0.3) : il accorde autour des prénoms genrés et des
+        /// noms inventés. À appeler AVANT d'invalider le cache, pour que la
+        /// première revérification l'emporte.</summary>
+        private void PushLexiconToGrammar()
+        {
+            if (_grammarBridge == null) return;
+            var projectWords = _spellChecker != null ? _spellChecker.ProjectWords
+                : _project != null ? _project.Lexicon : null;
+            _grammarBridge.SetLexicon(Correction.Grammalecte.PersonalLexicon.Build(projectWords, Settings.AppSettings.Lexicon));
+        }
+
         public void RefreshProofing()
         {
             if (_spellChecker != null) _spellChecker.InvalidateLearned();
+            PushLexiconToGrammar();
             // Les interrupteurs des Options du correcteur (batch 33) : chaque
             // vérificateur entre ou sort du pilote ; la grammaire et la
             // typographie partagent Grammalecte (le vol est annulé quand il sort).
@@ -1956,6 +1971,7 @@ namespace Marabook.App
                     ? project.Lexicon : new List<Model.LexiconEntry>();
                 _spellChecker.InvalidateLearned();
             }
+            PushLexiconToGrammar();
             _checkHost.InvalidateCache();
         }
 

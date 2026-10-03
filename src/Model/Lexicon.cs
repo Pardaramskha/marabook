@@ -238,6 +238,15 @@ namespace Marabook.Model
             get { return Class == ClassNoun || Class == ClassAdjective || (Class == ClassProper && ProperKind == ProperDemonym); }
         }
 
+        /// <summary>Le genre d'un PRÉNOM (1.0.3) : « m », « f », ou « » = neutre
+        /// (le défaut : le correcteur n'accorde pas dessus). Vit dans Genders,
+        /// comme le genre en miroir des anciens formats.</summary>
+        public string FirstNameGender()
+        {
+            if (Class != ClassProper || ProperKind != ProperFirstName) return "";
+            return Genders == GendersMasculine || Genders == GendersFeminine ? Genders : "";
+        }
+
         /// <summary>Le pluriel effectif : « invariable » quand la nature le
         /// dit (entité non comptable, 01/10), le réglage sinon.</summary>
         public string EffectivePlural()
@@ -273,6 +282,11 @@ namespace Marabook.Model
                 if (trait != null && trait.Class == Class) natures.Add(trait.Label.ToLowerInvariant());
             }
             if (natures.Count > 0) parts.Add(string.Join(", ", natures.ToArray()));
+            if (Class == ClassProper && ProperKind == ProperFirstName)
+            {
+                var firstName = FirstNameGender();
+                parts.Add(firstName.Length == 0 ? "neutre" : GendersLabel(firstName));
+            }
             if (HasFlexion)
             {
                 var genders = GendersLabel(EffectiveGenders());

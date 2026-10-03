@@ -67,6 +67,12 @@ namespace Marabook.Model
         public List<string> IgnoredRules = new List<string>();
         public string CreatedAt = "";
         public string ModifiedAt = "";
+        // L'EMPREINTE d'enregistrement (1.0.3, manifest « saveId ») : un
+        // identifiant neuf à chaque Prepare. La fenêtre compare celle du
+        // fichier sur le disque à celle qu'elle a lue ou écrite : différente,
+        // le .plot a été modifié en dehors de Marabook (synchronisation,
+        // autre machine) et rien n'est écrasé sans demander.
+        public string SaveId = "";
         public WritingJournal Journal = new WritingJournal();
         public StyleSheet Styles = StyleSheet.CreateDefault();
         // Modèles et catégories de fiches (batch 31) : un projet NEUF est

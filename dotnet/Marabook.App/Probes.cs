@@ -104,6 +104,22 @@ namespace Marabook.App
                 Check(composed.Undo() && !(document.Paragraphs[0].Runs.Count > 0 && document.Paragraphs[0].Runs[0].Bold == true), "…et Ctrl+Z le rend");
                 composed.PlaceCaret(0, 0, false);
 
+                // — Glisser-déposer de la sélection (1.0.3) : les cinq premiers
+                // caractères déplacés après le douzième, en une étape d'annulation ;
+                // un dépôt dans la sélection ne fait rien.
+                if (original.Length > 14)
+                {
+                    composed.PlaceCaret(0, 0, false);
+                    composed.PlaceCaret(0, 5, true);
+                    Check(!composed.MoveSelectionTo(0, 3), "déposer la sélection sur elle-même ne fait rien");
+                    var moved = composed.MoveSelectionTo(0, 12);
+                    await Settle();
+                    var expected = original.Substring(5, 7) + original.Substring(0, 5) + original.Substring(12);
+                    Check(moved && document.Paragraphs[0].ToPlainText() == expected, "glisser-déposer : la sélection se déplace après le douzième caractère");
+                    Check(composed.Undo() && document.Paragraphs[0].ToPlainText() == original, "…et Ctrl+Z la ramène");
+                    composed.PlaceCaret(0, 0, false);
+                }
+
                 // — Copier avec mise en forme, coller (28/09) : le gras voyage
                 // par le presse-papiers ; sans mise en forme, il ne voyage pas.
                 // Sous Xvfb (CI Ubuntu) le presse-papiers ne rend rien : la
@@ -420,6 +436,28 @@ namespace Marabook.App
                     await Settle();
                     Check(shell.LastSaveError == null && System.IO.File.GetLastWriteTimeUtc(plotPath) > stampBefore,
                         "Fichier › Enregistrer réécrit le projet rouvert" + (shell.LastSaveError == null ? "" : " : " + shell.LastSaveError.Split('\n')[0]));
+                    // — La garde du .plot (1.0.3) : le verrou est posé à côté
+                    //   du projet ouvert ; le fichier tel qu'écrit est « à
+                    //   jour » ; remplacé par sa version d'avant (.bak = une
+                    //   autre empreinte, comme une synchronisation), il est vu
+                    //   « modifié » ; une écriture gardée le refuse sans l'écraser.
+                    await shell.SaveCompletion();
+                    Check(shell.LockHeld && System.IO.File.Exists(plotPath + ".lock"), "le verrou « .plot.lock » est posé à côté du projet ouvert");
+                    Check(shell.DiskStatePublic == "Same", "après l'écriture, le fichier sur le disque est la référence (" + shell.DiskStatePublic + ")");
+                    if (System.IO.File.Exists(plotPath + ".bak"))
+                    {
+                        System.IO.File.Copy(plotPath + ".bak", plotPath, true);
+                        Check(shell.DiskStatePublic == "Changed", "remplacé par une autre version : vu comme modifié en dehors de Marabook (" + shell.DiskStatePublic + ")");
+                        var bytesBefore = new System.IO.FileInfo(plotPath).Length;
+                        var foreignId = Persistence.PlotFile.ReadSaveId(plotPath);
+                        shell.MarkDirtyPublic();
+                        var autosave = typeof(MainWindow).GetMethod("Autosave", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                        autosave.Invoke(shell, null);
+                        await shell.SaveCompletion();
+                        await Settle();
+                        Check(Persistence.PlotFile.ReadSaveId(plotPath) == foreignId && new System.IO.FileInfo(plotPath).Length == bytesBefore,
+                            "la sauvegarde automatique se suspend : le fichier de l'autre n'est pas écrasé");
+                    }
                 }
                 catch (Exception error) { Check(false, "aller-retour .plot : " + error.Message); }
                 finally { try { System.IO.File.Delete(plotPath); } catch { } }
@@ -428,6 +466,62 @@ namespace Marabook.App
                 chapter = book == null ? null : book.Children[0];
                 if (chapter != null) shell.Binder.SelectItem(chapter.Id, true);
                 await Settle();
+
+                // — La colonne de droite ne s'ouvre que si elle a quelque chose
+                //   à montrer (1.0.3) : plus de « Rien à montrer ici » sur une
+                //   racine sans Général ; elle revient sur un écrit.
+                var sheetsRoot = shell.Project.Category(Project.KeySheets);
+                if (sheetsRoot != null && chapter != null)
+                {
+                    shell.Binder.SelectItem(sheetsRoot.Id, true);
+                    await Settle();
+                    Check(shell.RightColumnWidth < 1, "racine Fiches sans sélection : la colonne de droite est repliée (" + shell.RightColumnWidth.ToString("0") + ")");
+                    shell.Binder.SelectItem(chapter.Id, true);
+                    await Settle();
+                    Check(shell.RightColumnWidth > 1, "…et revient sur un écrit (" + shell.RightColumnWidth.ToString("0") + ")");
+                }
+
+                // — La sélection multiple (1.0.3) : deux chapitres du livre
+                //   choisis sur le tableau → le Général passe en mode lot ; la
+                //   couleur s'applique aux deux ; UN Ctrl+Z la retire des deux.
+                if (book != null && book.Children.Count >= 2 && chapter != null)
+                {
+                    shell.Binder.SelectItem(book.Id, true);
+                    await Settle();
+                    var board = shell.BookViewPublic.TextsBoard;
+                    var first = book.Children[0];
+                    var second = book.Children[1];
+                    board.SelectForProbe(new[] { first.Id, second.Id });
+                    await Settle();
+                    Check(shell.InspectedGroupCount == 2 && shell.InspectorTitle.StartsWith("2 "), "deux cartes choisies : le Général passe en mode lot (" + shell.InspectorTitle + ")");
+                    var colorFirst = first.CardColor;
+                    var colorSecond = second.CardColor;
+                    shell.BatchColorPublic("#AA3366");
+                    await Settle();
+                    Check(first.CardColor == "#AA3366" && second.CardColor == "#AA3366", "la couleur du lot s'applique aux deux cartes");
+                    shell.UndoPublic();
+                    await Settle();
+                    Check(first.CardColor == colorFirst && second.CardColor == colorSecond, "…et UN Ctrl+Z la retire des deux");
+                    board.ClearSelection();
+                    await Settle();
+                    Check(shell.InspectedGroupCount == 0, "plus de sélection : le Général revient à l'élément");
+                    // La Pile : Ctrl+clic sur un second écrit forme un lot ; une
+                    // fiche d'une autre famille le fait tomber.
+                    shell.Binder.SelectItem(first.Id, true);
+                    await Settle();
+                    shell.Binder.ToggleMultiForProbe(second.Id);
+                    await Settle();
+                    Check(shell.Binder.MultiItems().Count == 2 && shell.InspectedGroupCount == 2, "Pile : Ctrl+clic sur un second écrit forme un lot de deux");
+                    var anySheet = shell.Project.AllItems().FirstOrDefault(i => i.Kind == ItemKind.Sheet);
+                    if (anySheet != null)
+                    {
+                        shell.Binder.ToggleMultiForProbe(anySheet.Id);
+                        await Settle();
+                        Check(shell.Binder.MultiItems().Count == 0 && shell.InspectedGroupCount == 0, "…une fiche hors de la famille fait tomber le lot");
+                    }
+                    shell.Binder.SelectItem(chapter.Id, true);
+                    await Settle();
+                }
 
                 shell.ShowJournalPublic();
                 await Settle();
@@ -441,6 +535,7 @@ namespace Marabook.App
                 shell.SetRightPanelPublic(RightPanel.Inspector);
                 if (chapter != null) shell.Binder.SelectItem(chapter.Id, true);
                 await Settle();
+
 
                 // — Le thème bascule et revient.
                 var before = Chrome.Ink.Color;
@@ -524,7 +619,7 @@ namespace Marabook.App
                             if ((candidate.Content as string ?? "").StartsWith(prefix)) return candidate;
                         return null;
                     };
-                    var masculine = radio("Masculin");
+                    var masculine = lexicon.GetVisualDescendants().OfType<RadioButton>().FirstOrDefault(r => (r.Content as string) == "Masculin" && r.GroupName == "lexicon-genders");
                     var flexionLabel = lexicon.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(t => t.Text == "Flexion :");
                     Check(masculine != null && masculine.IsChecked == true, "un nom neuf part au masculin");
                     var place = radio("Lieu");
@@ -540,6 +635,12 @@ namespace Marabook.App
                     Check(flexionLabel != null && !flexionLabel.IsEffectivelyVisible, "nom propre « Lieu » : la flexion est masquée");
                     var demonym = checkBox("Dériver le gentilé");
                     Check(demonym != null && demonym.IsEffectivelyVisible, "…et le gentilé est proposé");
+                    // (1.0.3) Un prénom se genre : neutre par défaut, Masculin / Féminin à côté.
+                    var firstName = radio("Prénom");
+                    if (firstName != null) firstName.IsChecked = true;
+                    await Settle();
+                    var neutral = radio("Neutre");
+                    Check(neutral != null && neutral.IsEffectivelyVisible && neutral.IsEnabled && neutral.IsChecked == true, "« Prénom » : le genre est proposé, neutre par défaut");
                     var gentile = radio("Gentilé");
                     if (gentile != null) gentile.IsChecked = true;
                     await Settle();

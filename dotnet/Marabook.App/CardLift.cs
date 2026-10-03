@@ -56,20 +56,21 @@ namespace Marabook.App
             };
 
             // L'hôte de l'ombre : la silhouette de la carte (fond + coins),
-            // débordant du rembourrage jusqu'au bord extérieur, sous le
-            // contenu. C'est lui — jamais le texte — qui reçoit l'ombre.
+            // débordant du rembourrage jusqu'au bord INTÉRIEUR de la bordure,
+            // sous le contenu. C'est lui — jamais le texte — qui reçoit
+            // l'ombre. Jamais par-dessus la bordure (03/10) : il allait jusqu'au
+            // bord extérieur selon l'épaisseur du moment, et une carte rebâtie
+            // déjà sélectionnée (couleur changée depuis le Général) voyait son
+            // liseré de 2 px entièrement recouvert.
             var content = card.Child;
             card.Child = null;
             var host = new Grid();
+            var inner = Math.Max(0, card.CornerRadius.TopLeft - card.BorderThickness.Left);
             var shadowHost = new Border
             {
                 Background = card.Background ?? Chrome.CardBg,
-                CornerRadius = card.CornerRadius,
-                Margin = new Thickness(
-                    -(card.Padding.Left + card.BorderThickness.Left),
-                    -(card.Padding.Top + card.BorderThickness.Top),
-                    -(card.Padding.Right + card.BorderThickness.Right),
-                    -(card.Padding.Bottom + card.BorderThickness.Bottom)),
+                CornerRadius = new CornerRadius(inner),
+                Margin = new Thickness(-card.Padding.Left, -card.Padding.Top, -card.Padding.Right, -card.Padding.Bottom),
                 IsHitTestVisible = false
             };
             // L'ombre au repos est la MÊME ombre, transparente — et non
@@ -77,11 +78,12 @@ namespace Marabook.App
             // BoxShadows d'Avalonia ne sait pas interpoler et bascule d'un
             // coup à mi-parcours (l'ombre arrivait en retard, puis sèche —
             // 29/09). De même forme des deux côtés, elle se fond.
-            shadowHost.BoxShadow = Rest;
-            shadowHost.Transitions = new Transitions
+            var transitions = new Transitions
             {
                 new BoxShadowsTransition { Property = Border.BoxShadowProperty, Duration = Down, Easing = new CubicEaseOut() }
             };
+            shadowHost.BoxShadow = Rest();
+            shadowHost.Transitions = transitions;
             host.Children.Add(shadowHost);
             if (content != null) host.Children.Add(content);
             card.Child = host;
@@ -94,20 +96,44 @@ namespace Marabook.App
                 // verticale compense la montée.
                 var growth = card.Bounds.Height * (Scale - 1) / 2;
                 translate.Y = -(RaisePx - growth);
-                shadowHost.BoxShadow = Lifted;
+                // Le thème a pu changer pendant le repos : si la forme de
+                // l'ombre au repos n'est plus celle du mode courant, on la
+                // repose SANS transition avant de soulever (sinon bascule).
+                var rest = Rest();
+                if (!shadowHost.BoxShadow.Equals(rest))
+                {
+                    shadowHost.Transitions = null;
+                    shadowHost.BoxShadow = rest;
+                    shadowHost.Transitions = transitions;
+                }
+                shadowHost.BoxShadow = Lifted();
             };
             card.PointerExited += delegate
             {
                 scale.ScaleX = 1;
                 scale.ScaleY = 1;
                 translate.Y = 0;
-                shadowHost.BoxShadow = Rest;
+                shadowHost.BoxShadow = Rest();
             };
         }
 
         // L'ombre soulevée et son double au repos (mêmes décalage et flou,
-        // alpha nul) : seule la couleur s'anime.
-        private static readonly BoxShadows Lifted = new BoxShadows(new BoxShadow { OffsetX = 0, OffsetY = 4, Blur = 14, Color = Color.FromArgb(0x38, 0, 0, 0) });
-        private static readonly BoxShadows Rest = new BoxShadows(new BoxShadow { OffsetX = 0, OffsetY = 4, Blur = 14, Color = Color.FromArgb(0x00, 0, 0, 0) });
+        // alpha nul) : seule la couleur s'anime. En clair, une ombre portée
+        // grise ; en sombre, une ombre noire ne se voit pas sur un fond
+        // sombre → un HALO de la couleur d'accent de l'utilisateur, sans
+        // décalage (1.0.3). Calculées à chaque survol : le thème et l'accent
+        // peuvent changer pendant la vie de la carte.
+        private static BoxShadows Lifted() { return Shadow(Chrome.Dark ? (byte)0x7A : (byte)0x38); }
+        private static BoxShadows Rest() { return Shadow(0x00); }
+
+        private static BoxShadows Shadow(byte alpha)
+        {
+            if (Chrome.Dark)
+            {
+                var a = Chrome.Accent.Color;
+                return new BoxShadows(new BoxShadow { OffsetX = 0, OffsetY = 0, Blur = 18, Spread = 1, Color = Color.FromArgb(alpha, a.R, a.G, a.B) });
+            }
+            return new BoxShadows(new BoxShadow { OffsetX = 0, OffsetY = 4, Blur = 14, Color = Color.FromArgb(alpha, 0, 0, 0) });
+        }
     }
 }

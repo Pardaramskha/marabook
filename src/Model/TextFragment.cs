@@ -24,6 +24,15 @@ namespace Marabook.Model
         /// plats — en un document neuf. Jamais null ; au moins un paragraphe.</summary>
         public static TextDocument Extract(TextDocument document, int pa, int oa, int pb, int ob)
         {
+            return Extract(document, pa, oa, pb, ob, true);
+        }
+
+        /// <summary>Même extraction ; <paramref name="detach"/> faux garde les
+        /// notes, images, filets et ancres : c'est le DÉPLACEMENT à l'intérieur
+        /// du même document (glisser-déposer de la sélection, 1.0.3), où tout
+        /// cela voyage avec le texte.</summary>
+        public static TextDocument Extract(TextDocument document, int pa, int oa, int pb, int ob, bool detach)
+        {
             var fragment = new TextDocument();
             if (document == null || document.Paragraphs.Count == 0) { fragment.Paragraphs.Add(new TextParagraph()); return fragment; }
             pa = Math.Max(0, Math.Min(pa, document.Paragraphs.Count - 1));
@@ -41,7 +50,7 @@ namespace Marabook.Model
                 var to = p == pb ? Math.Max(from, Math.Min(ob, length)) : length;
                 PivotEdit.DeleteInParagraph(copy, to, length);
                 PivotEdit.DeleteInParagraph(copy, 0, from);
-                Detach(copy);
+                if (detach) Detach(copy);
                 fragment.Paragraphs.Add(copy);
             }
             fragment.LineSpacing = document.LineSpacing;
