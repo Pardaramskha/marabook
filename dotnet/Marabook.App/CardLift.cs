@@ -56,20 +56,21 @@ namespace Marabook.App
             };
 
             // L'hôte de l'ombre : la silhouette de la carte (fond + coins),
-            // débordant du rembourrage jusqu'au bord extérieur, sous le
-            // contenu. C'est lui — jamais le texte — qui reçoit l'ombre.
+            // débordant du rembourrage jusqu'au bord INTÉRIEUR de la bordure,
+            // sous le contenu. C'est lui — jamais le texte — qui reçoit
+            // l'ombre. Jamais par-dessus la bordure (03/10) : il allait jusqu'au
+            // bord extérieur selon l'épaisseur du moment, et une carte rebâtie
+            // déjà sélectionnée (couleur changée depuis le Général) voyait son
+            // liseré de 2 px entièrement recouvert.
             var content = card.Child;
             card.Child = null;
             var host = new Grid();
+            var inner = Math.Max(0, card.CornerRadius.TopLeft - card.BorderThickness.Left);
             var shadowHost = new Border
             {
                 Background = card.Background ?? Chrome.CardBg,
-                CornerRadius = card.CornerRadius,
-                Margin = new Thickness(
-                    -(card.Padding.Left + card.BorderThickness.Left),
-                    -(card.Padding.Top + card.BorderThickness.Top),
-                    -(card.Padding.Right + card.BorderThickness.Right),
-                    -(card.Padding.Bottom + card.BorderThickness.Bottom)),
+                CornerRadius = new CornerRadius(inner),
+                Margin = new Thickness(-card.Padding.Left, -card.Padding.Top, -card.Padding.Right, -card.Padding.Bottom),
                 IsHitTestVisible = false
             };
             // L'ombre au repos est la MÊME ombre, transparente — et non
