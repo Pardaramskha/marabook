@@ -436,6 +436,28 @@ namespace Marabook.App
                     await Settle();
                     Check(shell.LastSaveError == null && System.IO.File.GetLastWriteTimeUtc(plotPath) > stampBefore,
                         "Fichier › Enregistrer réécrit le projet rouvert" + (shell.LastSaveError == null ? "" : " : " + shell.LastSaveError.Split('\n')[0]));
+                    // — La garde du .plot (1.0.3) : le verrou est posé à côté
+                    //   du projet ouvert ; le fichier tel qu'écrit est « à
+                    //   jour » ; remplacé par sa version d'avant (.bak = une
+                    //   autre empreinte, comme une synchronisation), il est vu
+                    //   « modifié » ; une écriture gardée le refuse sans l'écraser.
+                    await shell.SaveCompletion();
+                    Check(shell.LockHeld && System.IO.File.Exists(plotPath + ".lock"), "le verrou « .plot.lock » est posé à côté du projet ouvert");
+                    Check(shell.DiskStatePublic == "Same", "après l'écriture, le fichier sur le disque est la référence (" + shell.DiskStatePublic + ")");
+                    if (System.IO.File.Exists(plotPath + ".bak"))
+                    {
+                        System.IO.File.Copy(plotPath + ".bak", plotPath, true);
+                        Check(shell.DiskStatePublic == "Changed", "remplacé par une autre version : vu comme modifié en dehors de Marabook (" + shell.DiskStatePublic + ")");
+                        var bytesBefore = new System.IO.FileInfo(plotPath).Length;
+                        var foreignId = Persistence.PlotFile.ReadSaveId(plotPath);
+                        shell.MarkDirtyPublic();
+                        var autosave = typeof(MainWindow).GetMethod("Autosave", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                        autosave.Invoke(shell, null);
+                        await shell.SaveCompletion();
+                        await Settle();
+                        Check(Persistence.PlotFile.ReadSaveId(plotPath) == foreignId && new System.IO.FileInfo(plotPath).Length == bytesBefore,
+                            "la sauvegarde automatique se suspend : le fichier de l'autre n'est pas écrasé");
+                    }
                 }
                 catch (Exception error) { Check(false, "aller-retour .plot : " + error.Message); }
                 finally { try { System.IO.File.Delete(plotPath); } catch { } }

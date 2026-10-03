@@ -100,6 +100,7 @@ namespace Marabook.App
         public void BatchColorPublic(string hex) { if (_inspectedGroup != null) BatchColor(_inspectedGroup, hex); }
         public bool UndoPublic() { if (!_history.CanUndo) return false; _history.Undo(); return true; }
         public double RightColumnWidth { get { return _inspectorCol.Width.Value; } }
+        public void MarkDirtyPublic() { MarkDirty(); }
         public WelcomeWindow Welcome { get { return _welcome; } }
         public string InspectorTitle { get { return _inspTitle == null ? "" : _inspTitle.Text ?? ""; } }
         public string InspectorKind { get { return _inspKind == null ? "" : _inspKind.Text ?? ""; } }

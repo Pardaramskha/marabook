@@ -1852,6 +1852,8 @@ namespace Marabook.App
             GlobalStyles.Sync(project);
             _project = project;
             _path = path;
+            RememberDisk(path, project.SaveId); // la référence du disque (1.0.3)
+            AcquireLock(path);                  // « ce projet est ouvert sur … »
             _current = null; _inspected = null; _inspectedGroup = null;
             _dirty = false;
             _readOnlyBanner.IsVisible = project.ReadOnlyNewerFormat
@@ -1991,8 +1993,10 @@ namespace Marabook.App
 
         /// <summary>Le projet lu : installé, ajouté aux récents, l'accueil
         /// relâché, le .tmp orphelin nettoyé, les réserves montrées.</summary>
-        private void InstallOpened(Project project, string path, List<string> warnings)
+        private async void InstallOpened(Project project, string path, List<string> warnings)
         {
+            // Un verrou étranger vivant (1.0.3) : on prévient avant d'installer.
+            if (!await ConfirmForeignLock(path)) return;
             AdoptFileName(project, path);
             LoadProject(project, path);
             // Un projet est ouvert : l'accueil (13/09) se retire — quel
@@ -2140,6 +2144,7 @@ namespace Marabook.App
             if (dialogPath == null) return false;
             LoadProject(Project.CreateNew(), null);
             _path = dialogPath;
+            AdoptPath(_path); // verrou et référence du disque suivent (1.0.3)
             AdoptFileName(_project, _path);
             DoSave();
             if (!File.Exists(_path)) { _path = null; return false; }
@@ -2372,6 +2377,13 @@ namespace Marabook.App
         /// pas en boîte modale toutes les deux minutes (revue 22/09).</summary>
         private void SaveProject(bool silent) // un seul « DoSave » : les sondes le cherchent par réflexion
         {
+            SaveProject(silent, false);
+        }
+
+        /// <summary>force : l'auteur a choisi d'écraser un fichier modifié en
+        /// dehors de Marabook (1.0.3) — la garde ne compare plus.</summary>
+        private void SaveProject(bool silent, bool force)
+        {
             if (_path == null) { if (!silent) DoSaveAs(); return; }
             if (_project.ReadOnlyNewerFormat)
             {
@@ -2384,6 +2396,19 @@ namespace Marabook.App
             }
             PlotFile.SavePlan plan = null;
             var path = _path;
+            // La GARDE du .plot (1.0.3) : modifié en dehors de Marabook depuis
+            // la référence ? On demande (ou l'automatique se suspend).
+            if (!force)
+            {
+                var state = DiskStateOf(path);
+                if (state != DiskState.Same)
+                {
+                    if (silent) WarnAutosaveConflict(state);
+                    else ResolveConflictThenSave(state);
+                    return;
+                }
+            }
+            var expectedSaveId = force ? null : _diskSaveId;
             try
             {
                 // Every editable view must flush before writing: the sheet body
@@ -2425,17 +2450,18 @@ namespace Marabook.App
             var done = new TaskCompletionSource<bool>();
             _saveDone = done;
             _busy.Begin();
+            var written = plan.SaveId;
             var task = Task.Run(delegate
             {
                 try { previous.Wait(); } catch (Exception) { }
-                PlotFile.Write(plan, path);
+                PlotFile.Write(plan, path, false, expectedSaveId); // revérifie l'empreinte juste avant l'échange (1.0.3)
             });
             _saveTask = task;
             task.ContinueWith(delegate(Task finished)
             {
                 Dispatcher.UIThread.Post(delegate
                 {
-                    try { OnSaveWritten(finished, path, silent); }
+                    try { OnSaveWritten(finished, path, silent, written); }
                     finally { done.TrySetResult(true); }
                 });
             });
@@ -2454,7 +2480,7 @@ namespace Marabook.App
         /// <summary>Le verdict d'une écriture de fond : réussie, la taille du
         /// fichier et le toast ; échouée, le projet redevient modifié et
         /// l'erreur se dit comme avant.</summary>
-        private void OnSaveWritten(Task task, string path, bool silent)
+        private void OnSaveWritten(Task task, string path, bool silent, string savedId)
         {
             _busy.End();
             if (task.IsFaulted)
@@ -2467,6 +2493,7 @@ namespace Marabook.App
                 return;
             }
             try { _lastSavedBytes = new FileInfo(path).Length; } catch (IOException) { }
+            if (path == _path) RememberDisk(path, savedId); // la nouvelle référence du disque (1.0.3)
             // Le toast « enregistré » (0.50.0) : à la demande explicite
             // seulement — l'automatique reste muet.
             if (!silent) ShowSavedToast();
@@ -2517,6 +2544,7 @@ namespace Marabook.App
             var dialogPath = await Ui.PickSaveFile(this, "Enregistrer sous", PlotFile.SaveFilter, _project.Name + PlotFile.Extension);
             if (dialogPath == null) return;
             _path = dialogPath;
+            AdoptPath(_path); // verrou et référence du disque suivent (1.0.3)
             AdoptFileName(_project, _path);
             DoSave();
         }
@@ -2572,6 +2600,7 @@ namespace Marabook.App
             // Quitter n'attend jamais la correction différée (batch 29).
             _editor.ShutdownProofing();
             EndRecovery(); // fermeture propre : témoin et secours retirés (18/09)
+            ReleaseLock(); // le verrou du .plot aussi (1.0.3)
             AppSettings.BinderWidth = _binderCol.Width.Value > BinderStripWidth ? _binderCol.Width.Value : AppSettings.BinderWidth; // jamais la bande repliée (29/09)
             RememberRightWidth();
             AppSettings.Save();

@@ -42,7 +42,7 @@ namespace Marabook.App
         private void StartRecoveryTimer()
         {
             _recoveryTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(30) };
-            _recoveryTimer.Tick += delegate { WriteRecovery(false); };
+            _recoveryTimer.Tick += delegate { WriteRecovery(false); TickLock(); };
             _recoveryTimer.Start();
         }
 
