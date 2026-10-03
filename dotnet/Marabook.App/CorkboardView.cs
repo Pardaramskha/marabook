@@ -659,8 +659,6 @@ namespace Marabook.App
                 var item = card.Tag as BinderItem;
                 if (item == null) continue;
                 var selected = _selected.Contains(item.Id);
-                Border halo;
-                if (_haloOf.TryGetValue(card, out halo)) { halo.BorderBrush = selected ? (IBrush)Chrome.Accent : Brushes.Transparent; continue; }
                 // La divergence de gabarit n'est plus un liseré (22/09) mais
                 // une icône d'alerte à côté du titre : la bordure ne dit que
                 // la sélection.
@@ -859,7 +857,6 @@ namespace Marabook.App
         {
             _cards.Children.Clear();
             _templateCards.Children.Clear();
-            _haloOf.Clear();
             if (_folder == null) return;
             _bookActions.IsVisible = _folder.Kind == ItemKind.Book && BookTexts ? true : false;
             _folderActions.IsVisible = _folder.Kind == ItemKind.Folder && _folder.RootCategory().CategoryKey == Project.KeyWritings
@@ -1487,18 +1484,22 @@ namespace Marabook.App
             var coverSource = cover == null ? null : MediaView.TryImage(cover.Bytes, 320);
             if (coverSource != null)
             {
+                // Une CARTE comme les autres (03/10) : fond, coins ronds,
+                // liseré de sélection et ombre de survol sur le même élément,
+                // autour de la couverture ET du titre avec son ⋮.
                 var mockup = new Border
                 {
                     Width = 210,
-                    Background = Brushes.Transparent,
-                    BorderThickness = new Thickness(0),
-                    Margin = new Thickness(8),
+                    Background = Chrome.CardBg,
+                    BorderBrush = selected ? (IBrush)Chrome.Accent : Chrome.Border,
+                    BorderThickness = new Thickness(selected ? 2 : 1),
+                    CornerRadius = new CornerRadius(8),
+                    Margin = new Thickness(selected ? 7 : 8), // épaisseur compensée
+                    Padding = new Thickness(8, 10, 8, 8),
                     Tag = item,
                     [DragDrop.AllowDropProperty] = true,
-                    Child = BuildBookMockup(item, coverSource, selected)
+                    Child = BuildBookMockup(item, coverSource)
                 };
-                var haloBorder = ((StackPanel)mockup.Child).Children[0] as Border;
-                if (haloBorder != null) _haloOf[mockup] = haloBorder;
                 WireCard(mockup, item);
                 return mockup;
             }
@@ -1745,16 +1746,14 @@ namespace Marabook.App
             return card;
         }
 
-        /// <summary>La tuile d'un livre à couverture (30/09) : la couverture
-        /// seule avec son ombre portée (01/10 : plus de bloc de pages ni de
-        /// dos) ; dessous, le titre et le ⋮ ; choisi = halo d'accent (la
-        /// bordure de carte n'existe plus : RefreshSelectionVisuals passe par
-        /// _haloOf).</summary>
-        private readonly Dictionary<Border, Border> _haloOf = new Dictionary<Border, Border>();
-
-        private Control BuildBookMockup(BinderItem item, Avalonia.Media.Imaging.Bitmap coverSource, bool selected)
+        /// <summary>Le contenu de la tuile d'un livre à couverture (30/09) :
+        /// la couverture seule avec son ombre portée (01/10 : plus de bloc de
+        /// pages ni de dos) ; dessous, le titre et le ⋮. La sélection et
+        /// l'ombre de survol sont celles de la carte qui l'entoure (03/10 —
+        /// avant, un halo autour de la seule couverture).</summary>
+        private Control BuildBookMockup(BinderItem item, Avalonia.Media.Imaging.Bitmap coverSource)
         {
-            var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 4) };
+            var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Stretch };
             var book = new Grid { Width = 156, Height = 216 };
             // La première de couverture seule, avec son ombre portée (01/10 :
             // plus de bloc de pages ni de dos — la couverture suffit).
@@ -1768,17 +1767,10 @@ namespace Marabook.App
                 BoxShadow = new BoxShadows(new BoxShadow { OffsetX = 2, OffsetY = 6, Blur = 14, Color = Color.FromArgb(0x55, 0, 0, 0) }),
                 Child = new Image { Source = coverSource, Stretch = Stretch.UniformToFill }
             });
-            var halo = new Border
-            {
-                Padding = new Thickness(6),
-                CornerRadius = new CornerRadius(8),
-                BorderBrush = selected ? (IBrush)Chrome.Accent : Brushes.Transparent,
-                BorderThickness = new Thickness(2),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Child = book
-            };
-            stack.Children.Add(halo);
-            var titleRow = new DockPanel { Width = 194, Margin = new Thickness(0, 6, 0, 0) };
+            book.HorizontalAlignment = HorizontalAlignment.Center;
+            book.Margin = new Thickness(0, 4, 0, 2);
+            stack.Children.Add(book);
+            var titleRow = new DockPanel { Margin = new Thickness(0, 6, 0, 0) };
             titleRow.Children.Add(BuildCardMenu(item));
             titleRow.Children.Add(new TextBlock
             {
