@@ -540,7 +540,7 @@ namespace Marabook.App
                             if ((candidate.Content as string ?? "").StartsWith(prefix)) return candidate;
                         return null;
                     };
-                    var masculine = radio("Masculin");
+                    var masculine = lexicon.GetVisualDescendants().OfType<RadioButton>().FirstOrDefault(r => (r.Content as string) == "Masculin" && r.GroupName == "lexicon-genders");
                     var flexionLabel = lexicon.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(t => t.Text == "Flexion :");
                     Check(masculine != null && masculine.IsChecked == true, "un nom neuf part au masculin");
                     var place = radio("Lieu");
@@ -556,6 +556,12 @@ namespace Marabook.App
                     Check(flexionLabel != null && !flexionLabel.IsEffectivelyVisible, "nom propre « Lieu » : la flexion est masquée");
                     var demonym = checkBox("Dériver le gentilé");
                     Check(demonym != null && demonym.IsEffectivelyVisible, "…et le gentilé est proposé");
+                    // (1.0.3) Un prénom se genre : neutre par défaut, Masculin / Féminin à côté.
+                    var firstName = radio("Prénom");
+                    if (firstName != null) firstName.IsChecked = true;
+                    await Settle();
+                    var neutral = radio("Neutre");
+                    Check(neutral != null && neutral.IsEffectivelyVisible && neutral.IsEnabled && neutral.IsChecked == true, "« Prénom » : le genre est proposé, neutre par défaut");
                     var gentile = radio("Gentilé");
                     if (gentile != null) gentile.IsChecked = true;
                     await Settle();
