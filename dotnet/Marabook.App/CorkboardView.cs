@@ -71,6 +71,12 @@ namespace Marabook.App
         // du rail montre son état, sa couleur, son synopsis sans l'ouvrir ;
         // null = plus de sélection (Échap, clic dans le vide).
         public event Action<BinderItem> CardSelected;
+        // La sélection multiple (1.0.3) : la liste à chaque changement (vide
+        // = plus rien) ; le menu du lot vient de la coquille ; Suppr sur
+        // plusieurs cartes.
+        public event Action<List<BinderItem>> SelectionChanged;
+        public Func<List<BinderItem>, ContextMenu> BatchMenuProvider;
+        public event Action<List<BinderItem>> DeleteManyRequested;
         public event Action<BinderItem> ExportRequested;      // menu ⋮
         public event Action<BinderItem> DeleteRequested;      // menu ⋮ (corbeille)
         // Le menu de la Pile pour le même item (14/09) : les tuiles offrent
@@ -96,6 +102,34 @@ namespace Marabook.App
             if (_folder == null) return result;
             CollectSelected(_folder, result); // parties comprises
             return result;
+        }
+
+        /// <summary>La sélection a changé : visuels, puis la carte choisie
+        /// (CardSelected) et la liste entière (SelectionChanged).</summary>
+        private void AnnounceSelection(BinderItem single)
+        {
+            RefreshSelectionVisuals();
+            var chosen = CardSelected;
+            if (chosen != null) chosen(single);
+            var changed = SelectionChanged;
+            if (changed != null) changed(SelectedItems());
+        }
+
+        /// <summary>Plus aucune carte choisie (la coquille, après un lot).</summary>
+        public void ClearSelection()
+        {
+            if (_selected.Count == 0) return;
+            _selected.Clear();
+            AnnounceSelection(null);
+        }
+
+        /// <summary>La sonde : choisir ces cartes comme Ctrl+clic l'aurait fait.</summary>
+        internal void SelectForProbe(IEnumerable<string> ids)
+        {
+            _selected.Clear();
+            BinderItem last = null;
+            foreach (var id in ids) { _selected.Add(id); last = FindChild(id); }
+            AnnounceSelection(last);
         }
 
         private void CollectSelected(BinderItem parent, List<BinderItem> result)
@@ -291,9 +325,7 @@ namespace Marabook.App
                 if (_selected.Count == 0) return;
                 if (IsWithinCard(e.Source as Visual)) return;
                 _selected.Clear();
-                RefreshSelectionVisuals();
-                var chosen = CardSelected;
-                if (chosen != null) chosen(null);
+                AnnounceSelection(null);
             };
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
@@ -301,7 +333,15 @@ namespace Marabook.App
                 if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None)
                 {
                     // Suppr sur le tableau (30/09) : la carte choisie part à la
-                    // corbeille (avec la confirmation du menu).
+                    // corbeille (avec la confirmation du menu) — tout le lot
+                    // quand il y en a un (1.0.3).
+                    if (_selected.Count > 1)
+                    {
+                        var many = DeleteManyRequested;
+                        var targets = SelectedItems();
+                        targets.RemoveAll(delegate(BinderItem i) { return i.IsCategory; });
+                        if (many != null && targets.Count > 0) { e.Handled = true; many(targets); return; }
+                    }
                     BinderItem chosenItem = null;
                     foreach (var card in AllCards())
                     {
@@ -316,9 +356,7 @@ namespace Marabook.App
                 }
                 if (e.Key != Key.Escape) return;
                 _selected.Clear();
-                RefreshSelectionVisuals();
-                var chosen = CardSelected;
-                if (chosen != null) chosen(null);
+                AnnounceSelection(null);
                 e.Handled = true;
             };
             Ui.OnSizeChanged(_cards, delegate { UpdateFolderBoxWidths(); });
@@ -1779,6 +1817,7 @@ namespace Marabook.App
             };
             // Le clic simple SÉLECTIONNE (Ctrl = multi) — il n'ouvre plus.
             card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
+                if (e.InitialPressMouseButton != MouseButton.Left) return; // le droit ne touche pas à la sélection (1.0.3)
                 if (_dragCandidate != item) return; // un glisser est parti
                 _dragCandidate = null;
                 if (Ui.HasCommand(e.KeyModifiers))
@@ -1790,9 +1829,7 @@ namespace Marabook.App
                     _selected.Clear();
                     _selected.Add(item.Id);
                 }
-                RefreshSelectionVisuals();
-                var chosen = CardSelected;
-                if (chosen != null) chosen(_selected.Contains(item.Id) ? item : null);
+                AnnounceSelection(_selected.Contains(item.Id) ? item : null);
             };
             // Clic droit : les mêmes options que le bouton ⋮ (batch 28). Une
             // carte divergente garde son ContextMenu propre (« appliquer le
@@ -1801,8 +1838,13 @@ namespace Marabook.App
                 card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
                 {
                     if (e.InitialPressMouseButton != MouseButton.Right) return;
+                    _dragCandidate = null;
                     if (card.ContextMenu != null) return;
-                    var menu = BuildCardOptionsMenu(item);
+                    // Sur une carte HORS de la sélection : elle devient la
+                    // sélection ; sur une sélection multiple : le menu du lot (1.0.3).
+                    if (!_selected.Contains(item.Id)) { _selected.Clear(); _selected.Add(item.Id); AnnounceSelection(item); }
+                    var menu = _selected.Count > 1 && BatchMenuProvider != null ? BatchMenuProvider(SelectedItems()) : null;
+                    if (menu == null) menu = BuildCardOptionsMenu(item);
                     menu.Placement = PlacementMode.Pointer;
                     // Avalonia exige une CIBLE de placement, même au pointeur :
                     // Open() sans cible = ArgumentNullException, et le clic

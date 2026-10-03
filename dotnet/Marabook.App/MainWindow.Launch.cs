@@ -29,6 +29,7 @@ namespace Marabook.App
         {
             _launch = launch ?? new Launch();
             Opened += delegate { ScheduleUpdateCheck(); }; // la vérification silencieuse du lancement (01/10)
+            Opened += delegate { _rightAnimationsOn = !_launch.Probe; }; // la colonne de droite glisse (1.0.3) — pas en sonde
             if (_launch.Isolated)
             {
                 WindowState = WindowState.Normal;
@@ -91,6 +92,14 @@ namespace Marabook.App
         // ------------------------------------------------------------ exposé aux sondes
         public Project Project { get { return _project; } }
         public BinderView Binder { get { return _binder; } }
+        public BookView BookViewPublic { get { return _bookView; } }
+        public CorkboardView Corkboard { get { return _corkboard; } }
+        public SheetLibraryView SheetLibrary { get { return _sheetLibrary; } }
+        /// <summary>La sélection multiple inspectée (1.0.3) : son compte, 0 sans lot.</summary>
+        public int InspectedGroupCount { get { return _inspectedGroup == null ? 0 : _inspectedGroup.Count; } }
+        public void BatchColorPublic(string hex) { if (_inspectedGroup != null) BatchColor(_inspectedGroup, hex); }
+        public bool UndoPublic() { if (!_history.CanUndo) return false; _history.Undo(); return true; }
+        public double RightColumnWidth { get { return _inspectorCol.Width.Value; } }
         public WelcomeWindow Welcome { get { return _welcome; } }
         public string InspectorTitle { get { return _inspTitle == null ? "" : _inspTitle.Text ?? ""; } }
         public string InspectorKind { get { return _inspKind == null ? "" : _inspKind.Text ?? ""; } }

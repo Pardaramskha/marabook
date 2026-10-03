@@ -119,6 +119,12 @@ namespace Marabook.App
             {
                 // Suppr dans la Pile (30/09) : l'élément choisi part à la
                 // corbeille — la fenêtre n'a plus de raccourci global.
+                if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None && _renameBox == null && _multi.Count > 1)
+                {
+                    e.Handled = true;
+                    DeleteMany(MultiItems()); // tout le lot (1.0.3)
+                    return;
+                }
                 if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None && _renameBox == null
                     && SelectedItem != null && !SelectedItem.IsCategory)
                 {
@@ -138,6 +144,20 @@ namespace Marabook.App
             // re-announce it so the main window can bring its view back.
             _tree.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
             {
+                // Clic ordinaire relâché sur une ligne du lot sans glisser
+                // (1.0.3) : le lot tombe, la ligne devient la sélection.
+                if (_multiPressed != null)
+                {
+                    var pressed = _multiPressed;
+                    _multiPressed = null;
+                    if (_dragCandidate == pressed)
+                    {
+                        _dragCandidate = null;
+                        ClearMultiSelection();
+                        SelectItem(pressed.Id, false);
+                    }
+                    return;
+                }
                 if (_rebuilding || _renameBox != null) return;
                 if (e.InitialPressMouseButton != MouseButton.Left) return; // le droit = le menu, rien d'autre (29/09)
                 var node = NodeFromSource(e.Source);
@@ -391,6 +411,13 @@ namespace Marabook.App
                     selected.IsSelected = true;
                 else
                     _selectedId = null;
+                // Le lot survit au rebâti (déplacement, couleur…) ; ce qui a
+                // disparu en sort.
+                if (_multi.Count > 0)
+                {
+                    _multi.RemoveWhere(delegate(string id) { return !_nodesById.ContainsKey(id); });
+                    ApplyMultiVisuals();
+                }
             }
             finally
             {
@@ -406,6 +433,7 @@ namespace Marabook.App
             if (_menuTarget == null) return;
             _menuTarget.ClearValue(Panel.BackgroundProperty);
             _menuTarget = null;
+            if (_multi.Count > 0) ApplyMultiVisuals(); // la ligne du lot reprend sa teinte
         }
 
         private TreeViewItem BuildNode(BinderItem item)
@@ -691,6 +719,95 @@ namespace Marabook.App
         }
 
         private TreeViewItem _selectedNode; // TreeView.SelectedItem d'Avalonia ignore les nœuds imbriqués : suivi ici
+
+        // La sélection multiple de la Pile (1.0.3) : Ctrl+clic ajoute ou
+        // retire une ligne (même grande catégorie — Écrits, Fiches… — sinon
+        // tout tombe) ; surlignée en teinte d'accent ; sert surtout à
+        // déplacer plusieurs éléments d'un coup, et à Suppr.
+        private readonly HashSet<string> _multi = new HashSet<string>();
+        private BinderItem _multiPressed; // clic ordinaire sur une ligne du lot : décidé au relâchement
+        public event Action<List<BinderItem>> MultiSelectionChanged;
+        public Func<List<BinderItem>, ContextMenu> BatchMenuProvider;
+
+        /// <summary>Les éléments du lot, dans l'ordre de la Pile.</summary>
+        public List<BinderItem> MultiItems()
+        {
+            var result = new List<BinderItem>();
+            if (_project == null || _multi.Count == 0) return result;
+            foreach (var item in _project.AllItems())
+                if (_multi.Contains(item.Id)) result.Add(item);
+            return result;
+        }
+
+        public void ClearMultiSelection()
+        {
+            if (_multi.Count == 0) return;
+            _multi.Clear();
+            ApplyMultiVisuals();
+            AnnounceMulti();
+        }
+
+        private void AnnounceMulti()
+        {
+            var handler = MultiSelectionChanged;
+            if (handler != null) handler(MultiItems());
+        }
+
+        private void ApplyMultiVisuals()
+        {
+            foreach (var pair in _nodesById)
+            {
+                var header = pair.Value.Header as Panel;
+                if (header == null || ReferenceEquals(header, _menuTarget)) continue;
+                if (_multi.Contains(pair.Key)) header.Background = Chrome.AccentTint;
+                else header.ClearValue(Panel.BackgroundProperty);
+            }
+        }
+
+        /// <summary>Ctrl+clic sur une ligne : vrai si le clic est absorbé par
+        /// la sélection multiple (l'arbre ne doit pas sélectionner).</summary>
+        private bool ToggleMulti(BinderItem item)
+        {
+            if (item == null || item.IsCategory || item.RootCategory() == null) return false;
+            var root = item.RootCategory().CategoryKey;
+            if (_multi.Count == 0)
+            {
+                // La ligne déjà choisie entre dans le lot, si elle est de la même famille.
+                var current = SelectedItem;
+                if (current != null && !current.IsCategory && current.Id != item.Id
+                    && current.RootCategory() != null && current.RootCategory().CategoryKey == root)
+                    _multi.Add(current.Id);
+            }
+            else
+            {
+                var first = MultiItems()[0];
+                if (first.RootCategory().CategoryKey != root)
+                {
+                    // Une autre grande catégorie : la sélection multiple tombe,
+                    // le clic redevient un clic ordinaire.
+                    ClearMultiSelection();
+                    return false;
+                }
+            }
+            if (!_multi.Remove(item.Id)) _multi.Add(item.Id);
+            if (_multi.Count == 1 && _selectedId != null && _multi.Contains(_selectedId)) _multi.Clear(); // retombé sur la seule ligne sélectionnée
+            ApplyMultiVisuals();
+            AnnounceMulti();
+            return true;
+        }
+
+        /// <summary>La sonde : le Ctrl+clic sur cette ligne.</summary>
+        internal void ToggleMultiForProbe(string id) { ToggleMulti(_project.FindById(id)); }
+
+        /// <summary>Le lot à la corbeille (1.0.3), une étape d'annulation.</summary>
+        public void DeleteMany(List<BinderItem> items)
+        {
+            var action = new TrashManyAction(_project.Trash, items);
+            if (action.Count == 0) return;
+            _multi.Clear();
+            AnnounceMulti();
+            RunAndSelect(action, null, _project.Trash.Id);
+        }
 
         private void OnSelectedItemChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -1370,11 +1487,57 @@ namespace Marabook.App
         private void OnPreviewMouseDown(object sender, PointerPressedEventArgs e)
         {
             var node = NodeFromSource(e.Source);
+            var clicked = node == null ? null : node.Tag as BinderItem;
             // Le clic DROIT n'est jamais « attendu » (29/09) : le TreeView
             // d'Avalonia sélectionne aussi sur ce bouton, et la sélection
             // ouvrait l'élément au lieu de ne montrer que son menu. Le
             // filtre anti-fantôme révoque cette sélection-là.
-            if (IsRightClick(e)) return;
+            if (IsRightClick(e))
+            {
+                // Sur une ligne du lot : le menu du lot (1.0.3), à la place du
+                // menu de la ligne (détaché le temps du menu).
+                if (clicked != null && _multi.Count > 1 && _multi.Contains(clicked.Id) && BatchMenuProvider != null)
+                {
+                    var batch = BatchMenuProvider(MultiItems());
+                    if (batch != null)
+                    {
+                        var saved = node.ContextMenu;
+                        node.ContextMenu = null;
+                        EventHandler<RoutedEventArgs> restore = null;
+                        restore = delegate { batch.Closed -= restore; node.ContextMenu = saved; };
+                        batch.Closed += restore;
+                        batch.Placement = PlacementMode.Pointer;
+                        Ui.ShowMenu(batch, node);
+                        e.Handled = true;
+                    }
+                }
+                return;
+            }
+            // La sélection multiple (1.0.3) : Ctrl+clic ajoute ou retire la
+            // ligne ; un clic ordinaire sur une ligne du lot attend le
+            // relâchement (un glisser emporte le lot) ; ailleurs, le lot tombe.
+            if (Ui.HasCommand(e.KeyModifiers) && _renameBox == null && clicked != null && !clicked.IsCategory && e.ClickCount == 1)
+            {
+                if (ToggleMulti(clicked))
+                {
+                    _dragCandidate = _multi.Contains(clicked.Id) ? clicked : null;
+                    _dragStart = e.GetPosition(_tree);
+                    e.Handled = true;
+                    return;
+                }
+            }
+            else if (_multi.Count > 0)
+            {
+                if (clicked != null && _multi.Contains(clicked.Id) && e.ClickCount == 1 && _renameBox == null)
+                {
+                    _dragCandidate = clicked;
+                    _dragStart = e.GetPosition(_tree);
+                    _multiPressed = clicked;
+                    e.Handled = true;
+                    return;
+                }
+                ClearMultiSelection();
+            }
             _expectedSelectId = node == null ? null : ((BinderItem)node.Tag).Id;
             _dragCandidate = node == null ? null : node.Tag as BinderItem;
             if (_dragCandidate != null && _dragCandidate.IsCategory) _dragCandidate = null;
@@ -1390,7 +1553,40 @@ namespace Marabook.App
 
             var dragged = _dragCandidate;
             _dragCandidate = null;
+            _multiPressed = null;
+            if (_multi.Count > 1 && _multi.Contains(dragged.Id))
+            {
+                // Le lot entier part (1.0.3) : les ids dans l'ordre de la Pile.
+                var ids = new List<string>();
+                foreach (var item in MultiItems()) ids.Add(item.Id);
+                DragDrop.DoDragDrop(e, Ui.DataOf("MarabookItems", string.Join("\n", ids.ToArray())), DragDropEffects.Move);
+                return;
+            }
             DragDrop.DoDragDrop(e, Ui.DataOf("MarabookItem", dragged.Id), DragDropEffects.Move);
+        }
+
+        /// <summary>Les éléments glissés : un seul (MarabookItem) ou le lot
+        /// (MarabookItems, 1.0.3).</summary>
+        private List<BinderItem> DraggedItems(DragEventArgs e)
+        {
+            var result = new List<BinderItem>();
+            if (_project == null) return result;
+            if (e.Data.Contains("MarabookItems"))
+            {
+                var raw = e.Data.Get("MarabookItems") as string;
+                if (raw != null)
+                    foreach (var id in raw.Split('\n'))
+                    {
+                        var item = _project.FindById(id);
+                        if (item != null) result.Add(item);
+                    }
+            }
+            else if (e.Data.Contains("MarabookItem"))
+            {
+                var item = _project.FindById(e.Data.Get("MarabookItem") as string);
+                if (item != null) result.Add(item);
+            }
+            return result;
         }
 
         // ---- le défilement pendant un glisser (30/09)
@@ -1486,8 +1682,8 @@ namespace Marabook.App
             }
             var target = DropTarget(e);
             if (target == null) return;
-            var dragged = _project.FindById((string)e.Data.Get("MarabookItem"));
-            if (dragged == null) return;
+            var items = DraggedItems(e);
+            if (items.Count == 0) return;
 
             // Containers swallow the drop; on a document the default is sibling
             // reordering (insert right after) and Ctrl makes it a child.
@@ -1495,46 +1691,88 @@ namespace Marabook.App
                 || (target.CanHaveChildren
                     && Ui.HasCommand(e.KeyModifiers));
 
-            BinderItem newParent;
-            int newIndex;
-            if (asChild)
+            if (items.Count == 1)
             {
-                newParent = target;
-                newIndex = -1;
+                var dragged = items[0];
+                BinderItem newParent;
+                int newIndex;
+                if (asChild)
+                {
+                    newParent = target;
+                    newIndex = -1;
+                }
+                else
+                {
+                    newParent = target.Parent;
+                    newIndex = newParent.Children.IndexOf(target) + 1;
+                    var oldIndex = dragged.Parent == newParent ? newParent.Children.IndexOf(dragged) : -1;
+                    if (oldIndex >= 0 && oldIndex < newIndex) newIndex--;
+                }
+                RunAndSelect(new MoveItemAction(dragged, newParent, newIndex), dragged.Id, newParent.Id);
+                e.Handled = true;
+                return;
             }
-            else
+            // Un lot (1.0.3) : chacun à la suite du précédent, appliqué au fil
+            // de l'eau (les index se calculent après chaque déplacement),
+            // poussé en UNE étape d'annulation. Le lot reste choisi.
+            var home = asChild ? target : target.Parent;
+            var anchor = target;
+            var actions = new List<IUndoableAction>();
+            foreach (var dragged in items)
             {
-                newParent = target.Parent;
-                newIndex = newParent.Children.IndexOf(target) + 1;
-                var oldIndex = dragged.Parent == newParent ? newParent.Children.IndexOf(dragged) : -1;
-                if (oldIndex >= 0 && oldIndex < newIndex) newIndex--;
+                MoveItemAction move;
+                if (asChild) move = new MoveItemAction(dragged, home, -1);
+                else
+                {
+                    var index = home.Children.IndexOf(anchor) + 1;
+                    var oldIndex = dragged.Parent == home ? home.Children.IndexOf(dragged) : -1;
+                    if (oldIndex >= 0 && oldIndex < index) index--;
+                    move = new MoveItemAction(dragged, home, index);
+                }
+                move.Do();
+                actions.Add(move);
+                anchor = dragged;
             }
-            RunAndSelect(new MoveItemAction(dragged, newParent, newIndex), dragged.Id, newParent.Id);
+            _expandedIds.Add(home.Id);
+            _selectedId = items[0].Id;
+            _history.Push(new CompositeAction(actions)); // Changed → Rebuild (expansion, sélection, teintes du lot)
+            var structure = StructureChanged;
+            if (structure != null) structure();
+            var chosen = SelectionChanged;
+            if (chosen != null) chosen(SelectedItem);
             e.Handled = true;
         }
 
         /// <summary>The valid drop target under the cursor, or null.</summary>
         private BinderItem DropTarget(DragEventArgs e)
         {
-            if (!e.Data.Contains("MarabookItem")) return null;
-            var dragged = _project.FindById((string)e.Data.Get("MarabookItem"));
+            var items = DraggedItems(e);
             var node = NodeFromSource(e.Source);
             var target = node == null ? null : node.Tag as BinderItem;
-            if (dragged == null || target == null || dragged == target) return null;
-            if (dragged.IsOutOfBook) return null; // le dossier Hors-livre ne bouge pas (29/09)
-            if (target == dragged.Parent && target.CanHaveChildren) return null; // no-op move
-            if (target.IsDescendantOf(dragged)) return null;
-            if (target.RootCategory().CategoryKey == Project.KeyTrash) return null; // deletion has its own path
-            if (target.RootCategory().CategoryKey == Project.KeyDictionary) return null; // pas un conteneur (b33)
-            if (target.RootCategory().CategoryKey == Project.KeyHome) return null; // l'Accueil non plus (b41)
-            // La racine Plans n'accepte que des plans, et un plan ne sort pas de sa racine (b35).
-            if ((target.RootCategory().CategoryKey == Project.KeyPlans) != (dragged.Kind == ItemKind.Plan)) return null;
-            if (dragged.Kind == ItemKind.Plan && !target.IsCategory) return null;
-            // Même règle pour les cartes mentales (22/09).
-            if ((target.RootCategory().CategoryKey == Project.KeyMindMaps) != (dragged.Kind == ItemKind.MindMap)) return null;
-            if (dragged.Kind == ItemKind.MindMap && !target.IsCategory) return null;
-            if (!target.CanHaveChildren && target.Parent == null) return null;
+            if (items.Count == 0 || target == null) return null;
+            // Un lot : la cible doit convenir à chacun (1.0.3).
+            foreach (var item in items)
+                if (!DropAllowed(item, target)) return null;
             return target;
+        }
+
+        private static bool DropAllowed(BinderItem dragged, BinderItem target)
+        {
+            if (dragged == null || target == null || dragged == target) return false;
+            if (dragged.IsOutOfBook) return false; // le dossier Hors-livre ne bouge pas (29/09)
+            if (target == dragged.Parent && target.CanHaveChildren) return false; // no-op move
+            if (target.IsDescendantOf(dragged)) return false;
+            if (target.RootCategory().CategoryKey == Project.KeyTrash) return false; // deletion has its own path
+            if (target.RootCategory().CategoryKey == Project.KeyDictionary) return false; // pas un conteneur (b33)
+            if (target.RootCategory().CategoryKey == Project.KeyHome) return false; // l'Accueil non plus (b41)
+            // La racine Plans n'accepte que des plans, et un plan ne sort pas de sa racine (b35).
+            if ((target.RootCategory().CategoryKey == Project.KeyPlans) != (dragged.Kind == ItemKind.Plan)) return false;
+            if (dragged.Kind == ItemKind.Plan && !target.IsCategory) return false;
+            // Même règle pour les cartes mentales (22/09).
+            if ((target.RootCategory().CategoryKey == Project.KeyMindMaps) != (dragged.Kind == ItemKind.MindMap)) return false;
+            if (dragged.Kind == ItemKind.MindMap && !target.IsCategory) return false;
+            if (!target.CanHaveChildren && target.Parent == null) return false;
+            return true;
         }
 
         // ------------------------------------------------------- project search

@@ -41,10 +41,76 @@ namespace Marabook.App
         // Un clic simple sur une tuile de fiche (29/09) : le Général du rail
         // la montre sans l'ouvrir (le double-clic ouvre).
         public event Action<BinderItem> CardSelected;
+        // La sélection multiple des tuiles (1.0.3) : Ctrl+clic, bordure
+        // d'accent ; la liste à chaque changement ; le menu du lot vient de
+        // la coquille ; Suppr sur plusieurs fiches.
+        private readonly HashSet<string> _selected = new HashSet<string>();
+        private readonly Dictionary<string, Border> _cardsById = new Dictionary<string, Border>();
+        public event Action<List<BinderItem>> SelectionChanged;
+        public Func<List<BinderItem>, ContextMenu> BatchMenuProvider;
+        public event Action<List<BinderItem>> DeleteManyRequested;
 
         public event Action<BinderItem> Navigate; // ouvrir une fiche
         public event Action Changed;              // structure/projet modifiés
         public event Action<string> AchievementEvent; // succès à événement (12/09)
+
+        private static bool IsWithinCard(Visual source)
+        {
+            while (source != null)
+            {
+                var border = source as Border;
+                if (border != null && border.Tag is BinderItem) return true;
+                source = source.GetVisualParent();
+            }
+            return false;
+        }
+
+        /// <summary>Les fiches choisies, dans l'ordre de la Pile.</summary>
+        public List<BinderItem> SelectedItems()
+        {
+            var result = new List<BinderItem>();
+            if (_project == null || _selected.Count == 0) return result;
+            foreach (var item in _project.AllItems())
+                if (item.Kind == ItemKind.Sheet && _selected.Contains(item.Id)) result.Add(item);
+            return result;
+        }
+
+        private void AnnounceSelection(BinderItem single)
+        {
+            RefreshSelectionVisuals();
+            var chosen = CardSelected;
+            if (chosen != null) chosen(single);
+            var changed = SelectionChanged;
+            if (changed != null) changed(SelectedItems());
+        }
+
+        private void RefreshSelectionVisuals()
+        {
+            foreach (var pair in _cardsById) PaintSelection(pair.Value, _selected.Contains(pair.Key));
+        }
+
+        /// <summary>Choisie : bordure d'accent de 2 px, la marge compense.</summary>
+        private static void PaintSelection(Border card, bool selected)
+        {
+            card.BorderBrush = selected ? (IBrush)Chrome.Accent : Chrome.Border;
+            card.BorderThickness = new Thickness(selected ? 2 : 1);
+            card.Margin = selected ? new Thickness(-1, -1, 9, 9) : new Thickness(0, 0, 10, 10);
+        }
+
+        public void ClearSelection()
+        {
+            if (_selected.Count == 0) return;
+            _selected.Clear();
+            AnnounceSelection(null);
+        }
+
+        /// <summary>La sonde : choisir ces fiches comme Ctrl+clic l'aurait fait.</summary>
+        internal void SelectForProbe(IEnumerable<string> ids)
+        {
+            _selected.Clear();
+            foreach (var id in ids) _selected.Add(id);
+            AnnounceSelection(null);
+        }
 
         private bool HasAnySheet()
         {
@@ -58,6 +124,25 @@ namespace Marabook.App
         {
             Background = Chrome.WindowBg;
             Focusable = true;
+            // Un clic dans le vide (ou Échap) désélectionne ; Suppr envoie le
+            // lot à la corbeille (1.0.3).
+            PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+            {
+                Focus();
+                if (_selected.Count == 0 || IsWithinCard(e.Source as Visual)) return;
+                _selected.Clear();
+                AnnounceSelection(null);
+            };
+            KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (_selected.Count == 0) return;
+                if (e.Key == Key.Escape) { _selected.Clear(); AnnounceSelection(null); e.Handled = true; return; }
+                if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None && _selected.Count > 1)
+                {
+                    var many = DeleteManyRequested;
+                    if (many != null) { e.Handled = true; many(SelectedItems()); }
+                }
+            };
 
             // — La rangée du haut, alignée sur celle d'Écrits (14/09) : pas de
             // barre, les boutons à gauche (« Nouvelle fiche » en principal,
@@ -136,6 +221,7 @@ namespace Marabook.App
         /// sous-dossiers en rangée « Dossiers ».</summary>
         public void Load(Project project, HistoryManager history, BinderItem scope)
         {
+            _selected.Clear();
             _project = project;
             _history = history;
             _scope = scope != null && scope.Kind == ItemKind.Folder ? scope : null;
@@ -197,6 +283,7 @@ namespace Marabook.App
         private void RebuildRows()
         {
             _rows.Children.Clear();
+            _cardsById.Clear();
             if (_project == null) return;
             var needle = Correction.FrenchTokenizer.Fold((_searchBox.Text ?? "").Trim());
 
@@ -591,9 +678,12 @@ namespace Marabook.App
                 Child = layout
             };
             var sheetRef = sheet;
-            // Le DOUBLE-clic ouvre (29/09) ; le clic simple choisit la tuile,
-            // et le Général du rail montre la fiche — comme les cartes des
-            // écrits. Le droit ne fait que le menu.
+            card.Tag = sheet;
+            _cardsById[sheet.Id] = card;
+            if (_selected.Contains(sheet.Id)) PaintSelection(card, true);
+            // Le DOUBLE-clic ouvre (29/09) ; le clic simple choisit la tuile
+            // (Ctrl = plusieurs, 1.0.3), et le Général du rail montre la fiche
+            // — comme les cartes des écrits. Le droit ne fait que le menu.
             card.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
             {
                 if (e.ClickCount != 2 || !e.GetCurrentPoint(card).Properties.IsLeftButtonPressed) return;
@@ -603,13 +693,21 @@ namespace Marabook.App
             };
             card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
                 if (e.InitialPressMouseButton != MouseButton.Left) return;
-                var chosen = CardSelected;
-                if (chosen != null) chosen(sheetRef);
+                if (Ui.HasCommand(e.KeyModifiers)) { if (!_selected.Remove(sheetRef.Id)) _selected.Add(sheetRef.Id); }
+                else { _selected.Clear(); _selected.Add(sheetRef.Id); }
+                AnnounceSelection(_selected.Contains(sheetRef.Id) ? sheetRef : null);
             };
             card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
-    if (e.InitialPressMouseButton != MouseButton.Right) return; ShowCardMenu(card, sheetRef); };
+                if (e.InitialPressMouseButton != MouseButton.Right) return;
+                // Hors de la sélection : la tuile devient la sélection ; sur
+                // une sélection multiple : le menu du lot (1.0.3).
+                if (!_selected.Contains(sheetRef.Id)) { _selected.Clear(); _selected.Add(sheetRef.Id); AnnounceSelection(sheetRef); }
+                var batch = _selected.Count > 1 && BatchMenuProvider != null ? BatchMenuProvider(SelectedItems()) : null;
+                if (batch != null) { batch.PlacementTarget = card; Ui.ShowMenu(batch, card); return; }
+                ShowCardMenu(card, sheetRef);
+            };
             card.PointerEntered += delegate { card.BorderBrush = Chrome.Accent; };
-            card.PointerExited += delegate { card.BorderBrush = Chrome.Border; };
+            card.PointerExited += delegate { card.BorderBrush = _selected.Contains(sheetRef.Id) ? (IBrush)Chrome.Accent : Chrome.Border; };
             CardLift.Attach(card); // soulèvement au survol (b35)
             return card;
         }

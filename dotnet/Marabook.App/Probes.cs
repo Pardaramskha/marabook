@@ -445,6 +445,62 @@ namespace Marabook.App
                 if (chapter != null) shell.Binder.SelectItem(chapter.Id, true);
                 await Settle();
 
+                // — La colonne de droite ne s'ouvre que si elle a quelque chose
+                //   à montrer (1.0.3) : plus de « Rien à montrer ici » sur une
+                //   racine sans Général ; elle revient sur un écrit.
+                var sheetsRoot = shell.Project.Category(Project.KeySheets);
+                if (sheetsRoot != null && chapter != null)
+                {
+                    shell.Binder.SelectItem(sheetsRoot.Id, true);
+                    await Settle();
+                    Check(shell.RightColumnWidth < 1, "racine Fiches sans sélection : la colonne de droite est repliée (" + shell.RightColumnWidth.ToString("0") + ")");
+                    shell.Binder.SelectItem(chapter.Id, true);
+                    await Settle();
+                    Check(shell.RightColumnWidth > 1, "…et revient sur un écrit (" + shell.RightColumnWidth.ToString("0") + ")");
+                }
+
+                // — La sélection multiple (1.0.3) : deux chapitres du livre
+                //   choisis sur le tableau → le Général passe en mode lot ; la
+                //   couleur s'applique aux deux ; UN Ctrl+Z la retire des deux.
+                if (book != null && book.Children.Count >= 2 && chapter != null)
+                {
+                    shell.Binder.SelectItem(book.Id, true);
+                    await Settle();
+                    var board = shell.BookViewPublic.TextsBoard;
+                    var first = book.Children[0];
+                    var second = book.Children[1];
+                    board.SelectForProbe(new[] { first.Id, second.Id });
+                    await Settle();
+                    Check(shell.InspectedGroupCount == 2 && shell.InspectorTitle.StartsWith("2 "), "deux cartes choisies : le Général passe en mode lot (" + shell.InspectorTitle + ")");
+                    var colorFirst = first.CardColor;
+                    var colorSecond = second.CardColor;
+                    shell.BatchColorPublic("#AA3366");
+                    await Settle();
+                    Check(first.CardColor == "#AA3366" && second.CardColor == "#AA3366", "la couleur du lot s'applique aux deux cartes");
+                    shell.UndoPublic();
+                    await Settle();
+                    Check(first.CardColor == colorFirst && second.CardColor == colorSecond, "…et UN Ctrl+Z la retire des deux");
+                    board.ClearSelection();
+                    await Settle();
+                    Check(shell.InspectedGroupCount == 0, "plus de sélection : le Général revient à l'élément");
+                    // La Pile : Ctrl+clic sur un second écrit forme un lot ; une
+                    // fiche d'une autre famille le fait tomber.
+                    shell.Binder.SelectItem(first.Id, true);
+                    await Settle();
+                    shell.Binder.ToggleMultiForProbe(second.Id);
+                    await Settle();
+                    Check(shell.Binder.MultiItems().Count == 2 && shell.InspectedGroupCount == 2, "Pile : Ctrl+clic sur un second écrit forme un lot de deux");
+                    var anySheet = shell.Project.AllItems().FirstOrDefault(i => i.Kind == ItemKind.Sheet);
+                    if (anySheet != null)
+                    {
+                        shell.Binder.ToggleMultiForProbe(anySheet.Id);
+                        await Settle();
+                        Check(shell.Binder.MultiItems().Count == 0 && shell.InspectedGroupCount == 0, "…une fiche hors de la famille fait tomber le lot");
+                    }
+                    shell.Binder.SelectItem(chapter.Id, true);
+                    await Settle();
+                }
+
                 shell.ShowJournalPublic();
                 await Settle();
                 Check(true, "le Journal perso s'ouvre");
@@ -457,6 +513,7 @@ namespace Marabook.App
                 shell.SetRightPanelPublic(RightPanel.Inspector);
                 if (chapter != null) shell.Binder.SelectItem(chapter.Id, true);
                 await Settle();
+
 
                 // — Le thème bascule et revient.
                 var before = Chrome.Ink.Color;

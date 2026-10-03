@@ -80,7 +80,6 @@ namespace Marabook.App
         private TextBlock _placeholder;
         private BinderItem _current;
         private BinderItem _inspected; // la tuile cliquée au tableau (29/09), null = l'élément ouvert
-        private Border _emptyRightHost; // la colonne de droite sans panneau disponible ici (30/09)
         private BinderItem InspectedItem { get { return _inspected ?? _current; } }
 
         private Border _inspector;
@@ -617,6 +616,8 @@ namespace Marabook.App
                 _dictionaryView.NewEntry(true);
             };
             _binder.SelectionChanged += OnBinderSelection;
+            _binder.MultiSelectionChanged += InspectGroup; // Ctrl+clic dans la Pile (1.0.3)
+            _binder.BatchMenuProvider = BuildBatchMenu;
             _binder.JournalRequested += ShowJournal;
             _binder.FilesDropped += ImportDroppedFiles; // fichiers du système sur la Pile (29/09)
             _binder.AchievementEvent += UnlockAchievement; // « Ooh la boulette ! » (12/09)
@@ -775,6 +776,9 @@ namespace Marabook.App
             _corkboard.ExportRequested += ExportItem;
             _corkboard.FilesDropped += ImportDroppedFiles; // fichiers du système (29/09)
             _corkboard.CardSelected += InspectCard; // clic simple sur une tuile : le Général la montre (29/09)
+            _corkboard.SelectionChanged += InspectGroup; // la sélection multiple (1.0.3) : le Général en mode lot
+            _corkboard.BatchMenuProvider = BuildBatchMenu;
+            _corkboard.DeleteManyRequested += TrashMany;
             _corkboard.RenameRequested += delegate(BinderItem item)
             { _binder.RenameQuiet(item); RefreshOpenCorkboards(); UpdateInspector(); };
             _corkboard.CardImageRequested += CardImageRequested;
@@ -794,6 +798,9 @@ namespace Marabook.App
             _sheetLibrary = new SheetLibraryView { IsVisible = false };
             _sheetLibrary.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _sheetLibrary.CardSelected += InspectCard; // clic simple sur une tuile de fiche : le Général la montre (29/09)
+            _sheetLibrary.SelectionChanged += InspectGroup; // la sélection multiple (1.0.3)
+            _sheetLibrary.BatchMenuProvider = BuildBatchMenu;
+            _sheetLibrary.DeleteManyRequested += TrashMany;
             _sheetLibrary.AchievementEvent += UnlockAchievement; // « Crétin des alpes » (12/09)
             _sheetLibrary.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             _sheetLibrary.MenuProvider = delegate(BinderItem item) { return _binder.BuildContextMenu(item, true); }; // les tuiles offrent le menu de la Pile (14/09)
@@ -908,6 +915,9 @@ namespace Marabook.App
             _bookView.NewDocumentRequested += NewBookDocument;
             _bookView.FilesDropped += ImportDroppedFiles; // fichiers du système sur le tableau du livre (29/09)
             _bookView.CardSelected += InspectCard; // clic simple sur une tuile du livre (29/09)
+            _bookView.SelectionChanged += InspectGroup; // la sélection multiple (1.0.3)
+            _bookView.BatchMenuProvider = BuildBatchMenu;
+            _bookView.DeleteManyRequested += TrashMany;
             _bookView.MenuProvider = delegate(BinderItem item) { return _binder.BuildContextMenu(item, true); }; // le corkboard du livre aussi (14/09)
             center.Children.Add(_bookView);
 
@@ -1098,24 +1108,6 @@ namespace Marabook.App
             _pinnedHost = new Border { Child = _pinnedPanel };
             Grid.SetColumn(_pinnedHost, 4);
             grid.Children.Add(_pinnedHost);
-            // La colonne de droite garde sa largeur (30/09) même quand le
-            // panneau actif n'a rien à dire ici (une racine sans Général) :
-            // un mot à la place — plus de colonne qui se replie puis revient.
-            _emptyRightHost = new Border
-            {
-                IsVisible = false,
-                Child = new TextBlock
-                {
-                    Text = "Rien à montrer ici",
-                    Foreground = Chrome.FaintText,
-                    FontSize = 12,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(0, 24, 0, 0)
-                }
-            };
-            Grid.SetColumn(_emptyRightHost, 4);
-            grid.Children.Add(_emptyRightHost);
             // Le LEXIQUE (18/09) : la définition d'un mot du dictionnaire
             // personnel, même colonne (MainWindow.Lexicon.cs).
             BuildLexiconPanel(grid);
@@ -1426,6 +1418,7 @@ namespace Marabook.App
                 Margin = new Thickness(0, 2, 0, 12)
             };
             panel.Children.Add(_inspKind);
+            panel.Children.Add(BuildBatchSection()); // le Général en mode lot (1.0.3)
             // Livre ou dossier relié à un plan (batch 35) : le lien, cliquable.
             _inspPlanLink = new TextBlock
             {
@@ -1859,7 +1852,7 @@ namespace Marabook.App
             GlobalStyles.Sync(project);
             _project = project;
             _path = path;
-            _current = null; _inspected = null;
+            _current = null; _inspected = null; _inspectedGroup = null;
             _dirty = false;
             _readOnlyBanner.IsVisible = project.ReadOnlyNewerFormat
                 ? true : false;
@@ -2726,7 +2719,7 @@ namespace Marabook.App
             try
             {
                 CommitActive();
-                _current = item; _inspected = null;
+                _current = item; _inspected = null; _inspectedGroup = null;
                 ShowItem(item);
             }
             finally
@@ -2966,7 +2959,7 @@ namespace Marabook.App
             try
             {
                 CommitActive();
-                _current = null; _inspected = null;
+                _current = null; _inspected = null; _inspectedGroup = null;
                 ShowItem(null);
                 _placeholder.IsVisible = false;
                 _journalView.Load(_project);
@@ -3121,7 +3114,7 @@ namespace Marabook.App
             // The current item may have been removed (undone add) or brought back.
             if (_current != null && _project.FindById(_current.Id) == null)
             {
-                _current = null; _inspected = null;
+                _current = null; _inspected = null; _inspectedGroup = null;
                 ShowItem(null);
                 UpdateInspector();
                 UpdateStats();
@@ -4620,7 +4613,7 @@ namespace Marabook.App
             {
                 // Mémorise les largeurs réelles avant de replier les panneaux.
                 if (_binderCol.Width.Value > BinderStripWidth) AppSettings.BinderWidth = _binderCol.Width.Value;
-                if (_inspectorCol.Width.Value > 0) AppSettings.InspectorWidth = _inspectorCol.Width.Value;
+                if (_inspectorCol.Width.Value > 0 && !_rightAnimating) AppSettings.InspectorWidth = _inspectorCol.Width.Value;
             }
             _calmMode = calm;
             _menuBar.IsVisible = calm ? false : true;
@@ -4648,25 +4641,16 @@ namespace Marabook.App
             // disponible dans le contexte courant ? Sinon, rien — les règles
             // sont dans RightPanels.Available, pas ici.
             var shown = ShownRightPanel();
-            _inspector.IsVisible = shown == RightPanel.Inspector ? true : false;
-            if (_correctionHost != null)
-                _correctionHost.IsVisible = shown == RightPanel.Correction ? true : false;
-            if (_searchHost != null)
-                _searchHost.IsVisible = shown == RightPanel.Search ? true : false;
-            if (_versionsHost != null)
-                _versionsHost.IsVisible = shown == RightPanel.Versions ? true : false;
-            if (_pinnedHost != null)
-                _pinnedHost.IsVisible = shown == RightPanel.Pinned ? true : false;
-            if (_lexiconHost != null)
-                _lexiconHost.IsVisible = shown == RightPanel.Lexicon ? true : false;
-            // La colonne reste ouverte tant qu'un panneau est CHOISI (30/09) :
-            // indisponible ici, elle montre un mot au lieu de se replier — sa
-            // largeur ne bouge qu'à la main (une seule, quel que soit le panneau).
-            var wanted = AppSettings.RightPanel != RightPanel.None && !_journalOpen && !_calmMode && _project != null;
-            var anyRight = shown != RightPanel.None || wanted;
-            if (_emptyRightHost != null) _emptyRightHost.IsVisible = anyRight && shown == RightPanel.None ? true : false;
-            _inspectorSplit.IsVisible = anyRight ? true : false;
-            _inspectorCol.Width = anyRight ? new GridLength(AppSettings.InspectorWidth) : new GridLength(0);
+            // La colonne ne s'ouvre que lorsqu'un panneau a quelque chose à
+            // montrer (1.0.3) : plus de « Rien à montrer ici » — le panneau
+            // choisi reste en mémoire et revient dès qu'il est disponible. Et
+            // elle GLISSE comme la Pile : au repli, le panneau reste affiché
+            // le temps de la course.
+            var anyRight = shown != RightPanel.None;
+            var collapsing = !anyRight && _inspectorCol.Width.Value > 0.5;
+            if (!collapsing) ShowRightHost(shown);
+            AnimateRightColumn(anyRight ? AppSettings.InspectorWidth : 0,
+                collapsing ? delegate { ShowRightHost(RightPanel.None); } : (Action)null);
             _inspectorMenu.IsChecked = shown == RightPanel.Inspector;
             _searchMenu.IsChecked = shown == RightPanel.Search;
             _versionsMenu.IsChecked = shown == RightPanel.Versions;
@@ -4675,6 +4659,63 @@ namespace Marabook.App
         }
 
         // ============================================================= colonne de droite (b39)
+
+        /// <summary>Un seul hôte visible dans la colonne de droite, rogné à
+        /// la colonne (il ne déborde pas pendant la course).</summary>
+        private void ShowRightHost(RightPanel shown)
+        {
+            var hosts = new[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost };
+            var panels = new[] { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned, RightPanel.Lexicon };
+            for (var i = 0; i < hosts.Length; i++)
+            {
+                if (hosts[i] == null) continue;
+                hosts[i].ClipToBounds = true;
+                hosts[i].IsVisible = shown == panels[i] ? true : false;
+            }
+        }
+
+        private int _rightMotion; // la génération de la course en cours
+        private bool _rightAnimating;
+        private bool _rightAnimationsOn; // après l'ouverture de la fenêtre (jamais en sonde)
+
+        /// <summary>La colonne de droite glisse comme la Pile (1.0.3) : même
+        /// course de 240 ms, ease-in-out cubique, image par image. Sans
+        /// fenêtre (démarrage), en sonde, ou à largeur égale : posée d'un coup.
+        /// Le séparateur n'apparaît qu'à l'arrivée ; « done » aussi.</summary>
+        private void AnimateRightColumn(double to, Action done)
+        {
+            var from = _inspectorCol.Width.Value;
+            var top = _rightAnimationsOn ? TopLevel.GetTopLevel(this) : null;
+            if (top == null || Math.Abs(to - from) < 1)
+            {
+                _rightMotion++;
+                _rightAnimating = false;
+                _inspectorCol.Width = new GridLength(to);
+                _inspectorSplit.IsVisible = to > 0 ? true : false;
+                if (done != null) done();
+                return;
+            }
+            _inspectorSplit.IsVisible = false;
+            _rightAnimating = true;
+            var generation = ++_rightMotion;
+            var started = DateTime.Now;
+            Action frame = null;
+            frame = delegate
+            {
+                if (generation != _rightMotion) return;
+                var t = Math.Min(1, (DateTime.Now - started).TotalMilliseconds / 240.0);
+                var eased = t < 0.5 ? 4 * t * t * t : 1 - Math.Pow(-2 * t + 2, 3) / 2;
+                _inspectorCol.Width = new GridLength(from + (to - from) * eased);
+                if (t >= 1)
+                {
+                    _rightAnimating = false;
+                    _inspectorSplit.IsVisible = to > 0 ? true : false;
+                    if (done != null) done();
+                }
+                else top.RequestAnimationFrame(delegate { frame(); });
+            };
+            frame();
+        }
 
         /// <summary>Le panneau à montrer : l'actif s'il est disponible, sinon rien.</summary>
         private RightPanel ShownRightPanel()
@@ -4692,6 +4733,7 @@ namespace Marabook.App
         /// bibliothèque a son Général), sinon l'élément courant.</summary>
         private ItemKind? PanelKind()
         {
+            if (_inspectedGroup != null) return _inspectedGroup[0].Kind; // le lot (1.0.3) : la nature de son premier
             return _inspected != null ? (ItemKind?)_inspected.Kind : CurrentKind();
         }
 
@@ -4732,7 +4774,7 @@ namespace Marabook.App
         private void RememberRightWidth()
         {
             var width = _inspectorCol.Width.Value;
-            if (width <= 0) return;
+            if (width <= 0 || _rightAnimating) return; // jamais une largeur de mi-course (1.0.3)
             // Une seule largeur pour la colonne de droite (29/09) : réglée à
             // la main, elle reste — l'épinglé ne la faisait plus sauter.
             AppSettings.PinnedWidth = width;
@@ -5037,6 +5079,7 @@ namespace Marabook.App
         private void InspectCard(BinderItem item)
         {
             _inspected = item;
+            _inspectedGroup = null;
             OpenInspectorForSheet(item);
             UpdateInspector();
         }
@@ -5053,6 +5096,25 @@ namespace Marabook.App
         private void UpdateInspector()
         {
             _loadingInspector = true;
+            if (_inspectedGroup != null)
+            {
+                // La sélection multiple (1.0.3) : le Général en mode lot.
+                ShowBatchInspector(_inspectedGroup);
+                _loadingInspector = false;
+                if (AppSettings.RightPanel != RightPanel.None
+                    && !IsPanelAvailable(AppSettings.RightPanel) && IsPanelAvailable(RightPanel.Inspector))
+                    SetRightPanel(RightPanel.Inspector);
+                else
+                    ApplyPanelVisibility();
+                return;
+            }
+            if (_batchSection.IsVisible)
+            {
+                // Retour du mode lot : ce qu'il avait masqué et que la suite ne
+                // repose pas d'elle-même.
+                _batchSection.IsVisible = false;
+                _statsSection.IsVisible = (_inspStats.Text ?? "").Length > 0 ? true : false;
+            }
             var item = InspectedItem; // la tuile cliquée au tableau, sinon l'élément ouvert (29/09)
             if (item == null)
             {
