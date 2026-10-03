@@ -104,6 +104,22 @@ namespace Marabook.App
                 Check(composed.Undo() && !(document.Paragraphs[0].Runs.Count > 0 && document.Paragraphs[0].Runs[0].Bold == true), "…et Ctrl+Z le rend");
                 composed.PlaceCaret(0, 0, false);
 
+                // — Glisser-déposer de la sélection (1.0.3) : les cinq premiers
+                // caractères déplacés après le douzième, en une étape d'annulation ;
+                // un dépôt dans la sélection ne fait rien.
+                if (original.Length > 14)
+                {
+                    composed.PlaceCaret(0, 0, false);
+                    composed.PlaceCaret(0, 5, true);
+                    Check(!composed.MoveSelectionTo(0, 3), "déposer la sélection sur elle-même ne fait rien");
+                    var moved = composed.MoveSelectionTo(0, 12);
+                    await Settle();
+                    var expected = original.Substring(5, 7) + original.Substring(0, 5) + original.Substring(12);
+                    Check(moved && document.Paragraphs[0].ToPlainText() == expected, "glisser-déposer : la sélection se déplace après le douzième caractère");
+                    Check(composed.Undo() && document.Paragraphs[0].ToPlainText() == original, "…et Ctrl+Z la ramène");
+                    composed.PlaceCaret(0, 0, false);
+                }
+
                 // — Copier avec mise en forme, coller (28/09) : le gras voyage
                 // par le presse-papiers ; sans mise en forme, il ne voyage pas.
                 // Sous Xvfb (CI Ubuntu) le presse-papiers ne rend rien : la

@@ -351,6 +351,14 @@ namespace Marabook.App
             };
             panel.Children.Add(autoWord);
             panel.Children.Add(Note("Complète la sélection d'un mot lorsque vous n'en sélectionnez qu'une partie", 4, 0, 22));
+            var textDrag = new CheckBox { Content = "Drag and drop de sélection textuelle", IsChecked = AppSettings.TextDragDrop, Margin = new Thickness(0, 6, 0, 0) };
+            textDrag.IsCheckedChanged += delegate
+            {
+                AppSettings.TextDragDrop = textDrag.IsChecked == true;
+                AppSettings.Save();
+            };
+            panel.Children.Add(textDrag);
+            panel.Children.Add(Note("Tirer une sélection la déplace là où le caret de dépôt se pose", 4, 0, 22));
 
             panel.Children.Add(Caption("Versions d'écrits", 16));
             var daily = new CheckBox

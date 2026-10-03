@@ -486,9 +486,12 @@ namespace Marabook.App
 
         private static Border Tile()
         {
+            // Fond de CARTE, pas de papier : en sombre avec « papier blanc »,
+            // PaperBg reste blanc alors que l'encre (Ink) devient claire —
+            // les titres des tuiles disparaissaient (1.0.3).
             var tile = new Border
             {
-                Background = Chrome.PaperBg,
+                Background = Chrome.CardBg,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
