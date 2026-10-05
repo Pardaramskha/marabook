@@ -240,6 +240,11 @@ namespace Marabook.App
             // fond de champ (sombre) dès le focus, avec l'encre du papier
             // (sombre sous « papier blanc en sombre ») : texte noir sur fond
             // sombre, et un éclair blanc du papier à chaque perte de focus.
+            // …et son caret est de l'encre du papier (sombre sur papier blanc en
+            // sombre), pas de l'encre de l'interface — il était blanc sur blanc.
+            styles.Add(Style(x => x.OfType<TextBox>().Class("paper"),
+                new Setter(TextBox.CaretBrushProperty, Chrome.PaperInk),
+                new Setter(TemplatedControl.ForegroundProperty, Chrome.PaperInk)));
             styles.Add(Style(x => x.OfType<TextBox>().Class("paper").Class(":pointerover").Template().OfType<Border>().Name("border"),
                 new Setter(Border.BorderBrushProperty, Brushes.Transparent),
                 new Setter(Border.BackgroundProperty, Chrome.PaperBg)));
