@@ -616,6 +616,43 @@ namespace Marabook.App
                     }
                     Check(shell.VisibleView == "book" && tabsSeen >= 5, "le livre ouvre ses onglets (" + tabsSeen + " onglets parcourus)");
                 }
+                // — Les plans (hotfix 1.0.3-a) : vingt colonnes de plus, chacune
+                // en moins de 300 ms (la Pile n'est plus rebâtie, la colonne
+                // seule est ajoutée, le combo des écrits se remplit à l'ouverture) ;
+                // le graphique « Tout » fait tenir les colonnes dans la fenêtre.
+                var planItem = shell.Project.AllItems().FirstOrDefault(i => i.Kind == ItemKind.Plan);
+                if (planItem != null && planItem.Plan != null)
+                {
+                    shell.Binder.SelectItem(planItem.Id, true);
+                    await Settle();
+                    var planView = shell.PlanForProbe;
+                    var columnsBefore = planItem.Plan.Columns.Count;
+                    var slowest = 0.0;
+                    for (var i = 0; i < 20; i++)
+                    {
+                        var watch = System.Diagnostics.Stopwatch.StartNew();
+                        planView.ProbeAddColumn();
+                        await Dispatcher.UIThread.InvokeAsync(delegate { }, DispatcherPriority.Render);
+                        slowest = Math.Max(slowest, watch.Elapsed.TotalMilliseconds);
+                    }
+                    Check(planItem.Plan.Columns.Count == columnsBefore + 20 && planView.ColumnControls == columnsBefore + 20,
+                        "plan : vingt colonnes ajoutées une à une (" + planView.ColumnControls + " à l'écran)");
+                    Check(slowest < 300, "plan : la colonne la plus lente s'ajoute en moins de 300 ms (" + slowest.ToString("0") + " ms)");
+                    planView.ProbeShowChart(true);
+                    await Settle();
+                    planView.Chart.FitAll();
+                    await Settle();
+                    Check(planView.Chart.PlotFitsViewport, "graphique : « Tout » fait tenir " + planItem.Plan.Columns.Count + " colonnes dans la fenêtre");
+                    planView.Chart.ZoomStep(1);
+                    await Settle();
+                    Check(!planView.Chart.PlotFitsViewport || planItem.Plan.Columns.Count < 8, "graphique : un cran de zoom écarte les colonnes");
+                    planView.ProbeShowChart(false);
+                    planItem.Plan.Columns.RemoveRange(columnsBefore, 20);
+                    planView.Refresh();
+                    await Settle();
+                    Check(planItem.Plan.Columns.Count == columnsBefore && planView.ColumnControls == Math.Max(1, columnsBefore), "plan : les colonnes de la sonde sont retirées");
+                }
+
                 BinderItem sheet = null;
                 foreach (var item in shell.Project.AllItems()) if (item.Kind == ItemKind.Sheet) { sheet = item; break; }
                 if (sheet != null)

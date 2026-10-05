@@ -120,5 +120,17 @@ namespace Marabook.Model
             foreach (var column in plan.Columns) profile.Add(column.PeakIntensity());
             return profile;
         }
+
+        /// <summary>Le profil du graphique (hotfix 1.0.3-a) : la MOYENNE des
+        /// intensités des éléments de chaque colonne (0 = colonne sans
+        /// élément) — le point se place entre les niveaux, le pic écrasait
+        /// la nuance d'une colonne mêlant calme et action.</summary>
+        public static List<double> MeanProfile(PlanInfo plan)
+        {
+            var profile = new List<double>();
+            if (plan == null) return profile;
+            foreach (var column in plan.Columns) profile.Add(column.MeanIntensity());
+            return profile;
+        }
     }
 }

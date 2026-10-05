@@ -78,6 +78,7 @@ namespace Marabook.App
                     LoadProject(SampleProject(), null);
                     if (_launch.Demo && !_launch.Probe) { await Task.Delay(200); if (_launch.OpenTitle != null) OpenByTitle(_launch.OpenTitle); else SelectFirstText(); }
                     if (_launch.Demo && !_launch.Probe && _launch.SheetText && _sheetView != null) { await Task.Delay(100); _sheetView.ShowTextTabPublic(); }
+                    if (_launch.Demo && !_launch.Probe && _launch.PlanChart && _planView != null) { await Task.Delay(100); _planView.ProbeShowChart(true); }
                     if (_launch.Demo && !_launch.Probe && _launch.PinTitle != null) { await Task.Delay(100); PinByTitle(_launch.PinTitle); }
                     if (_launch.Demo && !_launch.Probe && _launch.SelectTitle != null) { await Task.Delay(300); SelectTileByTitle(_launch.SelectTitle, _launch.Tint, _launch.TintAfter); }
                 }
@@ -288,6 +289,7 @@ namespace Marabook.App
         public EditorView Editor { get { return _editor; } }
         public SheetView Sheet { get { return _sheetView; } }
         internal PinnedPanel PinnedPanelForProbe { get { return _pinnedPanel; } }
+        internal PlanView PlanForProbe { get { return _planView; } }
         public ComposedView Composed { get { return _editor == null ? null : _editor.Composed; } }
 
         /// <summary>La fenêtre des Préférences ouverte, ou null.</summary>

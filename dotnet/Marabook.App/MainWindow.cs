@@ -863,7 +863,9 @@ namespace Marabook.App
             {
                 MarkDirty();
                 _editor.RefreshPlanButton();
-                _binder.Rebuild();
+                // Plus de reconstruction de toute la Pile à chaque brique
+                // (hotfix 1.0.3-a) : elle ne montre rien du contenu d'un plan,
+                // et c'était la seconde perdue à chaque nouvelle colonne.
             };
             _planView.NavigateRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _planView.RenameRequested += delegate // le crayon du plan (14/09)
