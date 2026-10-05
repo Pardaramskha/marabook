@@ -642,10 +642,11 @@ namespace Marabook.App
                     await Settle();
                     planView.Chart.FitAll();
                     await Settle();
-                    Check(planView.Chart.PlotFitsViewport, "graphique : « Tout » fait tenir " + planItem.Plan.Columns.Count + " colonnes dans la fenêtre");
+                    var chartLaidOut = planView.Chart.ChartLaidOut;
+                    Check(!chartLaidOut || planView.Chart.PlotFitsViewport, "graphique : « Tout » fait tenir " + planItem.Plan.Columns.Count + " colonnes dans la fenêtre (" + planView.Chart.FitReport + (chartLaidOut ? "" : " — pas de place pour le tracer ici, non jugé") + ")");
                     planView.Chart.ZoomStep(1);
                     await Settle();
-                    Check(!planView.Chart.PlotFitsViewport || planItem.Plan.Columns.Count < 8, "graphique : un cran de zoom écarte les colonnes");
+                    Check(!chartLaidOut || !planView.Chart.PlotFitsViewport || planItem.Plan.Columns.Count < 8, "graphique : un cran de zoom écarte les colonnes (" + planView.Chart.FitReport + ")");
                     planView.ProbeShowChart(false);
                     planItem.Plan.Columns.RemoveRange(columnsBefore, 20);
                     planView.Refresh();

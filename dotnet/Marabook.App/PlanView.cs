@@ -965,8 +965,28 @@ namespace Marabook.App
             Draw();
         }
 
-        /// <summary>Sonde : la courbe tient-elle dans le viseur sans défiler ?</summary>
-        internal bool PlotFitsViewport { get { return _plot.Width <= Bounds.Width - AxisWidth + 0.5; } }
+        /// <summary>Sonde : la courbe tient-elle dans le viseur sans défiler ?
+        /// « Tout » garde un pas de FitMinStep par colonne : sur une fenêtre
+        /// étroite (les runners de la CI), le plan peut déborder par règle —
+        /// la sonde compare au plus large des deux.</summary>
+        internal bool PlotFitsViewport
+        {
+            get
+            {
+                var columns = _plan == null || _plan.Plan == null ? 0 : _plan.Plan.Columns.Count;
+                var viewport = Math.Max(_scroll.Viewport.Width, Bounds.Width - AxisWidth);
+                return _plot.Width <= Math.Max(viewport, columns * FitMinStep) + 0.5;
+            }
+        }
+
+        /// <summary>Sonde : le graphique a-t-il une place où se tracer ? (Sans
+        /// place, Draw ne trace rien et la courbe garde sa largeur d'avant.)</summary>
+        internal bool ChartLaidOut { get { return Bounds.Width - AxisWidth >= 50 && Bounds.Height - Marabook.App.Theme.ScrollBarSize >= 80; } }
+
+        internal string FitReport
+        {
+            get { return "courbe " + _plot.Width.ToString("0") + " px, viseur " + _scroll.Viewport.Width.ToString("0") + " px, cadre " + Bounds.Width.ToString("0") + " px"; }
+        }
 
         public void Draw()
         {
