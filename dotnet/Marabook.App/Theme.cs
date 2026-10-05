@@ -234,6 +234,18 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<TextBox>().Class(":focus").Template().OfType<Border>().Name("border"),
                 new Setter(Border.BorderBrushProperty, Chrome.Accent),
                 new Setter(Border.BackgroundProperty, Chrome.FieldBg)));
+            // Un champ PAPIER (classe « paper », hotfix 1.0.3-a) : le Texte libre
+            // d'une fiche est une feuille, pas un champ — sa face reste celle du
+            // papier au survol et au clavier. Avant, le gabarit repassait au
+            // fond de champ (sombre) dès le focus, avec l'encre du papier
+            // (sombre sous « papier blanc en sombre ») : texte noir sur fond
+            // sombre, et un éclair blanc du papier à chaque perte de focus.
+            styles.Add(Style(x => x.OfType<TextBox>().Class("paper").Class(":pointerover").Template().OfType<Border>().Name("border"),
+                new Setter(Border.BorderBrushProperty, Brushes.Transparent),
+                new Setter(Border.BackgroundProperty, Chrome.PaperBg)));
+            styles.Add(Style(x => x.OfType<TextBox>().Class("paper").Class(":focus").Template().OfType<Border>().Name("border"),
+                new Setter(Border.BorderBrushProperty, Brushes.Transparent),
+                new Setter(Border.BackgroundProperty, Chrome.PaperBg)));
             styles.Add(Style(x => x.OfType<TextBox>().Class(":disabled"),
                 new Setter(Visual.OpacityProperty, 0.45)));
 

@@ -268,6 +268,7 @@ namespace Marabook.App
             // — Texte libre : l'éditeur markdown.
             _bodyBox = new TextBox
             {
+                Classes = { "paper" }, // une feuille, pas un champ (hotfix 1.0.3-a) : voir Theme
                 AcceptsReturn = true,
                 AcceptsTab = true,
                 TextWrapping = TextWrapping.Wrap,

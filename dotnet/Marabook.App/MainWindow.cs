@@ -4844,6 +4844,7 @@ namespace Marabook.App
             {
                 _rightMotion++;
                 _rightAnimating = false;
+                FreezeRightHosts(double.NaN);
                 _inspectorCol.Width = new GridLength(to);
                 _inspectorSplit.IsVisible = to > 0 ? true : false;
                 if (done != null) done();
@@ -4851,6 +4852,11 @@ namespace Marabook.App
             }
             _inspectorSplit.IsVisible = false;
             _rightAnimating = true;
+            // Pendant la course (hotfix 1.0.3-a), les panneaux gardent leur
+            // largeur d'arrivée : la colonne ne fait que les rogner — sinon
+            // chaque image recomposait tout le panneau (le miroir d'un long
+            // écrit se renvoyait ligne à ligne à chaque image : lenteur).
+            FreezeRightHosts(Math.Max(from, to));
             var generation = ++_rightMotion;
             var started = DateTime.Now;
             Action frame = null;
@@ -4864,11 +4870,25 @@ namespace Marabook.App
                 {
                     _rightAnimating = false;
                     _inspectorSplit.IsVisible = to > 0 ? true : false;
+                    FreezeRightHosts(double.NaN);
                     if (done != null) done();
                 }
                 else top.RequestAnimationFrame(delegate { frame(); });
             };
             frame();
+        }
+
+        /// <summary>Les hôtes de la colonne de droite à largeur FIXE (le temps
+        /// de la course) ou libre (NaN).</summary>
+        private void FreezeRightHosts(double width)
+        {
+            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost };
+            foreach (var host in hosts)
+            {
+                if (host == null) continue;
+                host.Width = width;
+                host.HorizontalAlignment = double.IsNaN(width) ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
+            }
         }
 
         /// <summary>Le panneau à montrer : l'actif s'il est disponible, sinon rien.</summary>

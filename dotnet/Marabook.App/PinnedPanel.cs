@@ -115,7 +115,40 @@ namespace Marabook.App
                 _scroller.Offset = new Vector(_scroller.Offset.X, _scroller.Offset.Y - Ui.Wheel(e));
                 e.Handled = true;
             }, RoutingStrategies.Tunnel);
+            // La largeur du miroir suit le VISEUR (hotfix 1.0.3-a) : quand
+            // l'ascenseur vertical apparaît, le viseur rétrécit, mais un bloc
+            // réutilisé gardait sa largeur mesurée d'avant et passait sous
+            // l'ascenseur (texte rogné à droite). Largeurs posées, pas déduites.
+            _scroller.ScrollChanged += delegate { FitMirror(); };
             Children.Add(_scroller);
+        }
+
+        private void FitMirror()
+        {
+            if (_mirrorHost == null || _mirrorStack == null) return;
+            var viewport = _scroller.Viewport.Width;
+            if (viewport <= 0) return;
+            var inner = Math.Max(40, viewport - _scroller.Padding.Left - _scroller.Padding.Right);
+            if (Math.Abs(_mirrorHost.Width - inner) < 0.5) return;
+            _mirrorHost.HorizontalAlignment = HorizontalAlignment.Left;
+            _mirrorHost.Width = inner;
+            _mirrorStack.Width = Math.Max(20, inner - _mirrorHost.BorderThickness.Left - _mirrorHost.BorderThickness.Right
+                - _mirrorStack.Margin.Left - _mirrorStack.Margin.Right);
+        }
+
+        /// <summary>Sonde (hotfix 1.0.3-a) : les largeurs disposées du miroir —
+        /// panneau, viseur, cadre, pile, premier bloc — pour traquer un débordement.</summary>
+        internal string MirrorLayoutReport(out bool fits)
+        {
+            fits = true;
+            if (_mirrorHost == null || _mirrorStack == null) return "pas de miroir";
+            var block = _mirrorStack.Children.Count > 0 ? _mirrorStack.Children[0] : null;
+            var blockRight = block == null ? 0 : block.Bounds.Right + _mirrorStack.Margin.Left;
+            fits = blockRight <= _mirrorHost.Bounds.Width - _mirrorStack.Margin.Right + 0.5
+                && _mirrorHost.Bounds.Width <= _scroller.Viewport.Width + 0.5;
+            return "panneau " + Bounds.Width.ToString("0") + ", viseur " + _scroller.Viewport.Width.ToString("0")
+                + ", cadre " + _mirrorHost.Bounds.Width.ToString("0") + ", pile " + _mirrorStack.Bounds.Width.ToString("0")
+                + ", bloc " + (block == null ? "-" : block.Bounds.Width.ToString("0") + " (droite " + blockRight.ToString("0") + ", voulu " + block.DesiredSize.Width.ToString("0") + ")");
         }
 
         public void SetProject(Project project, StyleSheet styles)
@@ -175,6 +208,7 @@ namespace Marabook.App
                     Child = flow // directement : un ScrollViewer intermédiaire donnait aux blocs une largeur sans marge (texte rogné à droite)
                 };
             if (!ReferenceEquals(_scroller.Content, _mirrorHost)) _scroller.Content = _mirrorHost;
+            FitMirror();
         }
 
         /// <summary>Les blocs du miroir (hotfix 1.0.3-a) : par tranches de

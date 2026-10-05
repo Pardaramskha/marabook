@@ -554,6 +554,31 @@ namespace Marabook.App
                         await Task.Delay(600); await Settle();
                         var freeOnRoot = shell.RightColumnWidth;
                         Check(freeOnRoot < 1, "rail déverrouillé : la colonne se replie sur une racine (" + freeOnRoot.ToString("0") + " px)");
+                        // Le miroir épinglé tient dans sa colonne (hotfix 1.0.3-a) :
+                        // le premier bloc ne déborde ni du cadre ni du viseur.
+                        shell.Binder.SelectItem(chapterForLock.Id, true);
+                        await Settle();
+                        shell.SetRightPanelPublic(RightPanel.Pinned);
+                        await Task.Delay(500); await Settle();
+                        bool mirrorFits;
+                        var mirrorReport = shell.PinnedPanelForProbe.MirrorLayoutReport(out mirrorFits);
+                        Check(mirrorFits, "le miroir épinglé tient dans sa colonne (" + mirrorReport + ")");
+                        // …même long (ascenseur vertical) : le texte ne passe pas sous l'ascenseur.
+                        var pinFiller = new List<TextParagraph>();
+                        for (var i = 0; i < 80; i++)
+                        {
+                            var paragraph = new TextParagraph();
+                            paragraph.Runs.Add(new TextRun { Text = "Paragraphe de remplissage numéro " + i + " : il pleuvait sur la ville et les toits luisaient sous les réverbères, tandis que les passants pressaient le pas vers des portes closes." });
+                            chapterForLock.Document.Paragraphs.Add(paragraph);
+                            pinFiller.Add(paragraph);
+                        }
+                        shell.PinnedPanelForProbe.Refresh();
+                        await Task.Delay(300); await Settle();
+                        mirrorReport = shell.PinnedPanelForProbe.MirrorLayoutReport(out mirrorFits);
+                        Check(mirrorFits, "…et un long miroir avec son ascenseur aussi (" + mirrorReport + ")");
+                        foreach (var paragraph in pinFiller) chapterForLock.Document.Paragraphs.Remove(paragraph);
+                        shell.PinnedPanelForProbe.Refresh();
+                        await Settle();
                     }
                     AppSettings.RailLocked = lockedBefore;
                     shell.SetRightPanelPublic(panelBefore);
