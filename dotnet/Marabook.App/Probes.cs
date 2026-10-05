@@ -104,6 +104,42 @@ namespace Marabook.App
                 Check(composed.Undo() && !(document.Paragraphs[0].Runs.Count > 0 && document.Paragraphs[0].Runs[0].Bold == true), "…et Ctrl+Z le rend");
                 composed.PlaceCaret(0, 0, false);
 
+                // — La géométrie suit la disposition (hotfix 1.0.3-a) : sur un
+                // écrit de dizaines de pages, le caret et la sélection posés à
+                // la dernière page sont à la hauteur de leur ligne DISPOSÉE. La
+                // hauteur A4 n'est pas entière (1 122,52 px) et l'arrondi de
+                // disposition d'Avalonia pose chaque page au pixel : la
+                // géométrie supposée dérivait d'un demi-pixel par page.
+                {
+                    var countBefore = document.Paragraphs.Count;
+                    var filler = new List<TextParagraph>();
+                    for (var i = 0; i < 240; i++)
+                    {
+                        var paragraph = new TextParagraph();
+                        paragraph.Runs.Add(new TextRun { Text = "Paragraphe de remplissage numéro " + i + " : il pleuvait sur la ville et les toits luisaient sous les réverbères, tandis que les passants pressaient le pas vers des portes closes, et que la nuit tombait sans bruit sur les quais déserts." });
+                        document.Paragraphs.Add(paragraph);
+                        filler.Add(paragraph);
+                    }
+                    composed.RefreshComposition();
+                    await Settle();
+                    var pagesNow = composed.CurrentComposition.Pages.Count;
+                    composed.PlaceCaret(document.Paragraphs.Count - 1, 10, false);
+                    await Settle();
+                    var drift = composed.CaretDriftPx();
+                    Check(pagesNow >= 12 && drift >= 0 && drift < 0.5,
+                        "sur " + pagesNow + " pages, le caret de la dernière page est à la hauteur de sa ligne disposée (écart " + drift.ToString("0.00") + " px)");
+                    composed.PlaceCaret(document.Paragraphs.Count - 1, 0, false);
+                    composed.PlaceCaret(document.Paragraphs.Count - 1, 10, true);
+                    await Settle();
+                    drift = composed.SelectionDriftPx();
+                    Check(drift >= 0 && drift < 0.5, "…et la sélection aussi (écart " + drift.ToString("0.00") + " px)");
+                    composed.PlaceCaret(0, 0, false);
+                    foreach (var paragraph in filler) document.Paragraphs.Remove(paragraph);
+                    composed.RefreshComposition();
+                    await Settle();
+                    Check(document.Paragraphs.Count == countBefore, "le remplissage est retiré (" + document.Paragraphs.Count + " paragraphes)");
+                }
+
                 // — Glisser-déposer de la sélection (1.0.3) : les cinq premiers
                 // caractères déplacés après le douzième, en une étape d'annulation ;
                 // un dépôt dans la sélection ne fait rien.
@@ -171,6 +207,54 @@ namespace Marabook.App
                     composed.Undo(); // le collage
                     composed.Undo(); // le gras
                     composed.PlaceCaret(0, 0, false);
+
+                    // — Coller PLUSIEURS paragraphes (hotfix 1.0.3-a) : une
+                    // sélection qui court du début du premier paragraphe au
+                    // quatrième caractère du deuxième, copiée mise en forme puis
+                    // collée à la fin de l'écrit — un paragraphe de plus, le
+                    // compositeur en phase, aucune exception (« Index was out of
+                    // range » avant, dès qu'un fragment avait plusieurs paragraphes).
+                    var second = 1; // le premier paragraphe non vide après le premier
+                    while (second < paragraphs - 1 && PivotEdit.FlatLength(document.Paragraphs[second]) == 0) second++;
+                    if (paragraphs >= 2)
+                    {
+                        var secondText = document.Paragraphs[second].ToPlainText();
+                        var cut = Math.Min(4, secondText.Length);
+                        composed.PlaceCaret(0, 0, false);
+                        composed.PlaceCaret(second, cut, true);
+                        composed.Copy(true);
+                        await Settle();
+                        end = document.Paragraphs[paragraphs - 1];
+                        composed.PlaceCaret(paragraphs - 1, PivotEdit.FlatLength(end), false);
+                        await composed.PasteAsync();
+                        await Settle();
+                        var lastText = document.Paragraphs[document.Paragraphs.Count - 1].ToPlainText();
+                        Check(document.Paragraphs.Count == paragraphs + second && lastText == secondText.Substring(0, cut),
+                            "coller " + (second + 1) + " paragraphes à la fin : " + second + " de plus, le dernier morceau termine l'écrit (" + document.Paragraphs.Count + " paragraphes, « " + lastText + " »)");
+                        Check(composed.CurrentComposition.Paragraphs.Count == document.Paragraphs.Count,
+                            "…et le compositeur a autant de paragraphes que le document (" + composed.CurrentComposition.Paragraphs.Count + ")");
+                        Check(composed.Undo() && document.Paragraphs.Count == paragraphs, "…et Ctrl+Z retire le collage d'un coup");
+                        composed.PlaceCaret(0, 0, false);
+                    }
+
+                    // — Coller du texte venu d'AILLEURS (texte plat de trois
+                    // lignes posé au presse-papiers, comme depuis un autre
+                    // programme) : deux paragraphes de plus, appris d'un coup.
+                    {
+                        var top = TopLevel.GetTopLevel(composed);
+                        await top.Clipboard.SetTextAsync("ligne un" + Environment.NewLine + "ligne deux" + Environment.NewLine + "ligne trois");
+                        await Settle();
+                        end = document.Paragraphs[paragraphs - 1];
+                        composed.PlaceCaret(paragraphs - 1, PivotEdit.FlatLength(end), false);
+                        await composed.PasteAsync();
+                        await Settle();
+                        var lastText = document.Paragraphs[document.Paragraphs.Count - 1].ToPlainText();
+                        Check(document.Paragraphs.Count == paragraphs + 2 && lastText == "ligne trois"
+                            && composed.CurrentComposition.Paragraphs.Count == document.Paragraphs.Count,
+                            "coller trois lignes de texte plat : deux paragraphes de plus, le compositeur en phase (" + document.Paragraphs.Count + " paragraphes, « " + lastText + " »)");
+                        Check(composed.Undo() && document.Paragraphs.Count == paragraphs, "…et Ctrl+Z les retire d'un coup");
+                        composed.PlaceCaret(0, 0, false);
+                    }
                 }
                 catch (Exception error) { Check(false, "copier/coller mis en forme : " + error.Message); }
 

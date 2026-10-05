@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Marabook.Model;
 using Marabook.Persistence;
 
@@ -18,6 +18,67 @@ namespace Marabook.Tests
             InsertSingleParagraph(t);
             InsertSeveralParagraphs(t);
             RoundTrip(t);
+            PasteSeveralParagraphsThroughEngine(t);
+            PasteLargeSelectionIntoEmptyDocument(t);
+        }
+
+        /// <summary>Le collage tel que l'éditeur le fait (PasteFragment) : Insert,
+        /// puis RecomposeParagraph du paragraphe de départ, puis ParagraphInserted
+        /// pour chaque paragraphe ajouté. Hotfix 1.0.3-a : la recomposition du
+        /// paragraphe de départ parcourait le document AGRANDI avec l'ancienne
+        /// liste des paragraphes composés → « Index was out of range ».</summary>
+        private static void PasteSeveralParagraphsThroughEngine(Harness t)
+        {
+            var document = TextDocument.FromPlainText("Avant|après\nSuite");
+            var engine = new Print.CompositionEngine(document, StyleSheet.CreateDefault(),
+                new PageSetup(), null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            var fragment = TextDocument.FromPlainText("un\ndeux\ntrois");
+            var p = 0; var o = 5;
+            var added = TextFragment.Insert(document, fragment, ref p, ref o);
+            t.Equal(2, added, "deux paragraphes ajoutés au document");
+            var crashed = false;
+            try { engine.ParagraphsInserted(1, added); }
+            catch (System.ArgumentOutOfRangeException) { crashed = true; }
+            t.Check(!crashed, "apprendre le bloc inséré d'un coup ne lève pas d'index hors limites");
+            t.Equal(document.Paragraphs.Count, engine.Current.Paragraphs.Count, "autant de paragraphes composés que dans le document");
+            t.Equal("Avantun".Length, engine.Current.Paragraphs[0].FlatLength, "le premier paragraphe composé est le bon");
+            t.Equal("trois|après".Length, engine.Current.Paragraphs[2].FlatLength, "le dernier morceau est composé");
+            t.Equal("Suite".Length, engine.Current.Paragraphs[3].FlatLength, "le paragraphe suivant a glissé d'une place");
+        }
+
+        /// <summary>Une grande sélection (des dizaines de paragraphes) collée
+        /// dans un écrit neuf : l'ordre d'apprentissage ne doit pas dépendre du
+        /// nombre de paragraphes.</summary>
+        private static void PasteLargeSelectionIntoEmptyDocument(Harness t)
+        {
+            var source = new TextDocument();
+            for (var i = 0; i < 60; i++)
+            {
+                var paragraph = new TextParagraph();
+                paragraph.Runs.Add(new TextRun { Text = "Paragraphe " + i + " de la source, assez long pour tenir sur quelques lignes de la page." });
+                source.Paragraphs.Add(paragraph);
+            }
+            var fragment = TextFragment.Extract(source, 0, 0, 59, 10);
+            var json = PlotFile.SerializeDocument(fragment);
+            var back = PlotFile.DeserializeDocument(json);
+            t.Equal(60, back.Paragraphs.Count, "soixante paragraphes relus du presse-papiers");
+            var document = TextDocument.FromPlainText("");
+            var engine = new Print.CompositionEngine(document, StyleSheet.CreateDefault(),
+                new PageSetup(), null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            var p = 0; var o = 0;
+            var added = TextFragment.Insert(document, back, ref p, ref o);
+            t.Equal(59, added, "cinquante-neuf paragraphes ajoutés");
+            var crashed = false;
+            try { engine.ParagraphsInserted(1, added); }
+            catch (System.ArgumentOutOfRangeException) { crashed = true; }
+            t.Check(!crashed, "le grand collage ne lève pas d'index hors limites");
+            engine.ParagraphsInserted(1, 0); // un bloc vide : simple recomposition du paragraphe d'accueil
+            t.Equal(60, engine.Current.Paragraphs.Count, "un bloc vide n'ajoute rien à la composition");
+            t.Equal(60, engine.Current.Paragraphs.Count, "soixante paragraphes composés");
+            t.Equal(59, p, "le caret est dans le dernier paragraphe collé");
+            t.Equal(10, o, "le caret est après le texte collé");
         }
 
         private static TextDocument Sample()

@@ -211,9 +211,8 @@ namespace Marabook.App
             offset = 0;
             var composition = _engine == null ? null : _engine.Current;
             if (composition == null || composition.Pages.Count == 0) return false;
-            var stride = composition.PageHeightPx + PageGapPx;
-            var pageIndex = Math.Max(0, Math.Min(composition.Pages.Count - 1, (int)(point.Y / stride)));
-            var yInPage = point.Y - pageIndex * stride;
+            var pageIndex = PageIndexAt(point.Y);
+            var yInPage = point.Y - PageTop(pageIndex); // pages disposées (hotfix 1.0.3-a)
             var page = composition.Pages[pageIndex];
             var order = MarkerOrder();
             foreach (var placed in page.NoteLines)

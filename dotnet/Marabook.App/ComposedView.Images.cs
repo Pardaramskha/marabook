@@ -116,9 +116,7 @@ namespace Marabook.App
 
         private int PageIndexAt(Point point)
         {
-            var composition = _engine.Current;
-            var stride = composition.PageHeightPx + PageGapPx;
-            return Math.Max(0, Math.Min(composition.Pages.Count - 1, (int)Math.Floor(point.Y / stride)));
+            return PageIndexAt(point.Y); // pages disposées (hotfix 1.0.3-a)
         }
 
         /// <summary>Les huit poignées d'un rectangle (coordonnées de page) :
@@ -448,7 +446,7 @@ namespace Marabook.App
                 if (dropPage != drag.Page)
                     RelocateImage(drag.Run, dropPage,
                         new Point(drag.StartRect.X + point.X - drag.Start.X,
-                            drag.StartRect.Y + point.Y - drag.Start.Y - (dropPage - drag.Page) * (_engine.Current.PageHeightPx + PageGapPx)));
+                            drag.StartRect.Y + point.Y - drag.Start.Y - (PageTop(dropPage) - PageTop(drag.Page))));
             }
             var handler = Edited;
             if (handler != null) handler();
