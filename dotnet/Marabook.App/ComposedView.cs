@@ -2488,11 +2488,14 @@ namespace Marabook.App
             if (!HasSelection() || _item == null) return;
             int pa, oa, pb, ob;
             OrderedSelection(out pa, out oa, out pb, out ob);
-            var fragment = TextFragment.Extract(_item.Document, pa, oa, pb, ob);
+            // Le PAQUET (hotfix 1.0.3-a) : le texte mis en forme, mais aussi les
+            // notes, les annotations et les octets des images sélectionnées.
+            var package = TextFragment.Pack(_item.Document, _project, pa, oa, pb, ob);
+            var fragment = package.Document;
             var text = fragment.ToPlainText().Replace("\n", Environment.NewLine);
             if (withFormat)
             {
-                var json = PlotFile.SerializeDocument(fragment);
+                var json = PlotFile.SerializeFragment(package);
                 // La copie de secours EN MÉMOIRE (01/10) : le format maison ne
                 // revient pas du presse-papiers de macOS (la sonde CI l'a montré)
                 // — Coller relit ce fragment quand le texte du presse-papiers
@@ -2535,9 +2538,9 @@ namespace Marabook.App
             }
             if (json != null)
             {
-                TextDocument fragment = null;
-                try { fragment = PlotFile.DeserializeDocument(json); } catch { fragment = null; }
-                if (fragment != null && fragment.Paragraphs.Count > 0) { PasteFragment(fragment); return; }
+                TextFragment.Package package = null;
+                try { package = PlotFile.DeserializeFragment(json); } catch { package = null; }
+                if (package != null && package.Document.Paragraphs.Count > 0) { PasteFragment(package); return; }
             }
             var text = await ClipboardText();
             if (string.IsNullOrEmpty(text)) return;
@@ -2688,7 +2691,7 @@ namespace Marabook.App
             if (insideOrAtEdge) return false;
 
             PushUndo(false);
-            var fragment = TextFragment.Extract(document, pa, oa, pb, ob, false);
+            var package = TextFragment.Pack(document, _project, pa, oa, pb, ob); // notes, annotations, images compris
             // La cible se corrige de la suppression qui la précède : même
             // paragraphe que la fin, après elle → recule de la longueur ôtée
             // (la fin rejoint pa:oa) ; paragraphe au-delà → remonte des
@@ -2698,7 +2701,7 @@ namespace Marabook.App
             DeleteSelectionIfAny();
             var startParagraph = paragraph;
             var startOffset = offset;
-            var added = TextFragment.Insert(document, fragment, ref paragraph, ref offset);
+            var added = TextFragment.Insert(document, package, _project, ref paragraph, ref offset);
             var first = _engine.ParagraphsInserted(startParagraph + 1, added); // le bloc d'un coup (hotfix 1.0.3-a)
             _anchorParagraph = startParagraph;
             _anchorOffset = startOffset;
@@ -2710,14 +2713,15 @@ namespace Marabook.App
             return true;
         }
 
-        private void PasteFragment(TextDocument fragment)
+        private void PasteFragment(TextFragment.Package package)
         {
             PushUndo(false);
             DeleteSelectionIfAny();
             var start = _caretParagraph;
             var paragraph = _caretParagraph;
             var offset = _caretOffset;
-            var added = TextFragment.Insert(_item.Document, fragment, ref paragraph, ref offset);
+            // Notes, annotations et images adoptées avec le texte (hotfix 1.0.3-a).
+            var added = TextFragment.Insert(_item.Document, package, _project, ref paragraph, ref offset);
             // Le bloc d'un coup (hotfix 1.0.3-a) : RecomposeParagraph(start)
             // avant d'apprendre les ajoutés levait « Index was out of range »
             // dès qu'un fragment avait plusieurs paragraphes.

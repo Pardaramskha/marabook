@@ -255,6 +255,67 @@ namespace Marabook.App
                         Check(composed.Undo() && document.Paragraphs.Count == paragraphs, "…et Ctrl+Z les retire d'un coup");
                         composed.PlaceCaret(0, 0, false);
                     }
+
+                    // — Coller TOUT ce qui est sélectionné (hotfix 1.0.3-a) : une
+                    // note, une annotation et une image posées dans le premier
+                    // paragraphe, copiées puis collées à la fin de l'écrit → une
+                    // note et une annotation de plus (identifiants neufs), un run
+                    // d'image qui cite une image connue du magasin du projet.
+                    if (original.Length > 6)
+                    {
+                        var notesBefore = document.Footnotes.Count;
+                        var annotationsBefore = document.Annotations.Count;
+                        var imagesBefore = shell.Project.Images.Count;
+                        composed.PlaceCaret(0, 2, false);
+                        composed.InsertFootnoteAtCaret(); // « Le¹ » : l'appel à l'offset 2
+                        await Settle();
+                        var note = document.Footnotes[document.Footnotes.Count - 1];
+                        note.Text = "note de la sonde";
+                        composed.PlaceCaret(0, 0, false);
+                        composed.PlaceCaret(0, 2, true);
+                        var annotation = new Annotation { Text = "commentaire de la sonde", Created = "2026-10-05 12:00" };
+                        if (composed.AnnotateSelection(annotation.Id)) document.Annotations.Add(annotation);
+                        composed.PlaceCaret(0, 4, false);
+                        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
+                        var imageId = shell.Project.AddImage(png, ".png");
+                        composed.InsertElementAtCaret(new TextRun { ImageId = imageId, Image = new ImageLayout { Name = "sonde.png", Width = 24, Height = 24 } });
+                        await Settle();
+                        Check(document.Footnotes.Count == notesBefore + 1 && document.Annotations.Count == annotationsBefore + 1,
+                            "une note, une annotation et une image posées dans le premier paragraphe");
+                        composed.PlaceCaret(0, 0, false);
+                        composed.PlaceCaret(0, 7, true); // « Le¹ v▣e » : l'appel, l'ancre et l'image
+                        composed.Copy(true);
+                        await Settle();
+                        var endIndex = document.Paragraphs.Count - 1;
+                        composed.PlaceCaret(endIndex, PivotEdit.FlatLength(document.Paragraphs[endIndex]), false);
+                        await composed.PasteAsync();
+                        await Settle();
+                        string pastedNote = null, pastedAnchor = null, pastedImage = null;
+                        foreach (var run in document.Paragraphs[endIndex].Runs)
+                        {
+                            if (run.FootnoteId != null) pastedNote = run.FootnoteId;
+                            if (run.AnnotationId != null) pastedAnchor = run.AnnotationId;
+                            if (run.ImageId != null) pastedImage = run.ImageId;
+                        }
+                        Check(pastedNote != null && pastedNote != note.Id && document.FindFootnote(pastedNote) != null
+                            && document.FindFootnote(pastedNote).Text == "note de la sonde" && document.Footnotes.Count == notesBefore + 2,
+                            "coller : l'appel de note collé cite une note neuve au même texte (" + document.Footnotes.Count + " notes)");
+                        Check(pastedAnchor != null && pastedAnchor != annotation.Id && document.FindAnnotation(pastedAnchor) != null
+                            && document.FindAnnotation(pastedAnchor).Text == "commentaire de la sonde" && document.Annotations.Count == annotationsBefore + 2,
+                            "coller : l'ancre collée cite une annotation neuve au même texte (" + document.Annotations.Count + " annotations)");
+                        Check(pastedImage == imageId && shell.Project.FindImage(pastedImage) != null && shell.Project.Images.Count == imagesBefore + 1,
+                            "coller : l'image collée cite l'image du magasin, sans doublon (" + shell.Project.Images.Count + " images)");
+                        Check(composed.CurrentComposition.Paragraphs.Count == document.Paragraphs.Count, "…et le compositeur est en phase");
+                        // Retour à l'état d'avant : le collage, l'image, l'annotation, la note.
+                        for (var back = 0; back < 6 && (document.Paragraphs[0].ToPlainText() != original || document.Footnotes.Count > notesBefore); back++)
+                            if (!composed.Undo()) break;
+                        document.Annotations.Remove(annotation);
+                        document.AnnotationOrder(true); // les annotations vivent hors du flux d'annulation : purge des orphelines
+                        PivotEdit.PurgeFootnotes(document);
+                        Check(document.Paragraphs[0].ToPlainText() == original && document.Footnotes.Count == notesBefore && document.Annotations.Count == annotationsBefore,
+                            "…et Ctrl+Z rend l'écrit d'avant (" + document.Footnotes.Count + " notes, " + document.Annotations.Count + " annotations)");
+                        composed.PlaceCaret(0, 0, false);
+                    }
                 }
                 catch (Exception error) { Check(false, "copier/coller mis en forme : " + error.Message); }
 

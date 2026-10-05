@@ -407,6 +407,59 @@ namespace Marabook.Persistence
             return ParseDocument(json ?? "");
         }
 
+        /// <summary>Le paquet du presse-papiers (hotfix 1.0.3-a) : le document
+        /// du fragment (paragraphes, notes, annotations) et les octets des
+        /// images qu'il cite, en base64 — { "fragment": 2, "document": {…},
+        /// "images": [{ "id", "ext", "data" }] }.</summary>
+        public static string SerializeFragment(TextFragment.Package package)
+        {
+            var root = new Dictionary<string, object>();
+            root["fragment"] = 2;
+            root["document"] = BuildDocument(package == null || package.Document == null ? new TextDocument() : package.Document);
+            var images = new List<object>();
+            if (package != null)
+                foreach (var image in package.Images)
+                {
+                    if (image.Id == null || image.Bytes == null) continue;
+                    var node = new Dictionary<string, object>();
+                    node["id"] = image.Id;
+                    node["ext"] = image.Extension ?? ".png";
+                    node["data"] = Convert.ToBase64String(image.Bytes);
+                    images.Add(node);
+                }
+            if (images.Count > 0) root["images"] = images;
+            return Json.Write(root);
+        }
+
+        /// <summary>L'inverse ; relit aussi le JSON d'un document nu (le format
+        /// d'avant le paquet, sans images). Null si rien n'est lisible.</summary>
+        public static TextFragment.Package DeserializeFragment(string json)
+        {
+            var root = Json.Parse(json ?? "");
+            var package = new TextFragment.Package();
+            var documentNode = Json.Field(root, "document");
+            package.Document = ParseDocumentNode(documentNode ?? root);
+            var images = Json.AsList(Json.Field(root, "images"));
+            if (images != null)
+                foreach (var entry in images)
+                {
+                    var node = Json.AsObject(entry);
+                    if (node == null) continue;
+                    var id = Json.AsString(Json.Field(node, "id"));
+                    var data = Json.AsString(Json.Field(node, "data"));
+                    if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(data)) continue;
+                    byte[] bytes;
+                    try { bytes = Convert.FromBase64String(data); } catch (FormatException) { continue; }
+                    package.Images.Add(new TextFragment.PackedImage
+                    {
+                        Id = id,
+                        Extension = Json.AsString(Json.Field(node, "ext")) ?? ".png",
+                        Bytes = bytes
+                    });
+                }
+            return package;
+        }
+
         /// <summary>Lit les entrées snapshots/ d'une archive (v17). Un
         /// instantané dont l'item n'existe pas dans le projet est abandonné.</summary>
         private static void ReadSnapshots(ZipArchive archive, Project project, List<string> warnings)
@@ -1625,8 +1678,14 @@ namespace Marabook.Persistence
 
         private static TextDocument ParseDocument(string json)
         {
+            return ParseDocumentNode(Json.Parse(json));
+        }
+
+        /// <summary>Le document depuis son nœud JSON déjà analysé (le texte
+        /// d'un item, ou le document d'un paquet de presse-papiers).</summary>
+        private static TextDocument ParseDocumentNode(object root)
+        {
             var document = new TextDocument();
-            var root = Json.Parse(json);
             document.LineSpacing = Json.AsDouble(Json.Field(root, "leading"), 1); // v28
             if (document.LineSpacing <= 0) document.LineSpacing = 1;
             var paragraphs = Json.AsList(Json.Field(root, "paragraphs"));
