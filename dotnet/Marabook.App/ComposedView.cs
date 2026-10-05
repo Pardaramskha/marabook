@@ -1261,18 +1261,40 @@ namespace Marabook.App
             // Clic droit sur une image (0.50.0) : son menu — alignements,
             // habillage, placement, annoter, enregistrer, supprimer.
             if (ImageContextMenu(e)) { e.Handled = true; return; }
-            if (ReadOnly) { e.Handled = true; return; }
             if (_project == null) return;
-            int paragraph, offset;
-            if (!HitTestPosition(e, out paragraph, out offset)) return;
-            var word = WordAt(paragraph, offset);
-            var findings = FindingsAt(paragraph, offset);
-            if ((word == null || word.Length < 2) && findings.Count == 0) return;
-
             var menu = new ContextMenu
             {
                 Placement = PlacementMode.Pointer
             };
+            // — Couper, copier, copier sans mise en forme, coller (hotfix
+            // 1.0.3-a) : toujours là, grisés quand ils n'ont pas d'objet ; en
+            // lecture seule, seule la copie reste.
+            var hasSelection = HasSelection() && !NoteEditing;
+            var cut = new MenuItem { Header = "Couper", InputGesture = new KeyGesture(Key.X, KeyModifiers.Control), IsEnabled = hasSelection && !ReadOnly };
+            cut.Click += delegate { Cut(true); };
+            var copy = new MenuItem { Header = "Copier", InputGesture = new KeyGesture(Key.C, KeyModifiers.Control), IsEnabled = hasSelection };
+            copy.Click += delegate { Copy(true); };
+            var copyPlain = new MenuItem { Header = "Copier sans mise en forme", InputGesture = new KeyGesture(Key.C, KeyModifiers.Control | KeyModifiers.Alt), IsEnabled = hasSelection };
+            copyPlain.Click += delegate { Copy(false); };
+            var paste = new MenuItem { Header = "Coller", InputGesture = new KeyGesture(Key.V, KeyModifiers.Control), IsEnabled = !ReadOnly };
+            paste.Click += delegate { Paste(); };
+            menu.Items.Add(cut);
+            menu.Items.Add(copy);
+            menu.Items.Add(copyPlain);
+            menu.Items.Add(paste);
+            if (ReadOnly)
+            {
+                e.Handled = true;
+                Ui.ShowMenu(menu, this);
+                return;
+            }
+            int paragraph, offset;
+            if (!HitTestPosition(e, out paragraph, out offset)) { Ui.ShowMenu(menu, this); return; }
+            var word = WordAt(paragraph, offset);
+            var findings = FindingsAt(paragraph, offset);
+            if ((word == null || word.Length < 2) && findings.Count == 0) { Ui.ShowMenu(menu, this); return; }
+            menu.Items.Add(new Separator());
+            var editItems = menu.Items.Count;
 
             // — Les signalements de correction sous le pointeur, en tête.
             foreach (var finding in findings)
@@ -1492,12 +1514,12 @@ namespace Marabook.App
                 toggle.Click += delegate { ToggleHyphenException(wordRef); };
                 menu.Items.Add(toggle);
             }
-            else if (menu.Items.Count > 0)
+            else if (menu.Items.Count > editItems)
             {
                 // Pas de mot sous le clic : retirer le séparateur de queue.
                 menu.Items.RemoveAt(menu.Items.Count - 1);
             }
-            if (menu.Items.Count == 0) return;
+            if (menu.Items.Count == editItems) menu.Items.RemoveAt(editItems - 1); // pas de séparateur orphelin
             Ui.ShowMenu(menu, this);
             e.Handled = true;
         }
@@ -3288,6 +3310,17 @@ namespace Marabook.App
         /// <summary>Sélectionne une plage plate et l'amène à l'écran (même
         /// mécanique que GoToAnnotation) — signalements ET résultats de
         /// recherche passent par là.</summary>
+        /// <summary>La sélection ordonnée (début puis fin), faux sans
+        /// sélection — la barre de recherche s'en sert pour « occurrence
+        /// précédente » (hotfix 1.0.3-a).</summary>
+        public bool SelectionBounds(out int pa, out int oa, out int pb, out int ob)
+        {
+            pa = oa = pb = ob = 0;
+            if (!HasSelection()) return false;
+            OrderedSelection(out pa, out oa, out pb, out ob);
+            return true;
+        }
+
         public void SelectRange(int paragraphIndex, int start, int end)
         {
             if (_item == null

@@ -457,8 +457,12 @@ namespace Marabook.App
             _searchBox = new TextBox { Width = 160, Margin = new Thickness(4, 0, 10, 0) };
             _searchBox.KeyDown += delegate(object sender, KeyEventArgs e)
             {
-                if (e.Key == Key.Enter) { FindNext(); e.Handled = true; }
+                if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.Shift) { FindPrevious(); e.Handled = true; }
+                else if (e.Key == Key.Enter) { FindNext(); e.Handled = true; }
             };
+            // Le compteur suit la frappe (hotfix 1.0.3-a) : « 12 occurrences »
+            // avant de chercher, « 3/12 » dès qu'on navigue.
+            _searchBox.TextChanged += delegate { if (_searchBar.IsVisible) { _searchCurrent = null; ShowSearchCount(); } };
             panel.Children.Add(_searchBox);
 
             panel.Children.Add(Label("Remplacer :"));
@@ -483,6 +487,10 @@ namespace Marabook.App
             };
             panel.Children.Add(_wholeWordCheck);
 
+            var findPrevious = Buttons.Icon("previous", "Occurrence précédente (Maj+Entrée)", Buttons.Compact, Buttons.Look.Outline);
+            findPrevious.Margin = new Thickness(0, 0, 2, 0);
+            findPrevious.Click += delegate { FindPrevious(); };
+            panel.Children.Add(findPrevious);
             var findNext = Buttons.Icon("next", "Occurrence suivante (Entrée)", Buttons.Compact, Buttons.Look.Outline);
             findNext.Margin = new Thickness(0, 0, 6, 0);
             findNext.Click += delegate { FindNext(); };
@@ -2271,6 +2279,66 @@ namespace Marabook.App
             TryFindNextComposed(true);
         }
 
+        /// <summary>Sonde (hotfix 1.0.3-a) : cherche depuis la barre et rend
+        /// le texte du compteur.</summary>
+        internal string SearchForProbe(string needle, bool previous)
+        {
+            if (!_searchBar.IsVisible) ShowSearch();
+            if (_searchBox.Text != needle) _searchBox.Text = needle;
+            if (previous) FindPrevious(); else FindNext();
+            return _searchInfo.Text;
+        }
+
+        /// <summary>« Occurrence précédente » (hotfix 1.0.3-a) : la dernière
+        /// avant le début de la sélection (ou le caret), reprise à la fin.</summary>
+        private void FindPrevious()
+        {
+            var needle = _searchBox.Text;
+            if (string.IsNullOrEmpty(needle) || _item == null || !ComposedActive) return;
+            var matches = PivotSearch.FindAll(_item.Document, needle,
+                _caseCheck.IsChecked == true, _wholeWordCheck.IsChecked == true);
+            if (matches.Count == 0)
+            {
+                _searchCurrent = null;
+                _searchInfo.Text = "Aucun résultat";
+                return;
+            }
+            int paragraph, offset, pb, ob;
+            if (!_composed.SelectionBounds(out paragraph, out offset, out pb, out ob))
+                _composed.CaretLocation(out paragraph, out offset);
+            var index = -1;
+            for (var i = matches.Count - 1; i >= 0; i--)
+            {
+                var match = matches[i];
+                if (match.ParagraphIndex < paragraph
+                    || (match.ParagraphIndex == paragraph && match.Start < offset))
+                { index = i; break; }
+            }
+            var wrapped = index < 0;
+            if (wrapped) index = matches.Count - 1;
+            SelectMatch(matches, index, wrapped ? "Reprise à la fin" : null);
+        }
+
+        /// <summary>Sélectionne l'occurrence et affiche « X/total » (hotfix
+        /// 1.0.3-a), précédé d'une mention de reprise s'il y a lieu.</summary>
+        private void SelectMatch(List<PivotSearch.Match> matches, int index, string notice)
+        {
+            var match = matches[index];
+            _searchCurrent = match;
+            _searchInfo.Text = (notice != null ? notice + " — " : "") + (index + 1) + "/" + matches.Count;
+            _composed.SelectRange(match.ParagraphIndex, match.Start, match.Start + match.Length);
+        }
+
+        /// <summary>Le nombre d'occurrences de la requête, sans bouger.</summary>
+        private void ShowSearchCount()
+        {
+            var needle = _searchBox.Text;
+            if (string.IsNullOrEmpty(needle) || _item == null || !ComposedActive) { _searchInfo.Text = ""; return; }
+            var count = PivotSearch.FindAll(_item.Document, needle,
+                _caseCheck.IsChecked == true, _wholeWordCheck.IsChecked == true).Count;
+            _searchInfo.Text = count == 0 ? "Aucun résultat" : count == 1 ? "1 occurrence" : count + " occurrences";
+        }
+
         /// <summary>La recherche pivot : PivotSearch trouve, la vue sélectionne.</summary>
         private bool TryFindNextComposed(bool wrap)
         {
@@ -2286,21 +2354,18 @@ namespace Marabook.App
             }
             int paragraph, offset;
             _composed.CaretLocation(out paragraph, out offset);
-            PivotSearch.Match next = null;
-            foreach (var match in matches)
-                if (match.ParagraphIndex > paragraph
-                    || (match.ParagraphIndex == paragraph && match.Start >= offset))
-                { next = match; break; }
-            if (next == null)
+            var index = -1;
+            for (var i = 0; i < matches.Count; i++)
+                if (matches[i].ParagraphIndex > paragraph
+                    || (matches[i].ParagraphIndex == paragraph && matches[i].Start >= offset))
+                { index = i; break; }
+            var wrapped = index < 0;
+            if (wrapped)
             {
                 if (!wrap) { _searchInfo.Text = "Aucun résultat"; return false; }
-                next = matches[0];
-                _searchInfo.Text = "Reprise au début";
+                index = 0;
             }
-            else _searchInfo.Text = "";
-            _searchCurrent = next;
-            _composed.SelectRange(next.ParagraphIndex, next.Start,
-                next.Start + next.Length);
+            SelectMatch(matches, index, wrapped ? "Reprise au début" : null);
             return true;
         }
 

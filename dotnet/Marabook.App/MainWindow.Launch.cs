@@ -276,6 +276,7 @@ namespace Marabook.App
             Close();
         }
         public EditorView Editor { get { return _editor; } }
+        public SheetView Sheet { get { return _sheetView; } }
         public ComposedView Composed { get { return _editor == null ? null : _editor.Composed; } }
 
         /// <summary>La fenêtre des Préférences ouverte, ou null.</summary>

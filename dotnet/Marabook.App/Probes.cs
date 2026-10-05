@@ -140,6 +140,33 @@ namespace Marabook.App
                     Check(document.Paragraphs.Count == countBefore, "le remplissage est retiré (" + document.Paragraphs.Count + " paragraphes)");
                 }
 
+                // — La recherche simple (hotfix 1.0.3-a) : occurrence précédente
+                // et compteur « X/total ».
+                {
+                    var needle = original.Length >= 2 ? original.Substring(0, 2) : "e";
+                    var total = Marabook.Model.PivotSearch.FindAll(document, needle, false, false).Count;
+                    composed.PlaceCaret(0, 0, false);
+                    var first = editor.SearchForProbe(needle, false);
+                    var second = editor.SearchForProbe(needle, false);
+                    var backOne = editor.SearchForProbe(needle, true);
+                    var wrapped = editor.SearchForProbe(needle, true);
+                    Check(total >= 2 && first == "1/" + total && second == "2/" + total,
+                        "recherche : le compteur suit les occurrences (" + first + ", " + second + " ; " + total + " attendues)");
+                    Check(backOne == "1/" + total && wrapped == "Reprise à la fin — " + total + "/" + total,
+                        "recherche : « occurrence précédente » recule puis reprend à la fin (" + backOne + ", " + wrapped + ")");
+                    editor.HideSearch();
+                    composed.PlaceCaret(0, 0, false);
+                    await Settle();
+                }
+
+                // — Le miroir épinglé (hotfix 1.0.3-a) : un bloc sélectionnable,
+                // copiable au clic droit, les runs gras et italique gardés.
+                {
+                    var mirror = Ui.PlainDocument(document, 12.5, Chrome.Ink) as SelectableTextBlock;
+                    Check(mirror != null && mirror.Inlines != null && mirror.Inlines.Count > 0 && mirror.ContextMenu != null,
+                        "le miroir épinglé est un bloc sélectionnable avec son menu Copier (" + (mirror == null ? "-" : mirror.Inlines.Count.ToString()) + " inlines)");
+                }
+
                 // — Glisser-déposer de la sélection (1.0.3) : les cinq premiers
                 // caractères déplacés après le douzième, en une étape d'annulation ;
                 // un dépôt dans la sélection ne fait rien.
@@ -486,6 +513,44 @@ namespace Marabook.App
                     visited++;
                 }
                 Check(visited == shell.Project.Roots.Count, "chaque racine de la Pile s'ouvre (" + visited + ")");
+
+                // — Le verrou du rail (hotfix 1.0.3-a) : le cadenas est en bas du
+                // rail ; verrouillé, la colonne de droite ouverte sur le Général
+                // reste ouverte sur une racine (où le Général est indisponible) ;
+                // déverrouillé, elle se replie comme avant.
+                {
+                    var lockTab = shell.GetVisualDescendants().OfType<Border>()
+                        .FirstOrDefault(b => (ToolTip.GetTip(b) as string ?? "").Contains("errouill"));
+                    Check(lockTab != null && lockTab.IsEffectivelyVisible, "le cadenas du rail est là");
+                    var lockedBefore = AppSettings.RailLocked;
+                    var panelBefore = AppSettings.RightPanel;
+                    var chapterForLock = shell.Project.AllItems().FirstOrDefault(i => i.Kind == ItemKind.Text);
+                    var rootForLock = shell.Project.Roots.FirstOrDefault(r => !r.IsHomeRoot); // une racine SANS Général (l'accueil en a un)
+                    if (chapterForLock != null && rootForLock != null)
+                    {
+                        AppSettings.RailLocked = true;
+                        shell.Binder.SelectItem(chapterForLock.Id, true);
+                        await Settle();
+                        shell.SetRightPanelPublic(RightPanel.Inspector);
+                        await Task.Delay(400); await Settle();
+                        var openOnText = shell.RightColumnWidth;
+                        shell.Binder.SelectItem(rootForLock.Id, true);
+                        await Task.Delay(400); await Settle();
+                        var lockedOnRoot = shell.RightColumnWidth;
+                        Check(openOnText > 100 && lockedOnRoot > 100 && AppSettings.RightPanel == RightPanel.Inspector,
+                            "rail verrouillé : la colonne reste ouverte sur une racine et le Général reste choisi (" + openOnText.ToString("0") + " → " + lockedOnRoot.ToString("0") + " px)");
+                        AppSettings.RailLocked = false;
+                        shell.Binder.SelectItem(chapterForLock.Id, true);
+                        await Task.Delay(400); await Settle();
+                        shell.Binder.SelectItem(rootForLock.Id, true);
+                        await Task.Delay(600); await Settle();
+                        var freeOnRoot = shell.RightColumnWidth;
+                        Check(freeOnRoot < 1, "rail déverrouillé : la colonne se replie sur une racine (" + freeOnRoot.ToString("0") + " px)");
+                    }
+                    AppSettings.RailLocked = lockedBefore;
+                    shell.SetRightPanelPublic(panelBefore);
+                    await Settle();
+                }
                 var kinds = new HashSet<ItemKind>();
                 var wrong = new List<string>();
                 foreach (var item in shell.Project.AllItems())
@@ -530,6 +595,36 @@ namespace Marabook.App
                     Check(shell.VisibleView == "sheet" && wiki != null, "la fiche passe en mode wiki et revient (" + shell.VisibleView + ", bouton " + (wiki == null ? "introuvable parmi " + shell.GetVisualDescendants().OfType<Button>().Count() + " boutons" : "trouvé") + ")");
                     var back = FindButton(shell, "Mode fiche") ?? FindButton(shell, "Mode wiki");
                     if (back != null) { back.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); await Settle(); }
+
+                    // — L'éditeur Markdown de la fiche (hotfix 1.0.3-a) : une
+                    // sélection tirée de la fin vers le début se met en gras sans
+                    // perdre le passage ; Entrée dans une liste continue la liste,
+                    // Entrée sur une puce vide la retire.
+                    var sheetView = shell.Sheet;
+                    if (sheetView != null && sheetView.HasItem && sheetView.BodyBox != null)
+                    {
+                        var box = sheetView.BodyBox;
+                        var kept = box.Text;
+                        box.Text = "abc def";
+                        box.SelectionStart = 7; box.SelectionEnd = 4; // « def » à rebours
+                        sheetView.Wrap("**", "**");
+                        Check(box.Text == "abc **def**", "Markdown : le gras d'une sélection à rebours garde le passage (« " + box.Text + " »)");
+                        box.Text = "* item";
+                        Ui.Select(box, box.Text.Length, 0);
+                        var continued = sheetView.ContinueList();
+                        Check(continued && box.Text == "* item\n* " && box.CaretIndex == box.Text.Length, "Markdown : Entrée dans une liste à puces ajoute la puce suivante (« " + box.Text.Replace("\n", "⏎") + " »)");
+                        continued = sheetView.ContinueList();
+                        Check(continued && box.Text == "* item\n" && box.CaretIndex == box.Text.Length, "Markdown : Entrée sur la puce vide la retire (« " + box.Text.Replace("\n", "⏎") + " »)");
+                        box.Text = "2. deux";
+                        Ui.Select(box, box.Text.Length, 0);
+                        sheetView.ContinueList();
+                        Check(box.Text == "2. deux\n3. ", "Markdown : la liste numérotée compte (« " + box.Text.Replace("\n", "⏎") + " »)");
+                        box.Text = "texte";
+                        Ui.Select(box, 2, 0);
+                        Check(!sheetView.ContinueList() && box.Text == "texte", "Markdown : hors liste, Entrée reste une Entrée ordinaire");
+                        box.Text = kept;
+                        await Settle();
+                    }
                 }
 
                 // — Un lien du Texte libre sur une ligne RENVOYÉE répond sous

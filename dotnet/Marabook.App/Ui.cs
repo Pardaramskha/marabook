@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Marabook.Model;
 using Avalonia.Media;
 using Avalonia.Animation.Easings;
@@ -302,22 +303,40 @@ namespace Marabook.App
         /// TextBlock par paragraphe (le FlowDocument du panneau épinglé).</summary>
         public static Control PlainDocument(TextDocument document, double fontSize, IBrush ink)
         {
-            var stack = new StackPanel { Margin = new Thickness(14, 12, 14, 16) };
-            if (document == null) return stack;
+            // Un SEUL bloc sélectionnable (hotfix 1.0.3-a) : on peut tirer une
+            // sélection d'un paragraphe à l'autre et la copier (Ctrl+C, clic
+            // droit › Copier) — le miroir reste en lecture seule. Les
+            // paragraphes se suivent sur une ligne vide ; le gras et
+            // l'italique des runs sont gardés.
+            var block = new SelectableTextBlock
+            {
+                Margin = new Thickness(14, 12, 14, 16),
+                FontSize = fontSize,
+                Foreground = ink,
+                TextWrapping = TextWrapping.Wrap,
+                SelectionBrush = Chrome.AccentTint,
+                Cursor = new Cursor(StandardCursorType.Ibeam)
+            };
+            if (document == null) return block;
+            var first = true;
             foreach (var paragraph in document.Paragraphs)
             {
-                stack.Children.Add(new TextBlock
+                if (!first) { block.Inlines.Add(new LineBreak()); block.Inlines.Add(new LineBreak()); }
+                first = false;
+                foreach (var run in paragraph.Runs)
                 {
-                    Text = paragraph.ToPlainText(),
-                    FontSize = fontSize,
-                    Foreground = ink,
-                    TextWrapping = TextWrapping.Wrap,
-                    TextAlignment = paragraph.AlignOverride == "center" ? TextAlignment.Center
-                        : paragraph.AlignOverride == "right" ? TextAlignment.Right : TextAlignment.Left,
-                    Margin = new Thickness(0, 0, 0, 8)
-                });
+                    if (run.IsLineBreak) { block.Inlines.Add(new LineBreak()); continue; }
+                    if (PivotEdit.IsElement(run) || string.IsNullOrEmpty(run.Text)) continue;
+                    var inline = new Run(run.Text);
+                    if (run.Bold == true) inline.FontWeight = FontWeight.Bold;
+                    if (run.Italic == true) inline.FontStyle = FontStyle.Italic;
+                    block.Inlines.Add(inline);
+                }
             }
-            return stack;
+            var copy = new MenuItem { Header = "Copier", InputGesture = new KeyGesture(Key.C, KeyModifiers.Control) };
+            copy.Click += delegate { block.Copy(); };
+            block.ContextMenu = new ContextMenu { Items = { copy } };
+            return block;
         }
 
         /// <summary>Le clavier est-il dans ce sous-arbre (IsKeyboardFocusWithin) ?</summary>
