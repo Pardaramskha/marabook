@@ -370,6 +370,41 @@ namespace Marabook.Print
             return 0;
         }
 
+        /// <summary>Un BLOC de <paramref name="count"/> paragraphes insérés d'un
+        /// coup dans le document à partir de <paramref name="index"/> (collage
+        /// d'un fragment, dépôt d'une sélection, texte plat de plusieurs
+        /// lignes — hotfix 1.0.3-a). Le paragraphe juste avant le bloc a changé
+        /// lui aussi (il a reçu le premier morceau) ; les paragraphes qui
+        /// suivent ne sont recomposés que si leur numéro de liste ou leur base
+        /// de notes a glissé. Rend la première page dont le contenu a changé.
+        /// Avant : RecomposeParagraph du paragraphe d'accueil parcourait le
+        /// document AGRANDI avec l'ancienne liste des paragraphes composés →
+        /// « Index was out of range » à tout collage de plusieurs paragraphes.</summary>
+        public int ParagraphsInserted(int index, int count)
+        {
+            if (count <= 0) return RecomposeParagraph(Math.Max(0, index - 1));
+            var oldList = _listNumbers;
+            var oldNotes = _noteBases;
+            for (var i = 0; i < count; i++)
+                Current.Paragraphs.Insert(index + i, null); // placeholders, filled below
+            RefreshContexts();
+            for (var i = 0; i < _document.Paragraphs.Count; i++)
+            {
+                var fresh = i >= index - 1 && i < index + count;
+                var before = i < index ? i : i - count; // l'index d'AVANT l'insertion
+                var changed = fresh
+                    || before >= oldList.Count
+                    || _listNumbers[i] != oldList[before]
+                    || _noteBases[i] != oldNotes[before];
+                if (changed)
+                    Current.Paragraphs[i] = ComposeParagraph(_document.Paragraphs[i],
+                        _listNumbers[i], _noteBases[i]);
+            }
+            var noteChanges = RefreshNoteLayouts();
+            var first = Math.Min(Repaginate(), FirstPageOf(Math.Max(0, index - 1)));
+            return Math.Min(first, NotesFirstChangedPage(noteChanges));
+        }
+
         public int ParagraphInserted(int index)
         {
             Current.Paragraphs.Insert(index, null); // placeholder, filled below

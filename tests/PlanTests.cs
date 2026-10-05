@@ -50,6 +50,10 @@ namespace Marabook.Tests
             t.Equal(3, profile.Count, "une valeur par colonne");
             t.Check(profile[0] == 4 && profile[1] == 2 && profile[2] == 0, "le profil suit les pics");
             t.Equal(0, PlanIntensity.Profile(null).Count, "plan nul : profil vide");
+            var means = PlanIntensity.MeanProfile(plan);
+            t.Equal(3, means.Count, "profil des moyennes : une valeur par colonne");
+            t.Check(means[0] == 2.5 && means[1] == 2 && means[2] == 0, "…la moyenne des éléments, 0 sans élément");
+            t.Equal(0, PlanIntensity.MeanProfile(null).Count, "plan nul : profil des moyennes vide");
         }
 
         private static void Links(Harness t)

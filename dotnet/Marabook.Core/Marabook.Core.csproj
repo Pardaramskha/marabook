@@ -15,8 +15,8 @@
     <LangVersion>latest</LangVersion>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>1.0.3</Version>
-    <InformationalVersion>1.0.3</InformationalVersion>
+    <Version>1.0.3-patch-a</Version>
+    <InformationalVersion>1.0.3-patch-a</InformationalVersion>
     <!-- Le code est écrit en C# 5 (style maison) : pas d'avertissements de
          modernisation, ni de nullabilité. -->
     <NoWarn>CS0618;CS0108;CS0414;CS0169;CS0649;CS0219;CS1591;SYSLIB0001;SYSLIB0014;SYSLIB0011</NoWarn>

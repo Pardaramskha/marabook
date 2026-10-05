@@ -109,6 +109,7 @@ namespace Marabook.App
         private RightPanel[] _railOffered; // les onglets bâtis (RightPanels.Offered)
         private readonly Dictionary<RightPanel, Border> _railTabs = new Dictionary<RightPanel, Border>();
         private Border _railBadge;      // pastille du nombre de signalements (Correction)
+        private Border _railLock;       // le verrou du rail (hotfix 1.0.3-a), collé au bas de la fenêtre
         private TextBlock _railBadgeText;
         private VersionsPanel _versionsPanel;
         private CompareWindow _compareWindow; // le paper flottant de comparaison (batch 38)
@@ -862,7 +863,9 @@ namespace Marabook.App
             {
                 MarkDirty();
                 _editor.RefreshPlanButton();
-                _binder.Rebuild();
+                // Plus de reconstruction de toute la Pile à chaque brique
+                // (hotfix 1.0.3-a) : elle ne montre rien du contenu d'un plan,
+                // et c'était la seconde perdue à chaque nouvelle colonne.
             };
             _planView.NavigateRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _planView.RenameRequested += delegate // le crayon du plan (14/09)
@@ -4793,7 +4796,7 @@ namespace Marabook.App
             // La colonne de droite (batch 39) : le panneau actif est-il
             // disponible dans le contexte courant ? Sinon, rien — les règles
             // sont dans RightPanels.Available, pas ici.
-            var shown = ShownRightPanel();
+            var shown = DisplayedRightPanel();
             // La colonne ne s'ouvre que lorsqu'un panneau a quelque chose à
             // montrer (1.0.3) : plus de « Rien à montrer ici » — le panneau
             // choisi reste en mémoire et revient dès qu'il est disponible. Et
@@ -4843,6 +4846,7 @@ namespace Marabook.App
             {
                 _rightMotion++;
                 _rightAnimating = false;
+                FreezeRightHosts(double.NaN);
                 _inspectorCol.Width = new GridLength(to);
                 _inspectorSplit.IsVisible = to > 0 ? true : false;
                 if (done != null) done();
@@ -4850,6 +4854,11 @@ namespace Marabook.App
             }
             _inspectorSplit.IsVisible = false;
             _rightAnimating = true;
+            // Pendant la course (hotfix 1.0.3-a), les panneaux gardent leur
+            // largeur d'arrivée : la colonne ne fait que les rogner — sinon
+            // chaque image recomposait tout le panneau (le miroir d'un long
+            // écrit se renvoyait ligne à ligne à chaque image : lenteur).
+            FreezeRightHosts(Math.Max(from, to));
             var generation = ++_rightMotion;
             var started = DateTime.Now;
             Action frame = null;
@@ -4863,6 +4872,7 @@ namespace Marabook.App
                 {
                     _rightAnimating = false;
                     _inspectorSplit.IsVisible = to > 0 ? true : false;
+                    FreezeRightHosts(double.NaN);
                     if (done != null) done();
                 }
                 else top.RequestAnimationFrame(delegate { frame(); });
@@ -4870,10 +4880,38 @@ namespace Marabook.App
             frame();
         }
 
+        /// <summary>Les hôtes de la colonne de droite à largeur FIXE (le temps
+        /// de la course) ou libre (NaN).</summary>
+        private void FreezeRightHosts(double width)
+        {
+            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost };
+            foreach (var host in hosts)
+            {
+                if (host == null) continue;
+                host.Width = width;
+                host.HorizontalAlignment = double.IsNaN(width) ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
+            }
+        }
+
         /// <summary>Le panneau à montrer : l'actif s'il est disponible, sinon rien.</summary>
         private RightPanel ShownRightPanel()
         {
             return IsPanelAvailable(AppSettings.RightPanel) ? AppSettings.RightPanel : RightPanel.None;
+        }
+
+        /// <summary>Le panneau AFFICHÉ : le choisi s'il est disponible ; rail
+        /// VERROUILLÉ (hotfix 1.0.3-a) et colonne voulue ouverte, le premier
+        /// panneau disponible du contexte (Général, sinon Recherche…) — la
+        /// colonne ne se replie pas d'elle-même, et le panneau choisi reste
+        /// en mémoire pour revenir avec son contexte.</summary>
+        private RightPanel DisplayedRightPanel()
+        {
+            var shown = ShownRightPanel();
+            if (!AppSettings.RailLocked || shown != RightPanel.None || AppSettings.RightPanel == RightPanel.None
+                || _journalOpen || _calmMode || _project == null) return shown;
+            foreach (var candidate in RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel))
+                if (IsPanelAvailable(candidate)) return candidate;
+            return shown;
         }
 
         private bool IsPanelAvailable(RightPanel panel)
@@ -4943,13 +4981,55 @@ namespace Marabook.App
         private Border BuildRail()
         {
             _railStack = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+            // Le VERROU (hotfix 1.0.3-a) : en bas du rail, collé au bas de la
+            // fenêtre — verrouillé, la colonne de droite ne s'ouvre ni ne se
+            // replie plus d'elle-même ; ouvert ou fermé, c'est à la main.
+            _railLock = new Border
+            {
+                Width = 32,
+                Height = 32,
+                CornerRadius = new CornerRadius(6),
+                Margin = new Thickness(4, 4, 4, 6),
+                Background = Brushes.Transparent,
+                Cursor = new Cursor(StandardCursorType.Hand)
+            };
+            _railLock.PointerReleased += delegate { ToggleRailLock(); };
+            _railLock.PointerEntered += delegate { _railLock.Background = Chrome.Border; };
+            _railLock.PointerExited += delegate { UpdateRailLock(); };
+            UpdateRailLock();
+            var layout = new DockPanel { LastChildFill = true };
+            DockPanel.SetDock(_railLock, Dock.Bottom);
+            layout.Children.Add(_railLock);
+            layout.Children.Add(_railStack);
             return new Border
             {
                 Background = Chrome.BarBg,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1, 0, 0, 0),
-                Child = _railStack
+                Child = layout
             };
+        }
+
+        private void ToggleRailLock()
+        {
+            AppSettings.RailLocked = !AppSettings.RailLocked;
+            AppSettings.Save();
+            UpdateRailLock();
+        }
+
+        /// <summary>L'icône du verrou suit l'état : cadenas fermé en accent
+        /// quand le rail est verrouillé, cadenas ouvert en encre sinon.</summary>
+        private void UpdateRailLock()
+        {
+            if (_railLock == null) return;
+            var locked = AppSettings.RailLocked;
+            _railLock.Background = Brushes.Transparent;
+            _railLock.Child = Icons.Make(locked ? "lock" : "lock-open", 16, locked ? Chrome.Accent : Chrome.Ink);
+            ((Control)_railLock.Child).HorizontalAlignment = HorizontalAlignment.Center;
+            ((Control)_railLock.Child).VerticalAlignment = VerticalAlignment.Center;
+            ToolTip.SetTip(_railLock, locked
+                ? "Rail verrouillé : la colonne de droite ne s'ouvre ni ne se replie plus d'elle-même (cliquer pour déverrouiller)"
+                : "Verrouiller le rail : la colonne de droite restera comme elle est, ouverte ou repliée, jusqu'à un clic sur un onglet");
         }
 
         /// <summary>Les onglets suivent la nature de l'élément courant
@@ -5112,7 +5192,8 @@ namespace Marabook.App
             var offered = RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel);
             if (!ReferenceEquals(offered, _railOffered)) RebuildRailTabs(offered);
             UpdatePinTip();
-            var shown = ShownRightPanel();
+            UpdateRailLock();
+            var shown = DisplayedRightPanel();
             foreach (var pair in _railTabs)
             {
                 var available = IsPanelAvailable(pair.Key);
@@ -5243,6 +5324,7 @@ namespace Marabook.App
         private void OpenInspectorForSheet(BinderItem item)
         {
             if (item == null || item.Kind != ItemKind.Sheet || AppSettings.RightPanel != RightPanel.None) return;
+            if (AppSettings.RailLocked) return; // verrouillé (hotfix 1.0.3-a) : rien ne s'ouvre tout seul
             SetRightPanel(RightPanel.Inspector);
         }
 
@@ -5254,7 +5336,7 @@ namespace Marabook.App
                 // La sélection multiple (1.0.3) : le Général en mode lot.
                 ShowBatchInspector(_inspectedGroup);
                 _loadingInspector = false;
-                if (AppSettings.RightPanel != RightPanel.None
+                if (!AppSettings.RailLocked && AppSettings.RightPanel != RightPanel.None
                     && !IsPanelAvailable(AppSettings.RightPanel) && IsPanelAvailable(RightPanel.Inspector))
                     SetRightPanel(RightPanel.Inspector);
                 else
@@ -5364,7 +5446,7 @@ namespace Marabook.App
             // panneau que la nature du nouvel élément n'offre pas (Correction
             // sur un livre, Métadonnées sur un écrit…) cède la place au
             // Général — ce qu'on voit est l'état (batch 39).
-            if (AppSettings.RightPanel != RightPanel.None
+            if (!AppSettings.RailLocked && AppSettings.RightPanel != RightPanel.None
                 && !IsPanelAvailable(AppSettings.RightPanel) && IsPanelAvailable(RightPanel.Inspector))
                 SetRightPanel(RightPanel.Inspector);
             else
@@ -5672,7 +5754,9 @@ namespace Marabook.App
             _sidePin = item;
             _project.SidePinId = item.Id;
             _pinnedPanel.Show(item);
-            SetRightPanel(RightPanel.Pinned);
+            // Rail verrouillé et colonne repliée (hotfix 1.0.3-a) : l'épingle
+            // se pose, l'onglet s'allume, la colonne ne s'ouvre pas toute seule.
+            if (!(AppSettings.RailLocked && AppSettings.RightPanel == RightPanel.None)) SetRightPanel(RightPanel.Pinned);
             UpdateRail();
         }
 

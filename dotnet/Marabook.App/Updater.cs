@@ -179,14 +179,24 @@ namespace Marabook.App
         }
 
         /// <summary>« 0.43.0 » > « 0.42.0-alpha » ? Les trois nombres, le
-        /// suffixe (alpha, beta) ignoré.</summary>
+        /// suffixe (alpha, beta) ignoré — SAUF le correctif à chaud (hotfix
+        /// 1.0.3-a) : « 1.0.3-patch-a » est plus récent que « 1.0.3 », et
+        /// « 1.0.3-patch-b » que « 1.0.3-patch-a ».</summary>
         public static bool IsNewer(string remote, string local)
         {
             var a = Numbers(remote);
             var b = Numbers(local);
             for (var i = 0; i < 3; i++)
                 if (a[i] != b[i]) return a[i] > b[i];
-            return false;
+            return string.CompareOrdinal(Patch(remote), Patch(local)) > 0;
+        }
+
+        /// <summary>La lettre du correctif à chaud (« a » de « 1.0.3-patch-a »),
+        /// vide sans suffixe « patch ».</summary>
+        private static string Patch(string version)
+        {
+            var match = Regex.Match(version ?? "", @"-patch-([A-Za-z0-9]+)", RegexOptions.IgnoreCase);
+            return match.Success ? match.Groups[1].Value.ToLowerInvariant() : "";
         }
 
         private static int[] Numbers(string version)

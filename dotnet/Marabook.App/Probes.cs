@@ -104,6 +104,70 @@ namespace Marabook.App
                 Check(composed.Undo() && !(document.Paragraphs[0].Runs.Count > 0 && document.Paragraphs[0].Runs[0].Bold == true), "…et Ctrl+Z le rend");
                 composed.PlaceCaret(0, 0, false);
 
+                // — La géométrie suit la disposition (hotfix 1.0.3-a) : sur un
+                // écrit de dizaines de pages, le caret et la sélection posés à
+                // la dernière page sont à la hauteur de leur ligne DISPOSÉE. La
+                // hauteur A4 n'est pas entière (1 122,52 px) et l'arrondi de
+                // disposition d'Avalonia pose chaque page au pixel : la
+                // géométrie supposée dérivait d'un demi-pixel par page.
+                {
+                    var countBefore = document.Paragraphs.Count;
+                    var filler = new List<TextParagraph>();
+                    for (var i = 0; i < 240; i++)
+                    {
+                        var paragraph = new TextParagraph();
+                        paragraph.Runs.Add(new TextRun { Text = "Paragraphe de remplissage numéro " + i + " : il pleuvait sur la ville et les toits luisaient sous les réverbères, tandis que les passants pressaient le pas vers des portes closes, et que la nuit tombait sans bruit sur les quais déserts." });
+                        document.Paragraphs.Add(paragraph);
+                        filler.Add(paragraph);
+                    }
+                    composed.RefreshComposition();
+                    await Settle();
+                    var pagesNow = composed.CurrentComposition.Pages.Count;
+                    composed.PlaceCaret(document.Paragraphs.Count - 1, 10, false);
+                    await Settle();
+                    var drift = composed.CaretDriftPx();
+                    Check(pagesNow >= 12 && drift >= 0 && drift < 0.5,
+                        "sur " + pagesNow + " pages, le caret de la dernière page est à la hauteur de sa ligne disposée (écart " + drift.ToString("0.00") + " px)");
+                    composed.PlaceCaret(document.Paragraphs.Count - 1, 0, false);
+                    composed.PlaceCaret(document.Paragraphs.Count - 1, 10, true);
+                    await Settle();
+                    drift = composed.SelectionDriftPx();
+                    Check(drift >= 0 && drift < 0.5, "…et la sélection aussi (écart " + drift.ToString("0.00") + " px)");
+                    composed.PlaceCaret(0, 0, false);
+                    foreach (var paragraph in filler) document.Paragraphs.Remove(paragraph);
+                    composed.RefreshComposition();
+                    await Settle();
+                    Check(document.Paragraphs.Count == countBefore, "le remplissage est retiré (" + document.Paragraphs.Count + " paragraphes)");
+                }
+
+                // — La recherche simple (hotfix 1.0.3-a) : occurrence précédente
+                // et compteur « X/total ».
+                {
+                    var needle = original.Length >= 2 ? original.Substring(0, 2) : "e";
+                    var total = Marabook.Model.PivotSearch.FindAll(document, needle, false, false).Count;
+                    composed.PlaceCaret(0, 0, false);
+                    var first = editor.SearchForProbe(needle, false);
+                    var second = editor.SearchForProbe(needle, false);
+                    var backOne = editor.SearchForProbe(needle, true);
+                    var wrapped = editor.SearchForProbe(needle, true);
+                    Check(total >= 2 && first == "1/" + total && second == "2/" + total,
+                        "recherche : le compteur suit les occurrences (" + first + ", " + second + " ; " + total + " attendues)");
+                    Check(backOne == "1/" + total && wrapped == "Reprise à la fin — " + total + "/" + total,
+                        "recherche : « occurrence précédente » recule puis reprend à la fin (" + backOne + ", " + wrapped + ")");
+                    editor.HideSearch();
+                    composed.PlaceCaret(0, 0, false);
+                    await Settle();
+                }
+
+                // — Le miroir épinglé (hotfix 1.0.3-a) : un bloc sélectionnable,
+                // copiable au clic droit, les runs gras et italique gardés.
+                {
+                    var mirrorStack = Ui.PlainDocument(document, 12.5, Chrome.Ink) as StackPanel;
+                    var mirror = mirrorStack == null || mirrorStack.Children.Count == 0 ? null : mirrorStack.Children[0] as SelectableTextBlock;
+                    Check(mirror != null && mirror.Inlines != null && mirror.Inlines.Count > 0 && mirror.ContextMenu != null,
+                        "le miroir épinglé est fait de blocs sélectionnables avec leur menu Copier (" + (mirror == null ? "-" : mirror.Inlines.Count.ToString()) + " inlines)");
+                }
+
                 // — Glisser-déposer de la sélection (1.0.3) : les cinq premiers
                 // caractères déplacés après le douzième, en une étape d'annulation ;
                 // un dépôt dans la sélection ne fait rien.
@@ -171,6 +235,115 @@ namespace Marabook.App
                     composed.Undo(); // le collage
                     composed.Undo(); // le gras
                     composed.PlaceCaret(0, 0, false);
+
+                    // — Coller PLUSIEURS paragraphes (hotfix 1.0.3-a) : une
+                    // sélection qui court du début du premier paragraphe au
+                    // quatrième caractère du deuxième, copiée mise en forme puis
+                    // collée à la fin de l'écrit — un paragraphe de plus, le
+                    // compositeur en phase, aucune exception (« Index was out of
+                    // range » avant, dès qu'un fragment avait plusieurs paragraphes).
+                    var second = 1; // le premier paragraphe non vide après le premier
+                    while (second < paragraphs - 1 && PivotEdit.FlatLength(document.Paragraphs[second]) == 0) second++;
+                    if (paragraphs >= 2)
+                    {
+                        var secondText = document.Paragraphs[second].ToPlainText();
+                        var cut = Math.Min(4, secondText.Length);
+                        composed.PlaceCaret(0, 0, false);
+                        composed.PlaceCaret(second, cut, true);
+                        composed.Copy(true);
+                        await Settle();
+                        end = document.Paragraphs[paragraphs - 1];
+                        composed.PlaceCaret(paragraphs - 1, PivotEdit.FlatLength(end), false);
+                        await composed.PasteAsync();
+                        await Settle();
+                        var lastText = document.Paragraphs[document.Paragraphs.Count - 1].ToPlainText();
+                        Check(document.Paragraphs.Count == paragraphs + second && lastText == secondText.Substring(0, cut),
+                            "coller " + (second + 1) + " paragraphes à la fin : " + second + " de plus, le dernier morceau termine l'écrit (" + document.Paragraphs.Count + " paragraphes, « " + lastText + " »)");
+                        Check(composed.CurrentComposition.Paragraphs.Count == document.Paragraphs.Count,
+                            "…et le compositeur a autant de paragraphes que le document (" + composed.CurrentComposition.Paragraphs.Count + ")");
+                        Check(composed.Undo() && document.Paragraphs.Count == paragraphs, "…et Ctrl+Z retire le collage d'un coup");
+                        composed.PlaceCaret(0, 0, false);
+                    }
+
+                    // — Coller du texte venu d'AILLEURS (texte plat de trois
+                    // lignes posé au presse-papiers, comme depuis un autre
+                    // programme) : deux paragraphes de plus, appris d'un coup.
+                    {
+                        var top = TopLevel.GetTopLevel(composed);
+                        await top.Clipboard.SetTextAsync("ligne un" + Environment.NewLine + "ligne deux" + Environment.NewLine + "ligne trois");
+                        await Settle();
+                        end = document.Paragraphs[paragraphs - 1];
+                        composed.PlaceCaret(paragraphs - 1, PivotEdit.FlatLength(end), false);
+                        await composed.PasteAsync();
+                        await Settle();
+                        var lastText = document.Paragraphs[document.Paragraphs.Count - 1].ToPlainText();
+                        Check(document.Paragraphs.Count == paragraphs + 2 && lastText == "ligne trois"
+                            && composed.CurrentComposition.Paragraphs.Count == document.Paragraphs.Count,
+                            "coller trois lignes de texte plat : deux paragraphes de plus, le compositeur en phase (" + document.Paragraphs.Count + " paragraphes, « " + lastText + " »)");
+                        Check(composed.Undo() && document.Paragraphs.Count == paragraphs, "…et Ctrl+Z les retire d'un coup");
+                        composed.PlaceCaret(0, 0, false);
+                    }
+
+                    // — Coller TOUT ce qui est sélectionné (hotfix 1.0.3-a) : une
+                    // note, une annotation et une image posées dans le premier
+                    // paragraphe, copiées puis collées à la fin de l'écrit → une
+                    // note et une annotation de plus (identifiants neufs), un run
+                    // d'image qui cite une image connue du magasin du projet.
+                    if (original.Length > 6)
+                    {
+                        var notesBefore = document.Footnotes.Count;
+                        var annotationsBefore = document.Annotations.Count;
+                        var imagesBefore = shell.Project.Images.Count;
+                        composed.PlaceCaret(0, 2, false);
+                        composed.InsertFootnoteAtCaret(); // « Le¹ » : l'appel à l'offset 2
+                        await Settle();
+                        var note = document.Footnotes[document.Footnotes.Count - 1];
+                        note.Text = "note de la sonde";
+                        composed.PlaceCaret(0, 0, false);
+                        composed.PlaceCaret(0, 2, true);
+                        var annotation = new Annotation { Text = "commentaire de la sonde", Created = "2026-10-05 12:00" };
+                        if (composed.AnnotateSelection(annotation.Id)) document.Annotations.Add(annotation);
+                        composed.PlaceCaret(0, 4, false);
+                        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
+                        var imageId = shell.Project.AddImage(png, ".png");
+                        composed.InsertElementAtCaret(new TextRun { ImageId = imageId, Image = new ImageLayout { Name = "sonde.png", Width = 24, Height = 24 } });
+                        await Settle();
+                        Check(document.Footnotes.Count == notesBefore + 1 && document.Annotations.Count == annotationsBefore + 1,
+                            "une note, une annotation et une image posées dans le premier paragraphe");
+                        composed.PlaceCaret(0, 0, false);
+                        composed.PlaceCaret(0, 7, true); // « Le¹ v▣e » : l'appel, l'ancre et l'image
+                        composed.Copy(true);
+                        await Settle();
+                        var endIndex = document.Paragraphs.Count - 1;
+                        composed.PlaceCaret(endIndex, PivotEdit.FlatLength(document.Paragraphs[endIndex]), false);
+                        await composed.PasteAsync();
+                        await Settle();
+                        string pastedNote = null, pastedAnchor = null, pastedImage = null;
+                        foreach (var run in document.Paragraphs[endIndex].Runs)
+                        {
+                            if (run.FootnoteId != null) pastedNote = run.FootnoteId;
+                            if (run.AnnotationId != null) pastedAnchor = run.AnnotationId;
+                            if (run.ImageId != null) pastedImage = run.ImageId;
+                        }
+                        Check(pastedNote != null && pastedNote != note.Id && document.FindFootnote(pastedNote) != null
+                            && document.FindFootnote(pastedNote).Text == "note de la sonde" && document.Footnotes.Count == notesBefore + 2,
+                            "coller : l'appel de note collé cite une note neuve au même texte (" + document.Footnotes.Count + " notes)");
+                        Check(pastedAnchor != null && pastedAnchor != annotation.Id && document.FindAnnotation(pastedAnchor) != null
+                            && document.FindAnnotation(pastedAnchor).Text == "commentaire de la sonde" && document.Annotations.Count == annotationsBefore + 2,
+                            "coller : l'ancre collée cite une annotation neuve au même texte (" + document.Annotations.Count + " annotations)");
+                        Check(pastedImage == imageId && shell.Project.FindImage(pastedImage) != null && shell.Project.Images.Count == imagesBefore + 1,
+                            "coller : l'image collée cite l'image du magasin, sans doublon (" + shell.Project.Images.Count + " images)");
+                        Check(composed.CurrentComposition.Paragraphs.Count == document.Paragraphs.Count, "…et le compositeur est en phase");
+                        // Retour à l'état d'avant : le collage, l'image, l'annotation, la note.
+                        for (var back = 0; back < 6 && (document.Paragraphs[0].ToPlainText() != original || document.Footnotes.Count > notesBefore); back++)
+                            if (!composed.Undo()) break;
+                        document.Annotations.Remove(annotation);
+                        document.AnnotationOrder(true); // les annotations vivent hors du flux d'annulation : purge des orphelines
+                        PivotEdit.PurgeFootnotes(document);
+                        Check(document.Paragraphs[0].ToPlainText() == original && document.Footnotes.Count == notesBefore && document.Annotations.Count == annotationsBefore,
+                            "…et Ctrl+Z rend l'écrit d'avant (" + document.Footnotes.Count + " notes, " + document.Annotations.Count + " annotations)");
+                        composed.PlaceCaret(0, 0, false);
+                    }
                 }
                 catch (Exception error) { Check(false, "copier/coller mis en forme : " + error.Message); }
 
@@ -341,6 +514,76 @@ namespace Marabook.App
                     visited++;
                 }
                 Check(visited == shell.Project.Roots.Count, "chaque racine de la Pile s'ouvre (" + visited + ")");
+
+                // — Le verrou du rail (hotfix 1.0.3-a) : le cadenas est en bas du
+                // rail ; verrouillé, la colonne de droite ouverte sur le Général
+                // reste ouverte sur une racine (où le Général est indisponible) ;
+                // déverrouillé, elle se replie comme avant.
+                {
+                    var lockTab = shell.GetVisualDescendants().OfType<Border>()
+                        .FirstOrDefault(b => (ToolTip.GetTip(b) as string ?? "").Contains("errouill"));
+                    Check(lockTab != null && lockTab.IsEffectivelyVisible, "le cadenas du rail est là");
+                    var lockedBefore = AppSettings.RailLocked;
+                    var panelBefore = AppSettings.RightPanel;
+                    var chapterForLock = shell.Project.AllItems().FirstOrDefault(i => i.Kind == ItemKind.Text);
+                    var rootForLock = shell.Project.Roots.FirstOrDefault(r => !r.IsHomeRoot); // une racine SANS Général (l'accueil en a un)
+                    if (chapterForLock != null && rootForLock != null)
+                    {
+                        AppSettings.RailLocked = true;
+                        shell.Binder.SelectItem(chapterForLock.Id, true);
+                        await Settle();
+                        shell.SetRightPanelPublic(RightPanel.Inspector);
+                        await Task.Delay(400); await Settle();
+                        var openOnText = shell.RightColumnWidth;
+                        shell.Binder.SelectItem(rootForLock.Id, true);
+                        await Task.Delay(400); await Settle();
+                        var lockedOnRoot = shell.RightColumnWidth;
+                        Check(openOnText > 100 && lockedOnRoot > 100 && AppSettings.RightPanel == RightPanel.Inspector,
+                            "rail verrouillé : la colonne reste ouverte sur une racine et le Général reste choisi (" + openOnText.ToString("0") + " → " + lockedOnRoot.ToString("0") + " px)");
+                        // Épingler sous verrou, colonne repliée : l'épingle se pose, la colonne reste repliée.
+                        shell.SetRightPanelPublic(RightPanel.None);
+                        await Task.Delay(500); await Settle();
+                        shell.PinByTitle(chapterForLock.Title);
+                        await Task.Delay(400); await Settle();
+                        Check(shell.RightColumnWidth < 1 && AppSettings.RightPanel == RightPanel.None,
+                            "rail verrouillé : épingler un écrit n'ouvre pas la colonne repliée (" + shell.RightColumnWidth.ToString("0") + " px)");
+                        AppSettings.RailLocked = false;
+                        shell.Binder.SelectItem(chapterForLock.Id, true);
+                        await Task.Delay(400); await Settle();
+                        shell.Binder.SelectItem(rootForLock.Id, true);
+                        await Task.Delay(600); await Settle();
+                        var freeOnRoot = shell.RightColumnWidth;
+                        Check(freeOnRoot < 1, "rail déverrouillé : la colonne se replie sur une racine (" + freeOnRoot.ToString("0") + " px)");
+                        // Le miroir épinglé tient dans sa colonne (hotfix 1.0.3-a) :
+                        // le premier bloc ne déborde ni du cadre ni du viseur.
+                        shell.Binder.SelectItem(chapterForLock.Id, true);
+                        await Settle();
+                        shell.SetRightPanelPublic(RightPanel.Pinned);
+                        await Task.Delay(500); await Settle();
+                        bool mirrorFits;
+                        var mirrorReport = shell.PinnedPanelForProbe.MirrorLayoutReport(out mirrorFits);
+                        Check(mirrorFits, "le miroir épinglé tient dans sa colonne (" + mirrorReport + ")");
+                        // …même long (ascenseur vertical) : le texte ne passe pas sous l'ascenseur.
+                        var pinFiller = new List<TextParagraph>();
+                        for (var i = 0; i < 80; i++)
+                        {
+                            var paragraph = new TextParagraph();
+                            paragraph.Runs.Add(new TextRun { Text = "Paragraphe de remplissage numéro " + i + " : il pleuvait sur la ville et les toits luisaient sous les réverbères, tandis que les passants pressaient le pas vers des portes closes." });
+                            chapterForLock.Document.Paragraphs.Add(paragraph);
+                            pinFiller.Add(paragraph);
+                        }
+                        shell.PinnedPanelForProbe.Refresh();
+                        await Task.Delay(300); await Settle();
+                        mirrorReport = shell.PinnedPanelForProbe.MirrorLayoutReport(out mirrorFits);
+                        Check(mirrorFits, "…et un long miroir avec son ascenseur aussi (" + mirrorReport + ")");
+                        foreach (var paragraph in pinFiller) chapterForLock.Document.Paragraphs.Remove(paragraph);
+                        shell.PinnedPanelForProbe.Refresh();
+                        await Settle();
+                    }
+                    AppSettings.RailLocked = lockedBefore;
+                    shell.SetRightPanelPublic(panelBefore);
+                    await Settle();
+                }
                 var kinds = new HashSet<ItemKind>();
                 var wrong = new List<string>();
                 foreach (var item in shell.Project.AllItems())
@@ -373,6 +616,43 @@ namespace Marabook.App
                     }
                     Check(shell.VisibleView == "book" && tabsSeen >= 5, "le livre ouvre ses onglets (" + tabsSeen + " onglets parcourus)");
                 }
+                // — Les plans (hotfix 1.0.3-a) : vingt colonnes de plus, chacune
+                // en moins de 300 ms (la Pile n'est plus rebâtie, la colonne
+                // seule est ajoutée, le combo des écrits se remplit à l'ouverture) ;
+                // le graphique « Tout » fait tenir les colonnes dans la fenêtre.
+                var planItem = shell.Project.AllItems().FirstOrDefault(i => i.Kind == ItemKind.Plan);
+                if (planItem != null && planItem.Plan != null)
+                {
+                    shell.Binder.SelectItem(planItem.Id, true);
+                    await Settle();
+                    var planView = shell.PlanForProbe;
+                    var columnsBefore = planItem.Plan.Columns.Count;
+                    var slowest = 0.0;
+                    for (var i = 0; i < 20; i++)
+                    {
+                        var watch = System.Diagnostics.Stopwatch.StartNew();
+                        planView.ProbeAddColumn();
+                        await Dispatcher.UIThread.InvokeAsync(delegate { }, DispatcherPriority.Render);
+                        slowest = Math.Max(slowest, watch.Elapsed.TotalMilliseconds);
+                    }
+                    Check(planItem.Plan.Columns.Count == columnsBefore + 20 && planView.ColumnControls == columnsBefore + 20,
+                        "plan : vingt colonnes ajoutées une à une (" + planView.ColumnControls + " à l'écran)");
+                    Check(slowest < 300, "plan : la colonne la plus lente s'ajoute en moins de 300 ms (" + slowest.ToString("0") + " ms)");
+                    planView.ProbeShowChart(true);
+                    await Settle();
+                    planView.Chart.FitAll();
+                    await Settle();
+                    Check(planView.Chart.PlotFitsViewport, "graphique : « Tout » fait tenir " + planItem.Plan.Columns.Count + " colonnes dans la fenêtre");
+                    planView.Chart.ZoomStep(1);
+                    await Settle();
+                    Check(!planView.Chart.PlotFitsViewport || planItem.Plan.Columns.Count < 8, "graphique : un cran de zoom écarte les colonnes");
+                    planView.ProbeShowChart(false);
+                    planItem.Plan.Columns.RemoveRange(columnsBefore, 20);
+                    planView.Refresh();
+                    await Settle();
+                    Check(planItem.Plan.Columns.Count == columnsBefore && planView.ColumnControls == Math.Max(1, columnsBefore), "plan : les colonnes de la sonde sont retirées");
+                }
+
                 BinderItem sheet = null;
                 foreach (var item in shell.Project.AllItems()) if (item.Kind == ItemKind.Sheet) { sheet = item; break; }
                 if (sheet != null)
@@ -385,6 +665,36 @@ namespace Marabook.App
                     Check(shell.VisibleView == "sheet" && wiki != null, "la fiche passe en mode wiki et revient (" + shell.VisibleView + ", bouton " + (wiki == null ? "introuvable parmi " + shell.GetVisualDescendants().OfType<Button>().Count() + " boutons" : "trouvé") + ")");
                     var back = FindButton(shell, "Mode fiche") ?? FindButton(shell, "Mode wiki");
                     if (back != null) { back.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); await Settle(); }
+
+                    // — L'éditeur Markdown de la fiche (hotfix 1.0.3-a) : une
+                    // sélection tirée de la fin vers le début se met en gras sans
+                    // perdre le passage ; Entrée dans une liste continue la liste,
+                    // Entrée sur une puce vide la retire.
+                    var sheetView = shell.Sheet;
+                    if (sheetView != null && sheetView.HasItem && sheetView.BodyBox != null)
+                    {
+                        var box = sheetView.BodyBox;
+                        var kept = box.Text;
+                        box.Text = "abc def";
+                        box.SelectionStart = 7; box.SelectionEnd = 4; // « def » à rebours
+                        sheetView.Wrap("**", "**");
+                        Check(box.Text == "abc **def**", "Markdown : le gras d'une sélection à rebours garde le passage (« " + box.Text + " »)");
+                        box.Text = "* item";
+                        Ui.Select(box, box.Text.Length, 0);
+                        var continued = sheetView.ContinueList();
+                        Check(continued && box.Text == "* item\n* " && box.CaretIndex == box.Text.Length, "Markdown : Entrée dans une liste à puces ajoute la puce suivante (« " + box.Text.Replace("\n", "⏎") + " »)");
+                        continued = sheetView.ContinueList();
+                        Check(continued && box.Text == "* item\n" && box.CaretIndex == box.Text.Length, "Markdown : Entrée sur la puce vide la retire (« " + box.Text.Replace("\n", "⏎") + " »)");
+                        box.Text = "2. deux";
+                        Ui.Select(box, box.Text.Length, 0);
+                        sheetView.ContinueList();
+                        Check(box.Text == "2. deux\n3. ", "Markdown : la liste numérotée compte (« " + box.Text.Replace("\n", "⏎") + " »)");
+                        box.Text = "texte";
+                        Ui.Select(box, 2, 0);
+                        Check(!sheetView.ContinueList() && box.Text == "texte", "Markdown : hors liste, Entrée reste une Entrée ordinaire");
+                        box.Text = kept;
+                        await Settle();
+                    }
                 }
 
                 // — Un lien du Texte libre sur une ligne RENVOYÉE répond sous

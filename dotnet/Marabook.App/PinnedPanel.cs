@@ -26,6 +26,12 @@ namespace Marabook.App
     public class PinnedPanel : DockPanel
     {
         private readonly TextBlock _title, _kind;
+        // Le miroir d'un écrit (hotfix 1.0.3-a) : des blocs sélectionnables
+        // en cache — seuls ceux dont le texte a changé sont rebâtis.
+        private readonly System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, Control>> _mirrorBlocks
+            = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, Control>>();
+        private StackPanel _mirrorStack;
+        private Border _mirrorHost;
         private readonly ScrollViewer _scroller;
         private BinderItem _item;
         private SheetTemplate _template;
@@ -99,7 +105,7 @@ namespace Marabook.App
             {
                 [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Auto,
                 [ScrollViewer.HorizontalScrollBarVisibilityProperty] = ScrollBarVisibility.Disabled,
-                Padding = new Thickness(12, 0, 12, 12)
+                Padding = new Thickness(16, 0, 16, 14) // de l'air entre le papier et le rail (hotfix 1.0.3-a)
             };
             // La molette (14/09) : le FlowDocumentScrollViewer du contenu
             // avalait l'événement sans défiler (son propre ascenseur est
@@ -109,7 +115,40 @@ namespace Marabook.App
                 _scroller.Offset = new Vector(_scroller.Offset.X, _scroller.Offset.Y - Ui.Wheel(e));
                 e.Handled = true;
             }, RoutingStrategies.Tunnel);
+            // La largeur du miroir suit le VISEUR (hotfix 1.0.3-a) : quand
+            // l'ascenseur vertical apparaît, le viseur rétrécit, mais un bloc
+            // réutilisé gardait sa largeur mesurée d'avant et passait sous
+            // l'ascenseur (texte rogné à droite). Largeurs posées, pas déduites.
+            _scroller.ScrollChanged += delegate { FitMirror(); };
             Children.Add(_scroller);
+        }
+
+        private void FitMirror()
+        {
+            if (_mirrorHost == null || _mirrorStack == null) return;
+            var viewport = _scroller.Viewport.Width;
+            if (viewport <= 0) return;
+            var inner = Math.Max(40, viewport - _scroller.Padding.Left - _scroller.Padding.Right);
+            if (Math.Abs(_mirrorHost.Width - inner) < 0.5) return;
+            _mirrorHost.HorizontalAlignment = HorizontalAlignment.Left;
+            _mirrorHost.Width = inner;
+            _mirrorStack.Width = Math.Max(20, inner - _mirrorHost.BorderThickness.Left - _mirrorHost.BorderThickness.Right
+                - _mirrorStack.Margin.Left - _mirrorStack.Margin.Right);
+        }
+
+        /// <summary>Sonde (hotfix 1.0.3-a) : les largeurs disposées du miroir —
+        /// panneau, viseur, cadre, pile, premier bloc — pour traquer un débordement.</summary>
+        internal string MirrorLayoutReport(out bool fits)
+        {
+            fits = true;
+            if (_mirrorHost == null || _mirrorStack == null) return "pas de miroir";
+            var block = _mirrorStack.Children.Count > 0 ? _mirrorStack.Children[0] : null;
+            var blockRight = block == null ? 0 : block.Bounds.Right + _mirrorStack.Margin.Left;
+            fits = blockRight <= _mirrorHost.Bounds.Width - _mirrorStack.Margin.Right + 0.5
+                && _mirrorHost.Bounds.Width <= _scroller.Viewport.Width + 0.5;
+            return "panneau " + Bounds.Width.ToString("0") + ", viseur " + _scroller.Viewport.Width.ToString("0")
+                + ", cadre " + _mirrorHost.Bounds.Width.ToString("0") + ", pile " + _mirrorStack.Bounds.Width.ToString("0")
+                + ", bloc " + (block == null ? "-" : block.Bounds.Width.ToString("0") + " (droite " + blockRight.ToString("0") + ", voulu " + block.DesiredSize.Width.ToString("0") + ")");
         }
 
         public void SetProject(Project project, StyleSheet styles)
@@ -132,6 +171,8 @@ namespace Marabook.App
             _item = null;
             _template = null;
             _scroller.Content = null;
+            _mirrorBlocks.Clear();
+            if (_mirrorStack != null) _mirrorStack.Children.Clear();
             _title.Text = "";
             _kind.Text = "";
         }
@@ -156,18 +197,53 @@ namespace Marabook.App
             _kind.Text = book != null ? "Écrit — " + book.Title : "Écrit";
             // Colonne continue : marges du panneau, pas de page ; la police
             // du corps un cran plus petite que l'éditeur, on lit en marge.
-            var flow = Ui.PlainDocument(_item.Document, 12.5, Chrome.PaperInk);
-            _scroller.Content = new Border
+            var flow = MirrorFlow(_item.Document);
+            if (_mirrorHost == null)
+                _mirrorHost = new Border
+                {
+                    Background = Chrome.PaperBg,
+                    BorderBrush = Chrome.Border,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6),
+                    Child = flow // directement : un ScrollViewer intermédiaire donnait aux blocs une largeur sans marge (texte rogné à droite)
+                };
+            if (!ReferenceEquals(_scroller.Content, _mirrorHost)) _scroller.Content = _mirrorHost;
+            FitMirror();
+        }
+
+        /// <summary>Les blocs du miroir (hotfix 1.0.3-a) : par tranches de
+        /// Ui.MirrorChunk paragraphes, un bloc dont l'empreinte n'a pas changé
+        /// est gardé (sa sélection aussi), les autres sont rebâtis.</summary>
+        private Control MirrorFlow(TextDocument document)
+        {
+            if (_mirrorStack == null) _mirrorStack = new StackPanel { Margin = new Thickness(18, 14, 18, 18) };
+            var fresh = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, Control>>();
+            var count = Math.Max(1, document.Paragraphs.Count);
+            for (var from = 0; from < count; from += Ui.MirrorChunk)
             {
-                Background = Chrome.PaperBg,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(6),
-                Child = new ScrollViewer { Content = flow,
-                    [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Disabled,
-                    Focusable = false
+                var to = Math.Min(count, from + Ui.MirrorChunk);
+                var key = Ui.MirrorKey(document, from, to);
+                Control block = null;
+                foreach (var old in _mirrorBlocks)
+                {
+                    if (old.Key != key) continue;
+                    var taken = false;
+                    foreach (var f in fresh) if (ReferenceEquals(f.Value, old.Value)) { taken = true; break; }
+                    if (!taken) { block = old.Value; break; }
                 }
-            };
+                if (block == null) block = Ui.MirrorBlock(document, from, to, 12.5, Chrome.PaperInk);
+                fresh.Add(new System.Collections.Generic.KeyValuePair<string, Control>(key, block));
+            }
+            var same = fresh.Count == _mirrorStack.Children.Count;
+            for (var i = 0; same && i < fresh.Count; i++) same = ReferenceEquals(_mirrorStack.Children[i], fresh[i].Value);
+            if (!same)
+            {
+                _mirrorStack.Children.Clear();
+                foreach (var pair in fresh) _mirrorStack.Children.Add(pair.Value);
+            }
+            _mirrorBlocks.Clear();
+            _mirrorBlocks.AddRange(fresh);
+            return _mirrorStack;
         }
     }
 }
