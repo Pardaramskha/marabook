@@ -333,8 +333,20 @@ namespace Marabook.App
             DockPanel.SetDock(modes, Dock.Right);
             toolRow.Children.Add(modes);
             toolRow.Children.Add(toolbar);
-            DockPanel.SetDock(toolRow, Dock.Top);
-            editorStack.Children.Add(toolRow);
+            // La barre est une BARRE de l'interface (hotfix 1.0.3-a), pas un
+            // bout de papier : fond de barre et filet, coins hauts arrondis avec
+            // le cadre — posée sur du papier blanc en sombre, ses icônes claires
+            // disparaissaient et ses bascules faisaient tache.
+            var toolHost = new Border
+            {
+                Background = Chrome.BarBgLight,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                CornerRadius = new CornerRadius(8, 8, 0, 0),
+                Child = toolRow
+            };
+            DockPanel.SetDock(toolHost, Dock.Top);
+            editorStack.Children.Add(toolHost);
             DockPanel.SetDock(_findBar, Dock.Top);
             editorStack.Children.Add(_findBar);
             _mirror = new ScrollViewer
@@ -423,6 +435,8 @@ namespace Marabook.App
 
         /// <summary>Montre l'onglet « Texte libre » (une action d'édition du
         /// markdown y ramène toujours : barre, Ctrl+F, insertions).</summary>
+        internal void ShowTextTabPublic() { ShowTextTab(); } // capture (hotfix 1.0.3-a)
+
         private void ShowTextTab()
         {
             if (_tabs.SelectedIndex != 1) _tabs.SelectedIndex = 1;

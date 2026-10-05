@@ -26,6 +26,12 @@ namespace Marabook.App
     public class PinnedPanel : DockPanel
     {
         private readonly TextBlock _title, _kind;
+        // Le miroir d'un écrit (hotfix 1.0.3-a) : des blocs sélectionnables
+        // en cache — seuls ceux dont le texte a changé sont rebâtis.
+        private readonly System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, Control>> _mirrorBlocks
+            = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, Control>>();
+        private StackPanel _mirrorStack;
+        private Border _mirrorHost;
         private readonly ScrollViewer _scroller;
         private BinderItem _item;
         private SheetTemplate _template;
@@ -99,7 +105,7 @@ namespace Marabook.App
             {
                 [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Auto,
                 [ScrollViewer.HorizontalScrollBarVisibilityProperty] = ScrollBarVisibility.Disabled,
-                Padding = new Thickness(12, 0, 12, 12)
+                Padding = new Thickness(16, 0, 16, 14) // de l'air entre le papier et le rail (hotfix 1.0.3-a)
             };
             // La molette (14/09) : le FlowDocumentScrollViewer du contenu
             // avalait l'événement sans défiler (son propre ascenseur est
@@ -132,6 +138,8 @@ namespace Marabook.App
             _item = null;
             _template = null;
             _scroller.Content = null;
+            _mirrorBlocks.Clear();
+            if (_mirrorStack != null) _mirrorStack.Children.Clear();
             _title.Text = "";
             _kind.Text = "";
         }
@@ -156,18 +164,52 @@ namespace Marabook.App
             _kind.Text = book != null ? "Écrit — " + book.Title : "Écrit";
             // Colonne continue : marges du panneau, pas de page ; la police
             // du corps un cran plus petite que l'éditeur, on lit en marge.
-            var flow = Ui.PlainDocument(_item.Document, 12.5, Chrome.PaperInk);
-            _scroller.Content = new Border
+            var flow = MirrorFlow(_item.Document);
+            if (_mirrorHost == null)
+                _mirrorHost = new Border
+                {
+                    Background = Chrome.PaperBg,
+                    BorderBrush = Chrome.Border,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6),
+                    Child = flow // directement : un ScrollViewer intermédiaire donnait aux blocs une largeur sans marge (texte rogné à droite)
+                };
+            if (!ReferenceEquals(_scroller.Content, _mirrorHost)) _scroller.Content = _mirrorHost;
+        }
+
+        /// <summary>Les blocs du miroir (hotfix 1.0.3-a) : par tranches de
+        /// Ui.MirrorChunk paragraphes, un bloc dont l'empreinte n'a pas changé
+        /// est gardé (sa sélection aussi), les autres sont rebâtis.</summary>
+        private Control MirrorFlow(TextDocument document)
+        {
+            if (_mirrorStack == null) _mirrorStack = new StackPanel { Margin = new Thickness(18, 14, 18, 18) };
+            var fresh = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, Control>>();
+            var count = Math.Max(1, document.Paragraphs.Count);
+            for (var from = 0; from < count; from += Ui.MirrorChunk)
             {
-                Background = Chrome.PaperBg,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(6),
-                Child = new ScrollViewer { Content = flow,
-                    [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Disabled,
-                    Focusable = false
+                var to = Math.Min(count, from + Ui.MirrorChunk);
+                var key = Ui.MirrorKey(document, from, to);
+                Control block = null;
+                foreach (var old in _mirrorBlocks)
+                {
+                    if (old.Key != key) continue;
+                    var taken = false;
+                    foreach (var f in fresh) if (ReferenceEquals(f.Value, old.Value)) { taken = true; break; }
+                    if (!taken) { block = old.Value; break; }
                 }
-            };
+                if (block == null) block = Ui.MirrorBlock(document, from, to, 12.5, Chrome.PaperInk);
+                fresh.Add(new System.Collections.Generic.KeyValuePair<string, Control>(key, block));
+            }
+            var same = fresh.Count == _mirrorStack.Children.Count;
+            for (var i = 0; same && i < fresh.Count; i++) same = ReferenceEquals(_mirrorStack.Children[i], fresh[i].Value);
+            if (!same)
+            {
+                _mirrorStack.Children.Clear();
+                foreach (var pair in fresh) _mirrorStack.Children.Add(pair.Value);
+            }
+            _mirrorBlocks.Clear();
+            _mirrorBlocks.AddRange(fresh);
+            return _mirrorStack;
         }
     }
 }

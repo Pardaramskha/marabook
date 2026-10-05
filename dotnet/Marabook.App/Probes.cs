@@ -162,9 +162,10 @@ namespace Marabook.App
                 // — Le miroir épinglé (hotfix 1.0.3-a) : un bloc sélectionnable,
                 // copiable au clic droit, les runs gras et italique gardés.
                 {
-                    var mirror = Ui.PlainDocument(document, 12.5, Chrome.Ink) as SelectableTextBlock;
+                    var mirrorStack = Ui.PlainDocument(document, 12.5, Chrome.Ink) as StackPanel;
+                    var mirror = mirrorStack == null || mirrorStack.Children.Count == 0 ? null : mirrorStack.Children[0] as SelectableTextBlock;
                     Check(mirror != null && mirror.Inlines != null && mirror.Inlines.Count > 0 && mirror.ContextMenu != null,
-                        "le miroir épinglé est un bloc sélectionnable avec son menu Copier (" + (mirror == null ? "-" : mirror.Inlines.Count.ToString()) + " inlines)");
+                        "le miroir épinglé est fait de blocs sélectionnables avec leur menu Copier (" + (mirror == null ? "-" : mirror.Inlines.Count.ToString()) + " inlines)");
                 }
 
                 // — Glisser-déposer de la sélection (1.0.3) : les cinq premiers
@@ -539,6 +540,13 @@ namespace Marabook.App
                         var lockedOnRoot = shell.RightColumnWidth;
                         Check(openOnText > 100 && lockedOnRoot > 100 && AppSettings.RightPanel == RightPanel.Inspector,
                             "rail verrouillé : la colonne reste ouverte sur une racine et le Général reste choisi (" + openOnText.ToString("0") + " → " + lockedOnRoot.ToString("0") + " px)");
+                        // Épingler sous verrou, colonne repliée : l'épingle se pose, la colonne reste repliée.
+                        shell.SetRightPanelPublic(RightPanel.None);
+                        await Task.Delay(500); await Settle();
+                        shell.PinByTitle(chapterForLock.Title);
+                        await Task.Delay(400); await Settle();
+                        Check(shell.RightColumnWidth < 1 && AppSettings.RightPanel == RightPanel.None,
+                            "rail verrouillé : épingler un écrit n'ouvre pas la colonne repliée (" + shell.RightColumnWidth.ToString("0") + " px)");
                         AppSettings.RailLocked = false;
                         shell.Binder.SelectItem(chapterForLock.Id, true);
                         await Task.Delay(400); await Settle();

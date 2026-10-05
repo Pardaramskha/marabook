@@ -77,6 +77,8 @@ namespace Marabook.App
                     if (_welcome != null) _welcome.Close();
                     LoadProject(SampleProject(), null);
                     if (_launch.Demo && !_launch.Probe) { await Task.Delay(200); if (_launch.OpenTitle != null) OpenByTitle(_launch.OpenTitle); else SelectFirstText(); }
+                    if (_launch.Demo && !_launch.Probe && _launch.SheetText && _sheetView != null) { await Task.Delay(100); _sheetView.ShowTextTabPublic(); }
+                    if (_launch.Demo && !_launch.Probe && _launch.PinTitle != null) { await Task.Delay(100); PinByTitle(_launch.PinTitle); }
                     if (_launch.Demo && !_launch.Probe && _launch.SelectTitle != null) { await Task.Delay(300); SelectTileByTitle(_launch.SelectTitle, _launch.Tint, _launch.TintAfter); }
                 }
                 if (_launch.Probe) { await Probes.Run(this); QuitNow(); return; }
@@ -217,6 +219,14 @@ namespace Marabook.App
                 RefreshOpenCorkboards();
                 if (_sheetLibrary.IsVisible) _sheetLibrary.Refresh();
             }
+        }
+
+        /// <summary>Capture (hotfix 1.0.3-a) : épingle l'élément de ce titre sur le côté.</summary>
+        public void PinByTitle(string title)
+        {
+            if (_project == null || string.IsNullOrEmpty(title)) return;
+            foreach (var item in _project.AllItems())
+                if (string.Equals(item.Title, title, StringComparison.OrdinalIgnoreCase)) { PinToSide(item); return; }
         }
 
         public void OpenByTitle(string title)

@@ -5732,7 +5732,9 @@ namespace Marabook.App
             _sidePin = item;
             _project.SidePinId = item.Id;
             _pinnedPanel.Show(item);
-            SetRightPanel(RightPanel.Pinned);
+            // Rail verrouillé et colonne repliée (hotfix 1.0.3-a) : l'épingle
+            // se pose, l'onglet s'allume, la colonne ne s'ouvre pas toute seule.
+            if (!(AppSettings.RailLocked && AppSettings.RightPanel == RightPanel.None)) SetRightPanel(RightPanel.Pinned);
             UpdateRail();
         }
 
