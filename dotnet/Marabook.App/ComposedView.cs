@@ -244,6 +244,9 @@ namespace Marabook.App
             // À gauche, pas étiré (17/09) : les slots gardent la largeur du
             // papier même quand la couche des bulles élargit la colonne.
             _pages = new StackPanel { HorizontalAlignment = HorizontalAlignment.Left };
+            // La géométrie suit la disposition des pages (hotfix 1.0.3-a) :
+            // quand elles bougent, le caret et la sélection sont reposés.
+            _pages.LayoutUpdated += delegate { PagesLaidOut(); };
             // Les pages hors écran ne se dessinent pas (22/09) : celles qui
             // entrent dans la fenêtre au défilement se redessinent alors.
             ScrollChanged += delegate { RefreshStalePages(); };
@@ -642,9 +645,98 @@ namespace Marabook.App
             get { return _engine == null ? null : _engine.Current; }
         }
 
+        /// <summary>Le haut d'une page dans la colonne — celui de la page
+        /// DISPOSÉE (hotfix 1.0.3-a). La hauteur d'une page A4 n'est pas
+        /// entière (297 mm = 1 122,52 px) et l'arrondi de disposition
+        /// d'Avalonia pose chaque page au pixel (1 123 px à 100 %) : la formule
+        /// « index × (hauteur + écart) » dérivait d'un demi-pixel par page, et
+        /// vers la centième page le caret et la sélection étaient deux lignes
+        /// au-dessus du texte. Une page pas encore posée (elle vient de naître)
+        /// prolonge la dernière page disposée du pas observé.</summary>
         private double PageTop(int pageIndex)
         {
-            return pageIndex * (_engine.Current.PageHeightPx + PageGapPx);
+            var laidOut = LaidOutPageTop(pageIndex);
+            if (laidOut >= 0) return laidOut;
+            var stride = _engine.Current.PageHeightPx + PageGapPx;
+            var j = Math.Min(pageIndex, _pages.Children.Count) - 1;
+            while (j >= 0 && LaidOutPageTop(j) < 0) j--;
+            if (j < 0) return pageIndex * stride;
+            var step = j >= 1 ? LaidOutPageTop(j) - LaidOutPageTop(j - 1) : stride;
+            return LaidOutPageTop(j) + (pageIndex - j) * step;
+        }
+
+        /// <summary>La page sous une ordonnée de la colonne, d'après les pages
+        /// disposées (hotfix 1.0.3-a) ; l'écart sous une page lui revient,
+        /// comme avant.</summary>
+        private int PageIndexAt(double y)
+        {
+            var last = _engine.Current.Pages.Count - 1;
+            var index = 0;
+            for (var k = 1; k <= last; k++)
+            {
+                if (y >= PageTop(k)) index = k;
+                else break;
+            }
+            return index;
+        }
+
+        private double _laidOutLastTop = -1;
+
+        /// <summary>Les pages viennent d'être disposées (hotfix 1.0.3-a) : si
+        /// la dernière a bougé (page ajoutée ou retirée, format changé), le
+        /// caret et la sélection — dessinés d'après la disposition — sont
+        /// reposés.</summary>
+        private void PagesLaidOut()
+        {
+            var count = _pages.Children.Count;
+            var lastTop = count == 0 ? -1 : LaidOutPageTop(count - 1);
+            if (lastTop == _laidOutLastTop) return;
+            _laidOutLastTop = lastTop;
+            if (_engine != null && _item != null) UpdateCaretVisual();
+        }
+
+        /// <summary>Le haut DISPOSÉ d'une page : là où Avalonia l'a posée dans la
+        /// colonne (hotfix 1.0.3-a), -1 tant qu'elle n'est pas disposée.</summary>
+        private double LaidOutPageTop(int pageIndex)
+        {
+            if (pageIndex < 0 || pageIndex >= _pages.Children.Count) return -1;
+            var slot = (Control)_pages.Children[pageIndex];
+            return slot.Bounds.Height > 0 ? slot.Bounds.Y : -1;
+        }
+
+        /// <summary>Sonde (hotfix 1.0.3-a) : l'écart, en px, entre le haut du
+        /// caret dessiné et le haut DISPOSÉ de sa ligne (la page telle
+        /// qu'Avalonia l'a posée + l'ordonnée de la ligne dans la page). Zéro
+        /// quand la géométrie suit la disposition ; -1 sans caret visible.</summary>
+        internal double CaretDriftPx()
+        {
+            if (_engine == null || _item == null) return -1;
+            int pageIndex; double lineY;
+            var line = LineOf(_caretParagraph, _caretOffset, out pageIndex, out lineY);
+            var top = LaidOutPageTop(pageIndex);
+            if (line == null || top < 0) return -1;
+            return Math.Abs(Canvas.GetTop(_caretBar) - 1 - (top + lineY));
+        }
+
+        /// <summary>Sonde (hotfix 1.0.3-a) : le même écart pour le rectangle de
+        /// sélection de la ligne du caret — le plus proche des rectangles de
+        /// l'overlay ; -1 sans sélection dessinée.</summary>
+        internal double SelectionDriftPx()
+        {
+            if (_engine == null || _item == null || !HasSelection()) return -1;
+            int pageIndex; double lineY;
+            var line = LineOf(_caretParagraph, _caretOffset, out pageIndex, out lineY);
+            var top = LaidOutPageTop(pageIndex);
+            if (line == null || top < 0) return -1;
+            var expected = top + lineY;
+            var best = -1.0;
+            foreach (var child in _overlay.Children)
+            {
+                if (ReferenceEquals(child, _caretBar) || ReferenceEquals(child, _dropCaret) || !(child is Rectangle)) continue;
+                var gap = Math.Abs(Canvas.GetTop(child) - expected);
+                if (best < 0 || gap < best) best = gap;
+            }
+            return best;
         }
 
         // ============================================================ rendu paresseux (22/09)
@@ -1116,10 +1208,8 @@ namespace Marabook.App
             var composition = _engine == null ? null : _engine.Current;
             if (composition == null || composition.Pages.Count == 0) return false;
             var point = e.GetPosition(_pages);
-            var stride = composition.PageHeightPx + PageGapPx;
-            var pageIndex = Math.Max(0, Math.Min(composition.Pages.Count - 1,
-                (int)(point.Y / stride)));
-            var yInPage = point.Y - pageIndex * stride;
+            var pageIndex = PageIndexAt(point.Y);
+            var yInPage = point.Y - PageTop(pageIndex);
             var xInPage = point.X;
             var left = composition.LeftPxFor(pageIndex);
             foreach (var mark in composition.Pages[pageIndex].WidowMarks)
@@ -1171,18 +1261,40 @@ namespace Marabook.App
             // Clic droit sur une image (0.50.0) : son menu — alignements,
             // habillage, placement, annoter, enregistrer, supprimer.
             if (ImageContextMenu(e)) { e.Handled = true; return; }
-            if (ReadOnly) { e.Handled = true; return; }
             if (_project == null) return;
-            int paragraph, offset;
-            if (!HitTestPosition(e, out paragraph, out offset)) return;
-            var word = WordAt(paragraph, offset);
-            var findings = FindingsAt(paragraph, offset);
-            if ((word == null || word.Length < 2) && findings.Count == 0) return;
-
             var menu = new ContextMenu
             {
                 Placement = PlacementMode.Pointer
             };
+            // — Couper, copier, copier sans mise en forme, coller (hotfix
+            // 1.0.3-a) : toujours là, grisés quand ils n'ont pas d'objet ; en
+            // lecture seule, seule la copie reste.
+            var hasSelection = HasSelection() && !NoteEditing;
+            var cut = new MenuItem { Header = "Couper", InputGesture = new KeyGesture(Key.X, KeyModifiers.Control), IsEnabled = hasSelection && !ReadOnly };
+            cut.Click += delegate { Cut(true); };
+            var copy = new MenuItem { Header = "Copier", InputGesture = new KeyGesture(Key.C, KeyModifiers.Control), IsEnabled = hasSelection };
+            copy.Click += delegate { Copy(true); };
+            var copyPlain = new MenuItem { Header = "Copier sans mise en forme", InputGesture = new KeyGesture(Key.C, KeyModifiers.Control | KeyModifiers.Alt), IsEnabled = hasSelection };
+            copyPlain.Click += delegate { Copy(false); };
+            var paste = new MenuItem { Header = "Coller", InputGesture = new KeyGesture(Key.V, KeyModifiers.Control), IsEnabled = !ReadOnly };
+            paste.Click += delegate { Paste(); };
+            menu.Items.Add(cut);
+            menu.Items.Add(copy);
+            menu.Items.Add(copyPlain);
+            menu.Items.Add(paste);
+            if (ReadOnly)
+            {
+                e.Handled = true;
+                Ui.ShowMenu(menu, this);
+                return;
+            }
+            int paragraph, offset;
+            if (!HitTestPosition(e, out paragraph, out offset)) { Ui.ShowMenu(menu, this); return; }
+            var word = WordAt(paragraph, offset);
+            var findings = FindingsAt(paragraph, offset);
+            if ((word == null || word.Length < 2) && findings.Count == 0) { Ui.ShowMenu(menu, this); return; }
+            menu.Items.Add(new Separator());
+            var editItems = menu.Items.Count;
 
             // — Les signalements de correction sous le pointeur, en tête.
             foreach (var finding in findings)
@@ -1402,12 +1514,12 @@ namespace Marabook.App
                 toggle.Click += delegate { ToggleHyphenException(wordRef); };
                 menu.Items.Add(toggle);
             }
-            else if (menu.Items.Count > 0)
+            else if (menu.Items.Count > editItems)
             {
                 // Pas de mot sous le clic : retirer le séparateur de queue.
                 menu.Items.RemoveAt(menu.Items.Count - 1);
             }
-            if (menu.Items.Count == 0) return;
+            if (menu.Items.Count == editItems) menu.Items.RemoveAt(editItems - 1); // pas de séparateur orphelin
             Ui.ShowMenu(menu, this);
             e.Handled = true;
         }
@@ -1538,10 +1650,8 @@ namespace Marabook.App
             offset = 0;
             if (_engine == null || _engine.Current.Pages.Count == 0) return false;
             var composition = _engine.Current;
-            var stride = composition.PageHeightPx + PageGapPx;
-            var pageIndex = Math.Max(0, Math.Min(composition.Pages.Count - 1,
-                (int)(point.Y / stride)));
-            var yInPage = point.Y - pageIndex * stride;
+            var pageIndex = PageIndexAt(point.Y);
+            var yInPage = point.Y - PageTop(pageIndex);
 
             var page = composition.Pages[pageIndex];
             if (page.Lines.Count == 0)
@@ -2400,11 +2510,14 @@ namespace Marabook.App
             if (!HasSelection() || _item == null) return;
             int pa, oa, pb, ob;
             OrderedSelection(out pa, out oa, out pb, out ob);
-            var fragment = TextFragment.Extract(_item.Document, pa, oa, pb, ob);
+            // Le PAQUET (hotfix 1.0.3-a) : le texte mis en forme, mais aussi les
+            // notes, les annotations et les octets des images sélectionnées.
+            var package = TextFragment.Pack(_item.Document, _project, pa, oa, pb, ob);
+            var fragment = package.Document;
             var text = fragment.ToPlainText().Replace("\n", Environment.NewLine);
             if (withFormat)
             {
-                var json = PlotFile.SerializeDocument(fragment);
+                var json = PlotFile.SerializeFragment(package);
                 // La copie de secours EN MÉMOIRE (01/10) : le format maison ne
                 // revient pas du presse-papiers de macOS (la sonde CI l'a montré)
                 // — Coller relit ce fragment quand le texte du presse-papiers
@@ -2447,32 +2560,33 @@ namespace Marabook.App
             }
             if (json != null)
             {
-                TextDocument fragment = null;
-                try { fragment = PlotFile.DeserializeDocument(json); } catch { fragment = null; }
-                if (fragment != null && fragment.Paragraphs.Count > 0) { PasteFragment(fragment); return; }
+                TextFragment.Package package = null;
+                try { package = PlotFile.DeserializeFragment(json); } catch { package = null; }
+                if (package != null && package.Document.Paragraphs.Count > 0) { PasteFragment(package); return; }
             }
             var text = await ClipboardText();
             if (string.IsNullOrEmpty(text)) return;
             PushUndo(false);
             DeleteSelectionIfAny();
             var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            var start = _caretParagraph;
             PivotEdit.InsertText(_item.Document.Paragraphs[_caretParagraph], _caretOffset, lines[0]);
             _caretOffset += lines[0].Length;
-            var first = _engine.RecomposeParagraph(_caretParagraph);
             for (var i = 1; i < lines.Length; i++)
             {
                 var tail = PivotEdit.Split(_item.Document.Paragraphs[_caretParagraph], _caretOffset);
                 _item.Document.Paragraphs.Insert(_caretParagraph + 1, tail);
                 _caretParagraph++;
                 _caretOffset = 0;
-                _engine.ParagraphInserted(_caretParagraph);
                 if (lines[i].Length > 0)
                 {
                     PivotEdit.InsertText(_item.Document.Paragraphs[_caretParagraph], 0, lines[i]);
                     _caretOffset = lines[i].Length;
-                    _engine.RecomposeParagraph(_caretParagraph);
                 }
             }
+            // Le compositeur apprend le bloc d'un coup (hotfix 1.0.3-a) : une
+            // seule repagination au lieu d'une par ligne collée.
+            var first = _engine.ParagraphsInserted(start + 1, lines.Length - 1);
             AfterEdit(Math.Min(first, 0));
         }
 
@@ -2599,7 +2713,7 @@ namespace Marabook.App
             if (insideOrAtEdge) return false;
 
             PushUndo(false);
-            var fragment = TextFragment.Extract(document, pa, oa, pb, ob, false);
+            var package = TextFragment.Pack(document, _project, pa, oa, pb, ob); // notes, annotations, images compris
             // La cible se corrige de la suppression qui la précède : même
             // paragraphe que la fin, après elle → recule de la longueur ôtée
             // (la fin rejoint pa:oa) ; paragraphe au-delà → remonte des
@@ -2609,10 +2723,8 @@ namespace Marabook.App
             DeleteSelectionIfAny();
             var startParagraph = paragraph;
             var startOffset = offset;
-            var added = TextFragment.Insert(document, fragment, ref paragraph, ref offset);
-            var first = _engine.RecomposeParagraph(startParagraph);
-            for (var i = 1; i <= added; i++)
-                first = Math.Min(first, _engine.ParagraphInserted(startParagraph + i));
+            var added = TextFragment.Insert(document, package, _project, ref paragraph, ref offset);
+            var first = _engine.ParagraphsInserted(startParagraph + 1, added); // le bloc d'un coup (hotfix 1.0.3-a)
             _anchorParagraph = startParagraph;
             _anchorOffset = startOffset;
             _caretParagraph = paragraph;
@@ -2623,17 +2735,19 @@ namespace Marabook.App
             return true;
         }
 
-        private void PasteFragment(TextDocument fragment)
+        private void PasteFragment(TextFragment.Package package)
         {
             PushUndo(false);
             DeleteSelectionIfAny();
             var start = _caretParagraph;
             var paragraph = _caretParagraph;
             var offset = _caretOffset;
-            var added = TextFragment.Insert(_item.Document, fragment, ref paragraph, ref offset);
-            var first = _engine.RecomposeParagraph(start);
-            for (var i = 1; i <= added; i++)
-                first = Math.Min(first, _engine.ParagraphInserted(start + i));
+            // Notes, annotations et images adoptées avec le texte (hotfix 1.0.3-a).
+            var added = TextFragment.Insert(_item.Document, package, _project, ref paragraph, ref offset);
+            // Le bloc d'un coup (hotfix 1.0.3-a) : RecomposeParagraph(start)
+            // avant d'apprendre les ajoutés levait « Index was out of range »
+            // dès qu'un fragment avait plusieurs paragraphes.
+            var first = _engine.ParagraphsInserted(start + 1, added);
             _caretParagraph = paragraph;
             _caretOffset = offset;
             AfterEdit(Math.Min(first, 0));
@@ -3196,6 +3310,17 @@ namespace Marabook.App
         /// <summary>Sélectionne une plage plate et l'amène à l'écran (même
         /// mécanique que GoToAnnotation) — signalements ET résultats de
         /// recherche passent par là.</summary>
+        /// <summary>La sélection ordonnée (début puis fin), faux sans
+        /// sélection — la barre de recherche s'en sert pour « occurrence
+        /// précédente » (hotfix 1.0.3-a).</summary>
+        public bool SelectionBounds(out int pa, out int oa, out int pb, out int ob)
+        {
+            pa = oa = pb = ob = 0;
+            if (!HasSelection()) return false;
+            OrderedSelection(out pa, out oa, out pb, out ob);
+            return true;
+        }
+
         public void SelectRange(int paragraphIndex, int start, int end)
         {
             if (_item == null
@@ -3250,11 +3375,10 @@ namespace Marabook.App
                     cursor += length;
                 }
                 if (start < 0) continue;
-                var stride = composition.PageHeightPx + PageGapPx;
                 // Une image annotée (0.50.0) : la bulle à la hauteur de l'image.
                 int imagePage;
                 var placedImage = FindPlacedImage(RunAtFlat(_item.Document.Paragraphs[p], start), out imagePage);
-                if (placedImage != null) return imagePage * stride + placedImage.Rect.Y;
+                if (placedImage != null) return PageTop(imagePage) + placedImage.Rect.Y;
                 double firstOfParagraph = -1;
                 for (var pageIndex = 0; pageIndex < composition.Pages.Count; pageIndex++)
                     foreach (var placed in composition.Pages[pageIndex].Lines)
@@ -3262,9 +3386,9 @@ namespace Marabook.App
                         if (placed.ParagraphIndex != p) continue;
                         var line = placed.Line;
                         if (firstOfParagraph < 0)
-                            firstOfParagraph = pageIndex * stride + placed.Y;
+                            firstOfParagraph = PageTop(pageIndex) + placed.Y;
                         if (start >= line.Start && start < Math.Max(line.Start + 1, line.End))
-                            return pageIndex * stride + placed.Y;
+                            return PageTop(pageIndex) + placed.Y;
                     }
                 return firstOfParagraph; // repli : la première ligne du paragraphe
             }

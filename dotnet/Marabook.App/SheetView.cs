@@ -268,6 +268,7 @@ namespace Marabook.App
             // — Texte libre : l'éditeur markdown.
             _bodyBox = new TextBox
             {
+                Classes = { "paper" }, // une feuille, pas un champ (hotfix 1.0.3-a) : voir Theme
                 AcceptsReturn = true,
                 AcceptsTab = true,
                 TextWrapping = TextWrapping.Wrap,
@@ -333,8 +334,20 @@ namespace Marabook.App
             DockPanel.SetDock(modes, Dock.Right);
             toolRow.Children.Add(modes);
             toolRow.Children.Add(toolbar);
-            DockPanel.SetDock(toolRow, Dock.Top);
-            editorStack.Children.Add(toolRow);
+            // La barre est une BARRE de l'interface (hotfix 1.0.3-a), pas un
+            // bout de papier : fond de barre et filet, coins hauts arrondis avec
+            // le cadre — posée sur du papier blanc en sombre, ses icônes claires
+            // disparaissaient et ses bascules faisaient tache.
+            var toolHost = new Border
+            {
+                Background = Chrome.BarBgLight,
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                CornerRadius = new CornerRadius(8, 8, 0, 0),
+                Child = toolRow
+            };
+            DockPanel.SetDock(toolHost, Dock.Top);
+            editorStack.Children.Add(toolHost);
             DockPanel.SetDock(_findBar, Dock.Top);
             editorStack.Children.Add(_findBar);
             _mirror = new ScrollViewer
@@ -423,6 +436,8 @@ namespace Marabook.App
 
         /// <summary>Montre l'onglet « Texte libre » (une action d'édition du
         /// markdown y ramène toujours : barre, Ctrl+F, insertions).</summary>
+        internal void ShowTextTabPublic() { ShowTextTab(); } // capture (hotfix 1.0.3-a)
+
         private void ShowTextTab()
         {
             if (_tabs.SelectedIndex != 1) _tabs.SelectedIndex = 1;
@@ -1560,19 +1575,70 @@ namespace Marabook.App
 
         private void OnBodyKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None && ContinueList()) { e.Handled = true; return; }
             if (!Ui.HasCommand(e.KeyModifiers)) return;
             if (e.Key == Key.B) { Wrap("**", "**"); e.Handled = true; }
             else if (e.Key == Key.I) { Wrap("*", "*"); e.Handled = true; }
             else if (e.Key == Key.U) { Wrap("<u>", "</u>"); e.Handled = true; }
         }
 
+        /// <summary>La sélection ORDONNÉE du corps (hotfix 1.0.3-a) : tirée de
+        /// la fin vers le début, SelectionStart (l'ancre) dépasse SelectionEnd
+        /// et la longueur « fin − début » était négative — Ctrl+B croyait la
+        /// sélection vide et remplaçait le passage par les seules marques.</summary>
+        private void OrderedSelection(out int start, out int length)
+        {
+            var a = _bodyBox.SelectionStart;
+            var b = _bodyBox.SelectionEnd;
+            start = Math.Min(a, b);
+            length = Math.Abs(b - a);
+        }
+
+        /// <summary>Entrée dans une liste (hotfix 1.0.3-a) : la ligne suivante
+        /// reçoit la même puce (ou le numéro suivant, ou une case vide) ;
+        /// Entrée sur une puce encore vide la retire et ramène au début de
+        /// la ligne. Faux hors d'une liste : le TextBox fait l'Entrée.</summary>
+        internal bool ContinueList()
+        {
+            if (_item == null) return false;
+            int start, length;
+            OrderedSelection(out start, out length);
+            if (length > 0) return false;
+            var text = _bodyBox.Text ?? "";
+            var lineStart = LineStart(text, start);
+            var lineEnd = LineEnd(text, start);
+            if (start != lineEnd) return false; // au milieu de la ligne : une Entrée ordinaire
+            var line = text.Substring(lineStart, lineEnd - lineStart);
+            var m = Regex.Match(line, @"^(\s*)([-*+]|\d+[.)])(\s+)(\[[ xX]\]\s+)?(.*)$");
+            if (!m.Success) return false;
+            var indent = m.Groups[1].Value;
+            var marker = m.Groups[2].Value;
+            var task = m.Groups[4].Success;
+            var rest = m.Groups[5].Value;
+            if (rest.Trim().Length == 0)
+            {
+                // Puce vide : on la retire, la ligne redevient nue.
+                Ui.Select(_bodyBox, lineStart, lineEnd - lineStart);
+                _bodyBox.SelectedText = indent;
+                Ui.Select(_bodyBox, lineStart + indent.Length, 0);
+                return true;
+            }
+            var next = marker;
+            var number = Regex.Match(marker, @"^(\d+)([.)])$");
+            if (number.Success) next = (int.Parse(number.Groups[1].Value) + 1) + number.Groups[2].Value;
+            var inserted = "\n" + indent + next + " " + (task ? "[ ] " : "");
+            _bodyBox.SelectedText = inserted;
+            Ui.Select(_bodyBox, start + inserted.Length, 0);
+            return true;
+        }
+
         /// <summary>Entoure la sélection de marqueurs — ou les retire s'ils
         /// sont déjà là, dedans ou juste autour (port de MWG).</summary>
-        private void Wrap(string before, string after)
+        internal void Wrap(string before, string after)
         {
             LeavePreview();
-            var start = _bodyBox.SelectionStart;
-            var length = (_bodyBox.SelectionEnd - _bodyBox.SelectionStart);
+            int start, length;
+            OrderedSelection(out start, out length);
             var text = _bodyBox.Text;
             if (length > 0)
             {
@@ -1608,8 +1674,8 @@ namespace Marabook.App
         private int[] LineBlock()
         {
             var text = _bodyBox.Text;
-            var start = _bodyBox.SelectionStart;
-            var length = (_bodyBox.SelectionEnd - _bodyBox.SelectionStart);
+            int start, length;
+            OrderedSelection(out start, out length);
             var blockStart = LineStart(text, start);
             var end = start + length;
             if (length > 0 && end > blockStart && LineStart(text, end) == end) end--;
@@ -1635,7 +1701,8 @@ namespace Marabook.App
             LeavePreview();
             var block = LineBlock();
             var text = _bodyBox.Text;
-            var length = (_bodyBox.SelectionEnd - _bodyBox.SelectionStart);
+            int selStart, length;
+            OrderedSelection(out selStart, out length);
             var lines = text.Substring(block[0], block[1] - block[0]).Split('\n');
             for (var i = 0; i < lines.Length; i++) lines[i] = transform(lines[i].TrimEnd('\r'));
             var replaced = string.Join("\n", lines);
@@ -1705,7 +1772,8 @@ namespace Marabook.App
         private void InsertLink()
         {
             LeavePreview();
-            var start = _bodyBox.SelectionStart;
+            int start, length;
+            OrderedSelection(out start, out length);
             var selected = _bodyBox.SelectedText;
             if (selected.Length > 0)
             {
@@ -1729,6 +1797,7 @@ namespace Marabook.App
         // ================================================== API de la coquille
 
         public bool HasItem { get { return _item != null; } }
+        internal TextBox BodyBox { get { return _bodyBox; } } // sonde (hotfix 1.0.3-a)
         public bool ShowsItem(BinderItem item) { return _item == item; }
         public void SetStyleSheet(StyleSheet styles) { _styles = styles; }
         public void SetProject(Model.Project project) { _project = project; }

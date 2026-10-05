@@ -161,6 +161,10 @@ namespace Marabook.Settings
         // correctionPanel, searchPanel, versionsPanel sont migrées à la
         // lecture et ne sont plus écrites.
         public static RightPanel RightPanel = RightPanel.Inspector;
+        // Le rail VERROUILLÉ (hotfix 1.0.3-a) : la colonne de droite ne
+        // s'ouvre ni ne se replie plus d'elle-même (fiche cliquée, panneau
+        // indisponible à la navigation) — ouvert ou fermé, c'est à la main.
+        public static bool RailLocked;
         public static double BinderWidth = 260;
         public static double InspectorWidth = 260; // = BinderWidth à l'ouverture (b43)
         public static double PinnedWidth = 325;    // l'épinglé au rail : 1,25 × la Pile par défaut (14/09)
@@ -462,6 +466,7 @@ namespace Marabook.Settings
                 }
                 DarkTheme = Json.AsBool(Json.Field(root, "darkTheme"), false);
                 BinderVisible = Json.AsBool(Json.Field(root, "binderVisible"), true);
+                RailLocked = Json.AsBool(Json.Field(root, "railLocked"), false);
                 var rightPanel = Json.AsString(Json.Field(root, "rightPanel"));
                 RightPanel = rightPanel != null
                     ? RightPanels.Parse(rightPanel)
@@ -616,6 +621,7 @@ namespace Marabook.Settings
                 root["shortcuts"] = new Dictionary<string, object>(ToObjectDict(Shortcuts));
                 root["darkTheme"] = DarkTheme;
                 root["binderVisible"] = BinderVisible;
+                root["railLocked"] = RailLocked;
                 root["rightPanel"] = RightPanels.Name(RightPanel);
                 root["binderWidth"] = BinderWidth;
                 root["inspectorWidth"] = InspectorWidth;

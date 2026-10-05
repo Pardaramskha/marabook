@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Marabook.Model;
 using Avalonia.Media;
 using Avalonia.Animation.Easings;
@@ -300,23 +301,86 @@ namespace Marabook.App
 
         /// <summary>Un document du pivot en colonne de lecture nue : un
         /// TextBlock par paragraphe (le FlowDocument du panneau épinglé).</summary>
+        /// <summary>Le miroir d'un écrit (hotfix 1.0.3-a) : des BLOCS
+        /// sélectionnables de MirrorChunk paragraphes — on peut tirer une
+        /// sélection d'un paragraphe à l'autre et la copier (Ctrl+C, clic
+        /// droit › Copier), le miroir reste en lecture seule. Un seul bloc
+        /// pour tout l'écrit se recomposait en entier à chaque pause de frappe
+        /// (l'application ralentissait) : PinnedPanel ne rebâtit que les blocs
+        /// dont le texte a changé (MirrorKey).</summary>
+        public const int MirrorChunk = 24;
+
+        /// <summary>L'empreinte d'une tranche de paragraphes : texte, gras et
+        /// italique — ce que le bloc montre.</summary>
+        public static string MirrorKey(TextDocument document, int from, int to)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (var i = from; i < to && i < document.Paragraphs.Count; i++)
+            {
+                foreach (var run in document.Paragraphs[i].Runs)
+                {
+                    if (run.IsLineBreak) { sb.Append('\u0003'); continue; }
+                    if (PivotEdit.IsElement(run)) continue;
+                    if (run.Bold == true) sb.Append('\u0001');
+                    if (run.Italic == true) sb.Append('\u0002');
+                    sb.Append(run.Text);
+                }
+                sb.Append('\n');
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Un bloc du miroir : les paragraphes [from, to), séparés par
+        /// un demi-interligne (une ligne de zéro-largeur à demi-corps), le gras
+        /// et l'italique des runs gardés ; surlignage d'accent translucide,
+        /// l'encre inchangée (lisible en clair comme en sombre).</summary>
+        public static SelectableTextBlock MirrorBlock(TextDocument document, int from, int to, double fontSize, IBrush ink)
+        {
+            var block = new SelectableTextBlock
+            {
+                FontSize = fontSize,
+                Foreground = ink,
+                TextWrapping = TextWrapping.Wrap,
+                SelectionBrush = new SolidColorBrush(Chrome.Accent.Color) { Opacity = 0.45 },
+                SelectionForegroundBrush = ink,
+                Cursor = new Cursor(StandardCursorType.Ibeam),
+                Margin = new Thickness(0, 0, 0, fontSize * 0.55)
+            };
+            var first = true;
+            for (var i = from; i < to && i < document.Paragraphs.Count; i++)
+            {
+                var paragraph = document.Paragraphs[i];
+                if (!first)
+                {
+                    block.Inlines.Add(new LineBreak());
+                    block.Inlines.Add(new Run("\u200B") { FontSize = fontSize * 0.55 });
+                    block.Inlines.Add(new LineBreak());
+                }
+                first = false;
+                foreach (var run in paragraph.Runs)
+                {
+                    if (run.IsLineBreak) { block.Inlines.Add(new LineBreak()); continue; }
+                    if (PivotEdit.IsElement(run) || string.IsNullOrEmpty(run.Text)) continue;
+                    var inline = new Run(run.Text);
+                    if (run.Bold == true) inline.FontWeight = FontWeight.Bold;
+                    if (run.Italic == true) inline.FontStyle = FontStyle.Italic;
+                    block.Inlines.Add(inline);
+                }
+            }
+            var copy = new MenuItem { Header = "Copier", InputGesture = new KeyGesture(Key.C, KeyModifiers.Control) };
+            copy.Click += delegate { block.Copy(); };
+            block.ContextMenu = new ContextMenu { Items = { copy } };
+            return block;
+        }
+
+        /// <summary>Tout l'écrit en blocs, sans cache (sonde, usages ponctuels).</summary>
         public static Control PlainDocument(TextDocument document, double fontSize, IBrush ink)
         {
-            var stack = new StackPanel { Margin = new Thickness(14, 12, 14, 16) };
+            var stack = new StackPanel { Margin = new Thickness(18, 14, 18, 18) };
             if (document == null) return stack;
-            foreach (var paragraph in document.Paragraphs)
-            {
-                stack.Children.Add(new TextBlock
-                {
-                    Text = paragraph.ToPlainText(),
-                    FontSize = fontSize,
-                    Foreground = ink,
-                    TextWrapping = TextWrapping.Wrap,
-                    TextAlignment = paragraph.AlignOverride == "center" ? TextAlignment.Center
-                        : paragraph.AlignOverride == "right" ? TextAlignment.Right : TextAlignment.Left,
-                    Margin = new Thickness(0, 0, 0, 8)
-                });
-            }
+            var count = Math.Max(1, document.Paragraphs.Count);
+            for (var from = 0; from < count; from += MirrorChunk)
+                stack.Children.Add(MirrorBlock(document, from, Math.Min(count, from + MirrorChunk), fontSize, ink));
             return stack;
         }
 

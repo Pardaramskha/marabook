@@ -307,6 +307,23 @@ namespace Marabook.App
                 });
         }
 
+        /// <summary>Rebâtit UNE colonne en place (hotfix 1.0.3-a) : une brique
+        /// ajoutée, modifiée, déplacée ou retirée ne touche que la sienne.</summary>
+        private void RebuildColumn(PlanColumn column)
+        {
+            if (_item == null) { Rebuild(); return; }
+            var index = _item.Plan.Columns.IndexOf(column);
+            if (index < 0 || index >= _columns.Children.Count || !(_columns.Children[index] is Border)) { Rebuild(); return; }
+            foreach (var entry in column.Entries) _bricks.Remove(entry.Id);
+            _columns.Children[index] = BuildColumn(column, index);
+            if (_chartToggle.IsChecked == true) _chart.Show(_item);
+        }
+
+        internal void ProbeAddColumn() { AddColumn(); }
+        internal void ProbeShowChart(bool on) { _chartToggle.IsChecked = on; }
+        internal PlanChart Chart { get { return _chart; } }
+        internal int ColumnControls { get { return _columns.Children.Count; } }
+
         private Control BuildColumn(PlanColumn column, int index)
         {
             var body = new StackPanel();
@@ -352,13 +369,30 @@ namespace Marabook.App
             DockPanel.SetDock(open, Dock.Right);
             linkRow.Children.Add(open);
             var textCombo = new ComboBox { FontSize = 11, [ToolTip.TipProperty] = "L'écrit que cette colonne raconte (facultatif)" };
-            textCombo.Items.Add("— aucun écrit —");
-            foreach (var text in _texts) textCombo.Items.Add(text.Title);
+            // La liste des écrits n'est remplie qu'à l'OUVERTURE du combo
+            // (hotfix 1.0.3-a) : vingt colonnes × tous les écrits du projet,
+            // c'était le gros du temps de construction. Fermé, il ne montre
+            // que son choix.
             var linkedIndex = column.LinkedTextId == null ? -1 : _texts.FindIndex(delegate(BinderItem t) { return t.Id == columnRef.LinkedTextId; });
-            textCombo.SelectedIndex = linkedIndex < 0 ? 0 : linkedIndex + 1;
+            var filled = false;
+            var filling = false;
+            textCombo.Items.Add(linkedIndex < 0 ? "— aucun écrit —" : _texts[linkedIndex].Title);
+            textCombo.SelectedIndex = 0;
+            textCombo.DropDownOpened += delegate
+            {
+                if (filled) return;
+                filled = true;
+                filling = true;
+                var current = columnRef.LinkedTextId == null ? -1 : _texts.FindIndex(delegate(BinderItem t) { return t.Id == columnRef.LinkedTextId; });
+                textCombo.Items.Clear();
+                textCombo.Items.Add("— aucun écrit —");
+                foreach (var text in _texts) textCombo.Items.Add(text.Title);
+                textCombo.SelectedIndex = current < 0 ? 0 : current + 1;
+                filling = false;
+            };
             textCombo.SelectionChanged += delegate
             {
-                if (_loading) return;
+                if (_loading || filling || !filled) return;
                 var i = textCombo.SelectedIndex;
                 columnRef.LinkedTextId = i <= 0 || i - 1 >= _texts.Count ? null : _texts[i - 1].Id;
                 open.IsVisible = columnRef.LinkedTextId != null ? true : false;
@@ -390,7 +424,10 @@ namespace Marabook.App
                 Padding = new Thickness(10),
                 Margin = new Thickness(0, 0, 14, 0),
                 VerticalAlignment = VerticalAlignment.Top,
-                Effect = new DropShadowEffect { BlurRadius = 10, OffsetY = 1, Opacity = 0.12, Color = Colors.Black },
+                // Une ombre de cadre (hotfix 1.0.3-a), pas un effet : l'effet
+                // rendait chaque colonne dans sa propre couche floutée — quinze
+                // colonnes, et le défilement traînait.
+                BoxShadow = new BoxShadows(new BoxShadow { OffsetX = 0, OffsetY = 1, Blur = 10, Color = Color.FromArgb(0x1F, 0, 0, 0) }),
                 Child = body,
                 [DragDrop.AllowDropProperty] = true,
                 Tag = column
@@ -443,7 +480,12 @@ namespace Marabook.App
             if (_item == null) return;
             var column = new PlanColumn { Title = _item.Plan.NextColumnTitle() };
             _item.Plan.Columns.Add(column);
-            Rebuild();
+            // La colonne seule est bâtie et ajoutée (hotfix 1.0.3-a) : rebâtir
+            // tout le plan à chaque ajout coûtait la seconde au-delà de dix
+            // colonnes.
+            if (_item.Plan.Columns.Count == 1) _columns.Children.Clear(); // le mot du plan vide
+            _columns.Children.Add(BuildColumn(column, _item.Plan.Columns.Count - 1));
+            if (_chartToggle.IsChecked == true) _chart.Show(_item);
             NotifyEdited();
             _scroll.Offset = new Vector(_scroll.Extent.Width, _scroll.Offset.Y);
         }
@@ -594,7 +636,7 @@ namespace Marabook.App
             remove.Click += delegate
             {
                 column.Entries.Remove(entry);
-                Rebuild();
+                RebuildColumn(column);
                 NotifyEdited();
             };
             menu.Items.Add(remove);
@@ -606,14 +648,14 @@ namespace Marabook.App
             var entry = new PlanEntry { Kind = kind, Intensity = 1 };
             if (!await PlanEntryDialog.Ask(Ui.OwnerOf(this), entry)) return;
             column.Entries.Add(entry);
-            Rebuild();
+            RebuildColumn(column);
             NotifyEdited();
         }
 
         private async void EditEntry(PlanColumn column, PlanEntry entry)
         {
             if (!await PlanEntryDialog.Ask(Ui.OwnerOf(this), entry)) return;
-            Rebuild();
+            RebuildColumn(column);
             NotifyEdited();
         }
 
@@ -627,7 +669,7 @@ namespace Marabook.App
             if (old < index) index--;
             index = Math.Max(0, Math.Min(column.Entries.Count, index));
             column.Entries.Insert(index, entry);
-            Rebuild();
+            RebuildColumn(column);
             NotifyEdited();
         }
 
@@ -830,21 +872,32 @@ namespace Marabook.App
     /// <summary>Le graphique d'intensité du plan : une VUE du plan (bascule
     /// « Intensité » du bandeau, comme le mode wiki d'une fiche — avant, une
     /// fenêtre à part ; 30/09). L'échelle des cinq niveaux à gauche, fixe ; la
-    /// courbe défile à l'horizontale quand les colonnes sont nombreuses ; les
-    /// titres de colonnes à plat sous leur point, centrés sur l'abscisse, sur
-    /// deux lignes au plus (les titres tournés étaient décalés : la rotation
-    /// se faisait autour du centre du bloc, pas de son coin).</summary>
+    /// courbe défile à l'horizontale quand les colonnes sont nombreuses.
+    /// Hotfix 1.0.3-a : le point d'une colonne est à la MOYENNE des
+    /// intensités de ses éléments (PlanIntensity.MeanProfile), l'échelle va
+    /// de 0 à 6 (une marge sous le niveau 1 et au-dessus du 5, le niveau 0
+    /// « sans élément » ne colle plus à l'axe), les titres des colonnes sont
+    /// tournés à −90° sous leur point (LayoutTransformControl : la rotation
+    /// est une transformation de DISPOSITION, le bloc tourné se mesure
+    /// tourné), et un zoom (−, +, Tout, Ctrl+molette) resserre ou écarte
+    /// les colonnes — « Tout » fait tenir le plan entier dans la fenêtre.</summary>
     public sealed class PlanChart : Grid
     {
         private const double AxisWidth = 190;
         private const double MinStep = 120;
-        private const double Top = 30;
-        private const double CaptionBand = 56;
+        private const double FitMinStep = 14;
+        private const double Top = 38;
+        private const double CaptionBand = 112;
+        private const double ZoomMin = 0.15, ZoomMax = 3;
 
         private readonly Canvas _axis = new Canvas { Width = AxisWidth };
         private readonly Canvas _plot = new Canvas();
         private readonly ScrollViewer _scroll;
+        private readonly StackPanel _tools;
+        private readonly TextBlock _zoomLabel;
         private BinderItem _plan;
+        private double _zoom = 1;
+        private bool _fitAll;
 
         public PlanChart()
         {
@@ -859,14 +912,34 @@ namespace Marabook.App
             };
             _scroll.AddHandler(InputElement.PointerWheelChangedEvent, delegate(object sender, PointerWheelEventArgs e)
             {
-                // Molette seule = défilement horizontal, comme les colonnes.
-                if ((e.KeyModifiers & KeyModifiers.Shift) != 0 || Ui.HasCommand(e.KeyModifiers)) return;
+                // Ctrl+molette = zoom ; molette seule = défilement horizontal, comme les colonnes.
+                if (Ui.HasCommand(e.KeyModifiers)) { ZoomStep(Ui.Wheel(e) > 0 ? 1 : -1); e.Handled = true; return; }
+                if ((e.KeyModifiers & KeyModifiers.Shift) != 0) return;
                 _scroll.Offset = new Vector(_scroll.Offset.X - Ui.Wheel(e), _scroll.Offset.Y);
                 e.Handled = true;
             }, RoutingStrategies.Tunnel);
             Grid.SetColumn(_scroll, 1);
             Children.Add(_axis);
             Children.Add(_scroll);
+
+            // Le zoom, en haut de l'axe : −, +, Tout, et l'échelle.
+            _tools = new StackPanel { Orientation = Orientation.Horizontal };
+            var zoomOut = Buttons.Text("−", "Resserrer les colonnes (Ctrl+molette)", Buttons.Compact, Buttons.Look.Outline);
+            zoomOut.Width = Buttons.Compact; zoomOut.Padding = new Thickness(0);
+            zoomOut.Click += delegate { ZoomStep(-1); };
+            var zoomIn = Buttons.Text("+", "Écarter les colonnes (Ctrl+molette)", Buttons.Compact, Buttons.Look.Outline);
+            zoomIn.Width = Buttons.Compact; zoomIn.Padding = new Thickness(0); zoomIn.Margin = new Thickness(4, 0, 0, 0);
+            zoomIn.Click += delegate { ZoomStep(1); };
+            var fit = Buttons.Text("Tout", "Faire tenir tout le plan dans la fenêtre", Buttons.Compact, Buttons.Look.Outline);
+            fit.Margin = new Thickness(4, 0, 0, 0);
+            fit.Click += delegate { FitAll(); };
+            _zoomLabel = new TextBlock { FontSize = 11, Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+            _tools.Children.Add(zoomOut);
+            _tools.Children.Add(zoomIn);
+            _tools.Children.Add(fit);
+            _tools.Children.Add(_zoomLabel);
+            Canvas.SetLeft(_tools, 0);
+            Canvas.SetTop(_tools, 0);
             Ui.OnSizeChanged(this, Draw);
         }
 
@@ -877,6 +950,44 @@ namespace Marabook.App
             Draw();
         }
 
+        /// <summary>Un cran de zoom : × 1,25 par cran, borné.</summary>
+        public void ZoomStep(int direction)
+        {
+            _fitAll = false;
+            _zoom = Math.Max(ZoomMin, Math.Min(ZoomMax, _zoom * (direction > 0 ? 1.25 : 0.8)));
+            Draw();
+        }
+
+        /// <summary>Tout le plan dans la fenêtre (les colonnes au plus serré s'il le faut).</summary>
+        public void FitAll()
+        {
+            _fitAll = true;
+            Draw();
+        }
+
+        /// <summary>Sonde : la courbe tient-elle dans le viseur sans défiler ?
+        /// « Tout » garde un pas de FitMinStep par colonne : sur une fenêtre
+        /// étroite (les runners de la CI), le plan peut déborder par règle —
+        /// la sonde compare au plus large des deux.</summary>
+        internal bool PlotFitsViewport
+        {
+            get
+            {
+                var columns = _plan == null || _plan.Plan == null ? 0 : _plan.Plan.Columns.Count;
+                var viewport = Math.Max(_scroll.Viewport.Width, Bounds.Width - AxisWidth);
+                return _plot.Width <= Math.Max(viewport, columns * FitMinStep) + 0.5;
+            }
+        }
+
+        /// <summary>Sonde : le graphique a-t-il une place où se tracer ? (Sans
+        /// place, Draw ne trace rien et la courbe garde sa largeur d'avant.)</summary>
+        internal bool ChartLaidOut { get { return Bounds.Width - AxisWidth >= 50 && Bounds.Height - Marabook.App.Theme.ScrollBarSize >= 80; } }
+
+        internal string FitReport
+        {
+            get { return "courbe " + _plot.Width.ToString("0") + " px, viseur " + _scroll.Viewport.Width.ToString("0") + " px, cadre " + Bounds.Width.ToString("0") + " px"; }
+        }
+
         public void Draw()
         {
             _axis.Children.Clear();
@@ -885,15 +996,21 @@ namespace Marabook.App
             var viewport = Bounds.Width - AxisWidth;
             if (_plan == null || _plan.Plan == null || height < 80 || viewport < 50) return;
             var columns = _plan.Plan.Columns;
-            var profile = PlanIntensity.Profile(_plan.Plan);
+            var profile = PlanIntensity.MeanProfile(_plan.Plan);
             var bottom = height - CaptionBand;
-            var step = columns.Count == 0 ? viewport : Math.Max(MinStep, viewport / columns.Count);
+            var fitStep = columns.Count == 0 ? viewport : viewport / columns.Count;
+            var step = columns.Count == 0 ? viewport
+                : _fitAll ? Math.Max(FitMinStep, fitStep)
+                : Math.Max(MinStep * _zoom, fitStep);
             var width = Math.Max(viewport, step * columns.Count);
             _plot.Width = width;
             _plot.Height = height;
             _axis.Height = height;
+            _axis.Children.Add(_tools);
+            _zoomLabel.Text = _fitAll ? "tout" : Math.Round(_zoom * 100) + " %";
 
-            // Les cinq niveaux : libellés et repères à gauche, lignes de fond.
+            // L'échelle de 0 à 6 : les cinq niveaux ont leur libellé, leur repère
+            // et leur ligne de fond ; 0 et 6 sont la marge.
             for (var level = PlanIntensity.Min; level <= PlanIntensity.Max; level++)
             {
                 var y = LevelY(level, bottom);
@@ -912,6 +1029,7 @@ namespace Marabook.App
                 _axis.Children.Add(label);
                 _axis.Children.Add(new Line { StartPoint = new Point(AxisWidth - 8, y), EndPoint = new Point(AxisWidth, y), Stroke = Chrome.BorderStrong, StrokeThickness = 1 });
             }
+            _plot.Children.Add(new Line { StartPoint = new Point(0, bottom), EndPoint = new Point(width, bottom), Stroke = Chrome.BorderStrong, StrokeThickness = 1 });
             if (columns.Count == 0)
             {
                 var empty = new TextBlock { Text = "Aucune colonne : la courbe suit les éléments du plan.", Foreground = Chrome.SoftText };
@@ -921,53 +1039,62 @@ namespace Marabook.App
                 return;
             }
 
+            var dense = step < 40; // trop serré pour les libellés au-dessus des points
             var points = new Points();
             var area = new Points();
             for (var i = 0; i < columns.Count; i++)
             {
                 var x = step * (i + 0.5);
                 var value = profile[i];
-                var y = value <= 0 ? bottom : LevelY(value, bottom);
+                var y = LevelY(value, bottom);
                 if (i == 0) area.Add(new Point(x, bottom));
                 points.Add(new Point(x, y));
                 area.Add(new Point(x, y));
                 if (i == columns.Count - 1) area.Add(new Point(x, bottom));
                 var title = columns[i].Title.Length == 0 ? "(sans titre)" : columns[i].Title;
+                var nearest = PlanIntensity.Clamp((int)Math.Round(value));
                 _plot.Children.Add(new Line { StartPoint = new Point(x, bottom), EndPoint = new Point(x, bottom + 6), Stroke = Chrome.BorderStrong, StrokeThickness = 1 });
+                var size = dense ? 8 : 12;
                 var dot = new Ellipse
                 {
-                    Width = 12,
-                    Height = 12,
+                    Width = size,
+                    Height = size,
                     Fill = value <= 0 ? (IBrush)Chrome.Border : Chrome.Accent,
                     Stroke = Chrome.WindowBg,
                     StrokeThickness = 2,
-                    [ToolTip.TipProperty] = title + " — " + (value <= 0 ? "aucun élément" : PlanIntensity.Label(value))
+                    [ToolTip.TipProperty] = title + " — " + (value <= 0 ? "aucun élément" : PlanIntensity.Label(nearest) + " (moyenne " + value.ToString("0.0") + ")")
                 };
-                Canvas.SetLeft(dot, x - 6);
-                Canvas.SetTop(dot, y - 6);
+                Canvas.SetLeft(dot, x - size / 2.0);
+                Canvas.SetTop(dot, y - size / 2.0);
                 _plot.Children.Add(dot);
-                if (value > 0)
+                if (value > 0 && !dense)
                 {
-                    // Le niveau en toutes lettres au-dessus du point.
-                    var tag = new TextBlock { Text = PlanIntensity.Label(value), FontSize = 10, Foreground = Chrome.SoftText, Width = step, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+                    // Le niveau le plus proche en toutes lettres au-dessus du point.
+                    var tag = new TextBlock { Text = PlanIntensity.Label(nearest), FontSize = 10, Foreground = Chrome.SoftText, Width = step, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
                     Canvas.SetLeft(tag, x - step / 2);
                     Canvas.SetTop(tag, y - 26);
                     _plot.Children.Add(tag);
                 }
-                var caption = new TextBlock
+                // Le titre tourné à −90° sous son point : sa fin touche l'axe,
+                // il se lit de bas en haut ; au plus serré, une colonne sur n.
+                var every = Math.Max(1, (int)Math.Ceiling(16 / step));
+                if (i % every != 0) continue;
+                var caption = new LayoutTransformControl
                 {
-                    Text = title,
-                    FontSize = 11,
-                    Foreground = Chrome.Ink,
-                    Width = step - 10,
-                    TextAlignment = TextAlignment.Center,
-                    TextWrapping = TextWrapping.Wrap,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    MaxLines = 2,
-                    [ToolTip.TipProperty] = title
+                    LayoutTransform = new RotateTransform(-90),
+                    Child = new TextBlock
+                    {
+                        Text = title,
+                        FontSize = 11,
+                        Foreground = Chrome.Ink,
+                        Width = CaptionBand - 16,
+                        TextAlignment = TextAlignment.Right,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        [ToolTip.TipProperty] = title
+                    }
                 };
-                Canvas.SetLeft(caption, x - (step - 10) / 2);
-                Canvas.SetTop(caption, bottom + 12);
+                Canvas.SetLeft(caption, x - 8);
+                Canvas.SetTop(caption, bottom + 10);
                 _plot.Children.Add(caption);
             }
             var accent = ((SolidColorBrush)Chrome.Accent).Color;
@@ -975,9 +1102,11 @@ namespace Marabook.App
             _plot.Children.Insert(1, new Polyline { Points = points, Stroke = Chrome.Accent, StrokeThickness = 2.4, StrokeJoin = PenLineJoin.Round });
         }
 
-        private static double LevelY(int level, double bottom)
+        /// <summary>L'ordonnée d'un niveau sur l'échelle 0–6 : 0 sur l'axe,
+        /// 6 en haut — une marge d'un niveau de chaque côté des cinq.</summary>
+        private static double LevelY(double level, double bottom)
         {
-            return bottom - (level - 1) * (bottom - Top) / (PlanIntensity.Max - 1);
+            return bottom - level * (bottom - Top) / (PlanIntensity.Max + 1);
         }
     }
 }
