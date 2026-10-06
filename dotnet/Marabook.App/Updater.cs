@@ -61,6 +61,30 @@ namespace Marabook.App
             get { return RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "Marabook.exe" : "Marabook"; }
         }
 
+        /// <summary>macOS, 1.0.3-patch-b : l'application est livrée en BUNDLE
+        /// Marabook.app (exécutable et ressources dans Contents/MacOS). Le
+        /// dossier du bundle qui contient le dossier donné (celui de
+        /// l'exécutable), ou null hors bundle (lancement à plat, dotnet run).</summary>
+        public static string BundleOf(string appDir)
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX) || string.IsNullOrEmpty(appDir)) return null;
+            var macos = System.IO.Path.GetFullPath(appDir).TrimEnd('/');
+            if (!macos.EndsWith("/Contents/MacOS", StringComparison.Ordinal)) return null;
+            var bundle = System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(macos));
+            return bundle != null && bundle.EndsWith(".app", StringComparison.OrdinalIgnoreCase) ? bundle : null;
+        }
+
+        /// <summary>Gatekeeper exécute une application téléchargée qui n'a
+        /// pas été déplacée (lancée depuis le dossier du zip) depuis une copie
+        /// temporaire en lecture seule (« App Translocation ») : on ne peut
+        /// rien y poser. L'utilisateur doit d'abord glisser Marabook.app dans
+        /// Applications.</summary>
+        public static bool IsTranslocated(string appDir)
+        {
+            return RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && !string.IsNullOrEmpty(appDir)
+                && appDir.IndexOf("/AppTranslocation/", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         public sealed class Info
         {
             public string Version = "";  // « 0.43.0 »
@@ -227,7 +251,8 @@ namespace Marabook.App
         {
             public Info Info;
             public string Temp;    // le dossier de travail (archive + contenu + script)
-            public string Content; // le contenu déballé, Marabook(.exe) à sa racine
+            public string Content; // le dossier déballé qui contient Marabook(.exe) — sur macOS, Contents/MacOS du bundle
+            public string Bundle;  // macOS : le Marabook.app déballé (null si l'archive est à plat, comme avant 1.0.3-patch-b)
 
             public void Discard()
             {
@@ -266,8 +291,20 @@ namespace Marabook.App
                     else client.DownloadFile(info.ZipUrl, zip);
                 }
                 Extract(zip, prepared.Content);
+                // macOS : l'archive porte un bundle Marabook.app (1.0.3-patch-b) ;
+                // l'exécutable est dans Contents/MacOS. À plat (les archives
+                // d'avant), il est à la racine — les deux dispositions se lisent.
                 if (!File.Exists(System.IO.Path.Combine(prepared.Content, Exe)))
-                    throw new Exception("L'archive ne contient pas " + Exe);
+                {
+                    var bundle = System.IO.Path.Combine(prepared.Content, "Marabook.app");
+                    var macos = System.IO.Path.Combine(bundle, "Contents", "MacOS");
+                    if (File.Exists(System.IO.Path.Combine(macos, Exe)))
+                    {
+                        prepared.Bundle = bundle;
+                        prepared.Content = macos;
+                    }
+                    else throw new Exception("L'archive ne contient pas " + Exe);
+                }
                 try { File.Delete(zip); } catch { } // le contenu suffit ; l'archive pesait 60 Mo
                 return prepared;
             }
@@ -334,31 +371,67 @@ namespace Marabook.App
             }
             else
             {
+                if (IsTranslocated(appDir))
+                    throw new Exception("macOS exécute Marabook depuis une copie temporaire en lecture seule, parce que l'application n'a pas été déplacée après son téléchargement. Glissez Marabook.app dans Applications, relancez-le, puis réessayez.");
                 var script = System.IO.Path.Combine(temp, "maj.sh");
                 var app = appDir.TrimEnd('/');
                 var exe = System.IO.Path.Combine(app, Exe);
+                var bundle = BundleOf(app);
+                var swapBundle = bundle != null && prepared.Bundle != null; // macOS, bundle contre bundle (1.0.3-patch-b)
+                if (swapBundle) backup = bundle + ".avant-maj";
                 var lines = new StringBuilder();
                 lines.Append("#!/bin/sh\n");
                 lines.Append("while kill -0 " + pid + " 2>/dev/null; do sleep 1; done\n");
                 lines.Append("rm -rf '" + backup + "'\n");
-                lines.Append("cp -a '" + app + "' '" + backup + "'\n");
-                lines.Append("cp -a '" + content + "/.' '" + app + "/'\n");
+                if (swapBundle)
+                {
+                    // Le Marabook.app entier est remplacé : l'ancien mis de côté
+                    // (mv, atomique), le nouveau copié à sa place ; si la copie
+                    // rate, l'ancien revient. La quarantaine est levée par
+                    // précaution — le téléchargement par l'application n'en
+                    // pose pas, mais un bundle sans attribut ne sera jamais
+                    // bloqué par Gatekeeper au relancement.
+                    lines.Append("mv '" + bundle + "' '" + backup + "' || exit 1\n");
+                    lines.Append("if cp -a '" + prepared.Bundle + "' '" + bundle + "'; then\n");
+                    lines.Append("  xattr -dr com.apple.quarantine '" + bundle + "' 2>/dev/null\n");
+                    lines.Append("else\n");
+                    lines.Append("  rm -rf '" + bundle + "'\n");
+                    lines.Append("  mv '" + backup + "' '" + bundle + "'\n");
+                    lines.Append("  '" + exe + "' --maj-annulee &\n");
+                    lines.Append("  rm -rf '" + temp + "'\n");
+                    lines.Append("  exit 1\n");
+                    lines.Append("fi\n");
+                }
+                else
+                {
+                    // À plat (Linux, ou macOS sans bundle) : le dossier de
+                    // l'exécutable est recopié par-dessus — un bundle déballé
+                    // donne alors son Contents/MacOS, qui contient tout.
+                    lines.Append("cp -a '" + app + "' '" + backup + "'\n");
+                    lines.Append("cp -a '" + content + "/.' '" + app + "/'\n");
+                }
                 lines.Append("chmod +x '" + exe + "'\n");
                 lines.Append("'" + exe + "' &\n");
                 lines.Append("nouveau=$!\n");
                 lines.Append("sleep 10\n");
                 lines.Append("if kill -0 $nouveau 2>/dev/null; then rm -rf '" + backup + "'; else\n");
-                lines.Append("  cp -a '" + backup + "/.' '" + app + "/'\n");
+                if (swapBundle)
+                {
+                    lines.Append("  rm -rf '" + bundle + "'\n");
+                    lines.Append("  mv '" + backup + "' '" + bundle + "'\n");
+                }
+                else lines.Append("  cp -a '" + backup + "/.' '" + app + "/'\n");
                 lines.Append("  '" + exe + "' --maj-annulee &\n");
                 lines.Append("fi\n");
                 lines.Append("rm -rf '" + temp + "'\n");
                 File.WriteAllText(script, lines.ToString(), new UTF8Encoding(false));
-                var start = new ProcessStartInfo("/bin/sh", "'" + script + "'")
+                var start = new ProcessStartInfo("/bin/sh")
                 {
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     WorkingDirectory = System.IO.Path.GetTempPath()
                 };
+                start.ArgumentList.Add(script);
                 Process.Start(start);
             }
         }
@@ -375,11 +448,28 @@ namespace Marabook.App
             Directory.CreateDirectory(folder);
             if (zip.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase))
             {
-                var tar = new ProcessStartInfo("tar", "-xzf '" + zip + "' -C '" + folder + "'") { UseShellExecute = false, CreateNoWindow = true };
+                // ArgumentList, pas une ligne à guillemets simples : .NET ne
+                // les comprend pas (règles Windows), tar les recevait tels quels.
+                var tar = new ProcessStartInfo("tar") { UseShellExecute = false, CreateNoWindow = true };
+                foreach (var a in new[] { "-xzf", zip, "-C", folder }) tar.ArgumentList.Add(a);
                 using (var process = Process.Start(tar))
                 {
                     process.WaitForExit();
                     if (process.ExitCode != 0) throw new Exception("tar n'a pas pu déballer l'archive");
+                }
+                return;
+            }
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                // ditto, l'outil de macOS (celui qui a fabriqué l'archive) :
+                // il garde les bits d'exécution, la signature et la
+                // structure du bundle Marabook.app (1.0.3-patch-b).
+                var ditto = new ProcessStartInfo("ditto") { UseShellExecute = false, CreateNoWindow = true };
+                foreach (var a in new[] { "-x", "-k", zip, folder }) ditto.ArgumentList.Add(a);
+                using (var process = Process.Start(ditto))
+                {
+                    process.WaitForExit();
+                    if (process.ExitCode != 0) throw new Exception("ditto n'a pas pu déballer l'archive");
                 }
                 return;
             }

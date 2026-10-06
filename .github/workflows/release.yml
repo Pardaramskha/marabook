@@ -177,6 +177,20 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libx11-6 libice6 libsm6 libfontconfig1 fonts-liberation > /dev/null
           xvfb-run -a dotnet/Marabook.App/bin/Release/net8.0/Marabook --probe --settings /tmp/marabook-sonde.json
 
+      - name: Sonde de la mise à jour (Windows, macOS)
+        # --maj-test (1.0.3-patch-b) : la dernière release publiée est
+        # téléchargée et déballée comme l'Updater le fait sur CE système —
+        # la preuve, sur macOS, que l'archive se lit (la 1.0.3 collait des
+        # « \ » Windows et ne déballait rien). Le jeton évite la limite
+        # anonyme de l'API, partagée entre les runners.
+        if: ${{ runner.os != 'Linux' }}
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          dotnet dotnet/Marabook.App/bin/Release/net8.0/Marabook.dll --maj-test --settings (Join-Path ([IO.Path]::GetTempPath()) 'marabook-maj.json')
+          if ($LASTEXITCODE -ne 0) { throw "La sonde de mise à jour échoue ($LASTEXITCODE)." }
+
       - name: Fabriquer l'archive (${{ matrix.rid }})
         shell: pwsh
         run: |
