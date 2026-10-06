@@ -365,7 +365,11 @@ namespace Marabook.App
 
         /// <summary>Déballe en refusant les chemins qui sortent du dossier ;
         /// une archive .tar.gz (Linux) passe par tar, qui garde le bit
-        /// d'exécution.</summary>
+        /// d'exécution. Le zip (Windows, macOS) se lit avec le séparateur DU
+        /// SYSTÈME : la version 1.0.3 collait « \ » en dur, et sur macOS —
+        /// où « \ » n'est pas un séparateur — aucune entrée ne tombait sous
+        /// la racine : tout était ignoré, d'où « L'archive ne contient pas
+        /// Marabook » (06/10).</summary>
         private static void Extract(string zip, string folder)
         {
             Directory.CreateDirectory(folder);
@@ -379,12 +383,15 @@ namespace Marabook.App
                 }
                 return;
             }
-            var root = System.IO.Path.GetFullPath(folder).TrimEnd('\\') + "\\";
+            var separator = System.IO.Path.DirectorySeparatorChar;
+            var root = System.IO.Path.GetFullPath(folder).TrimEnd('\\', '/') + separator;
             using (var archive = ZipFile.OpenRead(zip))
                 foreach (var entry in archive.Entries)
                 {
                     if (entry.FullName.EndsWith("/")) continue;
-                    var target = System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, entry.FullName.Replace('/', '\\')));
+                    // Les entrées sont écrites en « / » (publish.ps1) ; GetFullPath
+                    // les ramène au séparateur du système et résout les « .. ».
+                    var target = System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, entry.FullName.Replace('\\', separator).Replace('/', separator)));
                     if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
                     Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target));
                     entry.ExtractToFile(target, true);
