@@ -2,6 +2,7 @@ using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using Avalonia.Themes.Simple;
 using Marabook.Settings;
@@ -67,6 +68,36 @@ namespace Marabook.App
                 desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
                 var window = new MainWindow(Launch);
                 desktop.MainWindow = window;
+                // Fin de processus garantie (1.0.3-patch-b) : sur macOS, ⌘Q
+                // fermait les fenêtres mais le processus restait (le point
+                // sous l'icône du Dock), à tuer à la main. Quand Avalonia
+                // annonce la sortie, tout est déjà écrit (réglages, verrou,
+                // secours : la fermeture de la fenêtre) ; si la boucle
+                // principale ne rend pas la main dans les trois secondes, le
+                // processus s'arrête de lui-même.
+                desktop.Exit += delegate(object sender, ControlledApplicationLifetimeExitEventArgs e)
+                {
+                    var code = e.ApplicationExitCode;
+                    var watchdog = new System.Threading.Thread(delegate()
+                    {
+                        System.Threading.Thread.Sleep(3000);
+                        Environment.Exit(code);
+                    }) { IsBackground = true, Name = "fin-de-processus" };
+                    watchdog.Start();
+                };
+                // Les .plot que le système demande d'ouvrir (macOS : double-clic
+                // dans le Finder, « Ouvrir avec » — le bundle Marabook.app
+                // déclare le type, 1.0.3-patch-b) : pas d'argument sur la ligne
+                // de commande, mais un événement d'activation.
+                var activatable = TryGetFeature(typeof(IActivatableLifetime)) as IActivatableLifetime;
+                if (activatable != null)
+                    activatable.Activated += delegate(object sender, ActivatedEventArgs e)
+                    {
+                        var files = e as FileActivatedEventArgs;
+                        if (files == null || files.Files.Count == 0) return;
+                        var path = files.Files[0].TryGetLocalPath();
+                        if (path != null) window.OpenFromSystem(path);
+                    };
                 // Le filet du secours (18/09, rebranché sur Avalonia le 28/09 :
                 // il manquait, et tout clic droit fautif emportait le
                 // processus sans rapport) : une erreur non rattrapée sur le

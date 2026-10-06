@@ -1966,6 +1966,18 @@ namespace Marabook.App
                 project.Name = System.IO.Path.GetFileNameWithoutExtension(path);
         }
 
+        /// <summary>Un .plot que le SYSTÈME demande d'ouvrir (macOS : double-clic
+        /// dans le Finder, 1.0.3-patch-b) : avant que la fenêtre soit chargée,
+        /// il attend comme l'argument de la ligne de commande ; après, le
+        /// projet en cours est confirmé (enregistrer ?) puis remplacé.</summary>
+        public async void OpenFromSystem(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
+            if (!IsLoaded) { PendingOpen = path; return; }
+            if (!await ConfirmDiscard()) return;
+            OpenFile(path);
+        }
+
         public void OpenFile(string path)
         {
             // Un verrou étranger vivant (1.0.3) : on demande avant de lire.

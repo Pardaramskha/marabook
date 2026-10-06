@@ -159,18 +159,21 @@ namespace Marabook.App
             if (_shell.WindowState == WindowState.Minimized) return;
             Width = Math.Max(640, shellWidth * 0.8);
             Height = Math.Max(420, shellHeight * 0.8);
-            var scale = _shell.RenderScaling;
-            var origin = _shell.Position;
-            try
+            // Le coin haut-gauche de l'accueil, calculé dans la zone client de
+            // la coquille (unités logiques) et converti par PointToScreen dans
+            // l'unité des positions d'écran DU SYSTÈME : pixels physiques sur
+            // Windows, points sur macOS — où multiplier soi-même par
+            // RenderScaling (2 sur Retina) poussait l'accueil hors de l'écran,
+            // en bas à droite (1.0.3-patch-b).
+            var offset = new Point((shellWidth - Width) / 2, (shellHeight - Height) / 2);
+            try { Position = _shell.PointToScreen(offset); }
+            catch
             {
-                // Le coin haut-gauche de la zone client, en pixels physiques.
-                var client = _shell.PointToScreen(new Point(0, 0));
-                origin = client;
+                var scale = _shell.DesktopScaling;
+                Position = new PixelPoint(
+                    _shell.Position.X + (int)Math.Round(offset.X * scale),
+                    _shell.Position.Y + (int)Math.Round(offset.Y * scale));
             }
-            catch { }
-            Position = new PixelPoint(
-                origin.X + (int)Math.Round((shellWidth - Width) / 2 * scale),
-                origin.Y + (int)Math.Round((shellHeight - Height) / 2 * scale));
         }
 
         private Control Build()
