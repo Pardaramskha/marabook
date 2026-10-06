@@ -264,6 +264,28 @@ namespace Marabook.Model
         /// <summary>Migration v30 (23/09 ; v16 avant) : les champs par défaut
         /// du modèle Personnage — voir SheetDefaults.UpgradeCharacterTemplate.
         /// Rend vrai si changé.</summary>
+        /// <summary>Migration v35 (1.0.4) : les catégories ajoutées (Objet,
+        /// Religion &amp; Croyances, Langue) rejoignent un projet d'avant, chacune
+        /// avec son modèle livré — sauf si une catégorie de ce nom existe
+        /// déjà (casse et accents ignorés). Idempotente. Rend vrai si changé.</summary>
+        public bool AddCategoriesOfV35()
+        {
+            var changed = false;
+            foreach (var name in SheetDefaults.CategoriesAddedInV35)
+            {
+                var present = false;
+                foreach (var category in SheetCategories)
+                    if (string.Equals(Correction.FrenchTokenizer.Fold(category.Name ?? ""), Correction.FrenchTokenizer.Fold(name), StringComparison.Ordinal))
+                    { present = true; break; }
+                if (present) continue;
+                var template = SheetDefaults.TemplateFor(name);
+                Templates.Add(template);
+                SheetCategories.Add(new SheetCategory { Name = name, TemplateId = template.Id });
+                changed = true;
+            }
+            return changed;
+        }
+
         public bool UpgradeCharacterTemplate()
         {
             return SheetDefaults.UpgradeCharacterTemplate(CharacterTemplate());

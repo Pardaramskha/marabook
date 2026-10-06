@@ -264,8 +264,10 @@ namespace Marabook.Tests
             t.Equal(string.Join("|", SheetDefaults.CharacterInfos), string.Join("|", Names(fresh, SheetDefaults.GroupInfos).ToArray()), "infos par défaut : Nom … Affiliation, dans l'ordre de la liste");
             t.Equal(string.Join("|", SheetDefaults.CharacterLooks), string.Join("|", Names(fresh, SheetDefaults.GroupLooks).ToArray()), "apparence par défaut : Taille … Particularités");
             t.Equal(string.Join("|", SheetDefaults.CharacterPersonality), string.Join("|", Names(fresh, SheetDefaults.GroupPersonality).ToArray()), "personnalité par défaut : En un mot, Voix, Gestuelle, Sociabilité");
-            t.Check(fresh.Sections.Count == 2 && fresh.Sections[0] == SheetDefaults.GroupLooks && fresh.Sections[1] == SheetDefaults.GroupPersonality && fresh.Relations,
-                "sections Apparence puis Personnalité, paper Relations");
+            t.Equal(string.Join("|", SheetDefaults.CharacterNarration), string.Join("|", Names(fresh, SheetDefaults.GroupNarration).ToArray()), "narration par défaut (1.0.4) : Rôle, Objectif, Défaut central, Expression typique, Niveau de langue");
+            foreach (var name in SheetDefaults.CharacterNarration) t.Equal(FieldKinds.Text, FieldKinds.Normalize(Field(fresh, name).Kind), "« " + name + " » en texte court");
+            t.Check(fresh.Sections.Count == 3 && fresh.Sections[0] == SheetDefaults.GroupLooks && fresh.Sections[1] == SheetDefaults.GroupPersonality && fresh.Sections[2] == SheetDefaults.GroupNarration && fresh.Relations,
+                "sections Apparence, Personnalité puis Narration, paper Relations");
             t.Equal("multiline", Field(fresh, "Particularités").Kind, "Particularités reste multiligne");
             t.Check(!SheetDefaults.UpgradeCharacterTemplate(fresh), "le modèle neuf n'a rien à migrer");
             foreach (var name in new[] { "Lieu", "Événement", "Système", "Peuple", "Bestiaire", "Pays / Gouvernement", "Faction / Organisation" })
@@ -293,7 +295,8 @@ namespace Marabook.Tests
                 "« Genre » (texte) devient « Genre de naissance », un choix à quatre options");
             t.Check(Field(recent, SheetDefaults.FieldGender) != genre && Field(recent, SheetDefaults.FieldGender).Kind == FieldKinds.Choice,
                 "« Genre (si différent) » est créé à côté");
-            t.Check(recent.HasSection(SheetDefaults.GroupPersonality) && recent.Sections.Count == 2, "la section Personnalité est ajoutée");
+            t.Check(recent.HasSection(SheetDefaults.GroupPersonality) && recent.HasSection(SheetDefaults.GroupNarration) && recent.Sections.Count == 3, "les sections Personnalité et Narration sont ajoutées");
+            t.Equal(string.Join("|", SheetDefaults.CharacterNarration), string.Join("|", Names(recent, SheetDefaults.GroupNarration).ToArray()), "la Narration est créée (1.0.4, v35)");
             t.Check(!SheetDefaults.UpgradeCharacterTemplate(recent), "idempotente");
 
             // — Le modèle du batch 31 (groupes Infos/Physique, Sexe de naissance ET Genre) :
@@ -306,7 +309,7 @@ namespace Marabook.Tests
             t.Check(hair.Name == "Couleur des cheveux" && hair.Group == SheetDefaults.GroupLooks, "Cheveux → Couleur des cheveux, même id");
             t.Equal(string.Join("|", SheetDefaults.CharacterInfos), string.Join("|", Names(old, SheetDefaults.GroupInfos).ToArray()), "infos alignées (Âge inséré, groupe « Infos » → section par défaut)");
             t.Equal(string.Join("|", SheetDefaults.CharacterLooks), string.Join("|", Names(old, SheetDefaults.GroupLooks).ToArray()), "apparence alignée (« Physique » → « Apparence »)");
-            t.Check(old.Relations && old.HasSection(SheetDefaults.GroupLooks) && old.HasSection(SheetDefaults.GroupPersonality), "sections et Relations posées");
+            t.Check(old.Relations && old.HasSection(SheetDefaults.GroupLooks) && old.HasSection(SheetDefaults.GroupPersonality) && old.HasSection(SheetDefaults.GroupNarration), "sections (Narration comprise) et Relations posées");
             t.Check(!SheetDefaults.UpgradeCharacterTemplate(old), "idempotente aussi");
 
             // — Un champ maison n'est jamais retiré : il suit les champs par défaut.

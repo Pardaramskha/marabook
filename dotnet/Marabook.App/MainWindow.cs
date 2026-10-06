@@ -756,6 +756,7 @@ namespace Marabook.App
             // l'édition, la navigation [[wiki]] et le zoom.
             _sheetView = new SheetView { IsVisible = false };
             _sheetView.Edited += OnEditorEdited;
+            _sheetView.History = _history; // Ctrl+Z sur les champs des fiches (1.0.4)
             _editor.SnapshotsChanged += OnSnapshotsChanged;
             _sheetView.LinkClicked += NavigateToTitle;
             // Batch 34 : « ← Retour » remonte au tableau du parent (la
@@ -1331,6 +1332,19 @@ namespace Marabook.App
             if (action is History.PinItemAction)
             {
                 if (_homeView.IsVisible) _homeView.Refresh();
+                return;
+            }
+            // L'édition d'une fiche (1.0.4) défaite ou refaite : la fiche
+            // ouverte se recharge, la bibliothèque et la Pile suivent (la
+            // catégorie peut avoir changé), le rail aussi.
+            var sheetEdit = action as History.SheetEditAction;
+            if (sheetEdit != null)
+            {
+                MarkDirty();
+                if (_current == sheetEdit.Item && _sheetView.IsVisible) _sheetView.ReloadAfterHistory();
+                if (_sheetLibrary.IsVisible) _sheetLibrary.Refresh();
+                _binder.Rebuild();
+                UpdateInspector();
                 return;
             }
             // Les restaurations (b38) : même règle du document ouvert.

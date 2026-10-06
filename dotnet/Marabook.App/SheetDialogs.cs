@@ -723,7 +723,7 @@ namespace Marabook.App
         private readonly ComboBox _categoryCombo;
         private bool _accepted;
 
-        private NewSheetDialog(Window owner, Project project)
+        private NewSheetDialog(Window owner, Project project, string preselectedCategoryId)
         {
             Title = "Nouvelle fiche";
             Owner = owner;
@@ -759,6 +759,14 @@ namespace Marabook.App
                 Tag = null
             });
             _categoryCombo.SelectedIndex = 0;
+            // La catégorie pré-choisie (1.0.4 : la pastille d'une catégorie
+            // vide de la bibliothèque crée une fiche dedans).
+            if (preselectedCategoryId != null)
+                for (var i = 0; i < _categoryCombo.Items.Count; i++)
+                {
+                    var entry = _categoryCombo.Items[i] as ComboBoxItem;
+                    if (entry != null && (entry.Tag as string) == preselectedCategoryId) { _categoryCombo.SelectedIndex = i; break; }
+                }
             panel.Children.Add(_categoryCombo);
 
             var buttons = new StackPanel
@@ -789,9 +797,9 @@ namespace Marabook.App
         }
 
         /// <summary>Le titre et la catégorie choisis, ou null si annulé (ou titre vide).</summary>
-        public static async Task<Choice> Ask(Window owner, Project project)
+        public static async Task<Choice> Ask(Window owner, Project project, string preselectedCategoryId = null)
         {
-            var dialog = new NewSheetDialog(owner, project);
+            var dialog = new NewSheetDialog(owner, project, preselectedCategoryId);
             await Dialogs.ShowModal(dialog, owner);
             var title = (dialog._titleBox.Text ?? "").Trim();
             var chosen = dialog._categoryCombo.SelectedItem as ComboBoxItem;

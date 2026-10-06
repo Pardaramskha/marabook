@@ -103,6 +103,8 @@ namespace Marabook.App
         public int InspectedGroupCount { get { return _inspectedGroup == null ? 0 : _inspectedGroup.Count; } }
         public void BatchColorPublic(string hex) { if (_inspectedGroup != null) BatchColor(_inspectedGroup, hex); }
         public bool UndoPublic() { if (!_history.CanUndo) return false; _history.Undo(); return true; }
+        public bool RedoPublic() { if (!_history.CanRedo) return false; _history.Redo(); return true; }
+        internal int HistoryCountForProbe { get { return _history.Count; } }
         public double RightColumnWidth { get { return _inspectorCol.Width.Value; } }
         public void MarkDirtyPublic() { MarkDirty(); }
         public WelcomeWindow Welcome { get { return _welcome; } }
@@ -364,6 +366,22 @@ public static Project SampleProject()
             sheets.Children.Add(folder);
             var keira = new BinderItem { Title = "Keira Varenh", Kind = ItemKind.Sheet, Parent = folder, CardColor = "#C0392B" };
             var marabout = new BinderItem { Title = "Le marabout", Kind = ItemKind.Sheet, Parent = folder };
+            // Keira est un Personnage (1.0.4) : la catégorie, le modèle livré,
+            // « En un mot » rempli (l'accroche de sa carte) et un champ de
+            // Narration — les captures et sondes voient une fiche à modèle.
+            var characters = project.SheetCategories.Count > 0 ? project.SheetCategories[0] : null;
+            var characterTemplate = characters == null ? null : project.FindTemplate(characters.TemplateId);
+            if (characters != null && characterTemplate != null)
+            {
+                keira.CategoryId = characters.Id;
+                keira.TemplateId = characterTemplate.Id;
+                foreach (var field in characterTemplate.Fields)
+                {
+                    if (field.Name == "En un mot") keira.FieldValues[field.Id] = "Têtue, loyale, incapable de mentir";
+                    if (field.Name == "Rôle") keira.FieldValues[field.Id] = "Protagoniste";
+                    if (field.Name == "Objectif") keira.FieldValues[field.Id] = "Ramener le marabout au rivage avant la marée";
+                }
+            }
             folder.Children.Add(keira);
             folder.Children.Add(marabout);
             // Une relation (29/09) : le wiki montre un lien vers une fiche (captures, sondes).

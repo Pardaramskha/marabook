@@ -13,6 +13,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
+using Marabook.History;
 using Marabook.Model;
 
 namespace Marabook.App
@@ -87,6 +88,13 @@ namespace Marabook.App
         private StyleSheet _styles = StyleSheet.CreateDefault();
         private bool _loading;
         private double _zoom = 1.0;
+        // Ctrl+Z sur les champs (1.0.4) : l'historique du projet, posé par la
+        // coquille, et l'OMBRE de la fiche — son état au dernier signal — pour
+        // bâtir une action d'un instantané à l'autre sans toucher aux
+        // dizaines de points d'écriture de la vue (ils signalent tous Edited).
+        public HistoryManager History;
+        private SheetSnapshot _shadow;
+        private static readonly TimeSpan MergeWindow = TimeSpan.FromSeconds(1.5);
 
         public event Action Edited;
         public event Action<string> LinkClicked;
@@ -1797,6 +1805,20 @@ namespace Marabook.App
         // ================================================== API de la coquille
 
         public bool HasItem { get { return _item != null; } }
+
+        /// <summary>Pour la sonde (1.0.4) : le premier champ TEXTE du modèle
+        /// et sa zone de saisie, ou null.</summary>
+        internal KeyValuePair<string, TextBox>? FirstTextFieldForProbe()
+        {
+            if (_template == null) return null;
+            foreach (var field in _template.Fields)
+            {
+                Control box;
+                if (FieldKinds.Normalize(field.Kind) == FieldKinds.Text && _fieldBoxes.TryGetValue(field.Id, out box) && box is TextBox)
+                    return new KeyValuePair<string, TextBox>(field.Id, (TextBox)box);
+            }
+            return null;
+        }
         internal TextBox BodyBox { get { return _bodyBox; } } // sonde (hotfix 1.0.3-a)
         public bool ShowsItem(BinderItem item) { return _item == item; }
         public void SetStyleSheet(StyleSheet styles) { _styles = styles; }
@@ -1827,6 +1849,7 @@ namespace Marabook.App
             _bodyBox.IsUndoEnabled = false;
             _bodyBox.IsUndoEnabled = true;
             _loading = false;
+            _shadow = SheetSnapshot.Capture(_project, item); // l'état de départ du Ctrl+Z (1.0.4)
             SetMirror(_mirrorMode); // le mode choisi suit d'une fiche à l'autre
             RefreshDictionaryBadge();
             if (_previewToggle.IsChecked == true) ShowPreview();
@@ -1843,6 +1866,7 @@ namespace Marabook.App
         {
             _item = null;
             _template = null;
+            _shadow = null;
             _loading = true;
             _bodyBox.Text = "";
             _loading = false;
@@ -2157,9 +2181,38 @@ namespace Marabook.App
         private void NotifyEdited()
         {
             if (_loading) return;
+            RecordEdit();
             var handler = Edited;
             if (handler != null) handler();
             if (_genealogy != null && _item != null && _genealogy.Shows(_item)) _genealogy.Refresh();
+        }
+
+        /// <summary>L'édition qui vient d'avoir lieu, dans l'historique (1.0.4) :
+        /// l'état d'après comparé à l'ombre ; rien ne diffère (frappe dans le
+        /// corps) = rien ; même case que l'action précédente, peu après = elle
+        /// s'étend ; sinon une action neuve. L'ombre avance.</summary>
+        private void RecordEdit()
+        {
+            if (_item == null || History == null) return;
+            if (_shadow == null) { _shadow = SheetSnapshot.Capture(_project, _item); return; }
+            var after = SheetSnapshot.Capture(_project, _item);
+            var key = SheetSnapshot.DiffKey(_shadow, after);
+            if (key.Length == 0) return;
+            var last = History.PeekUndo as SheetEditAction;
+            if (last != null && last.CanExtend(_item, key, MergeWindow)) last.Extend(after);
+            else History.Push(new SheetEditAction(_project, _item, _shadow, after, key));
+            _shadow = after;
+        }
+
+        /// <summary>Après un Ctrl+Z / Ctrl+Y qui a touché la fiche ouverte :
+        /// le corps est d'abord reporté dans le document (il n'est pas dans
+        /// l'action), puis la vue se recharge sur l'état rendu.</summary>
+        public void ReloadAfterHistory()
+        {
+            if (_item == null) return;
+            Commit();
+            var template = _project != null ? _project.FindTemplate(_item.TemplateId) : _template;
+            LoadItem(_item, template ?? _template);
         }
     }
 }

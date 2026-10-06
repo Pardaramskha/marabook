@@ -696,6 +696,41 @@ namespace Marabook.App
                         box.Text = kept;
                         await Settle();
                     }
+
+                    // — Ctrl+Z sur les champs (1.0.4) : une valeur tapée dans un
+                    // champ du modèle est rendue par l'annulation (modèle ET
+                    // zone, la vue rechargée), puis refaite ; les frappes
+                    // successives ne font qu'UNE action.
+                    var field = sheetView == null || !sheetView.HasItem ? null : sheetView.FirstTextFieldForProbe();
+                    if (field != null)
+                    {
+                        var fieldId = field.Value.Key;
+                        string initial;
+                        sheet.FieldValues.TryGetValue(fieldId, out initial);
+                        initial = initial ?? "";
+                        var pending = shell.HistoryCountForProbe;
+                        field.Value.Value.Text = "Sonde";
+                        await Settle();
+                        field.Value.Value.Text = "Sonde 1.0.4";
+                        await Settle();
+                        string typed;
+                        sheet.FieldValues.TryGetValue(fieldId, out typed);
+                        Check(typed == "Sonde 1.0.4" && shell.HistoryCountForProbe == pending + 1,
+                            "la frappe dans un champ de fiche écrit la valeur et pose UNE action (" + (shell.HistoryCountForProbe - pending) + ")");
+                        var undone = shell.UndoPublic();
+                        await Settle();
+                        string restored;
+                        sheet.FieldValues.TryGetValue(fieldId, out restored);
+                        var reloaded = sheetView.FirstTextFieldForProbe();
+                        Check(undone && (restored ?? "") == initial && reloaded != null && (reloaded.Value.Value.Text ?? "") == initial,
+                            "Ctrl+Z rend le champ de fiche : modèle « " + (restored ?? "") + " », zone « " + (reloaded == null ? "?" : reloaded.Value.Value.Text) + " »");
+                        var redone = shell.RedoPublic();
+                        await Settle();
+                        sheet.FieldValues.TryGetValue(fieldId, out typed);
+                        Check(redone && typed == "Sonde 1.0.4", "Ctrl+Y refait la frappe (« " + typed + " »)");
+                        shell.UndoPublic();
+                        await Settle();
+                    }
                 }
 
                 // — Un lien du Texte libre sur une ligne RENVOYÉE répond sous
