@@ -164,6 +164,27 @@ namespace Marabook.History
         }
     }
 
+    /// <summary>Une mutation de la STRUCTURE des fiches (1.0.4) : les modèles
+    /// remplacés par l'éditeur de modèles, une catégorie créée, renommée,
+    /// rebasée ou supprimée — deux délégués, et un libellé ; la coquille
+    /// recharge la bibliothèque, la Pile et la fiche ouverte quand l'une
+    /// d'elles est défaite ou refaite.</summary>
+    public sealed class SheetStructureAction : IUndoableAction
+    {
+        private readonly Action _apply, _revert;
+        public string Label { get; private set; }
+
+        public SheetStructureAction(string label, Action apply, Action revert)
+        {
+            Label = label;
+            _apply = apply;
+            _revert = revert;
+        }
+
+        public void Do() { _apply(); }
+        public void Undo() { _revert(); }
+    }
+
     /// <summary>L'édition d'une fiche, annulable (1.0.4 — « ce manque a créé
     /// beaucoup de friction ») : d'un instantané à l'autre. Les frappes
     /// successives dans la même case se FONDENT (Extend) : Ctrl+Z rend le

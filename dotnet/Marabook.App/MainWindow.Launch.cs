@@ -382,6 +382,11 @@ public static Project SampleProject()
                     if (field.Name == "Objectif") keira.FieldValues[field.Id] = "Ramener le marabout au rivage avant la marée";
                 }
             }
+            // Un corps Markdown (1.0.4) : un lien wiki, un nom inventé (le
+            // correcteur le souligne — c'est voulu, la capture le montre).
+            keira.Document = TextDocument.FromPlainText(
+                "Née à Ourkhal, sur le littoral, Keira a grandi parmi les pêcheurs.\n\n"
+                + "Son mentor, [[Le marabout]], lui a appris à lire les marées — et à se taire quand elles montent.");
             folder.Children.Add(keira);
             folder.Children.Add(marabout);
             // Une relation (29/09) : le wiki montre un lien vers une fiche (captures, sondes).

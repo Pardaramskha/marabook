@@ -642,7 +642,12 @@ namespace Marabook.App
         {
             var templates = await TemplatesDialog.Show(Ui.OwnerOf(this), _project.Templates, _project);
             if (templates == null) return; // annulé (28/09) : la liste nulle cassait le projet
-            _project.Templates = templates;
+            // Annulable (1.0.4) : l'ancienne liste revient d'un Ctrl+Z.
+            var project = _project;
+            var previous = project.Templates;
+            _history.Run(new SheetStructureAction("Modèles de fiches modifiés",
+                delegate { project.Templates = templates; },
+                delegate { project.Templates = previous; }));
             NotifyChanged();
             RebuildRows();
         }
@@ -1105,7 +1110,10 @@ namespace Marabook.App
                 var name = await InputDialog.Ask(Ui.OwnerOf(this),
                     "Renommer la catégorie", "Nom de la catégorie :", category.Name);
                 if (name == null || name.Trim().Length == 0) return;
-                category.Name = name.Trim();
+                var newName = name.Trim();
+                var oldName = category.Name;
+                _history.Run(new SheetStructureAction("Catégorie renommée",
+                    delegate { category.Name = newName; }, delegate { category.Name = oldName; }));
                 NotifyChanged();
                 RebuildRows();
             };
@@ -1127,7 +1135,10 @@ namespace Marabook.App
                 var templateRef = template;
                 entry.Click += delegate
                 {
-                    category.TemplateId = templateRef.Id;
+                    if (category.TemplateId == templateRef.Id) return;
+                    var oldTemplate = category.TemplateId;
+                    _history.Run(new SheetStructureAction("Modèle de base changé",
+                        delegate { category.TemplateId = templateRef.Id; }, delegate { category.TemplateId = oldTemplate; }));
                     NotifyChanged();
                     RebuildRows();
                 };
@@ -1166,12 +1177,11 @@ namespace Marabook.App
                 Name = "Description",
                 Kind = "multiline"
             });
-            _project.Templates.Add(template);
-            _project.SheetCategories.Add(new SheetCategory
-            {
-                Name = name.Trim(),
-                TemplateId = template.Id
-            });
+            var category = new SheetCategory { Name = name.Trim(), TemplateId = template.Id };
+            var project = _project;
+            _history.Run(new SheetStructureAction("Catégorie créée",
+                delegate { project.Templates.Add(template); project.SheetCategories.Add(category); },
+                delegate { project.SheetCategories.Remove(category); project.Templates.Remove(template); }));
             NotifyChanged();
             RebuildRows();
         }
@@ -1196,7 +1206,11 @@ namespace Marabook.App
                 + "Son modèle reste dans l'éditeur de modèles.",
                 "Marabook", MessageButtons.YesNo, MessageIcon.Question);
             if (await answer != MessageResult.Yes) return;
-            _project.SheetCategories.Remove(category);
+            var project = _project;
+            var index = project.SheetCategories.IndexOf(category);
+            _history.Run(new SheetStructureAction("Catégorie supprimée",
+                delegate { project.SheetCategories.Remove(category); },
+                delegate { project.SheetCategories.Insert(Math.Min(index, project.SheetCategories.Count), category); }));
             NotifyChanged();
             RebuildRows();
         }

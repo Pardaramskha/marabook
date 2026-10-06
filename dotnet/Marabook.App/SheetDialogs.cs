@@ -50,6 +50,93 @@ namespace Marabook.App
                                            // which already points to the next row
                                            // when SelectionChanged commits the name
         private bool _accepted, _syncing;
+        // Ctrl+Z / Ctrl+Y DANS l'éditeur (1.0.4) : des instantanés de la liste
+        // des modèles (clones), pris avant chaque geste par Record — l'ombre
+        // est l'état au dernier geste ; les frappes successives dans la même
+        // zone se fondent (1,5 s) ; les clés « + » (ajout, retrait, bascule)
+        // ne se fondent jamais. Le geste capture la touche avant les zones
+        // de texte (tunnel), dont la pile locale ne vaut que pour la frappe.
+        private readonly List<List<SheetTemplate>> _undo = new List<List<SheetTemplate>>();
+        private readonly List<List<SheetTemplate>> _redo = new List<List<SheetTemplate>>();
+        private List<SheetTemplate> _shadow;
+        private string _shadowPrint, _lastKey;
+        private DateTime _lastWhen;
+
+        private static List<SheetTemplate> Clones(List<SheetTemplate> list)
+        {
+            var clones = new List<SheetTemplate>();
+            foreach (var template in list) clones.Add(template.Clone());
+            return clones;
+        }
+
+        /// <summary>L'empreinte de la liste : tout ce que l'éditeur sait changer.</summary>
+        private static string Fingerprint(List<SheetTemplate> list)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var t in list)
+            {
+                sb.Append(t.Id).Append('|').Append(t.Name).Append('|').Append(t.Relations ? 1 : 0)
+                  .Append('|').Append(t.Tracking ? 1 : 0).Append('|').Append(string.Join(",", t.TrackingScope))
+                  .Append('|').Append(t.Evolution ? 1 : 0).Append('|').Append(t.Radar ? 1 : 0).Append('|').Append(t.RadarMax)
+                  .Append('|').Append(t.RadarName).Append('|');
+                foreach (var axis in t.RadarAxes) sb.Append(axis.Id).Append(':').Append(axis.Name).Append(',');
+                sb.Append('|').Append(string.Join(",", t.Sections)).Append('|');
+                foreach (var f in t.Fields)
+                    sb.Append(f.Id).Append(':').Append(f.Name).Append(':').Append(f.Kind).Append(':').Append(f.Group)
+                      .Append(':').Append(string.Join(";", f.Options)).Append(',');
+                sb.Append('\n');
+            }
+            return sb.ToString();
+        }
+
+        private void Record(string key)
+        {
+            if (_syncing || _shadow == null) return;
+            var print = Fingerprint(_templates);
+            if (print == _shadowPrint) return;
+            var now = DateTime.UtcNow;
+            var merge = key == _lastKey && !key.StartsWith("+") && _undo.Count > 0 && now - _lastWhen <= TimeSpan.FromSeconds(1.5);
+            if (!merge) _undo.Add(_shadow);
+            while (_undo.Count > 100) _undo.RemoveAt(0);
+            _redo.Clear();
+            _shadow = Clones(_templates);
+            _shadowPrint = print;
+            _lastKey = key;
+            _lastWhen = now;
+        }
+
+        private void UndoEdit()
+        {
+            CommitName();
+            if (_undo.Count == 0) return;
+            var target = _undo[_undo.Count - 1];
+            _undo.RemoveAt(_undo.Count - 1);
+            _redo.Add(Clones(_templates));
+            Restore(target);
+        }
+
+        private void RedoEdit()
+        {
+            if (_redo.Count == 0) return;
+            var target = _redo[_redo.Count - 1];
+            _redo.RemoveAt(_redo.Count - 1);
+            _undo.Add(Clones(_templates));
+            Restore(target);
+        }
+
+        private void Restore(List<SheetTemplate> snapshot)
+        {
+            var currentId = _current != null ? _current.Id : null;
+            _templates.Clear();
+            foreach (var template in snapshot) _templates.Add(template.Clone());
+            _shadow = Clones(_templates);
+            _shadowPrint = Fingerprint(_templates);
+            _lastKey = null;
+            var stillThere = false;
+            foreach (var template in _templates) if (template.Id == currentId) stillThere = true;
+            _current = null;
+            FillList(stillThere ? currentId : null);
+        }
 
         private TemplatesDialog(Window owner, List<SheetTemplate> source, Project project)
         {
@@ -109,6 +196,7 @@ namespace Marabook.App
             DockPanel.SetDock(nameLabel, Dock.Left);
             nameRow.Children.Add(nameLabel);
             _nameBox = new TextBox();
+            _nameBox.TextChanged += delegate { CommitName(); }; // le nom suit la frappe (et l'historique, 1.0.4)
             nameRow.Children.Add(_nameBox);
             DockPanel.SetDock(nameRow, Dock.Top);
             right.Children.Add(nameRow);
@@ -127,8 +215,8 @@ namespace Marabook.App
                 Content = "Relations — la section des liens entre fiches (frère, mentor, rivale…)",
                 Margin = new Thickness(0, 12, 0, 0)
             };
-            _relationsCheck.Checked += delegate { if (_current != null && !_syncing) _current.Relations = true; };
-            _relationsCheck.Unchecked += delegate { if (_current != null && !_syncing) _current.Relations = false; };
+            _relationsCheck.Checked += delegate { if (_current != null && !_syncing) { _current.Relations = true; Record("+relations"); } };
+            _relationsCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Relations = false; Record("+relations"); } };
             sectionsFoot.Children.Add(_relationsCheck);
             DockPanel.SetDock(sectionsFoot, Dock.Bottom);
             sectionsDock.Children.Add(sectionsFoot);
@@ -151,15 +239,15 @@ namespace Marabook.App
                 Content = "Activer le suivi",
                 Margin = new Thickness(0, 0, 0, 4)
             };
-            _trackingCheck.Checked += delegate { if (_current != null && !_syncing) { _current.Tracking = true; RebuildScope(); } };
-            _trackingCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Tracking = false; RebuildScope(); } };
+            _trackingCheck.Checked += delegate { if (_current != null && !_syncing) { _current.Tracking = true; RebuildScope(); Record("+tracking"); } };
+            _trackingCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Tracking = false; RebuildScope(); Record("+tracking"); } };
             trackingHead.Children.Add(_trackingCheck);
             trackingHead.Children.Add(Note("La fiche compte ses noms (titre, nom, prénom, alias) dans les écrits : la section « Suivi » de la fiche et la présence du wiki.", 12));
             trackingHead.Children.Add(new TextBlock { Text = "Amplitude du suivi", Foreground = Chrome.Ink, FontWeight = FontWeight.SemiBold, FontSize = 13, Margin = new Thickness(0, 0, 0, 4) });
             trackingHead.Children.Add(new TextBlock { Text = "L'échelle où les noms sont cherchés — tous les écrits, ou seulement certains écrits, groupes ou livres de la Pile.", Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) });
             _scopeAll = new RadioButton { Content = "Tous les écrits", GroupName = "scope", Margin = new Thickness(0, 0, 0, 4) };
             _scopeSome = new RadioButton { Content = "Seulement ces écrits, groupes ou livres :", GroupName = "scope", Margin = new Thickness(0, 0, 0, 4) };
-            _scopeAll.Checked += delegate { if (_current != null && !_syncing) { _current.TrackingScope.Clear(); RebuildScope(); } };
+            _scopeAll.Checked += delegate { if (_current != null && !_syncing) { _current.TrackingScope.Clear(); RebuildScope(); Record("+scope"); } };
             _scopeSome.Checked += delegate { if (_current != null && !_syncing) RebuildScope(); };
             trackingHead.Children.Add(_scopeAll);
             trackingHead.Children.Add(_scopeSome);
@@ -174,8 +262,8 @@ namespace Marabook.App
                 Content = "Activer l'évolution",
                 Margin = new Thickness(0, 0, 0, 4)
             };
-            _evolutionCheck.Checked += delegate { if (_current != null && !_syncing) _current.Evolution = true; };
-            _evolutionCheck.Unchecked += delegate { if (_current != null && !_syncing) _current.Evolution = false; };
+            _evolutionCheck.Checked += delegate { if (_current != null && !_syncing) { _current.Evolution = true; Record("+evolution"); } };
+            _evolutionCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Evolution = false; Record("+evolution"); } };
             evolutionStack.Children.Add(_evolutionCheck);
             evolutionStack.Children.Add(Note("La section des étapes de la fiche, écrit par écrit ou en étapes libres nommées (« perd son bras », « apprend la vérité »…). Une fiche qui porte déjà des étapes les garde, section désactivée ou non.", 0));
             extras.Items.Add(new TabItem { Header = "Évolution", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = evolutionStack } });
@@ -224,20 +312,21 @@ namespace Marabook.App
                 if (_current.RadarAxes.Count == 0)
                     foreach (var name in SheetTemplate.DefaultRadarAxes) _current.RadarAxes.Add(new RadarAxis { Name = name });
                 RebuildAxes();
+                Record("+radar");
             };
-            _radarCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Radar = false; RebuildAxes(); } };
+            _radarCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Radar = false; RebuildAxes(); Record("+radar"); } };
             radarHead.Children.Add(_radarCheck);
             radarHead.Children.Add(Note("La fiche gagne un onglet « " + SheetTemplate.DefaultRadarName + " » (ou le nom choisi) : une toile à un axe par ligne ci-dessous.", 10));
             var radarNameRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
             radarNameRow.Children.Add(new TextBlock { Text = "Nom du graph", Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
             _radarName = new TextBox { Width = 220, [ToolTip.TipProperty] = "Le nom de l'onglet et de la section : « " + SheetTemplate.DefaultRadarName + " », « Traits », « Aptitudes »…" };
-            _radarName.TextChanged += delegate { if (_current != null && !_syncing) _current.RadarName = _radarName.Text; };
+            _radarName.TextChanged += delegate { if (_current != null && !_syncing) { _current.RadarName = _radarName.Text; Record("radar-name"); } };
             radarNameRow.Children.Add(_radarName);
             radarHead.Children.Add(radarNameRow);
             var scaleRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
             scaleRow.Children.Add(new TextBlock { Text = "Échelle : de 0 à", Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
             _radarMax = new SpinnerField(5, SheetTemplate.RadarMaxFloor, SheetTemplate.RadarMaxCeiling, 1, "Le maximum de chaque axe (3 à 10)");
-            _radarMax.ValueChanged += delegate(double value) { if (_current != null && !_syncing) _current.RadarMax = (int)value; };
+            _radarMax.ValueChanged += delegate(double value) { if (_current != null && !_syncing) { _current.RadarMax = (int)value; Record("radar-max"); } };
             scaleRow.Children.Add(_radarMax);
             radarHead.Children.Add(scaleRow);
             radarHead.Children.Add(new TextBlock { Text = "Les axes (trois au moins pour une toile)", Foreground = Chrome.FaintText, FontSize = 11, Margin = new Thickness(2, 0, 0, 4) });
@@ -251,6 +340,7 @@ namespace Marabook.App
                 if (_current == null) return;
                 _current.RadarAxes.Add(new RadarAxis { Name = "Axe " + (_current.RadarAxes.Count + 1) });
                 RebuildAxes();
+                Record("+axes");
             };
             DockPanel.SetDock(_addAxis, Dock.Bottom);
             radarDock.Children.Add(_addAxis);
@@ -281,6 +371,17 @@ namespace Marabook.App
 
             Content = root;
             FillList(null);
+            // L'ombre de départ, et Ctrl+Z / Ctrl+Y / Ctrl+Maj+Z captés avant
+            // les zones de texte (1.0.4).
+            _shadow = Clones(_templates);
+            _shadowPrint = Fingerprint(_templates);
+            AddHandler(KeyDownEvent, delegate(object sender, KeyEventArgs e)
+            {
+                if (!Ui.HasCommand(e.KeyModifiers)) return;
+                var shift = (e.KeyModifiers & KeyModifiers.Shift) == KeyModifiers.Shift;
+                if (e.Key == Key.Z && !shift) { UndoEdit(); e.Handled = true; }
+                else if (e.Key == Key.Y || (e.Key == Key.Z && shift)) { RedoEdit(); e.Handled = true; }
+            }, RoutingStrategies.Tunnel);
         }
 
         public static async Task<List<SheetTemplate>> Show(Window owner, List<SheetTemplate> source, Project project)
@@ -405,12 +506,14 @@ namespace Marabook.App
                     if (_syncing || _current == null) return;
                     if (!_current.TrackingScope.Contains(itemRef.Id)) _current.TrackingScope.Add(itemRef.Id);
                     RebuildScope();
+                    Record("+scope");
                 };
                 box.Unchecked += delegate
                 {
                     if (_syncing || _current == null) return;
                     _current.TrackingScope.Remove(itemRef.Id);
                     RebuildScope();
+                    Record("+scope");
                 };
                 _scopePanel.Children.Add(box);
                 AddScopeRows(child, depth + 1, enabled, covered || chosen);
@@ -433,11 +536,11 @@ namespace Marabook.App
                 var row = new DockPanel { Margin = new Thickness(0, 0, 0, 4), IsEnabled = on };
                 var remove = Buttons.Icon("trash", "Retirer cet axe (les fiches perdent sa valeur)", Buttons.Compact, Buttons.Look.Calm);
                 remove.Margin = new Thickness(6, 0, 0, 0);
-                remove.Click += delegate { _current.RadarAxes.Remove(axisRef); RebuildAxes(); };
+                remove.Click += delegate { _current.RadarAxes.Remove(axisRef); RebuildAxes(); Record("+axes"); };
                 DockPanel.SetDock(remove, Dock.Right);
                 row.Children.Add(remove);
                 var nameBox = new TextBox { Text = axis.Name, MaxWidth = 320, HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 220 };
-                nameBox.TextChanged += delegate { axisRef.Name = nameBox.Text; };
+                nameBox.TextChanged += delegate { axisRef.Name = nameBox.Text; Record("axis:" + axisRef.Id); };
                 row.Children.Add(nameBox);
                 _axesPanel.Children.Add(row);
             }
@@ -451,6 +554,7 @@ namespace Marabook.App
             var name = (_nameBox.Text ?? "").Trim();
             if (name.Length > 0) _current.Name = name;
             if (_currentEntry != null) _currentEntry.Content = _current.Name;
+            Record("name:" + _current.Id);
         }
 
         // ------------------------------------------------------------ sections
@@ -487,6 +591,7 @@ namespace Marabook.App
                     if (string.Equals(field.Group, name, StringComparison.CurrentCultureIgnoreCase)) field.Group = "";
                 RebuildSections();
                 RebuildFields();
+                Record("+sections");
             };
             DockPanel.SetDock(remove, Dock.Right);
             row.Children.Add(remove);
@@ -502,6 +607,7 @@ namespace Marabook.App
                 foreach (var field in _current.Fields)
                     if (string.Equals(field.Group, previous, StringComparison.CurrentCultureIgnoreCase)) field.Group = next;
                 previous = next;
+                Record("section:" + index);
             };
             nameBox.LostFocus += delegate { RebuildFields(); }; // les menus déroulants des champs suivent
             row.Children.Add(nameBox);
@@ -524,6 +630,7 @@ namespace Marabook.App
             _current.Sections.Add(name);
             RebuildSections();
             RebuildFields();
+            Record("+sections");
         }
 
         // ------------------------------------------------------------ champs
@@ -595,7 +702,7 @@ namespace Marabook.App
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
 
             var nameBox = new TextBox { Text = field.Name, Margin = new Thickness(0, 0, 6, 0) };
-            nameBox.TextChanged += delegate { field.Name = nameBox.Text; };
+            nameBox.TextChanged += delegate { field.Name = nameBox.Text; Record("field:" + field.Id); };
             Grid.SetColumn(nameBox, 0);
             row.Children.Add(nameBox);
 
@@ -610,6 +717,7 @@ namespace Marabook.App
                 var chosen = FieldKinds.All[kindCombo.SelectedIndex];
                 if (chosen == field.Kind) return;
                 field.Kind = chosen;
+                Record("+fields");
                 Ui.Post(DispatcherPriority.Normal, (Action)RebuildFields); // la rangée d'options apparaît ou disparaît
             };
             Grid.SetColumn(kindCombo, 1);
@@ -628,6 +736,7 @@ namespace Marabook.App
                 // liste modèle comme à l'écran (b43). Reconstruction différée :
                 // on ne détruit pas le ComboBox pendant son propre événement.
                 MoveFieldToSectionEnd(field);
+                Record("+fields");
                 Ui.Post(DispatcherPriority.Normal, (Action)RebuildFields);
             };
             Grid.SetColumn(sectionCombo, 2);
@@ -638,6 +747,7 @@ namespace Marabook.App
             {
                 _current.Fields.Remove(field);
                 RebuildFields();
+                Record("+fields");
             };
             Grid.SetColumn(remove, 3);
             row.Children.Add(remove);
@@ -651,7 +761,7 @@ namespace Marabook.App
             DockPanel.SetDock(label, Dock.Left);
             optionsRow.Children.Add(label);
             var optionsBox = new TextBox { Text = FieldKinds.JoinOptions(field.Options), [ToolTip.TipProperty] = "Les valeurs proposées, séparées par des virgules : « vivant, mort, disparu »" };
-            optionsBox.TextChanged += delegate { field.Options = FieldKinds.ListItems(optionsBox.Text); };
+            optionsBox.TextChanged += delegate { field.Options = FieldKinds.ListItems(optionsBox.Text); Record("options:" + field.Id); };
             optionsRow.Children.Add(optionsBox);
             stack.Children.Add(optionsRow);
             return stack;
@@ -673,6 +783,7 @@ namespace Marabook.App
             if (_current == null) return;
             _current.Fields.Add(new SheetField { Name = "Champ" });
             RebuildFields();
+            Record("+fields");
         }
 
         // ------------------------------------------------------------ modèles
@@ -684,6 +795,7 @@ namespace Marabook.App
             template.Fields.Add(new SheetField { Name = "Description", Kind = "multiline" });
             _templates.Add(template);
             FillList(template.Id);
+            Record("+templates");
         }
 
         private void DuplicateTemplate()
@@ -698,6 +810,7 @@ namespace Marabook.App
             // template to its copy keep their values.
             _templates.Insert(_templates.IndexOf(source) + 1, copy);
             FillList(copy.Id);
+            Record("+templates");
         }
 
         private async void DeleteTemplate()
@@ -712,6 +825,7 @@ namespace Marabook.App
             _current = null;
             _templates.Remove(template);
             FillList(null);
+            Record("+templates");
         }
     }
 

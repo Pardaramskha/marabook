@@ -1347,6 +1347,18 @@ namespace Marabook.App
                 UpdateInspector();
                 return;
             }
+            // La structure des fiches (1.0.4) : modèles validés, catégorie
+            // créée, renommée, rebasée ou supprimée — la fiche ouverte se
+            // recharge (son modèle a pu changer), la bibliothèque et la Pile suivent.
+            if (action is History.SheetStructureAction)
+            {
+                MarkDirty();
+                if (_sheetView.IsVisible) _sheetView.ReloadAfterHistory();
+                if (_sheetLibrary.IsVisible) _sheetLibrary.Refresh();
+                _binder.Rebuild();
+                UpdateInspector();
+                return;
+            }
             // Les restaurations (b38) : même règle du document ouvert.
             var restore = action as History.RestoreSnapshotAction;
             var restoreParagraph = action as History.RestoreParagraphAction;

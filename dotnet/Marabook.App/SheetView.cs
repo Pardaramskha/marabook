@@ -15,6 +15,7 @@ using Avalonia.VisualTree;
 
 using Marabook.History;
 using Marabook.Model;
+using AppSettings = Marabook.Settings.AppSettings; // l'alias seul : Settings.KeyModifiers heurterait celui d'Avalonia
 
 namespace Marabook.App
 {
@@ -95,6 +96,16 @@ namespace Marabook.App
         public HistoryManager History;
         private SheetSnapshot _shadow;
         private static readonly TimeSpan MergeWindow = TimeSpan.FromSeconds(1.5);
+        // Le correcteur orthographique du corps Markdown (1.0.4) : le même
+        // moteur et les mêmes dictionnaires personnels que l'éditeur, une
+        // passe synchrone un peu après la frappe (quelques millisecondes :
+        // ~1 µs par mot), l'ondulé dessiné par SpellOverlay, le menu
+        // contextuel sur un mot souligné (suggestions, ignorer, apprendre).
+        private Correction.SpellChecker _spell;
+        private bool _spellTried;
+        private SpellOverlay _spellOverlay;
+        private readonly DispatcherTimer _spellTimer;
+        private readonly HashSet<string> _spellIgnoredHere = new HashSet<string>();
 
         public event Action Edited;
         public event Action<string> LinkClicked;
@@ -295,6 +306,20 @@ namespace Marabook.App
                 _item.Document = TextDocument.FromPlainText(_bodyBox.Text);
                 NotifyEdited();
             };
+            // Le correcteur (1.0.4) : 450 ms après la dernière frappe.
+            _spellTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+            _spellTimer.Tick += delegate { _spellTimer.Stop(); RunSpell(); };
+            _bodyBox.TextChanged += delegate { if (!_loading) { _spellTimer.Stop(); _spellTimer.Start(); } };
+            // Le clic droit sur un mot souligné : son menu, avant que le
+            // TextBox ne prenne le geste (tunnel).
+            _bodyBox.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e)
+            {
+                if (!e.GetCurrentPoint(_bodyBox).Properties.IsRightButtonPressed || _spellOverlay == null) return;
+                var finding = _spellOverlay.FindingAt(e.GetPosition(_bodyBox));
+                if (finding == null) return;
+                e.Handled = true;
+                ShowSpellMenu(finding);
+            }, RoutingStrategies.Tunnel);
             _bodyBox.AddHandler(InputElement.PointerWheelChangedEvent, delegate(object sender, PointerWheelEventArgs e)
             {
                 if (!Ui.HasCommand(e.KeyModifiers)) return;
@@ -377,6 +402,10 @@ namespace Marabook.App
             _bodySplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0) });
             Grid.SetColumn(_bodyBox, 0);
             _bodySplit.Children.Add(_bodyBox);
+            // L'ondulé du correcteur, par-dessus la zone (même case, 1.0.4).
+            _spellOverlay = new SpellOverlay(_bodyBox);
+            Grid.SetColumn(_spellOverlay, 0);
+            _bodySplit.Children.Add(_spellOverlay);
             var divider = new Border { Width = 1, Background = Chrome.Border, IsVisible = false };
             Grid.SetColumn(divider, 1);
             _bodySplit.Children.Add(divider);
@@ -1850,6 +1879,8 @@ namespace Marabook.App
             _bodyBox.IsUndoEnabled = true;
             _loading = false;
             _shadow = SheetSnapshot.Capture(_project, item); // l'état de départ du Ctrl+Z (1.0.4)
+            _spellIgnoredHere.Clear();
+            RunSpell(); // le corps vérifié à l'ouverture (1.0.4)
             SetMirror(_mirrorMode); // le mode choisi suit d'une fiche à l'autre
             RefreshDictionaryBadge();
             if (_previewToggle.IsChecked == true) ShowPreview();
@@ -1869,6 +1900,7 @@ namespace Marabook.App
             _shadow = null;
             _loading = true;
             _bodyBox.Text = "";
+            if (_spellOverlay != null) _spellOverlay.SetFindings(null);
             _loading = false;
             _portrait.IsVisible = false;
             _portraitPlaceholder.IsVisible = true;
@@ -2176,6 +2208,169 @@ namespace Marabook.App
             _bodyBox.Text = (_bodyBox.Text ?? "").Substring(0, at) + text + (_bodyBox.Text ?? "").Substring(at + (_bodyBox.SelectionEnd - _bodyBox.SelectionStart));
             _bodyBox.SelectionStart = at + text.Length;
             _bodyBox.Focus();
+        }
+
+        // ================================================== correcteur (1.0.4)
+
+        /// <summary>Le correcteur, chargé à la première demande (null sans
+        /// dictionnaire embarqué : la vérification se retire sans bruit).</summary>
+        private Correction.SpellChecker Spell()
+        {
+            if (_spellTried) return _spell;
+            _spellTried = true;
+            var engine = Correction.SpellDictionary.Default;
+            if (engine != null) _spell = new Correction.SpellChecker(engine);
+            return _spell;
+        }
+
+        /// <summary>La passe sur le corps : le Markdown masqué (liens wiki,
+        /// code, adresses — autant de faux positifs), les mots ignorés et
+        /// appris écartés, l'ondulé posé. Rien si la vérification est
+        /// coupée dans les Préférences.</summary>
+        private void RunSpell()
+        {
+            if (_spellOverlay == null) return;
+            if (_item == null || !AppSettings.ProofEnabled || !AppSettings.SpellEnabled) { _spellOverlay.SetFindings(null); return; }
+            var checker = Spell();
+            if (checker == null) { _spellOverlay.SetFindings(null); return; }
+            checker.ProjectWords = _project != null ? _project.Lexicon : new List<LexiconEntry>();
+            checker.GlobalWords = AppSettings.Lexicon;
+            checker.InvalidateLearned(); // les dictionnaires ont pu bouger (Dictionnaire, autre fiche)
+            var text = _bodyBox.Text ?? "";
+            var findings = checker.CheckText(MaskMarkdown(text));
+            // Les NOMS des fiches du projet (titre, nom, prénom, alias — ceux
+            // que le Suivi compte) ne rougissent pas : ce sont des noms
+            // choisis, pas des fautes — et d'abord celui de la fiche ouverte.
+            var known = new HashSet<string>();
+            if (_project != null)
+                foreach (var other in _project.AllItems())
+                {
+                    if (other.Kind != ItemKind.Sheet) continue;
+                    foreach (var name in Presence.NamesOf(other, _project.FindTemplate(other.TemplateId)))
+                        foreach (var token in Correction.FrenchTokenizer.Tokenize(name))
+                            if (token.Kind == Correction.TokenKind.Word) known.Add(Correction.FrenchTokenizer.Fold(token.CoreSurface));
+                }
+            var kept = new List<Correction.Finding>();
+            foreach (var finding in findings)
+            {
+                var key = Correction.FrenchTokenizer.Fold(finding.Word);
+                if (_spellIgnoredHere.Contains(key) || known.Contains(key)) continue;
+                if (IgnoredIn(_project != null ? _project.ProofIgnored : null, key) || IgnoredIn(AppSettings.ProofIgnored, key)) continue;
+                kept.Add(finding);
+            }
+            _spellOverlay.SetFindings(kept);
+        }
+
+        private static bool IgnoredIn(List<string> list, string key)
+        {
+            if (list == null) return false;
+            foreach (var word in list) if (Correction.FrenchTokenizer.Fold(word) == key) return true;
+            return false;
+        }
+
+        /// <summary>Le Markdown qui n'est pas de la prose, remplacé par des
+        /// espaces (mêmes longueurs : les offsets tiennent) : blocs et
+        /// portées de code, liens wiki [[…]] (des noms de fiches), adresses
+        /// des liens et URL nues, balises &lt;u&gt;.</summary>
+        internal static string MaskMarkdown(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text ?? "";
+            MatchEvaluator blank = delegate(Match m) { return new string(' ', m.Length); };
+            text = Regex.Replace(text, @"```[\s\S]*?(```|$)", blank);
+            text = Regex.Replace(text, @"`[^`\n]*`", blank);
+            text = Regex.Replace(text, @"\[\[[^\]\n]*\]\]", blank);
+            text = Regex.Replace(text, @"\]\([^)\n]*\)", blank);
+            text = Regex.Replace(text, @"https?://\S+", blank);
+            text = Regex.Replace(text, @"</?u>", blank);
+            return text;
+        }
+
+        /// <summary>Le menu d'un mot souligné : les suggestions (calculées
+        /// ici, en cache), « Ignorer ici », « Ignorer dans ce projet »,
+        /// « Ajouter au dictionnaire » de ce projet ou de tous — les mêmes
+        /// gestes que l'éditeur, avec le même dialogue d'entrée.</summary>
+        private void ShowSpellMenu(Correction.Finding finding)
+        {
+            var checker = Spell();
+            if (checker == null || _item == null) return;
+            var menu = new ContextMenu();
+            var suggestions = checker.Suggestions(finding.Word);
+            var shown = 0;
+            foreach (var suggestion in suggestions)
+            {
+                if (shown++ >= 8) break;
+                var suggestionRef = suggestion;
+                var apply = new MenuItem { Header = suggestion, FontWeight = FontWeight.SemiBold };
+                apply.Click += delegate { ReplaceBodyRange(finding.Start, finding.Length, suggestionRef); };
+                menu.Items.Add(apply);
+            }
+            if (shown == 0) menu.Items.Add(new MenuItem { Header = "Aucune suggestion", IsEnabled = false });
+            menu.Items.Add(new Separator());
+            var here = new MenuItem { Header = "Ignorer ici", [ToolTip.TipProperty] = "Tait ce mot sur cette fiche, pour cette session" };
+            here.Click += delegate { _spellIgnoredHere.Add(Correction.FrenchTokenizer.Fold(finding.Word)); RunSpell(); };
+            menu.Items.Add(here);
+            var inProject = new MenuItem
+            {
+                Header = "Ignorer « " + finding.Word + " » dans ce projet",
+                [ToolTip.TipProperty] = "Le mot ne sera plus signalé dans ce projet (liste enregistrée avec lui)"
+            };
+            inProject.Click += delegate
+            {
+                if (_project != null && !IgnoredIn(_project.ProofIgnored, Correction.FrenchTokenizer.Fold(finding.Word)))
+                    _project.ProofIgnored.Add(finding.Word);
+                NotifyEdited();
+                RunSpell();
+            };
+            menu.Items.Add(inProject);
+            var learn = new MenuItem { Header = "Ajouter « " + finding.Word + " » au dictionnaire" };
+            var ofProject = new MenuItem { Header = "De ce projet", [ToolTip.TipProperty] = "Le mot est enseigné pour CE roman (enregistré dans le .plot)" };
+            ofProject.Click += delegate { var _ = LearnWord(finding.Word, true); };
+            learn.Items.Add(ofProject);
+            var everywhere = new MenuItem { Header = "De tous les projets", [ToolTip.TipProperty] = "Le mot est enseigné partout (réglages de l'application)" };
+            everywhere.Click += delegate { var _ = LearnWord(finding.Word, false); };
+            learn.Items.Add(everywhere);
+            menu.Items.Add(learn);
+            menu.PlacementTarget = _bodyBox;
+            Ui.ShowMenu(menu, _bodyBox);
+        }
+
+        private async Task LearnWord(string word, bool projectScope)
+        {
+            var checker = Spell();
+            if (checker == null) return;
+            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), word, projectScope);
+            if (entry == null) return;
+            var list = projectScope ? checker.ProjectWords : checker.GlobalWords;
+            var existing = LexiconEntry.Find(list, entry.Word);
+            if (existing != null) list.Remove(existing);
+            list.Add(entry);
+            if (projectScope) NotifyEdited(); else AppSettings.Save();
+            var handler = LexiconChanged;
+            if (handler != null) handler();
+            RefreshDictionaryBadge();
+            RunSpell();
+        }
+
+        /// <summary>Remplace un passage du corps (une suggestion appliquée),
+        /// le caret posé après lui.</summary>
+        private void ReplaceBodyRange(int start, int length, string replacement)
+        {
+            var text = _bodyBox.Text ?? "";
+            if (start < 0 || start + length > text.Length) return;
+            _bodyBox.Text = text.Substring(0, start) + replacement + text.Substring(start + length);
+            _bodyBox.CaretIndex = start + replacement.Length;
+            _bodyBox.Focus();
+            RunSpell();
+        }
+
+        /// <summary>Pour la sonde : la passe tout de suite, et le nombre de
+        /// mots soulignés (-1 sans dictionnaire).</summary>
+        internal int SpellNowForProbe()
+        {
+            if (Spell() == null) return -1;
+            _spellTimer.Stop();
+            RunSpell();
+            return _spellOverlay == null ? -1 : _spellOverlay.Findings.Count;
         }
 
         private void NotifyEdited()

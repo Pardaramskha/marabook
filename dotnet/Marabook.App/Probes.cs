@@ -731,6 +731,25 @@ namespace Marabook.App
                         shell.UndoPublic();
                         await Settle();
                     }
+
+                    // — Le correcteur du corps (1.0.4) : le Markdown masqué à
+                    // longueur constante, puis, dictionnaire présent, deux mots
+                    // inconnus soulignés et pas le nom de fiche entre [[ ]].
+                    var masked = SheetView.MaskMarkdown("Voir [[Kaladinn]] et `kode` sur https://exemple.fr/x puis [lien](https://a.b) fin");
+                    Check(masked.Length == "Voir [[Kaladinn]] et `kode` sur https://exemple.fr/x puis [lien](https://a.b) fin".Length
+                        && !masked.Contains("Kaladinn") && !masked.Contains("kode") && !masked.Contains("exemple") && !masked.Contains("a.b") && masked.Contains("Voir") && masked.Contains("fin"),
+                        "le masque Markdown efface liens wiki, code et adresses sans bouger les offsets");
+                    if (sheetView != null && sheetView.HasItem && sheetView.BodyBox != null)
+                    {
+                        var kept = sheetView.BodyBox.Text;
+                        sheetView.BodyBox.Text = "Un tezte avec une fôte et [[Kaladinn]] dedans.";
+                        await Settle();
+                        var count = sheetView.SpellNowForProbe();
+                        if (count < 0) Console.WriteLine("  [sonde] dictionnaire absent à côté de l'exécutable : correcteur des fiches sauté");
+                        else Check(count == 2, "le corps de la fiche souligne « tezte » et « fôte », pas le lien wiki (" + count + " signalement(s))");
+                        sheetView.BodyBox.Text = kept;
+                        await Settle();
+                    }
                 }
 
                 // — Un lien du Texte libre sur une ligne RENVOYÉE répond sous
