@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -146,7 +147,7 @@ namespace Marabook.App
             _previewToggle = new ToggleButton
             {
                 Classes = { Marabook.App.Theme.Owned },
-                Content = "📖  Mode wiki",
+                Content = Icons.Label("apercu-wiki", "Mode wiki", 13, Chrome.Ink), // une icône du jeu : l'emoji 📖 sortait en « ??? » sur macOS (07/10)
                 FontWeight = FontWeight.SemiBold,
                 Padding = new Thickness(12, 4, 12, 4),
                 [ToolTip.TipProperty] = "Voir la fiche en lecture, comme une page de wiki"
@@ -314,11 +315,15 @@ namespace Marabook.App
             // TextBox ne prenne le geste (tunnel).
             _bodyBox.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e)
             {
-                if (!e.GetCurrentPoint(_bodyBox).Properties.IsRightButtonPressed || _spellOverlay == null) return;
-                var finding = _spellOverlay.FindingAt(e.GetPosition(_bodyBox));
-                if (finding == null) return;
+                if (!e.GetCurrentPoint(_bodyBox).Properties.IsRightButtonPressed) return;
+                var finding = _spellOverlay == null ? null : _spellOverlay.FindingAt(e.GetPosition(_bodyBox));
+                if (finding != null) { e.Handled = true; ShowSpellMenu(finding); return; }
+                // Le [[lien]] sous le clic droit (07/10) : ouvrir, modifier, retirer.
+                var index = BodyIndexAt(e.GetPosition(_bodyBox));
+                var link = index < 0 ? null : Links.At(_bodyBox.Text ?? "", index);
+                if (link == null) return;
                 e.Handled = true;
-                ShowSpellMenu(finding);
+                ShowLinkMenu(link, index);
             }, RoutingStrategies.Tunnel);
             _bodyBox.AddHandler(InputElement.PointerWheelChangedEvent, delegate(object sender, PointerWheelEventArgs e)
             {
@@ -1535,13 +1540,14 @@ namespace Marabook.App
             bar.Children.Add(IconTool("list-numbers-bold", "Liste numérotée", delegate { ApplyList("num"); }));
             bar.Children.Add(IconTool("list-dashes-bold", "Liste à tirets", delegate { ApplyList("tiret"); }));
             bar.Children.Add(IconTool("list-check", "Liste de tâches (cases à cocher)", delegate { ApplyList("case"); }));
-            bar.Children.Add(TextTool("❝", "Citation", delegate { ApplyQuote(); }));
+            bar.Children.Add(TextTool("« »", "Citation", delegate { ApplyQuote(); })); // « ❝ » et « 🔗 » sortaient en « ? » sur macOS (07/10)
             bar.Children.Add(Gap());
             bar.Children.Add(IconTool("tableau-recherche", "Insérer un tableau", delegate { InsertTable(); }));
             bar.Children.Add(IconTool("horizontal-rule", "Filet horizontal", delegate { InsertRule(); }));
-            bar.Children.Add(TextTool("🔗", "Lien hypertexte", delegate { InsertLink(); }));
+            bar.Children.Add(IconTool("connection", "Lien hypertexte", delegate { InsertLink(); }));
             bar.Children.Add(IconTool("image-square-bold", "Image", delegate { InsertImage(); }));
-            bar.Children.Add(IconTool("fiche-individual", "Lien vers une fiche (" + Ui.Keys("Ctrl+K") + ")", delegate { Wrap("[[", "]]"); }));
+            // Le dialogue du lien (07/10), cible et texte — plus de « [[ ]] » nus autour de la sélection.
+            bar.Children.Add(IconTool("fiche-individual", "Lien vers une fiche (" + Ui.Keys("Ctrl+K") + ")", delegate { var h = LinkEditRequested; if (h != null) h(); }));
             return bar;
         }
 
@@ -2188,9 +2194,9 @@ namespace Marabook.App
         }
 
         public void InsertFootnote() { } // les fiches n'ont pas de notes de bas de page
-        /// <summary>Le [[lien]] garde l'expression sélectionnée comme texte
-        /// (« [[Cible|expression]] », 18/09).</summary>
-        public void InsertWikiLink(string title) { InsertAtCaret(Links.Markup(title, _bodyBox.SelectedText)); }
+        /// <summary>L'ancienne forme (18/09) : l'expression sélectionnée
+        /// devient le texte du lien — voir ApplyWikiLink (07/10).</summary>
+        public void InsertWikiLink(string title) { ApplyWikiLink(title, _bodyBox.SelectedText); }
         public void InsertImage() { InsertAtCaret("![description](adresse)"); }
         public void InsertRule() { InsertAtCaret("\n---\n"); }
         public void InsertSeparator()
@@ -2204,10 +2210,100 @@ namespace Marabook.App
         {
             if (_item == null) return;
             LeavePreview();
-            var at = _bodyBox.SelectionStart;
-            _bodyBox.Text = (_bodyBox.Text ?? "").Substring(0, at) + text + (_bodyBox.Text ?? "").Substring(at + (_bodyBox.SelectionEnd - _bodyBox.SelectionStart));
-            _bodyBox.SelectionStart = at + text.Length;
+            // La sélection ORDONNÉE (07/10) : tirée à rebours, SelectionEnd
+            // précède SelectionStart et la longueur devenait négative.
+            int at, length;
+            OrderedSelection(out at, out length);
+            var whole = _bodyBox.Text ?? "";
+            at = Math.Min(at, whole.Length);
+            length = Math.Min(length, whole.Length - at);
+            _bodyBox.Text = whole.Substring(0, at) + text + whole.Substring(at + length);
+            Ui.Select(_bodyBox, at + text.Length, 0);
             _bodyBox.Focus();
+        }
+
+        // ================================================== liens (refonte 07/10)
+
+        public event Action LinkEditRequested; // bouton de la barre, menu du clic droit : la coquille ouvre le dialogue
+
+        /// <summary>L'expression sélectionnée du corps (le texte proposé pour un lien neuf).</summary>
+        public string SelectedBodyText() { return _bodyBox.SelectedText ?? ""; }
+
+        /// <summary>Le [[lien]] sous le caret (marques comprises), sinon null ;
+        /// une sélection qui en déborde n'en désigne pas un.</summary>
+        public Link LinkAtCaret()
+        {
+            if (_item == null) return null;
+            int start, length;
+            OrderedSelection(out start, out length);
+            var link = Links.At(_bodyBox.Text ?? "", start);
+            if (link != null && start + length > link.End) link = null;
+            return link;
+        }
+
+        /// <summary>Pose un [[lien]] : le lien sous le caret est réécrit (cible
+        /// et texte), sinon la notation remplace la sélection ou s'insère.</summary>
+        public void ApplyWikiLink(string target, string text)
+        {
+            if (_item == null || string.IsNullOrEmpty(target)) return;
+            LeavePreview();
+            var markup = Links.Markup(target, text);
+            var link = LinkAtCaret();
+            if (link == null) { InsertAtCaret(markup); return; }
+            Ui.Select(_bodyBox, link.Start, link.End - link.Start);
+            _bodyBox.SelectedText = markup;
+            Ui.Select(_bodyBox, link.Start + markup.Length, 0);
+            _bodyBox.Focus();
+        }
+
+        /// <summary>Retire le [[lien]] sous le caret : les mots restent.</summary>
+        public bool RemoveLinkAtCaret()
+        {
+            var link = LinkAtCaret();
+            if (link == null) return false;
+            LeavePreview();
+            Ui.Select(_bodyBox, link.Start, link.End - link.Start);
+            _bodyBox.SelectedText = link.Text;
+            Ui.Select(_bodyBox, link.Start + link.Text.Length, 0);
+            _bodyBox.Focus();
+            return true;
+        }
+
+        /// <summary>L'offset du corps sous un point du TextBox (sa disposition
+        /// de texte), −1 hors du texte.</summary>
+        private int BodyIndexAt(Point pointInBox)
+        {
+            var presenter = _bodyBox.FindDescendantOfType<TextPresenter>();
+            if (presenter == null || presenter.TextLayout == null) return -1;
+            var inPresenter = _bodyBox.TranslatePoint(pointInBox, presenter);
+            if (inPresenter == null) return -1;
+            var hit = presenter.TextLayout.HitTestPoint(inPresenter.Value);
+            return hit.IsInside ? hit.TextPosition : -1;
+        }
+
+        /// <summary>Le menu d'un lien du corps (07/10) : ouvrir la cible,
+        /// modifier (le dialogue de la coquille, le caret posé dans le lien),
+        /// retirer (les mots restent).</summary>
+        private void ShowLinkMenu(Link link, int index)
+        {
+            var menu = new ContextMenu();
+            var target = link.Target;
+            var open = new MenuItem { Header = "Ouvrir « " + target + " »" };
+            open.Click += delegate { var h = LinkClicked; if (h != null) h(target); };
+            menu.Items.Add(open);
+            var editLink = new MenuItem { Header = "Modifier le lien…", [ToolTip.TipProperty] = "La fiche visée et le texte affiché" };
+            editLink.Click += delegate
+            {
+                Ui.Select(_bodyBox, index, 0);
+                var h = LinkEditRequested;
+                if (h != null) h();
+            };
+            menu.Items.Add(editLink);
+            var remove = new MenuItem { Header = "Retirer le lien", [ToolTip.TipProperty] = "Les mots restent, le renvoi tombe" };
+            remove.Click += delegate { Ui.Select(_bodyBox, index, 0); RemoveLinkAtCaret(); };
+            menu.Items.Add(remove);
+            menu.PlacementTarget = _bodyBox;
+            Ui.ShowMenu(menu, _bodyBox);
         }
 
         // ================================================== correcteur (1.0.4)

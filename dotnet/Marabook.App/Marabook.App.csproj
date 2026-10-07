@@ -40,4 +40,11 @@
     <AvaloniaResource Include="..\..\tools\app.ico" Link="Assets\app.ico" />
   </ItemGroup>
 
+  <!-- Les patch notes de chaque version (patchnotes/<VERSION>.md, le texte
+       de Rémi) voyagent dans l'assembly : Aide › Nouveautés les relit hors
+       ligne pour la version installée (07/10). CONVENTION.md n'en est pas. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\patchnotes\*.md" Exclude="..\..\patchnotes\CONVENTION.md" LogicalName="patchnotes/%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

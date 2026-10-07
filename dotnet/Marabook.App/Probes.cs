@@ -69,6 +69,30 @@ namespace Marabook.App
                 Check(shell.Title.Contains("Marabook"), "le titre de la fenêtre nomme l'application (" + shell.Title + ")");
                 Check(shell.StatusText.Length > 0, "la barre d'état dit quelque chose (" + shell.StatusText + ")");
 
+                // — Le caret de repli de la Pile (07/10) : la Pile resserrée à
+                //   96 px, il reste posé au bord droit de la ligne Accueil, dans
+                //   la fenêtre (avant, l'arbre mesuré à largeur infinie le
+                //   laissait filer sous le bord).
+                {
+                    var wideBefore = AppSettings.BinderWidth;
+                    shell.SetBinderWidthForProbe(96);
+                    await Settle();
+                    Border toggle = null;
+                    foreach (var border in shell.Binder.GetVisualDescendants().OfType<Border>())
+                        if ((ToolTip.GetTip(border) as string) == "Replier la Pile") { toggle = border; break; }
+                    var binderWidth = shell.Binder.Bounds.Width;
+                    var rightEdge = -1.0;
+                    if (toggle != null)
+                    {
+                        var corner = toggle.TranslatePoint(new Point(toggle.Bounds.Width, 0), shell.Binder);
+                        if (corner != null) rightEdge = corner.Value.X;
+                    }
+                    Check(toggle != null && toggle.Bounds.Width > 8 && rightEdge > binderWidth - 40 && rightEdge <= binderWidth + 0.5,
+                        "Pile resserrée à 96 px : le caret de repli reste visible au bord droit (bord à " + rightEdge.ToString("0") + " px sur " + binderWidth.ToString("0") + ")");
+                    shell.SetBinderWidthForProbe(wideBefore);
+                    await Settle();
+                }
+
                 // — P2 : l'éditeur composé sur l'écrit sélectionné.
                 var editor = shell.Editor;
                 Check(editor.IsVisible && chapter != null && editor.ShowsItem(chapter), "l'écrit s'ouvre dans l'éditeur composé");
@@ -103,6 +127,41 @@ namespace Marabook.App
                 Check(bold, "tout sélectionner + gras : le premier run est en gras");
                 Check(composed.Undo() && !(document.Paragraphs[0].Runs.Count > 0 && document.Paragraphs[0].Runs[0].Bold == true), "…et Ctrl+Z le rend");
                 composed.PlaceCaret(0, 0, false);
+
+                // — Les liens refondus (07/10) : l'expression sélectionnée
+                //   devient le texte du lien avec la cible choisie ; sous le
+                //   caret, le lien se relit, se réécrit (cible, texte) et se
+                //   retire en gardant les mots ; à l'export rien ne dépasse.
+                {
+                    composed.TypeText("Voir elle ici. ");
+                    composed.SelectRange(0, 5, 9); // « elle »
+                    composed.ApplyWikiLink("Keira Varenh", "elle");
+                    await Settle();
+                    var flat = PivotEdit.FlatText(document.Paragraphs[0]);
+                    Check(flat.StartsWith("Voir [[Keira Varenh|elle]] ici. "), "éditeur : la sélection devient le texte d'un lien à cible (« " + flat.Substring(0, Math.Min(34, flat.Length)) + " »)");
+                    composed.PlaceCaret(0, 8, false);
+                    int linkParagraph;
+                    var atCaret = composed.LinkAtCaret(out linkParagraph);
+                    Check(atCaret != null && atCaret.Target == "Keira Varenh" && atCaret.Text == "elle", "éditeur : le lien sous le caret se relit (cible et texte)");
+                    composed.ApplyWikiLink("Keira Varenh", "la capitaine");
+                    await Settle();
+                    flat = PivotEdit.FlatText(document.Paragraphs[0]);
+                    Check(flat.StartsWith("Voir [[Keira Varenh|la capitaine]] ici. "), "éditeur : le lien sous le caret est réécrit avec son nouveau texte");
+                    Check(Links.Strip(flat).StartsWith("Voir la capitaine ici. "), "éditeur : à l'export seul le texte choisi reste");
+                    composed.PlaceCaret(0, 8, false);
+                    var removed = composed.RemoveLinkAtCaret();
+                    await Settle();
+                    flat = PivotEdit.FlatText(document.Paragraphs[0]);
+                    Check(removed && flat.StartsWith("Voir la capitaine ici. "), "éditeur : retirer le lien garde les mots");
+                    composed.PlaceCaret(0, 2, false);
+                    composed.SelectRange(0, 0, 4); // « Voir », pas un lien
+                    int noParagraph;
+                    Check(composed.LinkAtCaret(out noParagraph) == null, "éditeur : hors d'un lien, rien à modifier");
+                    composed.ReplaceRange(0, 0, "Voir la capitaine ici. ".Length, "");
+                    await Settle();
+                    Check(document.Paragraphs[0].ToPlainText() == original, "éditeur : le texte de la sonde est retiré (« " + document.Paragraphs[0].ToPlainText().Substring(0, Math.Min(20, document.Paragraphs[0].ToPlainText().Length)) + "… »)");
+                    composed.PlaceCaret(0, 0, false);
+                }
 
                 // — La géométrie suit la disposition (hotfix 1.0.3-a) : sur un
                 // écrit de dizaines de pages, le caret et la sélection posés à
@@ -686,6 +745,22 @@ namespace Marabook.App
                         Check(continued && box.Text == "* item\n* " && box.CaretIndex == box.Text.Length, "Markdown : Entrée dans une liste à puces ajoute la puce suivante (« " + box.Text.Replace("\n", "⏎") + " »)");
                         continued = sheetView.ContinueList();
                         Check(continued && box.Text == "* item\n" && box.CaretIndex == box.Text.Length, "Markdown : Entrée sur la puce vide la retire (« " + box.Text.Replace("\n", "⏎") + " »)");
+                        // — Les liens refondus (07/10) dans le corps de la fiche.
+                        box.Text = "Voir Keira Varenh ici.";
+                        Ui.Select(box, 5, 12); // « Keira Varenh »
+                        var sheetTitles = shell.Project.AllItems().Where(delegate(BinderItem i) { return i.Kind == ItemKind.Sheet; }).Select(delegate(BinderItem i) { return i.Title; }).ToList();
+                        Check(Links.MatchTitle(sheetView.SelectedBodyText(), sheetTitles) == "Keira Varenh", "fiche : l'expression sélectionnée désigne la fiche Keira (cible proposée)");
+                        sheetView.ApplyWikiLink("Keira Varenh", "elle");
+                        Check(box.Text == "Voir [[Keira Varenh|elle]] ici.", "fiche : la sélection devient le texte du lien (« " + box.Text + " »)");
+                        Ui.Select(box, 10, 0);
+                        var sheetLink = sheetView.LinkAtCaret();
+                        Check(sheetLink != null && sheetLink.Target == "Keira Varenh" && sheetLink.Text == "elle", "fiche : le lien sous le caret se relit");
+                        sheetView.ApplyWikiLink("Keira Varenh", "la capitaine");
+                        Check(box.Text == "Voir [[Keira Varenh|la capitaine]] ici.", "fiche : le lien sous le caret est réécrit (« " + box.Text + " »)");
+                        Ui.Select(box, 10, 0);
+                        Check(sheetView.RemoveLinkAtCaret() && box.Text == "Voir la capitaine ici.", "fiche : retirer le lien garde les mots (« " + box.Text + " »)");
+                        Ui.Select(box, 0, 4);
+                        Check(sheetView.LinkAtCaret() == null, "fiche : hors d'un lien, rien à modifier");
                         box.Text = "2. deux";
                         Ui.Select(box, box.Text.Length, 0);
                         sheetView.ContinueList();
@@ -1061,6 +1136,33 @@ namespace Marabook.App
                 }
                 var chosen = await notesTask;
                 Check(!chosen && !installed, "« Plus tard » ferme sans installer");
+
+                // — Aide › Nouveautés (07/10) : les patch notes embarquées de la
+                //   version installée, « Fermer » pour seule issue, pas de lien
+                //   de release ; la zone des notes n'est plus une feuille de
+                //   papier (illisible en sombre avec le papier blanc).
+                var embedded = PatchNotes.ForVersion("1.0.3-patch-b");
+                Check(embedded != null && embedded.Contains("Mac"), "les patch notes de la 1.0.3-patch-b sont embarquées dans l'assembly");
+                Check(PatchNotes.ForVersion("0.0.0-inconnue") == null, "une version sans notes : null, sans plantage");
+                var currentTask = UpdateNotesDialog.ShowCurrent(shell.Welcome, "1.0.3-patch-b", embedded);
+                await Settle();
+                UpdateNotesDialog current = null;
+                foreach (var window in ((Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)Avalonia.Application.Current.ApplicationLifetime).Windows)
+                    if (window is UpdateNotesDialog) current = (UpdateNotesDialog)window;
+                Check(current != null && current.IsVisible, "Aide › Nouveautés : la fenêtre s'ouvre");
+                if (current != null)
+                {
+                    var texts = current.GetVisualDescendants().OfType<TextBlock>().Select(delegate(TextBlock b) { return b.Text ?? ""; }).ToList();
+                    Check(texts.Any(delegate(string t) { return t == "Marabook 1.0.3-patch-b"; }) && texts.Any(delegate(string t) { return t == "La version installée"; }), "…pour la version installée");
+                    Check(!texts.Any(delegate(string t) { return t.Contains("GitHub"); }), "…sans lien vers la release");
+                    Check(FindButton(current, "Installer") == null && FindButton(current, "Plus tard") == null, "…sans « Installer » ni « Plus tard »");
+                    Check(!current.GetVisualDescendants().OfType<Border>().Any(delegate(Border b) { return ReferenceEquals(b.Background, Chrome.PaperBg); }), "…la zone des notes suit le thème de la fenêtre (pas de papier)");
+                    var close = FindButton(current, "Fermer");
+                    Check(close != null, "…et « Fermer » est là");
+                    if (close != null) close.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else current.Close();
+                }
+                await currentTask;
+                Check(current == null || !current.IsVisible, "« Fermer » ferme la fenêtre des nouveautés");
             }
             catch (Exception error)
             {

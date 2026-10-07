@@ -1813,6 +1813,11 @@ namespace Marabook.App
                 var handler = LinkClicked;
                 if (handler != null) handler(title);
             };
+            _composed.LinkEditRequested += delegate
+            {
+                var handler = LinkEditRequested;
+                if (handler != null) handler();
+            };
             _composed.DefinitionRequested += delegate(LexiconEntry entry, bool projectScope)
             {
                 var handler = DefinitionRequested;
@@ -2405,16 +2410,35 @@ namespace Marabook.App
 
         // ============================================================= wiki links
 
-        /// <summary>Insère un [[lien]] au curseur : l'expression sélectionnée
-        /// reste le texte du lien (« [[Cible|expression]] »), jamais
-        /// remplacée par le nom de la fiche. Insérer un lien les montre.</summary>
-        public void InsertWikiLink(string title)
+        public event Action LinkEditRequested; // « Modifier le lien… » (07/10) : la coquille ouvre le dialogue
+
+        /// <summary>L'expression sélectionnée (un seul paragraphe), sinon null.</summary>
+        public string SelectedPlainText()
         {
-            if (_item == null || string.IsNullOrEmpty(title) || !ComposedActive) return;
-            _composed.TypeText(Links.Markup(title, _composed.SelectedPlainText()));
+            return _item == null || !ComposedActive ? null : _composed.SelectedPlainText();
+        }
+
+        /// <summary>Le [[lien]] sous le caret, à modifier (07/10), sinon null.</summary>
+        public Link LinkAtCaret()
+        {
+            if (_item == null || !ComposedActive) return null;
+            int paragraph;
+            return _composed.LinkAtCaret(out paragraph);
+        }
+
+        /// <summary>Pose un [[lien]] (refonte 07/10) : cible ET texte affiché
+        /// choisis dans le dialogue — le lien sous le caret est réécrit, sinon
+        /// la notation remplace l'expression sélectionnée. Poser un lien les montre.</summary>
+        public void ApplyWikiLink(string target, string text)
+        {
+            if (_item == null || string.IsNullOrEmpty(target) || !ComposedActive) return;
+            _composed.ApplyWikiLink(target, text);
             if (!Settings.AppSettings.ShowLinks) SetShowLinks(true);
             _composed.FocusSurface();
         }
+
+        /// <summary>L'ancienne forme (18/09) : la sélection devient le texte du lien.</summary>
+        public void InsertWikiLink(string title) { ApplyWikiLink(title, SelectedPlainText()); }
 
         private ToggleButton _linksBtn;
 

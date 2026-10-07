@@ -923,15 +923,29 @@ namespace Marabook.App
         }
     }
 
-    /// <summary>Insert a [[link]]: pick an existing item title or type a new one.</summary>
+    /// <summary>Le choix d'un lien (07/10) : la cible et le texte affiché.</summary>
+    public sealed class LinkChoice
+    {
+        public string Target;
+        public string Text;
+    }
+
+    /// <summary>Insérer ou modifier un [[lien]] (refonte 07/10) : la CIBLE
+    /// (une fiche ou un écrit existant, ou un nom à créer plus tard) et le
+    /// TEXTE AFFICHÉ, libre — « [[Cible|texte]] », à la manière d'un lien
+    /// Markdown, pour ne plus forcer « Keira Varenh » dans la phrase à chaque
+    /// renvoi vers sa fiche. L'expression sélectionnée devient le texte ; si
+    /// elle est mot pour mot le nom d'une fiche, la cible est proposée
+    /// d'office. Texte vide = le nom de la cible.</summary>
     public class LinkDialog : Window
     {
         private readonly ComboBox _combo;
+        private readonly TextBox _textBox;
         private bool _accepted;
 
-        private LinkDialog(Window owner, List<string> titles)
+        private LinkDialog(Window owner, List<string> titles, string target, string text, bool editing)
         {
-            Title = "Lien vers une fiche";
+            Title = editing ? "Modifier le lien" : "Lien vers une fiche";
             Owner = owner;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             SizeToContent = SizeToContent.WidthAndHeight;
@@ -939,10 +953,10 @@ namespace Marabook.App
             ShowInTaskbar = false;
             Background = Chrome.RaisedBg;
 
-            var panel = new StackPanel { Margin = new Thickness(16), MinWidth = 320 };
+            var panel = new StackPanel { Margin = new Thickness(16), MinWidth = 360 };
             panel.Children.Add(new TextBlock
             {
-                Text = "Cible du lien (existante ou à créer plus tard) :",
+                Text = "Fiche ou écrit visé (existant, ou à créer plus tard) :",
                 Foreground = Chrome.Ink,
                 Margin = new Thickness(0, 0, 0, 4)
             });
@@ -950,7 +964,26 @@ namespace Marabook.App
             foreach (var title in titles) _combo.Items.Add(title);
             // L'autocomplétion (29/09) : les titres qui contiennent la frappe.
             Suggestions.Attach(_combo, delegate { return titles; }, delegate(string chosen) { _combo.Text = chosen; });
+            if (!string.IsNullOrEmpty(target)) _combo.Text = target;
             panel.Children.Add(_combo);
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Texte affiché dans le texte :",
+                Foreground = Chrome.Ink,
+                Margin = new Thickness(0, 12, 0, 4)
+            });
+            _textBox = new TextBox { Text = text ?? "", Watermark = "Vide : le nom de la cible" };
+            panel.Children.Add(_textBox);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Le lien vit dans l'application seulement : à l'export et à l'impression, seul ce texte reste.",
+                Foreground = Chrome.SoftText,
+                FontSize = 11.5,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 360,
+                Margin = new Thickness(0, 6, 0, 0)
+            });
 
             var buttons = new StackPanel
             {
@@ -958,7 +991,7 @@ namespace Marabook.App
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Margin = new Thickness(0, 14, 0, 0)
             };
-            var ok = new Button { Content = "Insérer", IsDefault = true, MinWidth = 80 };
+            var ok = new Button { Content = editing ? "Modifier" : "Insérer", IsDefault = true, MinWidth = 80 };
             ok.Click += delegate { _accepted = true; Close(); };
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 80, Margin = new Thickness(8, 0, 0, 0) };
             cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
@@ -968,16 +1001,29 @@ namespace Marabook.App
             panel.Children.Add(buttons);
 
             Content = panel;
-            Loaded += delegate { _combo.Focus(); };
+            // Le clavier va à ce qui manque : la cible si elle n'est pas proposée, sinon le texte.
+            Loaded += delegate { if (string.IsNullOrEmpty(target)) _combo.Focus(); else { _textBox.Focus(); _textBox.SelectAll(); } };
         }
 
-        public static async Task<string> Ask(Window owner, List<string> titles)
+        /// <summary>target/text = ce qui est proposé (le lien à modifier, ou
+        /// l'expression sélectionnée et le titre qu'elle désigne) ; null si
+        /// annulé ou sans cible.</summary>
+        public static async Task<LinkChoice> Ask(Window owner, List<string> titles, string target, string text, bool editing)
         {
-            var dialog = new LinkDialog(owner, titles);
+            var dialog = new LinkDialog(owner, titles, target, text, editing);
             await Dialogs.ShowModal(dialog, owner);
             if (!dialog._accepted) return null;
-            var text = (dialog._combo.Text ?? "").Trim();
-            return text.Length == 0 ? null : text;
+            var chosenTarget = (dialog._combo.Text ?? "").Trim();
+            if (chosenTarget.Length == 0) return null;
+            return new LinkChoice { Target = chosenTarget, Text = dialog._textBox.Text ?? "" };
+        }
+
+        /// <summary>L'ancienne forme (18/09) : la cible seule, le texte = la
+        /// sélection de l'appelant.</summary>
+        public static async Task<string> Ask(Window owner, List<string> titles)
+        {
+            var choice = await Ask(owner, titles, null, null, false);
+            return choice == null ? null : choice.Target;
         }
     }
 }

@@ -448,6 +448,7 @@ namespace Marabook.App
             var help = new MenuItem { Header = "Aid_e" };
             _updatesMenu = Entry(null, "Vérifier les mises à jour…", CheckUpdates); // porte un ● quand une mise à jour est prête (01/10)
             help.Items.Add(_updatesMenu);
+            help.Items.Add(Entry(null, "Nouveautés…", ShowCurrentNotes)); // les patch notes de la version installée (07/10)
             help.Items.Add(Entry(null, "Rapports de plantage…", ShowCrashReports));
             help.Items.Add(Entry(null, "Ouvrir le dossier d'installation", OpenInstallFolder));
             help.Items.Add(new Separator());
@@ -720,6 +721,7 @@ namespace Marabook.App
                 if (info != null) SaveImageToDisk(info);
             };
             _editor.LinkClicked += NavigateToTitle;
+            _editor.LinkEditRequested += InsertLinkInActive; // « Modifier le lien… » (07/10)
             _editor.DefinitionRequested += ShowDefinition; // clic droit › « Afficher la définition » (18/09)
             _editor.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
             _editor.DocumentSettingChanged += MarkDirty; // l'interligne du document (22/09)
@@ -759,6 +761,7 @@ namespace Marabook.App
             _sheetView.History = _history; // Ctrl+Z sur les champs des fiches (1.0.4)
             _editor.SnapshotsChanged += OnSnapshotsChanged;
             _sheetView.LinkClicked += NavigateToTitle;
+            _sheetView.LinkEditRequested += InsertLinkInActive; // bouton de la barre, menu du clic droit (07/10)
             // Batch 34 : « ← Retour » remonte au tableau du parent (la
             // bibliothèque si la fiche vit à la racine), une relation ouvre
             // la fiche liée.
@@ -1999,6 +2002,11 @@ namespace Marabook.App
         public async void OpenFromSystem(string path)
         {
             if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
+            // Un .plot seulement (07/10) : AppKit relaie AUSSI comme « fichier à
+            // ouvrir » tout argument de la ligne de commande qui désigne un
+            // fichier existant — « --settings réglages.json » d'une sonde ou
+            // d'une capture ouvrait le JSON comme projet et proposait son .bak.
+            if (!string.Equals(System.IO.Path.GetExtension(path), PlotFile.Extension, StringComparison.OrdinalIgnoreCase)) return;
             if (!IsLoaded) { PendingOpen = path; return; }
             if (!await ConfirmDiscard()) return;
             OpenFile(path);
@@ -2413,6 +2421,20 @@ namespace Marabook.App
                 return;
             }
             ShowUpdateNotes(this);
+        }
+
+        /// <summary>Aide › Nouveautés (07/10) : les patch notes de la version
+        /// installée, embarquées dans l'assembly — relisibles à tout moment,
+        /// hors ligne, avec « Fermer » pour seule issue.</summary>
+        private void ShowCurrentNotes()
+        {
+            var _ = UpdateNotesDialog.ShowCurrent(this, AppVersion, PatchNotes.ForVersion(AppVersion));
+        }
+
+        /// <summary>Sonde : pose la largeur de la Pile sans animation.</summary>
+        public void SetBinderWidthForProbe(double width)
+        {
+            _binderCol.Width = new GridLength(width);
         }
 
         private void DoOpen()
@@ -3184,6 +3206,12 @@ namespace Marabook.App
             else _editor.InsertFootnote();
         }
 
+        /// <summary>Format › Lien vers une fiche (Ctrl+K), le bouton de la
+        /// barre des fiches, « Modifier le lien… » des menus (refonte 07/10) :
+        /// le dialogue cible + texte. Sous le caret, un lien existant est
+        /// proposé tel quel et réécrit ; sinon l'expression sélectionnée est
+        /// le texte, et si elle est mot pour mot le nom d'une fiche ou d'un
+        /// écrit, la cible est proposée d'office.</summary>
         private async void InsertLinkInActive()
         {
             if (_editor.IsVisible == false
@@ -3194,10 +3222,24 @@ namespace Marabook.App
             foreach (var item in _project.AllItems())
                 if (item.Kind == ItemKind.Text && (_current == null || item != _current))
                     titles.Add(item.Title);
-            var title = await LinkDialog.Ask(this, titles);
-            if (title == null) return;
-            if (_sheetView.IsVisible) _sheetView.InsertWikiLink(title);
-            else _editor.InsertWikiLink(title);
+            var sheet = _sheetView.IsVisible;
+            var existing = sheet ? _sheetView.LinkAtCaret() : _editor.LinkAtCaret();
+            string target, text;
+            if (existing != null)
+            {
+                target = existing.Target;
+                text = existing.Text;
+            }
+            else
+            {
+                text = (sheet ? _sheetView.SelectedBodyText() : _editor.SelectedPlainText()) ?? "";
+                if (text.IndexOf('\n') >= 0 || text.IndexOf("]]", StringComparison.Ordinal) >= 0) text = "";
+                target = Links.MatchTitle(text, titles);
+            }
+            var choice = await LinkDialog.Ask(this, titles, target, text, existing != null);
+            if (choice == null) return;
+            if (sheet) _sheetView.ApplyWikiLink(choice.Target, choice.Text);
+            else _editor.ApplyWikiLink(choice.Target, choice.Text);
         }
 
         private async void NavigateToTitle(string title)

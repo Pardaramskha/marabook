@@ -1290,6 +1290,26 @@ namespace Marabook.App
             }
             int paragraph, offset;
             if (!HitTestPosition(e, out paragraph, out offset)) { Ui.ShowMenu(menu, this); return; }
+            // — Le [[lien]] sous le clic (07/10) : l'ouvrir, le modifier
+            //   (cible et texte, par le dialogue de la coquille), le retirer.
+            var linkHere = Links.At(PivotEdit.FlatText(_item.Document.Paragraphs[paragraph]), offset);
+            if (linkHere != null)
+            {
+                menu.Items.Add(new Separator());
+                var targetRef = linkHere.Target;
+                var open = new MenuItem { Header = "Ouvrir « " + targetRef + " »" };
+                open.Click += delegate { var h = LinkClicked; if (h != null) h(targetRef); };
+                menu.Items.Add(open);
+                var pRef = paragraph;
+                var oRef = offset;
+                var editLink = new MenuItem { Header = "Modifier le lien…", [ToolTip.TipProperty] = "La fiche visée et le texte affiché" };
+                editLink.Click += delegate { PlaceCaret(pRef, oRef, false); var h = LinkEditRequested; if (h != null) h(); };
+                menu.Items.Add(editLink);
+                var linkRef = linkHere;
+                var remove = new MenuItem { Header = "Retirer le lien", [ToolTip.TipProperty] = "Les mots restent, le renvoi tombe" };
+                remove.Click += delegate { ReplaceRange(pRef, linkRef.Start, linkRef.End - linkRef.Start, linkRef.Text); };
+                menu.Items.Add(remove);
+            }
             var word = WordAt(paragraph, offset);
             var findings = FindingsAt(paragraph, offset);
             if ((word == null || word.Length < 2) && findings.Count == 0) { Ui.ShowMenu(menu, this); return; }
@@ -1700,6 +1720,49 @@ namespace Marabook.App
                 max = Math.Max(max, left + piece.Origin.X + piece.VisualWidth());
             }
             return min <= max && x >= min - 8 && x <= max + 8;
+        }
+
+        public event Action LinkEditRequested; // « Modifier le lien… » du menu (07/10) : la coquille ouvre le dialogue
+
+        /// <summary>Le [[lien]] sous le caret (marques comprises, le pas juste
+        /// après « ]] » aussi), sinon null (07/10). Une sélection qui déborde
+        /// du lien n'en désigne pas un : elle est l'expression d'un lien neuf.</summary>
+        public Link LinkAtCaret(out int paragraphIndex)
+        {
+            paragraphIndex = _caretParagraph;
+            if (_item == null || NoteEditing || _caretParagraph >= _item.Document.Paragraphs.Count) return null;
+            var link = Links.At(PivotEdit.FlatText(_item.Document.Paragraphs[_caretParagraph]), _caretOffset);
+            if (link != null && HasSelection())
+            {
+                int pa, oa, pb, ob;
+                OrderedSelection(out pa, out oa, out pb, out ob);
+                if (pa != pb || oa < link.Start || ob > link.End) link = null;
+            }
+            return link;
+        }
+
+        /// <summary>Pose un [[lien]] (07/10) : sous le caret, le lien existant
+        /// est RÉÉCRIT (cible et texte) ; sinon la notation remplace la
+        /// sélection, ou s'insère au caret.</summary>
+        public void ApplyWikiLink(string target, string text)
+        {
+            if (_item == null || ReadOnly) return;
+            int paragraph;
+            var link = LinkAtCaret(out paragraph);
+            var markup = Links.Markup(target, text);
+            if (link != null) { ReplaceRange(paragraph, link.Start, link.End - link.Start, markup); return; }
+            TypeText(markup);
+        }
+
+        /// <summary>Retire le [[lien]] sous le caret : les mots restent (07/10).</summary>
+        public bool RemoveLinkAtCaret()
+        {
+            if (_item == null || ReadOnly) return false;
+            int paragraph;
+            var link = LinkAtCaret(out paragraph);
+            if (link == null) return false;
+            ReplaceRange(paragraph, link.Start, link.End - link.Start, link.Text);
+            return true;
         }
 
         /// <summary>La cible du [[lien]] sous l'offset (marques comprises,

@@ -566,37 +566,6 @@ namespace Marabook.App
             return panel;
         }
 
-        /// <summary>L'accroche d'une carte (1.0.4) : « En un mot » du
-        /// Personnage s'il est rempli, sinon le premier champ court ou choix
-        /// renseigné du modèle, hors nom, prénom et alias (déjà le titre) ;
-        /// null sans rien à dire.</summary>
-        private string Accroche(BinderItem sheet)
-        {
-            var template = _project.FindTemplate(sheet.TemplateId);
-            if (template == null) return null;
-            string value;
-            foreach (var field in template.Fields)
-                if (string.Equals((field.Name ?? "").Trim(), "En un mot", StringComparison.CurrentCultureIgnoreCase)
-                    && sheet.FieldValues.TryGetValue(field.Id, out value) && value.Trim().Length > 0)
-                    return Shorten(value);
-            foreach (var field in template.Fields)
-            {
-                var kind = FieldKinds.Normalize(field.Kind);
-                if (kind != FieldKinds.Text && kind != FieldKinds.Choice) continue;
-                var name = (field.Name ?? "").Trim();
-                if (string.Equals(name, "Nom", StringComparison.CurrentCultureIgnoreCase)
-                    || string.Equals(name, "Prénom", StringComparison.CurrentCultureIgnoreCase)
-                    || string.Equals(name, "Alias", StringComparison.CurrentCultureIgnoreCase)) continue;
-                if (sheet.FieldValues.TryGetValue(field.Id, out value) && value.Trim().Length > 0) return Shorten(value);
-            }
-            return null;
-        }
-
-        private static string Shorten(string value)
-        {
-            value = value.Trim().Replace("\r", "").Replace("\n", " ");
-            return value.Length > 60 ? value.Substring(0, 59).TrimEnd() + "…" : value;
-        }
 
         /// <summary>Tri alphabétique à la française (accents et casse
         /// ignorés, ordre stable pour les homonymes).</summary>
@@ -901,9 +870,9 @@ namespace Marabook.App
             // étire chaque tuile à la hauteur de sa rangée, et le nom d'une
             // tuile courte restait collé sous la photo quand un voisin au
             // titre long avait fait grandir la rangée.
-            var accroche = Accroche(sheet); // « En un mot », ou le premier champ renseigné (1.0.4)
-            var nameStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            nameStack.Children.Add(new TextBlock
+            // Le nom seul (07/10) : l'accroche « En un mot » du premier lot de
+            // la 1.0.4 est retirée — Rémi la trouvait de trop sous le titre.
+            nameZone.Child = new TextBlock
             {
                 Text = sheet.Title,
                 FontWeight = FontWeight.SemiBold,
@@ -914,21 +883,9 @@ namespace Marabook.App
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 MaxHeight = 34,
                 MaxLines = 2, // points de suspension en fin de 2e ligne, plutôt qu'une coupe nette (29/09)
-                Margin = new Thickness(6, 5, 6, accroche == null ? 7 : 1)
-            });
-            if (accroche != null)
-                nameStack.Children.Add(new TextBlock
-                {
-                    Text = accroche,
-                    FontSize = 11,
-                    Foreground = Chrome.SoftText,
-                    TextAlignment = TextAlignment.Center,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    MaxLines = 1,
-                    Margin = new Thickness(6, 0, 6, 7),
-                    [ToolTip.TipProperty] = accroche
-                });
-            nameZone.Child = nameStack;
+                Margin = new Thickness(6, 5, 6, 7),
+                VerticalAlignment = VerticalAlignment.Center
+            };
             layout.Children.Add(nameZone);
 
             var card = new Border

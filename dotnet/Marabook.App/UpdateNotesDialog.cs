@@ -21,6 +21,12 @@ namespace Marabook.App
     public class UpdateNotesDialog : Window
     {
         public UpdateNotesDialog(Window owner, Updater.Info info, string localVersion, bool prepared, Action install)
+            : this(owner, info, localVersion, prepared, install, false) { }
+
+        /// <summary>current = Aide › Nouveautés (07/10) : les notes de la
+        /// version INSTALLÉE (patchnotes embarquées), sans lien de release ni
+        /// installation — un seul bouton, « Fermer ».</summary>
+        private UpdateNotesDialog(Window owner, Updater.Info info, string localVersion, bool prepared, Action install, bool current)
         {
             Title = "Nouveautés de Marabook " + info.Version;
             if (owner != null)
@@ -59,7 +65,8 @@ namespace Marabook.App
             var when = PublishedOn(info.PublishedAt);
             titles.Children.Add(new TextBlock
             {
-                Text = (when.Length > 0 ? "Publiée le " + when + " · " : "")
+                Text = current ? "La version installée"
+                    : (when.Length > 0 ? "Publiée le " + when + " · " : "")
                     + "vous avez la " + localVersion
                     + (prepared ? " · téléchargée, prête à installer" : ""),
                 FontSize = 12,
@@ -69,7 +76,11 @@ namespace Marabook.App
             head.Children.Add(titles);
             panel.Children.Add(head);
 
-            // ---- les patch notes : une feuille de papier qui défile
+            // ---- les patch notes, dans le thème de la fenêtre (07/10) : plus
+            // de feuille de papier encadrée — en sombre avec « papier blanc »,
+            // le cadre restait blanc sous un texte d'encre claire, illisible.
+            // Un filet au-dessus suffit à poser la zone ; le texte (Chrome.Ink)
+            // suit le fond du dialogue (Chrome.RaisedBg).
             var notes = (info.Notes ?? "").Trim();
             Control body;
             if (notes.Length > 0)
@@ -82,13 +93,11 @@ namespace Marabook.App
                     Foreground = Chrome.FaintText,
                     FontStyle = FontStyle.Italic
                 };
-            body.Margin = new Thickness(18, 14, 18, 14);
+            body.Margin = new Thickness(0, 12, 12, 8);
             panel.Children.Add(new Border
             {
-                Background = Chrome.PaperBg,
                 BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
+                BorderThickness = new Thickness(0, 1, 0, 0),
                 Child = new ScrollViewer
                 {
                     MaxHeight = 380,
@@ -99,7 +108,7 @@ namespace Marabook.App
             });
 
             // ---- le lien vers la release
-            if (!string.IsNullOrEmpty(info.PageUrl))
+            if (!current && !string.IsNullOrEmpty(info.PageUrl))
             {
                 var url = info.PageUrl;
                 var link = new TextBlock
@@ -127,6 +136,16 @@ namespace Marabook.App
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Margin = new Thickness(0, 14, 0, 0)
             };
+            if (current)
+            {
+                var close = new Button { Content = "Fermer", IsDefault = true, IsCancel = true, MinWidth = 88 };
+                close.Click += delegate { Close(false); };
+                buttons.Children.Add(close);
+                Dialogs.Arrange(buttons, close);
+                panel.Children.Add(buttons);
+                Content = panel;
+                return;
+            }
             var later = new Button { Content = "Plus tard", IsCancel = true, MinWidth = 88 };
             later.Click += delegate { Close(false); };
             buttons.Children.Add(later);
@@ -161,6 +180,14 @@ namespace Marabook.App
         {
             var result = await Dialogs.ShowModal(new UpdateNotesDialog(owner, info, localVersion, prepared, install), owner);
             return result == true;
+        }
+
+        /// <summary>Aide › Nouveautés (07/10) : les notes de la version
+        /// installée (null = aucune écrite), fermeture seule.</summary>
+        public static Task ShowCurrent(Window owner, string version, string notes)
+        {
+            var info = new Updater.Info { Version = version, Notes = notes ?? "" };
+            return Dialogs.ShowModal(new UpdateNotesDialog(owner, info, version, false, null, true), owner);
         }
     }
 }
