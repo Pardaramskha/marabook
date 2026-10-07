@@ -21,6 +21,7 @@ namespace Marabook.Tests
             TasksAndCode(t);
             Tables(t);
             CategoriesSeed(t);
+            CategoriesV35(t);
             CategoriesMigration(t);
             CategoryOfSheet(t);
             SectionsMigration(t);
@@ -56,7 +57,7 @@ namespace Marabook.Tests
             foreach (var field in character.Fields)
                 if (field.Group.Length == 0) infos++; else if (field.Group == SheetDefaults.GroupLooks) looks++;
             t.Check(infos == SheetDefaults.CharacterInfos.Length
-                && looks == SheetDefaults.CharacterLooks.Length + SheetDefaults.CharacterPersonality.Length,
+                && looks == SheetDefaults.CharacterLooks.Length + SheetDefaults.CharacterPersonality.Length + SheetDefaults.CharacterNarration.Length,
                 "« Infos » a rejoint la section par défaut, « Physique » est devenu « Apparence » (" + infos + " / " + looks + ")");
             t.Check(character.Relations, "le paper Relations reste au Personnage");
             t.Check(!place.Relations, "…et pas aux autres modèles livrés");
@@ -207,9 +208,9 @@ namespace Marabook.Tests
         {
             var project = Project.CreateNew();
             t.Equal(SheetDefaults.CategoryNames.Length, project.SheetCategories.Count,
-                "un projet neuf porte les huit catégories livrées (liste du 23/09)");
-            t.Equal(SheetDefaults.CategoryNames.Length, project.Templates.Count, "et leurs huit modèles");
-            t.Equal("Personnage|Lieu|Événement|Système|Peuple|Bestiaire|Pays / Gouvernement|Faction / Organisation",
+                "un projet neuf porte les onze catégories livrées (liste du 23/09 + Objet, Religion & Croyances, Langue en 1.0.4)");
+            t.Equal(SheetDefaults.CategoryNames.Length, project.Templates.Count, "et leurs onze modèles");
+            t.Equal("Personnage|Lieu|Événement|Système|Peuple|Bestiaire|Pays / Gouvernement|Faction / Organisation|Objet|Religion & Croyances|Langue",
                 string.Join("|", SheetDefaults.CategoryNames), "…dans l'ordre de la liste");
             foreach (var category in project.SheetCategories)
                 t.Check(project.FindTemplate(category.TemplateId) != null,
@@ -221,6 +222,40 @@ namespace Marabook.Tests
             foreach (var field in character.Fields) groups.Add(field.Group);
             t.Check(groups.Contains("") && groups.Contains(SheetDefaults.GroupLooks) && character.HasSection(SheetDefaults.GroupLooks) && character.Relations,
                 "le modèle Personnage : Informations + section Apparence, et le paper Relations (b42)");
+        }
+
+        /// <summary>1.0.4 (.plot v35) : un projet d'avant reçoit Objet,
+        /// Religion &amp; Croyances et Langue — une fois, sans doublon, sans
+        /// ramener une catégorie d'avant supprimée exprès.</summary>
+        private static void CategoriesV35(Harness t)
+        {
+            var project = Project.CreateNew();
+            // Un projet « d'avant » : les trois catégories neuves retirées, et
+            // « Peuple » supprimée par l'utilisateur.
+            project.SheetCategories.RemoveAll(delegate(SheetCategory c) { return Array.IndexOf(SheetDefaults.CategoriesAddedInV35, c.Name) >= 0 || c.Name == "Peuple"; });
+            var before = project.SheetCategories.Count;
+            t.Equal(SheetDefaults.CategoryNames.Length - 4, before, "sept catégories avant la migration");
+            t.Check(project.AddCategoriesOfV35(), "la migration ajoute");
+            t.Equal(before + 3, project.SheetCategories.Count, "trois catégories de plus : Objet, Religion & Croyances, Langue");
+            t.Equal("Objet|Religion & Croyances|Langue",
+                string.Join("|", new[] { project.SheetCategories[before].Name, project.SheetCategories[before + 1].Name, project.SheetCategories[before + 2].Name }),
+                "…à la suite, dans l'ordre de la liste");
+            SheetCategory people = null;
+            foreach (var category in project.SheetCategories) if (category.Name == "Peuple") people = category;
+            t.Check(people == null, "« Peuple », supprimée exprès, ne revient pas");
+            foreach (var name in SheetDefaults.CategoriesAddedInV35)
+            {
+                SheetCategory found = null;
+                foreach (var category in project.SheetCategories) if (category.Name == name) found = category;
+                t.Check(found != null && project.FindTemplate(found.TemplateId) != null && project.FindTemplate(found.TemplateId).Fields.Count > 0,
+                    "« " + name + " » : son modèle livré, avec des champs");
+            }
+            t.Check(!project.AddCategoriesOfV35(), "idempotente");
+            t.Equal(before + 3, project.SheetCategories.Count, "rien de plus au second appel");
+            // Une catégorie de même nom, autrement écrite, suffit.
+            project.SheetCategories.RemoveAll(delegate(SheetCategory c) { return c.Name == "Langue"; });
+            project.SheetCategories.Add(new SheetCategory { Name = "langue" });
+            t.Check(!project.AddCategoriesOfV35(), "« langue » existe déjà (casse ignorée) : rien à ajouter");
         }
 
         private static void CategoriesMigration(Harness t)

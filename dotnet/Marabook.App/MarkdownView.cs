@@ -304,7 +304,8 @@ namespace Marabook.App
                 if (inline.WikiTarget != null)
                 {
                     var target = inline.WikiTarget;
-                    into.Add(Link(owner, run, "Ouvrir « " + target + " »", delegate
+                    // Sans infobulle (07/10) : le lien se lit, le clic l'ouvre.
+                    into.Add(Link(owner, run, null, delegate
                     {
                         if (wikiClicked != null) wikiClicked(target);
                     }));

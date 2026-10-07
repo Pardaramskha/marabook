@@ -276,6 +276,23 @@ namespace Marabook.Settings
         public static List<string> FavoriteFonts = new List<string>();
         public static List<string> ExcludedFonts = new List<string>();
 
+        /// <summary>Les remplacements de polices MANQUANTES (07/10) : famille
+        /// demandée (absente de cette machine) → famille installée qui la
+        /// remplace partout où elle est demandée (composition, PDF,
+        /// impression). Réglage de la machine, pas du projet : la police
+        /// manque ICI, le .plot ne change pas. Clés sans casse.</summary>
+        public static Dictionary<string, string> FontSubstitutions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>La famille à employer pour ce nom : son remplacement s'il
+        /// en a un, sinon lui-même.</summary>
+        public static string SubstituteFont(string family)
+        {
+            string replacement;
+            if (family != null && FontSubstitutions.TryGetValue(family.Trim(), out replacement) && !string.IsNullOrEmpty(replacement))
+                return replacement;
+            return family;
+        }
+
         /// <summary>Favorites ou exclusions changées : les sélecteurs se rebâtissent.</summary>
         public static event Action FontPrefsChanged;
 
@@ -577,6 +594,11 @@ namespace Marabook.Settings
                 }
                 FavoriteFonts = ReadFontList(root, "favoriteFonts"); // 0.50.0, catalogue de polices
                 ExcludedFonts = ReadFontList(root, "excludedFonts");
+                FontSubstitutions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var substitutions = Json.AsObject(Json.Field(root, "fontSubstitutions"));
+                if (substitutions != null)
+                    foreach (var kv in substitutions)
+                        if (kv.Value is string && !string.IsNullOrEmpty(kv.Key)) FontSubstitutions[kv.Key] = (string)kv.Value;
                 var recents = Json.AsList(Json.Field(root, "recentFiles"));
                 if (recents != null)
                 {
@@ -677,6 +699,7 @@ namespace Marabook.Settings
                 if (RecentFonts.Count > 0) root["recentFonts"] = new List<object>(RecentFonts.ToArray());
                 if (FavoriteFonts.Count > 0) root["favoriteFonts"] = new List<object>(FavoriteFonts.ToArray());
                 if (ExcludedFonts.Count > 0) root["excludedFonts"] = new List<object>(ExcludedFonts.ToArray());
+                if (FontSubstitutions.Count > 0) root["fontSubstitutions"] = new Dictionary<string, object>(ToObjectDict(FontSubstitutions));
                 if (Achievements.Count > 0)
                     root["achievements"] = new Dictionary<string, object>(ToObjectDict(Achievements));
                 if (PermanentlyDeleted > 0) root["permanentlyDeleted"] = PermanentlyDeleted;

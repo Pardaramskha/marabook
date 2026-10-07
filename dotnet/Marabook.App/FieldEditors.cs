@@ -190,35 +190,108 @@ namespace Marabook.App
 
         // ------------------------------------------------------------ liste
 
+        /// <summary>La liste (refonte 07/10) : les éléments en pastilles,
+        /// chacune avec sa croix pour la retirer ; dessous, une zone pour
+        /// le prochain élément — Entrée ou le « + » à sa droite le pose dans
+        /// la liste (une virgule dans la zone en pose plusieurs). Fini le
+        /// « séparez par des virgules » : la valeur reste pourtant rangée
+        /// ainsi (FieldKinds.ListItems / JoinOptions), rien ne change dans
+        /// les .plot. La zone de saisie est la cible du focus et des
+        /// [[liens]] (Ctrl+K) : le lien se pose dans l'élément en cours.</summary>
         private static Control ListEditor(string value, Action<string> onChanged)
         {
+            var items = FieldKinds.ListItems(value);
             var stack = new StackPanel();
             var chips = new WrapPanel { Margin = new Thickness(0, 0, 0, 3) };
-            Action paint = delegate
+            var entry = new TextBox
+            {
+                Watermark = "Un élément, puis Entrée",
+                [ToolTip.TipProperty] = "Entrée ou « + » pose l'élément dans la liste"
+            };
+            Action commit = delegate { onChanged(FieldKinds.JoinOptions(items)); };
+            Action paint = null;
+            paint = delegate
             {
                 chips.Children.Clear();
-                foreach (var item in FieldKinds.ListItems(value)) chips.Children.Add(Chip(item));
-                chips.IsVisible = chips.Children.Count > 0 ? true : false;
+                for (var i = 0; i < items.Count; i++)
+                {
+                    var index = i;
+                    chips.Children.Add(Chip(items[i], delegate
+                    {
+                        if (index >= items.Count) return;
+                        items.RemoveAt(index);
+                        paint();
+                        commit();
+                        entry.Focus();
+                    }));
+                }
+                chips.IsVisible = chips.Children.Count > 0;
+            };
+            Action add = delegate
+            {
+                var added = FieldKinds.ListItems(entry.Text);
+                if (added.Count == 0) return;
+                items.AddRange(added);
+                entry.Text = "";
+                paint();
+                commit();
             };
             paint();
             stack.Children.Add(chips);
-            var box = new TextBox { Text = value, [ToolTip.TipProperty] = "Les éléments séparés par des virgules : « escrime, latin, cuisine »" };
-            box.TextChanged += delegate { value = box.Text; paint(); onChanged(value); };
-            stack.Children.Add(box);
-            stack.Tag = box;
+            var row = new DockPanel();
+            var plus = Buttons.Icon("plus-bold", "Ajouter à la liste (Entrée)", Buttons.Compact, Buttons.Look.Calm);
+            plus.Margin = new Thickness(4, 0, 0, 0);
+            plus.Click += delegate { add(); };
+            DockPanel.SetDock(plus, Dock.Right);
+            row.Children.Add(plus);
+            entry.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.None) return;
+                e.Handled = true;
+                add();
+            };
+            row.Children.Add(entry);
+            stack.Children.Add(row);
+            stack.Tag = entry;
             return stack;
         }
 
-        public static Border Chip(string text)
+        /// <summary>Un élément de liste en pastille ; les marques d'un
+        /// [[lien]] n'y paraissent pas (07/10 soir), le texte du lien oui.
+        /// Avec onRemove : une croix à droite du texte retire l'élément.</summary>
+        public static Border Chip(string text, Action onRemove = null)
         {
-            return new Border
+            var label = new TextBlock { Text = Links.Strip(text), FontSize = 11, Foreground = Chrome.AccentStrong, VerticalAlignment = VerticalAlignment.Center };
+            var chip = new Border
             {
                 Background = Chrome.AccentTint,
                 CornerRadius = new CornerRadius(9),
                 Padding = new Thickness(8, 1, 8, 2),
-                Margin = new Thickness(0, 0, 4, 4),
-                Child = new TextBlock { Text = text, FontSize = 11, Foreground = Chrome.AccentStrong }
+                Margin = new Thickness(0, 0, 4, 4)
             };
+            if (onRemove == null) { chip.Child = label; return chip; }
+            var cross = new TextBlock
+            {
+                Text = "×",
+                FontSize = 13,
+                Foreground = Chrome.AccentStrong,
+                Margin = new Thickness(5, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Cursor = new Cursor(StandardCursorType.Hand),
+                [ToolTip.TipProperty] = "Retirer de la liste"
+            };
+            cross.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+            {
+                if (!e.GetCurrentPoint(cross).Properties.IsLeftButtonPressed) return;
+                e.Handled = true;
+                onRemove();
+            };
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(label);
+            row.Children.Add(cross);
+            chip.Padding = new Thickness(8, 1, 6, 2);
+            chip.Child = row;
+            return chip;
         }
 
         // ------------------------------------------------------------ choix

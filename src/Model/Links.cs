@@ -257,6 +257,19 @@ namespace Marabook.Model
             return false;
         }
 
+        /// <summary>Le titre qui correspond MOT POUR MOT au texte (casse et
+        /// accents ignorés, espaces de bord retirés) : la cible proposée
+        /// d'office quand l'expression sélectionnée est le nom d'une fiche ou
+        /// d'un écrit (07/10) ; null sinon — une partie du nom ne suffit pas.</summary>
+        public static string MatchTitle(string text, IEnumerable<string> titles)
+        {
+            var wanted = (text ?? "").Trim();
+            if (wanted.Length == 0 || titles == null) return null;
+            foreach (var title in titles)
+                if (SameTitle((title ?? "").Trim(), wanted)) return title;
+            return null;
+        }
+
         public static bool SameTitle(string a, string b)
         {
             return string.Compare(a ?? "", b ?? "",

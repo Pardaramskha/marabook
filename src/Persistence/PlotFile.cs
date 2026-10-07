@@ -163,7 +163,13 @@ namespace Marabook.Persistence
         // v34: HORS-LIVRE (29/09) — "outOfBook": true sur le dossier
         //      « Hors-livre » d'un livre (omis au défaut) : ses documents ne
         //      comptent ni dans le livre, ni dans l'export ou la publication.
-        private const int FormatVersion = 34;
+        // v35: FICHES 1.0.4 (06/10) — rien de neuf dans le JSON ; au
+        //      chargement d'un .plot d'avant, UNE fois : le modèle Personnage
+        //      reçoit sa section « Narration » (Rôle, Objectif, Défaut central,
+        //      Expression typique, Niveau de langue — UpgradeCharacterTemplate,
+        //      idempotente) et les catégories Objet, Religion & Croyances et
+        //      Langue sont ajoutées si leur nom manque (AddCategoriesOfV35).
+        private const int FormatVersion = 35;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -1197,7 +1203,13 @@ namespace Marabook.Persistence
                 // Personnage d'un .plot d'avant reçoit ses champs par défaut
                 // (Infos / Apparence / Personnalité) — une fois.
                 if (project.LoadedFormatVersion < 19) SheetDefaults.UpgradeSections(project);
-                if (project.LoadedFormatVersion < 30) project.UpgradeCharacterTemplate();
+                // 1.0.4 (v35) : la section Narration du Personnage (la même
+                // migration, idempotente) et les trois catégories ajoutées.
+                if (project.LoadedFormatVersion < 35)
+                {
+                    project.UpgradeCharacterTemplate();
+                    project.AddCategoriesOfV35();
+                }
                 return project;
             }
         }

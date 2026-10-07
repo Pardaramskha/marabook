@@ -103,15 +103,18 @@ namespace Marabook.App
         public int InspectedGroupCount { get { return _inspectedGroup == null ? 0 : _inspectedGroup.Count; } }
         public void BatchColorPublic(string hex) { if (_inspectedGroup != null) BatchColor(_inspectedGroup, hex); }
         public bool UndoPublic() { if (!_history.CanUndo) return false; _history.Undo(); return true; }
+        public bool RedoPublic() { if (!_history.CanRedo) return false; _history.Redo(); return true; }
+        internal int HistoryCountForProbe { get { return _history.Count; } }
         public double RightColumnWidth { get { return _inspectorCol.Width.Value; } }
         public void MarkDirtyPublic() { MarkDirty(); }
         public WelcomeWindow Welcome { get { return _welcome; } }
         public string InspectorTitle { get { return _inspTitle == null ? "" : _inspTitle.Text ?? ""; } }
         public string InspectorKind { get { return _inspKind == null ? "" : _inspKind.Text ?? ""; } }
         public string InspectorDetail { get { return _inspStats == null ? "" : _inspStats.Text ?? ""; } }
-        public string StatusText { get { return _statusLeft == null ? "" : _statusLeft.Text ?? ""; } }
+        public string StatusText { get { return _statusRight == null ? "" : _statusRight.Text ?? ""; } } // mots · signes EC (07/10)
         public string StatusRightText { get { return _statusRight == null ? "" : _statusRight.Text ?? ""; } }
         public string StatusPagesText { get { return _statusPages == null ? "" : _statusPages.Text ?? ""; } }
+        public string StatusBookText { get { return _statusBook == null ? "" : _statusBook.Text ?? ""; } } // « Livre : N pages » (07/10)
 
         public void ShowJournalPublic() { ShowJournal(); }
 
@@ -364,6 +367,34 @@ public static Project SampleProject()
             sheets.Children.Add(folder);
             var keira = new BinderItem { Title = "Keira Varenh", Kind = ItemKind.Sheet, Parent = folder, CardColor = "#C0392B" };
             var marabout = new BinderItem { Title = "Le marabout", Kind = ItemKind.Sheet, Parent = folder };
+            // Keira est un Personnage (1.0.4) : la catégorie, le modèle livré,
+            // « En un mot » rempli (l'accroche de sa carte) et un champ de
+            // Narration — les captures et sondes voient une fiche à modèle.
+            var characters = project.SheetCategories.Count > 0 ? project.SheetCategories[0] : null;
+            var characterTemplate = characters == null ? null : project.FindTemplate(characters.TemplateId);
+            if (characters != null && characterTemplate != null)
+            {
+                keira.CategoryId = characters.Id;
+                keira.TemplateId = characterTemplate.Id;
+                string narration = "";
+                foreach (var field in characterTemplate.Fields)
+                {
+                    if (field.Name == "En un mot") keira.FieldValues[field.Id] = "Têtue, loyale, incapable de mentir";
+                    if (field.Name == "Rôle") { keira.FieldValues[field.Id] = "Protagoniste"; narration = field.Group; }
+                    if (field.Name == "Objectif") keira.FieldValues[field.Id] = "Ramener le marabout au rivage avant la marée";
+                }
+                // Un champ LISTE dans le modèle du projet d'exemple seulement
+                // (07/10) : les captures montrent les pastilles à croix et la
+                // liste à puces du wiki, avec un élément qui porte un lien.
+                var talents = new SheetField { Name = "Talents", Kind = FieldKinds.List, Group = narration };
+                characterTemplate.Fields.Add(talents);
+                keira.FieldValues[talents.Id] = "escrime, lecture des marées, [[Le marabout|élève du marabout]]";
+            }
+            // Un corps Markdown (1.0.4) : un lien wiki, un nom inventé (le
+            // correcteur le souligne — c'est voulu, la capture le montre).
+            keira.Document = TextDocument.FromPlainText(
+                "Née à Ourkhal, sur le littoral, Keira a grandi parmi les pêcheurs.\n\n"
+                + "Son mentor, [[Le marabout]], lui a appris à lire les marées — et à se taire quand elles montent.");
             folder.Children.Add(keira);
             folder.Children.Add(marabout);
             // Une relation (29/09) : le wiki montre un lien vers une fiche (captures, sondes).

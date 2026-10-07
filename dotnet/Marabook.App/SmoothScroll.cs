@@ -30,6 +30,12 @@ namespace Marabook.App
         {
             if (_installed) return;
             _installed = true;
+            // macOS (1.0.4) : le trackpad et la Magic Mouse livrent des dizaines
+            // d'événements par seconde, à pas fractionnaires, avec leur propre
+            // inertie — relancer une course de 180 ms à chacun rendait l'éditeur
+            // et la bibliothèque des fiches pâteux (retour de Rémi, 07/10). Le
+            // système défile déjà en douceur : on ne s'interpose pas.
+            if (OperatingSystem.IsMacOS()) return;
             InputElement.PointerWheelChangedEvent.AddClassHandler<ScrollViewer>(OnPreviewWheel, RoutingStrategies.Tunnel);
         }
 
