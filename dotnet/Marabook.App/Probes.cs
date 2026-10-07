@@ -1132,6 +1132,15 @@ namespace Marabook.App
                 //   global l'apaise et le moteur sert la remplaçante ; le
                 //   dialogue écrit le remplacement dans les réglages.
                 {
+                    // Le runner Linux n'a ni Times New Roman ni les polices du
+                    // projet d'exemple (release dev 07/10 : cinq échecs) : la
+                    // sonde part de ce qui manque DÉJÀ (baseline) et choisit sa
+                    // remplaçante parmi les polices que le dialogue propose.
+                    shell.RefreshFontAlert();
+                    var baseline = new List<string>(shell.MissingFontsForProbe);
+                    var baselineUnresolved = 0;
+                    foreach (var family in baseline)
+                        if (string.Equals(AppSettings.SubstituteFont(family), family, StringComparison.OrdinalIgnoreCase)) baselineUnresolved++;
                     var ghost = new ParagraphStyle { Id = "sonde-ghost", Name = "Fantôme", FontFamily = "Police Imaginaire XYZ" };
                     shell.Project.Styles.Styles.Add(ghost);
                     AppSettings.FontSubstitutions.Remove("Police Imaginaire XYZ");
@@ -1144,7 +1153,8 @@ namespace Marabook.App
                         var tip = ToolTip.GetTip(border) as string;
                         if (tip != null && tip.StartsWith("Ce projet demande des polices")) alert = border;
                     }
-                    Check(alert != null && alert.IsVisible, "la barre d'état montre la pastille rouge « 1 police manquante »");
+                    Check(alert != null && alert.IsVisible, "la barre d'état montre la pastille rouge « " + (baselineUnresolved + 1) + " police(s) manquante(s) »");
+                    string replacement = null;
                     var substitutionTask = FontSubstitutionDialog.Show(shell, new List<string> { "Police Imaginaire XYZ" });
                     await Settle();
                     var substitution = OpenWindow<FontSubstitutionDialog>();
@@ -1156,23 +1166,25 @@ namespace Marabook.App
                         if (combo != null)
                             for (var i = 0; i < combo.Items.Count; i++)
                                 if (string.Equals(combo.Items[i] as string, "Times New Roman", StringComparison.OrdinalIgnoreCase)) index = i;
-                        if (combo != null && index >= 0) combo.SelectedIndex = index;
-                        Check(combo != null && index > 0, "…avec les polices installées à choisir (Times New Roman trouvée)");
+                        if (combo != null && index < 0 && combo.Items.Count > 1) index = 1; // la première police installée, quelle qu'elle soit (Linux)
+                        if (combo != null && index >= 0) { combo.SelectedIndex = index; replacement = combo.Items[index] as string; }
+                        Check(combo != null && index > 0 && !string.IsNullOrEmpty(replacement), "…avec les polices installées à choisir (« " + replacement + " »)");
                         var apply = FindButton(substitution, "Appliquer");
                         if (apply != null) apply.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else substitution.Close();
                     }
                     var applied = await substitutionTask;
-                    Check(applied && AppSettings.SubstituteFont("Police Imaginaire XYZ") == "Times New Roman", "« Appliquer » écrit le remplacement dans les réglages");
+                    Check(applied && replacement != null && AppSettings.SubstituteFont("Police Imaginaire XYZ") == replacement, "« Appliquer » écrit le remplacement dans les réglages");
                     shell.ApplyFontSubstitutions();
                     await Settle();
                     var ghostFace = new AvaloniaFontEngine().Resolve("Police Imaginaire XYZ", 400, false);
-                    Check(ghostFace.Family == "Times New Roman" && ghostFace.HasGlyphs, "le moteur de polices sert la remplaçante partout (" + ghostFace.Family + ")");
-                    Check(alert != null && alert.IsVisible && (ToolTip.GetTip(alert) as string ?? "").StartsWith("Polices absentes"), "la pastille s'apaise : « 1 police remplacée », toujours cliquable");
+                    Check(replacement != null && string.Equals(ghostFace.Family, replacement, StringComparison.OrdinalIgnoreCase) && ghostFace.HasGlyphs, "le moteur de polices sert la remplaçante partout (" + ghostFace.Family + ")");
+                    var calmTip = baselineUnresolved > 0 ? "Ce projet demande des polices" : "Polices absentes"; // d'autres manquent encore (Linux) : la pastille reste rouge
+                    Check(alert != null && alert.IsVisible && (ToolTip.GetTip(alert) as string ?? "").StartsWith(calmTip), "la pastille s'apaise : « 1 police remplacée », toujours cliquable (" + baselineUnresolved + " autre(s) manquante(s))");
                     AppSettings.FontSubstitutions.Remove("Police Imaginaire XYZ");
                     shell.Project.Styles.Styles.Remove(ghost);
                     shell.ApplyFontSubstitutions();
                     await Settle();
-                    Check(alert != null && !alert.IsVisible, "sans police manquante, rien dans la barre");
+                    Check(alert != null && alert.IsVisible == (baseline.Count > 0), "sans police manquante, rien dans la barre (" + baseline.Count + " manquante(s) hors sonde)");
                 }
 
                 // — Enregistrer puis rouvrir : le .plot fait l'aller-retour.
