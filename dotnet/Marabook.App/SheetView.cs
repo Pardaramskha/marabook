@@ -481,6 +481,7 @@ namespace Marabook.App
         /// markdown y ramène toujours : barre, Ctrl+F, insertions).</summary>
         internal void ShowTextTabPublic() { ShowTextTab(); } // capture (hotfix 1.0.3-a)
         internal void ShowGeneralTabPublic() { _tabs.SelectedIndex = 0; } // sonde des champs cross-fiche (07/10)
+        internal bool GeneralTabShownForProbe { get { return _tabs.SelectedIndex == 0; } }
 
         private void ShowTextTab()
         {
@@ -984,9 +985,10 @@ namespace Marabook.App
             }, delegate(BinderItem target) { var h = NavigateRequested; if (h != null) h(target); });
             var focus = FieldEditors.FocusTarget(editor);
             if (refId != null && focus != null) _fieldBoxes[refId] = focus;
-            var kindKey = FieldKinds.Normalize(kind);
-            if ((kindKey == FieldKinds.Text || kindKey == FieldKinds.Multiline) && focus is TextBox)
-                TrackLinkBox((TextBox)focus); // les champs cross-fiche (07/10)
+            // Les champs cross-fiche (07/10) : TOUTE zone de texte — texte,
+            // multiligne, liste (ses éléments), nombre, date — Rémi a eu un
+            // lien de champ Liste posé dans le Texte libre (07/10 soir).
+            if (focus is TextBox) TrackLinkBox((TextBox)focus);
             return editor;
         }
 
@@ -1860,6 +1862,20 @@ namespace Marabook.App
             return null;
         }
         internal TextBox BodyBox { get { return _bodyBox; } } // sonde (hotfix 1.0.3-a)
+
+        /// <summary>Sonde (07/10 soir) : la zone de saisie du premier champ de
+        /// cette nature (liste, nombre…), ou null.</summary>
+        internal KeyValuePair<string, TextBox>? FirstFieldBoxForProbe(string kind)
+        {
+            if (_template == null) return null;
+            foreach (var field in _template.Fields)
+            {
+                Control box;
+                if (FieldKinds.Normalize(field.Kind) == kind && _fieldBoxes.TryGetValue(field.Id, out box) && box is TextBox)
+                    return new KeyValuePair<string, TextBox>(field.Id, (TextBox)box);
+            }
+            return null;
+        }
         public bool ShowsItem(BinderItem item) { return _item == item; }
         public void SetStyleSheet(StyleSheet styles) { _styles = styles; }
         public void SetProject(Model.Project project) { _project = project; }
@@ -2260,12 +2276,18 @@ namespace Marabook.App
         }
 
         /// <summary>La zone que le dialogue du lien sert : la dernière à avoir
-        /// eu le clavier si elle est encore posée, le corps sinon.</summary>
+        /// eu le clavier si elle est encore posée ; le corps seulement quand
+        /// son onglet Texte libre est ouvert ; null sinon (jamais le corps
+        /// en douce depuis l'onglet Général — 07/10 soir).</summary>
         private TextBox LinkBox()
         {
             if (_activeBox != null && _activeBox != _bodyBox && _activeBox.GetVisualRoot() != null && _activeBox.IsEffectivelyVisible) return _activeBox;
-            return _bodyBox;
+            if (_tabs.SelectedIndex == 1 || _previewToggle.IsChecked == true) return _bodyBox;
+            return null;
         }
+
+        /// <summary>Une zone peut-elle recevoir un lien ? (sinon Ctrl+K ne fait rien)</summary>
+        public bool HasLinkTarget() { return _item != null && LinkBox() != null; }
 
         // La sélection relevée à l'ouverture du dialogue (07/10) : modal, il
         // prend le clavier et le TextBox replie sa sélection sur le caret —
@@ -2278,6 +2300,7 @@ namespace Marabook.App
         public Link CaptureLinkContext()
         {
             _linkBox = LinkBox();
+            if (_linkBox == null) { _linkStart = -1; return null; }
             int start, length;
             OrderedSelection(_linkBox, out start, out length);
             _linkStart = start;
@@ -2292,6 +2315,7 @@ namespace Marabook.App
         public string SelectedBodyText()
         {
             var box = _linkBox ?? LinkBox();
+            if (box == null) return "";
             var text = box.Text ?? "";
             if (_linkBox != null && _linkStart >= 0 && _linkStart + _linkLength <= text.Length)
                 return text.Substring(_linkStart, _linkLength);
@@ -2320,6 +2344,7 @@ namespace Marabook.App
         {
             if (_item == null) return null;
             var box = _linkBox ?? LinkBox();
+            if (box == null) return null;
             int start, length;
             if (_linkBox != null && _linkStart >= 0) { start = _linkStart; length = _linkLength; }
             else OrderedSelection(box, out start, out length);
@@ -2333,6 +2358,7 @@ namespace Marabook.App
         {
             if (_item == null || string.IsNullOrEmpty(target)) return;
             var box = _linkBox ?? LinkBox();
+            if (box == null) { ForgetLinkContext(); return; }
             int start, length;
             if (_linkBox != null && _linkStart >= 0) { start = _linkStart; length = _linkLength; }
             else OrderedSelection(box, out start, out length);
@@ -2349,6 +2375,7 @@ namespace Marabook.App
         public bool RemoveLinkAtCaret()
         {
             var box = LinkBox();
+            if (box == null) return false;
             int start, length;
             OrderedSelection(box, out start, out length);
             var link = LinkAt(box, start, length);

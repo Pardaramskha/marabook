@@ -209,6 +209,8 @@ namespace Marabook.App
             return stack;
         }
 
+        /// <summary>Un élément de liste en pastille ; les marques d'un
+        /// [[lien]] n'y paraissent pas (07/10 soir), le texte du lien oui.</summary>
         public static Border Chip(string text)
         {
             return new Border
@@ -217,7 +219,7 @@ namespace Marabook.App
                 CornerRadius = new CornerRadius(9),
                 Padding = new Thickness(8, 1, 8, 2),
                 Margin = new Thickness(0, 0, 4, 4),
-                Child = new TextBlock { Text = text, FontSize = 11, Foreground = Chrome.AccentStrong }
+                Child = new TextBlock { Text = Links.Strip(text), FontSize = 11, Foreground = Chrome.AccentStrong }
             };
         }
 

@@ -363,7 +363,27 @@ namespace Marabook.App
                 case FieldKinds.List:
                 {
                     var chips = new WrapPanel { Margin = new Thickness(0, 2, 0, 0) };
-                    foreach (var entry in FieldKinds.ListItems(value)) chips.Children.Add(FieldEditors.Chip(entry));
+                    foreach (var entry in FieldKinds.ListItems(value))
+                    {
+                        var chip = FieldEditors.Chip(entry);
+                        // Un élément qui porte un [[lien]] (07/10 soir) : la
+                        // pastille ouvre la première cible (ou propose de la créer).
+                        var links = Links.Find(entry);
+                        if (links.Count > 0)
+                        {
+                            var title = links[0].Target;
+                            var target = project == null ? null : project.FindByTitle(title);
+                            chip.Cursor = new Cursor(StandardCursorType.Hand);
+                            chip.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+                            {
+                                if (!e.GetCurrentPoint(chip).Properties.IsLeftButtonPressed) return;
+                                e.Handled = true;
+                                if (target != null && navigate != null) navigate(target);
+                                else if (linkClicked != null) linkClicked(title);
+                            };
+                        }
+                        chips.Children.Add(chip);
+                    }
                     infobox.Children.Add(chips);
                     return;
                 }

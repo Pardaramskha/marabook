@@ -114,6 +114,23 @@ namespace Marabook.App
                 Check(shell.StatusText.Contains("signes EC") && !shell.StatusText.Contains("feuillet") && !shell.StatusText.Contains("min"), "…et mots · signes EC, sans feuillets ni temps de lecture (" + shell.StatusText + ")");
                 Check(shell.ZoomPanelVisibleForProbe, "le curseur de zoom est montré dans l'éditeur");
                 Check(shell.StatusBookText.StartsWith("Livre : ") && shell.StatusBookText.Contains("page"), "…et la pagination totale du livre (" + shell.StatusBookText + ")");
+                // — Le total du livre est STABLE (07/10 soir) : ouvrir les
+                //   chapitres l'un après l'autre ne l'additionne pas en boucle,
+                //   et chaque chapitre dit SES pages, sans le folio du livre.
+                {
+                    var bookTotal = shell.StatusBookText;
+                    var ownPages = shell.StatusPagesText;
+                    for (var round = 0; round < 3; round++)
+                        foreach (var text in book.Children)
+                        {
+                            shell.Binder.SelectItem(text.Id, true);
+                            await Settle();
+                        }
+                    shell.Binder.SelectItem(chapter.Id, true);
+                    await Settle();
+                    Check(shell.StatusBookText == bookTotal, "le total du livre ne bouge pas en parcourant ses chapitres trois fois (" + bookTotal + " → " + shell.StatusBookText + ")");
+                    Check(shell.StatusPagesText == ownPages && shell.CachedPageCountForProbe(book.Children[2]) == 1, "chaque chapitre compte ses propres pages, sans le folio (chap. 3 : " + shell.CachedPageCountForProbe(book.Children[2]) + ")");
+                }
                 Check(FontCatalog.Entries.Count > 10, "le catalogue de polices énumère les polices installées (" + FontCatalog.Entries.Count + ")");
                 Check(!string.IsNullOrEmpty(editor.CurrentFontName), "le sélecteur de police montre la police du caret (" + editor.CurrentFontName + ")");
                 var engine = new AvaloniaFontEngine();
@@ -854,6 +871,57 @@ namespace Marabook.App
                             await Settle();
                         }
                         else Console.WriteLine("  [sonde] pas de champ texte dans le modèle : champs cross-fiche sautés");
+
+                        // — Un champ LISTE (07/10 soir) : Ctrl+K pose le lien dans
+                        //   la liste, jamais dans le Texte libre, et l'onglet ne bouge pas.
+                        // Le modèle d'exemple n'a pas de liste : un champ est ajouté
+                        // le temps de la sonde, la fiche rechargée, puis retiré.
+                        var probeTemplate = shell.Project.FindTemplate(sheet.TemplateId);
+                        SheetField probeList = null;
+                        if (probeTemplate != null && sheetView.FirstFieldBoxForProbe(FieldKinds.List) == null)
+                        {
+                            probeList = new SheetField { Id = "sonde-liste", Name = "Sonde liste", Kind = FieldKinds.List, Group = probeTemplate.Fields.Count > 0 ? probeTemplate.Fields[0].Group : "" };
+                            probeTemplate.Fields.Add(probeList);
+                            sheetView.LoadItem(sheet, probeTemplate);
+                            await Settle();
+                        }
+                        var listEntry = sheetView.FirstFieldBoxForProbe(FieldKinds.List);
+                        if (listEntry != null)
+                        {
+                            sheetView.ShowGeneralTabPublic();
+                            await Settle();
+                            var listBox = listEntry.Value.Value;
+                            var listKept = listBox.Text;
+                            var bodyBefore = box.Text;
+                            listBox.Text = "escrime, Keira Varenh, latin";
+                            listBox.Focus();
+                            await Settle();
+                            Ui.Select(listBox, 9, 12);
+                            shell.InsertLinkPublic();
+                            await Settle();
+                            var listDialog = OpenWindow<LinkDialog>();
+                            if (listDialog != null)
+                            {
+                                var insert = FindButton(listDialog, "Insérer");
+                                if (insert != null) insert.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else listDialog.Close();
+                                await Settle();
+                                await Settle();
+                            }
+                            Check(listDialog != null && listBox.Text == "escrime, [[Keira Varenh]], latin", "liste : Ctrl+K pose le lien dans le champ Liste (« " + listBox.Text + " »)");
+                            Check(box.Text == bodyBefore, "liste : le Texte libre n'a pas bougé");
+                            Check(sheetView.GeneralTabShownForProbe, "liste : l'onglet Général reste ouvert");
+                            listBox.Text = listKept ?? "";
+                            await Task.Delay(1600);
+                            await Settle();
+                        }
+                        else Console.WriteLine("  [sonde] pas de champ liste dans le modèle : lien dans une liste sauté");
+                        if (probeList != null)
+                        {
+                            probeTemplate.Fields.Remove(probeList);
+                            sheet.FieldValues.Remove(probeList.Id);
+                            sheetView.LoadItem(sheet, probeTemplate);
+                            await Settle();
+                        }
                         box.Text = "2. deux";
                         Ui.Select(box, box.Text.Length, 0);
                         sheetView.ContinueList();

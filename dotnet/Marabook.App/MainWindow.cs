@@ -755,9 +755,15 @@ namespace Marabook.App
                 // Avalonia compose dès LoadItem, avant que l'éditeur soit montré :
                 // le compteur s'écrit toujours (ShowItemCore l'efface hors écrit).
                 // Les PAGES de l'écrit (07/10), pas la page du caret — la
-                // pagination totale du livre suit dans UpdateStats.
-                _docPages = pages;
-                _statusPages.Text = pages + (pages > 1 ? " pages" : " page");
+                // pagination totale du livre suit. PIÈGE (07/10 soir) : la
+                // surface annonce « pages » FOLIO COMPRIS (celles du livre
+                // avant l'écrit + les siennes) ; remises dans le cache des
+                // comptes, elles gonflaient le décalage du suivant, qui
+                // gonflait le total, et ainsi de suite — montants
+                // astronomiques. Le compte propre vient de la composition.
+                var own = _editor.PrintPageCount ?? Math.Max(1, pages - _editor.FolioOffset);
+                _docPages = own;
+                _statusPages.Text = own + (own > 1 ? " pages" : " page");
                 UpdateBookPagination();
             };
             _editor.MarksToggled += OnMarksToggled;
@@ -3293,6 +3299,7 @@ namespace Marabook.App
             // prend le clavier et le TextBox d'une fiche replie sa sélection
             // sur le caret — le lien s'insérait alors devant l'expression au
             // lieu de la remplacer (« [[Keira Varenh]]Keira Varenh »).
+            if (sheet && !_sheetView.HasLinkTarget()) return; // aucune zone de texte n'a le clavier (07/10 soir)
             var existing = sheet ? _sheetView.CaptureLinkContext() : _editor.LinkAtCaret();
             if (!sheet) _editor.CaptureLinkContext();
             string target, text;
@@ -4101,6 +4108,13 @@ namespace Marabook.App
 
         /// <summary>Total pages of a book (recto starts included) — feeds the
         /// « page finale impaire » danger icon in the Pile.</summary>
+        /// <summary>Sonde : le compte de pages en cache d'un écrit (0 sans).</summary>
+        public int CachedPageCountForProbe(BinderItem text)
+        {
+            int pages;
+            return text != null && _pageCountCache.TryGetValue(text.Id, out pages) ? pages : 0;
+        }
+
         private int BookPageTotal(BinderItem book)
         {
             if (book == null || _project == null) return 0; // sans BookInfo aussi (07/10) : la pagination de la barre d'état
