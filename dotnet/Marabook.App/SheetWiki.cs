@@ -362,29 +362,19 @@ namespace Marabook.App
             {
                 case FieldKinds.List:
                 {
-                    var chips = new WrapPanel { Margin = new Thickness(0, 2, 0, 0) };
+                    // Une liste à puces (refonte 07/10 : plus de pastilles en
+                    // lecture), chaque élément avec ses [[liens]] cliquables.
+                    var list = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
                     foreach (var entry in FieldKinds.ListItems(value))
                     {
-                        var chip = FieldEditors.Chip(entry);
-                        // Un élément qui porte un [[lien]] (07/10 soir) : la
-                        // pastille ouvre la première cible (ou propose de la créer).
-                        var links = Links.Find(entry);
-                        if (links.Count > 0)
-                        {
-                            var title = links[0].Target;
-                            var target = project == null ? null : project.FindByTitle(title);
-                            chip.Cursor = new Cursor(StandardCursorType.Hand);
-                            chip.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
-                            {
-                                if (!e.GetCurrentPoint(chip).Properties.IsLeftButtonPressed) return;
-                                e.Handled = true;
-                                if (target != null && navigate != null) navigate(target);
-                                else if (linkClicked != null) linkClicked(title);
-                            };
-                        }
-                        chips.Children.Add(chip);
+                        var line = new DockPanel { Margin = new Thickness(4, 0, 0, 1) };
+                        var bullet = new TextBlock { Text = "•", FontSize = 12, Foreground = Chrome.Accent, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Top };
+                        DockPanel.SetDock(bullet, Dock.Left);
+                        line.Children.Add(bullet);
+                        line.Children.Add(LinkedText(entry, project, navigate, linkClicked));
+                        list.Children.Add(line);
                     }
-                    infobox.Children.Add(chips);
+                    infobox.Children.Add(list);
                     return;
                 }
                 case FieldKinds.Sheet:

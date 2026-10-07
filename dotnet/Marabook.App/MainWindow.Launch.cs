@@ -376,12 +376,19 @@ public static Project SampleProject()
             {
                 keira.CategoryId = characters.Id;
                 keira.TemplateId = characterTemplate.Id;
+                string narration = "";
                 foreach (var field in characterTemplate.Fields)
                 {
                     if (field.Name == "En un mot") keira.FieldValues[field.Id] = "Têtue, loyale, incapable de mentir";
-                    if (field.Name == "Rôle") keira.FieldValues[field.Id] = "Protagoniste";
+                    if (field.Name == "Rôle") { keira.FieldValues[field.Id] = "Protagoniste"; narration = field.Group; }
                     if (field.Name == "Objectif") keira.FieldValues[field.Id] = "Ramener le marabout au rivage avant la marée";
                 }
+                // Un champ LISTE dans le modèle du projet d'exemple seulement
+                // (07/10) : les captures montrent les pastilles à croix et la
+                // liste à puces du wiki, avec un élément qui porte un lien.
+                var talents = new SheetField { Name = "Talents", Kind = FieldKinds.List, Group = narration };
+                characterTemplate.Fields.Add(talents);
+                keira.FieldValues[talents.Id] = "escrime, lecture des marées, [[Le marabout|élève du marabout]]";
             }
             // Un corps Markdown (1.0.4) : un lien wiki, un nom inventé (le
             // correcteur le souligne — c'est voulu, la capture le montre).

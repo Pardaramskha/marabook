@@ -195,6 +195,41 @@ namespace Marabook.Model
         // (SheetField.Group) ou une info libre (InfoEntry.Group) s'y range
         // par son nom.
         public List<string> Sections = new List<string>();
+
+        /// <summary>Deux champs sont de la même section si leurs groupes se
+        /// lisent pareil (vide = « Informations »), majuscules et accents
+        /// de la culture courante ignorés.</summary>
+        public static bool SameGroup(string a, string b)
+        {
+            return string.Equals(a ?? "", b ?? "", StringComparison.CurrentCultureIgnoreCase);
+        }
+
+        /// <summary>Le voisin de ce champ DANS SA SECTION, au-dessus (delta
+        /// négatif) ou au-dessous (positif) ; −1 s'il n'y en a pas — un
+        /// champ ne quitte jamais sa section par les flèches (1.0.4).</summary>
+        public int NeighbourField(SheetField field, int delta)
+        {
+            var index = Fields.IndexOf(field);
+            if (index < 0 || delta == 0) return -1;
+            var step = delta < 0 ? -1 : 1;
+            for (var i = index + step; i >= 0 && i < Fields.Count; i += step)
+                if (SameGroup(Fields[i].Group, field.Group)) return i;
+            return -1;
+        }
+
+        /// <summary>Monte (delta négatif) ou descend (positif) un champ d'un
+        /// cran parmi ceux de sa section : il passe de l'autre côté de son
+        /// voisin, les champs des autres sections ne bougent pas (l'ordre
+        /// persisté est celui de l'éditeur de modèles). Faux si rien à faire.</summary>
+        public bool MoveField(SheetField field, int delta)
+        {
+            var neighbour = NeighbourField(field, delta);
+            if (neighbour < 0) return false;
+            var index = Fields.IndexOf(field);
+            Fields.RemoveAt(index);
+            Fields.Insert(neighbour, field); // en descendant, le voisin a reculé d'un cran : on se pose derrière lui
+            return true;
+        }
         // Le paper « Relations » (liens entre fiches) — vrai pour le
         // Personnage, faux pour les autres modèles livrés (batch 42).
         public bool Relations;

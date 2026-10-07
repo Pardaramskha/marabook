@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Marabook.Model;
@@ -890,10 +891,24 @@ namespace Marabook.App
                         {
                             sheetView.ShowGeneralTabPublic();
                             await Settle();
+                            // La liste refondue (07/10) : la zone de saisie
+                            // ne porte que l'élément EN COURS, Entrée le pose
+                            // dans la liste (la valeur du champ), le lien se
+                            // pose dans la zone avant.
+                            var listId = listEntry.Value.Key;
+                            string listKept;
+                            sheet.FieldValues.TryGetValue(listId, out listKept);
+                            // Le champ repart VIDE (le projet d'exemple a « Talents » garni) :
+                            // les comptes de pastilles qui suivent sont ceux de la sonde.
+                            sheet.FieldValues[listId] = "";
+                            sheetView.LoadItem(sheet, probeTemplate);
+                            await Settle();
+                            sheetView.ShowGeneralTabPublic();
+                            await Settle();
+                            listEntry = sheetView.FirstFieldBoxForProbe(FieldKinds.List);
                             var listBox = listEntry.Value.Value;
-                            var listKept = listBox.Text;
                             var bodyBefore = box.Text;
-                            listBox.Text = "escrime, Keira Varenh, latin";
+                            listBox.Text = "escrime, Keira Varenh";
                             listBox.Focus();
                             await Settle();
                             Ui.Select(listBox, 9, 12);
@@ -907,10 +922,35 @@ namespace Marabook.App
                                 await Settle();
                                 await Settle();
                             }
-                            Check(listDialog != null && listBox.Text == "escrime, [[Keira Varenh]], latin", "liste : Ctrl+K pose le lien dans le champ Liste (« " + listBox.Text + " »)");
+                            Check(listDialog != null && listBox.Text == "escrime, [[Keira Varenh]]", "liste : Ctrl+K pose le lien dans la zone de saisie de la liste (« " + listBox.Text + " »)");
                             Check(box.Text == bodyBefore, "liste : le Texte libre n'a pas bougé");
                             Check(sheetView.GeneralTabShownForProbe, "liste : l'onglet Général reste ouvert");
-                            listBox.Text = listKept ?? "";
+                            listBox.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter, Source = listBox });
+                            await Settle();
+                            string listValue;
+                            sheet.FieldValues.TryGetValue(listId, out listValue);
+                            Check(listValue == "escrime, [[Keira Varenh]]" && (listBox.Text ?? "").Length == 0,
+                                "liste : Entrée pose les éléments dans la liste et vide la zone (« " + listValue + " »)");
+                            var crosses = 0;
+                            var stripped = false;
+                            var marks = false;
+                            TextBlock cross = null;
+                            foreach (var block in sheetView.GetVisualDescendants().OfType<TextBlock>())
+                            {
+                                if (block.Text == "×") { crosses++; if (cross == null) cross = block; }
+                                if (block.Text == "Keira Varenh") stripped = true;
+                                if (block.Text == "[[Keira Varenh]]") marks = true;
+                            }
+                            Check(crosses == 2 && stripped && !marks, "liste : deux pastilles à croix, le lien sans ses marques (" + crosses + " croix)");
+                            if (cross != null)
+                            {
+                                cross.RaiseEvent(new PointerPressedEventArgs(cross, new Avalonia.Input.Pointer(1, PointerType.Mouse, true), cross, new Point(1, 1), 0, new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), Avalonia.Input.KeyModifiers.None));
+                                await Settle();
+                                sheet.FieldValues.TryGetValue(listId, out listValue);
+                                Check(listValue == "[[Keira Varenh]]", "liste : la croix retire l'élément (« " + listValue + " »)");
+                            }
+                            if (listKept == null) sheet.FieldValues.Remove(listId); else sheet.FieldValues[listId] = listKept;
+                            sheetView.LoadItem(sheet, probeTemplate);
                             await Task.Delay(1600);
                             await Settle();
                         }
@@ -921,6 +961,45 @@ namespace Marabook.App
                             sheet.FieldValues.Remove(probeList.Id);
                             sheetView.LoadItem(sheet, probeTemplate);
                             await Settle();
+                        }
+
+                        // — Éditeur de modèles (1.0.4) : les flèches haut / bas
+                        //   réordonnent les champs dans leur section. Le dialogue
+                        //   travaille sur des copies : Annuler ne change rien au projet.
+                        if (probeTemplate != null && probeTemplate.Fields.Count >= 2)
+                        {
+                            var orderBefore = string.Join("|", probeTemplate.Fields.Select(f => f.Id));
+                            var templatesTask = TemplatesDialog.Show(shell, shell.Project.Templates, shell.Project);
+                            await Settle();
+                            await Settle();
+                            var templates = OpenWindow<TemplatesDialog>();
+                            Check(templates != null, "l'éditeur de modèles s'ouvre");
+                            if (templates != null)
+                            {
+                                var editing = templates.CurrentForProbe;
+                                var ups = templates.FieldsPanelForProbe.GetVisualDescendants().OfType<Button>().Where(b => (ToolTip.GetTip(b) as string) == "Monter ce champ").ToList();
+                                var downs = templates.FieldsPanelForProbe.GetVisualDescendants().OfType<Button>().Where(b => (ToolTip.GetTip(b) as string) == "Descendre ce champ").ToList();
+                                Check(editing != null && ups.Count == editing.Fields.Count && downs.Count == editing.Fields.Count, "chaque champ a ses flèches haut et bas (" + ups.Count + ")");
+                                var first = editing == null ? null : editing.Fields[0];
+                                var second = editing == null ? null : editing.NeighbourField(first, +1) >= 0 ? editing.Fields[editing.NeighbourField(first, +1)] : null;
+                                Check(ups.Count > 0 && !ups[0].IsEnabled && downs.Count > 0 && downs[0].IsEnabled, "le premier champ : « monter » éteint, « descendre » allumé");
+                                if (downs.Count > 0 && second != null)
+                                {
+                                    downs[0].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                                    await Settle();
+                                    Check(editing.Fields.IndexOf(second) + 1 == editing.Fields.IndexOf(first), "« descendre » passe le champ sous son voisin de section (" + first.Name + " ↔ " + second.Name + ")");
+                                    var ups2 = templates.FieldsPanelForProbe.GetVisualDescendants().OfType<Button>().Where(b => (ToolTip.GetTip(b) as string) == "Monter ce champ").ToList();
+                                    var row = ups2.Count > 1 ? ups2[1] : null;
+                                    if (row != null) row.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                                    await Settle();
+                                    Check(editing.Fields.IndexOf(first) + 1 == editing.Fields.IndexOf(second), "« monter » le ramène à sa place");
+                                }
+                                var cancel = FindButton(templates, "Annuler");
+                                if (cancel != null) cancel.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else templates.Close();
+                                await Settle();
+                            }
+                            try { await templatesTask; } catch { }
+                            Check(string.Join("|", probeTemplate.Fields.Select(f => f.Id)) == orderBefore, "Annuler : l'ordre des champs du projet n'a pas bougé");
                         }
                         box.Text = "2. deux";
                         Ui.Select(box, box.Text.Length, 0);

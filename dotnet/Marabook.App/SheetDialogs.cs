@@ -281,6 +281,7 @@ namespace Marabook.App
             fieldsHead.ColumnDefinitions.Add(new ColumnDefinition());
             fieldsHead.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(126) });
             fieldsHead.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(166) });
+            fieldsHead.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) }); // les flèches haut / bas
             fieldsHead.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
             fieldsHead.Children.Add(HeadLabel("Nom du champ", 0));
             fieldsHead.Children.Add(HeadLabel("Nature", 1));
@@ -672,7 +673,7 @@ namespace Marabook.App
 
         private static bool SameSection(string group, string section)
         {
-            return string.Equals(group ?? "", section, StringComparison.CurrentCultureIgnoreCase);
+            return SheetTemplate.SameGroup(group, section);
         }
 
         private static Control SectionDivider(string title)
@@ -699,6 +700,7 @@ namespace Marabook.App
             row.ColumnDefinitions.Add(new ColumnDefinition());
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(126) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(166) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
 
             var nameBox = new TextBox { Text = field.Name, Margin = new Thickness(0, 0, 6, 0) };
@@ -742,6 +744,21 @@ namespace Marabook.App
             Grid.SetColumn(sectionCombo, 2);
             row.Children.Add(sectionCombo);
 
+            // Monter / descendre (1.0.4) : le champ change de place parmi
+            // ceux de SA section, l'ordre du modèle suit ; la flèche s'éteint
+            // en bout de section.
+            var arrows = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 6, 0) };
+            var up = Buttons.Icon("caret-up-bold", "Monter ce champ", Buttons.Compact, Buttons.Look.Calm);
+            var down = Buttons.Icon("caret-down-bold", "Descendre ce champ", Buttons.Compact, Buttons.Look.Calm);
+            up.IsEnabled = _current.NeighbourField(field, -1) >= 0;
+            down.IsEnabled = _current.NeighbourField(field, +1) >= 0;
+            up.Click += delegate { MoveField(field, -1); };
+            down.Click += delegate { MoveField(field, +1); };
+            arrows.Children.Add(up);
+            arrows.Children.Add(down);
+            Grid.SetColumn(arrows, 3);
+            row.Children.Add(arrows);
+
             var remove = Buttons.Icon("trash", "Supprimer ce champ (les fiches gardent leur valeur, dormante)", Buttons.Compact, Buttons.Look.Calm);
             remove.Click += delegate
             {
@@ -749,14 +766,14 @@ namespace Marabook.App
                 RebuildFields();
                 Record("+fields");
             };
-            Grid.SetColumn(remove, 3);
+            Grid.SetColumn(remove, 4);
             row.Children.Add(remove);
             if (FieldKinds.Normalize(field.Kind) != FieldKinds.Choice) return row;
 
             // Les options du choix, sous la rangée.
             var stack = new StackPanel();
             stack.Children.Add(row);
-            var optionsRow = new DockPanel { Margin = new Thickness(14, 0, 40, 6) };
+            var optionsRow = new DockPanel { Margin = new Thickness(14, 0, 98, 6) };
             var label = new TextBlock { Text = "Options :", Foreground = Chrome.FaintText, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
             DockPanel.SetDock(label, Dock.Left);
             optionsRow.Children.Add(label);
@@ -766,6 +783,22 @@ namespace Marabook.App
             stack.Children.Add(optionsRow);
             return stack;
         }
+
+        /// <summary>Un cran vers le haut ou le bas dans sa section (1.0.4) :
+        /// le modèle bouge, la liste se reconstruit, l'historique du
+        /// dialogue prend l'action (jamais fondue avec une frappe).</summary>
+        private void MoveField(SheetField field, int delta)
+        {
+            if (_current == null || !_current.MoveField(field, delta)) return;
+            RebuildFields();
+            Record("+fields");
+        }
+
+        /// <summary>Sonde (1.0.4) : le modèle en cours d'édition, et le
+        /// panneau de ses champs (l'onglet Champs n'est pas forcément posé
+        /// dans l'arbre visuel de la fenêtre).</summary>
+        internal SheetTemplate CurrentForProbe { get { return _current; } }
+        internal Panel FieldsPanelForProbe { get { return _fieldsPanel; } }
 
         /// <summary>Replace le champ après le dernier champ de sa section —
         /// l'ordre persisté suit ce que l'éditeur affiche.</summary>
