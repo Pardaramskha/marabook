@@ -135,7 +135,8 @@ namespace Marabook.Tests
                 ExchangeImagesTests.Run,  // C44 — images dans les échanges : docx ancré, Markdown, RTF (26/09)
                 TextFragmentTests.Run,   // C45 - fragment du presse-papiers mis en forme (28/09)
                 PersonalLexiconTests.Run, // C46 - dictionnaire personnel vers Grammalecte, prénoms genrés (1.0.3)
-                FileGuardTests.Run       // C47 - garde du .plot : empreinte, conflit, verrou (1.0.3)
+                FileGuardTests.Run,      // C47 - garde du .plot : empreinte, conflit, verrou (1.0.3)
+                FontAuditTests.Run       // C48 - polices employées et manquantes (1.0.4, 07/10)
             };
             foreach (var suite in suites)
             {

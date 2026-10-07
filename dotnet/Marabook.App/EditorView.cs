@@ -1818,6 +1818,11 @@ namespace Marabook.App
                 var handler = LinkEditRequested;
                 if (handler != null) handler();
             };
+            _composed.LinksChanged += delegate
+            {
+                var handler = LinksChanged;
+                if (handler != null) handler();
+            };
             _composed.DefinitionRequested += delegate(LexiconEntry entry, bool projectScope)
             {
                 var handler = DefinitionRequested;
@@ -2411,11 +2416,32 @@ namespace Marabook.App
         // ============================================================= wiki links
 
         public event Action LinkEditRequested; // « Modifier le lien… » (07/10) : la coquille ouvre le dialogue
+        public event Action LinksChanged;      // un lien posé, réécrit ou retiré (07/10)
 
         /// <summary>L'expression sélectionnée (un seul paragraphe), sinon null.</summary>
         public string SelectedPlainText()
         {
             return _item == null || !ComposedActive ? null : _composed.SelectedPlainText();
+        }
+
+        // La sélection relevée à l'ouverture du dialogue du lien (07/10) : le
+        // dialogue est modal, la surface peut perdre sa sélection entre-temps
+        // — la plage est rejouée à l'application.
+        private int _linkParagraph = -1, _linkStart, _linkEnd;
+
+        /// <summary>Relève, avant le dialogue, la plage de l'expression
+        /// sélectionnée (un seul paragraphe) ; rien sans sélection.</summary>
+        public void CaptureLinkContext()
+        {
+            _linkParagraph = -1;
+            if (_item == null || !ComposedActive) return;
+            int pa, oa, pb, ob;
+            if (_composed.SelectionBounds(out pa, out oa, out pb, out ob) && pa == pb && ob > oa)
+            {
+                _linkParagraph = pa;
+                _linkStart = oa;
+                _linkEnd = ob;
+            }
         }
 
         /// <summary>Le [[lien]] sous le caret, à modifier (07/10), sinon null.</summary>
@@ -2432,9 +2458,20 @@ namespace Marabook.App
         public void ApplyWikiLink(string target, string text)
         {
             if (_item == null || string.IsNullOrEmpty(target) || !ComposedActive) return;
-            _composed.ApplyWikiLink(target, text);
+            if (_linkParagraph >= 0 && LinkAtCaret() == null)
+                _composed.ApplyWikiLinkAt(_linkParagraph, _linkStart, _linkEnd, target, text);
+            else
+                _composed.ApplyWikiLink(target, text);
+            _linkParagraph = -1;
             if (!Settings.AppSettings.ShowLinks) SetShowLinks(true);
             _composed.FocusSurface();
+        }
+
+        /// <summary>Recompose la surface (07/10) : après un remplacement de
+        /// police, les faces changent sans que le document bouge.</summary>
+        public void RecomposeAll()
+        {
+            if (_item != null && ComposedActive) _composed.RefreshComposition();
         }
 
         /// <summary>L'ancienne forme (18/09) : la sélection devient le texte du lien.</summary>

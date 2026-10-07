@@ -41,7 +41,7 @@ namespace Marabook.App
                 Padding = column ? new Thickness(16, 14, 16, 16) : new Thickness(28),
                 MaxWidth = column ? double.PositiveInfinity : 900
             };
-            var papers = BuildPapers(item, template, project, navigate);
+            var papers = BuildPapers(item, template, project, navigate, linkClicked);
             if (column)
             {
                 // En colonne : le titre, les papers, puis le corps — empilés.
@@ -112,10 +112,10 @@ namespace Marabook.App
 
         /// <summary>Les papers, dans l'ordre : infobox, Relations, « Évolution
         /// et présence », graph statistique — vides écartés.</summary>
-        private static List<Border> BuildPapers(BinderItem item, SheetTemplate template, Project project, Action<BinderItem> navigate)
+        private static List<Border> BuildPapers(BinderItem item, SheetTemplate template, Project project, Action<BinderItem> navigate, Action<string> linkClicked = null)
         {
             var papers = new List<Border>();
-            foreach (var section in BuildSections(item, template, project, navigate)) papers.Add(Frame(section));
+            foreach (var section in BuildSections(item, template, project, navigate, linkClicked)) papers.Add(Frame(section));
             var relations = BuildRelations(item, project, navigate);
             if (relations != null) papers.Add(Frame(relations));
             var story = BuildEvolutionPresence(item, template, project, navigate);
@@ -147,7 +147,7 @@ namespace Marabook.App
         /// modèle remplis puis ses infos libres ; une section vide n'a pas de
         /// paper. Avant, tout tenait dans une seule infobox, et les infos
         /// libres perdaient leur section.</summary>
-        private static List<StackPanel> BuildSections(BinderItem item, SheetTemplate template, Project project, Action<BinderItem> navigate)
+        private static List<StackPanel> BuildSections(BinderItem item, SheetTemplate template, Project project, Action<BinderItem> navigate, Action<string> linkClicked = null)
         {
             var result = new List<StackPanel>();
             var image = project == null ? null : project.FindImage(item.ImageId);
@@ -179,11 +179,11 @@ namespace Marabook.App
                         string value;
                         item.FieldValues.TryGetValue(field.Id, out value);
                         if (string.IsNullOrEmpty(value)) continue;
-                        AddRow(paper, field.Name, field.Kind, value, project, navigate);
+                        AddRow(paper, field.Name, field.Kind, value, project, navigate, linkClicked);
                     }
                 foreach (var entry in item.FreeInfo)
                     if (!string.IsNullOrEmpty(entry.Value) && string.Equals(SectionKey(names, entry.Group), name, StringComparison.Ordinal))
-                        AddRow(paper, entry.Title, entry.Kind, entry.Value, project, navigate);
+                        AddRow(paper, entry.Title, entry.Kind, entry.Value, project, navigate, linkClicked);
                 if (paper.Children.Count > 1) result.Add(paper);
             }
             return result;
@@ -282,11 +282,15 @@ namespace Marabook.App
         /// aucun décalage — et la ligne retrouve le lien sous la souris par
         /// son TextLayout (HitTestPoint) : clic = navigation, main au survol.
         /// (Un InlineUIContainer, même centré, flottait d'un ou deux pixels.)</summary>
-        private sealed class LinkSpan { public int Start, Length; public BinderItem Target; }
+        private sealed class LinkSpan { public int Start, Length; public BinderItem Target; public string Title; }
 
-        private static Inline Anchor(TextBlock line, string label, BinderItem target, Action<BinderItem> navigate)
+        /// <summary>title/linkClicked (07/10) : un [[lien]] d'un champ dont la
+        /// cible n'existe pas encore — le clic passe le titre à la coquille,
+        /// qui propose de créer la fiche.</summary>
+        private static Inline Anchor(TextBlock line, string label, BinderItem target, Action<BinderItem> navigate,
+            string title = null, Action<string> linkClicked = null)
         {
-            if (target == null || navigate == null) return new Run(label) { Foreground = Chrome.Ink };
+            if ((target == null || navigate == null) && (title == null || linkClicked == null)) return new Run(label) { Foreground = Chrome.Ink };
             var spans = line.Tag as List<LinkSpan>;
             if (spans == null)
             {
@@ -304,10 +308,11 @@ namespace Marabook.App
                     var span = SpanAt(line, e.GetPosition(line));
                     if (span == null) return;
                     e.Handled = true;
-                    navigate(span.Target);
+                    if (span.Target != null && navigate != null) navigate(span.Target);
+                    else if (span.Title != null && linkClicked != null) linkClicked(span.Title);
                 };
             }
-            spans.Add(new LinkSpan { Start = TextLengthOf(line), Length = label.Length, Target = target });
+            spans.Add(new LinkSpan { Start = TextLengthOf(line), Length = label.Length, Target = target, Title = title });
             return new Run(label) { Foreground = Chrome.Accent, TextDecorations = TextDecorations.Underline };
         }
 
@@ -350,7 +355,7 @@ namespace Marabook.App
         /// <summary>Une ligne de l'infobox selon la nature (b47 bis) : une note
         /// en ronds, une liste en chips, une fiche liée cliquable, le reste
         /// en texte.</summary>
-        private static void AddRow(StackPanel infobox, string label, string kind, string value, Project project, Action<BinderItem> navigate)
+        private static void AddRow(StackPanel infobox, string label, string kind, string value, Project project, Action<BinderItem> navigate, Action<string> linkClicked = null)
         {
             infobox.Children.Add(new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeight.Bold, Foreground = Chrome.SoftText, Margin = new Thickness(0, 4, 0, 0) }); // gras franc (29/09) : le demi-gras se lisait comme du maigre
             switch (FieldKinds.Normalize(kind))
@@ -374,9 +379,32 @@ namespace Marabook.App
                     infobox.Children.Add(new TextBlock { Text = FieldKinds.Display(kind, value, project), FontSize = 13, Foreground = Chrome.Accent });
                     return;
                 default:
-                    infobox.Children.Add(new TextBlock { Text = FieldKinds.Display(kind, value, project), FontSize = 12, Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap });
+                    // Les champs textuels portent des [[liens]] vers d'autres
+                    // fiches (07/10) : rendus comme dans le corps, cliquables.
+                    infobox.Children.Add(LinkedText(FieldKinds.Display(kind, value, project), project, navigate, linkClicked));
                     return;
             }
+        }
+
+        /// <summary>Un texte de champ avec ses [[liens]] (07/10) : le texte
+        /// affiché de chaque lien en accent souligné, les marques cachées ;
+        /// la cible existante ouvre la fiche, une cible à créer passe par la
+        /// coquille (linkClicked). Sans lien : un TextBlock ordinaire.</summary>
+        private static TextBlock LinkedText(string value, Project project, Action<BinderItem> navigate, Action<string> linkClicked)
+        {
+            var line = new TextBlock { FontSize = 12, Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap };
+            var links = Links.Find(value);
+            if (links.Count == 0) { line.Text = value; return line; }
+            var cursor = 0;
+            foreach (var link in links)
+            {
+                if (link.Start > cursor) line.Inlines.Add(new Run(value.Substring(cursor, link.Start - cursor)) { Foreground = Chrome.Ink });
+                var target = project == null ? null : project.FindByTitle(link.Target);
+                line.Inlines.Add(Anchor(line, link.Text, target, navigate, link.Target, linkClicked));
+                cursor = link.End;
+            }
+            if (cursor < value.Length) line.Inlines.Add(new Run(value.Substring(cursor)) { Foreground = Chrome.Ink });
+            return line;
         }
     }
 }

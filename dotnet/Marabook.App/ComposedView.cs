@@ -1307,7 +1307,7 @@ namespace Marabook.App
                 menu.Items.Add(editLink);
                 var linkRef = linkHere;
                 var remove = new MenuItem { Header = "Retirer le lien", [ToolTip.TipProperty] = "Les mots restent, le renvoi tombe" };
-                remove.Click += delegate { ReplaceRange(pRef, linkRef.Start, linkRef.End - linkRef.Start, linkRef.Text); };
+                remove.Click += delegate { ReplaceRange(pRef, linkRef.Start, linkRef.End - linkRef.Start, linkRef.Text); RaiseLinksChanged(); };
                 menu.Items.Add(remove);
             }
             var word = WordAt(paragraph, offset);
@@ -1723,6 +1723,13 @@ namespace Marabook.App
         }
 
         public event Action LinkEditRequested; // « Modifier le lien… » du menu (07/10) : la coquille ouvre le dialogue
+        public event Action LinksChanged;      // un lien posé, réécrit ou retiré (07/10) : le rail Général se rafraîchit
+
+        private void RaiseLinksChanged()
+        {
+            var handler = LinksChanged;
+            if (handler != null) handler();
+        }
 
         /// <summary>Le [[lien]] sous le caret (marques comprises, le pas juste
         /// après « ]] » aussi), sinon null (07/10). Une sélection qui déborde
@@ -1750,8 +1757,20 @@ namespace Marabook.App
             int paragraph;
             var link = LinkAtCaret(out paragraph);
             var markup = Links.Markup(target, text);
-            if (link != null) { ReplaceRange(paragraph, link.Start, link.End - link.Start, markup); return; }
-            TypeText(markup);
+            if (link != null) ReplaceRange(paragraph, link.Start, link.End - link.Start, markup);
+            else TypeText(markup);
+            RaiseLinksChanged();
+        }
+
+        /// <summary>Pose un [[lien]] sur une plage donnée (07/10) : la
+        /// sélection relevée AVANT l'ouverture du dialogue, même si elle
+        /// s'est perdue entre-temps.</summary>
+        public void ApplyWikiLinkAt(int paragraphIndex, int start, int end, string target, string text)
+        {
+            if (_item == null || ReadOnly || paragraphIndex >= _item.Document.Paragraphs.Count) return;
+            SelectRange(paragraphIndex, start, end);
+            TypeText(Links.Markup(target, text));
+            RaiseLinksChanged();
         }
 
         /// <summary>Retire le [[lien]] sous le caret : les mots restent (07/10).</summary>
@@ -1762,6 +1781,7 @@ namespace Marabook.App
             var link = LinkAtCaret(out paragraph);
             if (link == null) return false;
             ReplaceRange(paragraph, link.Start, link.End - link.Start, link.Text);
+            RaiseLinksChanged();
             return true;
         }
 

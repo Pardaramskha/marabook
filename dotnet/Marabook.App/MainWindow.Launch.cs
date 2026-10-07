@@ -111,9 +111,10 @@ namespace Marabook.App
         public string InspectorTitle { get { return _inspTitle == null ? "" : _inspTitle.Text ?? ""; } }
         public string InspectorKind { get { return _inspKind == null ? "" : _inspKind.Text ?? ""; } }
         public string InspectorDetail { get { return _inspStats == null ? "" : _inspStats.Text ?? ""; } }
-        public string StatusText { get { return _statusLeft == null ? "" : _statusLeft.Text ?? ""; } }
+        public string StatusText { get { return _statusRight == null ? "" : _statusRight.Text ?? ""; } } // mots · signes EC (07/10)
         public string StatusRightText { get { return _statusRight == null ? "" : _statusRight.Text ?? ""; } }
         public string StatusPagesText { get { return _statusPages == null ? "" : _statusPages.Text ?? ""; } }
+        public string StatusBookText { get { return _statusBook == null ? "" : _statusBook.Text ?? ""; } } // « Livre : N pages » (07/10)
 
         public void ShowJournalPublic() { ShowJournal(); }
 

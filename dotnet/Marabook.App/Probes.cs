@@ -28,6 +28,16 @@ namespace Marabook.App
             Console.WriteLine((condition ? "  OK     " : "  ÉCHEC  ") + label);
         }
 
+        /// <summary>La fenêtre ouverte de ce type, ou null (dialogues modaux de la sonde).</summary>
+        private static T OpenWindow<T>() where T : Window
+        {
+            var lifetime = Avalonia.Application.Current.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+            if (lifetime == null) return null;
+            foreach (var window in lifetime.Windows)
+                if (window is T && window.IsVisible) return (T)window;
+            return null;
+        }
+
         /// <summary>Le premier bouton visible dont le texte contient ce libellé.</summary>
         private static Button FindButton(Visual root, string label)
         {
@@ -100,7 +110,10 @@ namespace Marabook.App
                 Check(composed != null && composed.HasItem && composed.IsVisible, "la surface composée est attachée");
                 Check(composed != null && composed.Extent.Height > composed.Viewport.Height + 1,
                     "…et elle défile : la page dépasse la fenêtre (" + (composed == null ? "-" : composed.Extent.Height.ToString("0") + " > " + composed.Viewport.Height.ToString("0")) + ")");
-                Check(shell.StatusPagesText.Contains("1"), "la barre d'état donne la page du caret (" + shell.StatusPagesText + ")");
+                Check(shell.StatusPagesText.Contains("page"), "la barre d'état donne les pages de l'écrit (" + shell.StatusPagesText + ")");
+                Check(shell.StatusText.Contains("signes EC") && !shell.StatusText.Contains("feuillet") && !shell.StatusText.Contains("min"), "…et mots · signes EC, sans feuillets ni temps de lecture (" + shell.StatusText + ")");
+                Check(shell.ZoomPanelVisibleForProbe, "le curseur de zoom est montré dans l'éditeur");
+                Check(shell.StatusBookText.StartsWith("Livre : ") && shell.StatusBookText.Contains("page"), "…et la pagination totale du livre (" + shell.StatusBookText + ")");
                 Check(FontCatalog.Entries.Count > 10, "le catalogue de polices énumère les polices installées (" + FontCatalog.Entries.Count + ")");
                 Check(!string.IsNullOrEmpty(editor.CurrentFontName), "le sélecteur de police montre la police du caret (" + editor.CurrentFontName + ")");
                 var engine = new AvaloniaFontEngine();
@@ -160,6 +173,34 @@ namespace Marabook.App
                     composed.ReplaceRange(0, 0, "Voir la capitaine ici. ".Length, "");
                     await Settle();
                     Check(document.Paragraphs[0].ToPlainText() == original, "éditeur : le texte de la sonde est retiré (« " + document.Paragraphs[0].ToPlainText().Substring(0, Math.Min(20, document.Paragraphs[0].ToPlainText().Length)) + "… »)");
+                    composed.PlaceCaret(0, 0, false);
+
+                    // — Le VRAI dialogue (07/10) : l'expression « Keira Varenh »
+                    //   sélectionnée, Ctrl+K propose la fiche, « Insérer » remplace
+                    //   l'expression (et non « [[Keira Varenh]]Keira Varenh »), et
+                    //   le rail Général liste le lien aussitôt.
+                    composed.TypeText("Voir Keira Varenh ici. ");
+                    composed.SelectRange(0, 5, 17);
+                    shell.InsertLinkPublic();
+                    await Settle();
+                    var linkDialog = OpenWindow<LinkDialog>();
+                    Check(linkDialog != null, "éditeur : Ctrl+K ouvre le dialogue du lien");
+                    if (linkDialog != null)
+                    {
+                        var combo = linkDialog.GetVisualDescendants().OfType<ComboBox>().FirstOrDefault();
+                        var textBox = linkDialog.GetVisualDescendants().OfType<TextBox>().FirstOrDefault(delegate(TextBox b) { return b.Watermark != null; });
+                        Check(combo != null && combo.Text == "Keira Varenh" && textBox != null && textBox.Text == "Keira Varenh", "éditeur : la cible est proposée d'office, le texte est l'expression (« " + (combo == null ? "?" : combo.Text) + " » / « " + (textBox == null ? "?" : textBox.Text) + " »)");
+                        var insert = FindButton(linkDialog, "Insérer");
+                        if (insert != null) insert.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else linkDialog.Close();
+                        await Settle();
+                        await Settle();
+                    }
+                    flat = PivotEdit.FlatText(document.Paragraphs[0]);
+                    Check(flat.StartsWith("Voir [[Keira Varenh]] ici. "), "éditeur : « Insérer » remplace l'expression par le lien (« " + flat.Substring(0, Math.Min(30, flat.Length)) + " »)");
+                    Check(shell.LinksPanelTextsForProbe().Contains("Keira Varenh"), "éditeur : le rail Général liste le lien aussitôt");
+                    composed.ReplaceRange(0, 0, "Voir [[Keira Varenh]] ici. ".Length, "");
+                    await Settle();
+                    Check(document.Paragraphs[0].ToPlainText() == original, "éditeur : le texte de la sonde est retiré");
                     composed.PlaceCaret(0, 0, false);
                 }
 
@@ -761,6 +802,58 @@ namespace Marabook.App
                         Check(sheetView.RemoveLinkAtCaret() && box.Text == "Voir la capitaine ici.", "fiche : retirer le lien garde les mots (« " + box.Text + " »)");
                         Ui.Select(box, 0, 4);
                         Check(sheetView.LinkAtCaret() == null, "fiche : hors d'un lien, rien à modifier");
+                        Check(!shell.ZoomPanelVisibleForProbe, "fiche : le curseur de zoom est caché hors de l'éditeur");
+
+                        // — Le VRAI dialogue sur le corps (07/10) : la sélection
+                        //   relevée avant le modal est remplacée, pas doublée.
+                        box.Text = "Voir Keira Varenh ici.";
+                        box.Focus();
+                        Ui.Select(box, 5, 12);
+                        shell.InsertLinkPublic();
+                        await Settle();
+                        var sheetDialog = OpenWindow<LinkDialog>();
+                        Check(sheetDialog != null, "fiche : Ctrl+K ouvre le dialogue du lien");
+                        if (sheetDialog != null)
+                        {
+                            var combo = sheetDialog.GetVisualDescendants().OfType<ComboBox>().FirstOrDefault();
+                            Check(combo != null && combo.Text == "Keira Varenh", "fiche : la cible est proposée d'office");
+                            var insert = FindButton(sheetDialog, "Insérer");
+                            if (insert != null) insert.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else sheetDialog.Close();
+                            await Settle();
+                            await Settle();
+                        }
+                        Check(box.Text == "Voir [[Keira Varenh]] ici.", "fiche : « Insérer » remplace l'expression (« " + box.Text + " »)");
+                        Check(shell.LinksPanelTextsForProbe().Contains("Keira Varenh"), "fiche : le rail Général liste le lien aussitôt (" + string.Join(" | ", shell.LinksPanelTextsForProbe().ToArray()) + " ; inspecté : " + shell.InspectorTitle + " ; fiche : " + (sheet == null ? "?" : sheet.Title) + " ; corps : " + box.Text + ")");
+
+                        // — Les champs cross-fiche (07/10) : un champ texte du
+                        //   modèle accepte un lien par le même dialogue.
+                        var fieldEntry = sheetView.FirstTextFieldForProbe();
+                        if (fieldEntry != null)
+                        {
+                            sheetView.ShowGeneralTabPublic(); // le champ doit être posé à l'écran pour prendre le clavier
+                            await Settle();
+                            var fieldBox = fieldEntry.Value.Value;
+                            var fieldKept = fieldBox.Text;
+                            fieldBox.Text = "Amie de Keira Varenh";
+                            fieldBox.Focus();
+                            await Settle();
+                            Ui.Select(fieldBox, 8, 12);
+                            Check(sheetView.CaptureLinkContext() == null && sheetView.SelectedBodyText() == "Keira Varenh", "champ : la zone qui a le clavier est servie, l'expression relevée");
+                            sheetView.ApplyWikiLink("Keira Varenh", "elle");
+                            await Settle();
+                            Check(fieldBox.Text == "Amie de [[Keira Varenh|elle]]", "champ : le lien remplace l'expression dans le champ (« " + fieldBox.Text + " »)");
+                            string fieldValue;
+                            sheet.FieldValues.TryGetValue(fieldEntry.Value.Key, out fieldValue);
+                            Check(fieldValue == fieldBox.Text, "champ : la valeur de la fiche suit");
+                            Ui.Select(fieldBox, 12, 0);
+                            var fieldLink = sheetView.LinkAtCaret();
+                            Check(fieldLink != null && fieldLink.Target == "Keira Varenh", "champ : le lien sous le caret se relit");
+                            Check(sheetView.RemoveLinkAtCaret() && fieldBox.Text == "Amie de elle", "champ : retirer le lien garde les mots");
+                            fieldBox.Text = fieldKept ?? "";
+                            await Task.Delay(1600); // la fenêtre de fusion des frappes (1,5 s) : la sonde Ctrl+Z qui suit compte ses propres actions
+                            await Settle();
+                        }
+                        else Console.WriteLine("  [sonde] pas de champ texte dans le modèle : champs cross-fiche sautés");
                         box.Text = "2. deux";
                         Ui.Select(box, box.Text.Length, 0);
                         sheetView.ContinueList();
@@ -852,6 +945,87 @@ namespace Marabook.App
                     }
                     Check(lines >= 2 && onLink && !offLink, "le lien d'une ligne renvoyée du Texte libre répond sous la souris (" + lines + " lignes, lien " + onLink + ", texte " + offLink + ")");
                     lab.Close();
+                }
+
+                // — Le mode wiki rend les [[liens]] des champs (07/10) : texte
+                //   du lien en accent souligné, cliquable.
+                {
+                    var keira = shell.Project.FindByTitle("Keira Varenh");
+                    var template = keira == null ? null : shell.Project.FindTemplate(keira.TemplateId);
+                    SheetField textField = null;
+                    if (template != null)
+                        foreach (var f in template.Fields)
+                            if (FieldKinds.Normalize(f.Kind) == FieldKinds.Text) { textField = f; break; }
+                    if (keira != null && textField != null)
+                    {
+                        string keptValue;
+                        var had = keira.FieldValues.TryGetValue(textField.Id, out keptValue);
+                        keira.FieldValues[textField.Id] = "Élève du [[Le marabout|vieux marabout]]";
+                        string clicked = null;
+                        var wiki = SheetWiki.Build(keira, template, shell.Project, "", true, delegate { }, delegate(string t) { clicked = t; }, delegate { });
+                        var lab = new Window { Width = 420, Height = 500, Content = wiki };
+                        lab.Show();
+                        await Settle();
+                        Avalonia.Controls.Documents.Run linkRun = null;
+                        foreach (var block in lab.GetVisualDescendants().OfType<TextBlock>())
+                            foreach (var inline in block.Inlines ?? new Avalonia.Controls.Documents.InlineCollection())
+                            {
+                                var run = inline as Avalonia.Controls.Documents.Run;
+                                if (run != null && run.Text == "vieux marabout") linkRun = run;
+                            }
+                        Check(linkRun != null && linkRun.TextDecorations != null && ReferenceEquals(linkRun.Foreground, Chrome.Accent), "mode wiki : le lien d'un champ se rend en accent souligné, marques cachées");
+                        lab.Close();
+                        if (had) keira.FieldValues[textField.Id] = keptValue; else keira.FieldValues.Remove(textField.Id);
+                    }
+                    else Console.WriteLine("  [sonde] pas de champ texte sur Keira : rendu wiki des champs sauté");
+                }
+
+                // — Les polices manquantes (07/10) : un style qui demande une
+                //   police inconnue allume la pastille rouge ; un remplacement
+                //   global l'apaise et le moteur sert la remplaçante ; le
+                //   dialogue écrit le remplacement dans les réglages.
+                {
+                    var ghost = new ParagraphStyle { Id = "sonde-ghost", Name = "Fantôme", FontFamily = "Police Imaginaire XYZ" };
+                    shell.Project.Styles.Styles.Add(ghost);
+                    AppSettings.FontSubstitutions.Remove("Police Imaginaire XYZ");
+                    shell.RefreshFontAlert();
+                    await Settle();
+                    Check(shell.MissingFontsForProbe.Contains("Police Imaginaire XYZ"), "une police inconnue du catalogue est signalée manquante");
+                    Border alert = null;
+                    foreach (var border in shell.GetVisualDescendants().OfType<Border>())
+                    {
+                        var tip = ToolTip.GetTip(border) as string;
+                        if (tip != null && tip.StartsWith("Ce projet demande des polices")) alert = border;
+                    }
+                    Check(alert != null && alert.IsVisible, "la barre d'état montre la pastille rouge « 1 police manquante »");
+                    var substitutionTask = FontSubstitutionDialog.Show(shell, new List<string> { "Police Imaginaire XYZ" });
+                    await Settle();
+                    var substitution = OpenWindow<FontSubstitutionDialog>();
+                    Check(substitution != null, "le dialogue des polices manquantes s'ouvre");
+                    if (substitution != null)
+                    {
+                        var combo = substitution.GetVisualDescendants().OfType<ComboBox>().FirstOrDefault();
+                        var index = -1;
+                        if (combo != null)
+                            for (var i = 0; i < combo.Items.Count; i++)
+                                if (string.Equals(combo.Items[i] as string, "Times New Roman", StringComparison.OrdinalIgnoreCase)) index = i;
+                        if (combo != null && index >= 0) combo.SelectedIndex = index;
+                        Check(combo != null && index > 0, "…avec les polices installées à choisir (Times New Roman trouvée)");
+                        var apply = FindButton(substitution, "Appliquer");
+                        if (apply != null) apply.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else substitution.Close();
+                    }
+                    var applied = await substitutionTask;
+                    Check(applied && AppSettings.SubstituteFont("Police Imaginaire XYZ") == "Times New Roman", "« Appliquer » écrit le remplacement dans les réglages");
+                    shell.ApplyFontSubstitutions();
+                    await Settle();
+                    var ghostFace = new AvaloniaFontEngine().Resolve("Police Imaginaire XYZ", 400, false);
+                    Check(ghostFace.Family == "Times New Roman" && ghostFace.HasGlyphs, "le moteur de polices sert la remplaçante partout (" + ghostFace.Family + ")");
+                    Check(alert != null && alert.IsVisible && (ToolTip.GetTip(alert) as string ?? "").StartsWith("Polices absentes"), "la pastille s'apaise : « 1 police remplacée », toujours cliquable");
+                    AppSettings.FontSubstitutions.Remove("Police Imaginaire XYZ");
+                    shell.Project.Styles.Styles.Remove(ghost);
+                    shell.ApplyFontSubstitutions();
+                    await Settle();
+                    Check(alert != null && !alert.IsVisible, "sans police manquante, rien dans la barre");
                 }
 
                 // — Enregistrer puis rouvrir : le .plot fait l'aller-retour.

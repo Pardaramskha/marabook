@@ -325,6 +325,7 @@ namespace Marabook.App
                 e.Handled = true;
                 ShowLinkMenu(link, index);
             }, RoutingStrategies.Tunnel);
+            TrackLinkBox(_bodyBox); // le corps se souvient d'avoir le clavier (07/10)
             _bodyBox.AddHandler(InputElement.PointerWheelChangedEvent, delegate(object sender, PointerWheelEventArgs e)
             {
                 if (!Ui.HasCommand(e.KeyModifiers)) return;
@@ -479,6 +480,7 @@ namespace Marabook.App
         /// <summary>Montre l'onglet « Texte libre » (une action d'édition du
         /// markdown y ramène toujours : barre, Ctrl+F, insertions).</summary>
         internal void ShowTextTabPublic() { ShowTextTab(); } // capture (hotfix 1.0.3-a)
+        internal void ShowGeneralTabPublic() { _tabs.SelectedIndex = 0; } // sonde des champs cross-fiche (07/10)
 
         private void ShowTextTab()
         {
@@ -982,6 +984,9 @@ namespace Marabook.App
             }, delegate(BinderItem target) { var h = NavigateRequested; if (h != null) h(target); });
             var focus = FieldEditors.FocusTarget(editor);
             if (refId != null && focus != null) _fieldBoxes[refId] = focus;
+            var kindKey = FieldKinds.Normalize(kind);
+            if ((kindKey == FieldKinds.Text || kindKey == FieldKinds.Multiline) && focus is TextBox)
+                TrackLinkBox((TextBox)focus); // les champs cross-fiche (07/10)
             return editor;
         }
 
@@ -1863,6 +1868,8 @@ namespace Marabook.App
         {
             _item = item;
             _template = template;
+            _activeBox = null; // la zone servie par le dialogue du lien repart du corps (07/10)
+            ForgetLinkContext();
             _loading = true;
             var category = _project == null ? null : _project.SheetCategoryOf(item);
             _portraitIcon.Content = SheetLibraryView.CategoryPlaceholder(category, 48);
@@ -2225,66 +2232,177 @@ namespace Marabook.App
         // ================================================== liens (refonte 07/10)
 
         public event Action LinkEditRequested; // bouton de la barre, menu du clic droit : la coquille ouvre le dialogue
+        public event Action LinksChanged;      // un lien posé, réécrit ou retiré : le rail Général se rafraîchit
 
-        /// <summary>L'expression sélectionnée du corps (le texte proposé pour un lien neuf).</summary>
-        public string SelectedBodyText() { return _bodyBox.SelectedText ?? ""; }
+        // Les champs « cross-fiche » (07/10) : tout champ TEXTUEL d'une fiche
+        // (texte court, multiligne, les champs libres) accepte des [[liens]]
+        // vers d'autres fiches, comme le corps. La zone qui a eu le clavier
+        // en dernier est celle que le dialogue du lien sert ; le corps sinon.
+        private TextBox _activeBox;
 
-        /// <summary>Le [[lien]] sous le caret (marques comprises), sinon null ;
-        /// une sélection qui en déborde n'en désigne pas un.</summary>
-        public Link LinkAtCaret()
+        /// <summary>Enregistre une zone de texte comme cible possible des
+        /// liens : elle se souvient d'avoir le clavier, et son clic droit
+        /// sur un [[lien]] ouvre le menu du lien.</summary>
+        private void TrackLinkBox(TextBox box)
         {
-            if (_item == null) return null;
+            if (box == null) return;
+            box.GotFocus += delegate { _activeBox = box; };
+            if (box == _bodyBox) return; // le corps a son propre tunnel (correcteur + liens)
+            box.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e)
+            {
+                if (!e.GetCurrentPoint(box).Properties.IsRightButtonPressed) return;
+                var index = IndexAt(box, e.GetPosition(box));
+                var link = index < 0 ? null : Links.At(box.Text ?? "", index);
+                if (link == null) return;
+                e.Handled = true;
+                ShowLinkMenu(box, link, index);
+            }, RoutingStrategies.Tunnel);
+        }
+
+        /// <summary>La zone que le dialogue du lien sert : la dernière à avoir
+        /// eu le clavier si elle est encore posée, le corps sinon.</summary>
+        private TextBox LinkBox()
+        {
+            if (_activeBox != null && _activeBox != _bodyBox && _activeBox.GetVisualRoot() != null && _activeBox.IsEffectivelyVisible) return _activeBox;
+            return _bodyBox;
+        }
+
+        // La sélection relevée à l'ouverture du dialogue (07/10) : modal, il
+        // prend le clavier et le TextBox replie sa sélection sur le caret —
+        // le lien s'insérait devant l'expression au lieu de la remplacer.
+        private TextBox _linkBox;
+        private int _linkStart = -1, _linkLength;
+
+        /// <summary>Relève, avant le dialogue, la zone, la sélection et le
+        /// lien sous le caret ; rend ce lien (à modifier) ou null.</summary>
+        public Link CaptureLinkContext()
+        {
+            _linkBox = LinkBox();
             int start, length;
-            OrderedSelection(out start, out length);
-            var link = Links.At(_bodyBox.Text ?? "", start);
+            OrderedSelection(_linkBox, out start, out length);
+            _linkStart = start;
+            _linkLength = length;
+            return LinkAt(_linkBox, start, length);
+        }
+
+        public void ForgetLinkContext() { _linkBox = null; _linkStart = -1; }
+
+        /// <summary>L'expression sélectionnée (celle relevée par
+        /// CaptureLinkContext si elle l'a été).</summary>
+        public string SelectedBodyText()
+        {
+            var box = _linkBox ?? LinkBox();
+            var text = box.Text ?? "";
+            if (_linkBox != null && _linkStart >= 0 && _linkStart + _linkLength <= text.Length)
+                return text.Substring(_linkStart, _linkLength);
+            return box.SelectedText ?? "";
+        }
+
+        private static void OrderedSelection(TextBox box, out int start, out int length)
+        {
+            var a = box.SelectionStart;
+            var b = box.SelectionEnd;
+            start = Math.Min(a, b);
+            length = Math.Abs(b - a);
+        }
+
+        /// <summary>Le [[lien]] sous une position (marques comprises), sinon
+        /// null ; une sélection qui en déborde n'en désigne pas un.</summary>
+        private static Link LinkAt(TextBox box, int start, int length)
+        {
+            var link = Links.At(box.Text ?? "", start);
             if (link != null && start + length > link.End) link = null;
             return link;
         }
 
+        /// <summary>Le [[lien]] sous le caret de la zone servie, sinon null.</summary>
+        public Link LinkAtCaret()
+        {
+            if (_item == null) return null;
+            var box = _linkBox ?? LinkBox();
+            int start, length;
+            if (_linkBox != null && _linkStart >= 0) { start = _linkStart; length = _linkLength; }
+            else OrderedSelection(box, out start, out length);
+            return LinkAt(box, start, length);
+        }
+
         /// <summary>Pose un [[lien]] : le lien sous le caret est réécrit (cible
-        /// et texte), sinon la notation remplace la sélection ou s'insère.</summary>
+        /// et texte), sinon la notation remplace la sélection relevée (ou
+        /// courante), ou s'insère au caret.</summary>
         public void ApplyWikiLink(string target, string text)
         {
             if (_item == null || string.IsNullOrEmpty(target)) return;
-            LeavePreview();
+            var box = _linkBox ?? LinkBox();
+            int start, length;
+            if (_linkBox != null && _linkStart >= 0) { start = _linkStart; length = _linkLength; }
+            else OrderedSelection(box, out start, out length);
+            ForgetLinkContext();
+            if (box == _bodyBox) LeavePreview();
             var markup = Links.Markup(target, text);
-            var link = LinkAtCaret();
-            if (link == null) { InsertAtCaret(markup); return; }
-            Ui.Select(_bodyBox, link.Start, link.End - link.Start);
-            _bodyBox.SelectedText = markup;
-            Ui.Select(_bodyBox, link.Start + markup.Length, 0);
-            _bodyBox.Focus();
+            var link = LinkAt(box, start, length);
+            if (link != null) { start = link.Start; length = link.End - link.Start; }
+            Replace(box, start, length, markup);
+            RaiseLinksChanged();
         }
 
-        /// <summary>Retire le [[lien]] sous le caret : les mots restent.</summary>
+        /// <summary>Retire le [[lien]] sous le caret de la zone : les mots restent.</summary>
         public bool RemoveLinkAtCaret()
         {
-            var link = LinkAtCaret();
+            var box = LinkBox();
+            int start, length;
+            OrderedSelection(box, out start, out length);
+            var link = LinkAt(box, start, length);
             if (link == null) return false;
-            LeavePreview();
-            Ui.Select(_bodyBox, link.Start, link.End - link.Start);
-            _bodyBox.SelectedText = link.Text;
-            Ui.Select(_bodyBox, link.Start + link.Text.Length, 0);
-            _bodyBox.Focus();
+            if (box == _bodyBox) LeavePreview();
+            Replace(box, link.Start, link.End - link.Start, link.Text);
+            RaiseLinksChanged();
             return true;
         }
 
-        /// <summary>L'offset du corps sous un point du TextBox (sa disposition
-        /// de texte), −1 hors du texte.</summary>
-        private int BodyIndexAt(Point pointInBox)
+        /// <summary>Remplace une plage de la zone et pose le caret après.</summary>
+        private static void Replace(TextBox box, int start, int length, string text)
         {
-            var presenter = _bodyBox.FindDescendantOfType<TextPresenter>();
+            var whole = box.Text ?? "";
+            start = Math.Max(0, Math.Min(start, whole.Length));
+            length = Math.Max(0, Math.Min(length, whole.Length - start));
+            box.Text = whole.Substring(0, start) + text + whole.Substring(start + length);
+            Ui.Select(box, start + text.Length, 0);
+            box.Focus();
+        }
+
+        /// <summary>Signalé EN DIFFÉRÉ (priorité Background) : Avalonia lève
+        /// TextChanged après coup (priorité Normal), et c'est lui qui recopie
+        /// la zone dans le modèle — levé tout de suite, le rail Général
+        /// relisait l'ancien texte et disait « Aucun lien ».</summary>
+        private void RaiseLinksChanged()
+        {
+            Ui.Post(DispatcherPriority.Background, delegate
+            {
+                var handler = LinksChanged;
+                if (handler != null) handler();
+            });
+        }
+
+        /// <summary>L'offset d'une zone sous un point (sa disposition de
+        /// texte), −1 hors du texte.</summary>
+        private static int IndexAt(TextBox box, Point pointInBox)
+        {
+            var presenter = box.FindDescendantOfType<TextPresenter>();
             if (presenter == null || presenter.TextLayout == null) return -1;
-            var inPresenter = _bodyBox.TranslatePoint(pointInBox, presenter);
+            var inPresenter = box.TranslatePoint(pointInBox, presenter);
             if (inPresenter == null) return -1;
             var hit = presenter.TextLayout.HitTestPoint(inPresenter.Value);
             return hit.IsInside ? hit.TextPosition : -1;
         }
 
-        /// <summary>Le menu d'un lien du corps (07/10) : ouvrir la cible,
+        private int BodyIndexAt(Point pointInBox) { return IndexAt(_bodyBox, pointInBox); }
+
+        private void ShowLinkMenu(Link link, int index) { ShowLinkMenu(_bodyBox, link, index); }
+
+        /// <summary>Le menu d'un lien d'une zone (07/10) : ouvrir la cible,
         /// modifier (le dialogue de la coquille, le caret posé dans le lien),
         /// retirer (les mots restent).</summary>
-        private void ShowLinkMenu(Link link, int index)
+        private void ShowLinkMenu(TextBox box, Link link, int index)
         {
             var menu = new ContextMenu();
             var target = link.Target;
@@ -2294,16 +2412,17 @@ namespace Marabook.App
             var editLink = new MenuItem { Header = "Modifier le lien…", [ToolTip.TipProperty] = "La fiche visée et le texte affiché" };
             editLink.Click += delegate
             {
-                Ui.Select(_bodyBox, index, 0);
+                _activeBox = box;
+                Ui.Select(box, index, 0);
                 var h = LinkEditRequested;
                 if (h != null) h();
             };
             menu.Items.Add(editLink);
             var remove = new MenuItem { Header = "Retirer le lien", [ToolTip.TipProperty] = "Les mots restent, le renvoi tombe" };
-            remove.Click += delegate { Ui.Select(_bodyBox, index, 0); RemoveLinkAtCaret(); };
+            remove.Click += delegate { _activeBox = box; Ui.Select(box, index, 0); RemoveLinkAtCaret(); };
             menu.Items.Add(remove);
-            menu.PlacementTarget = _bodyBox;
-            Ui.ShowMenu(menu, _bodyBox);
+            menu.PlacementTarget = box;
+            Ui.ShowMenu(menu, box);
         }
 
         // ================================================== correcteur (1.0.4)
