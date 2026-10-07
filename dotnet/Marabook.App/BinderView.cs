@@ -78,6 +78,12 @@ namespace Marabook.App
             // la Pile filait vers la droite devant un titre long. La Pile s'en
             // charge, verticalement seulement (BringIntoViewVertically).
             _tree = new TreeView { [DragDrop.AllowDropProperty] = true, AutoScrollToSelectedItem = false };
+            // Jamais de défilement horizontal (07/10) : mesuré à largeur
+            // infinie, l'arbre laissait la ligne Accueil à sa largeur naturelle
+            // et le caret de repli, docké à droite, passait SOUS le bord dès que
+            // la Pile se resserrait. Contraint à la fenêtre, les titres longs
+            // se tronquent (CharacterEllipsis) et le caret reste visible.
+            ScrollViewer.SetHorizontalScrollBarVisibility(_tree, ScrollBarVisibility.Disabled);
             _tree.SelectionChanged += OnSelectedItemChanged;
             // En TUNNEL, comme le PreviewMouseDown de WPF : le TreeView
             // d'Avalonia sélectionne dans son gestionnaire de classe (phase
@@ -615,7 +621,14 @@ namespace Marabook.App
                 var row = new DockPanel { HorizontalAlignment = HorizontalAlignment.Stretch };
                 DockPanel.SetDock(toggle, Dock.Right);
                 row.Children.Add(toggle);
+                // Le titre REMPLIT ce qui reste (07/10) : dans la StackPanel
+                // horizontale il était mesuré sans borne et passait sous le
+                // caret quand la Pile se resserrait ; dernier enfant du
+                // DockPanel, il se tronque (CharacterEllipsis) avant le caret.
+                panel.Children.Remove(title);
+                DockPanel.SetDock(panel, Dock.Left);
                 row.Children.Add(panel);
+                row.Children.Add(title);
                 return row;
             }
 

@@ -8,6 +8,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Marabook.Model;
 using Marabook.Print;
+using AppSettings = Marabook.Settings.AppSettings;
 
 namespace Marabook.App
 {
@@ -42,8 +43,21 @@ namespace Marabook.App
             return handle == null ? null : handle.Glyphs;
         }
 
+        /// <summary>Oublie les faces résolues (07/10) : après un changement
+        /// des remplacements de polices, la prochaine composition redemande
+        /// chaque famille et reçoit sa remplaçante.</summary>
+        public static void InvalidateFaces()
+        {
+            lock (_faces) { _faces.Clear(); }
+        }
+
         public FaceInfo Resolve(string family, int weight, bool italic)
         {
+            // Une police manquante remplacée (07/10) : la famille demandée
+            // cède la place à sa remplaçante avant toute résolution — le
+            // document garde son nom, l'écran, le PDF et l'impression
+            // reçoivent la police installée.
+            family = AppSettings.SubstituteFont(family);
             var key = family + "|" + weight + "|" + italic;
             FaceInfo face;
             lock (_faces)

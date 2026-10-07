@@ -44,15 +44,15 @@ namespace Marabook.Correction
             return stats;
         }
 
-        /// <summary>Compact status-bar label, e.g. "1 234 mots · 6 789 SEC · 4,5 feuillets · ~6 min".</summary>
+        /// <summary>Compact status-bar label (07/10) : « 1 234 mots · 6 789
+        /// signes EC » — les feuillets et le temps de lecture n'y sont plus
+        /// (demande de Rémi), les pages sont données à côté par la coquille.</summary>
         public string ShortLabel()
         {
             if (Sec == 0) return "0 mot";
             var culture = CultureInfo.CurrentCulture;
             return Words.ToString("N0", culture) + (Words > 1 ? " mots · " : " mot · ")
-                 + Sec.ToString("N0", culture) + " SEC · "
-                 + Sheets.ToString("0.0", culture) + (Sheets >= 2 ? " feuillets" : " feuillet")
-                 + " · ~" + ReadingMinutes + " min";
+                 + Sec.ToString("N0", culture) + " signes EC";
         }
 
         /// <summary>Detailed multi-line label for the inspector.</summary>
@@ -62,8 +62,7 @@ namespace Marabook.Correction
             return "Mots : " + Words.ToString("N0", culture)
                  + "\nCaractères espaces comprises : " + Sec.ToString("N0", culture)
                  + "\nSans espaces : " + NoSpaces.ToString("N0", culture)
-                 + "\nFeuillets (1 500) : " + Sheets.ToString("0.0", culture)
-                 + "\nLecture : ~" + ReadingMinutes + " min";
+                 + "\nLecture : ~" + ReadingMinutes + " min"; // plus de feuillets (07/10)
         }
     }
 }

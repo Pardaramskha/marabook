@@ -195,6 +195,41 @@ namespace Marabook.Model
         // (SheetField.Group) ou une info libre (InfoEntry.Group) s'y range
         // par son nom.
         public List<string> Sections = new List<string>();
+
+        /// <summary>Deux champs sont de la même section si leurs groupes se
+        /// lisent pareil (vide = « Informations »), majuscules et accents
+        /// de la culture courante ignorés.</summary>
+        public static bool SameGroup(string a, string b)
+        {
+            return string.Equals(a ?? "", b ?? "", StringComparison.CurrentCultureIgnoreCase);
+        }
+
+        /// <summary>Le voisin de ce champ DANS SA SECTION, au-dessus (delta
+        /// négatif) ou au-dessous (positif) ; −1 s'il n'y en a pas — un
+        /// champ ne quitte jamais sa section par les flèches (1.0.4).</summary>
+        public int NeighbourField(SheetField field, int delta)
+        {
+            var index = Fields.IndexOf(field);
+            if (index < 0 || delta == 0) return -1;
+            var step = delta < 0 ? -1 : 1;
+            for (var i = index + step; i >= 0 && i < Fields.Count; i += step)
+                if (SameGroup(Fields[i].Group, field.Group)) return i;
+            return -1;
+        }
+
+        /// <summary>Monte (delta négatif) ou descend (positif) un champ d'un
+        /// cran parmi ceux de sa section : il passe de l'autre côté de son
+        /// voisin, les champs des autres sections ne bougent pas (l'ordre
+        /// persisté est celui de l'éditeur de modèles). Faux si rien à faire.</summary>
+        public bool MoveField(SheetField field, int delta)
+        {
+            var neighbour = NeighbourField(field, delta);
+            if (neighbour < 0) return false;
+            var index = Fields.IndexOf(field);
+            Fields.RemoveAt(index);
+            Fields.Insert(neighbour, field); // en descendant, le voisin a reculé d'un cran : on se pose derrière lui
+            return true;
+        }
         // Le paper « Relations » (liens entre fiches) — vrai pour le
         // Personnage, faux pour les autres modèles livrés (batch 42).
         public bool Relations;
@@ -289,14 +324,25 @@ namespace Marabook.Model
         public const string GroupLooks = "Apparence";
         /// <summary>La section « Personnalité » du Personnage (23/09).</summary>
         public const string GroupPersonality = "Personnalité";
+        /// <summary>La section « Narration » du Personnage (1.0.4) : ce que le
+        /// personnage fait dans l'histoire — rôle, objectif, défaut central,
+        /// expression typique, niveau de langue.</summary>
+        public const string GroupNarration = "Narration";
         public const string LegacyGroupLooks = "Physique";
         public const string LegacyGroupInfos = "Infos";
 
         public static readonly string[] CategoryNames =
         {
             "Personnage", "Lieu", "Événement", "Système",
-            "Peuple", "Bestiaire", "Pays / Gouvernement", "Faction / Organisation"
+            "Peuple", "Bestiaire", "Pays / Gouvernement", "Faction / Organisation",
+            "Objet", "Religion & Croyances", "Langue"
         };
+
+        /// <summary>Les catégories AJOUTÉES en 1.0.4 (.plot v35) : un projet
+        /// d'avant les reçoit une fois au chargement, si leur nom n'y est pas
+        /// — et seulement elles (celles d'avant, supprimées exprès par
+        /// l'utilisateur, ne reviennent pas).</summary>
+        public static readonly string[] CategoriesAddedInV35 = { "Objet", "Religion & Croyances", "Langue" };
 
         /// <summary>Le modèle par défaut d'une catégorie livrée (null pour un
         /// nom inconnu). Les ids sont neufs à chaque appel.</summary>
@@ -324,6 +370,16 @@ namespace Marabook.Model
                 case "Faction / Organisation": return Simple("Faction / Organisation",
                     S("Type"), S("Affiliation"), S("Direction"), S("Création"), S("Fin"),
                     Choice("Échelle", GroupInfos, "Locale", "Régionale", "Nationale", "Multinationale", "Mondiale", "Universelle"));
+                // Les trois catégories de la 1.0.4 (sobres, comme les autres :
+                // le corps Markdown porte la description).
+                case "Objet": return Simple("Objet",
+                    Choice("Type", GroupInfos, "Arme", "Artefact", "Outil", "Vêtement", "Document", "Relique", "Autre"),
+                    S("Origine"), S("Propriétaire"), S("Matière"), S("Pouvoirs"));
+                case "Religion & Croyances": return Simple("Religion & Croyances",
+                    S("Divinités"), S("Fidèles"), S("Rites"), S("Lieux de culte"), S("Clergé"));
+                case "Langue": return Simple("Langue",
+                    S("Locuteurs"), S("Origine"), S("Écriture"),
+                    Choice("Statut", GroupInfos, "Vivante", "Morte", "Sacrée", "Secrète", "Autre"));
                 default: return null;
             }
         }
@@ -361,6 +417,11 @@ namespace Marabook.Model
         /// <summary>Les champs de personnalité par défaut du personnage (23/09).</summary>
         public static readonly string[] CharacterPersonality =
             { "En un mot", "Voix", "Gestuelle", "Sociabilité" };
+
+        /// <summary>Les champs de narration par défaut du personnage (1.0.4),
+        /// tous en texte court — demande de Rémi du 06/10.</summary>
+        public static readonly string[] CharacterNarration =
+            { "Rôle", "Objectif", "Défaut central", "Expression typique", "Niveau de langue" };
 
         /// <summary>Un champ par défaut : son nom, sa section, sa nature, ses
         /// options, et les NOMS D'AVANT qu'il remplace à la migration (un
@@ -402,7 +463,9 @@ namespace Marabook.Model
                 S("Traits", GroupLooks),
                 Kind("Particularités", FieldKinds.Multiline, GroupLooks),
                 S("En un mot", GroupPersonality), S("Voix", GroupPersonality),
-                S("Gestuelle", GroupPersonality), S("Sociabilité", GroupPersonality)
+                S("Gestuelle", GroupPersonality), S("Sociabilité", GroupPersonality),
+                S("Rôle", GroupNarration), S("Objectif", GroupNarration), S("Défaut central", GroupNarration),
+                S("Expression typique", GroupNarration), S("Niveau de langue", GroupNarration)
             };
         }
 
@@ -413,6 +476,7 @@ namespace Marabook.Model
             var t = new SheetTemplate { Name = "Personnage", Relations = true };
             t.Sections.Add(GroupLooks);
             t.Sections.Add(GroupPersonality);
+            t.Sections.Add(GroupNarration);
             foreach (var spec in CharacterSpecs()) t.Fields.Add(spec.Make());
             return t;
         }
@@ -439,6 +503,7 @@ namespace Marabook.Model
             }
             if (!template.HasSection(GroupLooks)) { template.Sections.Add(GroupLooks); changed = true; }
             if (!template.HasSection(GroupPersonality)) { template.Sections.Add(GroupPersonality); changed = true; }
+            if (!template.HasSection(GroupNarration)) { template.Sections.Add(GroupNarration); changed = true; } // 1.0.4 (v35)
             if (!template.Relations) { template.Relations = true; changed = true; }
 
             var rebuilt = new List<SheetField>();
@@ -568,7 +633,8 @@ namespace Marabook.Model
             return group.Trim();
         }
 
-        /// <summary>Peuple un projet NEUF : sept modèles, sept catégories.</summary>
+        /// <summary>Peuple un projet NEUF : un modèle et une catégorie par
+        /// nom de CategoryNames (onze depuis la 1.0.4).</summary>
         public static void Seed(List<SheetTemplate> templates,
             List<SheetCategory> categories)
         {

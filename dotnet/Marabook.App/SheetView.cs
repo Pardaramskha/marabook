@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -13,7 +14,9 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
+using Marabook.History;
 using Marabook.Model;
+using AppSettings = Marabook.Settings.AppSettings; // l'alias seul : Settings.KeyModifiers heurterait celui d'Avalonia
 
 namespace Marabook.App
 {
@@ -87,6 +90,23 @@ namespace Marabook.App
         private StyleSheet _styles = StyleSheet.CreateDefault();
         private bool _loading;
         private double _zoom = 1.0;
+        // Ctrl+Z sur les champs (1.0.4) : l'historique du projet, posé par la
+        // coquille, et l'OMBRE de la fiche — son état au dernier signal — pour
+        // bâtir une action d'un instantané à l'autre sans toucher aux
+        // dizaines de points d'écriture de la vue (ils signalent tous Edited).
+        public HistoryManager History;
+        private SheetSnapshot _shadow;
+        private static readonly TimeSpan MergeWindow = TimeSpan.FromSeconds(1.5);
+        // Le correcteur orthographique du corps Markdown (1.0.4) : le même
+        // moteur et les mêmes dictionnaires personnels que l'éditeur, une
+        // passe synchrone un peu après la frappe (quelques millisecondes :
+        // ~1 µs par mot), l'ondulé dessiné par SpellOverlay, le menu
+        // contextuel sur un mot souligné (suggestions, ignorer, apprendre).
+        private Correction.SpellChecker _spell;
+        private bool _spellTried;
+        private SpellOverlay _spellOverlay;
+        private readonly DispatcherTimer _spellTimer;
+        private readonly HashSet<string> _spellIgnoredHere = new HashSet<string>();
 
         public event Action Edited;
         public event Action<string> LinkClicked;
@@ -127,7 +147,7 @@ namespace Marabook.App
             _previewToggle = new ToggleButton
             {
                 Classes = { Marabook.App.Theme.Owned },
-                Content = "📖  Mode wiki",
+                Content = Icons.Label("apercu-wiki", "Mode wiki", 13, Chrome.Ink), // une icône du jeu : l'emoji 📖 sortait en « ??? » sur macOS (07/10)
                 FontWeight = FontWeight.SemiBold,
                 Padding = new Thickness(12, 4, 12, 4),
                 [ToolTip.TipProperty] = "Voir la fiche en lecture, comme une page de wiki"
@@ -287,6 +307,25 @@ namespace Marabook.App
                 _item.Document = TextDocument.FromPlainText(_bodyBox.Text);
                 NotifyEdited();
             };
+            // Le correcteur (1.0.4) : 450 ms après la dernière frappe.
+            _spellTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+            _spellTimer.Tick += delegate { _spellTimer.Stop(); RunSpell(); };
+            _bodyBox.TextChanged += delegate { if (!_loading) { _spellTimer.Stop(); _spellTimer.Start(); } };
+            // Le clic droit sur un mot souligné : son menu, avant que le
+            // TextBox ne prenne le geste (tunnel).
+            _bodyBox.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e)
+            {
+                if (!e.GetCurrentPoint(_bodyBox).Properties.IsRightButtonPressed) return;
+                var finding = _spellOverlay == null ? null : _spellOverlay.FindingAt(e.GetPosition(_bodyBox));
+                if (finding != null) { e.Handled = true; ShowSpellMenu(finding); return; }
+                // Le [[lien]] sous le clic droit (07/10) : ouvrir, modifier, retirer.
+                var index = BodyIndexAt(e.GetPosition(_bodyBox));
+                var link = index < 0 ? null : Links.At(_bodyBox.Text ?? "", index);
+                if (link == null) return;
+                e.Handled = true;
+                ShowLinkMenu(link, index);
+            }, RoutingStrategies.Tunnel);
+            TrackLinkBox(_bodyBox); // le corps se souvient d'avoir le clavier (07/10)
             _bodyBox.AddHandler(InputElement.PointerWheelChangedEvent, delegate(object sender, PointerWheelEventArgs e)
             {
                 if (!Ui.HasCommand(e.KeyModifiers)) return;
@@ -369,6 +408,10 @@ namespace Marabook.App
             _bodySplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0) });
             Grid.SetColumn(_bodyBox, 0);
             _bodySplit.Children.Add(_bodyBox);
+            // L'ondulé du correcteur, par-dessus la zone (même case, 1.0.4).
+            _spellOverlay = new SpellOverlay(_bodyBox);
+            Grid.SetColumn(_spellOverlay, 0);
+            _bodySplit.Children.Add(_spellOverlay);
             var divider = new Border { Width = 1, Background = Chrome.Border, IsVisible = false };
             Grid.SetColumn(divider, 1);
             _bodySplit.Children.Add(divider);
@@ -437,6 +480,8 @@ namespace Marabook.App
         /// <summary>Montre l'onglet « Texte libre » (une action d'édition du
         /// markdown y ramène toujours : barre, Ctrl+F, insertions).</summary>
         internal void ShowTextTabPublic() { ShowTextTab(); } // capture (hotfix 1.0.3-a)
+        internal void ShowGeneralTabPublic() { _tabs.SelectedIndex = 0; } // sonde des champs cross-fiche (07/10)
+        internal bool GeneralTabShownForProbe { get { return _tabs.SelectedIndex == 0; } }
 
         private void ShowTextTab()
         {
@@ -940,6 +985,10 @@ namespace Marabook.App
             }, delegate(BinderItem target) { var h = NavigateRequested; if (h != null) h(target); });
             var focus = FieldEditors.FocusTarget(editor);
             if (refId != null && focus != null) _fieldBoxes[refId] = focus;
+            // Les champs cross-fiche (07/10) : TOUTE zone de texte — texte,
+            // multiligne, liste (ses éléments), nombre, date — Rémi a eu un
+            // lien de champ Liste posé dans le Texte libre (07/10 soir).
+            if (focus is TextBox) TrackLinkBox((TextBox)focus);
             return editor;
         }
 
@@ -1498,13 +1547,14 @@ namespace Marabook.App
             bar.Children.Add(IconTool("list-numbers-bold", "Liste numérotée", delegate { ApplyList("num"); }));
             bar.Children.Add(IconTool("list-dashes-bold", "Liste à tirets", delegate { ApplyList("tiret"); }));
             bar.Children.Add(IconTool("list-check", "Liste de tâches (cases à cocher)", delegate { ApplyList("case"); }));
-            bar.Children.Add(TextTool("❝", "Citation", delegate { ApplyQuote(); }));
+            bar.Children.Add(TextTool("« »", "Citation", delegate { ApplyQuote(); })); // « ❝ » et « 🔗 » sortaient en « ? » sur macOS (07/10)
             bar.Children.Add(Gap());
             bar.Children.Add(IconTool("tableau-recherche", "Insérer un tableau", delegate { InsertTable(); }));
             bar.Children.Add(IconTool("horizontal-rule", "Filet horizontal", delegate { InsertRule(); }));
-            bar.Children.Add(TextTool("🔗", "Lien hypertexte", delegate { InsertLink(); }));
+            bar.Children.Add(IconTool("connection", "Lien hypertexte", delegate { InsertLink(); }));
             bar.Children.Add(IconTool("image-square-bold", "Image", delegate { InsertImage(); }));
-            bar.Children.Add(IconTool("fiche-individual", "Lien vers une fiche (" + Ui.Keys("Ctrl+K") + ")", delegate { Wrap("[[", "]]"); }));
+            // Le dialogue du lien (07/10), cible et texte — plus de « [[ ]] » nus autour de la sélection.
+            bar.Children.Add(IconTool("fiche-individual", "Lien vers une fiche (" + Ui.Keys("Ctrl+K") + ")", delegate { var h = LinkEditRequested; if (h != null) h(); }));
             return bar;
         }
 
@@ -1797,7 +1847,35 @@ namespace Marabook.App
         // ================================================== API de la coquille
 
         public bool HasItem { get { return _item != null; } }
+
+        /// <summary>Pour la sonde (1.0.4) : le premier champ TEXTE du modèle
+        /// et sa zone de saisie, ou null.</summary>
+        internal KeyValuePair<string, TextBox>? FirstTextFieldForProbe()
+        {
+            if (_template == null) return null;
+            foreach (var field in _template.Fields)
+            {
+                Control box;
+                if (FieldKinds.Normalize(field.Kind) == FieldKinds.Text && _fieldBoxes.TryGetValue(field.Id, out box) && box is TextBox)
+                    return new KeyValuePair<string, TextBox>(field.Id, (TextBox)box);
+            }
+            return null;
+        }
         internal TextBox BodyBox { get { return _bodyBox; } } // sonde (hotfix 1.0.3-a)
+
+        /// <summary>Sonde (07/10 soir) : la zone de saisie du premier champ de
+        /// cette nature (liste, nombre…), ou null.</summary>
+        internal KeyValuePair<string, TextBox>? FirstFieldBoxForProbe(string kind)
+        {
+            if (_template == null) return null;
+            foreach (var field in _template.Fields)
+            {
+                Control box;
+                if (FieldKinds.Normalize(field.Kind) == kind && _fieldBoxes.TryGetValue(field.Id, out box) && box is TextBox)
+                    return new KeyValuePair<string, TextBox>(field.Id, (TextBox)box);
+            }
+            return null;
+        }
         public bool ShowsItem(BinderItem item) { return _item == item; }
         public void SetStyleSheet(StyleSheet styles) { _styles = styles; }
         public void SetProject(Model.Project project) { _project = project; }
@@ -1806,6 +1884,8 @@ namespace Marabook.App
         {
             _item = item;
             _template = template;
+            _activeBox = null; // la zone servie par le dialogue du lien repart du corps (07/10)
+            ForgetLinkContext();
             _loading = true;
             var category = _project == null ? null : _project.SheetCategoryOf(item);
             _portraitIcon.Content = SheetLibraryView.CategoryPlaceholder(category, 48);
@@ -1827,6 +1907,9 @@ namespace Marabook.App
             _bodyBox.IsUndoEnabled = false;
             _bodyBox.IsUndoEnabled = true;
             _loading = false;
+            _shadow = SheetSnapshot.Capture(_project, item); // l'état de départ du Ctrl+Z (1.0.4)
+            _spellIgnoredHere.Clear();
+            RunSpell(); // le corps vérifié à l'ouverture (1.0.4)
             SetMirror(_mirrorMode); // le mode choisi suit d'une fiche à l'autre
             RefreshDictionaryBadge();
             if (_previewToggle.IsChecked == true) ShowPreview();
@@ -1843,8 +1926,10 @@ namespace Marabook.App
         {
             _item = null;
             _template = null;
+            _shadow = null;
             _loading = true;
             _bodyBox.Text = "";
+            if (_spellOverlay != null) _spellOverlay.SetFindings(null);
             _loading = false;
             _portrait.IsVisible = false;
             _portraitPlaceholder.IsVisible = true;
@@ -2132,9 +2217,9 @@ namespace Marabook.App
         }
 
         public void InsertFootnote() { } // les fiches n'ont pas de notes de bas de page
-        /// <summary>Le [[lien]] garde l'expression sélectionnée comme texte
-        /// (« [[Cible|expression]] », 18/09).</summary>
-        public void InsertWikiLink(string title) { InsertAtCaret(Links.Markup(title, _bodyBox.SelectedText)); }
+        /// <summary>L'ancienne forme (18/09) : l'expression sélectionnée
+        /// devient le texte du lien — voir ApplyWikiLink (07/10).</summary>
+        public void InsertWikiLink(string title) { ApplyWikiLink(title, _bodyBox.SelectedText); }
         public void InsertImage() { InsertAtCaret("![description](adresse)"); }
         public void InsertRule() { InsertAtCaret("\n---\n"); }
         public void InsertSeparator()
@@ -2148,18 +2233,423 @@ namespace Marabook.App
         {
             if (_item == null) return;
             LeavePreview();
-            var at = _bodyBox.SelectionStart;
-            _bodyBox.Text = (_bodyBox.Text ?? "").Substring(0, at) + text + (_bodyBox.Text ?? "").Substring(at + (_bodyBox.SelectionEnd - _bodyBox.SelectionStart));
-            _bodyBox.SelectionStart = at + text.Length;
+            // La sélection ORDONNÉE (07/10) : tirée à rebours, SelectionEnd
+            // précède SelectionStart et la longueur devenait négative.
+            int at, length;
+            OrderedSelection(out at, out length);
+            var whole = _bodyBox.Text ?? "";
+            at = Math.Min(at, whole.Length);
+            length = Math.Min(length, whole.Length - at);
+            _bodyBox.Text = whole.Substring(0, at) + text + whole.Substring(at + length);
+            Ui.Select(_bodyBox, at + text.Length, 0);
             _bodyBox.Focus();
+        }
+
+        // ================================================== liens (refonte 07/10)
+
+        public event Action LinkEditRequested; // bouton de la barre, menu du clic droit : la coquille ouvre le dialogue
+        public event Action LinksChanged;      // un lien posé, réécrit ou retiré : le rail Général se rafraîchit
+
+        // Les champs « cross-fiche » (07/10) : tout champ TEXTUEL d'une fiche
+        // (texte court, multiligne, les champs libres) accepte des [[liens]]
+        // vers d'autres fiches, comme le corps. La zone qui a eu le clavier
+        // en dernier est celle que le dialogue du lien sert ; le corps sinon.
+        private TextBox _activeBox;
+
+        /// <summary>Enregistre une zone de texte comme cible possible des
+        /// liens : elle se souvient d'avoir le clavier, et son clic droit
+        /// sur un [[lien]] ouvre le menu du lien.</summary>
+        private void TrackLinkBox(TextBox box)
+        {
+            if (box == null) return;
+            box.GotFocus += delegate { _activeBox = box; };
+            if (box == _bodyBox) return; // le corps a son propre tunnel (correcteur + liens)
+            box.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e)
+            {
+                if (!e.GetCurrentPoint(box).Properties.IsRightButtonPressed) return;
+                var index = IndexAt(box, e.GetPosition(box));
+                var link = index < 0 ? null : Links.At(box.Text ?? "", index);
+                if (link == null) return;
+                e.Handled = true;
+                ShowLinkMenu(box, link, index);
+            }, RoutingStrategies.Tunnel);
+        }
+
+        /// <summary>La zone que le dialogue du lien sert : la dernière à avoir
+        /// eu le clavier si elle est encore posée ; le corps seulement quand
+        /// son onglet Texte libre est ouvert ; null sinon (jamais le corps
+        /// en douce depuis l'onglet Général — 07/10 soir).</summary>
+        private TextBox LinkBox()
+        {
+            if (_activeBox != null && _activeBox != _bodyBox && _activeBox.GetVisualRoot() != null && _activeBox.IsEffectivelyVisible) return _activeBox;
+            if (_tabs.SelectedIndex == 1 || _previewToggle.IsChecked == true) return _bodyBox;
+            return null;
+        }
+
+        /// <summary>Une zone peut-elle recevoir un lien ? (sinon Ctrl+K ne fait rien)</summary>
+        public bool HasLinkTarget() { return _item != null && LinkBox() != null; }
+
+        // La sélection relevée à l'ouverture du dialogue (07/10) : modal, il
+        // prend le clavier et le TextBox replie sa sélection sur le caret —
+        // le lien s'insérait devant l'expression au lieu de la remplacer.
+        private TextBox _linkBox;
+        private int _linkStart = -1, _linkLength;
+
+        /// <summary>Relève, avant le dialogue, la zone, la sélection et le
+        /// lien sous le caret ; rend ce lien (à modifier) ou null.</summary>
+        public Link CaptureLinkContext()
+        {
+            _linkBox = LinkBox();
+            if (_linkBox == null) { _linkStart = -1; return null; }
+            int start, length;
+            OrderedSelection(_linkBox, out start, out length);
+            _linkStart = start;
+            _linkLength = length;
+            return LinkAt(_linkBox, start, length);
+        }
+
+        public void ForgetLinkContext() { _linkBox = null; _linkStart = -1; }
+
+        /// <summary>L'expression sélectionnée (celle relevée par
+        /// CaptureLinkContext si elle l'a été).</summary>
+        public string SelectedBodyText()
+        {
+            var box = _linkBox ?? LinkBox();
+            if (box == null) return "";
+            var text = box.Text ?? "";
+            if (_linkBox != null && _linkStart >= 0 && _linkStart + _linkLength <= text.Length)
+                return text.Substring(_linkStart, _linkLength);
+            return box.SelectedText ?? "";
+        }
+
+        private static void OrderedSelection(TextBox box, out int start, out int length)
+        {
+            var a = box.SelectionStart;
+            var b = box.SelectionEnd;
+            start = Math.Min(a, b);
+            length = Math.Abs(b - a);
+        }
+
+        /// <summary>Le [[lien]] sous une position (marques comprises), sinon
+        /// null ; une sélection qui en déborde n'en désigne pas un.</summary>
+        private static Link LinkAt(TextBox box, int start, int length)
+        {
+            var link = Links.At(box.Text ?? "", start);
+            if (link != null && start + length > link.End) link = null;
+            return link;
+        }
+
+        /// <summary>Le [[lien]] sous le caret de la zone servie, sinon null.</summary>
+        public Link LinkAtCaret()
+        {
+            if (_item == null) return null;
+            var box = _linkBox ?? LinkBox();
+            if (box == null) return null;
+            int start, length;
+            if (_linkBox != null && _linkStart >= 0) { start = _linkStart; length = _linkLength; }
+            else OrderedSelection(box, out start, out length);
+            return LinkAt(box, start, length);
+        }
+
+        /// <summary>Pose un [[lien]] : le lien sous le caret est réécrit (cible
+        /// et texte), sinon la notation remplace la sélection relevée (ou
+        /// courante), ou s'insère au caret.</summary>
+        public void ApplyWikiLink(string target, string text)
+        {
+            if (_item == null || string.IsNullOrEmpty(target)) return;
+            var box = _linkBox ?? LinkBox();
+            if (box == null) { ForgetLinkContext(); return; }
+            int start, length;
+            if (_linkBox != null && _linkStart >= 0) { start = _linkStart; length = _linkLength; }
+            else OrderedSelection(box, out start, out length);
+            ForgetLinkContext();
+            if (box == _bodyBox) LeavePreview();
+            var markup = Links.Markup(target, text);
+            var link = LinkAt(box, start, length);
+            if (link != null) { start = link.Start; length = link.End - link.Start; }
+            Replace(box, start, length, markup);
+            RaiseLinksChanged();
+        }
+
+        /// <summary>Retire le [[lien]] sous le caret de la zone : les mots restent.</summary>
+        public bool RemoveLinkAtCaret()
+        {
+            var box = LinkBox();
+            if (box == null) return false;
+            int start, length;
+            OrderedSelection(box, out start, out length);
+            var link = LinkAt(box, start, length);
+            if (link == null) return false;
+            if (box == _bodyBox) LeavePreview();
+            Replace(box, link.Start, link.End - link.Start, link.Text);
+            RaiseLinksChanged();
+            return true;
+        }
+
+        /// <summary>Remplace une plage de la zone et pose le caret après.</summary>
+        private static void Replace(TextBox box, int start, int length, string text)
+        {
+            var whole = box.Text ?? "";
+            start = Math.Max(0, Math.Min(start, whole.Length));
+            length = Math.Max(0, Math.Min(length, whole.Length - start));
+            box.Text = whole.Substring(0, start) + text + whole.Substring(start + length);
+            Ui.Select(box, start + text.Length, 0);
+            box.Focus();
+        }
+
+        /// <summary>Signalé EN DIFFÉRÉ (priorité Background) : Avalonia lève
+        /// TextChanged après coup (priorité Normal), et c'est lui qui recopie
+        /// la zone dans le modèle — levé tout de suite, le rail Général
+        /// relisait l'ancien texte et disait « Aucun lien ».</summary>
+        private void RaiseLinksChanged()
+        {
+            Ui.Post(DispatcherPriority.Background, delegate
+            {
+                var handler = LinksChanged;
+                if (handler != null) handler();
+            });
+        }
+
+        /// <summary>L'offset d'une zone sous un point (sa disposition de
+        /// texte), −1 hors du texte.</summary>
+        private static int IndexAt(TextBox box, Point pointInBox)
+        {
+            var presenter = box.FindDescendantOfType<TextPresenter>();
+            if (presenter == null || presenter.TextLayout == null) return -1;
+            var inPresenter = box.TranslatePoint(pointInBox, presenter);
+            if (inPresenter == null) return -1;
+            var hit = presenter.TextLayout.HitTestPoint(inPresenter.Value);
+            return hit.IsInside ? hit.TextPosition : -1;
+        }
+
+        private int BodyIndexAt(Point pointInBox) { return IndexAt(_bodyBox, pointInBox); }
+
+        private void ShowLinkMenu(Link link, int index) { ShowLinkMenu(_bodyBox, link, index); }
+
+        /// <summary>Le menu d'un lien d'une zone (07/10) : ouvrir la cible,
+        /// modifier (le dialogue de la coquille, le caret posé dans le lien),
+        /// retirer (les mots restent).</summary>
+        private void ShowLinkMenu(TextBox box, Link link, int index)
+        {
+            var menu = new ContextMenu();
+            var target = link.Target;
+            var open = new MenuItem { Header = "Ouvrir « " + target + " »" };
+            open.Click += delegate { var h = LinkClicked; if (h != null) h(target); };
+            menu.Items.Add(open);
+            var editLink = new MenuItem { Header = "Modifier le lien…", [ToolTip.TipProperty] = "La fiche visée et le texte affiché" };
+            editLink.Click += delegate
+            {
+                _activeBox = box;
+                Ui.Select(box, index, 0);
+                var h = LinkEditRequested;
+                if (h != null) h();
+            };
+            menu.Items.Add(editLink);
+            var remove = new MenuItem { Header = "Retirer le lien", [ToolTip.TipProperty] = "Les mots restent, le renvoi tombe" };
+            remove.Click += delegate { _activeBox = box; Ui.Select(box, index, 0); RemoveLinkAtCaret(); };
+            menu.Items.Add(remove);
+            menu.PlacementTarget = box;
+            Ui.ShowMenu(menu, box);
+        }
+
+        // ================================================== correcteur (1.0.4)
+
+        /// <summary>Le correcteur, chargé à la première demande (null sans
+        /// dictionnaire embarqué : la vérification se retire sans bruit).</summary>
+        private Correction.SpellChecker Spell()
+        {
+            if (_spellTried) return _spell;
+            _spellTried = true;
+            var engine = Correction.SpellDictionary.Default;
+            if (engine != null) _spell = new Correction.SpellChecker(engine);
+            return _spell;
+        }
+
+        /// <summary>La passe sur le corps : le Markdown masqué (liens wiki,
+        /// code, adresses — autant de faux positifs), les mots ignorés et
+        /// appris écartés, l'ondulé posé. Rien si la vérification est
+        /// coupée dans les Préférences.</summary>
+        private void RunSpell()
+        {
+            if (_spellOverlay == null) return;
+            if (_item == null || !AppSettings.ProofEnabled || !AppSettings.SpellEnabled) { _spellOverlay.SetFindings(null); return; }
+            var checker = Spell();
+            if (checker == null) { _spellOverlay.SetFindings(null); return; }
+            checker.ProjectWords = _project != null ? _project.Lexicon : new List<LexiconEntry>();
+            checker.GlobalWords = AppSettings.Lexicon;
+            checker.InvalidateLearned(); // les dictionnaires ont pu bouger (Dictionnaire, autre fiche)
+            var text = _bodyBox.Text ?? "";
+            var findings = checker.CheckText(MaskMarkdown(text));
+            // Les NOMS des fiches du projet (titre, nom, prénom, alias — ceux
+            // que le Suivi compte) ne rougissent pas : ce sont des noms
+            // choisis, pas des fautes — et d'abord celui de la fiche ouverte.
+            var known = new HashSet<string>();
+            if (_project != null)
+                foreach (var other in _project.AllItems())
+                {
+                    if (other.Kind != ItemKind.Sheet) continue;
+                    foreach (var name in Presence.NamesOf(other, _project.FindTemplate(other.TemplateId)))
+                        foreach (var token in Correction.FrenchTokenizer.Tokenize(name))
+                            if (token.Kind == Correction.TokenKind.Word) known.Add(Correction.FrenchTokenizer.Fold(token.CoreSurface));
+                }
+            var kept = new List<Correction.Finding>();
+            foreach (var finding in findings)
+            {
+                var key = Correction.FrenchTokenizer.Fold(finding.Word);
+                if (_spellIgnoredHere.Contains(key) || known.Contains(key)) continue;
+                if (IgnoredIn(_project != null ? _project.ProofIgnored : null, key) || IgnoredIn(AppSettings.ProofIgnored, key)) continue;
+                kept.Add(finding);
+            }
+            _spellOverlay.SetFindings(kept);
+        }
+
+        private static bool IgnoredIn(List<string> list, string key)
+        {
+            if (list == null) return false;
+            foreach (var word in list) if (Correction.FrenchTokenizer.Fold(word) == key) return true;
+            return false;
+        }
+
+        /// <summary>Le Markdown qui n'est pas de la prose, remplacé par des
+        /// espaces (mêmes longueurs : les offsets tiennent) : blocs et
+        /// portées de code, liens wiki [[…]] (des noms de fiches), adresses
+        /// des liens et URL nues, balises &lt;u&gt;.</summary>
+        internal static string MaskMarkdown(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text ?? "";
+            MatchEvaluator blank = delegate(Match m) { return new string(' ', m.Length); };
+            text = Regex.Replace(text, @"```[\s\S]*?(```|$)", blank);
+            text = Regex.Replace(text, @"`[^`\n]*`", blank);
+            text = Regex.Replace(text, @"\[\[[^\]\n]*\]\]", blank);
+            text = Regex.Replace(text, @"\]\([^)\n]*\)", blank);
+            text = Regex.Replace(text, @"https?://\S+", blank);
+            text = Regex.Replace(text, @"</?u>", blank);
+            return text;
+        }
+
+        /// <summary>Le menu d'un mot souligné : les suggestions (calculées
+        /// ici, en cache), « Ignorer ici », « Ignorer dans ce projet »,
+        /// « Ajouter au dictionnaire » de ce projet ou de tous — les mêmes
+        /// gestes que l'éditeur, avec le même dialogue d'entrée.</summary>
+        private void ShowSpellMenu(Correction.Finding finding)
+        {
+            var checker = Spell();
+            if (checker == null || _item == null) return;
+            var menu = new ContextMenu();
+            var suggestions = checker.Suggestions(finding.Word);
+            var shown = 0;
+            foreach (var suggestion in suggestions)
+            {
+                if (shown++ >= 8) break;
+                var suggestionRef = suggestion;
+                var apply = new MenuItem { Header = suggestion, FontWeight = FontWeight.SemiBold };
+                apply.Click += delegate { ReplaceBodyRange(finding.Start, finding.Length, suggestionRef); };
+                menu.Items.Add(apply);
+            }
+            if (shown == 0) menu.Items.Add(new MenuItem { Header = "Aucune suggestion", IsEnabled = false });
+            menu.Items.Add(new Separator());
+            var here = new MenuItem { Header = "Ignorer ici", [ToolTip.TipProperty] = "Tait ce mot sur cette fiche, pour cette session" };
+            here.Click += delegate { _spellIgnoredHere.Add(Correction.FrenchTokenizer.Fold(finding.Word)); RunSpell(); };
+            menu.Items.Add(here);
+            var inProject = new MenuItem
+            {
+                Header = "Ignorer « " + finding.Word + " » dans ce projet",
+                [ToolTip.TipProperty] = "Le mot ne sera plus signalé dans ce projet (liste enregistrée avec lui)"
+            };
+            inProject.Click += delegate
+            {
+                if (_project != null && !IgnoredIn(_project.ProofIgnored, Correction.FrenchTokenizer.Fold(finding.Word)))
+                    _project.ProofIgnored.Add(finding.Word);
+                NotifyEdited();
+                RunSpell();
+            };
+            menu.Items.Add(inProject);
+            var learn = new MenuItem { Header = "Ajouter « " + finding.Word + " » au dictionnaire" };
+            var ofProject = new MenuItem { Header = "De ce projet", [ToolTip.TipProperty] = "Le mot est enseigné pour CE roman (enregistré dans le .plot)" };
+            ofProject.Click += delegate { var _ = LearnWord(finding.Word, true); };
+            learn.Items.Add(ofProject);
+            var everywhere = new MenuItem { Header = "De tous les projets", [ToolTip.TipProperty] = "Le mot est enseigné partout (réglages de l'application)" };
+            everywhere.Click += delegate { var _ = LearnWord(finding.Word, false); };
+            learn.Items.Add(everywhere);
+            menu.Items.Add(learn);
+            menu.PlacementTarget = _bodyBox;
+            Ui.ShowMenu(menu, _bodyBox);
+        }
+
+        private async Task LearnWord(string word, bool projectScope)
+        {
+            var checker = Spell();
+            if (checker == null) return;
+            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), word, projectScope);
+            if (entry == null) return;
+            var list = projectScope ? checker.ProjectWords : checker.GlobalWords;
+            var existing = LexiconEntry.Find(list, entry.Word);
+            if (existing != null) list.Remove(existing);
+            list.Add(entry);
+            if (projectScope) NotifyEdited(); else AppSettings.Save();
+            var handler = LexiconChanged;
+            if (handler != null) handler();
+            RefreshDictionaryBadge();
+            RunSpell();
+        }
+
+        /// <summary>Remplace un passage du corps (une suggestion appliquée),
+        /// le caret posé après lui.</summary>
+        private void ReplaceBodyRange(int start, int length, string replacement)
+        {
+            var text = _bodyBox.Text ?? "";
+            if (start < 0 || start + length > text.Length) return;
+            _bodyBox.Text = text.Substring(0, start) + replacement + text.Substring(start + length);
+            _bodyBox.CaretIndex = start + replacement.Length;
+            _bodyBox.Focus();
+            RunSpell();
+        }
+
+        /// <summary>Pour la sonde : la passe tout de suite, et le nombre de
+        /// mots soulignés (-1 sans dictionnaire).</summary>
+        internal int SpellNowForProbe()
+        {
+            if (Spell() == null) return -1;
+            _spellTimer.Stop();
+            RunSpell();
+            return _spellOverlay == null ? -1 : _spellOverlay.Findings.Count;
         }
 
         private void NotifyEdited()
         {
             if (_loading) return;
+            RecordEdit();
             var handler = Edited;
             if (handler != null) handler();
             if (_genealogy != null && _item != null && _genealogy.Shows(_item)) _genealogy.Refresh();
+        }
+
+        /// <summary>L'édition qui vient d'avoir lieu, dans l'historique (1.0.4) :
+        /// l'état d'après comparé à l'ombre ; rien ne diffère (frappe dans le
+        /// corps) = rien ; même case que l'action précédente, peu après = elle
+        /// s'étend ; sinon une action neuve. L'ombre avance.</summary>
+        private void RecordEdit()
+        {
+            if (_item == null || History == null) return;
+            if (_shadow == null) { _shadow = SheetSnapshot.Capture(_project, _item); return; }
+            var after = SheetSnapshot.Capture(_project, _item);
+            var key = SheetSnapshot.DiffKey(_shadow, after);
+            if (key.Length == 0) return;
+            var last = History.PeekUndo as SheetEditAction;
+            if (last != null && last.CanExtend(_item, key, MergeWindow)) last.Extend(after);
+            else History.Push(new SheetEditAction(_project, _item, _shadow, after, key));
+            _shadow = after;
+        }
+
+        /// <summary>Après un Ctrl+Z / Ctrl+Y qui a touché la fiche ouverte :
+        /// le corps est d'abord reporté dans le document (il n'est pas dans
+        /// l'action), puis la vue se recharge sur l'état rendu.</summary>
+        public void ReloadAfterHistory()
+        {
+            if (_item == null) return;
+            Commit();
+            var template = _project != null ? _project.FindTemplate(_item.TemplateId) : _template;
+            LoadItem(_item, template ?? _template);
         }
     }
 }

@@ -118,6 +118,18 @@ namespace Marabook.Tests
             t.Check(Links.LinksTo("il voit [[Gandalf|le mage]]", "GANDALF"), "lien entrant, casse ignorée");
             t.Check(Links.LinksTo("il voit [[Gandalf]]", "Gändalf"), "lien entrant, accents ignorés");
             t.Check(!Links.LinksTo("il voit [[Gandalf]]", "Sam"), "pas de lien entrant");
+
+            // — La cible proposée depuis l'expression (07/10) : un nom de
+            //   fiche mot pour mot, rien de moins ; le texte reste libre.
+            var titles = new List<string> { "Keira Varenh", "Le marabout" };
+            t.Equal("Keira Varenh", Links.MatchTitle(" keira varenh ", titles), "l'expression est un titre : casse et bords ignorés");
+            t.Equal("Keira Varenh", Links.MatchTitle("Kéira Varenh", titles), "accents ignorés");
+            t.Check(Links.MatchTitle("Keira", titles) == null, "une partie du titre ne suffit pas");
+            t.Check(Links.MatchTitle("Keira Varenh et Sam", titles) == null, "le titre dans une expression plus longue : rien");
+            t.Check(Links.MatchTitle("", titles) == null && Links.MatchTitle(null, titles) == null && Links.MatchTitle("x", null) == null, "rien : null");
+            t.Equal("[[Keira Varenh|elle]]", Links.Markup("Keira Varenh", "elle"), "texte choisi ≠ nom de la fiche : lien à texte");
+            t.Equal("[[Keira Varenh|keira varenh]]", Links.Markup("Keira Varenh", "keira varenh"), "texte à une autre casse : gardé tel quel");
+            t.Equal("Voir elle ici.", Links.Strip("Voir [[Keira Varenh|elle]] ici."), "…et l'export ne garde que le texte choisi");
         }
     }
 }

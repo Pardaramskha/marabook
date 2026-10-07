@@ -71,6 +71,23 @@ namespace Marabook.Tests
             var fieldCopy = field.Clone();
             fieldCopy.Options.Add("y");
             t.Equal(1, field.Options.Count, "le clone d'un champ copie ses options");
+
+            // Monter / descendre un champ dans sa section (1.0.4).
+            var ordered = new SheetTemplate();
+            ordered.Sections.Add("Apparence");
+            var a = new SheetField { Name = "A" };
+            var b = new SheetField { Name = "B" };
+            var p = new SheetField { Name = "P", Group = "Apparence" };
+            var c = new SheetField { Name = "C" };
+            var q = new SheetField { Name = "Q", Group = "apparence" }; // même section, casse différente
+            ordered.Fields.AddRange(new[] { a, b, p, c, q });
+            t.Check(!ordered.MoveField(a, -1), "le premier champ de sa section ne monte pas");
+            t.Check(ordered.NeighbourField(c, -1) == 1 && ordered.NeighbourField(c, +1) == -1, "les voisins se cherchent dans la section seulement");
+            t.Check(ordered.MoveField(c, -1) && ordered.Fields.IndexOf(c) == 1 && ordered.Fields.IndexOf(b) == 2, "C monte au-dessus de B");
+            t.Equal(3, ordered.Fields.IndexOf(p), "les autres sections ne bougent pas (P suit B)");
+            t.Check(ordered.MoveField(p, +1) && ordered.Fields.IndexOf(p) == 4 && ordered.Fields.IndexOf(q) == 3, "P descend sous Q en sautant C");
+            t.Check(!ordered.MoveField(p, +1), "le dernier de sa section ne descend pas");
+            t.Check(!ordered.MoveField(new SheetField(), -1), "un champ étranger : rien");
         }
     }
 }

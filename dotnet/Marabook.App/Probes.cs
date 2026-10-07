@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Marabook.Model;
@@ -26,6 +27,16 @@ namespace Marabook.App
             _checks++;
             if (!condition) Failures++;
             Console.WriteLine((condition ? "  OK     " : "  ÉCHEC  ") + label);
+        }
+
+        /// <summary>La fenêtre ouverte de ce type, ou null (dialogues modaux de la sonde).</summary>
+        private static T OpenWindow<T>() where T : Window
+        {
+            var lifetime = Avalonia.Application.Current.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+            if (lifetime == null) return null;
+            foreach (var window in lifetime.Windows)
+                if (window is T && window.IsVisible) return (T)window;
+            return null;
         }
 
         /// <summary>Le premier bouton visible dont le texte contient ce libellé.</summary>
@@ -69,6 +80,30 @@ namespace Marabook.App
                 Check(shell.Title.Contains("Marabook"), "le titre de la fenêtre nomme l'application (" + shell.Title + ")");
                 Check(shell.StatusText.Length > 0, "la barre d'état dit quelque chose (" + shell.StatusText + ")");
 
+                // — Le caret de repli de la Pile (07/10) : la Pile resserrée à
+                //   96 px, il reste posé au bord droit de la ligne Accueil, dans
+                //   la fenêtre (avant, l'arbre mesuré à largeur infinie le
+                //   laissait filer sous le bord).
+                {
+                    var wideBefore = AppSettings.BinderWidth;
+                    shell.SetBinderWidthForProbe(96);
+                    await Settle();
+                    Border toggle = null;
+                    foreach (var border in shell.Binder.GetVisualDescendants().OfType<Border>())
+                        if ((ToolTip.GetTip(border) as string) == "Replier la Pile") { toggle = border; break; }
+                    var binderWidth = shell.Binder.Bounds.Width;
+                    var rightEdge = -1.0;
+                    if (toggle != null)
+                    {
+                        var corner = toggle.TranslatePoint(new Point(toggle.Bounds.Width, 0), shell.Binder);
+                        if (corner != null) rightEdge = corner.Value.X;
+                    }
+                    Check(toggle != null && toggle.Bounds.Width > 8 && rightEdge > binderWidth - 40 && rightEdge <= binderWidth + 0.5,
+                        "Pile resserrée à 96 px : le caret de repli reste visible au bord droit (bord à " + rightEdge.ToString("0") + " px sur " + binderWidth.ToString("0") + ")");
+                    shell.SetBinderWidthForProbe(wideBefore);
+                    await Settle();
+                }
+
                 // — P2 : l'éditeur composé sur l'écrit sélectionné.
                 var editor = shell.Editor;
                 Check(editor.IsVisible && chapter != null && editor.ShowsItem(chapter), "l'écrit s'ouvre dans l'éditeur composé");
@@ -76,7 +111,27 @@ namespace Marabook.App
                 Check(composed != null && composed.HasItem && composed.IsVisible, "la surface composée est attachée");
                 Check(composed != null && composed.Extent.Height > composed.Viewport.Height + 1,
                     "…et elle défile : la page dépasse la fenêtre (" + (composed == null ? "-" : composed.Extent.Height.ToString("0") + " > " + composed.Viewport.Height.ToString("0")) + ")");
-                Check(shell.StatusPagesText.Contains("1"), "la barre d'état donne la page du caret (" + shell.StatusPagesText + ")");
+                Check(shell.StatusPagesText.Contains("page"), "la barre d'état donne les pages de l'écrit (" + shell.StatusPagesText + ")");
+                Check(shell.StatusText.Contains("signes EC") && !shell.StatusText.Contains("feuillet") && !shell.StatusText.Contains("min"), "…et mots · signes EC, sans feuillets ni temps de lecture (" + shell.StatusText + ")");
+                Check(shell.ZoomPanelVisibleForProbe, "le curseur de zoom est montré dans l'éditeur");
+                Check(shell.StatusBookText.StartsWith("Livre : ") && shell.StatusBookText.Contains("page"), "…et la pagination totale du livre (" + shell.StatusBookText + ")");
+                // — Le total du livre est STABLE (07/10 soir) : ouvrir les
+                //   chapitres l'un après l'autre ne l'additionne pas en boucle,
+                //   et chaque chapitre dit SES pages, sans le folio du livre.
+                {
+                    var bookTotal = shell.StatusBookText;
+                    var ownPages = shell.StatusPagesText;
+                    for (var round = 0; round < 3; round++)
+                        foreach (var text in book.Children)
+                        {
+                            shell.Binder.SelectItem(text.Id, true);
+                            await Settle();
+                        }
+                    shell.Binder.SelectItem(chapter.Id, true);
+                    await Settle();
+                    Check(shell.StatusBookText == bookTotal, "le total du livre ne bouge pas en parcourant ses chapitres trois fois (" + bookTotal + " → " + shell.StatusBookText + ")");
+                    Check(shell.StatusPagesText == ownPages && shell.CachedPageCountForProbe(book.Children[2]) == 1, "chaque chapitre compte ses propres pages, sans le folio (chap. 3 : " + shell.CachedPageCountForProbe(book.Children[2]) + ")");
+                }
                 Check(FontCatalog.Entries.Count > 10, "le catalogue de polices énumère les polices installées (" + FontCatalog.Entries.Count + ")");
                 Check(!string.IsNullOrEmpty(editor.CurrentFontName), "le sélecteur de police montre la police du caret (" + editor.CurrentFontName + ")");
                 var engine = new AvaloniaFontEngine();
@@ -103,6 +158,69 @@ namespace Marabook.App
                 Check(bold, "tout sélectionner + gras : le premier run est en gras");
                 Check(composed.Undo() && !(document.Paragraphs[0].Runs.Count > 0 && document.Paragraphs[0].Runs[0].Bold == true), "…et Ctrl+Z le rend");
                 composed.PlaceCaret(0, 0, false);
+
+                // — Les liens refondus (07/10) : l'expression sélectionnée
+                //   devient le texte du lien avec la cible choisie ; sous le
+                //   caret, le lien se relit, se réécrit (cible, texte) et se
+                //   retire en gardant les mots ; à l'export rien ne dépasse.
+                {
+                    composed.TypeText("Voir elle ici. ");
+                    composed.SelectRange(0, 5, 9); // « elle »
+                    composed.ApplyWikiLink("Keira Varenh", "elle");
+                    await Settle();
+                    var flat = PivotEdit.FlatText(document.Paragraphs[0]);
+                    Check(flat.StartsWith("Voir [[Keira Varenh|elle]] ici. "), "éditeur : la sélection devient le texte d'un lien à cible (« " + flat.Substring(0, Math.Min(34, flat.Length)) + " »)");
+                    composed.PlaceCaret(0, 8, false);
+                    int linkParagraph;
+                    var atCaret = composed.LinkAtCaret(out linkParagraph);
+                    Check(atCaret != null && atCaret.Target == "Keira Varenh" && atCaret.Text == "elle", "éditeur : le lien sous le caret se relit (cible et texte)");
+                    composed.ApplyWikiLink("Keira Varenh", "la capitaine");
+                    await Settle();
+                    flat = PivotEdit.FlatText(document.Paragraphs[0]);
+                    Check(flat.StartsWith("Voir [[Keira Varenh|la capitaine]] ici. "), "éditeur : le lien sous le caret est réécrit avec son nouveau texte");
+                    Check(Links.Strip(flat).StartsWith("Voir la capitaine ici. "), "éditeur : à l'export seul le texte choisi reste");
+                    composed.PlaceCaret(0, 8, false);
+                    var removed = composed.RemoveLinkAtCaret();
+                    await Settle();
+                    flat = PivotEdit.FlatText(document.Paragraphs[0]);
+                    Check(removed && flat.StartsWith("Voir la capitaine ici. "), "éditeur : retirer le lien garde les mots");
+                    composed.PlaceCaret(0, 2, false);
+                    composed.SelectRange(0, 0, 4); // « Voir », pas un lien
+                    int noParagraph;
+                    Check(composed.LinkAtCaret(out noParagraph) == null, "éditeur : hors d'un lien, rien à modifier");
+                    composed.ReplaceRange(0, 0, "Voir la capitaine ici. ".Length, "");
+                    await Settle();
+                    Check(document.Paragraphs[0].ToPlainText() == original, "éditeur : le texte de la sonde est retiré (« " + document.Paragraphs[0].ToPlainText().Substring(0, Math.Min(20, document.Paragraphs[0].ToPlainText().Length)) + "… »)");
+                    composed.PlaceCaret(0, 0, false);
+
+                    // — Le VRAI dialogue (07/10) : l'expression « Keira Varenh »
+                    //   sélectionnée, Ctrl+K propose la fiche, « Insérer » remplace
+                    //   l'expression (et non « [[Keira Varenh]]Keira Varenh »), et
+                    //   le rail Général liste le lien aussitôt.
+                    composed.TypeText("Voir Keira Varenh ici. ");
+                    composed.SelectRange(0, 5, 17);
+                    shell.InsertLinkPublic();
+                    await Settle();
+                    var linkDialog = OpenWindow<LinkDialog>();
+                    Check(linkDialog != null, "éditeur : Ctrl+K ouvre le dialogue du lien");
+                    if (linkDialog != null)
+                    {
+                        var combo = linkDialog.GetVisualDescendants().OfType<ComboBox>().FirstOrDefault();
+                        var textBox = linkDialog.GetVisualDescendants().OfType<TextBox>().FirstOrDefault(delegate(TextBox b) { return b.Watermark != null; });
+                        Check(combo != null && combo.Text == "Keira Varenh" && textBox != null && textBox.Text == "Keira Varenh", "éditeur : la cible est proposée d'office, le texte est l'expression (« " + (combo == null ? "?" : combo.Text) + " » / « " + (textBox == null ? "?" : textBox.Text) + " »)");
+                        var insert = FindButton(linkDialog, "Insérer");
+                        if (insert != null) insert.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else linkDialog.Close();
+                        await Settle();
+                        await Settle();
+                    }
+                    flat = PivotEdit.FlatText(document.Paragraphs[0]);
+                    Check(flat.StartsWith("Voir [[Keira Varenh]] ici. "), "éditeur : « Insérer » remplace l'expression par le lien (« " + flat.Substring(0, Math.Min(30, flat.Length)) + " »)");
+                    Check(shell.LinksPanelTextsForProbe().Contains("Keira Varenh"), "éditeur : le rail Général liste le lien aussitôt");
+                    composed.ReplaceRange(0, 0, "Voir [[Keira Varenh]] ici. ".Length, "");
+                    await Settle();
+                    Check(document.Paragraphs[0].ToPlainText() == original, "éditeur : le texte de la sonde est retiré");
+                    composed.PlaceCaret(0, 0, false);
+                }
 
                 // — La géométrie suit la disposition (hotfix 1.0.3-a) : sur un
                 // écrit de dizaines de pages, le caret et la sélection posés à
@@ -686,6 +804,203 @@ namespace Marabook.App
                         Check(continued && box.Text == "* item\n* " && box.CaretIndex == box.Text.Length, "Markdown : Entrée dans une liste à puces ajoute la puce suivante (« " + box.Text.Replace("\n", "⏎") + " »)");
                         continued = sheetView.ContinueList();
                         Check(continued && box.Text == "* item\n" && box.CaretIndex == box.Text.Length, "Markdown : Entrée sur la puce vide la retire (« " + box.Text.Replace("\n", "⏎") + " »)");
+                        // — Les liens refondus (07/10) dans le corps de la fiche.
+                        box.Text = "Voir Keira Varenh ici.";
+                        Ui.Select(box, 5, 12); // « Keira Varenh »
+                        var sheetTitles = shell.Project.AllItems().Where(delegate(BinderItem i) { return i.Kind == ItemKind.Sheet; }).Select(delegate(BinderItem i) { return i.Title; }).ToList();
+                        Check(Links.MatchTitle(sheetView.SelectedBodyText(), sheetTitles) == "Keira Varenh", "fiche : l'expression sélectionnée désigne la fiche Keira (cible proposée)");
+                        sheetView.ApplyWikiLink("Keira Varenh", "elle");
+                        Check(box.Text == "Voir [[Keira Varenh|elle]] ici.", "fiche : la sélection devient le texte du lien (« " + box.Text + " »)");
+                        Ui.Select(box, 10, 0);
+                        var sheetLink = sheetView.LinkAtCaret();
+                        Check(sheetLink != null && sheetLink.Target == "Keira Varenh" && sheetLink.Text == "elle", "fiche : le lien sous le caret se relit");
+                        sheetView.ApplyWikiLink("Keira Varenh", "la capitaine");
+                        Check(box.Text == "Voir [[Keira Varenh|la capitaine]] ici.", "fiche : le lien sous le caret est réécrit (« " + box.Text + " »)");
+                        Ui.Select(box, 10, 0);
+                        Check(sheetView.RemoveLinkAtCaret() && box.Text == "Voir la capitaine ici.", "fiche : retirer le lien garde les mots (« " + box.Text + " »)");
+                        Ui.Select(box, 0, 4);
+                        Check(sheetView.LinkAtCaret() == null, "fiche : hors d'un lien, rien à modifier");
+                        Check(!shell.ZoomPanelVisibleForProbe, "fiche : le curseur de zoom est caché hors de l'éditeur");
+
+                        // — Le VRAI dialogue sur le corps (07/10) : la sélection
+                        //   relevée avant le modal est remplacée, pas doublée.
+                        box.Text = "Voir Keira Varenh ici.";
+                        box.Focus();
+                        Ui.Select(box, 5, 12);
+                        shell.InsertLinkPublic();
+                        await Settle();
+                        var sheetDialog = OpenWindow<LinkDialog>();
+                        Check(sheetDialog != null, "fiche : Ctrl+K ouvre le dialogue du lien");
+                        if (sheetDialog != null)
+                        {
+                            var combo = sheetDialog.GetVisualDescendants().OfType<ComboBox>().FirstOrDefault();
+                            Check(combo != null && combo.Text == "Keira Varenh", "fiche : la cible est proposée d'office");
+                            var insert = FindButton(sheetDialog, "Insérer");
+                            if (insert != null) insert.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else sheetDialog.Close();
+                            await Settle();
+                            await Settle();
+                        }
+                        Check(box.Text == "Voir [[Keira Varenh]] ici.", "fiche : « Insérer » remplace l'expression (« " + box.Text + " »)");
+                        Check(shell.LinksPanelTextsForProbe().Contains("Keira Varenh"), "fiche : le rail Général liste le lien aussitôt (" + string.Join(" | ", shell.LinksPanelTextsForProbe().ToArray()) + " ; inspecté : " + shell.InspectorTitle + " ; fiche : " + (sheet == null ? "?" : sheet.Title) + " ; corps : " + box.Text + ")");
+
+                        // — Les champs cross-fiche (07/10) : un champ texte du
+                        //   modèle accepte un lien par le même dialogue.
+                        var fieldEntry = sheetView.FirstTextFieldForProbe();
+                        if (fieldEntry != null)
+                        {
+                            sheetView.ShowGeneralTabPublic(); // le champ doit être posé à l'écran pour prendre le clavier
+                            await Settle();
+                            var fieldBox = fieldEntry.Value.Value;
+                            var fieldKept = fieldBox.Text;
+                            fieldBox.Text = "Amie de Keira Varenh";
+                            fieldBox.Focus();
+                            await Settle();
+                            Ui.Select(fieldBox, 8, 12);
+                            Check(sheetView.CaptureLinkContext() == null && sheetView.SelectedBodyText() == "Keira Varenh", "champ : la zone qui a le clavier est servie, l'expression relevée");
+                            sheetView.ApplyWikiLink("Keira Varenh", "elle");
+                            await Settle();
+                            Check(fieldBox.Text == "Amie de [[Keira Varenh|elle]]", "champ : le lien remplace l'expression dans le champ (« " + fieldBox.Text + " »)");
+                            string fieldValue;
+                            sheet.FieldValues.TryGetValue(fieldEntry.Value.Key, out fieldValue);
+                            Check(fieldValue == fieldBox.Text, "champ : la valeur de la fiche suit");
+                            Ui.Select(fieldBox, 12, 0);
+                            var fieldLink = sheetView.LinkAtCaret();
+                            Check(fieldLink != null && fieldLink.Target == "Keira Varenh", "champ : le lien sous le caret se relit");
+                            Check(sheetView.RemoveLinkAtCaret() && fieldBox.Text == "Amie de elle", "champ : retirer le lien garde les mots");
+                            fieldBox.Text = fieldKept ?? "";
+                            await Task.Delay(1600); // la fenêtre de fusion des frappes (1,5 s) : la sonde Ctrl+Z qui suit compte ses propres actions
+                            await Settle();
+                        }
+                        else Console.WriteLine("  [sonde] pas de champ texte dans le modèle : champs cross-fiche sautés");
+
+                        // — Un champ LISTE (07/10 soir) : Ctrl+K pose le lien dans
+                        //   la liste, jamais dans le Texte libre, et l'onglet ne bouge pas.
+                        // Le modèle d'exemple n'a pas de liste : un champ est ajouté
+                        // le temps de la sonde, la fiche rechargée, puis retiré.
+                        var probeTemplate = shell.Project.FindTemplate(sheet.TemplateId);
+                        SheetField probeList = null;
+                        if (probeTemplate != null && sheetView.FirstFieldBoxForProbe(FieldKinds.List) == null)
+                        {
+                            probeList = new SheetField { Id = "sonde-liste", Name = "Sonde liste", Kind = FieldKinds.List, Group = probeTemplate.Fields.Count > 0 ? probeTemplate.Fields[0].Group : "" };
+                            probeTemplate.Fields.Add(probeList);
+                            sheetView.LoadItem(sheet, probeTemplate);
+                            await Settle();
+                        }
+                        var listEntry = sheetView.FirstFieldBoxForProbe(FieldKinds.List);
+                        if (listEntry != null)
+                        {
+                            sheetView.ShowGeneralTabPublic();
+                            await Settle();
+                            // La liste refondue (07/10) : la zone de saisie
+                            // ne porte que l'élément EN COURS, Entrée le pose
+                            // dans la liste (la valeur du champ), le lien se
+                            // pose dans la zone avant.
+                            var listId = listEntry.Value.Key;
+                            string listKept;
+                            sheet.FieldValues.TryGetValue(listId, out listKept);
+                            // Le champ repart VIDE (le projet d'exemple a « Talents » garni) :
+                            // les comptes de pastilles qui suivent sont ceux de la sonde.
+                            sheet.FieldValues[listId] = "";
+                            sheetView.LoadItem(sheet, probeTemplate);
+                            await Settle();
+                            sheetView.ShowGeneralTabPublic();
+                            await Settle();
+                            listEntry = sheetView.FirstFieldBoxForProbe(FieldKinds.List);
+                            var listBox = listEntry.Value.Value;
+                            var bodyBefore = box.Text;
+                            listBox.Text = "escrime, Keira Varenh";
+                            listBox.Focus();
+                            await Settle();
+                            Ui.Select(listBox, 9, 12);
+                            shell.InsertLinkPublic();
+                            await Settle();
+                            var listDialog = OpenWindow<LinkDialog>();
+                            if (listDialog != null)
+                            {
+                                var insert = FindButton(listDialog, "Insérer");
+                                if (insert != null) insert.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else listDialog.Close();
+                                await Settle();
+                                await Settle();
+                            }
+                            Check(listDialog != null && listBox.Text == "escrime, [[Keira Varenh]]", "liste : Ctrl+K pose le lien dans la zone de saisie de la liste (« " + listBox.Text + " »)");
+                            Check(box.Text == bodyBefore, "liste : le Texte libre n'a pas bougé");
+                            Check(sheetView.GeneralTabShownForProbe, "liste : l'onglet Général reste ouvert");
+                            listBox.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter, Source = listBox });
+                            await Settle();
+                            string listValue;
+                            sheet.FieldValues.TryGetValue(listId, out listValue);
+                            Check(listValue == "escrime, [[Keira Varenh]]" && (listBox.Text ?? "").Length == 0,
+                                "liste : Entrée pose les éléments dans la liste et vide la zone (« " + listValue + " »)");
+                            var crosses = 0;
+                            var stripped = false;
+                            var marks = false;
+                            TextBlock cross = null;
+                            foreach (var block in sheetView.GetVisualDescendants().OfType<TextBlock>())
+                            {
+                                if (block.Text == "×") { crosses++; if (cross == null) cross = block; }
+                                if (block.Text == "Keira Varenh") stripped = true;
+                                if (block.Text == "[[Keira Varenh]]") marks = true;
+                            }
+                            Check(crosses == 2 && stripped && !marks, "liste : deux pastilles à croix, le lien sans ses marques (" + crosses + " croix)");
+                            if (cross != null)
+                            {
+                                cross.RaiseEvent(new PointerPressedEventArgs(cross, new Avalonia.Input.Pointer(1, PointerType.Mouse, true), cross, new Point(1, 1), 0, new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), Avalonia.Input.KeyModifiers.None));
+                                await Settle();
+                                sheet.FieldValues.TryGetValue(listId, out listValue);
+                                Check(listValue == "[[Keira Varenh]]", "liste : la croix retire l'élément (« " + listValue + " »)");
+                            }
+                            if (listKept == null) sheet.FieldValues.Remove(listId); else sheet.FieldValues[listId] = listKept;
+                            sheetView.LoadItem(sheet, probeTemplate);
+                            await Task.Delay(1600);
+                            await Settle();
+                        }
+                        else Console.WriteLine("  [sonde] pas de champ liste dans le modèle : lien dans une liste sauté");
+                        if (probeList != null)
+                        {
+                            probeTemplate.Fields.Remove(probeList);
+                            sheet.FieldValues.Remove(probeList.Id);
+                            sheetView.LoadItem(sheet, probeTemplate);
+                            await Settle();
+                        }
+
+                        // — Éditeur de modèles (1.0.4) : les flèches haut / bas
+                        //   réordonnent les champs dans leur section. Le dialogue
+                        //   travaille sur des copies : Annuler ne change rien au projet.
+                        if (probeTemplate != null && probeTemplate.Fields.Count >= 2)
+                        {
+                            var orderBefore = string.Join("|", probeTemplate.Fields.Select(f => f.Id));
+                            var templatesTask = TemplatesDialog.Show(shell, shell.Project.Templates, shell.Project);
+                            await Settle();
+                            await Settle();
+                            var templates = OpenWindow<TemplatesDialog>();
+                            Check(templates != null, "l'éditeur de modèles s'ouvre");
+                            if (templates != null)
+                            {
+                                var editing = templates.CurrentForProbe;
+                                var ups = templates.FieldsPanelForProbe.GetVisualDescendants().OfType<Button>().Where(b => (ToolTip.GetTip(b) as string) == "Monter ce champ").ToList();
+                                var downs = templates.FieldsPanelForProbe.GetVisualDescendants().OfType<Button>().Where(b => (ToolTip.GetTip(b) as string) == "Descendre ce champ").ToList();
+                                Check(editing != null && ups.Count == editing.Fields.Count && downs.Count == editing.Fields.Count, "chaque champ a ses flèches haut et bas (" + ups.Count + ")");
+                                var first = editing == null ? null : editing.Fields[0];
+                                var second = editing == null ? null : editing.NeighbourField(first, +1) >= 0 ? editing.Fields[editing.NeighbourField(first, +1)] : null;
+                                Check(ups.Count > 0 && !ups[0].IsEnabled && downs.Count > 0 && downs[0].IsEnabled, "le premier champ : « monter » éteint, « descendre » allumé");
+                                if (downs.Count > 0 && second != null)
+                                {
+                                    downs[0].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                                    await Settle();
+                                    Check(editing.Fields.IndexOf(second) + 1 == editing.Fields.IndexOf(first), "« descendre » passe le champ sous son voisin de section (" + first.Name + " ↔ " + second.Name + ")");
+                                    var ups2 = templates.FieldsPanelForProbe.GetVisualDescendants().OfType<Button>().Where(b => (ToolTip.GetTip(b) as string) == "Monter ce champ").ToList();
+                                    var row = ups2.Count > 1 ? ups2[1] : null;
+                                    if (row != null) row.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                                    await Settle();
+                                    Check(editing.Fields.IndexOf(first) + 1 == editing.Fields.IndexOf(second), "« monter » le ramène à sa place");
+                                }
+                                var cancel = FindButton(templates, "Annuler");
+                                if (cancel != null) cancel.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else templates.Close();
+                                await Settle();
+                            }
+                            try { await templatesTask; } catch { }
+                            Check(string.Join("|", probeTemplate.Fields.Select(f => f.Id)) == orderBefore, "Annuler : l'ordre des champs du projet n'a pas bougé");
+                        }
                         box.Text = "2. deux";
                         Ui.Select(box, box.Text.Length, 0);
                         sheetView.ContinueList();
@@ -694,6 +1009,60 @@ namespace Marabook.App
                         Ui.Select(box, 2, 0);
                         Check(!sheetView.ContinueList() && box.Text == "texte", "Markdown : hors liste, Entrée reste une Entrée ordinaire");
                         box.Text = kept;
+                        await Settle();
+                    }
+
+                    // — Ctrl+Z sur les champs (1.0.4) : une valeur tapée dans un
+                    // champ du modèle est rendue par l'annulation (modèle ET
+                    // zone, la vue rechargée), puis refaite ; les frappes
+                    // successives ne font qu'UNE action.
+                    var field = sheetView == null || !sheetView.HasItem ? null : sheetView.FirstTextFieldForProbe();
+                    if (field != null)
+                    {
+                        var fieldId = field.Value.Key;
+                        string initial;
+                        sheet.FieldValues.TryGetValue(fieldId, out initial);
+                        initial = initial ?? "";
+                        var pending = shell.HistoryCountForProbe;
+                        field.Value.Value.Text = "Sonde";
+                        await Settle();
+                        field.Value.Value.Text = "Sonde 1.0.4";
+                        await Settle();
+                        string typed;
+                        sheet.FieldValues.TryGetValue(fieldId, out typed);
+                        Check(typed == "Sonde 1.0.4" && shell.HistoryCountForProbe == pending + 1,
+                            "la frappe dans un champ de fiche écrit la valeur et pose UNE action (" + (shell.HistoryCountForProbe - pending) + ")");
+                        var undone = shell.UndoPublic();
+                        await Settle();
+                        string restored;
+                        sheet.FieldValues.TryGetValue(fieldId, out restored);
+                        var reloaded = sheetView.FirstTextFieldForProbe();
+                        Check(undone && (restored ?? "") == initial && reloaded != null && (reloaded.Value.Value.Text ?? "") == initial,
+                            "Ctrl+Z rend le champ de fiche : modèle « " + (restored ?? "") + " », zone « " + (reloaded == null ? "?" : reloaded.Value.Value.Text) + " »");
+                        var redone = shell.RedoPublic();
+                        await Settle();
+                        sheet.FieldValues.TryGetValue(fieldId, out typed);
+                        Check(redone && typed == "Sonde 1.0.4", "Ctrl+Y refait la frappe (« " + typed + " »)");
+                        shell.UndoPublic();
+                        await Settle();
+                    }
+
+                    // — Le correcteur du corps (1.0.4) : le Markdown masqué à
+                    // longueur constante, puis, dictionnaire présent, deux mots
+                    // inconnus soulignés et pas le nom de fiche entre [[ ]].
+                    var masked = SheetView.MaskMarkdown("Voir [[Kaladinn]] et `kode` sur https://exemple.fr/x puis [lien](https://a.b) fin");
+                    Check(masked.Length == "Voir [[Kaladinn]] et `kode` sur https://exemple.fr/x puis [lien](https://a.b) fin".Length
+                        && !masked.Contains("Kaladinn") && !masked.Contains("kode") && !masked.Contains("exemple") && !masked.Contains("a.b") && masked.Contains("Voir") && masked.Contains("fin"),
+                        "le masque Markdown efface liens wiki, code et adresses sans bouger les offsets");
+                    if (sheetView != null && sheetView.HasItem && sheetView.BodyBox != null)
+                    {
+                        var kept = sheetView.BodyBox.Text;
+                        sheetView.BodyBox.Text = "Un tezte avec une fôte et [[Kaladinn]] dedans.";
+                        await Settle();
+                        var count = sheetView.SpellNowForProbe();
+                        if (count < 0) Console.WriteLine("  [sonde] dictionnaire absent à côté de l'exécutable : correcteur des fiches sauté");
+                        else Check(count == 2, "le corps de la fiche souligne « tezte » et « fôte », pas le lien wiki (" + count + " signalement(s))");
+                        sheetView.BodyBox.Text = kept;
                         await Settle();
                     }
                 }
@@ -723,6 +1092,87 @@ namespace Marabook.App
                     }
                     Check(lines >= 2 && onLink && !offLink, "le lien d'une ligne renvoyée du Texte libre répond sous la souris (" + lines + " lignes, lien " + onLink + ", texte " + offLink + ")");
                     lab.Close();
+                }
+
+                // — Le mode wiki rend les [[liens]] des champs (07/10) : texte
+                //   du lien en accent souligné, cliquable.
+                {
+                    var keira = shell.Project.FindByTitle("Keira Varenh");
+                    var template = keira == null ? null : shell.Project.FindTemplate(keira.TemplateId);
+                    SheetField textField = null;
+                    if (template != null)
+                        foreach (var f in template.Fields)
+                            if (FieldKinds.Normalize(f.Kind) == FieldKinds.Text) { textField = f; break; }
+                    if (keira != null && textField != null)
+                    {
+                        string keptValue;
+                        var had = keira.FieldValues.TryGetValue(textField.Id, out keptValue);
+                        keira.FieldValues[textField.Id] = "Élève du [[Le marabout|vieux marabout]]";
+                        string clicked = null;
+                        var wiki = SheetWiki.Build(keira, template, shell.Project, "", true, delegate { }, delegate(string t) { clicked = t; }, delegate { });
+                        var lab = new Window { Width = 420, Height = 500, Content = wiki };
+                        lab.Show();
+                        await Settle();
+                        Avalonia.Controls.Documents.Run linkRun = null;
+                        foreach (var block in lab.GetVisualDescendants().OfType<TextBlock>())
+                            foreach (var inline in block.Inlines ?? new Avalonia.Controls.Documents.InlineCollection())
+                            {
+                                var run = inline as Avalonia.Controls.Documents.Run;
+                                if (run != null && run.Text == "vieux marabout") linkRun = run;
+                            }
+                        Check(linkRun != null && linkRun.TextDecorations != null && ReferenceEquals(linkRun.Foreground, Chrome.Accent), "mode wiki : le lien d'un champ se rend en accent souligné, marques cachées");
+                        lab.Close();
+                        if (had) keira.FieldValues[textField.Id] = keptValue; else keira.FieldValues.Remove(textField.Id);
+                    }
+                    else Console.WriteLine("  [sonde] pas de champ texte sur Keira : rendu wiki des champs sauté");
+                }
+
+                // — Les polices manquantes (07/10) : un style qui demande une
+                //   police inconnue allume la pastille rouge ; un remplacement
+                //   global l'apaise et le moteur sert la remplaçante ; le
+                //   dialogue écrit le remplacement dans les réglages.
+                {
+                    var ghost = new ParagraphStyle { Id = "sonde-ghost", Name = "Fantôme", FontFamily = "Police Imaginaire XYZ" };
+                    shell.Project.Styles.Styles.Add(ghost);
+                    AppSettings.FontSubstitutions.Remove("Police Imaginaire XYZ");
+                    shell.RefreshFontAlert();
+                    await Settle();
+                    Check(shell.MissingFontsForProbe.Contains("Police Imaginaire XYZ"), "une police inconnue du catalogue est signalée manquante");
+                    Border alert = null;
+                    foreach (var border in shell.GetVisualDescendants().OfType<Border>())
+                    {
+                        var tip = ToolTip.GetTip(border) as string;
+                        if (tip != null && tip.StartsWith("Ce projet demande des polices")) alert = border;
+                    }
+                    Check(alert != null && alert.IsVisible, "la barre d'état montre la pastille rouge « 1 police manquante »");
+                    var substitutionTask = FontSubstitutionDialog.Show(shell, new List<string> { "Police Imaginaire XYZ" });
+                    await Settle();
+                    var substitution = OpenWindow<FontSubstitutionDialog>();
+                    Check(substitution != null, "le dialogue des polices manquantes s'ouvre");
+                    if (substitution != null)
+                    {
+                        var combo = substitution.GetVisualDescendants().OfType<ComboBox>().FirstOrDefault();
+                        var index = -1;
+                        if (combo != null)
+                            for (var i = 0; i < combo.Items.Count; i++)
+                                if (string.Equals(combo.Items[i] as string, "Times New Roman", StringComparison.OrdinalIgnoreCase)) index = i;
+                        if (combo != null && index >= 0) combo.SelectedIndex = index;
+                        Check(combo != null && index > 0, "…avec les polices installées à choisir (Times New Roman trouvée)");
+                        var apply = FindButton(substitution, "Appliquer");
+                        if (apply != null) apply.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else substitution.Close();
+                    }
+                    var applied = await substitutionTask;
+                    Check(applied && AppSettings.SubstituteFont("Police Imaginaire XYZ") == "Times New Roman", "« Appliquer » écrit le remplacement dans les réglages");
+                    shell.ApplyFontSubstitutions();
+                    await Settle();
+                    var ghostFace = new AvaloniaFontEngine().Resolve("Police Imaginaire XYZ", 400, false);
+                    Check(ghostFace.Family == "Times New Roman" && ghostFace.HasGlyphs, "le moteur de polices sert la remplaçante partout (" + ghostFace.Family + ")");
+                    Check(alert != null && alert.IsVisible && (ToolTip.GetTip(alert) as string ?? "").StartsWith("Polices absentes"), "la pastille s'apaise : « 1 police remplacée », toujours cliquable");
+                    AppSettings.FontSubstitutions.Remove("Police Imaginaire XYZ");
+                    shell.Project.Styles.Styles.Remove(ghost);
+                    shell.ApplyFontSubstitutions();
+                    await Settle();
+                    Check(alert != null && !alert.IsVisible, "sans police manquante, rien dans la barre");
                 }
 
                 // — Enregistrer puis rouvrir : le .plot fait l'aller-retour.
@@ -1007,6 +1457,37 @@ namespace Marabook.App
                 }
                 var chosen = await notesTask;
                 Check(!chosen && !installed, "« Plus tard » ferme sans installer");
+
+                // — Aide › Nouveautés (07/10) : les patch notes embarquées de la
+                //   version installée, « Fermer » pour seule issue, pas de lien
+                //   de release ; la zone des notes n'est plus une feuille de
+                //   papier (illisible en sombre avec le papier blanc).
+                // Les notes de la VERSION INSTALLÉE (AppInfo.Version) : un bump
+                // sans son fichier patchnotes/<version>.md tombe ici.
+                var embedded = PatchNotes.ForVersion(AppInfo.Version);
+                Check(embedded != null && embedded.Contains("## " + AppInfo.Version), "les patch notes de la " + AppInfo.Version + " sont embarquées dans l'assembly");
+                var older = PatchNotes.ForVersion("1.0.3-patch-b");
+                Check(older != null && older.Contains("Mac"), "…et celles d'avant (1.0.3-patch-b) aussi");
+                Check(PatchNotes.ForVersion("0.0.0-inconnue") == null, "une version sans notes : null, sans plantage");
+                var currentTask = UpdateNotesDialog.ShowCurrent(shell.Welcome, AppInfo.Version, embedded);
+                await Settle();
+                UpdateNotesDialog current = null;
+                foreach (var window in ((Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)Avalonia.Application.Current.ApplicationLifetime).Windows)
+                    if (window is UpdateNotesDialog) current = (UpdateNotesDialog)window;
+                Check(current != null && current.IsVisible, "Aide › Nouveautés : la fenêtre s'ouvre");
+                if (current != null)
+                {
+                    var texts = current.GetVisualDescendants().OfType<TextBlock>().Select(delegate(TextBlock b) { return b.Text ?? ""; }).ToList();
+                    Check(texts.Any(delegate(string t) { return t == "Marabook " + AppInfo.Version; }) && texts.Any(delegate(string t) { return t == "La version installée"; }), "…pour la version installée");
+                    Check(!texts.Any(delegate(string t) { return t.Contains("GitHub"); }), "…sans lien vers la release");
+                    Check(FindButton(current, "Installer") == null && FindButton(current, "Plus tard") == null, "…sans « Installer » ni « Plus tard »");
+                    Check(!current.GetVisualDescendants().OfType<Border>().Any(delegate(Border b) { return ReferenceEquals(b.Background, Chrome.PaperBg); }), "…la zone des notes suit le thème de la fenêtre (pas de papier)");
+                    var close = FindButton(current, "Fermer");
+                    Check(close != null, "…et « Fermer » est là");
+                    if (close != null) close.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else current.Close();
+                }
+                await currentTask;
+                Check(current == null || !current.IsVisible, "« Fermer » ferme la fenêtre des nouveautés");
             }
             catch (Exception error)
             {

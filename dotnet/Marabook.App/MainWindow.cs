@@ -134,7 +134,11 @@ namespace Marabook.App
         private StackPanel _homeStartSection; // raccourcis « Commencer » de l'Accueil (b43)
         private bool _loadingInspector;
 
-        private TextBlock _statusLeft, _statusRight, _statusPages, _zoomLabel;
+        private TextBlock _statusRight, _statusPages, _statusBook, _statusGoal, _zoomLabel, _fontAlertText;
+        private Border _fontAlert;       // la pastille des polices manquantes (07/10)
+        private Border _fontAlertDot;
+        private StackPanel _zoomPanel;   // visible dans l'éditeur seulement (07/10)
+        private List<string> _missingFonts = new List<string>();
         private Slider _zoomSlider;   // 50–300 %, pas de 10 (batch 34)
         private bool _syncingZoom;
         private TextBlock _statusWarmup; // préchauffage de l'ouverture (b30)
@@ -448,6 +452,7 @@ namespace Marabook.App
             var help = new MenuItem { Header = "Aid_e" };
             _updatesMenu = Entry(null, "Vérifier les mises à jour…", CheckUpdates); // porte un ● quand une mise à jour est prête (01/10)
             help.Items.Add(_updatesMenu);
+            help.Items.Add(Entry(null, "Nouveautés…", ShowCurrentNotes)); // les patch notes de la version installée (07/10)
             help.Items.Add(Entry(null, "Rapports de plantage…", ShowCrashReports));
             help.Items.Add(Entry(null, "Ouvrir le dossier d'installation", OpenInstallFolder));
             help.Items.Add(new Separator());
@@ -720,6 +725,13 @@ namespace Marabook.App
                 if (info != null) SaveImageToDisk(info);
             };
             _editor.LinkClicked += NavigateToTitle;
+            _editor.LinkEditRequested += InsertLinkInActive; // « Modifier le lien… » (07/10)
+            _editor.LinksChanged += UpdateLinksPanel;        // le rail Général suit les liens posés (07/10)
+            // Le zoom n'a de sens que dans l'éditeur (07/10) : le curseur suit
+            // sa visibilité.
+            Ui.OnVisibilityChanged(_editor, delegate { _zoomPanel.IsVisible = _editor.IsVisible; });
+            _zoomPanel.IsVisible = _editor.IsVisible;
+            FontCatalog.Changed += delegate { Ui.Post(DispatcherPriority.Background, new Action(RefreshFontAlert)); };
             _editor.DefinitionRequested += ShowDefinition; // clic droit › « Afficher la définition » (18/09)
             _editor.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
             _editor.DocumentSettingChanged += MarkDirty; // l'interligne du document (22/09)
@@ -742,7 +754,17 @@ namespace Marabook.App
             {
                 // Avalonia compose dès LoadItem, avant que l'éditeur soit montré :
                 // le compteur s'écrit toujours (ShowItemCore l'efface hors écrit).
-                _statusPages.Text = "p. " + page + "/" + pages + "   ·   ";
+                // Les PAGES de l'écrit (07/10), pas la page du caret — la
+                // pagination totale du livre suit. PIÈGE (07/10 soir) : la
+                // surface annonce « pages » FOLIO COMPRIS (celles du livre
+                // avant l'écrit + les siennes) ; remises dans le cache des
+                // comptes, elles gonflaient le décalage du suivant, qui
+                // gonflait le total, et ainsi de suite — montants
+                // astronomiques. Le compte propre vient de la composition.
+                var own = _editor.PrintPageCount ?? Math.Max(1, pages - _editor.FolioOffset);
+                _docPages = own;
+                _statusPages.Text = own + (own > 1 ? " pages" : " page");
+                UpdateBookPagination();
             };
             _editor.MarksToggled += OnMarksToggled;
             _editor.StylesRequested += OpenStylesDialog;
@@ -756,8 +778,11 @@ namespace Marabook.App
             // l'édition, la navigation [[wiki]] et le zoom.
             _sheetView = new SheetView { IsVisible = false };
             _sheetView.Edited += OnEditorEdited;
+            _sheetView.History = _history; // Ctrl+Z sur les champs des fiches (1.0.4)
             _editor.SnapshotsChanged += OnSnapshotsChanged;
             _sheetView.LinkClicked += NavigateToTitle;
+            _sheetView.LinkEditRequested += InsertLinkInActive; // bouton de la barre, menu du clic droit (07/10)
+            _sheetView.LinksChanged += UpdateLinksPanel;
             // Batch 34 : « ← Retour » remonte au tableau du parent (la
             // bibliothèque si la fiche vit à la racine), une relation ouvre
             // la fiche liée.
@@ -1333,6 +1358,31 @@ namespace Marabook.App
                 if (_homeView.IsVisible) _homeView.Refresh();
                 return;
             }
+            // L'édition d'une fiche (1.0.4) défaite ou refaite : la fiche
+            // ouverte se recharge, la bibliothèque et la Pile suivent (la
+            // catégorie peut avoir changé), le rail aussi.
+            var sheetEdit = action as History.SheetEditAction;
+            if (sheetEdit != null)
+            {
+                MarkDirty();
+                if (_current == sheetEdit.Item && _sheetView.IsVisible) _sheetView.ReloadAfterHistory();
+                if (_sheetLibrary.IsVisible) _sheetLibrary.Refresh();
+                _binder.Rebuild();
+                UpdateInspector();
+                return;
+            }
+            // La structure des fiches (1.0.4) : modèles validés, catégorie
+            // créée, renommée, rebasée ou supprimée — la fiche ouverte se
+            // recharge (son modèle a pu changer), la bibliothèque et la Pile suivent.
+            if (action is History.SheetStructureAction)
+            {
+                MarkDirty();
+                if (_sheetView.IsVisible) _sheetView.ReloadAfterHistory();
+                if (_sheetLibrary.IsVisible) _sheetLibrary.Refresh();
+                _binder.Rebuild();
+                UpdateInspector();
+                return;
+            }
             // Les restaurations (b38) : même règle du document ouvert.
             var restore = action as History.RestoreSnapshotAction;
             var restoreParagraph = action as History.RestoreParagraphAction;
@@ -1727,14 +1777,15 @@ namespace Marabook.App
             };
             DockPanel.SetDock(bar, Dock.Bottom);
 
-            var dock = new DockPanel();
+            var dock = new DockPanel { MinHeight = 20 }; // la hauteur du curseur de zoom, même quand il est caché (07/10)
 
             // Zoom control, rightmost: − 100 % + (Ctrl+molette works too).
-            var zoomPanel = new StackPanel
+            _zoomPanel = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 Margin = new Thickness(14, 0, 0, 0)
             };
+            var zoomPanel = _zoomPanel;
             // Réinitialiser (flèche qui tourne — l'icône « arrow-counter-
             // clockwise » de Rémi, 14/09) + curseur 50–300 % (batch 34).
             var reset = new Button
@@ -1787,23 +1838,80 @@ namespace Marabook.App
             DockPanel.SetDock(zoomPanel, Dock.Right);
             dock.Children.Add(zoomPanel);
 
+            // L'objectif de session (à droite, avant le zoom) — le chemin du
+            // fichier n'est plus affiché (07/10, demande de Rémi).
+            _statusGoal = new TextBlock
+            {
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(14, 0, 0, 0)
+            };
+            DockPanel.SetDock(_statusGoal, Dock.Right);
+            dock.Children.Add(_statusGoal);
+
+            // Les polices manquantes (07/10) : une pastille rouge et le compte,
+            // à gauche de tout ; clic = le dialogue des remplacements. Une fois
+            // toutes remplacées, la pastille s'apaise mais reste cliquable.
+            _fontAlertDot = new Border
+            {
+                Width = 8, Height = 8, CornerRadius = new CornerRadius(4),
+                Background = Chrome.Danger, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+            _fontAlertText = new TextBlock { Foreground = Chrome.Ink, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+            var alertRow = new StackPanel { Orientation = Orientation.Horizontal };
+            alertRow.Children.Add(_fontAlertDot);
+            alertRow.Children.Add(_fontAlertText);
+            _fontAlert = new Border
+            {
+                Child = alertRow,
+                Background = Brushes.Transparent,
+                Padding = new Thickness(0, 0, 14, 0),
+                Cursor = new Cursor(StandardCursorType.Hand),
+                IsVisible = false,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            _fontAlert.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            {
+                if (e.InitialPressMouseButton == MouseButton.Left) ShowFontSubstitutions();
+            };
+            DockPanel.SetDock(_fontAlert, Dock.Left);
+            dock.Children.Add(_fontAlert);
+
+            // De gauche à droite (07/10) : mots · signes EC, PAGES du document
+            // (en gras), pagination totale du livre quand l'écrit en fait partie.
             _statusRight = new TextBlock
             {
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            DockPanel.SetDock(_statusRight, Dock.Right);
+            DockPanel.SetDock(_statusRight, Dock.Left);
             dock.Children.Add(_statusRight);
 
             _statusPages = new TextBlock
             {
+                Foreground = Chrome.Ink,
+                FontWeight = FontWeight.SemiBold,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(14, 0, 0, 0),
+                [ToolTip.TipProperty] = "Pages de cet écrit (sa composition)"
+            };
+            DockPanel.SetDock(_statusPages, Dock.Left);
+            dock.Children.Add(_statusPages);
+
+            _statusBook = new TextBlock
+            {
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(14, 0, 0, 0),
+                [ToolTip.TipProperty] = "Pagination totale du livre (chaque écrit ouvre sur un recto)"
             };
-            DockPanel.SetDock(_statusPages, Dock.Right);
-            dock.Children.Add(_statusPages);
+            DockPanel.SetDock(_statusBook, Dock.Left);
+            dock.Children.Add(_statusBook);
 
             // Le préchauffage de l'ouverture (batch 30), VISIBLE MAIS
             // DISCRET — même doctrine que le différé : une ligne d'état,
@@ -1820,14 +1928,7 @@ namespace Marabook.App
             DockPanel.SetDock(_statusWarmup, Dock.Right);
             dock.Children.Add(_statusWarmup);
 
-            _statusLeft = new TextBlock
-            {
-                Foreground = Chrome.SoftText,
-                FontSize = 12,
-                VerticalAlignment = VerticalAlignment.Center,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            };
-            dock.Children.Add(_statusLeft);
+            dock.Children.Add(new Border()); // le reste de la ligne, vide (le dernier enfant d'un DockPanel remplit)
 
             bar.Child = dock;
             return bar;
@@ -1973,6 +2074,11 @@ namespace Marabook.App
         public async void OpenFromSystem(string path)
         {
             if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
+            // Un .plot seulement (07/10) : AppKit relaie AUSSI comme « fichier à
+            // ouvrir » tout argument de la ligne de commande qui désigne un
+            // fichier existant — « --settings réglages.json » d'une sonde ou
+            // d'une capture ouvrait le JSON comme projet et proposait son .bak.
+            if (!string.Equals(System.IO.Path.GetExtension(path), PlotFile.Extension, StringComparison.OrdinalIgnoreCase)) return;
             if (!IsLoaded) { PendingOpen = path; return; }
             if (!await ConfirmDiscard()) return;
             OpenFile(path);
@@ -2387,6 +2493,20 @@ namespace Marabook.App
                 return;
             }
             ShowUpdateNotes(this);
+        }
+
+        /// <summary>Aide › Nouveautés (07/10) : les patch notes de la version
+        /// installée, embarquées dans l'assembly — relisibles à tout moment,
+        /// hors ligne, avec « Fermer » pour seule issue.</summary>
+        private void ShowCurrentNotes()
+        {
+            var _ = UpdateNotesDialog.ShowCurrent(this, AppVersion, PatchNotes.ForVersion(AppVersion));
+        }
+
+        /// <summary>Sonde : pose la largeur de la Pile sans animation.</summary>
+        public void SetBinderWidthForProbe(double width)
+        {
+            _binderCol.Width = new GridLength(width);
         }
 
         private void DoOpen()
@@ -2886,7 +3006,7 @@ namespace Marabook.App
 
             HideCenterViews();
             SlideJournalOut(); // la feuille du journal redescend sur la vue qui arrive (03/10)
-            if (item == null || item.Kind != ItemKind.Text) _statusPages.Text = "";
+            if (item == null || item.Kind != ItemKind.Text) { _statusPages.Text = ""; _statusBook.Text = ""; _docPages = 0; }
 
             if (item != null && item.Kind == ItemKind.Text)
             {
@@ -3158,6 +3278,12 @@ namespace Marabook.App
             else _editor.InsertFootnote();
         }
 
+        /// <summary>Format › Lien vers une fiche (Ctrl+K), le bouton de la
+        /// barre des fiches, « Modifier le lien… » des menus (refonte 07/10) :
+        /// le dialogue cible + texte. Sous le caret, un lien existant est
+        /// proposé tel quel et réécrit ; sinon l'expression sélectionnée est
+        /// le texte, et si elle est mot pour mot le nom d'une fiche ou d'un
+        /// écrit, la cible est proposée d'office.</summary>
         private async void InsertLinkInActive()
         {
             if (_editor.IsVisible == false
@@ -3168,11 +3294,50 @@ namespace Marabook.App
             foreach (var item in _project.AllItems())
                 if (item.Kind == ItemKind.Text && (_current == null || item != _current))
                     titles.Add(item.Title);
-            var title = await LinkDialog.Ask(this, titles);
-            if (title == null) return;
-            if (_sheetView.IsVisible) _sheetView.InsertWikiLink(title);
-            else _editor.InsertWikiLink(title);
+            var sheet = _sheetView.IsVisible;
+            // La sélection est RELEVÉE avant le dialogue (07/10) : modal, il
+            // prend le clavier et le TextBox d'une fiche replie sa sélection
+            // sur le caret — le lien s'insérait alors devant l'expression au
+            // lieu de la remplacer (« [[Keira Varenh]]Keira Varenh »).
+            if (sheet && !_sheetView.HasLinkTarget()) return; // aucune zone de texte n'a le clavier (07/10 soir)
+            var existing = sheet ? _sheetView.CaptureLinkContext() : _editor.LinkAtCaret();
+            if (!sheet) _editor.CaptureLinkContext();
+            string target, text;
+            if (existing != null)
+            {
+                target = existing.Target;
+                text = existing.Text;
+            }
+            else
+            {
+                text = (sheet ? _sheetView.SelectedBodyText() : _editor.SelectedPlainText()) ?? "";
+                if (text.IndexOf('\n') >= 0 || text.IndexOf("]]", StringComparison.Ordinal) >= 0) text = "";
+                target = Links.MatchTitle(text, titles);
+            }
+            var choice = await LinkDialog.Ask(this, titles, target, text, existing != null);
+            if (choice == null) { _sheetView.ForgetLinkContext(); return; }
+            if (sheet) _sheetView.ApplyWikiLink(choice.Target, choice.Text);
+            else _editor.ApplyWikiLink(choice.Target, choice.Text);
+            Ui.Post(DispatcherPriority.Background, new Action(UpdateLinksPanel)); // après le TextChanged différé d'une fiche (07/10)
         }
+
+        /// <summary>Sonde : le dialogue du lien comme par le menu.</summary>
+        public void InsertLinkPublic() { InsertLinkInActive(); }
+
+        /// <summary>Sonde : les textes du panneau Liens du rail Général.</summary>
+        public List<string> LinksPanelTextsForProbe()
+        {
+            var texts = new List<string>();
+            foreach (var visual in _linksPanel.GetVisualDescendants())
+            {
+                var block = visual as TextBlock;
+                if (block != null && !string.IsNullOrEmpty(block.Text)) texts.Add(block.Text);
+            }
+            return texts;
+        }
+
+        /// <summary>Sonde : le curseur de zoom est-il montré ?</summary>
+        public bool ZoomPanelVisibleForProbe { get { return _zoomPanel != null && _zoomPanel.IsVisible; } }
 
         private async void NavigateToTitle(string title)
         {
@@ -3943,9 +4108,16 @@ namespace Marabook.App
 
         /// <summary>Total pages of a book (recto starts included) — feeds the
         /// « page finale impaire » danger icon in the Pile.</summary>
+        /// <summary>Sonde : le compte de pages en cache d'un écrit (0 sans).</summary>
+        public int CachedPageCountForProbe(BinderItem text)
+        {
+            int pages;
+            return text != null && _pageCountCache.TryGetValue(text.Id, out pages) ? pages : 0;
+        }
+
         private int BookPageTotal(BinderItem book)
         {
-            if (book == null || book.Book == null || _project == null) return 0;
+            if (book == null || _project == null) return 0; // sans BookInfo aussi (07/10) : la pagination de la barre d'état
             var texts = new List<BinderItem>();
             CollectBookTexts(book, texts);
             var total = 0;
@@ -5871,16 +6043,83 @@ namespace Marabook.App
             _statsSection.IsVisible = (_inspStats.Text ?? "").Length > 0
                 ? true : false;
 
-            var left = _path == null ? _project.Name + " (jamais enregistré)" : _path;
+            var goal = "";
             if (_sessionGoal > 0)
             {
                 var written = Math.Max(0, ProjectWords() - _sessionBaseWords);
                 var culture = CultureInfo.CurrentCulture;
-                left += "   ·   objectif : " + written.ToString("N0", culture)
+                goal = "objectif : " + written.ToString("N0", culture)
                      + " / " + _sessionGoal.ToString("N0", culture) + " mots"
                      + (written >= _sessionGoal ? " — atteint !" : "");
             }
-            _statusLeft.Text = left;
+            _statusGoal.Text = goal;
+            UpdateBookPagination();
+            RefreshFontAlert();
+        }
+
+        private int _docPages; // les pages de l'écrit ouvert (PageInfoChanged)
+
+        /// <summary>La pagination totale du livre (07/10) quand l'écrit ouvert
+        /// en fait partie : « Livre : 120 pages » (comptes en cache, celui de
+        /// l'écrit ouvert posé par la composition à l'écran).</summary>
+        private void UpdateBookPagination()
+        {
+            if (_current == null || _current.Kind != ItemKind.Text || _project == null) { _statusBook.Text = ""; return; }
+            var book = _current.EnclosingBook();
+            if (book == null || _current.IsOutOfBook) { _statusBook.Text = ""; return; }
+            if (_docPages > 0) _pageCountCache[_current.Id] = _docPages;
+            var total = BookPageTotal(book);
+            _statusBook.Text = total > 0 ? "Livre : " + total.ToString("N0", CultureInfo.CurrentCulture) + (total > 1 ? " pages" : " page") : "";
+        }
+
+        /// <summary>Les polices manquantes (07/10) : l'inventaire du projet
+        /// contre le catalogue installé ; la pastille est rouge tant qu'une
+        /// police manquante n'a pas de remplacement, calme quand toutes en
+        /// ont (le dialogue reste accessible pour y revenir).</summary>
+        public void RefreshFontAlert()
+        {
+            if (_project == null || _fontAlert == null) { if (_fontAlert != null) _fontAlert.IsVisible = false; return; }
+            List<string> missing;
+            try { missing = FontAudit.Missing(_project, FontCatalog.Names()); }
+            catch (Exception) { missing = new List<string>(); }
+            _missingFonts = missing;
+            if (missing.Count == 0) { _fontAlert.IsVisible = false; return; }
+            var unresolved = 0;
+            foreach (var family in missing)
+                if (string.Equals(AppSettings.SubstituteFont(family), family, StringComparison.OrdinalIgnoreCase)) unresolved++;
+            _fontAlertDot.Background = unresolved > 0 ? (IBrush)Chrome.Danger : Chrome.Ok;
+            _fontAlertText.Text = unresolved > 0
+                ? (unresolved > 1 ? unresolved + " polices manquantes" : "1 police manquante")
+                : (missing.Count > 1 ? missing.Count + " polices remplacées" : "1 police remplacée");
+            ToolTip.SetTip(_fontAlert, (unresolved > 0
+                ? "Ce projet demande des polices absentes de cet ordinateur : "
+                : "Polices absentes de cet ordinateur, remplacées : ")
+                + string.Join(", ", missing.ToArray()) + "\nClic : choisir les remplacements");
+            _fontAlert.IsVisible = true;
+        }
+
+        /// <summary>Les polices manquantes de la sonde (07/10).</summary>
+        public IList<string> MissingFontsForProbe { get { return _missingFonts; } }
+
+        /// <summary>Le dialogue des remplacements, puis tout se recompose
+        /// avec les polices remplaçantes (faces oubliées, comptes de pages
+        /// à refaire).</summary>
+        private async void ShowFontSubstitutions()
+        {
+            if (_missingFonts.Count == 0) return;
+            var applied = await FontSubstitutionDialog.Show(this, new List<string>(_missingFonts));
+            if (!applied) return;
+            ApplyFontSubstitutions();
+        }
+
+        /// <summary>Après un changement des remplacements (dialogue ou sonde).</summary>
+        public void ApplyFontSubstitutions()
+        {
+            AvaloniaFontEngine.InvalidateFaces();
+            _pageCountCache.Clear();
+            _editor.RecomposeAll();
+            _binder.Rebuild();
+            UpdateStats();
         }
 
         /// <summary>Statistiques d'un livre pour l'inspecteur : nombre de

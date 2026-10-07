@@ -199,9 +199,13 @@ namespace Marabook.App
             var text = box.Text ?? "";
             start = Math.Max(0, Math.Min(text.Length, start));
             var end = Math.Max(start, Math.Min(text.Length, start + length));
+            // Le caret D'ABORD (07/10) : sur Avalonia, poser CaretIndex replie
+            // la sélection sur lui — posé en dernier, il effaçait la plage
+            // qu'on venait d'étendre (la recherche d'une fiche ne surlignait
+            // pas, le dialogue du lien ne voyait pas l'expression choisie).
+            box.CaretIndex = end;
             box.SelectionStart = start;
             box.SelectionEnd = end;
-            box.CaretIndex = end;
         }
 
         /// <summary>IsVisibleChanged de WPF : la propriété IsVisible observée.</summary>

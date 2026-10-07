@@ -87,9 +87,17 @@ namespace Marabook.Correction
 
         public List<Finding> CheckParagraph(TextParagraph paragraph, StyleSheet styles)
         {
+            return CheckText(PivotEdit.FlatText(paragraph));
+        }
+
+        /// <summary>Les mêmes règles sur un TEXTE PLAT (1.0.4 : le corps
+        /// Markdown des fiches, dans sa zone de texte) — les offsets sont
+        /// ceux de la chaîne donnée.</summary>
+        public List<Finding> CheckText(string text)
+        {
             var findings = new List<Finding>();
-            if (_engine == null) return findings;
-            var tokens = FrenchTokenizer.Tokenize(PivotEdit.FlatText(paragraph));
+            if (_engine == null || string.IsNullOrEmpty(text)) return findings;
+            var tokens = FrenchTokenizer.Tokenize(text);
             foreach (var token in tokens)
             {
                 if (token.Kind != TokenKind.Word) continue;

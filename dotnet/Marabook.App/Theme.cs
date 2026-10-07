@@ -621,14 +621,23 @@ namespace Marabook.App
             var popup = ((ILogical)root).LogicalParent as Popup;
             var target = popup != null ? popup.PlacementTarget : null;
             if (target == null || !target.IsAttachedToVisualTree() || pill.Bounds.Width <= 0) return;
-            PixelPoint targetCenter, tipOrigin;
+            PixelPoint targetCenter, tipOrigin, tipProbe;
             try
             {
                 targetCenter = target.PointToScreen(new Point(target.Bounds.Width / 2, 0));
                 tipOrigin = tip.PointToScreen(new Point(0, 0));
+                tipProbe = tip.PointToScreen(new Point(100, 0));
             }
             catch (Exception) { return; } // fenêtre en cours de fermeture
-            var scale = root.RenderScaling > 0 ? root.RenderScaling : 1;
+            // L'unité de PointToScreen n'est pas la même partout : pixels
+            // physiques sur Windows (RenderScaling fois les unités logiques),
+            // POINTS sur macOS — où diviser par RenderScaling (2 sur Retina)
+            // posait la flèche à mi-chemin, et la bulle semblait pointer
+            // n'importe où (retour de Rémi, 07/10). Le facteur se MESURE :
+            // cent unités logiques de la bulle, converties, donnent l'écart
+            // d'écran correspondant, quel que soit le système.
+            var scale = (tipProbe.X - tipOrigin.X) / 100.0;
+            if (scale <= 0) scale = root.RenderScaling > 0 ? root.RenderScaling : 1;
             var x = (targetCenter.X - tipOrigin.X) / scale - arrow.Width / 2;
             var max = pill.Bounds.Width - arrow.Width - 6;
             if (x > max) x = max;

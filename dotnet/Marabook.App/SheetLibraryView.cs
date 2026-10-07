@@ -34,6 +34,16 @@ namespace Marabook.App
         private readonly ScrollViewer _scroll;
         private readonly Button _back;
         private readonly TextBlock _scopeLabel;
+        // La rangée des PASTILLES (1.0.4) : une par catégorie, avec son compte
+        // — un filtre quand elle a des fiches, un raccourci « créer » quand
+        // elle est vide ; les catégories vides n'ont plus de rangée. Le tri
+        // vaut pour la session.
+        private readonly WrapPanel _chips;
+        private readonly ComboBox _sortBox;
+        private string _filterCategoryId; // null = toutes ; UncategorizedKey = les sans-catégorie
+        private const string UncategorizedKey = "~sans-categorie";
+        private static int _sortIndex;
+        private static readonly string[] SortLabels = { "Nom A → Z", "Nom Z → A", "Couleur", "Portrait d'abord" };
 
         /// <summary>Le menu contextuel d'une tuile : celui de la Pile pour le
         /// même item (BinderView.BuildContextMenu), posé par la coquille.</summary>
@@ -163,6 +173,24 @@ namespace Marabook.App
             var search = SearchField(_searchBox);
             DockPanel.SetDock(search, Dock.Right);
             toolbar.Children.Add(search);
+            // Le tri (1.0.4), après les boutons — comme les sélecteurs du
+            // Dictionnaire : nom, couleur, portrait.
+            _sortBox = new ComboBox
+            {
+                FontSize = 12,
+                MinWidth = 150,
+                Margin = new Thickness(14, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                [ToolTip.TipProperty] = "L'ordre des cartes dans chaque catégorie"
+            };
+            foreach (var label in SortLabels) _sortBox.Items.Add(label);
+            _sortBox.SelectedIndex = _sortIndex;
+            _sortBox.SelectionChanged += delegate
+            {
+                if (_sortBox.SelectedIndex < 0 || _sortBox.SelectedIndex == _sortIndex) return;
+                _sortIndex = _sortBox.SelectedIndex;
+                RebuildRows();
+            };
 
             var left = new StackPanel { Orientation = Orientation.Horizontal };
             _back = Buttons.Icon("arrow-left-bold", "Revenir à la bibliothèque", Buttons.Bar, Buttons.Look.Calm);
@@ -207,7 +235,20 @@ namespace Marabook.App
             toolbar.Children.Add(left);
             Children.Add(toolbar);
 
-            _rows = new StackPanel { Margin = new Thickness(16, 12, 16, 24) };
+            // La rangée des pastilles (1.0.4), sous la barre, fixe au-dessus
+            // du défilement : « Toutes », puis une pastille par catégorie.
+            var filters = new DockPanel { Margin = new Thickness(24, 10, 24, 0) };
+            SetDock(filters, Dock.Top);
+            // Le tri à droite des pastilles (il filtre et ordonne la même chose).
+            _sortBox.Margin = new Thickness(14, 0, 0, 6);
+            _sortBox.VerticalAlignment = VerticalAlignment.Top;
+            DockPanel.SetDock(_sortBox, Dock.Right);
+            filters.Children.Add(_sortBox);
+            _chips = new WrapPanel();
+            filters.Children.Add(_chips);
+            Children.Add(filters);
+
+            _rows = new StackPanel { Margin = new Thickness(16, 6, 16, 24) };
             _scroll = new ScrollViewer
             {
                 [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Auto,
@@ -286,17 +327,20 @@ namespace Marabook.App
             _cardsById.Clear();
             if (_project == null) return;
             var needle = Correction.FrenchTokenizer.Fold((_searchBox.Text ?? "").Trim());
+            var searching = needle.Length > 0;
 
-            // Les fiches par catégorie (une passe), plus les sans-catégorie.
+            // Les fiches par catégorie (une passe), plus les sans-catégorie —
+            // TOUTES, la recherche ne filtre qu'à l'affichage : les pastilles
+            // comptent le vrai contenu.
             var byCategory = new Dictionary<string, List<BinderItem>>();
             var uncategorized = new List<BinderItem>();
+            var total = 0;
             foreach (var item in Source())
             {
                 if (item.Kind != ItemKind.Sheet) continue;
                 if (item.RootCategory() != null
                     && item.RootCategory().CategoryKey == Project.KeyTrash) continue;
-                if (needle.Length > 0 && !Correction.FrenchTokenizer
-                    .Fold(item.Title).Contains(needle)) continue;
+                total++;
                 var category = _project.SheetCategoryOf(item);
                 if (category == null) { uncategorized.Add(item); continue; }
                 List<BinderItem> list;
@@ -304,20 +348,19 @@ namespace Marabook.App
                     byCategory[category.Id] = list = new List<BinderItem>();
                 list.Add(item);
             }
+            // Un filtre sur une catégorie disparue (supprimée) retombe sur « Toutes ».
+            if (_filterCategoryId != null && _filterCategoryId != UncategorizedKey
+                && _project.FindSheetCategory(_filterCategoryId) == null) _filterCategoryId = null;
+            if (_filterCategoryId == UncategorizedKey && uncategorized.Count == 0) _filterCategoryId = null;
+            BuildChips(byCategory, uncategorized.Count, total);
 
-            // Dans la bibliothèque, l'ordre est TOUJOURS alphabétique, que la
-            // fiche vive à la racine ou dans un dossier de la Pile (pack du
-            // 12/09/2026) — l'ordre de la Pile reste le sien.
-            foreach (var list in byCategory.Values) SortByTitle(list);
-            SortByTitle(uncategorized);
-
-            var searching = needle.Length > 0;
             var first = true;
             // Les DOSSIERS (14/09) : leur propre rangée, en tête — ceux de la
-            // racine Fiches, ou les sous-dossiers du dossier ouvert.
+            // racine Fiches, ou les sous-dossiers du dossier ouvert ; pas en
+            // recherche ni sous un filtre de catégorie.
             var parent = _scope ?? _project.Category(Project.KeySheets);
             var folders = new List<BinderItem>();
-            if (parent != null && !searching)
+            if (parent != null && !searching && _filterCategoryId == null)
                 foreach (var child in parent.Children)
                     if (child.Kind == ItemKind.Folder) folders.Add(child);
             if (folders.Count > 0)
@@ -328,30 +371,201 @@ namespace Marabook.App
                 _rows.Children.Add(wrap);
                 first = false;
             }
+            // Une rangée par catégorie QUI A DES FICHES (1.0.4 : les vides ne
+            // sont plus que des pastilles), dans l'ordre du projet, triée
+            // selon le sélecteur ; un filtre ne garde que sa catégorie.
+            var shown = 0;
             foreach (var category in _project.SheetCategories)
             {
+                if (_filterCategoryId != null && _filterCategoryId != category.Id) continue;
                 List<BinderItem> sheets;
-                byCategory.TryGetValue(category.Id, out sheets);
-                // En recherche, une catégorie muette disparaît ; au repos,
-                // toutes les rangées s'affichent (même vides : on y crée).
-                if (searching && (sheets == null || sheets.Count == 0)) continue;
-                AddCategoryRow(category, sheets ?? new List<BinderItem>(), first);
+                if (!byCategory.TryGetValue(category.Id, out sheets)) continue;
+                sheets = Matching(sheets, needle);
+                if (sheets.Count == 0) continue;
+                SortSheets(sheets);
+                AddCategoryRow(category, sheets, first);
                 first = false;
+                shown += sheets.Count;
             }
-            if (uncategorized.Count > 0)
+            if (uncategorized.Count > 0 && (_filterCategoryId == null || _filterCategoryId == UncategorizedKey))
             {
-                AddDivider(first);
-                AddHeader("Sans catégorie", null, uncategorized.Count);
-                AddCards(uncategorized, null);
-            }
-            if (searching && _rows.Children.Count == 0)
-                _rows.Children.Add(new TextBlock
+                var sheets = Matching(uncategorized, needle);
+                if (sheets.Count > 0)
                 {
-                    Text = "Aucune fiche ne porte ce nom.",
+                    SortSheets(sheets);
+                    AddDivider(first);
+                    AddHeader("Sans catégorie", null, sheets.Count);
+                    AddCards(sheets, null);
+                    shown += sheets.Count;
+                }
+            }
+            if (shown == 0 && folders.Count == 0)
+            {
+                if (total == 0 && !searching) _rows.Children.Add(EmptyState());
+                else _rows.Children.Add(new TextBlock
+                {
+                    Text = searching ? "Aucune fiche ne porte ce nom." : "Aucune fiche dans cette catégorie.",
                     Foreground = Chrome.SoftText,
-                    Margin = new Thickness(4, 16, 0, 0)
+                    Margin = new Thickness(8, 16, 0, 0)
                 });
+            }
         }
+
+        /// <summary>Les fiches dont le nom contient la recherche (accents et
+        /// casse pliés) ; toutes quand elle est vide.</summary>
+        private static List<BinderItem> Matching(List<BinderItem> sheets, string needle)
+        {
+            if (needle.Length == 0) return new List<BinderItem>(sheets);
+            var list = new List<BinderItem>();
+            foreach (var sheet in sheets)
+                if (Correction.FrenchTokenizer.Fold(sheet.Title ?? "").Contains(needle)) list.Add(sheet);
+            return list;
+        }
+
+        /// <summary>L'ordre des cartes (1.0.4) : alphabétique à la française
+        /// d'abord, puis, stable, la clé du sélecteur — à rebours, par
+        /// couleur (les colorées en tête, groupées), ou portrait d'abord.</summary>
+        private static void SortSheets(List<BinderItem> sheets)
+        {
+            SortByTitle(sheets);
+            switch (_sortIndex)
+            {
+                case 1: sheets.Reverse(); break;
+                case 2: StableOrder(sheets, delegate(BinderItem s) { return s.CardColor == null ? "~" : s.CardColor.ToUpperInvariant(); }); break;
+                case 3: StableOrder(sheets, delegate(BinderItem s) { return s.ImageId == null ? "1" : "0"; }); break;
+            }
+        }
+
+        private static void StableOrder(List<BinderItem> sheets, Func<BinderItem, string> key)
+        {
+            var indexed = new List<KeyValuePair<int, BinderItem>>();
+            for (var i = 0; i < sheets.Count; i++) indexed.Add(new KeyValuePair<int, BinderItem>(i, sheets[i]));
+            indexed.Sort(delegate(KeyValuePair<int, BinderItem> a, KeyValuePair<int, BinderItem> b)
+            {
+                var byKey = string.CompareOrdinal(key(a.Value), key(b.Value));
+                return byKey != 0 ? byKey : a.Key.CompareTo(b.Key);
+            });
+            sheets.Clear();
+            foreach (var pair in indexed) sheets.Add(pair.Value);
+        }
+
+        // ---------------------------------------------------------- pastilles
+
+        /// <summary>La rangée des pastilles (1.0.4) : « Toutes » avec le
+        /// total, puis chaque catégorie du projet avec son compte — cliquable
+        /// pour filtrer quand elle a des fiches, pour CRÉER une fiche dedans
+        /// quand elle est vide (plus de rangée « Rien ici ») ; le clic droit
+        /// ouvre le menu de la catégorie. « Sans catégorie » ferme la marche.</summary>
+        private void BuildChips(Dictionary<string, List<BinderItem>> byCategory, int uncategorized, int total)
+        {
+            _chips.Children.Clear();
+            _chips.Children.Add(Chip(null, "Toutes", total, _filterCategoryId == null, false,
+                "Toutes les fiches, catégorie par catégorie",
+                delegate { if (_filterCategoryId != null) { _filterCategoryId = null; RebuildRows(); } }, null));
+            foreach (var category in _project.SheetCategories)
+            {
+                var categoryRef = category;
+                List<BinderItem> sheets;
+                var count = byCategory.TryGetValue(category.Id, out sheets) ? sheets.Count : 0;
+                var selected = _filterCategoryId == category.Id;
+                _chips.Children.Add(Chip(CategoryIcon(category), category.Name, count, selected, count == 0,
+                    count == 0 ? "Aucune fiche — cliquer pour en créer une dans « " + category.Name + " »"
+                        : selected ? "Revenir à toutes les catégories" : "Ne montrer que les fiches « " + category.Name + " »",
+                    delegate
+                    {
+                        if (count == 0) { NewSheet(categoryRef.Id); return; }
+                        _filterCategoryId = selected ? null : categoryRef.Id;
+                        RebuildRows();
+                    },
+                    delegate(Control anchor) { ShowCategoryMenu(anchor, categoryRef); }));
+            }
+            if (uncategorized > 0)
+            {
+                var selected = _filterCategoryId == UncategorizedKey;
+                _chips.Children.Add(Chip(null, "Sans catégorie", uncategorized, selected, false,
+                    selected ? "Revenir à toutes les catégories" : "Ne montrer que les fiches sans catégorie",
+                    delegate { _filterCategoryId = selected ? null : UncategorizedKey; RebuildRows(); }, null));
+            }
+        }
+
+        private static Control Chip(string icon, string name, int count, bool selected, bool empty, string tip,
+            Action click, Action<Control> rightClick)
+        {
+            var ink = selected ? Brushes.White : (IBrush)Chrome.Ink;
+            var soft = selected ? Brushes.White : (IBrush)Chrome.SoftText;
+            var content = new StackPanel { Orientation = Orientation.Horizontal };
+            if (icon != null)
+            {
+                var made = Icons.Make(icon, 12, empty ? soft : ink) as Control;
+                if (made != null) { made.VerticalAlignment = VerticalAlignment.Center; made.Margin = new Thickness(0, 0, 6, 0); content.Children.Add(made); }
+            }
+            content.Children.Add(new TextBlock
+            {
+                Text = name,
+                FontSize = 12,
+                FontWeight = selected ? FontWeight.SemiBold : FontWeight.Normal,
+                Foreground = empty ? soft : ink,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = empty ? "+" : count.ToString(),
+                FontSize = 11,
+                Foreground = soft,
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            var chip = new Border
+            {
+                Child = content,
+                CornerRadius = new CornerRadius(12),
+                Padding = new Thickness(10, 3, 10, 3),
+                Margin = new Thickness(0, 0, 6, 6),
+                Background = selected ? Chrome.Accent : (IBrush)Chrome.BarBgLight,
+                BorderBrush = selected ? Chrome.Accent : (IBrush)Chrome.Border,
+                BorderThickness = new Thickness(1),
+                Cursor = new Cursor(StandardCursorType.Hand),
+                [ToolTip.TipProperty] = tip
+            };
+            if (empty) chip.Opacity = 0.7;
+            chip.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            {
+                if (e.InitialPressMouseButton == MouseButton.Left) { e.Handled = true; click(); }
+                else if (e.InitialPressMouseButton == MouseButton.Right && rightClick != null) { e.Handled = true; rightClick(chip); }
+            };
+            chip.PointerEntered += delegate { if (!selected) chip.BorderBrush = Chrome.Accent; };
+            chip.PointerExited += delegate { if (!selected) chip.BorderBrush = Chrome.Border; };
+            return chip;
+        }
+
+        /// <summary>Sans aucune fiche (1.0.4) : une invite au lieu de onze
+        /// rangées « Rien ici ».</summary>
+        private static Control EmptyState()
+        {
+            var panel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 48, 0, 0) };
+            var icon = Icons.Make("pile-fiches", 44, Chrome.FaintText) as Control;
+            if (icon != null) { icon.HorizontalAlignment = HorizontalAlignment.Center; icon.Margin = new Thickness(0, 0, 0, 12); panel.Children.Add(icon); }
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Aucune fiche pour l'instant",
+                FontSize = 15,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = Chrome.Ink,
+                TextAlignment = TextAlignment.Center
+            });
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Cliquez une catégorie ci-dessus pour y créer votre première fiche, ou « + Nouvelle fiche ».",
+                FontSize = 12,
+                Foreground = Chrome.SoftText,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 420,
+                Margin = new Thickness(0, 6, 0, 0)
+            });
+            return panel;
+        }
+
 
         /// <summary>Tri alphabétique à la française (accents et casse
         /// ignorés, ordre stable pour les homonymes).</summary>
@@ -397,7 +611,12 @@ namespace Marabook.App
         {
             var templates = await TemplatesDialog.Show(Ui.OwnerOf(this), _project.Templates, _project);
             if (templates == null) return; // annulé (28/09) : la liste nulle cassait le projet
-            _project.Templates = templates;
+            // Annulable (1.0.4) : l'ancienne liste revient d'un Ctrl+Z.
+            var project = _project;
+            var previous = project.Templates;
+            _history.Run(new SheetStructureAction("Modèles de fiches modifiés",
+                delegate { project.Templates = templates; },
+                delegate { project.Templates = previous; }));
             NotifyChanged();
             RebuildRows();
         }
@@ -651,6 +870,8 @@ namespace Marabook.App
             // étire chaque tuile à la hauteur de sa rangée, et le nom d'une
             // tuile courte restait collé sous la photo quand un voisin au
             // titre long avait fait grandir la rangée.
+            // Le nom seul (07/10) : l'accroche « En un mot » du premier lot de
+            // la 1.0.4 est retirée — Rémi la trouvait de trop sous le titre.
             nameZone.Child = new TextBlock
             {
                 Text = sheet.Title,
@@ -662,8 +883,8 @@ namespace Marabook.App
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 MaxHeight = 34,
                 MaxLines = 2, // points de suspension en fin de 2e ligne, plutôt qu'une coupe nette (29/09)
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(6, 5, 6, 7)
+                Margin = new Thickness(6, 5, 6, 7),
+                VerticalAlignment = VerticalAlignment.Center
             };
             layout.Children.Add(nameZone);
 
@@ -783,7 +1004,11 @@ namespace Marabook.App
                 var categoryRef = category;
                 entry.Click += delegate
                 {
+                    if (sheet.CategoryId == categoryRef.Id) return;
+                    // Annulable (1.0.4) : la même action que les champs de la fiche.
+                    var before = SheetSnapshot.Capture(_project, sheet);
                     sheet.CategoryId = categoryRef.Id;
+                    _history.Push(new SheetEditAction(_project, sheet, before, SheetSnapshot.Capture(_project, sheet), "category"));
                     NotifyChanged();
                     RebuildRows();
                 };
@@ -810,9 +1035,9 @@ namespace Marabook.App
         /// <summary>Nom et catégorie dans le même dialogue (le même que la
         /// Pile) ; la fiche naît dans la racine Fiches avec le modèle de base
         /// de sa catégorie, puis s'ouvre.</summary>
-        private async void NewSheet()
+        private async void NewSheet(string preselectedCategoryId = null)
         {
-            var choice = await NewSheetDialog.Ask(Ui.OwnerOf(this), _project);
+            var choice = await NewSheetDialog.Ask(Ui.OwnerOf(this), _project, preselectedCategoryId);
             if (choice == null) return;
             var title = choice.Title;
             var categoryId = choice.CategoryId;
@@ -842,7 +1067,10 @@ namespace Marabook.App
                 var name = await InputDialog.Ask(Ui.OwnerOf(this),
                     "Renommer la catégorie", "Nom de la catégorie :", category.Name);
                 if (name == null || name.Trim().Length == 0) return;
-                category.Name = name.Trim();
+                var newName = name.Trim();
+                var oldName = category.Name;
+                _history.Run(new SheetStructureAction("Catégorie renommée",
+                    delegate { category.Name = newName; }, delegate { category.Name = oldName; }));
                 NotifyChanged();
                 RebuildRows();
             };
@@ -864,7 +1092,10 @@ namespace Marabook.App
                 var templateRef = template;
                 entry.Click += delegate
                 {
-                    category.TemplateId = templateRef.Id;
+                    if (category.TemplateId == templateRef.Id) return;
+                    var oldTemplate = category.TemplateId;
+                    _history.Run(new SheetStructureAction("Modèle de base changé",
+                        delegate { category.TemplateId = templateRef.Id; }, delegate { category.TemplateId = oldTemplate; }));
                     NotifyChanged();
                     RebuildRows();
                 };
@@ -903,12 +1134,11 @@ namespace Marabook.App
                 Name = "Description",
                 Kind = "multiline"
             });
-            _project.Templates.Add(template);
-            _project.SheetCategories.Add(new SheetCategory
-            {
-                Name = name.Trim(),
-                TemplateId = template.Id
-            });
+            var category = new SheetCategory { Name = name.Trim(), TemplateId = template.Id };
+            var project = _project;
+            _history.Run(new SheetStructureAction("Catégorie créée",
+                delegate { project.Templates.Add(template); project.SheetCategories.Add(category); },
+                delegate { project.SheetCategories.Remove(category); project.Templates.Remove(template); }));
             NotifyChanged();
             RebuildRows();
         }
@@ -933,7 +1163,11 @@ namespace Marabook.App
                 + "Son modèle reste dans l'éditeur de modèles.",
                 "Marabook", MessageButtons.YesNo, MessageIcon.Question);
             if (await answer != MessageResult.Yes) return;
-            _project.SheetCategories.Remove(category);
+            var project = _project;
+            var index = project.SheetCategories.IndexOf(category);
+            _history.Run(new SheetStructureAction("Catégorie supprimée",
+                delegate { project.SheetCategories.Remove(category); },
+                delegate { project.SheetCategories.Insert(Math.Min(index, project.SheetCategories.Count), category); }));
             NotifyChanged();
             RebuildRows();
         }

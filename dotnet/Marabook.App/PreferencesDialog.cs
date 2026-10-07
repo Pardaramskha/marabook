@@ -528,7 +528,8 @@ namespace Marabook.App
                 Width = 260,
                 HorizontalAlignment = HorizontalAlignment.Left
             };
-            ToolTip.SetTip(speed, "Vitesse du défilement à la molette : ×0,25 (lent) à ×3 (rapide)");
+            ToolTip.SetTip(speed, "Vitesse du défilement à la molette : ×0,25 (lent) à ×3 (rapide)"
+                + (OperatingSystem.IsMacOS() ? " — sur macOS le système défile lui-même, ce réglage n'y joue pas (07/10)" : ""));
             Action refreshSpeedLabel = delegate
             {
                 speedLabel.Text = "Vitesse : ×" + AppSettings.ScrollSpeed.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture)
