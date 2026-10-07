@@ -1462,10 +1462,14 @@ namespace Marabook.App
                 //   version installée, « Fermer » pour seule issue, pas de lien
                 //   de release ; la zone des notes n'est plus une feuille de
                 //   papier (illisible en sombre avec le papier blanc).
-                var embedded = PatchNotes.ForVersion("1.0.3-patch-b");
-                Check(embedded != null && embedded.Contains("Mac"), "les patch notes de la 1.0.3-patch-b sont embarquées dans l'assembly");
+                // Les notes de la VERSION INSTALLÉE (AppInfo.Version) : un bump
+                // sans son fichier patchnotes/<version>.md tombe ici.
+                var embedded = PatchNotes.ForVersion(AppInfo.Version);
+                Check(embedded != null && embedded.Contains("## " + AppInfo.Version), "les patch notes de la " + AppInfo.Version + " sont embarquées dans l'assembly");
+                var older = PatchNotes.ForVersion("1.0.3-patch-b");
+                Check(older != null && older.Contains("Mac"), "…et celles d'avant (1.0.3-patch-b) aussi");
                 Check(PatchNotes.ForVersion("0.0.0-inconnue") == null, "une version sans notes : null, sans plantage");
-                var currentTask = UpdateNotesDialog.ShowCurrent(shell.Welcome, "1.0.3-patch-b", embedded);
+                var currentTask = UpdateNotesDialog.ShowCurrent(shell.Welcome, AppInfo.Version, embedded);
                 await Settle();
                 UpdateNotesDialog current = null;
                 foreach (var window in ((Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)Avalonia.Application.Current.ApplicationLifetime).Windows)
@@ -1474,7 +1478,7 @@ namespace Marabook.App
                 if (current != null)
                 {
                     var texts = current.GetVisualDescendants().OfType<TextBlock>().Select(delegate(TextBlock b) { return b.Text ?? ""; }).ToList();
-                    Check(texts.Any(delegate(string t) { return t == "Marabook 1.0.3-patch-b"; }) && texts.Any(delegate(string t) { return t == "La version installée"; }), "…pour la version installée");
+                    Check(texts.Any(delegate(string t) { return t == "Marabook " + AppInfo.Version; }) && texts.Any(delegate(string t) { return t == "La version installée"; }), "…pour la version installée");
                     Check(!texts.Any(delegate(string t) { return t.Contains("GitHub"); }), "…sans lien vers la release");
                     Check(FindButton(current, "Installer") == null && FindButton(current, "Plus tard") == null, "…sans « Installer » ni « Plus tard »");
                     Check(!current.GetVisualDescendants().OfType<Border>().Any(delegate(Border b) { return ReferenceEquals(b.Background, Chrome.PaperBg); }), "…la zone des notes suit le thème de la fenêtre (pas de papier)");
