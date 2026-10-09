@@ -18,7 +18,7 @@ namespace Marabook.Model
             var book = text.IsOutOfBook ? null : text.EnclosingBook();
             if (book == null || book.Book == null || book.Book.Template == null) return own;
             var setup = book.Book.Template.Clone();
-            setup.Hyphenation = own.Hyphenation;
+            if (text.Page != null) setup.Hyphenation = text.Page.Hyphenation; // sans page propre : le gabarit décide (comme le compilateur)
             return setup;
         }
 

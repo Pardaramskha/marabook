@@ -234,6 +234,15 @@ namespace Marabook.Tests
             engine = new CompositionEngine(document, Styles(), setup, null, false, new StubGlyphMetrics());
             engine.ComposeAll();
             t.Check(engine.Current.Paragraphs[0].Lines[0].Hyphenated, "sans avis du paragraphe : la page décide");
+            // Une page NEUVE (v36) et un style Corps livré : ça coupe d'office —
+            // ce que Rémi attendait d'un texte importé de Word (09/10).
+            var fresh = new PageSetup { PageWidthMm = Setup().PageWidthMm, PageHeightMm = Setup().PageHeightMm, MarginLeftMm = Setup().MarginLeftMm, MarginRightMm = Setup().MarginRightMm };
+            var imported = Document(CvWord(24));
+            imported.Paragraphs[0].StyleId = "body";
+            engine = new CompositionEngine(imported, StyleSheet.CreateDefault(), fresh, null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            t.Check(StyleSheet.CreateDefault().Body.HyphenationEnabled, "le style Corps livré césure");
+            t.Check(engine.Current.Paragraphs[0].Lines[0].Hyphenated, "page neuve + Corps : le mot se coupe sans toucher au bouton");
         }
 
         /// <summary>Le compilateur relaie la césure de chaque écrit sur ses

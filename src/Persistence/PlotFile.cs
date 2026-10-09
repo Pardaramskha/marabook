@@ -169,7 +169,14 @@ namespace Marabook.Persistence
         //      Expression typique, Niveau de langue — UpgradeCharacterTemplate,
         //      idempotente) et les catégories Objet, Religion & Croyances et
         //      Langue sont ajoutées si leur nom manque (AddCategoriesOfV35).
-        private const int FormatVersion = 35;
+        // v36: CÉSURE (09/10) — rien de neuf dans le JSON ; « hyphenation »
+        //      d'une page omise vaut désormais VRAI, et au chargement d'un
+        //      .plot d'avant, une fois, toutes les pages (projet, écrits,
+        //      gabarits de livres) passent à vrai (Project.EnableHyphenationOfV36)
+        //      : faux était le défaut muet, jamais un choix — les styles
+        //      décident de la césure, le bouton du document n'est plus qu'un
+        //      interrupteur de coupure.
+        private const int FormatVersion = 36;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -1210,6 +1217,8 @@ namespace Marabook.Persistence
                     project.UpgradeCharacterTemplate();
                     project.AddCategoriesOfV35();
                 }
+                // v36 (09/10) : la césure autorisée partout, une fois.
+                if (project.LoadedFormatVersion < 36) project.EnableHyphenationOfV36();
                 return project;
             }
         }
@@ -1305,7 +1314,7 @@ namespace Marabook.Persistence
             if (page.Columns > 3) page.Columns = 3;
             page.ShowMarginGuides = Json.AsBool(Json.Field(p, "showMargins"), true);
             page.LineNumbers = Json.AsBool(Json.Field(p, "lineNumbers"), false);
-            page.Hyphenation = Json.AsBool(Json.Field(p, "hyphenation"), false);
+            page.Hyphenation = Json.AsBool(Json.Field(p, "hyphenation"), true); // v36 : vrai par défaut
             page.FooterPageNumbers = Json.AsBool(Json.Field(p, "footerNumbers"), true);
             page.FooterFont = Json.AsString(Json.Field(p, "footerFont")) ?? "Times New Roman";
             page.FooterSizePt = Json.AsDouble(Json.Field(p, "footerSizePt"), 10);

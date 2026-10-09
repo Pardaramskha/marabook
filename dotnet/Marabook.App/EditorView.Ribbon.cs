@@ -958,7 +958,7 @@ namespace Marabook.App
             panel.Children.Add(Stacked(_guidesBtn, _lineNumbersBtn));
 
             panel.Children.Add(VerticalRuleTall());
-            _hyphenBtn = OneLineToggle("minus", "Césure", "Césure");
+            _hyphenBtn = OneLineToggle("minus", "Césure", "Césure : autorise la coupure des mots dans cet écrit — chaque style décide ensuite (réglage « césure » du style, Corps l'a)");
             _hyphenBtn.Click += delegate
             {
                 if (_project == null) return;
