@@ -100,6 +100,8 @@ namespace Marabook.Tests
             LineBreaking(t);
             OversizedWordHyphenated(t);
             DocumentToggleDisablesHyphenation(t);
+            ParagraphHyphenationOverridesPage(t);
+            CompiledBookCarriesHyphenation(t);
             ExceptionWordNeverHyphenated(t);
             WidowControl(t);
             OrphanControl(t);
@@ -207,6 +209,61 @@ namespace Marabook.Tests
             var lines = engine.Current.Paragraphs[0].Lines;
             t.Equal(1, lines.Count, "césure du document coupée : aucune coupe");
             t.Check(!lines[0].Hyphenated, "la ligne ne porte pas de césure");
+        }
+
+        /// <summary>La césure portée par le PARAGRAPHE (livre compilé, 09/10)
+        /// prime sur celle de la page : coupé malgré une page sans césure,
+        /// jamais coupé malgré une page qui césure.</summary>
+        private static void ParagraphHyphenationOverridesPage(Harness t)
+        {
+            var document = Document(CvWord(24));
+            var setup = Setup();
+            setup.Hyphenation = false;
+            document.Paragraphs[0].Hyphenation = true;
+            var engine = new CompositionEngine(document, Styles(), setup, null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            var lines = engine.Current.Paragraphs[0].Lines;
+            t.Check(lines.Count >= 2 && lines[0].Hyphenated, "césure du paragraphe : coupé malgré la page sans césure");
+            setup.Hyphenation = true;
+            document.Paragraphs[0].Hyphenation = false;
+            engine = new CompositionEngine(document, Styles(), setup, null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            lines = engine.Current.Paragraphs[0].Lines;
+            t.Equal(1, lines.Count, "césure coupée au paragraphe : aucune coupe malgré la page");
+            document.Paragraphs[0].Hyphenation = null;
+            engine = new CompositionEngine(document, Styles(), setup, null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            t.Check(engine.Current.Paragraphs[0].Lines[0].Hyphenated, "sans avis du paragraphe : la page décide");
+        }
+
+        /// <summary>Le compilateur relaie la césure de chaque écrit sur ses
+        /// paragraphes (09/10), et la page qui COMPTE un écrit d'un livre est
+        /// le gabarit du livre avec la césure de l'écrit — hors livre, sa
+        /// page propre.</summary>
+        private static void CompiledBookCarriesHyphenation(Harness t)
+        {
+            var project = Project.CreateNew();
+            var writings = project.Category(Project.KeyWritings);
+            var book = new BinderItem { Title = "Livre", Kind = ItemKind.Book, Parent = writings, Book = new BookInfo() };
+            book.Book.Template = new PageSetup { PageWidthMm = 148, PageHeightMm = 210, Hyphenation = false };
+            writings.Children.Add(book);
+            var cut = new BinderItem { Title = "Un", Kind = ItemKind.Text, Parent = book, Document = TextDocument.FromPlainText("Un."), Page = new PageSetup { Hyphenation = true } };
+            var plain = new BinderItem { Title = "Deux", Kind = ItemKind.Text, Parent = book, Document = TextDocument.FromPlainText("Deux.") };
+            book.Children.Add(cut);
+            book.Children.Add(plain);
+            var compiled = Marabook.Exchange.Compiler.Build(project, book, new Marabook.Exchange.CompileOptions
+            {
+                TitlePage = false, ChapterHeadings = false, PageBreakPerText = true, RectoChapterStarts = true
+            });
+            t.Equal(2, compiled.Paragraphs.Count, "deux paragraphes compilés");
+            t.Check(compiled.Paragraphs[0].Hyphenation == true, "le chapitre césuré relaie sa césure");
+            t.Check(compiled.Paragraphs[1].Hyphenation == null, "le chapitre sans page propre laisse la page décider");
+            var counting = BookInfo.CountingPageFor(cut, project);
+            t.Check(counting.PageWidthMm == 148 && counting.Hyphenation, "la page qui compte : le gabarit du livre, avec la césure de l'écrit");
+            t.Check(!BookInfo.CountingPageFor(plain, project).Hyphenation, "…sans page propre : la césure du gabarit");
+            var loose = new BinderItem { Title = "Seul", Kind = ItemKind.Text, Parent = writings, Page = new PageSetup { PageWidthMm = 100 } };
+            writings.Children.Add(loose);
+            t.Check(BookInfo.CountingPageFor(loose, project) == loose.Page, "hors livre : sa page propre");
         }
 
         /// <summary>Un mot des exceptions de césure du projet n'est jamais

@@ -81,6 +81,12 @@ namespace Marabook.Exchange
                 // Chaque page du manuscrit fusionné retrouve le décor
                 // (en-tête/pied, gabarit de pages) de SON chapitre.
                 var decor = PageDecor.For(text, project);
+                // …et sa césure (09/10) : le bouton du document, que le gabarit
+                // du livre ne connaît pas — sans elle, le PDF publié recomposait
+                // les chapitres césurés sans coupe, une page de plus par-ci
+                // par-là, et le panneau Publication n'y retrouvait plus ses
+                // pages (Rémi, « Le serment des gardiens du feu », 09/10).
+                var hyphenation = text.Page == null ? (bool?)null : text.Page.Hyphenation;
                 foreach (var paragraph in text.Document.Paragraphs)
                 {
                     // Clone the paragraph shell (runs shared): footnote markers
@@ -94,7 +100,8 @@ namespace Marabook.Exchange
                         FirstIndent = paragraph.FirstIndent,
                         PageBreakBefore = paragraph.PageBreakBefore,
                         AllowWidows = paragraph.AllowWidows,
-                        Decor = decor
+                        Decor = decor,
+                        Hyphenation = hyphenation
                     };
                     copy.Runs.AddRange(paragraph.Runs);
                     output.Paragraphs.Add(copy);

@@ -115,6 +115,29 @@ namespace Marabook.App
                 Check(shell.StatusText.Contains("signes EC") && !shell.StatusText.Contains("feuillet") && !shell.StatusText.Contains("min"), "…et mots · signes EC, sans feuillets ni temps de lecture (" + shell.StatusText + ")");
                 Check(shell.ZoomPanelVisibleForProbe, "le curseur de zoom est montré dans l'éditeur");
                 Check(shell.StatusBookText.StartsWith("Livre : ") && shell.StatusBookText.Contains("page"), "…et la pagination totale du livre (" + shell.StatusBookText + ")");
+                // — Le panneau Publication et « Publier » comptent les MÊMES
+                //   pages (09/10) : le cache compte sur la page du livre avec la
+                //   césure de chaque écrit, que le compilateur relaie.
+                {
+                    var demoBook = chapter == null ? null : chapter.EnclosingBook();
+                    if (demoBook != null)
+                    {
+                        var second = demoBook.Children.Count > 1 ? demoBook.Children[1] : null;
+                        if (second != null)
+                        {
+                            second.Page = (demoBook.Book != null && demoBook.Book.Template != null ? demoBook.Book.Template : shell.Project.Page).Clone();
+                            second.Page.Hyphenation = true;
+                        }
+                        var compiled = shell.CompileForPublishForProbe(demoBook);
+                        var publishSetup = demoBook.Book != null && demoBook.Book.Template != null ? demoBook.Book.Template : shell.Project.Page;
+                        var merged = Marabook.Print.Composer.Compose(compiled, shell.Project.Styles.EffectiveFor(demoBook), publishSetup, shell.Project, new AvaloniaFontEngine());
+                        var panelTotal = shell.BookPageTotalForProbe(demoBook);
+                        Check(panelTotal == merged.Pages.Count, "le panneau Publication compte les pages du PDF publié (" + panelTotal + " = " + merged.Pages.Count + ")");
+                        Check(compiled.Paragraphs.Any(q => q.Hyphenation == true), "…la césure d'un chapitre suit ses paragraphes dans le manuscrit compilé");
+                        if (second != null) second.Page = null;
+                        shell.BookPageTotalForProbe(demoBook); // le cache repart propre
+                    }
+                }
                 // — Le total du livre est STABLE (07/10 soir) : ouvrir les
                 //   chapitres l'un après l'autre ne l'additionne pas en boucle,
                 //   et chaque chapitre dit SES pages, sans le folio du livre.

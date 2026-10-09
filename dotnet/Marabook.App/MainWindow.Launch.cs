@@ -39,6 +39,13 @@ namespace Marabook.App
             Opened += async delegate
             {
                 await Task.Delay(50);
+                if (_launch.PagesProbe != null)
+                {
+                    try { PagesDiagnostic(_launch.PagesProbe); }
+                    catch (Exception error) { Console.WriteLine("PAGES ÉCHEC : " + error); Environment.ExitCode = 1; }
+                    QuitNow();
+                    return;
+                }
                 if (_launch.PlotPath != null)
                 {
                     PendingOpen = null;
@@ -283,6 +290,68 @@ namespace Marabook.App
         }
 
         /// <summary>Quitter sans question (sondes, captures) : rien à enregistrer.</summary>
+        /// <summary>--pages <fichier.plot> (09/10) : pour chaque livre du
+        /// projet, texte par texte, le compte de pages SEUL (celui du cache
+        /// de la coquille : panneau Publication, folios, barre d'état) contre
+        /// la place du texte dans le PDF publié (une seule composition du
+        /// manuscrit compilé). Le désaccord de Rémi sur « Le serment des
+        /// gardiens du feu » : 518 pages au panneau, 325 au BAT.</summary>
+        private void PagesDiagnostic(string path)
+        {
+            var warnings = new List<string>();
+            var project = Persistence.PlotFile.Load(path, warnings);
+            var fonts = new AvaloniaFontEngine();
+            Console.WriteLine("PAGES — " + project.Name + " (" + warnings.Count + " avertissement(s) au chargement)");
+            foreach (var book in project.AllItems())
+            {
+                if (book.Kind != ItemKind.Book || book.Book == null) continue;
+                var texts = new List<BinderItem>();
+                CollectBookTexts(book, texts);
+                var setup = book.Book.Template;
+                var bookStyles = project.Styles.EffectiveFor(book);
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                var compiled = Links.Strip(Exchange.Compiler.Build(project, book, new Exchange.CompileOptions
+                {
+                    TitlePage = false, ChapterHeadings = false, PageBreakPerText = true, RectoChapterStarts = true
+                }));
+                var merged = Print.Composer.Compose(compiled, bookStyles, setup, project, fonts);
+                var mergedMs = watch.ElapsedMilliseconds;
+                var starts = new List<int>();
+                var cursor = 0;
+                foreach (var text in texts) { starts.Add(cursor); cursor += text.Document.Paragraphs.Count; }
+                Func<int, int> pageOf = delegate(int paragraph)
+                {
+                    for (var p = 0; p < merged.Pages.Count; p++)
+                        foreach (var line in merged.Pages[p].Lines)
+                            if (line.ParagraphIndex >= paragraph) return p;
+                    return merged.Pages.Count;
+                };
+                Console.WriteLine("Livre « " + book.Title + " » : " + texts.Count + " textes, format " + setup.PageWidthMm + "×" + setup.PageHeightMm
+                    + " mm, marges " + setup.MarginTopMm + "/" + setup.MarginBottomMm + "/" + setup.MarginLeftMm + "/" + setup.MarginRightMm);
+                Console.WriteLine("  PDF publié : " + merged.Pages.Count + " pages, " + compiled.Paragraphs.Count + " paragraphes, " + mergedMs + " ms");
+                Console.WriteLine("  " + "texte".PadRight(34) + " cache  page-propre  début-cache  début-PDF  pages-PDF (verso blanc compris)");
+                var offset = 0; var panel = 0;
+                for (var i = 0; i < texts.Count; i++)
+                {
+                    var text = texts[i];
+                    var own = text.Page ?? project.Page;
+                    var a = Print.Composer.Compose(Links.Strip(text.Document), project.Styles.EffectiveFor(text), BookInfo.CountingPageFor(text, project), project, fonts).Pages.Count;
+                    var b = Print.Composer.Compose(Links.Strip(text.Document), project.Styles.EffectiveFor(text), own, project, fonts).Pages.Count;
+                    var startPdf = pageOf(starts[i]);
+                    var endPdf = i + 1 < texts.Count ? pageOf(starts[i + 1]) : merged.Pages.Count;
+                    if (panel % 2 == 1) panel++;
+                    var startPanel = panel;
+                    panel += a;
+                    var title = (text.Title ?? "").Length > 34 ? text.Title.Substring(0, 34) : (text.Title ?? "").PadRight(34);
+                    Console.WriteLine("  " + title + " " + a.ToString().PadLeft(5) + " " + b.ToString().PadLeft(10) + " " + (startPanel + 1).ToString().PadLeft(12)
+                        + " " + (startPdf + 1).ToString().PadLeft(10) + " " + (endPdf - startPdf).ToString().PadLeft(10)
+                        + (startPanel != startPdf ? "   ≠ DÉBUT" : "") + (!own.SameLayout(setup) ? "   format ≠ livre" : ""));
+                    offset = panel;
+                }
+                Console.WriteLine("  Total panneau Publication (comptes seuls + rectos) : " + panel + "   |   PDF : " + merged.Pages.Count);
+            }
+        }
+
         public void QuitNow()
         {
             _dirty = false;

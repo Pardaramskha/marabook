@@ -3386,7 +3386,9 @@ namespace Marabook.App
             {
                 // La composition à l'écran connaît déjà le compte (22/09) :
                 // rien à recomposer plus tard pour la Pile ou le livre.
-                var pages = _editor.PrintPageCount;
+                // …sauf si l'écrit s'affiche sur une autre page que celle du
+                // livre (09/10) : le cache compte alors sur le gabarit.
+                var pages = EditorCountIsBookCount(_current) ? _editor.PrintPageCount : null;
                 if (pages.HasValue) _pageCountCache[_current.Id] = pages.Value;
                 else _pageCountCache.Remove(_current.Id);
             }
@@ -3992,7 +3994,7 @@ namespace Marabook.App
             try
             {
                 var composition = Print.Composer.Compose(Links.Strip(text.Document),
-                    _project.Styles.EffectiveFor(text), text.Page ?? _project.Page, _project, new AvaloniaFontEngine());
+                    _project.Styles.EffectiveFor(text), BookInfo.CountingPageFor(text, _project), _project, new AvaloniaFontEngine());
                 pages = Math.Max(1, composition.Pages.Count);
             }
             catch { pages = 1; }
@@ -4114,6 +4116,36 @@ namespace Marabook.App
             int pages;
             return text != null && _pageCountCache.TryGetValue(text.Id, out pages) ? pages : 0;
         }
+
+        /// <summary>Vrai quand la composition à l'écran de cet écrit (sa page
+        /// propre) compte les mêmes pages que le livre (09/10) : même mise en
+        /// page que le gabarit — la césure, elle, suit toujours l'écrit.</summary>
+        private bool EditorCountIsBookCount(BinderItem text)
+        {
+            if (text == null || _project == null) return false;
+            var shown = text.Page ?? _project.Page;
+            return shown != null && shown.SameLayout(BookInfo.CountingPageFor(text, _project));
+        }
+
+        /// <summary>Le manuscrit d'un livre tel que « Publier » le compose
+        /// (09/10) : compilé sans page de titre ni têtes de chapitre, chaque
+        /// document sur un recto, marques de [[liens]] retirées (elles
+        /// restaient dans le PDF publié).</summary>
+        private TextDocument CompileForPublish(BinderItem book)
+        {
+            return Links.Strip(Exchange.Compiler.Build(_project, book, new Exchange.CompileOptions
+            {
+                TitlePage = false,
+                ChapterHeadings = false,
+                PageBreakPerText = true,
+                RectoChapterStarts = true // chaque document ouvre un recto
+            }));
+        }
+
+        /// <summary>Sonde (09/10) : le total du livre comme le panneau
+        /// Publication le compte, et le manuscrit compilé comme « Publier ».</summary>
+        public int BookPageTotalForProbe(BinderItem book) { _pageCountCache.Clear(); return BookPageTotal(book); }
+        public TextDocument CompileForPublishForProbe(BinderItem book) { return CompileForPublish(book); }
 
         private int BookPageTotal(BinderItem book)
         {
@@ -4410,13 +4442,7 @@ namespace Marabook.App
                 if (ExtraPages.IsDynamic(item) && item.EnclosingBook() == book) RegenerateDynamic(item);
             // Pas de page de titre générée : sa personnalisation arrive — le
             // PDF publié n'est que le contenu, chaque document sur un recto.
-            var document = Exchange.Compiler.Build(_project, book, new Exchange.CompileOptions
-            {
-                TitlePage = false,
-                ChapterHeadings = false,
-                PageBreakPerText = true,
-                RectoChapterStarts = true // chaque document ouvre un recto
-            });
+            var document = CompileForPublish(book);
             var options = await PdfExportDialog.Ask(this, book.Title, true, book.Book.BleedMm,
                 delegate(Print.PdfExportOptions o)
                 { return PreviewPdf(document, book.Book.Template, book.Title, o, null, 0, _project.Styles.EffectiveFor(book)); });
@@ -6067,7 +6093,7 @@ namespace Marabook.App
             if (_current == null || _current.Kind != ItemKind.Text || _project == null) { _statusBook.Text = ""; return; }
             var book = _current.EnclosingBook();
             if (book == null || _current.IsOutOfBook) { _statusBook.Text = ""; return; }
-            if (_docPages > 0) _pageCountCache[_current.Id] = _docPages;
+            if (_docPages > 0 && EditorCountIsBookCount(_current)) _pageCountCache[_current.Id] = _docPages;
             var total = BookPageTotal(book);
             _statusBook.Text = total > 0 ? "Livre : " + total.ToString("N0", CultureInfo.CurrentCulture) + (total > 1 ? " pages" : " page") : "";
         }

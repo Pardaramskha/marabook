@@ -129,6 +129,13 @@ namespace Marabook.Model
         // paragraphs so each page of the merged manuscript knows its chapter.
         // Transient, never persisted.
         public PageDecor Decor;
+
+        // Livres compilés (09/10) : la CÉSURE du document d'origine (le bouton
+        // « Césure » de son ruban, PageSetup.Hyphenation) suit ses paragraphes
+        // dans le manuscrit fusionné — le PDF publié coupe les mots là où
+        // l'éditeur les coupe, et pas ailleurs. Null = la page de la
+        // composition décide. Jamais persisté.
+        public bool? Hyphenation;
     }
 
     public class Footnote

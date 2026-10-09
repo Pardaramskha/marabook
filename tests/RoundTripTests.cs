@@ -20,6 +20,7 @@ namespace Marabook.Tests
             "BinderItem.Parent",            // cycle, reconstruit par RelinkParents
             "Project.LoadedFormatVersion",  // 0 avant écriture, 6 après lecture
             "TextParagraph.StartOnRecto",   // posés par le compilateur, jamais
+            "TextParagraph.Hyphenation",    //   (césure de l'écrit, 09/10)
             "TextParagraph.Decor"           //   dans le .plot
         };
 
