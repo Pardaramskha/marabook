@@ -111,7 +111,7 @@ namespace Marabook.App
                 if (e.Key == Key.Enter) { RunNow(); if (_result != null && _result.Hits.Count > 0 && _currentIndex < 0) Next(); e.Handled = true; }
                 else if (e.Key == Key.Escape) { _queryBox.Text = ""; e.Handled = true; }
             };
-            _errorFrame.Child = _queryBox;
+            _errorFrame.Child = Ui.WithClear(_queryBox, "Vider la recherche");
             head.Children.Add(_errorFrame);
             _error = new TextBlock { Foreground = Chrome.Accent, FontSize = 11, TextWrapping = TextWrapping.Wrap, IsVisible = false, Margin = new Thickness(0, 3, 0, 0) };
             head.Children.Add(_error);

@@ -109,6 +109,35 @@ namespace Marabook.App
             return menu;
         }
 
+        /// <summary>« Appliquer le gabarit du livre » en lot (09/10) : la mise
+        /// en page de chaque écrit suit le gabarit intérieur de son livre —
+        /// le geste de la carte (icône orange), pour toute la sélection.</summary>
+        private void BatchApplyBookLayout(List<BinderItem> targets)
+        {
+            var changed = 0;
+            foreach (var item in targets)
+            {
+                var book = item.EnclosingBook();
+                if (item.Kind != ItemKind.Text || book == null || book.Book == null || book.Book.Template == null) continue;
+                if (item.Page == null) item.Page = book.Book.Template.Clone();
+                else item.Page.ApplyLayout(book.Book.Template);
+                _pageCountCache.Remove(item.Id);
+                changed++;
+            }
+            if (changed == 0) return;
+            MarkDirty();
+            _binder.Rebuild();
+            if (_current != null && _current.Kind == ItemKind.Book) _bookView.Load(_current, _history, _project);
+        }
+
+        /// <summary>Sonde (09/10) : les libellés des actions groupées.</summary>
+        internal List<string> BatchLabelsForProbe(List<BinderItem> items)
+        {
+            var labels = new List<string>();
+            foreach (var entry in BatchEntries(items)) labels.Add(entry.Label);
+            return labels;
+        }
+
         private static string BatchKindLabel(List<BinderItem> items)
         {
             var kinds = new HashSet<ItemKind>();
@@ -158,6 +187,7 @@ namespace Marabook.App
                 if (bookTexts)
                 {
                     entries.Add(new BatchEntry { Label = "Appliquer un gabarit…", Run = delegate { ApplyPageTemplateTo(targets); } });
+                    entries.Add(new BatchEntry { Label = "Appliquer le gabarit du livre", Run = delegate { BatchApplyBookLayout(targets); } }); // la mise en page du livre (09/10)
                     var allExtra = All(targets, delegate(BinderItem i) { return i.IsExtraPage; });
                     entries.Add(new BatchEntry
                     {

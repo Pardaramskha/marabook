@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Layout;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Marabook.Model;
@@ -21,6 +22,38 @@ namespace Marabook.App
     /// Window.GetWindow, Clipboard.SetText et IsKeyboardFocusWithin.</summary>
     public static class Ui
     {
+        /// <summary>Une zone de texte avec sa CROIX (09/10) : un « × » à droite,
+        /// visible dès qu'il y a du texte, qui vide le champ et lui rend le
+        /// clavier — champs de recherche de la Pile, du rail et de Ctrl+F.</summary>
+        public static Control WithClear(TextBox box, string tip = "Effacer")
+        {
+            var host = new Panel();
+            host.Children.Add(box);
+            var cross = new TextBlock
+            {
+                Text = "×",
+                FontSize = 15,
+                Foreground = Chrome.SoftText,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, box.Margin.Right + 7, 1),
+                Cursor = new Cursor(StandardCursorType.Hand),
+                IsVisible = !string.IsNullOrEmpty(box.Text),
+                [ToolTip.TipProperty] = tip
+            };
+            cross.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+            {
+                if (!e.GetCurrentPoint(cross).Properties.IsLeftButtonPressed) return;
+                e.Handled = true;
+                box.Text = "";
+                box.Focus();
+            };
+            box.TextChanged += delegate { cross.IsVisible = !string.IsNullOrEmpty(box.Text); };
+            box.Padding = new Thickness(box.Padding.Left, box.Padding.Top, Math.Max(box.Padding.Right, 22), box.Padding.Bottom);
+            host.Children.Add(cross);
+            return host;
+        }
+
         public static void Post(DispatcherPriority priority, Action action)
         {
             Dispatcher.UIThread.Post(action, priority);

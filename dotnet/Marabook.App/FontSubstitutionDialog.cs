@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Marabook.Model;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using AppSettings = Marabook.Settings.AppSettings;
@@ -22,7 +24,7 @@ namespace Marabook.App
         private bool _accepted;
         private const string None = "— aucun remplacement —";
 
-        private FontSubstitutionDialog(Window owner, List<string> missing)
+        private FontSubstitutionDialog(Window owner, List<string> missing, Project project)
         {
             Title = "Polices manquantes";
             Owner = owner;
@@ -95,6 +97,34 @@ namespace Marabook.App
                 row.Children.Add(combo);
                 panel.Children.Add(row);
                 _choices.Add(new KeyValuePair<string, ComboBox>(family, combo));
+                // Où elle manque (09/10) : un accordéon replié sous la ligne,
+                // les styles puis les écrits et fiches qui la demandent.
+                var users = FontAudit.UsersOf(project, family);
+                if (users.Count > 0)
+                {
+                    var list = new StackPanel { Margin = new Thickness(16, 2, 0, 4), IsVisible = false };
+                    foreach (var user in users)
+                        list.Children.Add(new TextBlock { Text = user, Foreground = Chrome.SoftText, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 440 });
+                    var caption = users.Count == 1 ? "1 emplacement" : users.Count + " emplacements";
+                    var toggle = new TextBlock
+                    {
+                        Text = "› " + caption,
+                        Foreground = Chrome.Accent,
+                        FontSize = 12,
+                        Margin = new Thickness(16, 0, 0, 2),
+                        Cursor = new Cursor(StandardCursorType.Hand),
+                        [ToolTip.TipProperty] = "Les styles, écrits et fiches qui demandent cette police"
+                    };
+                    toggle.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+                    {
+                        if (!e.GetCurrentPoint(toggle).Properties.IsLeftButtonPressed) return;
+                        e.Handled = true;
+                        list.IsVisible = !list.IsVisible;
+                        toggle.Text = (list.IsVisible ? "⌄ " : "› ") + caption;
+                    };
+                    panel.Children.Add(toggle);
+                    panel.Children.Add(list);
+                }
             }
 
             var buttons = new StackPanel
@@ -117,9 +147,14 @@ namespace Marabook.App
         /// <summary>Vrai si « Appliquer » : les remplacements sont alors
         /// écrits dans les réglages (une entrée retirée = plus de
         /// remplacement) et enregistrés.</summary>
-        public static async Task<bool> Show(Window owner, List<string> missing)
+        public static Task<bool> Show(Window owner, List<string> missing)
         {
-            var dialog = new FontSubstitutionDialog(owner, missing);
+            return Show(owner, missing, null);
+        }
+
+        public static async Task<bool> Show(Window owner, List<string> missing, Project project)
+        {
+            var dialog = new FontSubstitutionDialog(owner, missing, project);
             await Dialogs.ShowModal(dialog, owner);
             if (!dialog._accepted) return false;
             foreach (var choice in dialog._choices)

@@ -304,7 +304,7 @@ namespace Marabook.App
             {
                 if (e.Key == Key.Escape) { _searchBox.Text = ""; e.Handled = true; }
             };
-            row.Children.Add(_searchBox);
+            row.Children.Add(Ui.WithClear(_searchBox, "Vider la recherche"));
             bar.Child = row;
             return bar;
         }

@@ -4382,7 +4382,7 @@ namespace Marabook.App
             }
             var titles = new List<string>();
             foreach (var book in books) titles.Add(book.Title);
-            var choice = await LinkDialog.Ask(this, titles);
+            var choice = await PickDialog.Ask(this, "Copier le gabarit", "Vers quel livre copier « " + gabarit.Title + " » ?", titles, "Copier");
             if (choice == null) return;
             foreach (var book in books)
                 if (book.Title == choice)
@@ -4415,7 +4415,9 @@ namespace Marabook.App
             }
             var titles = new List<string> { "(aucun gabarit)" };
             foreach (var gabarit in gabarits) titles.Add(gabarit.Title);
-            var choice = await LinkDialog.Ask(this, titles);
+            var choice = await PickDialog.Ask(this, "Gabarit de pages",
+                targets.Count > 1 ? "Quel gabarit appliquer à ces " + targets.Count + " écrits ?" : "Quel gabarit appliquer à « " + targets[0].Title + " » ?",
+                titles, "Appliquer");
             if (choice == null) return;
             string id = null;
             foreach (var gabarit in gabarits)
@@ -6116,7 +6118,7 @@ namespace Marabook.App
             _fontAlertDot.Background = unresolved > 0 ? (IBrush)Chrome.Danger : Chrome.Ok;
             _fontAlertText.Text = unresolved > 0
                 ? (unresolved > 1 ? unresolved + " polices manquantes" : "1 police manquante")
-                : (missing.Count > 1 ? missing.Count + " polices remplacées" : "1 police remplacée");
+                : "Tout va bien"; // toutes remplacées (09/10) — l'infobulle dit lesquelles
             ToolTip.SetTip(_fontAlert, (unresolved > 0
                 ? "Ce projet demande des polices absentes de cet ordinateur : "
                 : "Polices absentes de cet ordinateur, remplacées : ")
@@ -6126,6 +6128,7 @@ namespace Marabook.App
 
         /// <summary>Les polices manquantes de la sonde (07/10).</summary>
         public IList<string> MissingFontsForProbe { get { return _missingFonts; } }
+        public string FontAlertTextForProbe { get { return _fontAlertText.Text; } }
 
         /// <summary>Le dialogue des remplacements, puis tout se recompose
         /// avec les polices remplaçantes (faces oubliées, comptes de pages
@@ -6133,7 +6136,7 @@ namespace Marabook.App
         private async void ShowFontSubstitutions()
         {
             if (_missingFonts.Count == 0) return;
-            var applied = await FontSubstitutionDialog.Show(this, new List<string>(_missingFonts));
+            var applied = await FontSubstitutionDialog.Show(this, new List<string>(_missingFonts), _project);
             if (!applied) return;
             ApplyFontSubstitutions();
         }

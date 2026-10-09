@@ -422,14 +422,16 @@ namespace Marabook.App
             // ses ancêtres — survoler un écrit relevait le livre et la racine (30/09).
             styles.Add(Style(x => x.OfType<TreeViewItem>().Template().OfType<Border>().Name("SelectionBorder").Class(":pointerover"),
                 new Setter(Border.BackgroundProperty, Chrome.BarBgLight)));
+            // La ligne ACTIVE en AccentSoft (09/10) : l'AccentTint se confondait
+            // avec le survol, l'élément ouvert ne se voyait pas assez (Rémi).
             styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Template().OfType<Border>().Name("SelectionBorder"),
-                new Setter(Border.BackgroundProperty, Chrome.AccentTint)));
+                new Setter(Border.BackgroundProperty, Chrome.AccentSoft)));
             styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Class(":focus").Template().OfType<Border>().Name("SelectionBorder"),
-                new Setter(Border.BackgroundProperty, Chrome.AccentTint)));
+                new Setter(Border.BackgroundProperty, Chrome.AccentSoft)));
             styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Template().OfType<Border>().Name("SelectionBorder").Class(":pointerover"),
-                new Setter(Border.BackgroundProperty, Chrome.AccentTint)));
+                new Setter(Border.BackgroundProperty, Chrome.AccentSoft)));
             styles.Add(Style(x => x.OfType<TreeViewItem>().Class(":selected").Class(":focus").Template().OfType<Border>().Name("SelectionBorder").Class(":pointerover"),
-                new Setter(Border.BackgroundProperty, Chrome.AccentTint)));
+                new Setter(Border.BackgroundProperty, Chrome.AccentSoft)));
 
             // ---- infobulles : pilule inversée, texte blanc compact, et la
             // FLÈCHE qui pointe le contrôle (28/09 : perdue au portage). La

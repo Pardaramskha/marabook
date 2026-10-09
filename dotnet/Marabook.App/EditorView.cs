@@ -461,8 +461,19 @@ namespace Marabook.App
             };
             // Le compteur suit la frappe (hotfix 1.0.3-a) : « 12 occurrences »
             // avant de chercher, « 3/12 » dès qu'on navigue.
-            _searchBox.TextChanged += delegate { if (_searchBar.IsVisible) { _searchCurrent = null; ShowSearchCount(); } };
-            panel.Children.Add(_searchBox);
+            _searchBox.TextChanged += delegate
+            {
+                if (!_searchBar.IsVisible) return;
+                _searchCurrent = null;
+                ShowSearchCount();
+                // Une seconde après la dernière frappe (09/10) : la première
+                // occurrence de l'écrit est sélectionnée, sans Entrée.
+                _searchJump.Stop();
+                if (!string.IsNullOrEmpty(_searchBox.Text)) _searchJump.Start();
+            };
+            _searchJump = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _searchJump.Tick += delegate { _searchJump.Stop(); JumpToFirstMatch(); };
+            panel.Children.Add(Ui.WithClear(_searchBox, "Vider la recherche"));
 
             panel.Children.Add(Label("Remplacer :"));
             _replaceBox = new TextBox { Width = 160, Margin = new Thickness(4, 0, 10, 0) };
@@ -2273,6 +2284,7 @@ namespace Marabook.App
         public void HideSearch()
         {
             if (_searchBar.IsVisible == false) return;
+            if (_searchJump != null) _searchJump.Stop();
             _searchBar.IsVisible = false;
             _searchCurrent = null;
             if (ComposedActive) _composed.FocusSurface();
@@ -2284,10 +2296,36 @@ namespace Marabook.App
                 ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase;
         }
 
+        private DispatcherTimer _searchJump; // Ctrl+F : vers la première occurrence, une seconde après la frappe (09/10)
+
         private void FindNext()
         {
+            _searchJump.Stop();
             TryFindNextComposed(true);
         }
+
+        /// <summary>La PREMIÈRE occurrence de l'écrit, depuis son début
+        /// (09/10) — déclenchée une seconde après la dernière frappe dans la
+        /// barre, le clavier reste dans la zone de recherche.</summary>
+        private void JumpToFirstMatch()
+        {
+            if (!_searchBar.IsVisible) return;
+            var needle = _searchBox.Text;
+            if (string.IsNullOrEmpty(needle) || _item == null || !ComposedActive) return;
+            var matches = PivotSearch.FindAll(_item.Document, needle,
+                _caseCheck.IsChecked == true, _wholeWordCheck.IsChecked == true);
+            if (matches.Count == 0) { _searchCurrent = null; _searchInfo.Text = "Aucun résultat"; return; }
+            SelectMatch(matches, 0, null);
+            if (!_searchBox.IsFocused) _searchBox.Focus();
+        }
+
+        /// <summary>Sonde (09/10) : tape dans la barre et attend le saut.</summary>
+        internal void TypeSearchForProbe(string needle)
+        {
+            if (!_searchBar.IsVisible) ShowSearch();
+            _searchBox.Text = needle;
+        }
+        internal string SearchInfoForProbe { get { return _searchInfo.Text; } }
 
         /// <summary>Sonde (hotfix 1.0.3-a) : cherche depuis la barre et rend
         /// le texte du compteur.</summary>
@@ -2303,6 +2341,7 @@ namespace Marabook.App
         /// avant le début de la sélection (ou le caret), reprise à la fin.</summary>
         private void FindPrevious()
         {
+            _searchJump.Stop();
             var needle = _searchBox.Text;
             if (string.IsNullOrEmpty(needle) || _item == null || !ComposedActive) return;
             var matches = PivotSearch.FindAll(_item.Document, needle,

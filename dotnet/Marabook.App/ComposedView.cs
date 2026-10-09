@@ -2206,6 +2206,19 @@ namespace Marabook.App
 
         // ============================================================ edits
 
+        /// <summary>Après une MISE EN FORME (style, gras, alignement, liste,
+        /// décalage — 09/10) : la vue ne bouge pas. UpdateCaretVisual ramenait
+        /// le caret, posé à la fin de la sélection, dans la fenêtre : Ctrl+A
+        /// puis un style renvoyait à la fin de l'écrit (Rémi).</summary>
+        private void AfterEditKeepingView(int firstChangedPage)
+        {
+            var offset = Offset.Y;
+            _keepScroll = true;
+            try { AfterEdit(firstChangedPage); }
+            finally { _keepScroll = false; }
+            Offset = new Vector(Offset.X, offset);
+        }
+
         private void AfterEdit(int firstChangedPage)
         {
             PivotEdit.PurgeFootnotes(_item.Document);
@@ -2505,7 +2518,7 @@ namespace Marabook.App
                 paragraph.AlignOverride = align == style.Align ? null : align;
                 _engine.RecomposeParagraph(p);
             }
-            AfterEdit(0);
+            AfterEditKeepingView(0);
         }
 
         /// <summary>Un pas de décalage : 0,5 cm.</summary>
@@ -2559,7 +2572,7 @@ namespace Marabook.App
                 }
                 _engine.RecomposeParagraph(p);
             }
-            AfterEdit(0);
+            AfterEditKeepingView(0);
         }
 
         /// <summary>Quelles lignes du paragraphe une plage d'offsets couvre :
@@ -2946,7 +2959,7 @@ namespace Marabook.App
                 PivotEdit.ApplyFormat(paragraph, from, to, setter);
                 _engine.RecomposeParagraph(p);
             }
-            AfterEdit(0);
+            AfterEditKeepingView(0);
         }
 
         private bool SelectionAll(Func<TextRun, ParagraphStyle, bool> predicate)
@@ -3710,7 +3723,7 @@ namespace Marabook.App
                 _engine.RecomposeParagraph(p);
             }
             _pendingFormat = null;
-            AfterEdit(0);
+            AfterEditKeepingView(0);
         }
 
         /// <summary>Repose sur le paragraphe du caret les écarts locaux qu'un
@@ -3779,7 +3792,7 @@ namespace Marabook.App
                 _item.Document.Paragraphs[p].ListKind = allAlready ? null : kind;
                 _engine.RecomposeParagraph(p);
             }
-            AfterEdit(0);
+            AfterEditKeepingView(0);
         }
 
         public void InsertElementAtCaret(TextRun element)

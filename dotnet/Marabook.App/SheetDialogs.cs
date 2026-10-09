@@ -957,6 +957,50 @@ namespace Marabook.App
     }
 
     /// <summary>Le choix d'un lien (07/10) : la cible et le texte affiché.</summary>
+    /// <summary>Un choix dans une liste (09/10) : « Gabarit de pages »,
+    /// « Copier le gabarit vers un livre »… — jusque-là, ces deux gestes
+    /// empruntaient la fenêtre « Lien vers une fiche », qui disait le mauvais
+    /// titre (Rémi). Rend le libellé choisi, ou null.</summary>
+    public class PickDialog : Window
+    {
+        private readonly ComboBox _combo;
+        private string _result;
+
+        private PickDialog(Window owner, string title, string prompt, List<string> options, string okLabel)
+        {
+            Title = title;
+            Owner = owner;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            SizeToContent = SizeToContent.WidthAndHeight;
+            CanResize = false;
+            ShowInTaskbar = false;
+            Background = Chrome.RaisedBg;
+            var panel = new StackPanel { Margin = new Thickness(18, 16, 18, 14), MinWidth = 360 };
+            panel.Children.Add(new TextBlock { Text = prompt, Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Margin = new Thickness(0, 0, 0, 10) });
+            _combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MinWidth = 300 };
+            foreach (var option in options) _combo.Items.Add(option);
+            if (_combo.Items.Count > 0) _combo.SelectedIndex = 0;
+            panel.Children.Add(_combo);
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
+            var ok = new Button { Content = okLabel, IsDefault = true, MinWidth = 90 };
+            ok.Classes.Add("primary");
+            ok.Click += delegate { _result = _combo.SelectedItem as string; Close(); };
+            var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 90, Margin = new Thickness(8, 0, 0, 0) };
+            cancel.Click += delegate { _result = null; Close(); };
+            buttons.Children.Add(ok);
+            buttons.Children.Add(cancel);
+            panel.Children.Add(buttons);
+            Content = panel;
+        }
+
+        public static async Task<string> Ask(Window owner, string title, string prompt, List<string> options, string okLabel)
+        {
+            var dialog = new PickDialog(owner, title, prompt, options, okLabel);
+            await dialog.ShowDialog(owner);
+            return dialog._result;
+        }
+    }
+
     public sealed class LinkChoice
     {
         public string Target;

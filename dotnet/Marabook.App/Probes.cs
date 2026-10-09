@@ -120,6 +120,35 @@ namespace Marabook.App
                 Check(!editor.LooseLinesShownForProbe && !ComposedRenderer.ShowLooseLines, "Mise en page › Lignes lâches les éteint");
                 editor.ToggleLooseLinesForProbe();
                 Check(editor.LooseLinesShownForProbe, "…et les rallume");
+                // — Ctrl+F (09/10) : une seconde après la frappe, la première occurrence est sélectionnée.
+                editor.TypeSearchForProbe("volets");
+                await Task.Delay(1300);
+                await Settle();
+                Check(editor.SearchInfoForProbe.StartsWith("1/"), "Ctrl+F : une seconde après la frappe, la première occurrence est sélectionnée (" + editor.SearchInfoForProbe + ")");
+                editor.HideSearch();
+                // — Le choix d'un gabarit a sa propre fenêtre (09/10), plus celle du lien.
+                {
+                    var pickTask = PickDialog.Ask(shell, "Gabarit de pages", "Quel gabarit appliquer ?", new List<string> { "(aucun gabarit)", "Sonde" }, "Appliquer");
+                    await Settle();
+                    var pick = OpenWindow<PickDialog>();
+                    Check(pick != null && pick.Title == "Gabarit de pages", "le choix d'un gabarit ouvre « Gabarit de pages », pas « Lien vers une fiche »");
+                    if (pick != null)
+                    {
+                        var cancel = FindButton(pick, "Annuler");
+                        if (cancel != null) cancel.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else pick.Close();
+                    }
+                    var picked = await pickTask;
+                    Check(picked == null, "…Annuler ne choisit rien");
+                }
+                // — Actions groupées : « Appliquer le gabarit du livre » sur des écrits d'un livre (09/10).
+                {
+                    var demoBook = chapter == null ? null : chapter.EnclosingBook();
+                    if (demoBook != null && demoBook.Children.Count >= 2)
+                    {
+                        var labels = shell.BatchLabelsForProbe(new List<BinderItem> { demoBook.Children[0], demoBook.Children[1] });
+                        Check(labels.Contains("Appliquer le gabarit du livre") && labels.Contains("Appliquer un gabarit…"), "les actions groupées proposent « Appliquer le gabarit du livre » (" + labels.Count + " actions)");
+                    }
+                }
                 Check(AppSettings.Gesture("loose-lines") == "Ctrl+L", "le raccourci par défaut est Ctrl+L / ⌘L (" + AppSettings.Gesture("loose-lines") + ")");
                 Check(composed != null && composed.RunEditorAction("loose-lines") && !editor.LooseLinesShownForProbe, "l'action de l'éditeur « loose-lines » bascule le bouton du ruban");
                 composed.RunEditorAction("loose-lines");
@@ -1179,12 +1208,29 @@ namespace Marabook.App
                     }
                     Check(alert != null && alert.IsVisible, "la barre d'état montre la pastille rouge « " + (baselineUnresolved + 1) + " police(s) manquante(s) »");
                     string replacement = null;
-                    var substitutionTask = FontSubstitutionDialog.Show(shell, new List<string> { "Police Imaginaire XYZ" });
+                    var substitutionTask = FontSubstitutionDialog.Show(shell, new List<string> { "Police Imaginaire XYZ" }, shell.Project);
                     await Settle();
                     var substitution = OpenWindow<FontSubstitutionDialog>();
                     Check(substitution != null, "le dialogue des polices manquantes s'ouvre");
                     if (substitution != null)
                     {
+                        // L'accordéon « où elle manque » (09/10) : replié, le style Fantôme dedans.
+                        TextBlock where = null; TextBlock ghostUser = null;
+                        foreach (var block in substitution.GetVisualDescendants().OfType<TextBlock>())
+                        {
+                            if (block.Text != null && block.Text.EndsWith("emplacement")) where = block;
+                            if (block.Text == "Style « Fantôme »") ghostUser = block;
+                        }
+                        Check(where != null && where.Text == "› 1 emplacement", "…avec l'accordéon « 1 emplacement » replié sous la police");
+                        if (where != null)
+                        {
+                            where.RaiseEvent(new PointerPressedEventArgs(where, new Avalonia.Input.Pointer(1, PointerType.Mouse, true), where, new Point(1, 1), 0, new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), Avalonia.Input.KeyModifiers.None));
+                            await Settle();
+                        }
+                        ghostUser = null;
+                        foreach (var block in substitution.GetVisualDescendants().OfType<TextBlock>())
+                            if (block.Text == "Style « Fantôme »" && block.IsEffectivelyVisible) ghostUser = block;
+                        Check(ghostUser != null && where != null && where.Text.StartsWith("⌄"), "…qui se déplie sur « Style « Fantôme » »");
                         var combo = substitution.GetVisualDescendants().OfType<ComboBox>().FirstOrDefault();
                         var index = -1;
                         if (combo != null)
@@ -1203,7 +1249,8 @@ namespace Marabook.App
                     var ghostFace = new AvaloniaFontEngine().Resolve("Police Imaginaire XYZ", 400, false);
                     Check(replacement != null && string.Equals(ghostFace.Family, replacement, StringComparison.OrdinalIgnoreCase) && ghostFace.HasGlyphs, "le moteur de polices sert la remplaçante partout (" + ghostFace.Family + ")");
                     var calmTip = baselineUnresolved > 0 ? "Ce projet demande des polices" : "Polices absentes"; // d'autres manquent encore (Linux) : la pastille reste rouge
-                    Check(alert != null && alert.IsVisible && (ToolTip.GetTip(alert) as string ?? "").StartsWith(calmTip), "la pastille s'apaise : « 1 police remplacée », toujours cliquable (" + baselineUnresolved + " autre(s) manquante(s))");
+                    Check(alert != null && alert.IsVisible && (ToolTip.GetTip(alert) as string ?? "").StartsWith(calmTip), "la pastille s'apaise, toujours cliquable (" + baselineUnresolved + " autre(s) manquante(s))");
+                    Check(baselineUnresolved > 0 || shell.FontAlertTextForProbe == "Tout va bien", "…et dit « Tout va bien » quand tout est remplacé (« " + shell.FontAlertTextForProbe + " »)");
                     AppSettings.FontSubstitutions.Remove("Police Imaginaire XYZ");
                     shell.Project.Styles.Styles.Remove(ghost);
                     shell.ApplyFontSubstitutions();
