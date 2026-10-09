@@ -66,6 +66,20 @@ namespace Marabook.Tests
                     if (cut < 2 || word.Length - cut < 3) clean = false;
             }
             t.Check(clean, "minima 2/3 respectés sur tout le corpus");
+
+            // Élisions et mots composés (09/10) : « d’incompréhension » en bout
+            // de ligne laissait un trou immense (Rémi, chapitre 1 d'Enerya).
+            var elided = FrenchHyphenator.BreakPoints("d’incompréhension", 5, 2, 3);
+            t.Check(elided.Count > 0 && elided[0] >= 4, "« d’incompréhension » se coupe derrière l'apostrophe (" + string.Join(",", elided.ConvertAll(c => c.ToString()).ToArray()) + ")");
+            t.Check(!elided.Contains(2), "…jamais juste après l'apostrophe");
+            t.Check(FrenchHyphenator.BreakPoints("l'entourait", 5, 2, 3).Count > 0, "l'apostrophe droite aussi");
+            t.Equal(0, FrenchHyphenator.BreakPoints("qu’elle", 5, 2, 3).Count, "« qu’elle » : trop court derrière l'apostrophe");
+            t.Equal(0, FrenchHyphenator.BreakPoints("aujourd'hui", 5, 2, 3).Count, "« aujourd'hui » reste soudé");
+            t.Equal(0, FrenchHyphenator.BreakPoints("l’Ouest", 5, 2, 3).Count, "« l’Ouest » : la majuscule derrière garde ses règles (court)");
+            var compound = FrenchHyphenator.BreakPoints("peut-être", 5, 2, 3);
+            t.Check(compound.Count == 1 && compound[0] == -5, "« peut-être » : une coupe après le trait, sans en ajouter (" + string.Join(",", compound.ConvertAll(c => c.ToString()).ToArray()) + ")");
+            var rainbow = FrenchHyphenator.BreakPoints("arc-en-ciel", 5, 2, 3);
+            t.Check(rainbow.Count == 2 && rainbow[0] == -4 && rainbow[1] == -7, "« arc-en-ciel » : après chaque trait");
         }
     }
 }

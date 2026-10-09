@@ -101,6 +101,7 @@ namespace Marabook.Tests
             OversizedWordHyphenated(t);
             DocumentToggleDisablesHyphenation(t);
             ParagraphHyphenationOverridesPage(t);
+            ElidedAndCompoundWordsHyphenated(t);
             CompiledBookCarriesHyphenation(t);
             ExceptionWordNeverHyphenated(t);
             WidowControl(t);
@@ -273,6 +274,31 @@ namespace Marabook.Tests
             var loose = new BinderItem { Title = "Seul", Kind = ItemKind.Text, Parent = writings, Page = new PageSetup { PageWidthMm = 100 } };
             writings.Children.Add(loose);
             t.Check(BookInfo.CountingPageFor(loose, project) == loose.Page, "hors livre : sa page propre");
+        }
+
+        private static string LineText(ComposedLine line)
+        {
+            var sb = new StringBuilder();
+            foreach (var piece in line.Pieces) sb.Append(piece.Text ?? " ");
+            return sb.ToString();
+        }
+
+        /// <summary>Un mot élidé (« d’incompréhension ») et un mot composé
+        /// (« peut-être ») en bout de ligne se coupent (09/10) : le premier
+        /// derrière l'apostrophe avec le trait ajouté, le second à son trait
+        /// existant, sans en ajouter. Colonne de 37 caractères.</summary>
+        private static void ElidedAndCompoundWordsHyphenated(Harness t)
+        {
+            var engine = Compose(Document("xxxxxxxxxxxxxxxxxxxx d’incompréhension")); // 20 + 1 + 17 = 38 > 37
+            var lines = engine.Current.Paragraphs[0].Lines;
+            t.Check(lines.Count == 2 && lines[0].Hyphenated, "le mot élidé se coupe en bout de ligne (" + lines.Count + " lignes)");
+            var first = LineText(lines[0]);
+            t.Check(first.EndsWith("-") && !first.EndsWith("d’-") && first.Contains("d’in"), "…derrière l'apostrophe, trait ajouté (« " + first + " »)");
+            engine = Compose(Document("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx peut-être")); // 30 + 1 + 9 = 40 > 37 ; « peut- » : 36
+            lines = engine.Current.Paragraphs[0].Lines;
+            first = lines.Count > 0 ? LineText(lines[0]) : "";
+            t.Check(lines.Count == 2 && first.EndsWith("peut-") && !first.EndsWith("--"), "le mot composé se coupe à son trait, sans en ajouter (« " + first + " »)");
+            t.Check(lines.Count == 2 && LineText(lines[1]) == "être", "…la suite repart entière (« " + (lines.Count > 1 ? LineText(lines[1]) : "") + " »)");
         }
 
         /// <summary>Un mot des exceptions de césure du projet n'est jamais

@@ -339,6 +339,19 @@ namespace Marabook.App
                     var a = alone.Pages.Count;
                     var cuts = 0;
                     foreach (var layout in alone.Paragraphs) if (layout != null) foreach (var line in layout.Lines) if (line.Hyphenated) cuts++;
+                    var find = Environment.GetEnvironmentVariable("MARABOOK_PAGES_FIND");
+                    if (!string.IsNullOrEmpty(find) && alone.Source != null)
+                        for (var q = 0; q < alone.Source.Paragraphs.Count && q < alone.Paragraphs.Count; q++)
+                        {
+                            if (alone.Paragraphs[q] == null || alone.Source.Paragraphs[q].ToPlainText().IndexOf(find, StringComparison.Ordinal) < 0) continue;
+                            Console.WriteLine("  — « " + text.Title + " », paragraphe " + q + " (" + alone.Paragraphs[q].Lines.Count + " lignes) :");
+                            foreach (var line in alone.Paragraphs[q].Lines)
+                            {
+                                var sb = new System.Text.StringBuilder();
+                                foreach (var piece in line.Pieces) sb.Append(piece.Text ?? " ");
+                                Console.WriteLine("      |" + sb + "|" + (line.Hyphenated ? "  (coupe)" : ""));
+                            }
+                        }
                     var b = Print.Composer.Compose(Links.Strip(text.Document), project.Styles.EffectiveFor(text), own, project, fonts).Pages.Count;
                     var startPdf = pageOf(starts[i]);
                     var endPdf = i + 1 < texts.Count ? pageOf(starts[i + 1]) : merged.Pages.Count;

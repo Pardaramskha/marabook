@@ -1177,18 +1177,19 @@ namespace Marabook.Print
                     && style.HyphenConsecutiveLimit > 0
                     && consecutiveHyphens < style.HyphenConsecutiveLimit)
                 {
-                    var bestCut = -1;
+                    var bestCut = 0; // jamais une coupe valide (0 lettre avant)
                     foreach (var cut in atom.Breaks)
                     {
-                        var prefix = atom.Text.Substring(0, cut) + "-";
+                        var prefix = CutPrefix(atom.Text, cut);
                         if (x + MeasureText(prefix, atom.Font, atom.Size, atom.Tracking) <= avail + 0.05)
                             bestCut = cut;
                     }
-                    if (bestCut > 0)
+                    if (bestCut != 0)
                     {
-                        AddAtomPiece(line, atom, atom.Text.Substring(0, bestCut) + "-", bestCut, x);
+                        var cutLength = CutLength(bestCut);
+                        AddAtomPiece(line, atom, CutPrefix(atom.Text, bestCut), cutLength, x);
                         UpdateMetrics(atom, ref ascent, ref height);
-                        var rest = atom.Text.Substring(bestCut);
+                        var rest = atom.Text.Substring(cutLength);
                         atoms[index] = new Atom
                         {
                             Text = rest,
@@ -1203,14 +1204,14 @@ namespace Marabook.Print
                             Strike = atom.Strike,
                             Highlight = atom.Highlight,
                             HighlightRole = atom.HighlightRole,
-                            SourceStart = atom.SourceStart < 0 ? -1 : atom.SourceStart + bestCut,
-                            SourceLength = atom.SourceLength - bestCut,
+                            SourceStart = atom.SourceStart < 0 ? -1 : atom.SourceStart + cutLength,
+                            SourceLength = atom.SourceLength - cutLength,
                             Breaks = FrenchHyphenator.BreakPoints(rest,
                                 style.HyphenMinWordLength, style.HyphenMinBefore, style.HyphenMinAfter)
                         };
                         line.Hyphenated = true;
                         consecutiveHyphens++;
-                        cursor += bestCut;
+                        cursor += cutLength;
                         line.Ascent = ascent;
                         line.Height = height;
                         line.End = cursor;
@@ -1265,11 +1266,21 @@ namespace Marabook.Print
             if (next.Breaks != null && next.Breaks.Count > 0 && style.HyphenConsecutiveLimit > 0
                 && consecutiveHyphens < style.HyphenConsecutiveLimit)
             {
-                var prefix = next.Text.Substring(0, next.Breaks[0]) + "-";
+                var prefix = CutPrefix(next.Text, next.Breaks[0]);
                 if (x + MeasureText(prefix, next.Font, next.Size, next.Tracking) <= avail + 0.05) return true;
             }
             return false;
         }
+
+        /// <summary>Le début du mot avant une coupe : avec le trait ajouté
+        /// (cut &gt; 0), ou jusqu'au trait que le mot porte déjà (cut &lt; 0,
+        /// mots composés — 09/10).</summary>
+        private static string CutPrefix(string text, int cut)
+        {
+            return cut < 0 ? text.Substring(0, -cut) : text.Substring(0, cut) + "-";
+        }
+
+        private static int CutLength(int cut) { return cut < 0 ? -cut : cut; }
 
         private void UpdateMetrics(Atom atom, ref double ascent, ref double height)
         {
