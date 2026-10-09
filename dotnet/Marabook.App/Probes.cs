@@ -126,6 +126,31 @@ namespace Marabook.App
                 await Settle();
                 Check(editor.SearchInfoForProbe.StartsWith("1/"), "Ctrl+F : une seconde après la frappe, la première occurrence est sélectionnée (" + editor.SearchInfoForProbe + ")");
                 editor.HideSearch();
+                // — Double-clic sur un résultat de la Pile (09/10) : l'occurrence elle-même.
+                shell.OpenOccurrenceForProbe(chapter, "volets");
+                await Settle();
+                await Settle();
+                Check(editor.ShowsItem(chapter) && editor.SelectedPlainText() == "volets", "la Pile : un double-clic sur un résultat sélectionne l'occurrence (« " + editor.SelectedPlainText() + " »)");
+                // — Le Bilan de style au rail (09/10) : un onglet le temps du bilan.
+                var railBefore = AppSettings.RightPanel;
+                editor.ShowStyleReportForProbe();
+                await Settle();
+                Check(shell.HasStyleReportForProbe && AppSettings.RightPanel == RightPanel.StyleReport, "le Bilan de style ouvre un onglet du rail, pas une fenêtre");
+                Check(OpenWindow<Window>() == null || !(OpenWindow<Window>().Title ?? "").StartsWith("Bilan"), "…aucune fenêtre « Bilan de style »");
+                shell.CloseStyleReportForProbe();
+                await Settle();
+                Check(!shell.HasStyleReportForProbe && AppSettings.RightPanel == RightPanel.None, "la croix du bilan ferme l'onglet et replie le rail");
+                editor.ShowStyleReportForProbe();
+                await Settle();
+                shell.OpenByTitle("Chapitre deux — La maison aux volets");
+                await Settle();
+                await Settle();
+                Check(!shell.HasStyleReportForProbe && AppSettings.RightPanel != RightPanel.StyleReport, "changer d'écrit ferme le bilan et son onglet");
+                shell.OpenByTitle(chapter.Title);
+                await Settle();
+                await Settle();
+                shell.SetRightPanelForProbe(railBefore);
+                await Settle();
                 // — Le choix d'un gabarit a sa propre fenêtre (09/10), plus celle du lien.
                 {
                     var pickTask = PickDialog.Ask(shell, "Gabarit de pages", "Quel gabarit appliquer ?", new List<string> { "(aucun gabarit)", "Sonde" }, "Appliquer");

@@ -19,6 +19,15 @@ namespace Marabook.Correction
             public string Title = "";
             public List<string> Lines = new List<string>();
             public bool Good; // un point fort mesuré
+            // Les lignes qui désignent un paragraphe (09/10) : index de ligne →
+            // index de paragraphe, pour que la vue y aille d'un clic.
+            public Dictionary<int, int> ParagraphLinks = new Dictionary<int, int>();
+
+            public void Add(int paragraph, string line)
+            {
+                ParagraphLinks[Lines.Count] = paragraph;
+                Lines.Add(line);
+            }
         }
 
         public sealed class MonotonousRun
@@ -297,7 +306,7 @@ namespace Marabook.Correction
                     ? " endroit où quatre phrases de suite (ou plus) font à peu près la même longueur — ça ronronne :"
                     : " endroits où quatre phrases de suite (ou plus) font à peu près la même longueur — ça ronronne :"));
                 foreach (var run in Monotonous)
-                    rhythm.Lines.Add("• paragraphe " + (run.Paragraph + 1) + " : " + run.Sentences
+                    rhythm.Add(run.Paragraph, "• paragraphe " + (run.Paragraph + 1) + " : " + run.Sentences
                         + " phrases d'environ " + run.Words + " mots.");
             }
             sections.Add(rhythm);
@@ -357,7 +366,7 @@ namespace Marabook.Correction
                 review.Lines.Add("Aucun paragraphe ne concentre les relevés.");
             else
                 foreach (var pair in ParagraphsToReview)
-                    review.Lines.Add("• paragraphe " + (pair.Key + 1) + " : " + pair.Value + " relevés de style.");
+                    review.Add(pair.Key, "• paragraphe " + (pair.Key + 1) + " : " + pair.Value + " relevés de style.");
             sections.Add(review);
             return sections;
         }

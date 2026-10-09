@@ -46,6 +46,7 @@ namespace Marabook.App
         private bool _renameClosing;
 
         public event Action<BinderItem> SelectionChanged;
+        public event Action<BinderItem, string> OccurrenceRequested; // double-clic sur un résultat de la recherche de la Pile (09/10)
         public event Action StructureChanged; // a user-initiated, undoable change happened
         // Des fichiers du système déposés sur la Pile (29/09) : (conteneur
         // visé, chemins). Branché, la coquille décide (documents dans Écrits,
@@ -197,6 +198,22 @@ namespace Marabook.App
                 _selectedId = (string)entry.Tag;
                 var handler = SelectionChanged;
                 if (handler != null) handler(SelectedItem);
+            };
+
+            // Double-clic sur un résultat (09/10) : l'OCCURRENCE elle-même
+            // (le simple clic ouvre l'élément) — la première du texte cherché.
+            _results.DoubleTapped += delegate(object sender, TappedEventArgs e)
+            {
+                var current = e.Source as Visual;
+                while (current != null && !(current is ListBoxItem))
+                    current = (current as Visual)?.GetVisualParent();
+                var entry = current as ListBoxItem;
+                if (entry == null || entry.Tag == null || _project == null) return;
+                var item = _project.FindById((string)entry.Tag);
+                var query = (_searchBox.Text ?? "").Trim();
+                if (item == null || query.Length == 0) return;
+                var handler = OccurrenceRequested;
+                if (handler != null) handler(item, query);
             };
 
             var host = new Grid();

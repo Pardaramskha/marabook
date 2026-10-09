@@ -19,7 +19,8 @@ namespace Marabook.Settings
         // Métadonnées, Publication et Édition d'un livre ont quitté le rail
         // le 22/09 : ce sont les onglets de la page livre (BookView).
         Pinned,      // l'écrit ou la fiche ÉPINGLÉ SUR LE CÔTÉ, lu en miroir (b47)
-        Lexicon      // la définition d'un mot du dictionnaire personnel (18/09) — épinglable au rail
+        Lexicon,     // la définition d'un mot du dictionnaire personnel (18/09) — épinglable au rail
+        StyleReport  // le BILAN DE STYLE de l'écrit ouvert (09/10) : un onglet le temps du bilan, fermé avec le rail ou au changement d'écrit
     }
 
     /// <summary>Les règles pures autour du panneau de droite — sans WPF,
@@ -53,6 +54,11 @@ namespace Marabook.Settings
             return result;
         }
 
+        // Le Bilan de style (09/10) : un onglet de plus, en queue, le temps du
+        // bilan — des instances fixes aussi (le rail compare par référence).
+        private static readonly RightPanel[] ForTextReport = Append(ForText, RightPanel.StyleReport);
+        private static readonly RightPanel[] ForTextLexiconReport = Append(ForTextLexicon, RightPanel.StyleReport);
+
         /// <summary>Le nom persisté dans settings.json (« rightPanel »).</summary>
         public static string Name(RightPanel panel)
         {
@@ -64,6 +70,7 @@ namespace Marabook.Settings
                 case RightPanel.Versions: return "versions";
                 case RightPanel.Pinned: return "pinned";
                 case RightPanel.Lexicon: return "lexicon";
+                case RightPanel.StyleReport: return "style-report";
                 default: return "none";
             }
         }
@@ -80,6 +87,7 @@ namespace Marabook.Settings
                 case "versions": return RightPanel.Versions;
                 case "pinned": return RightPanel.Pinned;
                 case "lexicon": return RightPanel.Lexicon;
+                case "style-report": return RightPanel.StyleReport; // sans bilan au lancement : indisponible, donc grisé
                 default: return RightPanel.Inspector;
             }
         }
@@ -104,17 +112,18 @@ namespace Marabook.Settings
         /// leur Général ne montrait rien), sauf l'Accueil qui garde son
         /// Général (les raccourcis « Commencer ») ; tout le reste (fiches,
         /// plans, dossiers, niveau projet) a Général et Recherche.</summary>
-        public static RightPanel[] Offered(ItemKind? kind, bool homeRoot = false, bool lexicon = false)
+        public static RightPanel[] Offered(ItemKind? kind, bool homeRoot = false, bool lexicon = false, bool report = false)
         {
+            if (kind == ItemKind.Text && report) return lexicon ? ForTextLexiconReport : ForTextReport; // le bilan ne vaut que pour un écrit
             if (kind == ItemKind.Text) return lexicon ? ForTextLexicon : ForText;
             if (kind == ItemKind.Book) return lexicon ? ForBookLexicon : ForBook;
             if (kind == ItemKind.Category && !homeRoot) return lexicon ? ForCategoryLexicon : ForCategory;
             return lexicon ? ForOthersLexicon : ForOthers;
         }
 
-        public static bool Offers(ItemKind? kind, RightPanel panel, bool homeRoot = false, bool lexicon = false)
+        public static bool Offers(ItemKind? kind, RightPanel panel, bool homeRoot = false, bool lexicon = false, bool report = false)
         {
-            return Array.IndexOf(Offered(kind, homeRoot, lexicon), panel) >= 0;
+            return Array.IndexOf(Offered(kind, homeRoot, lexicon, report), panel) >= 0;
         }
 
         /// <summary>Général DÉCRIT l'élément courant ; les autres sont des
@@ -131,10 +140,11 @@ namespace Marabook.Settings
         /// sans élément courant (« on cherche avant d'avoir cliqué », b37) ;
         /// l'épinglé (b47) ne demande qu'une épingle posée, élément courant
         /// ou non.</summary>
-        public static bool Available(RightPanel panel, bool columnHidden, bool hasProject, ItemKind? kind, bool homeRoot = false, bool hasPin = false, bool hasLexicon = false)
+        public static bool Available(RightPanel panel, bool columnHidden, bool hasProject, ItemKind? kind, bool homeRoot = false, bool hasPin = false, bool hasLexicon = false, bool hasReport = false)
         {
             if (columnHidden || !hasProject) return false;
-            if (!Offers(kind, panel, homeRoot, panel == RightPanel.Lexicon)) return false;
+            if (!Offers(kind, panel, homeRoot, panel == RightPanel.Lexicon, panel == RightPanel.StyleReport)) return false;
+            if (panel == RightPanel.StyleReport) return hasReport; // le temps d'un bilan (09/10)
             // Le Général d'une racine ne montre rien (b43) : offert pour que
             // l'onglet reste visible, indisponible donc grisé (30/09).
             if (panel == RightPanel.Inspector && kind == ItemKind.Category && !homeRoot) return false;

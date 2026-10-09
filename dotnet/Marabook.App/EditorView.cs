@@ -799,8 +799,12 @@ namespace Marabook.App
             var report = Correction.StyleReport.Compute(_item.Document, _findings, _lemma,
                 _dialogueChecker.Inventory(_item.Document));
             report.DeferredPending = _checkHost.PendingDeferred > 0;
-            StyleReportWindow.Show(Ui.OwnerOf(this), _item.Title, report);
+            var handler = StyleReportReady; // au rail (09/10), plus une fenêtre
+            if (handler != null) handler(_item.Title, report);
         }
+
+        public event Action<string, Correction.StyleReport> StyleReportReady;
+        internal void ShowStyleReportForProbe() { ShowStyleReport(); }
 
         // ============================================================ correction
 

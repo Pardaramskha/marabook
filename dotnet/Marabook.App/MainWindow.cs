@@ -629,6 +629,7 @@ namespace Marabook.App
                 _dictionaryView.NewEntry(true);
             };
             _binder.SelectionChanged += OnBinderSelection;
+            _binder.OccurrenceRequested += OpenOccurrence;
             _binder.MultiSelectionChanged += InspectGroup; // Ctrl+clic dans la Pile (1.0.3)
             _binder.BatchMenuProvider = BuildBatchMenu;
             _binder.JournalRequested += ShowJournal;
@@ -767,6 +768,7 @@ namespace Marabook.App
                 UpdateBookPagination();
             };
             _editor.MarksToggled += OnMarksToggled;
+            _editor.StyleReportReady += ShowStyleReport; // le Bilan de style au rail (09/10)
             _editor.StylesRequested += OpenStylesDialog;
             _editor.PreviewRequested += ShowPrintPreview;
             _editor.PrintRequested += PrintCurrent;
@@ -1161,6 +1163,7 @@ namespace Marabook.App
             // Le LEXIQUE (18/09) : la définition d'un mot du dictionnaire
             // personnel, même colonne (MainWindow.Lexicon.cs).
             BuildLexiconPanel(grid);
+            BuildStyleReportPanel(grid); // le Bilan de style au rail (09/10)
             _pinTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
             _pinTimer.Tick += delegate { _pinTimer.Stop(); RefreshSidePin(); };
             _binder.IsSidePinned = delegate(BinderItem item) { return item != null && item == _sidePin; };
@@ -1436,6 +1439,24 @@ namespace Marabook.App
             UpdateInspector();
             UpdateStats();
         }
+
+        /// <summary>Double-clic sur un résultat de la Pile (09/10) : la
+        /// première occurrence du texte cherché dans cet élément, comme un
+        /// résultat du panneau Recherche — sans casse ni accents, comme la Pile.</summary>
+        private void OpenOccurrence(BinderItem item, string query)
+        {
+            if (_project == null || item == null || string.IsNullOrEmpty(query)) return;
+            var targets = ProjectSearch.Collect(_project, SearchScope.Document, item, SearchKind.All, true);
+            var compiled = SearchQuery.Create(query, false, false, true, false);
+            SearchResult result;
+            try { result = ProjectSearch.Run(targets, compiled, 1, TimeSpan.FromSeconds(2), System.Threading.CancellationToken.None); }
+            catch { return; }
+            if (result == null || result.Hits.Count == 0) { _binder.SelectItem(item.Id); return; }
+            GoToHit(result.Hits[0]);
+        }
+
+        /// <summary>Sonde (09/10).</summary>
+        public void OpenOccurrenceForProbe(BinderItem item, string query) { OpenOccurrence(item, query); }
 
         private void PositionOnHit(SearchHit hit)
         {
@@ -3005,6 +3026,7 @@ namespace Marabook.App
             // de l'arbre sur l'élément réellement ouvert.
 
             HideCenterViews();
+            DropStyleReportIfStale(item); // le bilan de style ne suit pas un autre écrit (09/10)
             SlideJournalOut(); // la feuille du journal redescend sur la vue qui arrive (03/10)
             if (item == null || item.Kind != ItemKind.Text) { _statusPages.Text = ""; _statusBook.Text = ""; _docPages = 0; }
 
@@ -5032,8 +5054,8 @@ namespace Marabook.App
         /// la colonne (il ne déborde pas pendant la course).</summary>
         private void ShowRightHost(RightPanel shown)
         {
-            var hosts = new[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost };
-            var panels = new[] { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned, RightPanel.Lexicon };
+            var hosts = new[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _styleReportHost };
+            var panels = new[] { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned, RightPanel.Lexicon, RightPanel.StyleReport };
             for (var i = 0; i < hosts.Length; i++)
             {
                 if (hosts[i] == null) continue;
@@ -5096,7 +5118,7 @@ namespace Marabook.App
         /// de la course) ou libre (NaN).</summary>
         private void FreezeRightHosts(double width)
         {
-            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost };
+            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _styleReportHost };
             foreach (var host in hosts)
             {
                 if (host == null) continue;
@@ -5121,14 +5143,14 @@ namespace Marabook.App
             var shown = ShownRightPanel();
             if (!AppSettings.RailLocked || shown != RightPanel.None || AppSettings.RightPanel == RightPanel.None
                 || _journalOpen || _calmMode || _project == null) return shown;
-            foreach (var candidate in RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel))
+            foreach (var candidate in RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel, HasStyleReport))
                 if (IsPanelAvailable(candidate)) return candidate;
             return shown;
         }
 
         private bool IsPanelAvailable(RightPanel panel)
         {
-            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, PanelKind(), PanelHomeRoot(), _sidePin != null, HasLexiconPanel);
+            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, PanelKind(), PanelHomeRoot(), _sidePin != null, HasLexiconPanel, HasStyleReport);
         }
 
         /// <summary>La nature qui décide du panneau de droite (30/09) : la
@@ -5165,6 +5187,9 @@ namespace Marabook.App
         private void SetRightPanel(RightPanel panel)
         {
             if (panel != RightPanel.None && !IsPanelAvailable(panel)) return;
+            // Le rail replié emporte le Bilan de style (09/10) : il ne vit
+            // que le temps où on le regarde.
+            if (panel == RightPanel.None && HasStyleReport) _styleReportItem = null;
             RememberRightWidth();
             AppSettings.RightPanel = panel;
             AppSettings.Save();
@@ -5325,6 +5350,8 @@ namespace Marabook.App
                     icon = "push-pin-bold"; name = "Épinglé au rail"; break;
                 case RightPanel.Lexicon:
                     icon = "pile-dictionnaire"; name = "Lexique — la définition d'un mot du dictionnaire personnel"; break;
+                case RightPanel.StyleReport:
+                    icon = "exam-bold"; name = "Bilan de style de l'écrit ouvert"; break;
                 default:
                     icon = "book-open-text-bold"; name = "Publication du livre"; break;
             }
@@ -5401,7 +5428,7 @@ namespace Marabook.App
             var railOn = !_journalOpen && !_calmMode;
             _rail.IsVisible = railOn ? true : false;
             _railCol.Width = new GridLength(railOn ? RailWidth : 0);
-            var offered = RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel);
+            var offered = RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel, HasStyleReport);
             if (!ReferenceEquals(offered, _railOffered)) RebuildRailTabs(offered);
             UpdatePinTip();
             UpdateRailLock();
