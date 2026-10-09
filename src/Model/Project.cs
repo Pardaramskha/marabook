@@ -286,24 +286,6 @@ namespace Marabook.Model
             return changed;
         }
 
-        /// <summary>Migration v36 (09/10) : la césure AUTORISÉE sur toutes les
-        /// pages — celle du projet, la page propre de chaque élément, le
-        /// gabarit de chaque livre. Avant, le défaut muet était « non » et le
-        /// style Corps, qui césure, ne coupait rien tant qu'on n'allumait pas
-        /// le bouton dans chaque écrit. Idempotente ; rend le nombre de pages
-        /// changées.</summary>
-        public int EnableHyphenationOfV36()
-        {
-            var changed = 0;
-            if (Page != null && !Page.Hyphenation) { Page.Hyphenation = true; changed++; }
-            foreach (var item in AllItems())
-            {
-                if (item.Page != null && !item.Page.Hyphenation) { item.Page.Hyphenation = true; changed++; }
-                if (item.Book != null && item.Book.Template != null && !item.Book.Template.Hyphenation) { item.Book.Template.Hyphenation = true; changed++; }
-            }
-            return changed;
-        }
-
         public bool UpgradeCharacterTemplate()
         {
             return SheetDefaults.UpgradeCharacterTemplate(CharacterTemplate());

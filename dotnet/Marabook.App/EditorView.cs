@@ -397,7 +397,6 @@ namespace Marabook.App
                 _columnsCombo.SelectedItem = Math.Max(1, Math.Min(3, page.Columns));
                 _guidesBtn.IsChecked = page.ShowMarginGuides;
                 _lineNumbersBtn.IsChecked = page.LineNumbers;
-                _hyphenBtn.IsChecked = page.Hyphenation;
                 _folioBtn.IsChecked = page.FooterPageNumbers;
             }
             finally

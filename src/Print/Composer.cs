@@ -722,8 +722,6 @@ namespace Marabook.Print
             return layout;
         }
 
-        private bool? _paragraphHyphenation; // posée par ComposeWithStyle le temps d'un paragraphe
-
         private ComposedParagraphLayout ComposeWithStyle(TextParagraph paragraph,
             ParagraphStyle style, int listNumber, int noteBase)
         {
@@ -738,7 +736,6 @@ namespace Marabook.Print
             };
 
             var contentWidth = _setup.ContentWidthPx;
-            _paragraphHyphenation = paragraph.Hyphenation; // la césure de SON document (livre compilé, 09/10)
             var atoms = BuildAtoms(paragraph, style, listNumber, noteBase);
             // Les atomes sont gardés avec le paragraphe composé (0.50.0) : la
             // pagination les rejoue ligne à ligne autour des images.
@@ -1039,10 +1036,11 @@ namespace Marabook.Print
                             Strike = strike,
                             Highlight = highlight,
                             HighlightRole = highlightKind,
-                            // La césure obéit au bouton du document (PageSetup)
-                            // ET au réglage du style — et jamais sur un mot
-                            // des exceptions du projet.
-                            Breaks = (_paragraphHyphenation ?? _setup.Hyphenation) && style.HyphenationEnabled
+                            // La césure se règle PAR STYLE (09/10 : le bouton du
+                            // document est retiré, deux commandes qui s'additionnaient
+                            // pour un seul effet) — et jamais sur un mot des
+                            // exceptions du projet.
+                            Breaks = style.HyphenationEnabled
                                 && !superscript && !IsHyphenException(word)
                                 ? FrenchHyphenator.BreakPoints(word,
                                     style.HyphenMinWordLength, style.HyphenMinBefore, style.HyphenMinAfter)

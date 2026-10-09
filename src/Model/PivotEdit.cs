@@ -142,7 +142,6 @@ namespace Marabook.Model
                 PageBreakBefore = paragraph.PageBreakBefore,
                 AllowWidows = paragraph.AllowWidows,
                 StartOnRecto = paragraph.StartOnRecto,
-                Hyphenation = paragraph.Hyphenation, // la césure relayée par le compilateur (09/10)
                 Decor = paragraph.Decor
             };
         }
@@ -437,7 +436,6 @@ namespace Marabook.Model
                     // Transitoires de compilation (jamais persistés) — copiés
                     // quand même : Clone reste exhaustif, champ par champ.
                     StartOnRecto = paragraph.StartOnRecto,
-                Hyphenation = paragraph.Hyphenation, // la césure relayée par le compilateur (09/10)
                     Decor = paragraph.Decor
                 };
                 foreach (var run in paragraph.Runs)

@@ -8,18 +8,15 @@ namespace Marabook.Model
     {
         /// <summary>La page sur laquelle un écrit SE COMPTE (09/10) : dans un
         /// livre, le gabarit intérieur du livre — c'est lui que « Publier »
-        /// compose, quelle que soit la page propre de l'écrit — avec la
-        /// césure de l'écrit (le compilateur la relaie) ; hors livre, sa
-        /// page ou celle du projet. Le panneau Publication, les folios et la
-        /// barre d'état comptent ainsi les mêmes pages que le PDF publié.</summary>
+        /// compose, quelle que soit la page propre de l'écrit ; hors livre,
+        /// sa page ou celle du projet. Le panneau Publication, les folios et
+        /// la barre d'état comptent ainsi les mêmes pages que le PDF publié.</summary>
         public static PageSetup CountingPageFor(BinderItem text, Project project)
         {
             var own = text.Page ?? (project == null ? null : project.Page) ?? new PageSetup();
             var book = text.IsOutOfBook ? null : text.EnclosingBook();
             if (book == null || book.Book == null || book.Book.Template == null) return own;
-            var setup = book.Book.Template.Clone();
-            if (text.Page != null) setup.Hyphenation = text.Page.Hyphenation; // sans page propre : le gabarit décide (comme le compilateur)
-            return setup;
+            return book.Book.Template;
         }
 
         /// <summary>Le titre du livre tel qu'il se publie (01/10) — vide = le

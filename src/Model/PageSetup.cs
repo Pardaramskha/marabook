@@ -21,11 +21,11 @@ namespace Marabook.Model
         public int Columns = 1;
         public bool ShowMarginGuides = true; // « marges apparentes » — visibles par défaut
         public bool LineNumbers;          // printed output (phase 4)
-        // « Césure » (bouton du ruban) : AUTORISE la coupure des mots dans ce
-        // document ; ce sont les styles qui décident mot par mot (réglage
-        // « césure » de chaque style, Corps l'a). Vrai par défaut depuis la
-        // v36 (09/10) : à faux, le style Corps ne coupait rien et personne ne
-        // comprenait pourquoi (Rémi l'a rallumé chapitre par chapitre).
+        // SANS EFFET depuis la v36 (09/10) : la césure se règle par style
+        // (réglage « césure » de chaque style, Corps l'a) ; le bouton du
+        // ruban qui pilotait ce drapeau est retiré — à faux par défaut, il
+        // rendait le style Corps inopérant sans que rien ne le dise. Gardé
+        // (écrit vrai) pour les Marabook d'avant qui lisent le .plot.
         public bool Hyphenation = true;
         public bool FooterPageNumbers = true;
         public string FooterFont = "Times New Roman";

@@ -301,7 +301,7 @@ namespace Marabook.App
             var warnings = new List<string>();
             var project = Persistence.PlotFile.Load(path, warnings);
             var fonts = new AvaloniaFontEngine();
-            Console.WriteLine("PAGES — " + project.Name + " (" + warnings.Count + " avertissement(s) au chargement, format v" + project.LoadedFormatVersion + ", césure du projet " + project.Page.Hyphenation + ")");
+            Console.WriteLine("PAGES — " + project.Name + " (" + warnings.Count + " avertissement(s) au chargement, format v" + project.LoadedFormatVersion + ")");
             foreach (var book in project.AllItems())
             {
                 if (book.Kind != ItemKind.Book || book.Book == null) continue;
@@ -361,7 +361,7 @@ namespace Marabook.App
                     var title = (text.Title ?? "").Length > 34 ? text.Title.Substring(0, 34) : (text.Title ?? "").PadRight(34);
                     Console.WriteLine("  " + title + " " + a.ToString().PadLeft(5) + " " + b.ToString().PadLeft(10) + " " + (startPanel + 1).ToString().PadLeft(12)
                         + " " + (startPdf + 1).ToString().PadLeft(10) + " " + (endPdf - startPdf).ToString().PadLeft(10)
-                        + (startPanel != startPdf ? "   ≠ DÉBUT" : "") + (!own.SameLayout(setup) ? "   format ≠ livre" : "") + (own.Hyphenation ? "   césure (" + cuts + " coupes" : "   (" + cuts + " coupes") + ", " + loose + " lâches)");
+                        + (startPanel != startPdf ? "   ≠ DÉBUT" : "") + (!own.SameLayout(setup) ? "   format ≠ livre" : "") + "   (" + cuts + " coupes, " + loose + " lâches)");
                     offset = panel;
                 }
                 Console.WriteLine("  Total panneau Publication (comptes seuls + rectos) : " + panel + "   |   PDF : " + merged.Pages.Count);

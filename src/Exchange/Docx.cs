@@ -45,7 +45,7 @@ namespace Marabook.Exchange
             foreach (var paragraph in document.Paragraphs)
                 if (paragraph.ListKind != null) { hasLists = true; break; }
             var hasFooter = setup != null && setup.FooterPageNumbers;
-            var hasSettings = setup != null && setup.Hyphenation;
+            var hasSettings = styles != null && styles.Body != null && styles.Body.HyphenationEnabled; // la césure par style (09/10)
             var comments = CollectComments(document);
             var images = CollectImages(document, project);
 

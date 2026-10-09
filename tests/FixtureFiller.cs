@@ -36,7 +36,6 @@ namespace Marabook.Tests
             "Project.ReadOnlyNewerFormat",  // posé par Load (version future)
             "BinderItem.LoadDamaged",       // posé par le chargement tolérant
             "TextParagraph.StartOnRecto",   // posé par le compilateur
-            "TextParagraph.Hyphenation",    // idem (09/10), jamais persisté
             // --- identifiants : uniques ou croisés, cohérence à la main.
             "BinderItem.Id",                // unicité contrôlée à la sauvegarde
             "ParagraphStyle.Id",            // références StyleId des paragraphes

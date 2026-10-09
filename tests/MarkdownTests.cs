@@ -22,7 +22,6 @@ namespace Marabook.Tests
             Tables(t);
             CategoriesSeed(t);
             CategoriesV35(t);
-            HyphenationV36(t);
             CategoriesMigration(t);
             CategoryOfSheet(t);
             SectionsMigration(t);
@@ -223,28 +222,6 @@ namespace Marabook.Tests
             foreach (var field in character.Fields) groups.Add(field.Group);
             t.Check(groups.Contains("") && groups.Contains(SheetDefaults.GroupLooks) && character.HasSection(SheetDefaults.GroupLooks) && character.Relations,
                 "le modèle Personnage : Informations + section Apparence, et le paper Relations (b42)");
-        }
-
-        /// <summary>.plot v36 (09/10) : la césure autorisée sur toutes les
-        /// pages d'un projet d'avant (projet, écrits, gabarits de livres),
-        /// une fois ; une page neuve l'autorise d'office.</summary>
-        private static void HyphenationV36(Harness t)
-        {
-            t.Check(new PageSetup().Hyphenation, "une page neuve autorise la césure");
-            var project = Project.CreateNew();
-            project.Page.Hyphenation = false;
-            var writings = project.Category(Project.KeyWritings);
-            var book = new BinderItem { Title = "Livre", Kind = ItemKind.Book, Parent = writings, Book = new BookInfo() };
-            book.Book.Template.Hyphenation = false;
-            writings.Children.Add(book);
-            var chapter = new BinderItem { Title = "Un", Kind = ItemKind.Text, Parent = book, Page = new PageSetup { Hyphenation = false } };
-            book.Children.Add(chapter);
-            var loose = new BinderItem { Title = "Seul", Kind = ItemKind.Text, Parent = writings };
-            writings.Children.Add(loose);
-            t.Equal(3, project.EnableHyphenationOfV36(), "la migration allume la page du projet, celle de l'écrit et le gabarit du livre");
-            t.Check(project.Page.Hyphenation && chapter.Page.Hyphenation && book.Book.Template.Hyphenation, "…tous à vrai");
-            t.Check(loose.Page == null, "un écrit sans page propre n'en reçoit pas");
-            t.Equal(0, project.EnableHyphenationOfV36(), "idempotente");
         }
 
         /// <summary>1.0.4 (.plot v35) : un projet d'avant reçoit Objet,
