@@ -441,9 +441,16 @@ namespace Marabook.App
             _rulersMenu = Entry("toggle-rulers", "Règles", ToggleRulers, TextOrSheetActive);
             _rulersMenu.ToggleType = MenuItemToggleType.CheckBox;
             _rulersMenu.IsChecked = AppSettings.ShowRulers;
+            // Lignes lâches (09/10) : la bande jaune derrière une ligne dont la
+            // justification a forcé les espaces — là où une césure manque.
+            _looseMenu = Entry("toggle-loose-lines", "Lignes lâches", ToggleLooseLines);
+            _looseMenu.ToggleType = MenuItemToggleType.CheckBox;
+            _looseMenu.IsChecked = AppSettings.ShowLooseLines;
+            ComposedRenderer.ShowLooseLines = AppSettings.ShowLooseLines;
             view.Items.Add(_binderMenu);
             view.Items.Add(_inspectorMenu);
             view.Items.Add(_rulersMenu);
+            view.Items.Add(_looseMenu);
             view.Items.Add(new Separator());
             view.Items.Add(_darkMenu);
             menu.Items.Add(view);
@@ -5434,6 +5441,21 @@ namespace Marabook.App
             _editor.UpdateRulers();
             _sheetView.UpdateRulers();
         }
+
+        private MenuItem _looseMenu;
+
+        private void ToggleLooseLines()
+        {
+            AppSettings.ShowLooseLines = !AppSettings.ShowLooseLines;
+            _looseMenu.IsChecked = AppSettings.ShowLooseLines;
+            AppSettings.Save();
+            if (Composed != null) Composed.SetLooseLines(AppSettings.ShowLooseLines);
+            else ComposedRenderer.ShowLooseLines = AppSettings.ShowLooseLines;
+        }
+
+        /// <summary>Sonde (09/10).</summary>
+        public bool LooseLinesShownForProbe { get { return _looseMenu != null && _looseMenu.IsChecked == true && ComposedRenderer.ShowLooseLines; } }
+        public void ToggleLooseLinesForProbe() { ToggleLooseLines(); }
 
         private void ToggleDarkTheme()
         {

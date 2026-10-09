@@ -114,6 +114,12 @@ namespace Marabook.App
                 Check(shell.StatusPagesText.Contains("page"), "la barre d'état donne les pages de l'écrit (" + shell.StatusPagesText + ")");
                 Check(shell.StatusText.Contains("signes EC") && !shell.StatusText.Contains("feuillet") && !shell.StatusText.Contains("min"), "…et mots · signes EC, sans feuillets ni temps de lecture (" + shell.StatusText + ")");
                 Check(shell.ZoomPanelVisibleForProbe, "le curseur de zoom est montré dans l'éditeur");
+                // — Lignes lâches (09/10) : signalées par défaut, Affichage › Lignes lâches les coupe et les rallume.
+                Check(shell.LooseLinesShownForProbe && AppSettings.ShowLooseLines, "les lignes lâches sont signalées par défaut");
+                shell.ToggleLooseLinesForProbe();
+                Check(!shell.LooseLinesShownForProbe && !ComposedRenderer.ShowLooseLines, "Affichage › Lignes lâches les éteint");
+                shell.ToggleLooseLinesForProbe();
+                Check(shell.LooseLinesShownForProbe, "…et les rallume");
                 Check(shell.StatusBookText.StartsWith("Livre : ") && shell.StatusBookText.Contains("page"), "…et la pagination totale du livre (" + shell.StatusBookText + ")");
                 // — Le panneau Publication et « Publier » comptent les MÊMES
                 //   pages (09/10) : le cache compte sur la page du livre avec la

@@ -102,6 +102,7 @@ namespace Marabook.Tests
             DocumentToggleDisablesHyphenation(t);
             ParagraphHyphenationOverridesPage(t);
             ElidedAndCompoundWordsHyphenated(t);
+            LooseLineFlagged(t);
             CompiledBookCarriesHyphenation(t);
             ExceptionWordNeverHyphenated(t);
             WidowControl(t);
@@ -299,6 +300,33 @@ namespace Marabook.Tests
             first = lines.Count > 0 ? LineText(lines[0]) : "";
             t.Check(lines.Count == 2 && first.EndsWith("peut-") && !first.EndsWith("--"), "le mot composé se coupe à son trait, sans en ajouter (« " + first + " »)");
             t.Check(lines.Count == 2 && LineText(lines[1]) == "être", "…la suite repart entière (« " + (lines.Count > 1 ? LineText(lines[1]) : "") + " »)");
+        }
+
+        /// <summary>Une ligne justifiée au-delà des tolérances du style (09/10) :
+        /// le déversoir d'urgence gonfle ses espaces, la ligne est LÂCHE
+        /// (LooseRatio = largeur finale d'un espace / naturelle) ; une ligne
+        /// qui se justifie dans les tolérances ne l'est pas.</summary>
+        private static void LooseLineFlagged(Harness t)
+        {
+            var styles = Styles();
+            styles.Find("body").Align = "justify";
+            // 16 + 1 + 16, puis 29 : le troisième mot (sans voyelle : incoupable)
+            // part à la ligne, le seul espace intérieur de la première doit
+            // avaler 20 px (quatre espaces).
+            var document = Document("bbbbbbbbbbbbbbbb bbbbbbbbbbbbbbbb ccccccccccccccccccccccccccccc");
+            var engine = new CompositionEngine(document, styles, Setup(), null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            var lines = engine.Current.Paragraphs[0].Lines;
+            t.Check(lines.Count == 2 && lines[0].Loose && lines[0].LooseRatio > 3, "une ligne dont l'espace a quadruplé est lâche (×" + (lines.Count > 0 ? lines[0].LooseRatio.ToString("0.0") : "?") + ")");
+            t.Check(lines.Count == 2 && !lines[1].Loose, "la dernière ligne du paragraphe n'est jamais lâche");
+            // Treize mots de deux lettres : douze tiennent (35 car.), onze
+            // espaces se partagent 10 px — 1,18 espace, dans les tolérances.
+            document = Document("bb bb bb bb bb bb bb bb bb bb bb bb bb bb");
+            engine = new CompositionEngine(document, styles, Setup(), null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            lines = engine.Current.Paragraphs[0].Lines;
+            t.Check(lines.Count == 2 && !lines[0].Loose && lines[0].LooseRatio > 1.0 && lines[0].LooseRatio < 1.5, "une ligne justifiée sans forcer n'est pas lâche (×" + (lines.Count > 0 ? lines[0].LooseRatio.ToString("0.00") : "?") + ")");
+            t.Check(ComposedLine.LooseSpaceRatio == 2.0, "le seuil : des espaces doublés");
         }
 
         /// <summary>Un mot des exceptions de césure du projet n'est jamais

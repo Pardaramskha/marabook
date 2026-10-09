@@ -88,6 +88,16 @@ namespace Marabook.Print
         public bool EndsParagraph;
         public bool Hyphenated;
         public bool ForcedBreak; // Shift+Enter ended this line
+        // Ligne LÂCHE (09/10) : justifiée au-delà des tolérances du style, le
+        // déversoir d'urgence a gonflé ses espaces — LooseRatio = largeur
+        // finale d'un espace / sa largeur naturelle (1,0 = juste). Loose dès
+        // LooseSpaceRatio — des espaces au moins DOUBLÉS : à 1,5, un chapitre
+        // de Rémi sortait un quart de ses lignes, le signal se noyait ; à 2,
+        // ce sont les trous qui sautent aux yeux. L'écran la signale, jamais
+        // le papier.
+        public bool Loose;
+        public double LooseRatio = 1.0;
+        public const double LooseSpaceRatio = 2.0;
     }
 
     /// <summary>A paragraph fully composed into lines (page-agnostic).</summary>
@@ -1496,6 +1506,12 @@ namespace Marabook.Print
                 spaceAdjust += delta; // déversoir d'urgence (plafonds au backlog)
 
             var perSpace = spaces.Count > 0 ? spaceAdjust / spaces.Count : 0;
+            if (spaces.Count > 0)
+            {
+                var naturalSpace = spaceBase / spaces.Count;
+                line.LooseRatio = naturalSpace > 0 ? (naturalSpace + perSpace) / naturalSpace : 1.0;
+                line.Loose = line.LooseRatio >= ComposedLine.LooseSpaceRatio;
+            }
             double x = 0;
             foreach (var piece in line.Pieces)
             {

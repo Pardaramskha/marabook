@@ -3546,6 +3546,14 @@ namespace Marabook.App
             for (var k = 0; k < _pages.Children.Count; k++) PageAt(k).InvalidateVisual();
         }
 
+        /// <summary>Lignes lâches (09/10) : le drapeau du dessinateur, puis
+        /// chaque page se redessine.</summary>
+        public void SetLooseLines(bool visible)
+        {
+            ComposedRenderer.ShowLooseLines = visible;
+            for (var k = 0; k < _pages.Children.Count; k++) PageAt(k).InvalidateVisual();
+        }
+
         /// <summary>Remplace tous les paragraphes (la passe typographique,
         /// batch 34) : un cran d'annulation, recomposition intégrale.</summary>
         public void ReplaceParagraphs(List<TextParagraph> paragraphs)

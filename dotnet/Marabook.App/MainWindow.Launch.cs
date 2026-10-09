@@ -337,8 +337,8 @@ namespace Marabook.App
                     var own = text.Page ?? project.Page;
                     var alone = Print.Composer.Compose(Links.Strip(text.Document), project.Styles.EffectiveFor(text), BookInfo.CountingPageFor(text, project), project, fonts);
                     var a = alone.Pages.Count;
-                    var cuts = 0;
-                    foreach (var layout in alone.Paragraphs) if (layout != null) foreach (var line in layout.Lines) if (line.Hyphenated) cuts++;
+                    var cuts = 0; var loose = 0;
+                    foreach (var layout in alone.Paragraphs) if (layout != null) foreach (var line in layout.Lines) { if (line.Hyphenated) cuts++; if (line.Loose) loose++; }
                     var find = Environment.GetEnvironmentVariable("MARABOOK_PAGES_FIND");
                     if (!string.IsNullOrEmpty(find) && alone.Source != null)
                         for (var q = 0; q < alone.Source.Paragraphs.Count && q < alone.Paragraphs.Count; q++)
@@ -349,7 +349,7 @@ namespace Marabook.App
                             {
                                 var sb = new System.Text.StringBuilder();
                                 foreach (var piece in line.Pieces) sb.Append(piece.Text ?? " ");
-                                Console.WriteLine("      |" + sb + "|" + (line.Hyphenated ? "  (coupe)" : ""));
+                                Console.WriteLine("      |" + sb + "|" + (line.Hyphenated ? "  (coupe)" : "") + (line.Loose ? "  (LÂCHE ×" + line.LooseRatio.ToString("0.00") + ")" : ""));
                             }
                         }
                     var b = Print.Composer.Compose(Links.Strip(text.Document), project.Styles.EffectiveFor(text), own, project, fonts).Pages.Count;
@@ -361,7 +361,7 @@ namespace Marabook.App
                     var title = (text.Title ?? "").Length > 34 ? text.Title.Substring(0, 34) : (text.Title ?? "").PadRight(34);
                     Console.WriteLine("  " + title + " " + a.ToString().PadLeft(5) + " " + b.ToString().PadLeft(10) + " " + (startPanel + 1).ToString().PadLeft(12)
                         + " " + (startPdf + 1).ToString().PadLeft(10) + " " + (endPdf - startPdf).ToString().PadLeft(10)
-                        + (startPanel != startPdf ? "   ≠ DÉBUT" : "") + (!own.SameLayout(setup) ? "   format ≠ livre" : "") + (own.Hyphenation ? "   césure (" + cuts + " coupes)" : "   (" + cuts + " coupes)"));
+                        + (startPanel != startPdf ? "   ≠ DÉBUT" : "") + (!own.SameLayout(setup) ? "   format ≠ livre" : "") + (own.Hyphenation ? "   césure (" + cuts + " coupes" : "   (" + cuts + " coupes") + ", " + loose + " lâches)");
                     offset = panel;
                 }
                 Console.WriteLine("  Total panneau Publication (comptes seuls + rectos) : " + panel + "   |   PDF : " + merged.Pages.Count);

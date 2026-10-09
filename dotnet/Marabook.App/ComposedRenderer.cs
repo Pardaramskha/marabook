@@ -29,6 +29,11 @@ namespace Marabook.App
         /// jamais été portée sur la surface composée — le bouton ¶ repeignait
         /// un calque du classique replié. Écran seulement, jamais au papier.</summary>
         public static bool ShowMarks;
+        // Lignes lâches (09/10) : une bande jaune pâle derrière la ligne dont
+        // la justification a dû forcer les espaces (ComposedLine.Loose) —
+        // écran seulement, Affichage › Lignes lâches.
+        public static bool ShowLooseLines = true;
+        private static readonly IBrush LooseBrush = new SolidColorBrush(Color.FromArgb(0x3C, 0xFF, 0xC4, 0x00));
         private static readonly Typeface MarksTypeface = new Typeface(FontFamily.Default);
         private static readonly IBrush MarksBrush = FrozenBrush(Color.FromRgb(0x5B, 0x67, 0xD8));
 
@@ -498,6 +503,13 @@ namespace Marabook.App
             bool screenExtras = true)
         {
             var baseline = top + line.Ascent;
+
+            if (screenExtras && ShowLooseLines && line.Loose)
+            {
+                var extent = 0.0;
+                foreach (var piece in line.Pieces) extent = Math.Max(extent, piece.Origin.X + piece.VisualWidth());
+                if (extent > 1) dc.DrawRectangle(LooseBrush, null, new Rect(left, top, extent, Math.Max(1, line.Height)));
+            }
 
             // Pass 1 — highlights, behind everything (spaces included). Les
             // teintes d'annotation (semi-transparentes) sont écran seulement.

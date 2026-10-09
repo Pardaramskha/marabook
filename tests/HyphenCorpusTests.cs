@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Marabook.Print;
 
@@ -13,7 +14,14 @@ namespace Marabook.Tests
         // Score mesuré à la création du harnais (batch 24) : 446 coupures
         // justes, 25 fautives, 22 manquées → 421. Toute régression sous ce
         // plancher échoue ; toute amélioration doit le relever.
-        public const int ScoreFloor = 421;
+        public const int ScoreFloor = 464; // 09/10 : groupes de consonnes, x intervocalique, finales muettes (421 avant)
+
+        private static string Mark(string word, List<int> cuts)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (var i = 0; i < word.Length; i++) { if (cuts.Contains(i)) sb.Append('-'); sb.Append(word[i]); }
+            return sb.ToString();
+        }
 
         public static void Run(Harness t)
         {
@@ -45,6 +53,12 @@ namespace Marabook.Tests
                 }
                 foreach (var cut in expected)
                     if (!produced.Contains(cut)) missed++;
+                if (Environment.GetEnvironmentVariable("MARABOOK_HYPHEN_DETAIL") == "1")
+                {
+                    var same = produced.Count == expected.Count;
+                    foreach (var cut in produced) if (!expected.Contains(cut)) same = false;
+                    if (!same) Console.WriteLine("    " + entry.PadRight(34) + " obtenu : " + Mark(word, produced));
+                }
             }
 
             var score = correct - faulty;
