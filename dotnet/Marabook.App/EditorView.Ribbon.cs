@@ -962,8 +962,10 @@ namespace Marabook.App
             // la césure se règle par style). Une bande jaune derrière chaque
             // ligne dont la justification a dû au moins doubler les espaces —
             // écran seulement, réglage de la machine, pas du document.
+            var looseGesture = Marabook.Settings.AppSettings.Gesture("loose-lines");
             _looseBtn = OneLineToggle("highlighter-line", "Lignes lâches",
-                "Afficher ou masquer les lignes lâches : une bande jaune derrière chaque ligne justifiée dont les espaces ont dû au moins doubler (écran seulement) — là où une césure manque, où l'approche peut aider");
+                "Afficher ou masquer les lignes lâches" + (string.IsNullOrEmpty(looseGesture) ? "" : " (" + Marabook.Settings.AppSettings.DisplayGesture(looseGesture) + ")")
+                + " : une bande jaune derrière chaque ligne justifiée dont les espaces ont dû au moins doubler (écran seulement) — là où une césure manque, où l'approche peut aider");
             _looseBtn.IsChecked = Marabook.Settings.AppSettings.ShowLooseLines;
             ComposedRenderer.ShowLooseLines = Marabook.Settings.AppSettings.ShowLooseLines;
             _looseBtn.Click += delegate { ApplyLooseLines(_looseBtn.IsChecked == true); };

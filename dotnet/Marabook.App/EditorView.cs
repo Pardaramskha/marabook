@@ -1780,6 +1780,7 @@ namespace Marabook.App
             _composed = new ComposedView { IsVisible = false };
             _composed.Edited += delegate { NotifyEdited(); };
             _composed.StylesRestored += delegate(StyleSheet sheet) { var h = StylesRestored; if (h != null) h(sheet); };
+            _composed.LooseLinesRequested += delegate { ApplyLooseLines(!Marabook.Settings.AppSettings.ShowLooseLines); };
             _composed.MarksRequested += delegate
             {
                 // Le raccourci « Caractères d'impression » (22/09) : même

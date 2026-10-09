@@ -1979,6 +1979,7 @@ namespace Marabook.App
         /// <summary>Le ¶ demandé au clavier : l'éditeur qui héberge la surface
         /// bascule son bouton (et le réglage) — la surface ne le possède pas.</summary>
         public event Action MarksRequested;
+        public event Action LooseLinesRequested; // Ctrl+L (09/10) : le ruban Mise en page bascule le bouton
 
         /// <summary>Exécute une action de la table des raccourcis de l'éditeur
         /// (public : la coquille et les sondes). Rend false si l'action n'est
@@ -2006,6 +2007,12 @@ namespace Marabook.App
                 case "formatting-marks":
                     {
                         var handler = MarksRequested;
+                        if (handler != null) handler();
+                        return true;
+                    }
+                case "loose-lines":
+                    {
+                        var handler = LooseLinesRequested;
                         if (handler != null) handler();
                         return true;
                     }

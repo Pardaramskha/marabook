@@ -120,6 +120,10 @@ namespace Marabook.App
                 Check(!editor.LooseLinesShownForProbe && !ComposedRenderer.ShowLooseLines, "Mise en page › Lignes lâches les éteint");
                 editor.ToggleLooseLinesForProbe();
                 Check(editor.LooseLinesShownForProbe, "…et les rallume");
+                Check(AppSettings.Gesture("loose-lines") == "Ctrl+L", "le raccourci par défaut est Ctrl+L / ⌘L (" + AppSettings.Gesture("loose-lines") + ")");
+                Check(composed != null && composed.RunEditorAction("loose-lines") && !editor.LooseLinesShownForProbe, "l'action de l'éditeur « loose-lines » bascule le bouton du ruban");
+                composed.RunEditorAction("loose-lines");
+                Check(editor.LooseLinesShownForProbe, "…dans les deux sens");
                 Check(shell.StatusBookText.StartsWith("Livre : ") && shell.StatusBookText.Contains("page"), "…et la pagination totale du livre (" + shell.StatusBookText + ")");
                 // — Le panneau Publication et « Publier » comptent les MÊMES
                 //   pages (09/10) : le cache compte sur la page du livre.

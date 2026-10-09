@@ -98,6 +98,7 @@ namespace Marabook.Settings
             new ActionDefinition("indent-remove", EditorCategory, "Retirer le décalage", null),
             new ActionDefinition("middle-dot", EditorCategory, "Point médian", null),
             new ActionDefinition("formatting-marks", EditorCategory, "Caractères d'impression", null),
+            new ActionDefinition("loose-lines", EditorCategory, "Lignes lâches", "Ctrl+L"), // afficher / masquer (09/10)
         };
 
         /// <summary>La catégorie des actions que la surface composée résout
