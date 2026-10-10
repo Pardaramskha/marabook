@@ -91,6 +91,14 @@ namespace Marabook.App
                 }
                 if (_launch.Probe) { await Probes.Run(this); QuitNow(); return; }
                 if (_launch.FontProbe != null) { FontProbe(_launch.FontProbe); QuitNow(); return; }
+                if (_launch.WordProbe != null) { WordProbe(_launch.WordProbe); QuitNow(); return; }
+                if (_launch.SpellingProbe != null)
+                {
+                    try { SpellingProbe(_launch.SpellingProbe); }
+                    catch (Exception error) { Console.WriteLine("ORTHO ÉCHEC : " + error); Environment.ExitCode = 1; }
+                    QuitNow();
+                    return;
+                }
                 if (_launch.UpdateProbe) { UpdateProbe(); QuitNow(); return; }
                 if (_launch.UpdateRolledBack)
                     await MessageDialog.Show(this, "La mise à jour n'a pas pu démarrer : la version précédente a été remise en place.\n\nRéessayez plus tard depuis Aide › Vérifier les mises à jour, ou téléchargez la release depuis GitHub.",
@@ -200,6 +208,81 @@ namespace Marabook.App
             foreach (var installed in Avalonia.Media.FontManager.Current.SystemFonts)
                 if (installed.Name.IndexOf(family.Split(' ')[0], StringComparison.OrdinalIgnoreCase) >= 0)
                     Console.WriteLine("    " + installed.Name);
+        }
+
+        /// <summary>Diagnostic du dictionnaire (10/10) : « --mot a,b,c » — chaque
+        /// mot accepté (avec ses radicaux) ou refusé (avec ses suggestions) par
+        /// le moteur embarqué, dictionnaire complémentaire compris.</summary>
+        private static void WordProbe(string words)
+        {
+            var engine = Correction.SpellDictionary.Default;
+            if (engine == null) { Console.WriteLine("MOT — dictionnaire absent (dict/ à côté de l'exécutable)"); return; }
+            Console.WriteLine("MOT — " + engine.StemCount + " radicaux");
+            foreach (var raw in words.Split(','))
+            {
+                var word = raw.Trim();
+                if (word.Length == 0) continue;
+                bool noSuggest;
+                var ok = engine.AcceptsDetail(word, out noSuggest);
+                Console.WriteLine((ok ? "  accepté  " : "  REFUSÉ   ") + word
+                    + (ok ? "   radicaux : " + string.Join(", ", engine.Stems(word).ToArray()) + (noSuggest ? "   (jamais proposé)" : "")
+                          : "   suggestions : " + string.Join(", ", engine.Suggest(word).ToArray())));
+            }
+        }
+
+        /// <summary>Diagnostic de l'orthographe d'un projet (10/10) : « --ortho
+        /// <fichier.plot> » — écrit par écrit (titres filtrés par
+        /// MARABOOK_ORTHO_FIND, accents et casse pliés), les mots que le
+        /// correcteur signalerait, avec leur compte ; le dictionnaire du
+        /// projet est honoré, le dictionnaire global des réglages non.</summary>
+        private static void SpellingProbe(string path)
+        {
+            var engine = Correction.SpellDictionary.Default;
+            if (engine == null) { Console.WriteLine("ORTHO — dictionnaire absent"); return; }
+            var warnings = new List<string>();
+            var project = Persistence.PlotFile.Load(path, warnings);
+            var filter = Correction.FrenchTokenizer.Fold((Environment.GetEnvironmentVariable("MARABOOK_ORTHO_FIND") ?? "").Trim());
+            var checker = new Correction.SpellChecker(engine) { ProjectWords = project.Lexicon };
+            Console.WriteLine("ORTHO — " + project.Name + " (" + warnings.Count + " avertissement(s), " + project.Lexicon.Count + " entrées au dictionnaire du projet)");
+            var total = new Dictionary<string, int>();
+            foreach (var item in project.AllItems())
+            {
+                if (item.Kind != ItemKind.Text || item.IsDescendantOf(project.Trash)) continue;
+                if (filter.Length > 0 && !Correction.FrenchTokenizer.Fold(item.Title ?? "").Contains(filter)) continue;
+                var counts = new Dictionary<string, int>();
+                var context = Environment.GetEnvironmentVariable("MARABOOK_ORTHO_CONTEXT") == "1";
+                foreach (var paragraph in item.Document.Paragraphs)
+                    foreach (var finding in checker.CheckParagraph(paragraph, project.Styles))
+                    {
+                        if (context)
+                        {
+                            // Le voisinage du mot, caractères non lettres en points de code (un tiret
+                            // conditionnel, une espace fine, un trait d'union cachent un mot coupé).
+                            var flat = PivotEdit.FlatText(paragraph);
+                            var from = Math.Max(0, finding.Start - 24);
+                            var to = Math.Min(flat.Length, finding.Start + finding.Length + 24);
+                            var sb = new System.Text.StringBuilder();
+                            for (var i = from; i < to; i++)
+                            {
+                                var c = flat[i];
+                                if (char.IsLetterOrDigit(c) || c == ' ' || char.IsPunctuation(c) && c < 128) sb.Append(c);
+                                else sb.Append("<U+" + ((int)c).ToString("X4") + ">");
+                            }
+                            Console.WriteLine("    " + finding.Word + " ← …" + sb + "…");
+                        }
+                        int n;
+                        counts.TryGetValue(finding.Word, out n);
+                        counts[finding.Word] = n + 1;
+                        total.TryGetValue(finding.Word, out n);
+                        total[finding.Word] = n + 1;
+                    }
+                var words = new List<string>(counts.Keys);
+                words.Sort(string.CompareOrdinal);
+                var parts = new List<string>();
+                foreach (var word in words) parts.Add(word + (counts[word] > 1 ? " (" + counts[word] + ")" : ""));
+                Console.WriteLine("— " + item.Title + " : " + counts.Count + " mot(s) inconnu(s)" + (parts.Count > 0 ? " : " + string.Join(", ", parts.ToArray()) : ""));
+            }
+            Console.WriteLine("TOTAL : " + total.Count + " mots inconnus distincts");
         }
 
         /// <summary>Diagnostic de la sélection (1.0.3) : la tuile de ce titre,

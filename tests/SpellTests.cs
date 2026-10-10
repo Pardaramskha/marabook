@@ -47,7 +47,43 @@ namespace Marabook.Tests
             CheckerBehavior(t, engine);
             Batch29Fixes(t, engine);
             Batch30SuggestMemo(t, engine);
+            Fiction105(t, folder, aff, dic);
             Measures(t, engine);
+        }
+
+        /// <summary>1.0.5 (relevé sur « Le serment des gardiens du feu ») :
+        /// le croisement préfixe + suffixe où le préfixe apporte le drapeau
+        /// du suffixe (« centi/S. » + mètre → centimètres) ; le complément
+        /// maison (dict/fr-complement.dic) chargé à côté ; et les licences de
+        /// la fiction que le vérificateur ne signale plus — mot coupé par des
+        /// points de suspension, allongement expressif, mot détaché en
+        /// syllabes — sans accepter une vraie faute.</summary>
+        private static void Fiction105(Harness t, string folder, string aff, string dic)
+        {
+            var complement = Path.Combine(folder, "fr-complement.dic");
+            var engine = SpellEngine.Load(aff, dic, new[] { complement });
+            t.Check(engine.Accepts("centimètres") && engine.Accepts("kilomètres") && engine.Accepts("millilitres") && engine.Accepts("centimètre"),
+                "les unités préfixées au pluriel : le préfixe apporte le S. (centimètres)");
+            t.Check(!engine.Accepts("centimètrs"), "…sans accepter n'importe quoi");
+            t.Check(File.Exists(complement), "dict/fr-complement.dic est livré");
+            t.Check(engine.Accepts("cruor") && engine.Accepts("ducon") && engine.Accepts("piffrer") && engine.Accepts("contenable") && engine.Accepts("ronquer"),
+                "les cinq mots de Rémi viennent du complément");
+            t.Check(engine.Accepts("ronquait") && engine.Accepts("contenables") && engine.Accepts("Kwak") && engine.Accepts("mmh"),
+                "…avec leurs flexions et les onomatopées");
+            t.Check(!SpellEngine.Load(aff, dic).Accepts("cruor"), "sans le complément, le mot reste inconnu (le .dic de Grammalecte n'a pas bougé)");
+
+            var checker = new SpellChecker(engine);
+            var host = new CheckerHost();
+            host.Add(checker);
+            t.Equal(0, host.Run(Document("« Attends, je vole vraim… » Ça sent le brûl... dit-il."), null).Count, "un mot coupé par des points de suspension se tait");
+            t.Equal(1, host.Run(Document("Il chateau … vraiment."), null).Count, "…mais une faute suivie d'une espace puis de points reste signalée");
+            t.Equal(0, host.Run(Document("Chuuuuut, c'est trooooop beau, jamaiiiiis, galèèèère, aaaah !"), null).Count, "un allongement expressif se tait");
+            t.Equal(1, host.Run(Document("Un chatttteau."), null).Count, "…pas une faute allongée");
+            t.Equal(0, host.Run(Document("C'est gé-nial ! Vi-si-ter, détacha-t-il."), null).Count, "un mot détaché en syllabes se tait");
+            t.Equal(2, host.Run(Document("C'est gé-niale-ment faux : cha-teau."), null).Count, "…pas des syllabes qui ne font pas un mot : les deux segments de « cha-teau » restent signalés, « gé-niale-ment » se tait");
+            t.Equal("chut", SpellChecker.Collapse("chuuuuut", 1), "Collapse à une lettre");
+            t.Equal("chuut", SpellChecker.Collapse("chuuuuut", 2), "Collapse à deux lettres");
+            t.Equal("mmh", SpellChecker.Collapse("mmh", 1), "les doubles restent des doubles");
         }
 
         // ------------------------------------- 8. batch 30 : mémo de Suggest

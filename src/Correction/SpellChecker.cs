@@ -27,8 +27,12 @@ namespace Marabook.Correction
                         AppDomain.CurrentDomain.BaseDirectory, "dict");
                     var aff = Path.Combine(folder, "fr-toutesvariantes.aff");
                     var dic = Path.Combine(folder, "fr-toutesvariantes.dic");
+                    // 1.0.5 : le complément maison (registre familier,
+                    // onomatopées, mots rares absents de Grammalecte) se
+                    // charge à côté — voir dict/fr-complement.dic.
+                    var complement = Path.Combine(folder, "fr-complement.dic");
                     if (File.Exists(aff) && File.Exists(dic))
-                        _engine = SpellEngine.Load(aff, dic);
+                        _engine = SpellEngine.Load(aff, dic, new[] { complement });
                 }
                 catch { _engine = null; }
                 return _engine;
@@ -111,6 +115,18 @@ namespace Marabook.Correction
                 if (Learned(core)) continue;
                 // Sigle : un tout-capitales inconnu se tait (SNCF).
                 if (token.Shape == CaseShape.AllCaps) continue;
+                // Les licences de la fiction (1.0.5, relevées sur « Le serment
+                // des gardiens du feu ») — jamais une faute :
+                // — un mot COUPÉ par des points de suspension (« je vole
+                //   vraim… ») : la parole s'interrompt, le fragment se tait ;
+                // — un ALLONGEMENT expressif (« chuuuuut », « trooooop ») : les
+                //   lettres triplées ramenées à une ou deux donnent un mot
+                //   connu ;
+                // — un mot DÉTACHÉ en syllabes (« gé-nial », « Vi-si-ter ») :
+                //   les segments recollés donnent un mot connu.
+                if (CutByEllipsis(text, token.CoreEnd)) continue;
+                if (Lengthened(core)) continue;
+                if (token.CoreParts.Length > 1 && Known(core.Replace("-", "").Replace("\u2011", ""))) continue;
 
                 if (token.CoreParts.Length > 1)
                 {
@@ -131,6 +147,49 @@ namespace Marabook.Correction
                     findings.Add(Report(core, token.CoreStart, token.CoreLength));
             }
             return findings;
+        }
+
+        private bool Known(string word)
+        {
+            return word.Length >= 2 && (_engine.Accepts(word) || Learned(word));
+        }
+
+        /// <summary>Des points de suspension collés à la fin du mot : « … »
+        /// ou « ... » juste après, sans espace.</summary>
+        private static bool CutByEllipsis(string text, int end)
+        {
+            if (end >= text.Length) return false;
+            if (text[end] == '\u2026') return true;
+            return end + 2 < text.Length && text[end] == '.' && text[end + 1] == '.' && text[end + 2] == '.';
+        }
+
+        /// <summary>Une lettre répétée trois fois ou plus : les formes
+        /// ramenées à une lettre, puis à deux, sont-elles connues ?</summary>
+        private bool Lengthened(string word)
+        {
+            var triple = false;
+            for (var i = 2; i < word.Length && !triple; i++)
+                if (word[i] == word[i - 1] && word[i] == word[i - 2]) triple = true;
+            if (!triple) return false;
+            return Known(Collapse(word, 1)) || Known(Collapse(word, 2));
+        }
+
+        /// <summary>Les séquences de trois lettres identiques ou plus ramenées
+        /// à « keep » lettres (les doubles restent des doubles).</summary>
+        public static string Collapse(string word, int keep)
+        {
+            var sb = new System.Text.StringBuilder(word.Length);
+            var i = 0;
+            while (i < word.Length)
+            {
+                var j = i;
+                while (j < word.Length && word[j] == word[i]) j++;
+                var run = j - i;
+                var kept = run >= 3 ? Math.Min(keep, run) : run;
+                for (var k = 0; k < kept; k++) sb.Append(word[i]);
+                i = j;
+            }
+            return sb.ToString();
         }
 
         /// <summary>Les signalements naissent SANS suggestions : les calculer

@@ -65,6 +65,15 @@ Marabook embarque **`fr-toutesvariantes`** (86 491 entrées lemmatisées, tolèr
 les graphies classiques et rectifiées — le bon choix par défaut pour un
 romancier, qui n'a pas à choisir un camp orthographique).
 
+À côté, **`dict/fr-complement.dic`** est un fichier MAISON (Marabook 1.0.5,
+10/10/2026), pas une ressource Grammalecte : les mots que le romancier emploie et
+que `fr-toutesvariantes` n'a pas — registre familier ou vulgaire, régionalismes,
+mots rares attestés, interjections et onomatopées — avec les drapeaux du même
+`.aff`. Il n'est PAS soumis à l'empreinte : on l'édite librement (un mot par
+ligne, `#` ouvre un commentaire) ; le `.dic` de Grammalecte, lui, ne bouge jamais.
+Diagnostics : `Marabook --mot a,b,c` (accepté / refusé, radicaux, suggestions)
+et `Marabook --ortho projet.plot` (les mots inconnus de chaque écrit).
+
 ## Protocole de vérification
 
 1. Télécharger l'archive depuis `grammalecte.net`, vérifier son SHA256.
