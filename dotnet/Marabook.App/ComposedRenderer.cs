@@ -381,6 +381,8 @@ namespace Marabook.App
         private static readonly Pen TypographyPen = FrozenPen(Color.FromRgb(0xD9, 0xA4, 0x06));
         private static readonly Pen StylePen = FrozenPen(Color.FromRgb(0x2E, 0x9E, 0x6B));
         private static readonly Pen AdverbPen = FrozenPen(Color.FromRgb(0x8E, 0x44, 0xAD));
+        private static readonly Pen FamiliarPen = FrozenPen(Color.FromRgb(0xC2, 0x7B, 0x2E));   // familier (1.0.5) : ocre
+        private static readonly Pen NeologismPen = FrozenPen(Color.FromRgb(0x2A, 0x9D, 0x9F));  // néologismes (1.0.5) : sarcelle
         private static readonly Pen DullVerbPen = FrozenPen(Color.FromRgb(0x85, 0x85, 0x85));
 
         private static Pen FrozenPen(Color color)
@@ -415,6 +417,8 @@ namespace Marabook.App
                 case Correction.FindingCategory.Spelling: return "Orthographe";
                 case Correction.FindingCategory.Grammar: return "Grammaire";
                 case Correction.FindingCategory.Typography: return "Typographie";
+                case Correction.FindingCategory.Familiar: return "Familier";
+                case Correction.FindingCategory.Neologism: return "Néologismes";
                 default: return "Style";
             }
         }
@@ -443,6 +447,8 @@ namespace Marabook.App
                 case Correction.FindingCategory.Spelling: return SpellingPen;
                 case Correction.FindingCategory.Grammar: return GrammarPen;
                 case Correction.FindingCategory.Typography: return TypographyPen;
+                case Correction.FindingCategory.Familiar: return FamiliarPen;
+                case Correction.FindingCategory.Neologism: return NeologismPen;
                 default: return StylePen;
             }
         }

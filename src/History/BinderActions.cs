@@ -447,4 +447,63 @@ namespace Marabook.History
             LinkHygiene.Restore(_orphans);
         }
     }
+
+    /// <summary>« Casser le dossier » (1.0.5, Rémi) : un dossier de la racine
+    /// Fiches est dissous — toutes les fiches qu'il contient (sous-dossiers
+    /// compris, dans l'ordre de la Pile) rejoignent la GRANDE catégorie
+    /// parente, la racine Fiches, à la suite ; le dossier, vidé de ses fiches,
+    /// part à la corbeille avec ce qu'il lui reste (sous-dossiers vides,
+    /// imports). Un seul cran d'annulation : chaque fiche revient à sa place,
+    /// le dossier aussi.</summary>
+    public class BreakFolderAction : IUndoableAction
+    {
+        private readonly BinderItem _folder;
+        private readonly BinderItem _root;
+        private readonly BinderItem _trash;
+        private readonly List<MoveItemAction> _moves = new List<MoveItemAction>();
+        private DeleteToTrashAction _delete;
+        private bool _planned;
+
+        public BreakFolderAction(BinderItem folder, BinderItem root, BinderItem trash)
+        {
+            _folder = folder;
+            _root = root;
+            _trash = trash;
+        }
+
+        public int SheetsMoved { get { return _moves.Count; } }
+
+        /// <summary>Les fiches d'un dossier, sous-dossiers compris, dans l'ordre.</summary>
+        public static void CollectSheets(BinderItem folder, List<BinderItem> into)
+        {
+            foreach (var child in folder.Children)
+            {
+                if (child.Kind == ItemKind.Sheet) into.Add(child);
+                else if (child.Kind == ItemKind.Folder) CollectSheets(child, into);
+            }
+        }
+
+        public void Do()
+        {
+            if (!_planned)
+            {
+                _planned = true;
+                var sheets = new List<BinderItem>();
+                CollectSheets(_folder, sheets);
+                // À la suite de la racine, DANS L'ORDRE : des index explicites
+                // (un -1 partout les aurait empilés à rebours).
+                var next = _root.Children.Count;
+                foreach (var sheet in sheets) _moves.Add(new MoveItemAction(sheet, _root, next++));
+                _delete = new DeleteToTrashAction(_trash, _folder);
+            }
+            foreach (var move in _moves) move.Do();
+            _delete.Do();
+        }
+
+        public void Undo()
+        {
+            _delete.Undo();
+            for (var i = _moves.Count - 1; i >= 0; i--) _moves[i].Undo();
+        }
+    }
 }

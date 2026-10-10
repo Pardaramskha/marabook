@@ -9,7 +9,9 @@ namespace Marabook.Correction
         Spelling,    // orthographe (batch 27, Hunspell maison)
         Grammar,     // grammaire (batch 27+, Grammalecte en sous-processus)
         Typography,  // typographie (Typonanny porté)
-        Style        // style — répétitions, tics, verbes ternes… (à nous)
+        Style,       // style — répétitions, tics, verbes ternes… (à nous)
+        Familiar,    // familier (1.0.5) — élisions et contractions de l'oral : « y’a », « t’as », « j’suis », « p’tit »
+        Neologism    // néologismes (1.0.5) — bien formés, absents du dictionnaire : féminins, -able, -mancie, préfixes…
     }
 
     public enum FindingSeverity { Hint, Warning, Error }

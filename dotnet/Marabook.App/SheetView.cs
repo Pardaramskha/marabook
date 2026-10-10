@@ -2463,7 +2463,7 @@ namespace Marabook.App
             if (_spellTried) return _spell;
             _spellTried = true;
             var engine = Correction.SpellDictionary.Default;
-            if (engine != null) _spell = new Correction.SpellChecker(engine);
+            if (engine != null) _spell = new Correction.SpellChecker(engine) { Neologisms = Settings.AppSettings.NeologismsEnabled };
             return _spell;
         }
 

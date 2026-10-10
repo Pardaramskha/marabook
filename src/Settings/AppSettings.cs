@@ -227,6 +227,12 @@ namespace Marabook.Settings
         // Options du correcteur (batch 33) : ce qu'il RELÈVE — orthographe et
         // grammaire actives par défaut, typographie et style à la demande.
         public static bool SpellEnabled = true;
+        // Le familier et les néologismes (1.0.5) : deux catégories en indice,
+        // actives par défaut — le familier a son vérificateur, les
+        // néologismes sont une lecture de l'orthographe (un mot inconnu bien
+        // formé n'est plus une faute ; coupé, il rougit comme avant).
+        public static bool FamiliarEnabled = true;
+        public static bool NeologismsEnabled = true;
         public static bool TypographyEnabled;
         public static bool StyleEnabled;
         // L'étage style (batch 44) : sous l'interrupteur Style, ce qu'il
@@ -543,6 +549,8 @@ namespace Marabook.Settings
                 }
                 GrammarEnabled = Json.AsBool(Json.Field(root, "grammarEnabled"), true);
                 SpellEnabled = Json.AsBool(Json.Field(root, "spellEnabled"), true);
+                FamiliarEnabled = Json.AsBool(Json.Field(root, "familiarEnabled"), true);
+                NeologismsEnabled = Json.AsBool(Json.Field(root, "neologismsEnabled"), true);
                 TypographyEnabled = Json.AsBool(Json.Field(root, "typographyEnabled"), false);
                 StyleEnabled = Json.AsBool(Json.Field(root, "styleEnabled"), false);
                 StyleRepetitions = Json.AsBool(Json.Field(root, "styleRepetitions"), true);
@@ -677,6 +685,8 @@ namespace Marabook.Settings
                 if (RecentSpecialChars.Count > 0) root["recentSpecialChars"] = new List<object>(RecentSpecialChars.ToArray());
                 root["grammarEnabled"] = GrammarEnabled;
                 root["spellEnabled"] = SpellEnabled;
+                root["familiarEnabled"] = FamiliarEnabled;
+                root["neologismsEnabled"] = NeologismsEnabled;
                 root["typographyEnabled"] = TypographyEnabled;
                 root["styleEnabled"] = StyleEnabled;
                 root["styleRepetitions"] = StyleRepetitions;

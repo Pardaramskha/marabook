@@ -94,6 +94,7 @@ namespace Marabook.App
         // b45 : les verbes de dialogue (incises), et la racine des mots pour
         // les répétitions, les incises et le bilan (moteur d'orthographe).
         private readonly Correction.DialogueChecker _dialogueChecker = new Correction.DialogueChecker();
+        private readonly Correction.FamiliarChecker _familiarChecker = new Correction.FamiliarChecker(); // le familier (1.0.5)
         private Func<string, string> _lemma;
         // La grammaire (batch 29) : le pont Grammalecte, PARESSEUX — le
         // processus Python ne démarre qu'au premier paragraphe vérifié, un
@@ -191,7 +192,9 @@ namespace Marabook.App
             {
                 _spellChecker = new Correction.SpellChecker(spellEngine);
                 _spellChecker.GlobalWords = Settings.AppSettings.Lexicon;
+                _spellChecker.Neologisms = Settings.AppSettings.NeologismsEnabled;
                 if (Settings.AppSettings.SpellEnabled) _checkHost.Add(_spellChecker);
+                if (Settings.AppSettings.FamiliarEnabled) _checkHost.Add(_familiarChecker);
                 // Le critère composé lexical / grappe enclitique du
                 // tokeniseur (batch 29, 0.1) : la MÊME connaissance que
                 // l'orthographe — moteur ET mots appris (amendement A1 :
@@ -854,8 +857,8 @@ namespace Marabook.App
         /// groupes.</summary>
         private static readonly Correction.FindingCategory[] CategoryOrder =
         {
-            Correction.FindingCategory.Spelling, Correction.FindingCategory.Grammar,
-            Correction.FindingCategory.Typography, Correction.FindingCategory.Style
+            Correction.FindingCategory.Spelling, Correction.FindingCategory.Neologism, Correction.FindingCategory.Familiar,
+            Correction.FindingCategory.Grammar, Correction.FindingCategory.Typography, Correction.FindingCategory.Style
         };
 
         private void AddCorrectionFilter(Panel host, Correction.FindingCategory category)
@@ -1003,7 +1006,11 @@ namespace Marabook.App
             // vérificateur entre ou sort du pilote ; la grammaire et la
             // typographie partagent Grammalecte (le vol est annulé quand il sort).
             if (_spellChecker != null)
+            {
+                _spellChecker.Neologisms = Settings.AppSettings.NeologismsEnabled;
                 SetCheckerPresent(_spellChecker, Settings.AppSettings.SpellEnabled);
+                SetCheckerPresent(_familiarChecker, Settings.AppSettings.FamiliarEnabled);
+            }
             _repetitionChecker.Radius = Settings.AppSettings.RepetitionRadius;
             SetCheckerPresent(_repetitionChecker,
                 Settings.AppSettings.StyleEnabled && Settings.AppSettings.StyleRepetitions);

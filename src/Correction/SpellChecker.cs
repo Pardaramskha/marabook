@@ -64,6 +64,11 @@ namespace Marabook.Correction
         /// <summary>Dictionnaire personnel GLOBAL (AppSettings.Lexicon).</summary>
         public List<LexiconEntry> GlobalWords = new List<LexiconEntry>();
 
+        /// <summary>Les NÉOLOGISMES (1.0.5) : vrai, un mot inconnu mais bien
+        /// formé (Neologisms.Explain) est relevé dans sa catégorie, en
+        /// indice, au lieu d'une faute ; faux, il rougit comme avant.</summary>
+        public bool Neologisms = true;
+
         /// <summary>Enseigne un mot nu (entrée « autre ») dans la liste donnée.</summary>
         public static void Teach(List<LexiconEntry> list, string word)
         {
@@ -102,11 +107,15 @@ namespace Marabook.Correction
             var findings = new List<Finding>();
             if (_engine == null || string.IsNullOrEmpty(text)) return findings;
             var tokens = FrenchTokenizer.Tokenize(text);
+            // Le familier (1.0.5) : les contractions de l'oral ont leur propre
+            // vérificateur ; l'orthographe ne les rougit pas.
+            var familiar = Familiar.Spans(text);
             foreach (var token in tokens)
             {
                 if (token.Kind != TokenKind.Word) continue;
                 var core = token.CoreSurface;
                 if (LetterCount(core) < 2) continue; // initiales (M.), résidus
+                if (familiar.Count > 0 && Familiar.Covers(familiar, token.Start, token.Start + token.Length)) continue;
                 // Le moteur D'ABORD, les appris ENSUITE (batch 29, 0.3) :
                 // même sémantique — un mot que le moteur accepte n'a pas
                 // besoin d'être appris — mais Learned sort du chemin des
@@ -147,6 +156,13 @@ namespace Marabook.Correction
                     findings.Add(Report(core, token.CoreStart, token.CoreLength));
             }
             return findings;
+        }
+
+        /// <summary>Le mot est-il connu — moteur ou appris ? (la base des
+        /// règles de néologisme)</summary>
+        public bool Knows(string word)
+        {
+            return !string.IsNullOrEmpty(word) && (_engine.Accepts(word) || Learned(word));
         }
 
         private bool Known(string word)
@@ -199,6 +215,22 @@ namespace Marabook.Correction
         /// contextuel, panneau) — avec cache par mot.</summary>
         private Finding Report(string word, int start, int length)
         {
+            // Un néologisme bien formé (1.0.5) : sa catégorie, en indice, la
+            // raison dans le message — le menu propose toujours de l'apprendre.
+            var why = Neologisms ? Correction.Neologisms.Explain(word, Knows) : null;
+            if (why != null)
+                return new Finding
+                {
+                    Start = start,
+                    Length = length,
+                    Category = FindingCategory.Neologism,
+                    Severity = FindingSeverity.Hint,
+                    Message = "« " + word + " » : néologisme — " + why + " ; absent du dictionnaire",
+                    RuleId = Correction.Neologisms.Rule,
+                    CheckerId = Id,
+                    Word = word,
+                    Suggests = SuggestionSource.Spelling
+                };
             return new Finding
             {
                 Start = start,

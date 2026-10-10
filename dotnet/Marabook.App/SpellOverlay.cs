@@ -85,13 +85,13 @@ namespace Marabook.App
                     if (rect.Width <= 0) continue;
                     var origin = _presenter.TranslatePoint(new Point(rect.X, rect.Bottom), this);
                     if (origin == null) continue;
-                    DrawWave(context, origin.Value.X, origin.Value.Y - 1.5, rect.Width);
+                    DrawWave(context, origin.Value.X, origin.Value.Y - 1.5, rect.Width, ComposedRenderer.FindingPen(finding.Category)); // la couleur de la catégorie (1.0.5 : néologismes en sarcelle)
                 }
             }
         }
 
         /// <summary>Un zigzag d'amplitude 1,5 px, pas de 3 px.</summary>
-        private static void DrawWave(DrawingContext context, double x, double y, double width)
+        private static void DrawWave(DrawingContext context, double x, double y, double width, Pen pen)
         {
             var geometry = new StreamGeometry();
             using (var g = geometry.Open())
@@ -105,7 +105,7 @@ namespace Marabook.App
                 }
                 g.EndFigure(false);
             }
-            context.DrawGeometry(null, Wave, geometry);
+            context.DrawGeometry(null, pen ?? Wave, geometry);
         }
     }
 }

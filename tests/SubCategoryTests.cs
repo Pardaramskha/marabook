@@ -19,6 +19,52 @@ namespace Marabook.Tests
             RoundTrip(t);
             RenameFollowsLinks(t);
             TrashPurgesRelations(t);
+            BreakFolder(t);
+        }
+
+        /// <summary>« Casser le dossier » (1.0.5) : les fiches, sous-dossiers
+        /// compris, rejoignent la racine Fiches dans l'ordre, le dossier part
+        /// à la corbeille avec ce qui lui reste ; Ctrl+Z remet tout.</summary>
+        private static void BreakFolder(Harness t)
+        {
+            var project = Project.CreateNew();
+            var sheets = project.Category(Project.KeySheets);
+            var folder = new BinderItem { Kind = ItemKind.Folder, Title = "Héros" };
+            var inner = new BinderItem { Kind = ItemKind.Folder, Title = "Anciens" };
+            var a = new BinderItem { Kind = ItemKind.Sheet, Title = "A" };
+            var b = new BinderItem { Kind = ItemKind.Sheet, Title = "B" };
+            var c = new BinderItem { Kind = ItemKind.Sheet, Title = "C" };
+            var media = new BinderItem { Kind = ItemKind.Media, Title = "Carte" };
+            var outside = new BinderItem { Kind = ItemKind.Sheet, Title = "Z" };
+            folder.Children.Add(a);
+            inner.Children.Add(b);
+            folder.Children.Add(inner);
+            folder.Children.Add(media);
+            folder.Children.Add(c);
+            sheets.Children.Add(folder);
+            sheets.Children.Add(outside);
+            project.RelinkParents();
+
+            var collected = new List<BinderItem>();
+            BreakFolderAction.CollectSheets(folder, collected);
+            t.Equal("A|B|C", string.Join("|", collected.ConvertAll(delegate(BinderItem i) { return i.Title; }).ToArray()), "les fiches du dossier, sous-dossiers compris, dans l'ordre");
+
+            var history = new HistoryManager();
+            var action = new BreakFolderAction(folder, sheets, project.Trash);
+            history.Run(action);
+            t.Equal(3, action.SheetsMoved, "trois fiches renvoyées");
+            t.Equal("Z|A|B|C", string.Join("|", sheets.Children.ConvertAll(delegate(BinderItem i) { return i.Title; }).ToArray()), "à la racine Fiches, à la suite, dans l'ordre");
+            t.Check(a.Parent == sheets && b.Parent == sheets, "les parents suivent");
+            t.Check(folder.Parent == project.Trash && project.Trash.Children.Contains(folder), "le dossier est à la corbeille");
+            t.Check(folder.Children.Contains(inner) && inner.Children.Count == 0 && folder.Children.Contains(media), "…avec son sous-dossier vidé et son import");
+
+            history.Undo();
+            t.Equal("Héros|Z", string.Join("|", sheets.Children.ConvertAll(delegate(BinderItem i) { return i.Title; }).ToArray()), "Ctrl+Z : le dossier revient à sa place");
+            t.Equal("A|Anciens|Carte|C", string.Join("|", folder.Children.ConvertAll(delegate(BinderItem i) { return i.Title; }).ToArray()), "…avec son contenu dans l'ordre");
+            t.Check(inner.Children.Contains(b) && b.Parent == inner, "…la fiche du sous-dossier aussi");
+            t.Equal(0, project.Trash.Children.Count, "…et la corbeille rendue");
+            history.Redo();
+            t.Equal("Z|A|B|C", string.Join("|", sheets.Children.ConvertAll(delegate(BinderItem i) { return i.Title; }).ToArray()), "Ctrl+Y rejoue");
         }
 
         private static void Hierarchy(Harness t)

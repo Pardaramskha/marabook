@@ -245,6 +245,7 @@ namespace Marabook.App
             var checker = new Correction.SpellChecker(engine) { ProjectWords = project.Lexicon };
             Console.WriteLine("ORTHO — " + project.Name + " (" + warnings.Count + " avertissement(s), " + project.Lexicon.Count + " entrées au dictionnaire du projet)");
             var total = new Dictionary<string, int>();
+            var neologisms = new Dictionary<string, string>();
             foreach (var item in project.AllItems())
             {
                 if (item.Kind != ItemKind.Text || item.IsDescendantOf(project.Trash)) continue;
@@ -254,6 +255,8 @@ namespace Marabook.App
                 foreach (var paragraph in item.Document.Paragraphs)
                     foreach (var finding in checker.CheckParagraph(paragraph, project.Styles))
                     {
+                        // Un néologisme (1.0.5) a sa catégorie : listé à part, avec sa raison.
+                        if (finding.Category == Correction.FindingCategory.Neologism) { neologisms[finding.Word] = finding.Message; continue; }
                         if (context)
                         {
                             // Le voisinage du mot, caractères non lettres en points de code (un tiret
@@ -283,6 +286,11 @@ namespace Marabook.App
                 Console.WriteLine("— " + item.Title + " : " + counts.Count + " mot(s) inconnu(s)" + (parts.Count > 0 ? " : " + string.Join(", ", parts.ToArray()) : ""));
             }
             Console.WriteLine("TOTAL : " + total.Count + " mots inconnus distincts");
+            if (neologisms.Count > 0)
+            {
+                Console.WriteLine("NÉOLOGISMES (" + neologisms.Count + ") :");
+                foreach (var pair in neologisms) Console.WriteLine("  " + pair.Value);
+            }
         }
 
         /// <summary>Diagnostic de la sélection (1.0.3) : la tuile de ce titre,

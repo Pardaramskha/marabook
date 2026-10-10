@@ -1278,6 +1278,61 @@ namespace Marabook.App
                     }
                 }
 
+                // — Casser le dossier (1.0.5) : un dossier de Fiches avec deux
+                //   fiches ; cassé, les fiches sont à la racine, le dossier à
+                //   la corbeille ; Ctrl+Z remet tout.
+                {
+                    var project = shell.Project;
+                    var sheetsHome = project.Category(Project.KeySheets);
+                    var folder = new BinderItem { Kind = ItemKind.Folder, Title = "Dossier (sonde)", Parent = sheetsHome };
+                    var one = new BinderItem { Kind = ItemKind.Sheet, Title = "Fiche une (sonde)", Parent = folder, CategoryId = project.SheetCategories[0].Id, TemplateId = project.SheetCategories[0].TemplateId };
+                    var two = new BinderItem { Kind = ItemKind.Sheet, Title = "Fiche deux (sonde)", Parent = folder, CategoryId = project.SheetCategories[0].Id, TemplateId = project.SheetCategories[0].TemplateId };
+                    folder.Children.Add(one);
+                    folder.Children.Add(two);
+                    sheetsHome.Children.Add(folder);
+                    shell.Binder.Rebuild();
+                    await Settle();
+                    var trashBefore = project.Trash.Children.Count;
+                    shell.Binder.BreakFolderForProbe(folder.Id);
+                    await Settle();
+                    Check(one.Parent == sheetsHome && two.Parent == sheetsHome && sheetsHome.Children.IndexOf(one) < sheetsHome.Children.IndexOf(two),
+                        "casser le dossier : ses fiches rejoignent la racine Fiches, dans l'ordre");
+                    Check(folder.Parent == project.Trash && folder.Children.Count == 0, "…et le dossier vide part à la corbeille");
+                    shell.HistoryForProbe.Undo();
+                    await Settle();
+                    Check(one.Parent == folder && folder.Parent == sheetsHome && project.Trash.Children.Count == trashBefore, "Ctrl+Z : le dossier et ses fiches reviennent");
+                    sheetsHome.Children.Remove(folder);
+                    shell.Binder.Rebuild();
+                    await Settle();
+                }
+
+                // — MAJ+clic (1.0.5) : la plage entre la ligne choisie et la
+                //   ligne cliquée dans la Pile ; même chose sur les tuiles.
+                {
+                    var project = shell.Project;
+                    var bookItem = project.FindByTitle(book == null ? "" : book.Title);
+                    if (book != null && book.Children.Count >= 3)
+                    {
+                        shell.Binder.SelectItem(book.Children[0].Id);
+                        await Settle();
+                        var ok = shell.Binder.RangeMultiForProbe(book.Children[2].Id);
+                        Check(ok && shell.Binder.MultiCountForProbe == 3, "Pile : clic sur le chapitre 1 puis MAJ+clic sur le 3 = trois lignes (" + shell.Binder.MultiCountForProbe + ")");
+                        shell.Binder.ClearMultiSelection();
+                    }
+                    var sheetsHome = project.Category(Project.KeySheets);
+                    shell.Binder.SelectItem(sheetsHome.Id);
+                    await Settle();
+                    var library = shell.SheetLibraryForProbe;
+                    var ids = new List<string>();
+                    foreach (var item in sheetsHome.Children) if (item.Kind == ItemKind.Sheet) ids.Add(item.Id);
+                    if (library != null && library.IsVisible && ids.Count >= 2)
+                    {
+                        var ok = library.RangeSelectForProbe(ids[0], ids[ids.Count - 1]);
+                        Check(ok && library.SelectedItems().Count >= 2, "bibliothèque : MAJ+clic d'une tuile à l'autre choisit la plage (" + library.SelectedItems().Count + ")");
+                        library.ClearSelection();
+                    }
+                }
+
                 // — Les polices manquantes (07/10) : un style qui demande une
                 //   police inconnue allume la pastille rouge ; un remplacement
                 //   global l'apaise et le moteur sert la remplaçante ; le

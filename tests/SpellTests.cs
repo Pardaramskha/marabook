@@ -84,6 +84,64 @@ namespace Marabook.Tests
             t.Equal("chut", SpellChecker.Collapse("chuuuuut", 1), "Collapse à une lettre");
             t.Equal("chuut", SpellChecker.Collapse("chuuuuut", 2), "Collapse à deux lettres");
             t.Equal("mmh", SpellChecker.Collapse("mmh", 1), "les doubles restent des doubles");
+
+            // — Le familier (1.0.5) : sa catégorie, en indice ; l'orthographe se tait.
+            var familiar = new FamiliarChecker();
+            var hostOral = new CheckerHost();
+            hostOral.Add(checker);
+            hostOral.Add(familiar);
+            var oral = hostOral.Run(Document("« Y’a des choses que t’as pas dites, j’suis sûr, p’tit. ’Tain, chuis crevé, m’sieur. »"), null);
+            var familiarCount = 0; var spellingCount = 0;
+            var forms = new List<string>();
+            foreach (var f in oral) { if (f.Category == FindingCategory.Familiar) { familiarCount++; forms.Add(f.Word); } if (f.Category == FindingCategory.Spelling) spellingCount++; }
+            t.Equal(7, familiarCount, "sept contractions familières relevées (" + string.Join(", ", forms.ToArray()) + ")");
+            t.Equal(0, spellingCount, "…et aucune en faute d'orthographe");
+            t.Check(oral.Count > 0 && oral[0].Severity == FindingSeverity.Hint, "le familier est un indice");
+            t.Equal(0, hostOral.Run(Document("L’homme d’honneur qu’il est n’a jamais menti, s’il faut l’avouer."), null).Count, "les élisions régulières devant voyelle ne sont pas familières");
+            t.Equal(0, hostOral.Run(Document("Je t’aime et je m’en vais."), null).Count, "« t’aime » (te) et « m’en » restent réguliers");
+
+            // — Les néologismes (1.0.5) : bien formés, leur catégorie, la raison.
+            var neo = host.Run(Document("La gouverneuse jugea la chose contenable, apprenable et autochauffante ; la métallomancie des aquamanciens, un emblémisme, galèrement."), null);
+            var reasons = new Dictionary<string, string>();
+            foreach (var f in neo) if (f.Category == FindingCategory.Neologism) reasons[f.Word] = f.Message;
+            t.Check(reasons.ContainsKey("gouverneuse") && reasons["gouverneuse"].Contains("gouverneur"), "gouverneuse : féminin de gouverneur");
+            t.Check(!reasons.ContainsKey("contenable"), "contenable est au complément : connu, donc rien à relever");
+            t.Check(Neologisms.Explain("contenable", delegate(string x) { return x == "contenir"; }) == "adjectif en -able formé sur « contenir »", "la règle -able sur contenir, à sec");
+            t.Check(reasons.ContainsKey("galèrement") && reasons["galèrement"].Contains("galère"), "galèrement : adverbe sur galère");
+            t.Check(reasons.ContainsKey("apprenable") && reasons["apprenable"].Contains("apprendre"), "apprenable : -able sur apprendre");
+            t.Check(reasons.ContainsKey("métallomancie") && reasons.ContainsKey("aquamanciens"), "-mancie et -mancien (au pluriel)");
+            t.Check(reasons.ContainsKey("emblémisme"), "emblémisme : -isme sur emblème" + (reasons.ContainsKey("emblémisme") ? " (" + reasons["emblémisme"] + ")" : ""));
+            foreach (var f in neo) if (f.Category == FindingCategory.Spelling) t.Check(false, "rien en faute : « " + f.Word + " »");
+            t.Equal(1, host.Run(Document("Un chateau."), null).Count, "une vraie faute reste une faute");
+            t.Equal(FindingCategory.Spelling, host.Run(Document("Un chateau."), null)[0].Category, "…dans sa catégorie");
+            checker.Neologisms = false;
+            var off = host.Run(Document("La gouverneuse."), null);
+            t.Check(off.Count == 1 && off[0].Category == FindingCategory.Spelling, "néologismes coupés : gouverneuse rougit comme avant");
+            checker.Neologisms = true;
+
+            // — Le relevé des mots inconnus du projet (1.0.5).
+            var project = Project.CreateNew();
+            var text = new BinderItem { Kind = ItemKind.Text, Title = "Chapitre 1" };
+            text.Document.Paragraphs.Clear();
+            text.Document.Paragraphs.Add(Document("Riune, Riune et la gouverneuse ; chuuut, y’a Nardra.").Paragraphs[0]);
+            text.Notes = "Voir Riune encore.";
+            project.Category(Project.KeyWritings).Children.Add(text);
+            var sheet = new BinderItem { Kind = ItemKind.Sheet, Title = "Nardra", CategoryId = project.SheetCategories[0].Id, TemplateId = project.SheetCategories[0].TemplateId };
+            sheet.Document.Paragraphs.Clear();
+            sheet.Document.Paragraphs.Add(Document("Nardra vient de Riune.").Paragraphs[0]);
+            project.Category(Project.KeySheets).Children.Add(sheet);
+            var trashed = new BinderItem { Kind = ItemKind.Text, Title = "Jeté" };
+            trashed.Document.Paragraphs.Clear();
+            trashed.Document.Paragraphs.Add(Document("Zorglub.").Paragraphs[0]);
+            project.Trash.Children.Add(trashed);
+            project.RelinkParents();
+            var unknown = UnknownWords.Collect(project, new SpellChecker(engine) { ProjectWords = project.Lexicon });
+            var names = new List<string>();
+            foreach (var u in unknown) names.Add(u.Word + "×" + u.Count);
+            t.Equal("Riune×4, Nardra×2", string.Join(", ", names.ToArray()), "les inconnus comptés, casse pliée, notes et fiches compris, corbeille exclue, néologismes et familier à part");
+            t.Check(unknown[0].Where == "Chapitre 1" && unknown[0].Items == 2 && unknown[0].Sample.Contains("[Riune]"), "le premier endroit, le nombre d'items, l'extrait");
+            project.Lexicon.Add(LexiconEntry.Simple("Riune"));
+            t.Equal(1, UnknownWords.Collect(project, new SpellChecker(engine) { ProjectWords = project.Lexicon }).Count, "un mot appris disparaît du relevé");
         }
 
         // ------------------------------------- 8. batch 30 : mémo de Suggest

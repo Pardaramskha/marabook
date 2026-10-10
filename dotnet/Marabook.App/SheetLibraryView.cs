@@ -56,6 +56,8 @@ namespace Marabook.App
         // la coquille ; Suppr sur plusieurs fiches.
         private readonly HashSet<string> _selected = new HashSet<string>();
         private readonly Dictionary<string, Border> _cardsById = new Dictionary<string, Border>();
+        private readonly List<string> _cardOrder = new List<string>(); // l'ordre des tuiles posées (MAJ+clic, 1.0.5)
+        private string _anchorId; // la dernière tuile cliquée (l'ancre du MAJ+clic)
         public event Action<List<BinderItem>> SelectionChanged;
         public Func<List<BinderItem>, ContextMenu> BatchMenuProvider;
         public event Action<List<BinderItem>> DeleteManyRequested;
@@ -112,6 +114,31 @@ namespace Marabook.App
             if (_selected.Count == 0) return;
             _selected.Clear();
             AnnounceSelection(null);
+        }
+
+        /// <summary>MAJ+clic (1.0.5) : toutes les tuiles entre l'ancre (la
+        /// dernière tuile cliquée, sinon la première sélectionnée) et
+        /// celle-ci, dans l'ordre d'affichage. Faux sans ancre.</summary>
+        private bool RangeSelect(string id)
+        {
+            var anchor = _anchorId;
+            if (anchor == null || !_cardOrder.Contains(anchor))
+                foreach (var candidate in _cardOrder) if (_selected.Contains(candidate)) { anchor = candidate; break; }
+            if (anchor == null) return false;
+            var a = _cardOrder.IndexOf(anchor);
+            var b = _cardOrder.IndexOf(id);
+            if (a < 0 || b < 0) return false;
+            for (var i = Math.Min(a, b); i <= Math.Max(a, b); i++) _selected.Add(_cardOrder[i]);
+            return true;
+        }
+
+        /// <summary>Sonde (1.0.5) : le MAJ+clic sur cette tuile, l'ancre étant la dernière cliquée.</summary>
+        internal bool RangeSelectForProbe(string anchorId, string id)
+        {
+            _anchorId = anchorId;
+            var ok = RangeSelect(id);
+            AnnounceSelection(null);
+            return ok;
         }
 
         /// <summary>Sonde (1.0.5) : les ids des sous-catégories dont la boîte est posée.</summary>
@@ -337,6 +364,7 @@ namespace Marabook.App
         {
             _rows.Children.Clear();
             _cardsById.Clear();
+            _cardOrder.Clear();
             if (_project == null) return;
             var needle = Correction.FrenchTokenizer.Fold((_searchBox.Text ?? "").Trim());
             var searching = needle.Length > 0;
@@ -927,6 +955,7 @@ namespace Marabook.App
             var sheetRef = sheet;
             card.Tag = sheet;
             _cardsById[sheet.Id] = card;
+            _cardOrder.Add(sheet.Id);
             if (_selected.Contains(sheet.Id)) PaintSelection(card, true);
             // Le DOUBLE-clic ouvre (29/09) ; le clic simple choisit la tuile
             // (Ctrl = plusieurs, 1.0.3), et le Général du rail montre la fiche
@@ -940,8 +969,9 @@ namespace Marabook.App
             };
             card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
                 if (e.InitialPressMouseButton != MouseButton.Left) return;
-                if (Ui.HasCommand(e.KeyModifiers)) { if (!_selected.Remove(sheetRef.Id)) _selected.Add(sheetRef.Id); }
-                else { _selected.Clear(); _selected.Add(sheetRef.Id); }
+                if ((e.KeyModifiers & KeyModifiers.Shift) == KeyModifiers.Shift && !Ui.HasCommand(e.KeyModifiers) && RangeSelect(sheetRef.Id)) { }
+                else if (Ui.HasCommand(e.KeyModifiers)) { if (!_selected.Remove(sheetRef.Id)) _selected.Add(sheetRef.Id); _anchorId = sheetRef.Id; }
+                else { _selected.Clear(); _selected.Add(sheetRef.Id); _anchorId = sheetRef.Id; }
                 AnnounceSelection(_selected.Contains(sheetRef.Id) ? sheetRef : null);
             };
             card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
