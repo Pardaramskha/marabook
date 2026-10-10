@@ -1140,6 +1140,22 @@ namespace Marabook.App
                         var count = sheetView.SpellNowForProbe();
                         if (count < 0) Console.WriteLine("  [sonde] dictionnaire absent à côté de l'exécutable : correcteur des fiches sauté");
                         else Check(count == 2, "le corps de la fiche souligne « tezte » et « fôte », pas le lien wiki (" + count + " signalement(s))");
+                        // Le menu du clic droit unifié (10/10) : édition, puis le
+                        // signalement sous le clic avec ses suggestions.
+                        if (count == 2)
+                        {
+                            var menu = sheetView.BuildBodyMenuForProbe("Un ".Length + 1);
+                            var headers = new List<string>();
+                            foreach (var entry in menu.Items) { var item = entry as MenuItem; if (item != null) headers.Add(item.Header as string ?? ""); }
+                            Check(headers.Contains("Couper") && headers.Contains("Coller") && headers.Contains("Tout sélectionner"),
+                                "clic droit dans le corps Markdown : Couper / Copier / Coller / Tout sélectionner (" + string.Join(" · ", headers.ToArray()) + ")");
+                            Check(headers.Contains("texte") && headers.Contains("Ignorer ici") && headers.Exists(delegate(string h) { return h.StartsWith("Ajouter « tezte »"); }),
+                                "…puis la suggestion « texte », Ignorer ici, Ajouter au dictionnaire");
+                            var plain = sheetView.BuildBodyMenuForProbe("Un tezte avec une fôte et [[Kaladinn]] dedans.".Length - 2);
+                            var plainHeaders = new List<string>();
+                            foreach (var entry in plain.Items) { var item = entry as MenuItem; if (item != null) plainHeaders.Add(item.Header as string ?? ""); }
+                            Check(plainHeaders.Count == 4 && !plainHeaders.Contains("Ignorer ici"), "…et rien de plus sur un mot sain");
+                        }
                         sheetView.BodyBox.Text = kept;
                         await Settle();
                     }

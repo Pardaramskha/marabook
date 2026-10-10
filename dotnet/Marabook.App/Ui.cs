@@ -106,6 +106,39 @@ namespace Marabook.App
             menu.Open(target);
         }
 
+        /// <summary>LE menu du clic droit des zones de texte ordinaires (10/10,
+        /// Rémi : « unifier avec le reste ») — Avalonia en pose un en anglais,
+        /// aux angles droits, sur chaque TextBox. Celui-ci, en français et
+        /// dans le thème (coins ronds, voir Theme), est partagé par toutes les
+        /// zones par un style ; la cible du moment est celle qui l'ouvre.</summary>
+        public static MenuFlyout BuildTextBoxFlyout()
+        {
+            var flyout = new MenuFlyout();
+            var cut = new MenuItem { Header = "Couper", InputGesture = new KeyGesture(Key.X, KeyModifiers.Control) };
+            var copy = new MenuItem { Header = "Copier", InputGesture = new KeyGesture(Key.C, KeyModifiers.Control) };
+            var paste = new MenuItem { Header = "Coller", InputGesture = new KeyGesture(Key.V, KeyModifiers.Control) };
+            var all = new MenuItem { Header = "Tout sélectionner", InputGesture = new KeyGesture(Key.A, KeyModifiers.Control) };
+            flyout.Items.Add(cut);
+            flyout.Items.Add(copy);
+            flyout.Items.Add(paste);
+            flyout.Items.Add(all);
+            Func<TextBox> target = delegate { return flyout.Target as TextBox; };
+            flyout.Opening += delegate
+            {
+                var box = target();
+                var hasSelection = box != null && box.SelectionStart != box.SelectionEnd;
+                cut.IsEnabled = hasSelection && box != null && !box.IsReadOnly;
+                copy.IsEnabled = hasSelection;
+                paste.IsEnabled = box != null && !box.IsReadOnly;
+                all.IsEnabled = box != null && (box.Text ?? "").Length > 0;
+            };
+            cut.Click += delegate { var box = target(); if (box != null) box.Cut(); };
+            copy.Click += delegate { var box = target(); if (box != null) box.Copy(); };
+            paste.Click += delegate { var box = target(); if (box != null) box.Paste(); };
+            all.Click += delegate { var box = target(); if (box != null) { box.Focus(); box.SelectAll(); } };
+            return flyout;
+        }
+
         /// <summary>Ferme le menu contextuel ouvert à la main, s'il y en a un.</summary>
         public static void CloseOpenMenu()
         {

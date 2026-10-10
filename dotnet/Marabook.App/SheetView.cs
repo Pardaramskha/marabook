@@ -313,17 +313,17 @@ namespace Marabook.App
             _bodyBox.TextChanged += delegate { if (!_loading) { _spellTimer.Stop(); _spellTimer.Start(); } };
             // Le clic droit sur un mot souligné : son menu, avant que le
             // TextBox ne prenne le geste (tunnel).
+            // UN seul menu du clic droit (10/10, Rémi : « unifier avec le
+            // reste ») : Couper / Copier / Coller / Tout sélectionner, puis le
+            // [[lien]] sous le clic, puis le signalement sous le clic avec ses
+            // suggestions — comme l'éditeur composé, aux mêmes coins ronds.
             _bodyBox.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e)
             {
                 if (!e.GetCurrentPoint(_bodyBox).Properties.IsRightButtonPressed) return;
-                var finding = _spellOverlay == null ? null : _spellOverlay.FindingAt(e.GetPosition(_bodyBox));
-                if (finding != null) { e.Handled = true; ShowSpellMenu(finding); return; }
-                // Le [[lien]] sous le clic droit (07/10) : ouvrir, modifier, retirer.
-                var index = BodyIndexAt(e.GetPosition(_bodyBox));
-                var link = index < 0 ? null : Links.At(_bodyBox.Text ?? "", index);
-                if (link == null) return;
                 e.Handled = true;
-                ShowLinkMenu(link, index);
+                var finding = _spellOverlay == null ? null : _spellOverlay.FindingAt(e.GetPosition(_bodyBox));
+                var index = BodyIndexAt(e.GetPosition(_bodyBox));
+                Ui.ShowMenu(BuildTextBoxMenu(_bodyBox, index, finding), _bodyBox);
             }, RoutingStrategies.Tunnel);
             TrackLinkBox(_bodyBox); // le corps se souvient d'avoir le clavier (07/10)
             _bodyBox.AddHandler(InputElement.PointerWheelChangedEvent, delegate(object sender, PointerWheelEventArgs e)
@@ -2269,11 +2269,8 @@ namespace Marabook.App
             box.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e)
             {
                 if (!e.GetCurrentPoint(box).Properties.IsRightButtonPressed) return;
-                var index = IndexAt(box, e.GetPosition(box));
-                var link = index < 0 ? null : Links.At(box.Text ?? "", index);
-                if (link == null) return;
-                e.Handled = true;
-                ShowLinkMenu(box, link, index);
+                e.Handled = true; // le même menu que le corps (10/10), sans correcteur
+                Ui.ShowMenu(BuildTextBoxMenu(box, IndexAt(box, e.GetPosition(box)), null), box);
             }, RoutingStrategies.Tunnel);
         }
 
@@ -2426,14 +2423,56 @@ namespace Marabook.App
 
         private int BodyIndexAt(Point pointInBox) { return IndexAt(_bodyBox, pointInBox); }
 
-        private void ShowLinkMenu(Link link, int index) { ShowLinkMenu(_bodyBox, link, index); }
-
-        /// <summary>Le menu d'un lien d'une zone (07/10) : ouvrir la cible,
-        /// modifier (le dialogue de la coquille, le caret posé dans le lien),
-        /// retirer (les mots restent).</summary>
-        private void ShowLinkMenu(TextBox box, Link link, int index)
+        /// <summary>LE menu du clic droit d'une zone de texte (10/10) — le
+        /// même pour le corps Markdown et les champs, calqué sur celui de
+        /// l'éditeur composé : l'édition d'abord, le lien sous le clic, le
+        /// signalement sous le clic (corps seulement) avec ses suggestions.</summary>
+        private ContextMenu BuildTextBoxMenu(TextBox box, int index, Correction.Finding finding)
         {
-            var menu = new ContextMenu();
+            var menu = new ContextMenu { PlacementTarget = box };
+            var hasSelection = box.SelectionStart != box.SelectionEnd;
+            var cut = new MenuItem { Header = "Couper", InputGesture = new KeyGesture(Key.X, KeyModifiers.Control), IsEnabled = hasSelection && !box.IsReadOnly };
+            cut.Click += delegate { box.Cut(); };
+            var copy = new MenuItem { Header = "Copier", InputGesture = new KeyGesture(Key.C, KeyModifiers.Control), IsEnabled = hasSelection };
+            copy.Click += delegate { box.Copy(); };
+            var paste = new MenuItem { Header = "Coller", InputGesture = new KeyGesture(Key.V, KeyModifiers.Control), IsEnabled = !box.IsReadOnly };
+            paste.Click += delegate { box.Paste(); };
+            var all = new MenuItem { Header = "Tout sélectionner", InputGesture = new KeyGesture(Key.A, KeyModifiers.Control), IsEnabled = (box.Text ?? "").Length > 0 };
+            all.Click += delegate { box.Focus(); box.SelectAll(); };
+            menu.Items.Add(cut);
+            menu.Items.Add(copy);
+            menu.Items.Add(paste);
+            menu.Items.Add(all);
+            var link = index < 0 ? null : Links.At(box.Text ?? "", index);
+            if (link != null)
+            {
+                menu.Items.Add(new Separator());
+                AddLinkItems(menu, box, link, index);
+            }
+            if (finding != null && box == _bodyBox)
+            {
+                menu.Items.Add(new Separator());
+                AddSpellItems(menu, finding);
+            }
+            return menu;
+        }
+
+        /// <summary>Sonde (10/10) : le menu du corps pour cet index — le
+        /// signalement qui le couvre, s'il y en a un.</summary>
+        internal ContextMenu BuildBodyMenuForProbe(int index)
+        {
+            Correction.Finding finding = null;
+            if (_spellOverlay != null)
+                foreach (var candidate in _spellOverlay.Findings)
+                    if (index >= candidate.Start && index < candidate.Start + candidate.Length) { finding = candidate; break; }
+            return BuildTextBoxMenu(_bodyBox, index, finding);
+        }
+
+        /// <summary>Les entrées d'un lien (07/10) : ouvrir la cible, modifier
+        /// (le dialogue de la coquille, le caret posé dans le lien), retirer
+        /// (les mots restent).</summary>
+        private void AddLinkItems(ContextMenu menu, TextBox box, Link link, int index)
+        {
             var target = link.Target;
             var open = new MenuItem { Header = "Ouvrir « " + target + " »" };
             open.Click += delegate { var h = LinkClicked; if (h != null) h(target); };
@@ -2450,8 +2489,6 @@ namespace Marabook.App
             var remove = new MenuItem { Header = "Retirer le lien", [ToolTip.TipProperty] = "Les mots restent, le renvoi tombe" };
             remove.Click += delegate { _activeBox = box; Ui.Select(box, index, 0); RemoveLinkAtCaret(); };
             menu.Items.Add(remove);
-            menu.PlacementTarget = box;
-            Ui.ShowMenu(menu, box);
         }
 
         // ================================================== correcteur (1.0.4)
@@ -2529,15 +2566,16 @@ namespace Marabook.App
             return text;
         }
 
-        /// <summary>Le menu d'un mot souligné : les suggestions (calculées
+        /// <summary>Les entrées d'un mot souligné : le signalement en tête,
+        /// à la couleur de sa catégorie (10/10), les suggestions (calculées
         /// ici, en cache), « Ignorer ici », « Ignorer dans ce projet »,
         /// « Ajouter au dictionnaire » de ce projet ou de tous — les mêmes
         /// gestes que l'éditeur, avec le même dialogue d'entrée.</summary>
-        private void ShowSpellMenu(Correction.Finding finding)
+        private void AddSpellItems(ContextMenu menu, Correction.Finding finding)
         {
             var checker = Spell();
             if (checker == null || _item == null) return;
-            var menu = new ContextMenu();
+            menu.Items.Add(new MenuItem { Header = finding.Message, IsEnabled = false, Foreground = ComposedRenderer.FindingPen(finding.Category).Brush });
             var suggestions = checker.Suggestions(finding.Word);
             var shown = 0;
             foreach (var suggestion in suggestions)
@@ -2574,8 +2612,6 @@ namespace Marabook.App
             everywhere.Click += delegate { var _ = LearnWord(finding.Word, false); };
             learn.Items.Add(everywhere);
             menu.Items.Add(learn);
-            menu.PlacementTarget = _bodyBox;
-            Ui.ShowMenu(menu, _bodyBox);
         }
 
         private async Task LearnWord(string word, bool projectScope)

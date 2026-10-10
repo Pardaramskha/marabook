@@ -120,6 +120,15 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<MenuItem>().Template().OfType<Popup>().Child().OfType<Border>(),
                 new Setter(Border.CornerRadiusProperty, new CornerRadius(8)),
                 new Setter(Border.PaddingProperty, new Thickness(4))));
+            // Le menu des zones de texte (10/10) : le flyout d'Avalonia (anglais,
+            // angles droits) est remplacé par le nôtre, aux mêmes coins ronds.
+            styles.Add(Style(x => x.OfType<MenuFlyoutPresenter>(),
+                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(8)),
+                new Setter(TemplatedControl.PaddingProperty, new Thickness(4)),
+                new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
+                new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1))));
+            styles.Add(Style(x => x.OfType<MenuFlyoutPresenter>().Template().OfType<Border>(),
+                new Setter(Border.CornerRadiusProperty, new CornerRadius(8))));
 
             // Les séparateurs : la couleur du fond de fenêtre (invisibles au
             // repos), l'accent doux sous le pointeur.
@@ -204,6 +213,7 @@ namespace Marabook.App
             // ---- champs : fond de champ (Chrome.FieldBg — pas le papier,
             // qui peut rester blanc au sombre, 30/09), filet, coins 6, accent au clavier
             styles.Add(Style(x => x.OfType<TextBox>(),
+                new Setter(TextBox.ContextFlyoutProperty, Ui.BuildTextBoxFlyout()), // Couper / Copier / Coller / Tout sélectionner, en français (10/10)
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.FieldBg),
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
