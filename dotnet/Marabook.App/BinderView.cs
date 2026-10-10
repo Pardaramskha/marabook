@@ -523,8 +523,10 @@ namespace Marabook.App
         {
             foreach (var child in item.Children)
                 if (child.Kind != ItemKind.Sheet) node.Items.Add(BuildNode(child));
+            // Catégories d'ensemble puis leurs sous-catégories (1.0.5), ces
+            // dernières nommées par leur chemin (« Personnage › Héros »).
             var groups = new List<KeyValuePair<SheetCategory, List<BinderItem>>>();
-            foreach (var category in _project.SheetCategories)
+            foreach (var category in _project.OrderedCategories())
                 groups.Add(new KeyValuePair<SheetCategory, List<BinderItem>>(category, new List<BinderItem>()));
             var loose = new List<BinderItem>();
             foreach (var child in item.Children)
@@ -539,7 +541,7 @@ namespace Marabook.App
             foreach (var group in groups)
             {
                 if (group.Value.Count == 0) continue;
-                node.Items.Add(CategoryRow(group.Key.Name));
+                node.Items.Add(CategoryRow(_project.CategoryPath(group.Key)));
                 foreach (var sheet in Alphabetical(group.Value)) node.Items.Add(BuildNode(sheet));
             }
             if (loose.Count > 0)
@@ -724,7 +726,7 @@ namespace Marabook.App
                 _renameBox = null;
                 var newTitle = (box.Text ?? "").Trim();
                 if (commit && newTitle.Length > 0 && newTitle != item.Title)
-                    RunAndSelect(new RenameItemAction(item, newTitle), item.Id, null);
+                    RunAndSelect(new RenameItemAction(item, newTitle, _project), item.Id, null); // les [[liens]] suivent (1.0.5)
                 else
                     Rebuild(); // restore the plain label
             };
@@ -1384,7 +1386,7 @@ namespace Marabook.App
             }
             var answer = await InputDialog.Ask(Ui.OwnerOf(this), "Renommer", "Nouveau titre :", item.Title);
             if (answer == null || answer == item.Title) return;
-            RunAndSelect(new RenameItemAction(item, answer), item.Id, null);
+            RunAndSelect(new RenameItemAction(item, answer, _project), item.Id, null); // les [[liens]] suivent (1.0.5)
         }
 
         /// <summary>Renommage par dialogue SANS déplacer la sélection — le
@@ -1394,7 +1396,7 @@ namespace Marabook.App
             if (item == null || item.IsCategory) return;
             var answer = await InputDialog.Ask(Ui.OwnerOf(this), "Renommer", "Nouveau titre :", item.Title);
             if (answer == null || answer == item.Title) return;
-            RunAndSelect(new RenameItemAction(item, answer), null, null);
+            RunAndSelect(new RenameItemAction(item, answer, _project), null, null); // les [[liens]] suivent (1.0.5)
         }
 
         /// <summary>« Options du livre » (batch 32) : nom, icône, objectif de
@@ -1484,7 +1486,7 @@ namespace Marabook.App
             // « Terre brûlée » / « Masochiste » : les suppressions DÉFINITIVES,
             // descendants compris (12/09).
             Settings.AppSettings.PermanentlyDeleted += Achievements.CountAll(_project.Trash.Children);
-            RunAndSelect(new EmptyTrashAction(_project.Trash), null, null);
+            RunAndSelect(new EmptyTrashAction(_project.Trash, _project), null, null); // relations et fiches liées purgées avec (1.0.5)
         }
 
         private void Restore(BinderItem item)

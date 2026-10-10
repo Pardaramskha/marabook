@@ -1862,6 +1862,8 @@ namespace Marabook.App
             return null;
         }
         internal TextBox BodyBox { get { return _bodyBox; } } // sonde (hotfix 1.0.3-a)
+        internal bool HasFieldBoxForProbe(string fieldId) { return fieldId != null && _fieldBoxes.ContainsKey(fieldId); } // sonde (1.0.5)
+        internal string CategoryLabelForProbe { get { return _categoryLabel.Text ?? ""; } }
 
         /// <summary>Sonde (07/10 soir) : la zone de saisie du premier champ de
         /// cette nature (liste, nombre…), ou null.</summary>
@@ -1888,9 +1890,9 @@ namespace Marabook.App
             ForgetLinkContext();
             _loading = true;
             var category = _project == null ? null : _project.SheetCategoryOf(item);
-            _portraitIcon.Content = SheetLibraryView.CategoryPlaceholder(category, 48);
+            _portraitIcon.Content = SheetLibraryView.CategoryPlaceholder(category, 48, _project);
             _titleLabel.Text = item.Title;
-            _categoryLabel.Text = (category != null ? "Fiche " + category.Name : "Fiche")
+            _categoryLabel.Text = (category != null ? "Fiche " + _project.CategoryPath(category) : "Fiche")
                 + (template != null ? " — modèle " + template.Name : " (modèle introuvable — champs libres uniquement)");
             RebuildPapers();
             RebuildFields();
@@ -2488,7 +2490,7 @@ namespace Marabook.App
                 foreach (var other in _project.AllItems())
                 {
                     if (other.Kind != ItemKind.Sheet) continue;
-                    foreach (var name in Presence.NamesOf(other, _project.FindTemplate(other.TemplateId)))
+                    foreach (var name in Presence.NamesOf(other, _project.TemplateOf(other)))
                         foreach (var token in Correction.FrenchTokenizer.Tokenize(name))
                             if (token.Kind == Correction.TokenKind.Word) known.Add(Correction.FrenchTokenizer.Fold(token.CoreSurface));
                 }
@@ -2648,7 +2650,7 @@ namespace Marabook.App
         {
             if (_item == null) return;
             Commit();
-            var template = _project != null ? _project.FindTemplate(_item.TemplateId) : _template;
+            var template = _project != null ? _project.TemplateOf(_item) : _template;
             LoadItem(_item, template ?? _template);
         }
     }

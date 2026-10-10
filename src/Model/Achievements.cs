@@ -501,7 +501,7 @@ namespace Marabook.Model
                         break;
                     case ItemKind.Sheet:
                         f.Sheets++;
-                        var category = project.SheetCategoryOf(item);
+                        var category = project.TopSheetCategoryOf(item);
                         var character = category != null && IsCharacterCategory(category.Name);
                         if (character) f.CharacterSheets++;
                         if (character && authors.Contains(Correction.FrenchTokenizer.Fold((item.Title ?? "").Trim()))) f.GodComplex = true;
@@ -538,7 +538,7 @@ namespace Marabook.Model
         /// tous remplis.</summary>
         public static bool IsFullSheet(Project project, BinderItem sheet)
         {
-            var template = project == null ? null : project.FindTemplate(sheet.TemplateId);
+            var template = project == null ? null : project.TemplateOf(sheet);
             var total = sheet.FreeInfo.Count + (template == null ? 0 : template.Fields.Count);
             if (total <= 50) return false;
             foreach (var entry in sheet.FreeInfo)

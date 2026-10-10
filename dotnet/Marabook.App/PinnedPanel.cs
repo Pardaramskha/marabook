@@ -162,7 +162,7 @@ namespace Marabook.App
         {
             _item = item;
             _template = item != null && item.Kind == ItemKind.Sheet && _project != null
-                ? _project.FindTemplate(item.TemplateId) : null;
+                ? _project.TemplateOf(item) : null;
             Refresh();
         }
 
@@ -186,7 +186,7 @@ namespace Marabook.App
             if (_item.Kind == ItemKind.Sheet)
             {
                 var category = _project == null ? null : _project.SheetCategoryOf(_item);
-                _kind.Text = category != null ? "Fiche " + category.Name : "Fiche";
+                _kind.Text = category != null ? "Fiche " + _project.CategoryPath(category) : "Fiche";
                 _scroller.Content = SheetWiki.Build(_item, _template, _project, _item.Document.ToPlainText(), true,
                     delegate(BinderItem target) { var h = NavigateRequested; if (h != null) h(target); },
                     delegate(string target) { var h = LinkClicked; if (h != null) h(target); },

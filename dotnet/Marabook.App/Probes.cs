@@ -1205,6 +1205,79 @@ namespace Marabook.App
                     else Console.WriteLine("  [sonde] pas de champ texte sur Keira : rendu wiki des champs sauté");
                 }
 
+                // — Sous-catégories de fiches (1.0.5) : une boîte dans la
+                //   bibliothèque, le modèle hérité plus les champs propres sur
+                //   la fiche, le chemin « Personnage › Héros » en tête.
+                {
+                    var project = shell.Project;
+                    var keira = project.FindByTitle("Keira Varenh");
+                    var top = keira == null ? null : project.TopSheetCategoryOf(keira);
+                    if (keira != null && top != null && !keira.IsDescendantOf(project.Trash))
+                    {
+                        var keptCategory = keira.CategoryId;
+                        var heroes = project.AddSubCategory(top, "Héros (sonde)");
+                        var oath = new SheetField { Name = "Serment (sonde)", Kind = FieldKinds.Multiline };
+                        heroes.ExtraFields.Add(oath);
+                        keira.CategoryId = heroes.Id;
+                        shell.Binder.SelectItem(project.Category(Project.KeySheets).Id);
+                        await Settle();
+                        var library = shell.SheetLibraryForProbe;
+                        Check(library != null && library.IsVisible && library.SubBoxIdsForProbe().Contains(heroes.Id),
+                            "bibliothèque : la sous-catégorie a sa boîte dans la rangée de « " + top.Name + " »");
+                        shell.Binder.SelectItem(keira.Id);
+                        await Settle();
+                        var sheetView = shell.Sheet;
+                        Check(sheetView != null && sheetView.HasItem && sheetView.HasFieldBoxForProbe(oath.Id),
+                            "fiche d'une sous-catégorie : le champ propre s'ajoute au modèle hérité");
+                        Check(sheetView != null && sheetView.CategoryLabelForProbe.Contains(top.Name + " › Héros (sonde)"),
+                            "…et la tête dit le chemin (" + (sheetView == null ? "-" : sheetView.CategoryLabelForProbe) + ")");
+                        Check(project.TemplateOf(keira).Fields.Count == project.FindTemplate(keira.TemplateId).Fields.Count + 1
+                            && project.BaseTemplateIdOf(heroes) == top.TemplateId,
+                            "le modèle effectif = le modèle de base de l'ensemble + 1 champ propre");
+                        keira.CategoryId = keptCategory;
+                        project.SheetCategories.Remove(heroes);
+                        shell.Binder.SelectItem(project.Category(Project.KeySheets).Id);
+                        await Settle();
+                        shell.Binder.SelectItem(keira.Id);
+                        await Settle();
+                        Check(shell.Sheet != null && !shell.Sheet.HasFieldBoxForProbe(oath.Id), "sous-catégorie retirée : le champ propre disparaît de la fiche");
+                    }
+                    else Console.WriteLine("  [sonde] Keira introuvable : sous-catégories sautées");
+                }
+
+                // — Hygiène des liens (1.0.5) : renommer une fiche recible ses
+                //   [[liens]], Ctrl+Z rend les deux.
+                {
+                    var project = shell.Project;
+                    var keira = project.FindByTitle("Keira Varenh");
+                    if (keira != null)
+                    {
+                        var writingsRoot = project.Category(Project.KeyWritings);
+                        var scratch = new BinderItem { Kind = ItemKind.Text, Title = "Brouillon (sonde liens)" };
+                        scratch.Document.Paragraphs.Clear();
+                        var paragraph = new TextParagraph();
+                        paragraph.Runs.Add(new TextRun { Text = "Avec [[Keira Varenh]] et [[keira varenh|elle]]." });
+                        scratch.Document.Paragraphs.Add(paragraph);
+                        scratch.Parent = writingsRoot;
+                        writingsRoot.Children.Add(scratch);
+                        var linksBefore = LinkHygiene.CountLinksTo(project, "Keira Varenh");
+                        var history = shell.HistoryForProbe;
+                        history.Run(new History.RenameItemAction(keira, "Keira Varenh (sonde)", project));
+                        await Settle();
+                        var flat = PivotEdit.FlatText(scratch.Document.Paragraphs[0]);
+                        Check(keira.Title == "Keira Varenh (sonde)" && flat == "Avec [[Keira Varenh (sonde)]] et [[Keira Varenh (sonde)|elle]].",
+                            "renommer la fiche recible ses liens (« " + flat + " »)");
+                        Check(LinkHygiene.CountLinksTo(project, "Keira Varenh (sonde)") == linksBefore, "…tous les liens du projet (" + linksBefore + ")");
+                        history.Undo();
+                        await Settle();
+                        Check(keira.Title == "Keira Varenh" && PivotEdit.FlatText(scratch.Document.Paragraphs[0]) == "Avec [[Keira Varenh]] et [[keira varenh|elle]].",
+                            "Ctrl+Z rend le titre et les liens tels quels");
+                        writingsRoot.Children.Remove(scratch);
+                        shell.Binder.Rebuild();
+                        await Settle();
+                    }
+                }
+
                 // — Les polices manquantes (07/10) : un style qui demande une
                 //   police inconnue allume la pastille rouge ; un remplacement
                 //   global l'apaise et le moteur sert la remplaçante ; le

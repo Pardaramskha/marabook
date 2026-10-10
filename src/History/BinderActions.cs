@@ -189,16 +189,46 @@ namespace Marabook.History
         private readonly BinderItem _item;
         private readonly string _oldTitle;
         private readonly string _newTitle;
+        // L'hygiène des liens (1.0.5) : avec le projet, les [[liens]] qui
+        // visaient l'ancien titre suivent le nouveau — si l'item renommé
+        // est bien celui que ce titre désignait (FindByTitle). Le plan est
+        // bâti au premier Do, rejoué tel quel ensuite.
+        private readonly Project _project;
+        private ReplacePlan _plan;
+        private bool _planned;
 
-        public RenameItemAction(BinderItem item, string newTitle)
+        public RenameItemAction(BinderItem item, string newTitle) : this(item, newTitle, null) { }
+
+        public RenameItemAction(BinderItem item, string newTitle, Project project)
         {
             _item = item;
             _oldTitle = item.Title;
             _newTitle = newTitle;
+            _project = project;
         }
 
-        public void Do() { _item.Title = _newTitle; }
-        public void Undo() { _item.Title = _oldTitle; }
+        public BinderItem Item { get { return _item; } }
+        /// <summary>Le plan des liens reciblés — null tant que rien n'a suivi.</summary>
+        public ReplacePlan Plan { get { return _plan != null && _plan.Edits.Count > 0 ? _plan : null; } }
+        public bool Touches(BinderItem item) { return Plan != null && Plan.Touches(item); }
+
+        public void Do()
+        {
+            if (!_planned)
+            {
+                _planned = true;
+                if (_project != null && _project.FindByTitle(_oldTitle) == _item)
+                    _plan = LinkHygiene.Retarget(_project, _oldTitle, _newTitle);
+            }
+            _item.Title = _newTitle;
+            if (_plan != null) _plan.Apply(_project, true);
+        }
+
+        public void Undo()
+        {
+            if (_plan != null) _plan.Apply(_project, false);
+            _item.Title = _oldTitle;
+        }
     }
 
     /// <summary>Changes an item's Binder icon (null restores the default).</summary>
@@ -379,17 +409,31 @@ namespace Marabook.History
     public class EmptyTrashAction : IUndoableAction
     {
         private readonly BinderItem _trash;
+        private readonly Project _project;
         private List<BinderItem> _purged;
+        // L'hygiène des liens (1.0.5) : les relations et champs « Fiche
+        // liée » qui visaient un item purgé partent avec lui (et reviennent
+        // avec lui). Sans projet, rien de plus que la corbeille.
+        private List<LinkHygiene.Orphan> _orphans;
 
-        public EmptyTrashAction(BinderItem trash)
+        public EmptyTrashAction(BinderItem trash) : this(trash, null) { }
+
+        public EmptyTrashAction(BinderItem trash, Project project)
         {
             _trash = trash;
+            _project = project;
         }
+
+        public int OrphansRemoved { get { return _orphans == null ? 0 : _orphans.Count; } }
 
         public void Do()
         {
             _purged = new List<BinderItem>(_trash.Children);
             _trash.Children.Clear();
+            if (_project == null) return;
+            var ids = new HashSet<string>();
+            foreach (var purged in _purged) LinkHygiene.CollectIds(purged, ids);
+            _orphans = LinkHygiene.Purge(_project, ids);
         }
 
         public void Undo()
@@ -400,6 +444,7 @@ namespace Marabook.History
                 purged.Parent = _trash;
                 _trash.Children.Add(purged);
             }
+            LinkHygiene.Restore(_orphans);
         }
     }
 }

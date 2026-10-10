@@ -257,7 +257,7 @@ namespace Marabook.App
             Modules.Changed += delegate
             {
                 if (_current != null && _current.Kind == ItemKind.Sheet && _sheetView.IsVisible)
-                    _sheetView.LoadItem(_current, _project.FindTemplate(_current.TemplateId));
+                    _sheetView.LoadItem(_current, _project.TemplateOf(_current));
                 if (_project != null) _sheetLibrary.Refresh();
                 if (_journalView.IsVisible) _journalView.RefreshAchievements();
                 // Une carte mentale ouverte suit l'arrivée ou le départ du module (22/09).
@@ -1384,6 +1384,22 @@ namespace Marabook.App
                 if (_sheetLibrary.IsVisible) _sheetLibrary.Refresh();
                 _binder.Rebuild();
                 UpdateInspector();
+                return;
+            }
+            // Un renommage (1.0.5) : les [[liens]] qui visaient l'ancien titre
+            // ont suivi — la vue ouverte recharge si elle en portait, et
+            // l'auteur est prévenu de ce qui a bougé.
+            var rename = action as History.RenameItemAction;
+            if (rename != null)
+            {
+                MarkDirty();
+                if (rename.Plan == null) return;
+                if (_current != null && rename.Touches(_current)) ReloadCurrentView();
+                var where = rename.Plan.Items.Count == 1 ? "1 élément" : rename.Plan.Items.Count + " éléments";
+                var what = rename.Plan.Occurrences == 1 ? "1 lien" : rename.Plan.Occurrences + " liens";
+                ShowToast(null, undone ? "Liens rendus" : "Liens mis à jour",
+                    what + " dans " + where + (undone ? " visent de nouveau « " + rename.Item.Title + " »." : " visent maintenant « " + rename.Item.Title + " »."),
+                    undone ? null : Ui.Keys("Ctrl+Z") + " annule le renommage et les liens", 4);
                 return;
             }
             // Les restaurations (b38) : même règle du document ouvert.
@@ -3085,7 +3101,7 @@ namespace Marabook.App
             if (item != null && item.Kind == ItemKind.Sheet)
             {
                 _editor.Clear();
-                _sheetView.LoadItem(item, _project.FindTemplate(item.TemplateId));
+                _sheetView.LoadItem(item, _project.TemplateOf(item));
                 _sheetView.IsVisible = true;
                 return;
             }
@@ -3369,21 +3385,20 @@ namespace Marabook.App
                 _binder.SelectItem(target.Id);
                 return;
             }
-            var answer = MessageDialog.Show(this,
-                "Aucun élément ne s'intitule « " + title + " ».\nCréer une fiche à ce nom ?",
-                AppName, MessageButtons.YesNo, MessageIcon.Question);
-            if (await answer != MessageResult.Yes) return;
+            // Un lien mort (1.0.5) : la fiche se crée ici même, titre
+            // pré-rempli, CATÉGORIE au choix — plus de fiche parachutée dans
+            // la première catégorie.
+            var choice = await NewSheetDialog.Ask(this, _project, null, title,
+                "Aucun élément ne s'intitule « " + title + " » — la fiche sera créée :");
+            if (choice == null) return;
             var sheets = _project.Category(Project.KeySheets);
-            // Une fiche née d'un [[lien]] rejoint la première catégorie
-            // (batch 31) — déplaçable ensuite depuis la bibliothèque.
-            var home = _project.SheetCategories.Count > 0
-                ? _project.SheetCategories[0] : null;
+            var home = _project.FindSheetCategory(choice.CategoryId);
             var sheet = new BinderItem
             {
                 Kind = ItemKind.Sheet,
-                Title = title,
+                Title = choice.Title,
                 CategoryId = home != null ? home.Id : null,
-                TemplateId = home != null ? home.TemplateId : null
+                TemplateId = _project.BaseTemplateIdOf(home)
             };
             _history.Run(new History.AddItemAction(sheets, sheet, -1));
             MarkDirty();
@@ -3769,7 +3784,7 @@ namespace Marabook.App
             _project.Templates = templates;
             // Re-render the current sheet: its fields may have changed.
             if (_current != null && _current.Kind == ItemKind.Sheet)
-                _sheetView.LoadItem(_current, _project.FindTemplate(_current.TemplateId));
+                _sheetView.LoadItem(_current, _project.TemplateOf(_current));
             MarkDirty();
         }
 
@@ -4293,12 +4308,12 @@ namespace Marabook.App
                 foreach (var sheet in _project.AllItems())
                 {
                     if (sheet.Kind != ItemKind.Sheet || sheet.IsDescendantOf(_project.Trash)) continue;
-                    var category = _project.SheetCategoryOf(sheet);
+                    var category = _project.TopSheetCategoryOf(sheet);
                     if (category == null) continue;
                     var isCharacter = Achievements.IsCharacterCategory(category.Name);
                     var isPlace = category.Name.Trim().ToLowerInvariant().StartsWith("lieu");
                     if (!isCharacter && !isPlace) continue;
-                    var names = Presence.NamesOf(sheet, _project.FindTemplate(sheet.TemplateId));
+                    var names = Presence.NamesOf(sheet, _project.TemplateOf(sheet));
                     if (names.Count == 0) continue;
                     var entry = new ExtraPages.IndexEntry { Name = sheet.Title, Category = isCharacter ? "Personnages" : "Lieux" };
                     foreach (var text in story)
@@ -5606,7 +5621,7 @@ namespace Marabook.App
             {
                 _inspTitle.Text = item.Title;
                 var template = item.Kind == ItemKind.Sheet
-                    ? _project.FindTemplate(item.TemplateId) : null;
+                    ? _project.TemplateOf(item) : null;
                 _inspKind.Text = item.IsCategory ? "Catégorie"
                                : item.Kind == ItemKind.Folder ? "Dossier"
                                : item.Kind == ItemKind.Sheet
@@ -5931,7 +5946,7 @@ namespace Marabook.App
             var project = _project;
             var rows = Presence.In(_current, project, delegate(BinderItem sheet)
             {
-                var category = project.SheetCategoryOf(sheet);
+                var category = project.TopSheetCategoryOf(sheet);
                 return category != null && Achievements.IsCharacterCategory(category.Name);
             });
             if (rows.Count == 0)
