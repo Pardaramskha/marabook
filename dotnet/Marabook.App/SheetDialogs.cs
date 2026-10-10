@@ -61,6 +61,11 @@ namespace Marabook.App
         private List<SheetTemplate> _shadow;
         private string _shadowPrint, _lastKey;
         private DateTime _lastWhen;
+        // Le mode « un seul modèle » (1.0.5) : les champs propres d'une
+        // sous-catégorie — pas de liste, pas de nom, les onglets Sections et
+        // Champs seulement (ni relations, ni suivi, ni graph : ils viennent
+        // du modèle de base).
+        private readonly bool _single;
 
         private static List<SheetTemplate> Clones(List<SheetTemplate> list)
         {
@@ -138,16 +143,17 @@ namespace Marabook.App
             FillList(stillThere ? currentId : null);
         }
 
-        private TemplatesDialog(Window owner, List<SheetTemplate> source, Project project)
+        private TemplatesDialog(Window owner, List<SheetTemplate> source, Project project, string singleTitle = null)
         {
             _project = project;
+            _single = singleTitle != null;
             _templates = new List<SheetTemplate>();
             foreach (var template in source) _templates.Add(template.Clone());
 
-            Title = "Modèles de fiches";
+            Title = _single ? singleTitle : "Modèles de fiches";
             Owner = owner;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            Width = 920;
+            Width = _single ? 700 : 920;
             Height = 600;
             MinWidth = 720;
             MinHeight = 440;
@@ -156,7 +162,7 @@ namespace Marabook.App
             Background = Chrome.RaisedBg;
 
             var root = new Grid { Margin = new Thickness(14) };
-            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
+            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(_single ? 0 : 220) });
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // le filet vertical
             root.ColumnDefinitions.Add(new ColumnDefinition());
             root.RowDefinitions.Add(new RowDefinition());
@@ -174,14 +180,14 @@ namespace Marabook.App
             _list.SelectionChanged += delegate { CommitName(); ShowTemplate(SelectedTemplate()); };
             left.Children.Add(_list);
             Grid.SetColumn(left, 0);
-            root.Children.Add(left);
+            if (!_single) root.Children.Add(left);
 
             // Un filet vertical sur les deux rangées : il sépare aussi le bas
             // (boutons de la liste | Valider / Annuler).
             var divider = new Border { Width = 1, Background = Chrome.Border, Margin = new Thickness(14, 0, 14, 0) };
             Grid.SetColumn(divider, 1);
             Grid.SetRowSpan(divider, 2);
-            root.Children.Add(divider);
+            if (!_single) root.Children.Add(divider);
 
             // --- right: name + tabs ---
             var right = new DockPanel();
@@ -199,7 +205,21 @@ namespace Marabook.App
             _nameBox.TextChanged += delegate { CommitName(); }; // le nom suit la frappe (et l'historique, 1.0.4)
             nameRow.Children.Add(_nameBox);
             DockPanel.SetDock(nameRow, Dock.Top);
-            right.Children.Add(nameRow);
+            if (!_single) right.Children.Add(nameRow);
+            else
+            {
+                var hint = new TextBlock
+                {
+                    Text = "Ces champs s'ajoutent, sur chaque fiche de la sous-catégorie, à ceux du modèle de base de la catégorie d'ensemble — "
+                        + "ils peuvent rejoindre une section du modèle ou une section à eux.",
+                    Foreground = Chrome.SoftText,
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 10)
+                };
+                DockPanel.SetDock(hint, Dock.Top);
+                right.Children.Add(hint);
+            }
 
             var tabs = new TabControl();
 
@@ -217,7 +237,7 @@ namespace Marabook.App
             };
             _relationsCheck.Checked += delegate { if (_current != null && !_syncing) { _current.Relations = true; Record("+relations"); } };
             _relationsCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Relations = false; Record("+relations"); } };
-            sectionsFoot.Children.Add(_relationsCheck);
+            if (!_single) sectionsFoot.Children.Add(_relationsCheck);
             DockPanel.SetDock(sectionsFoot, Dock.Bottom);
             sectionsDock.Children.Add(sectionsFoot);
             _sectionsPanel = new StackPanel();
@@ -226,7 +246,8 @@ namespace Marabook.App
                 [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Auto,
                 Content = _sectionsPanel
             });
-            tabs.Items.Add(new TabItem { Header = "Sections", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = sectionsDock } });
+            var sectionsTab = new TabItem { Header = "Sections", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = sectionsDock } };
+            if (!_single) tabs.Items.Add(sectionsTab);
 
             // — Sections extras (21/09) : deux sous-onglets, Suivi (la traque
             //   des noms dans les écrits, avec son amplitude) et Évolution (la
@@ -267,7 +288,7 @@ namespace Marabook.App
             evolutionStack.Children.Add(_evolutionCheck);
             evolutionStack.Children.Add(Note("La section des étapes de la fiche, écrit par écrit ou en étapes libres nommées (« perd son bras », « apprend la vérité »…). Une fiche qui porte déjà des étapes les garde, section désactivée ou non.", 0));
             extras.Items.Add(new TabItem { Header = "Évolution", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = evolutionStack } });
-            tabs.Items.Add(new TabItem { Header = "Sections extras", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = extras } });
+            if (!_single) tabs.Items.Add(new TabItem { Header = "Sections extras", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = extras } });
 
             // — Champs : nom, nature, section.
             var fieldsDock = new DockPanel();
@@ -294,7 +315,8 @@ namespace Marabook.App
                 [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Auto,
                 Content = _fieldsPanel
             });
-            tabs.Items.Add(new TabItem { Header = "Champs", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = fieldsDock } });
+            tabs.Items.Add(new TabItem { Header = _single ? "Champs propres" : "Champs", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = fieldsDock } });
+            if (_single) tabs.Items.Add(sectionsTab); // les champs d'abord, les sections ensuite
 
             // — Graph statistique (b47 bis, « radar » jusqu'au 21/09) :
             //   optionnel par modèle, désactivé par défaut ; activé, la fiche
@@ -347,7 +369,7 @@ namespace Marabook.App
             radarDock.Children.Add(_addAxis);
             _axesPanel = new StackPanel();
             radarDock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _axesPanel });
-            tabs.Items.Add(new TabItem { Header = "Graph statistique", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = radarDock } });
+            if (!_single) tabs.Items.Add(new TabItem { Header = "Graph statistique", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = radarDock } });
             right.Children.Add(tabs);
             Grid.SetColumn(right, 2);
             root.Children.Add(right);
@@ -390,6 +412,26 @@ namespace Marabook.App
             var dialog = new TemplatesDialog(owner, source, project);
             await Dialogs.ShowModal(dialog, owner);
             return dialog._accepted ? dialog._templates : null;
+        }
+
+        /// <summary>Les champs propres d'une sous-catégorie (1.0.5) : le même
+        /// éditeur, sur un modèle transitoire qui porte ces champs et les
+        /// sections du modèle de base (pour y ranger un champ). Rend la
+        /// nouvelle liste de champs, ou null si annulé.</summary>
+        public static async Task<List<SheetField>> EditSubFields(Window owner, SheetCategory sub, SheetTemplate baseTemplate, Project project)
+        {
+            var transient = new SheetTemplate { Name = sub.Name };
+            if (baseTemplate != null) transient.Sections.AddRange(baseTemplate.Sections);
+            foreach (var field in sub.ExtraFields)
+            {
+                transient.Fields.Add(field.Clone());
+                if (field.Group.Length > 0 && !transient.HasSection(field.Group)) transient.Sections.Add(field.Group);
+            }
+            var dialog = new TemplatesDialog(owner, new List<SheetTemplate> { transient }, project,
+                "Champs propres de « " + (project != null ? project.CategoryPath(sub) : sub.Name) + " »");
+            await Dialogs.ShowModal(dialog, owner);
+            if (!dialog._accepted || dialog._templates.Count == 0) return null;
+            return dialog._templates[0].Fields;
         }
 
         /// <summary>L'explication sous une case à cocher, repliée (le libellé
@@ -870,7 +912,7 @@ namespace Marabook.App
         private readonly ComboBox _categoryCombo;
         private bool _accepted;
 
-        private NewSheetDialog(Window owner, Project project, string preselectedCategoryId)
+        private NewSheetDialog(Window owner, Project project, string preselectedCategoryId, string title, string notice)
         {
             Title = "Nouvelle fiche";
             Owner = owner;
@@ -881,20 +923,27 @@ namespace Marabook.App
             Background = Chrome.RaisedBg;
 
             var panel = new StackPanel { Margin = new Thickness(16), MinWidth = 320 };
+            if (!string.IsNullOrEmpty(notice)) // un lien mort (1.0.5)
+                panel.Children.Add(new TextBlock { Text = notice, Foreground = Chrome.SoftText, TextWrapping = TextWrapping.Wrap, MaxWidth = 360, Margin = new Thickness(0, 0, 0, 10) });
             panel.Children.Add(new TextBlock { Text = "Titre :", Foreground = Chrome.Ink, Margin = new Thickness(0, 0, 0, 4) });
-            _titleBox = new TextBox { Text = "Nouvelle fiche" };
+            _titleBox = new TextBox { Text = string.IsNullOrEmpty(title) ? "Nouvelle fiche" : title };
             _titleBox.SelectAll();
             panel.Children.Add(_titleBox);
 
             panel.Children.Add(new TextBlock { Text = "Catégorie :", Foreground = Chrome.Ink, Margin = new Thickness(0, 10, 0, 4) });
             _categoryCombo = new ComboBox();
-            foreach (var category in project.SheetCategories)
+            // Les catégories d'ensemble, chacune suivie de ses sous-catégories
+            // (1.0.5) — le modèle d'une sous-catégorie est celui de l'ensemble,
+            // plus ses champs propres.
+            foreach (var category in project.OrderedCategories())
             {
-                var template = project.FindTemplate(category.TemplateId);
+                var template = project.FindTemplate(project.BaseTemplateIdOf(category));
+                var extras = category.ExtraFields.Count;
                 _categoryCombo.Items.Add(new ComboBoxItem
                 {
-                    Content = category.Name
-                        + (template != null ? "  ·  modèle " + template.Name : ""),
+                    Content = (category.IsSub ? "      › " : "") + category.Name
+                        + (template != null ? "  ·  modèle " + template.Name : "")
+                        + (extras > 0 ? " + " + extras + (extras == 1 ? " champ propre" : " champs propres") : ""),
                     Tag = category.Id
                 });
             }
@@ -944,9 +993,9 @@ namespace Marabook.App
         }
 
         /// <summary>Le titre et la catégorie choisis, ou null si annulé (ou titre vide).</summary>
-        public static async Task<Choice> Ask(Window owner, Project project, string preselectedCategoryId = null)
+        public static async Task<Choice> Ask(Window owner, Project project, string preselectedCategoryId = null, string initialTitle = null, string notice = null)
         {
-            var dialog = new NewSheetDialog(owner, project, preselectedCategoryId);
+            var dialog = new NewSheetDialog(owner, project, preselectedCategoryId, initialTitle, notice);
             await Dialogs.ShowModal(dialog, owner);
             var title = (dialog._titleBox.Text ?? "").Trim();
             var chosen = dialog._categoryCombo.SelectedItem as ComboBoxItem;
@@ -957,6 +1006,50 @@ namespace Marabook.App
     }
 
     /// <summary>Le choix d'un lien (07/10) : la cible et le texte affiché.</summary>
+    /// <summary>Un choix dans une liste (09/10) : « Gabarit de pages »,
+    /// « Copier le gabarit vers un livre »… — jusque-là, ces deux gestes
+    /// empruntaient la fenêtre « Lien vers une fiche », qui disait le mauvais
+    /// titre (Rémi). Rend le libellé choisi, ou null.</summary>
+    public class PickDialog : Window
+    {
+        private readonly ComboBox _combo;
+        private string _result;
+
+        private PickDialog(Window owner, string title, string prompt, List<string> options, string okLabel)
+        {
+            Title = title;
+            Owner = owner;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            SizeToContent = SizeToContent.WidthAndHeight;
+            CanResize = false;
+            ShowInTaskbar = false;
+            Background = Chrome.RaisedBg;
+            var panel = new StackPanel { Margin = new Thickness(18, 16, 18, 14), MinWidth = 360 };
+            panel.Children.Add(new TextBlock { Text = prompt, Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Margin = new Thickness(0, 0, 0, 10) });
+            _combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MinWidth = 300 };
+            foreach (var option in options) _combo.Items.Add(option);
+            if (_combo.Items.Count > 0) _combo.SelectedIndex = 0;
+            panel.Children.Add(_combo);
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
+            var ok = new Button { Content = okLabel, IsDefault = true, MinWidth = 90 };
+            ok.Classes.Add("primary");
+            ok.Click += delegate { _result = _combo.SelectedItem as string; Close(); };
+            var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 90, Margin = new Thickness(8, 0, 0, 0) };
+            cancel.Click += delegate { _result = null; Close(); };
+            buttons.Children.Add(ok);
+            buttons.Children.Add(cancel);
+            panel.Children.Add(buttons);
+            Content = panel;
+        }
+
+        public static async Task<string> Ask(Window owner, string title, string prompt, List<string> options, string okLabel)
+        {
+            var dialog = new PickDialog(owner, title, prompt, options, okLabel);
+            await dialog.ShowDialog(owner);
+            return dialog._result;
+        }
+    }
+
     public sealed class LinkChoice
     {
         public string Target;

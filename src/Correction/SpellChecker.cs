@@ -27,8 +27,12 @@ namespace Marabook.Correction
                         AppDomain.CurrentDomain.BaseDirectory, "dict");
                     var aff = Path.Combine(folder, "fr-toutesvariantes.aff");
                     var dic = Path.Combine(folder, "fr-toutesvariantes.dic");
+                    // 1.0.5 : le complément maison (registre familier,
+                    // onomatopées, mots rares absents de Grammalecte) se
+                    // charge à côté — voir dict/fr-complement.dic.
+                    var complement = Path.Combine(folder, "fr-complement.dic");
                     if (File.Exists(aff) && File.Exists(dic))
-                        _engine = SpellEngine.Load(aff, dic);
+                        _engine = SpellEngine.Load(aff, dic, new[] { complement });
                 }
                 catch { _engine = null; }
                 return _engine;
@@ -59,6 +63,11 @@ namespace Marabook.Correction
 
         /// <summary>Dictionnaire personnel GLOBAL (AppSettings.Lexicon).</summary>
         public List<LexiconEntry> GlobalWords = new List<LexiconEntry>();
+
+        /// <summary>Les NÉOLOGISMES (1.0.5) : vrai, un mot inconnu mais bien
+        /// formé (Neologisms.Explain) est relevé dans sa catégorie, en
+        /// indice, au lieu d'une faute ; faux, il rougit comme avant.</summary>
+        public bool Neologisms = true;
 
         /// <summary>Enseigne un mot nu (entrée « autre ») dans la liste donnée.</summary>
         public static void Teach(List<LexiconEntry> list, string word)
@@ -98,11 +107,15 @@ namespace Marabook.Correction
             var findings = new List<Finding>();
             if (_engine == null || string.IsNullOrEmpty(text)) return findings;
             var tokens = FrenchTokenizer.Tokenize(text);
+            // Le familier (1.0.5) : les contractions de l'oral ont leur propre
+            // vérificateur ; l'orthographe ne les rougit pas.
+            var familiar = Familiar.Spans(text);
             foreach (var token in tokens)
             {
                 if (token.Kind != TokenKind.Word) continue;
                 var core = token.CoreSurface;
                 if (LetterCount(core) < 2) continue; // initiales (M.), résidus
+                if (familiar.Count > 0 && Familiar.Covers(familiar, token.Start, token.Start + token.Length)) continue;
                 // Le moteur D'ABORD, les appris ENSUITE (batch 29, 0.3) :
                 // même sémantique — un mot que le moteur accepte n'a pas
                 // besoin d'être appris — mais Learned sort du chemin des
@@ -111,6 +124,18 @@ namespace Marabook.Correction
                 if (Learned(core)) continue;
                 // Sigle : un tout-capitales inconnu se tait (SNCF).
                 if (token.Shape == CaseShape.AllCaps) continue;
+                // Les licences de la fiction (1.0.5, relevées sur « Le serment
+                // des gardiens du feu ») — jamais une faute :
+                // — un mot COUPÉ par des points de suspension (« je vole
+                //   vraim… ») : la parole s'interrompt, le fragment se tait ;
+                // — un ALLONGEMENT expressif (« chuuuuut », « trooooop ») : les
+                //   lettres triplées ramenées à une ou deux donnent un mot
+                //   connu ;
+                // — un mot DÉTACHÉ en syllabes (« gé-nial », « Vi-si-ter ») :
+                //   les segments recollés donnent un mot connu.
+                if (CutByEllipsis(text, token.CoreEnd)) continue;
+                if (Lengthened(core)) continue;
+                if (token.CoreParts.Length > 1 && Known(core.Replace("-", "").Replace("\u2011", ""))) continue;
 
                 if (token.CoreParts.Length > 1)
                 {
@@ -133,6 +158,56 @@ namespace Marabook.Correction
             return findings;
         }
 
+        /// <summary>Le mot est-il connu — moteur ou appris ? (la base des
+        /// règles de néologisme)</summary>
+        public bool Knows(string word)
+        {
+            return !string.IsNullOrEmpty(word) && (_engine.Accepts(word) || Learned(word));
+        }
+
+        private bool Known(string word)
+        {
+            return word.Length >= 2 && (_engine.Accepts(word) || Learned(word));
+        }
+
+        /// <summary>Des points de suspension collés à la fin du mot : « … »
+        /// ou « ... » juste après, sans espace.</summary>
+        private static bool CutByEllipsis(string text, int end)
+        {
+            if (end >= text.Length) return false;
+            if (text[end] == '\u2026') return true;
+            return end + 2 < text.Length && text[end] == '.' && text[end + 1] == '.' && text[end + 2] == '.';
+        }
+
+        /// <summary>Une lettre répétée trois fois ou plus : les formes
+        /// ramenées à une lettre, puis à deux, sont-elles connues ?</summary>
+        private bool Lengthened(string word)
+        {
+            var triple = false;
+            for (var i = 2; i < word.Length && !triple; i++)
+                if (word[i] == word[i - 1] && word[i] == word[i - 2]) triple = true;
+            if (!triple) return false;
+            return Known(Collapse(word, 1)) || Known(Collapse(word, 2));
+        }
+
+        /// <summary>Les séquences de trois lettres identiques ou plus ramenées
+        /// à « keep » lettres (les doubles restent des doubles).</summary>
+        public static string Collapse(string word, int keep)
+        {
+            var sb = new System.Text.StringBuilder(word.Length);
+            var i = 0;
+            while (i < word.Length)
+            {
+                var j = i;
+                while (j < word.Length && word[j] == word[i]) j++;
+                var run = j - i;
+                var kept = run >= 3 ? Math.Min(keep, run) : run;
+                for (var k = 0; k < kept; k++) sb.Append(word[i]);
+                i = j;
+            }
+            return sb.ToString();
+        }
+
         /// <summary>Les signalements naissent SANS suggestions : les calculer
         /// pour chaque mot inconnu d'une passe coûterait des secondes sur un
         /// texte très fautif (mesuré : ~1,6 ms par mot). L'interface les
@@ -140,6 +215,22 @@ namespace Marabook.Correction
         /// contextuel, panneau) — avec cache par mot.</summary>
         private Finding Report(string word, int start, int length)
         {
+            // Un néologisme bien formé (1.0.5) : sa catégorie, en indice, la
+            // raison dans le message — le menu propose toujours de l'apprendre.
+            var why = Neologisms ? Correction.Neologisms.Explain(word, Knows) : null;
+            if (why != null)
+                return new Finding
+                {
+                    Start = start,
+                    Length = length,
+                    Category = FindingCategory.Neologism,
+                    Severity = FindingSeverity.Hint,
+                    Message = "« " + word + " » : néologisme — " + why + " ; absent du dictionnaire",
+                    RuleId = Correction.Neologisms.Rule,
+                    CheckerId = Id,
+                    Word = word,
+                    Suggests = SuggestionSource.Spelling
+                };
             return new Finding
             {
                 Start = start,

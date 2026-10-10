@@ -39,6 +39,13 @@ namespace Marabook.App
             Opened += async delegate
             {
                 await Task.Delay(50);
+                if (_launch.PagesProbe != null)
+                {
+                    try { PagesDiagnostic(_launch.PagesProbe); }
+                    catch (Exception error) { Console.WriteLine("PAGES ÉCHEC : " + error); Environment.ExitCode = 1; }
+                    QuitNow();
+                    return;
+                }
                 if (_launch.PlotPath != null)
                 {
                     PendingOpen = null;
@@ -84,6 +91,14 @@ namespace Marabook.App
                 }
                 if (_launch.Probe) { await Probes.Run(this); QuitNow(); return; }
                 if (_launch.FontProbe != null) { FontProbe(_launch.FontProbe); QuitNow(); return; }
+                if (_launch.WordProbe != null) { WordProbe(_launch.WordProbe); QuitNow(); return; }
+                if (_launch.SpellingProbe != null)
+                {
+                    try { SpellingProbe(_launch.SpellingProbe); }
+                    catch (Exception error) { Console.WriteLine("ORTHO ÉCHEC : " + error); Environment.ExitCode = 1; }
+                    QuitNow();
+                    return;
+                }
                 if (_launch.UpdateProbe) { UpdateProbe(); QuitNow(); return; }
                 if (_launch.UpdateRolledBack)
                     await MessageDialog.Show(this, "La mise à jour n'a pas pu démarrer : la version précédente a été remise en place.\n\nRéessayez plus tard depuis Aide › Vérifier les mises à jour, ou téléchargez la release depuis GitHub.",
@@ -195,6 +210,89 @@ namespace Marabook.App
                     Console.WriteLine("    " + installed.Name);
         }
 
+        /// <summary>Diagnostic du dictionnaire (10/10) : « --mot a,b,c » — chaque
+        /// mot accepté (avec ses radicaux) ou refusé (avec ses suggestions) par
+        /// le moteur embarqué, dictionnaire complémentaire compris.</summary>
+        private static void WordProbe(string words)
+        {
+            var engine = Correction.SpellDictionary.Default;
+            if (engine == null) { Console.WriteLine("MOT — dictionnaire absent (dict/ à côté de l'exécutable)"); return; }
+            Console.WriteLine("MOT — " + engine.StemCount + " radicaux");
+            foreach (var raw in words.Split(','))
+            {
+                var word = raw.Trim();
+                if (word.Length == 0) continue;
+                bool noSuggest;
+                var ok = engine.AcceptsDetail(word, out noSuggest);
+                Console.WriteLine((ok ? "  accepté  " : "  REFUSÉ   ") + word
+                    + (ok ? "   radicaux : " + string.Join(", ", engine.Stems(word).ToArray()) + (noSuggest ? "   (jamais proposé)" : "")
+                          : "   suggestions : " + string.Join(", ", engine.Suggest(word).ToArray())));
+            }
+        }
+
+        /// <summary>Diagnostic de l'orthographe d'un projet (10/10) : « --ortho
+        /// <fichier.plot> » — écrit par écrit (titres filtrés par
+        /// MARABOOK_ORTHO_FIND, accents et casse pliés), les mots que le
+        /// correcteur signalerait, avec leur compte ; le dictionnaire du
+        /// projet est honoré, le dictionnaire global des réglages non.</summary>
+        private static void SpellingProbe(string path)
+        {
+            var engine = Correction.SpellDictionary.Default;
+            if (engine == null) { Console.WriteLine("ORTHO — dictionnaire absent"); return; }
+            var warnings = new List<string>();
+            var project = Persistence.PlotFile.Load(path, warnings);
+            var filter = Correction.FrenchTokenizer.Fold((Environment.GetEnvironmentVariable("MARABOOK_ORTHO_FIND") ?? "").Trim());
+            var checker = new Correction.SpellChecker(engine) { ProjectWords = project.Lexicon };
+            Console.WriteLine("ORTHO — " + project.Name + " (" + warnings.Count + " avertissement(s), " + project.Lexicon.Count + " entrées au dictionnaire du projet)");
+            var total = new Dictionary<string, int>();
+            var neologisms = new Dictionary<string, string>();
+            foreach (var item in project.AllItems())
+            {
+                if (item.Kind != ItemKind.Text || item.IsDescendantOf(project.Trash)) continue;
+                if (filter.Length > 0 && !Correction.FrenchTokenizer.Fold(item.Title ?? "").Contains(filter)) continue;
+                var counts = new Dictionary<string, int>();
+                var context = Environment.GetEnvironmentVariable("MARABOOK_ORTHO_CONTEXT") == "1";
+                foreach (var paragraph in item.Document.Paragraphs)
+                    foreach (var finding in checker.CheckParagraph(paragraph, project.Styles))
+                    {
+                        // Un néologisme (1.0.5) a sa catégorie : listé à part, avec sa raison.
+                        if (finding.Category == Correction.FindingCategory.Neologism) { neologisms[finding.Word] = finding.Message; continue; }
+                        if (context)
+                        {
+                            // Le voisinage du mot, caractères non lettres en points de code (un tiret
+                            // conditionnel, une espace fine, un trait d'union cachent un mot coupé).
+                            var flat = PivotEdit.FlatText(paragraph);
+                            var from = Math.Max(0, finding.Start - 24);
+                            var to = Math.Min(flat.Length, finding.Start + finding.Length + 24);
+                            var sb = new System.Text.StringBuilder();
+                            for (var i = from; i < to; i++)
+                            {
+                                var c = flat[i];
+                                if (char.IsLetterOrDigit(c) || c == ' ' || char.IsPunctuation(c) && c < 128) sb.Append(c);
+                                else sb.Append("<U+" + ((int)c).ToString("X4") + ">");
+                            }
+                            Console.WriteLine("    " + finding.Word + " ← …" + sb + "…");
+                        }
+                        int n;
+                        counts.TryGetValue(finding.Word, out n);
+                        counts[finding.Word] = n + 1;
+                        total.TryGetValue(finding.Word, out n);
+                        total[finding.Word] = n + 1;
+                    }
+                var words = new List<string>(counts.Keys);
+                words.Sort(string.CompareOrdinal);
+                var parts = new List<string>();
+                foreach (var word in words) parts.Add(word + (counts[word] > 1 ? " (" + counts[word] + ")" : ""));
+                Console.WriteLine("— " + item.Title + " : " + counts.Count + " mot(s) inconnu(s)" + (parts.Count > 0 ? " : " + string.Join(", ", parts.ToArray()) : ""));
+            }
+            Console.WriteLine("TOTAL : " + total.Count + " mots inconnus distincts");
+            if (neologisms.Count > 0)
+            {
+                Console.WriteLine("NÉOLOGISMES (" + neologisms.Count + ") :");
+                foreach (var pair in neologisms) Console.WriteLine("  " + pair.Value);
+            }
+        }
+
         /// <summary>Diagnostic de la sélection (1.0.3) : la tuile de ce titre,
         /// colorée si demandé, choisie dans la vue affichée (tableau d'un
         /// livre ou d'un dossier, bibliothèque de fiches).</summary>
@@ -283,6 +381,84 @@ namespace Marabook.App
         }
 
         /// <summary>Quitter sans question (sondes, captures) : rien à enregistrer.</summary>
+        /// <summary>--pages <fichier.plot> (09/10) : pour chaque livre du
+        /// projet, texte par texte, le compte de pages SEUL (celui du cache
+        /// de la coquille : panneau Publication, folios, barre d'état) contre
+        /// la place du texte dans le PDF publié (une seule composition du
+        /// manuscrit compilé). Le désaccord de Rémi sur « Le serment des
+        /// gardiens du feu » : 518 pages au panneau, 325 au BAT.</summary>
+        private void PagesDiagnostic(string path)
+        {
+            var warnings = new List<string>();
+            var project = Persistence.PlotFile.Load(path, warnings);
+            var fonts = new AvaloniaFontEngine();
+            Console.WriteLine("PAGES — " + project.Name + " (" + warnings.Count + " avertissement(s) au chargement, format v" + project.LoadedFormatVersion + ")");
+            foreach (var book in project.AllItems())
+            {
+                if (book.Kind != ItemKind.Book || book.Book == null) continue;
+                var texts = new List<BinderItem>();
+                CollectBookTexts(book, texts);
+                var setup = book.Book.Template;
+                var bookStyles = project.Styles.EffectiveFor(book);
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                var compiled = Links.Strip(Exchange.Compiler.Build(project, book, new Exchange.CompileOptions
+                {
+                    TitlePage = false, ChapterHeadings = false, PageBreakPerText = true, RectoChapterStarts = true
+                }));
+                var merged = Print.Composer.Compose(compiled, bookStyles, setup, project, fonts);
+                var mergedMs = watch.ElapsedMilliseconds;
+                var starts = new List<int>();
+                var cursor = 0;
+                foreach (var text in texts) { starts.Add(cursor); cursor += text.Document.Paragraphs.Count; }
+                Func<int, int> pageOf = delegate(int paragraph)
+                {
+                    for (var p = 0; p < merged.Pages.Count; p++)
+                        foreach (var line in merged.Pages[p].Lines)
+                            if (line.ParagraphIndex >= paragraph) return p;
+                    return merged.Pages.Count;
+                };
+                Console.WriteLine("Livre « " + book.Title + " » : " + texts.Count + " textes, format " + setup.PageWidthMm + "×" + setup.PageHeightMm
+                    + " mm, marges " + setup.MarginTopMm + "/" + setup.MarginBottomMm + "/" + setup.MarginLeftMm + "/" + setup.MarginRightMm);
+                Console.WriteLine("  PDF publié : " + merged.Pages.Count + " pages, " + compiled.Paragraphs.Count + " paragraphes, " + mergedMs + " ms");
+                Console.WriteLine("  " + "texte".PadRight(34) + " cache  page-propre  début-cache  début-PDF  pages-PDF (verso blanc compris)");
+                var offset = 0; var panel = 0;
+                for (var i = 0; i < texts.Count; i++)
+                {
+                    var text = texts[i];
+                    var own = text.Page ?? project.Page;
+                    var alone = Print.Composer.Compose(Links.Strip(text.Document), project.Styles.EffectiveFor(text), BookInfo.CountingPageFor(text, project), project, fonts);
+                    var a = alone.Pages.Count;
+                    var cuts = 0; var loose = 0;
+                    foreach (var layout in alone.Paragraphs) if (layout != null) foreach (var line in layout.Lines) { if (line.Hyphenated) cuts++; if (line.Loose) loose++; }
+                    var find = Environment.GetEnvironmentVariable("MARABOOK_PAGES_FIND");
+                    if (!string.IsNullOrEmpty(find) && alone.Source != null)
+                        for (var q = 0; q < alone.Source.Paragraphs.Count && q < alone.Paragraphs.Count; q++)
+                        {
+                            if (alone.Paragraphs[q] == null || alone.Source.Paragraphs[q].ToPlainText().IndexOf(find, StringComparison.Ordinal) < 0) continue;
+                            Console.WriteLine("  — « " + text.Title + " », paragraphe " + q + " (" + alone.Paragraphs[q].Lines.Count + " lignes) :");
+                            foreach (var line in alone.Paragraphs[q].Lines)
+                            {
+                                var sb = new System.Text.StringBuilder();
+                                foreach (var piece in line.Pieces) sb.Append(piece.Text ?? " ");
+                                Console.WriteLine("      |" + sb + "|" + (line.Hyphenated ? "  (coupe)" : "") + (line.Loose ? "  (LÂCHE ×" + line.LooseRatio.ToString("0.00") + ")" : ""));
+                            }
+                        }
+                    var b = Print.Composer.Compose(Links.Strip(text.Document), project.Styles.EffectiveFor(text), own, project, fonts).Pages.Count;
+                    var startPdf = pageOf(starts[i]);
+                    var endPdf = i + 1 < texts.Count ? pageOf(starts[i + 1]) : merged.Pages.Count;
+                    if (panel % 2 == 1) panel++;
+                    var startPanel = panel;
+                    panel += a;
+                    var title = (text.Title ?? "").Length > 34 ? text.Title.Substring(0, 34) : (text.Title ?? "").PadRight(34);
+                    Console.WriteLine("  " + title + " " + a.ToString().PadLeft(5) + " " + b.ToString().PadLeft(10) + " " + (startPanel + 1).ToString().PadLeft(12)
+                        + " " + (startPdf + 1).ToString().PadLeft(10) + " " + (endPdf - startPdf).ToString().PadLeft(10)
+                        + (startPanel != startPdf ? "   ≠ DÉBUT" : "") + (!own.SameLayout(setup) ? "   format ≠ livre" : "") + "   (" + cuts + " coupes, " + loose + " lâches)");
+                    offset = panel;
+                }
+                Console.WriteLine("  Total panneau Publication (comptes seuls + rectos) : " + panel + "   |   PDF : " + merged.Pages.Count);
+            }
+        }
+
         public void QuitNow()
         {
             _dirty = false;
@@ -291,6 +467,8 @@ namespace Marabook.App
         }
         public EditorView Editor { get { return _editor; } }
         public SheetView Sheet { get { return _sheetView; } }
+        internal SheetLibraryView SheetLibraryForProbe { get { return _sheetLibrary; } }
+        internal History.HistoryManager HistoryForProbe { get { return _history; } }
         internal PinnedPanel PinnedPanelForProbe { get { return _pinnedPanel; } }
         internal PlanView PlanForProbe { get { return _planView; } }
         public ComposedView Composed { get { return _editor == null ? null : _editor.Composed; } }

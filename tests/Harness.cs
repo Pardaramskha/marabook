@@ -128,6 +128,7 @@ namespace Marabook.Tests
                 FinalTests.Run,          // C37 — rapports de plantage, raccourcis de l'éditeur, succès (22/09)
                 ReviewTests.Run,         // C38 — revue du 22/09 : styles globaux, réglages, .plot, exports
                 ImageImportTests.Run,    // C39 — images des documents importés (23/09)
+                SubCategoryTests.Run,    // C50 — sous-catégories de fiches, hygiène des liens (1.0.5)
                 GrammarFilterTests.Run,  // C40 — second regard sur Grammalecte (23/09)
                 Patch050Tests.Run,       // C41 — patch 0.50.0 : sélection par mot, format d'insertion, notes riches (25/09)
                 ImagesTests.Run,         // C42 — refonte des images (26/09)

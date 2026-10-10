@@ -25,8 +25,7 @@ namespace Marabook.Tests
                 MarginTopMm = 20,
                 MarginBottomMm = 20,
                 MarginLeftMm = 25,
-                MarginRightMm = 25,
-                Hyphenation = true // le compositeur obéit au bouton du document
+                MarginRightMm = 25
             };
         }
 
@@ -99,7 +98,10 @@ namespace Marabook.Tests
             t.Suite("C4 — compositeur sur métriques fixes");
             LineBreaking(t);
             OversizedWordHyphenated(t);
-            DocumentToggleDisablesHyphenation(t);
+            DocumentToggleIgnored(t);
+            ElidedAndCompoundWordsHyphenated(t);
+            LooseLineFlagged(t);
+            CountingPageIsBookTemplate(t);
             ExceptionWordNeverHyphenated(t);
             WidowControl(t);
             OrphanControl(t);
@@ -193,20 +195,106 @@ namespace Marabook.Tests
             t.Equal(0.0, engine.Current.Paragraphs[0].Lines[0].Pieces[0].Origin.X, "FirstIndent 0 sans décalage de bloc : plus d'alinéa du style");
         }
 
-        /// <summary>Le bouton « Césure » du document (PageSetup.Hyphenation)
-        /// est respecté par le compositeur : désactivé, aucun mot n'est coupé
-        /// même si le style l'autorise (le mode composition l'ignorait).</summary>
-        private static void DocumentToggleDisablesHyphenation(Harness t)
+        /// <summary>Le drapeau « césure » de la page n'a PLUS d'effet (09/10) :
+        /// la césure se règle par style — à faux, un mot trop long se coupe
+        /// quand même si son style césure ; et une page neuve avec le style
+        /// Corps livré coupe d'office (ce que Rémi attendait d'un texte
+        /// importé de Word).</summary>
+        private static void DocumentToggleIgnored(Harness t)
         {
             var document = Document(CvWord(24));
             var setup = Setup();
             setup.Hyphenation = false;
-            var engine = new CompositionEngine(document, Styles(), setup,
-                null, false, new StubGlyphMetrics());
+            var engine = new CompositionEngine(document, Styles(), setup, null, false, new StubGlyphMetrics());
             engine.ComposeAll();
             var lines = engine.Current.Paragraphs[0].Lines;
-            t.Equal(1, lines.Count, "césure du document coupée : aucune coupe");
-            t.Check(!lines[0].Hyphenated, "la ligne ne porte pas de césure");
+            t.Check(lines.Count >= 2 && lines[0].Hyphenated, "drapeau de la page à faux : le style césure quand même");
+            var styles = Styles();
+            styles.Find("body").HyphenationEnabled = false;
+            engine = new CompositionEngine(document, styles, Setup(), null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            t.Check(!engine.Current.Paragraphs[0].Lines[0].Hyphenated, "style sans césure : aucune coupe");
+            var fresh = new PageSetup { PageWidthMm = Setup().PageWidthMm, PageHeightMm = Setup().PageHeightMm, MarginLeftMm = Setup().MarginLeftMm, MarginRightMm = Setup().MarginRightMm };
+            var imported = Document(CvWord(24));
+            imported.Paragraphs[0].StyleId = "body";
+            engine = new CompositionEngine(imported, StyleSheet.CreateDefault(), fresh, null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            t.Check(StyleSheet.CreateDefault().Body.HyphenationEnabled, "le style Corps livré césure");
+            t.Check(engine.Current.Paragraphs[0].Lines[0].Hyphenated, "page neuve + Corps : le mot se coupe, rien d'autre à régler");
+        }
+
+        /// <summary>La page qui COMPTE un écrit d'un livre est le gabarit du
+        /// livre (09/10) ; hors livre, sa page propre.</summary>
+        private static void CountingPageIsBookTemplate(Harness t)
+        {
+            var project = Project.CreateNew();
+            var writings = project.Category(Project.KeyWritings);
+            var book = new BinderItem { Title = "Livre", Kind = ItemKind.Book, Parent = writings, Book = new BookInfo() };
+            book.Book.Template = new PageSetup { PageWidthMm = 148, PageHeightMm = 210 };
+            writings.Children.Add(book);
+            var chapter = new BinderItem { Title = "Un", Kind = ItemKind.Text, Parent = book, Document = TextDocument.FromPlainText("Un."), Page = new PageSetup { PageWidthMm = 210 } };
+            book.Children.Add(chapter);
+            t.Check(BookInfo.CountingPageFor(chapter, project) == book.Book.Template, "dans un livre : le gabarit du livre, pas la page propre");
+            var loose = new BinderItem { Title = "Seul", Kind = ItemKind.Text, Parent = writings, Page = new PageSetup { PageWidthMm = 100 } };
+            writings.Children.Add(loose);
+            t.Check(BookInfo.CountingPageFor(loose, project) == loose.Page, "hors livre : sa page propre");
+            var compiled = Marabook.Exchange.Compiler.Build(project, book, new Marabook.Exchange.CompileOptions
+            {
+                TitlePage = false, ChapterHeadings = false, PageBreakPerText = true, RectoChapterStarts = true
+            });
+            t.Equal(1, compiled.Paragraphs.Count, "le manuscrit compilé reprend le paragraphe");
+        }
+
+        private static string LineText(ComposedLine line)
+        {
+            var sb = new StringBuilder();
+            foreach (var piece in line.Pieces) sb.Append(piece.Text ?? " ");
+            return sb.ToString();
+        }
+
+        /// <summary>Un mot élidé (« d’incompréhension ») et un mot composé
+        /// (« peut-être ») en bout de ligne se coupent (09/10) : le premier
+        /// derrière l'apostrophe avec le trait ajouté, le second à son trait
+        /// existant, sans en ajouter. Colonne de 37 caractères.</summary>
+        private static void ElidedAndCompoundWordsHyphenated(Harness t)
+        {
+            var engine = Compose(Document("xxxxxxxxxxxxxxxxxxxx d’incompréhension")); // 20 + 1 + 17 = 38 > 37
+            var lines = engine.Current.Paragraphs[0].Lines;
+            t.Check(lines.Count == 2 && lines[0].Hyphenated, "le mot élidé se coupe en bout de ligne (" + lines.Count + " lignes)");
+            var first = LineText(lines[0]);
+            t.Check(first.EndsWith("-") && !first.EndsWith("d’-") && first.Contains("d’in"), "…derrière l'apostrophe, trait ajouté (« " + first + " »)");
+            engine = Compose(Document("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx peut-être")); // 30 + 1 + 9 = 40 > 37 ; « peut- » : 36
+            lines = engine.Current.Paragraphs[0].Lines;
+            first = lines.Count > 0 ? LineText(lines[0]) : "";
+            t.Check(lines.Count == 2 && first.EndsWith("peut-") && !first.EndsWith("--"), "le mot composé se coupe à son trait, sans en ajouter (« " + first + " »)");
+            t.Check(lines.Count == 2 && LineText(lines[1]) == "être", "…la suite repart entière (« " + (lines.Count > 1 ? LineText(lines[1]) : "") + " »)");
+        }
+
+        /// <summary>Une ligne justifiée au-delà des tolérances du style (09/10) :
+        /// le déversoir d'urgence gonfle ses espaces, la ligne est LÂCHE
+        /// (LooseRatio = largeur finale d'un espace / naturelle) ; une ligne
+        /// qui se justifie dans les tolérances ne l'est pas.</summary>
+        private static void LooseLineFlagged(Harness t)
+        {
+            var styles = Styles();
+            styles.Find("body").Align = "justify";
+            // 16 + 1 + 16, puis 29 : le troisième mot (sans voyelle : incoupable)
+            // part à la ligne, le seul espace intérieur de la première doit
+            // avaler 20 px (quatre espaces).
+            var document = Document("bbbbbbbbbbbbbbbb bbbbbbbbbbbbbbbb ccccccccccccccccccccccccccccc");
+            var engine = new CompositionEngine(document, styles, Setup(), null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            var lines = engine.Current.Paragraphs[0].Lines;
+            t.Check(lines.Count == 2 && lines[0].Loose && lines[0].LooseRatio > 3, "une ligne dont l'espace a quadruplé est lâche (×" + (lines.Count > 0 ? lines[0].LooseRatio.ToString("0.0") : "?") + ")");
+            t.Check(lines.Count == 2 && !lines[1].Loose, "la dernière ligne du paragraphe n'est jamais lâche");
+            // Treize mots de deux lettres : douze tiennent (35 car.), onze
+            // espaces se partagent 10 px — 1,18 espace, dans les tolérances.
+            document = Document("bb bb bb bb bb bb bb bb bb bb bb bb bb bb");
+            engine = new CompositionEngine(document, styles, Setup(), null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            lines = engine.Current.Paragraphs[0].Lines;
+            t.Check(lines.Count == 2 && !lines[0].Loose && lines[0].LooseRatio > 1.0 && lines[0].LooseRatio < 1.5, "une ligne justifiée sans forcer n'est pas lâche (×" + (lines.Count > 0 ? lines[0].LooseRatio.ToString("0.00") : "?") + ")");
+            t.Check(ComposedLine.LooseSpaceRatio == 2.0, "le seuil : des espaces doublés");
         }
 
         /// <summary>Un mot des exceptions de césure du projet n'est jamais

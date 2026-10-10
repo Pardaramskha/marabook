@@ -344,7 +344,7 @@ namespace Marabook.App
             foreach (var sheet in sheets)
             {
                 var category = project.SheetCategoryOf(sheet);
-                combo.Items.Add(category != null ? sheet.Title + "  (" + category.Name + ")" : sheet.Title);
+                combo.Items.Add(category != null ? sheet.Title + "  (" + project.CategoryPath(category) + ")" : sheet.Title);
                 if (sheet.Id == value) selected = combo.Items.Count - 1;
             }
             if (value.Length > 0 && selected == 0)

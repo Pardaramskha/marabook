@@ -213,7 +213,7 @@ namespace Marabook.Model
                 if (trash != null && (item == trash || item.IsDescendantOf(trash))) continue;
                 if (filter != null && !filter(item)) continue;
                 // Le suivi du modèle et son amplitude (21/09) valent ici aussi.
-                var template = project.FindTemplate(item.TemplateId);
+                var template = project.TemplateOf(item);
                 if (!Tracks(template) || !InScope(text, template)) continue;
                 var count = CountIn(plain, NamesOf(item, template));
                 if (count == 0) continue;

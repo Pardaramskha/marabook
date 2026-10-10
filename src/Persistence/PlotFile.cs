@@ -169,7 +169,28 @@ namespace Marabook.Persistence
         //      Expression typique, Niveau de langue — UpgradeCharacterTemplate,
         //      idempotente) et les catégories Objet, Religion & Croyances et
         //      Langue sont ajoutées si leur nom manque (AddCategoriesOfV35).
-        private const int FormatVersion = 35;
+        // v36: CÉSURE (09/10) — rien de neuf dans le JSON ; la clé
+        //      « hyphenation » des pages (projet, écrits, gabarits) n'a PLUS
+        //      D'EFFET : la césure se règle par style (réglage « césure » de
+        //      chaque style), le bouton « Césure » du ruban est retiré — deux
+        //      commandes qui s'additionnaient pour un seul effet, et le défaut
+        //      muet du bouton (non) rendait le style Corps inopérant. La clé
+        //      reste écrite (vrai) pour les Marabook d'avant.
+        // v37: SOUS-CATÉGORIES de fiches (1.0.5, 10/10) — sur une entrée de
+        //      "categories" : "parent" (l'id de la catégorie d'ensemble ; omis
+        //      = catégorie) et "fields" (ses champs propres, même forme que
+        //      ceux d'un modèle ; omis = aucun). Une sous-catégorie n'a pas
+        //      de "template" : ses fiches naissent sur le modèle de base de
+        //      la catégorie d'ensemble, et le modèle effectif d'une fiche =
+        //      son modèle + ces champs (Project.TemplateOf). Un Marabook
+        //      d'avant lit l'entrée comme une catégorie ordinaire sans
+        //      modèle : les fiches gardent leurs valeurs (rangées par id de
+        //      champ), seuls les champs propres ne s'affichent pas.
+        // v38: MACROS DE STYLES (1.0.5, 10/10) — "shortcut" sur un style
+        //      (la notation des réglages : « Ctrl+D1 ») : la combinaison
+        //      applique le style dans l'éditeur. Omis = aucun. Vaut aussi
+        //      pour les styles globaux des réglages (même écriture).
+        private const int FormatVersion = 38;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -816,6 +837,7 @@ namespace Marabook.Persistence
                 if (style.Scope != ParagraphStyle.ScopeGlobal) s["scope"] = style.Scope; // v28
                 if (style.OwnerId != null) s["owner"] = style.OwnerId;
                 if (style.Content != null) s["content"] = style.Content;
+                if (!string.IsNullOrEmpty(style.Shortcut)) s["shortcut"] = style.Shortcut; // v38
                 s["font"] = style.FontFamily;
                 s["size"] = style.FontSize;
                 if (style.Bold) s["bold"] = true;
@@ -864,18 +886,7 @@ namespace Marabook.Persistence
                 var t = new Dictionary<string, object>();
                 t["id"] = template.Id;
                 t["name"] = template.Name;
-                var fields = new List<object>();
-                foreach (var field in template.Fields)
-                {
-                    var f = new Dictionary<string, object>();
-                    f["id"] = field.Id;
-                    f["name"] = field.Name;
-                    if (field.Kind != "text") f["kind"] = field.Kind;
-                    if (field.Group.Length > 0) f["group"] = field.Group;
-                    if (field.Options.Count > 0) f["options"] = new List<object>(field.Options.ToArray()); // v22
-                    fields.Add(f);
-                }
-                t["fields"] = fields;
+                t["fields"] = BuildFields(template.Fields);
                 if (template.Sections.Count > 0) // v19
                     t["sections"] = new List<object>(template.Sections.ToArray());
                 if (template.Relations) t["relations"] = true; // v19 — omis faux
@@ -916,10 +927,52 @@ namespace Marabook.Persistence
                 c["id"] = category.Id;
                 c["name"] = category.Name;
                 if (category.TemplateId != null) c["template"] = category.TemplateId;
+                if (category.IsSub) c["parent"] = category.ParentId; // v37
+                if (category.ExtraFields.Count > 0) c["fields"] = BuildFields(category.ExtraFields); // v37
                 categories.Add(c);
             }
             root["categories"] = categories;
             return root;
+        }
+
+        /// <summary>Les champs d'un modèle — ou les champs propres d'une
+        /// sous-catégorie (v37), même forme.</summary>
+        private static List<object> BuildFields(List<SheetField> source)
+        {
+            var fields = new List<object>();
+            foreach (var field in source)
+            {
+                var f = new Dictionary<string, object>();
+                f["id"] = field.Id;
+                f["name"] = field.Name;
+                if (field.Kind != "text") f["kind"] = field.Kind;
+                if (field.Group.Length > 0) f["group"] = field.Group;
+                if (field.Options.Count > 0) f["options"] = new List<object>(field.Options.ToArray()); // v22
+                fields.Add(f);
+            }
+            return fields;
+        }
+
+        private static void ReadFields(object node, List<SheetField> into)
+        {
+            var fields = Json.AsList(node);
+            if (fields == null) return;
+            foreach (var fieldEntry in fields)
+            {
+                var f = Json.AsObject(fieldEntry);
+                if (f == null) continue;
+                var field = new SheetField();
+                var fieldId = Json.AsString(Json.Field(f, "id"));
+                if (!string.IsNullOrEmpty(fieldId)) field.Id = fieldId;
+                field.Name = Json.AsString(Json.Field(f, "name")) ?? "Champ";
+                field.Kind = Json.AsString(Json.Field(f, "kind")) ?? "text"; // brut : Normalize à l'usage (une nature inconnue vaut texte)
+                field.Group = Json.AsString(Json.Field(f, "group")) ?? "";
+                var options = Json.AsList(Json.Field(f, "options")); // v22
+                if (options != null)
+                    foreach (var option in options)
+                        if (option is string && ((string)option).Length > 0) field.Options.Add((string)option);
+                into.Add(field);
+            }
         }
 
         private static Dictionary<string, object> BuildDocument(TextDocument document)
@@ -1248,6 +1301,7 @@ namespace Marabook.Persistence
                     style.Scope = Json.AsString(Json.Field(s, "scope")) ?? ParagraphStyle.ScopeGlobal; // v28
                     style.OwnerId = Json.AsString(Json.Field(s, "owner"));
                     style.Content = Json.AsString(Json.Field(s, "content"));
+                    style.Shortcut = Json.AsString(Json.Field(s, "shortcut")); // v38
                     style.FontFamily = Json.AsString(Json.Field(s, "font")) ?? "Georgia";
                     style.FontSize = Json.AsDouble(Json.Field(s, "size"), 15);
                     style.Bold = Json.AsBool(Json.Field(s, "bold"), false);
@@ -1305,7 +1359,7 @@ namespace Marabook.Persistence
             if (page.Columns > 3) page.Columns = 3;
             page.ShowMarginGuides = Json.AsBool(Json.Field(p, "showMargins"), true);
             page.LineNumbers = Json.AsBool(Json.Field(p, "lineNumbers"), false);
-            page.Hyphenation = Json.AsBool(Json.Field(p, "hyphenation"), false);
+            page.Hyphenation = Json.AsBool(Json.Field(p, "hyphenation"), true); // sans effet depuis la v36 (césure par style)
             page.FooterPageNumbers = Json.AsBool(Json.Field(p, "footerNumbers"), true);
             page.FooterFont = Json.AsString(Json.Field(p, "footerFont")) ?? "Times New Roman";
             page.FooterSizePt = Json.AsDouble(Json.Field(p, "footerSizePt"), 10);
@@ -1326,24 +1380,7 @@ namespace Marabook.Persistence
                     var id = Json.AsString(Json.Field(t, "id"));
                     if (!string.IsNullOrEmpty(id)) template.Id = id;
                     template.Name = Json.AsString(Json.Field(t, "name")) ?? "Modèle";
-                    var fields = Json.AsList(Json.Field(t, "fields"));
-                    if (fields != null)
-                        foreach (var fieldEntry in fields)
-                        {
-                            var f = Json.AsObject(fieldEntry);
-                            if (f == null) continue;
-                            var field = new SheetField();
-                            var fieldId = Json.AsString(Json.Field(f, "id"));
-                            if (!string.IsNullOrEmpty(fieldId)) field.Id = fieldId;
-                            field.Name = Json.AsString(Json.Field(f, "name")) ?? "Champ";
-                            field.Kind = Json.AsString(Json.Field(f, "kind")) ?? "text"; // brut : Normalize à l'usage (une nature inconnue vaut texte)
-                            field.Group = Json.AsString(Json.Field(f, "group")) ?? "";
-                            var options = Json.AsList(Json.Field(f, "options")); // v22
-                            if (options != null)
-                                foreach (var option in options)
-                                    if (option is string && ((string)option).Length > 0) field.Options.Add((string)option);
-                            template.Fields.Add(field);
-                        }
+                    ReadFields(Json.Field(t, "fields"), template.Fields);
                     var radar = Json.AsObject(Json.Field(t, "radar")); // v22
                     if (radar != null)
                     {
@@ -1398,6 +1435,8 @@ namespace Marabook.Persistence
                     if (!string.IsNullOrEmpty(id)) category.Id = id;
                     category.Name = Json.AsString(Json.Field(c, "name")) ?? "Catégorie";
                     category.TemplateId = Json.AsString(Json.Field(c, "template"));
+                    category.ParentId = Json.AsString(Json.Field(c, "parent")); // v37 — EnsureSheetCategories tranche les orphelines
+                    ReadFields(Json.Field(c, "fields"), category.ExtraFields); // v37
                     categories.Add(category);
                 }
             project.SheetCategories = categories;

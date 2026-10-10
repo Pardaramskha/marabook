@@ -220,7 +220,7 @@ namespace Marabook.Model
         {
             var target = TargetSheet(project, source, relation.TargetId);
             if (target == null) return null;
-            var gender = RelationKinds.GenderOf(source, project.FindTemplate(source.TemplateId));
+            var gender = RelationKinds.GenderOf(source, project.TemplateOf(source));
             var wanted = RelationKinds.Reciprocal(relation.Kind, gender);
             var mirror = FindMirror(target, source, wanted);
             if (mirror == null && previousKind != null)
@@ -252,7 +252,7 @@ namespace Marabook.Model
         {
             var target = TargetSheet(project, source, targetId);
             if (target == null) return false;
-            var gender = RelationKinds.GenderOf(source, project.FindTemplate(source.TemplateId));
+            var gender = RelationKinds.GenderOf(source, project.TemplateOf(source));
             var mirror = FindMirror(target, source, RelationKinds.Reciprocal(kind, gender));
             if (mirror == null) return false;
             target.Relations.Remove(mirror);

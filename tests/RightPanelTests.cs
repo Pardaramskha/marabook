@@ -47,6 +47,15 @@ namespace Marabook.Tests
             t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Category)), "une racine de la Pile : Général offert mais grisé (30/09), Recherche, l'épinglé");
             t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Category, true)), "l'Accueil garde son Général (les raccourcis)");
             t.Equal("inspector,search,pinned", Join(RightPanels.Offered(null)), "rien de sélectionné : Général et Recherche");
+            // Le Bilan de style (09/10) : un onglet en queue, le temps du bilan, pour un écrit seulement.
+            t.Equal("inspector,correction,search,versions,pinned,style-report", Join(RightPanels.Offered(ItemKind.Text, false, false, true)), "un écrit avec un bilan ouvert : l'onglet Bilan en queue");
+            t.Equal("inspector,correction,search,versions,pinned,lexicon,style-report", Join(RightPanels.Offered(ItemKind.Text, false, true, true)), "…après le Lexique s'il est là");
+            t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Sheet, false, false, true)), "une fiche n'a pas de bilan");
+            t.Check(ReferenceEquals(RightPanels.Offered(ItemKind.Text, false, false, true), RightPanels.Offered(ItemKind.Text, false, false, true)), "des instances fixes (le rail compare par référence)");
+            t.Check(!RightPanels.Available(RightPanel.StyleReport, false, true, ItemKind.Text), "Bilan sans bilan ouvert : indisponible");
+            t.Check(RightPanels.Available(RightPanel.StyleReport, false, true, ItemKind.Text, false, false, false, true), "…disponible le temps du bilan");
+            t.Check(!RightPanels.Available(RightPanel.StyleReport, false, true, ItemKind.Sheet, false, false, false, true), "…jamais sur une fiche");
+            t.Equal("style-report", RightPanels.Name(RightPanel.StyleReport), "son nom persisté");
             t.Check(RightPanels.DescribesCurrent(RightPanel.Inspector) && !RightPanels.DescribesCurrent(RightPanel.Search)
                 && !RightPanels.DescribesCurrent(RightPanel.Correction) && !RightPanels.DescribesCurrent(RightPanel.Versions),
                 "le filet sépare ce qui décrit l'élément (Général) des outils");

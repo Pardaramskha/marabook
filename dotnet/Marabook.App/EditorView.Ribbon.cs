@@ -843,7 +843,7 @@ namespace Marabook.App
         // ============================================================= « Mise en page » tab
 
         private ComboBox _marginsCombo, _sizeComboPage, _columnsCombo;
-        private ToggleButton _guidesBtn, _lineNumbersBtn, _hyphenBtn, _folioBtn;
+        private ToggleButton _guidesBtn, _lineNumbersBtn, _looseBtn, _folioBtn;
         private ToggleButton _marksBtn;
         private bool _syncingPage;
         private ComboBox _leadingCombo; // l'interligne du document (22/09)
@@ -958,13 +958,17 @@ namespace Marabook.App
             panel.Children.Add(Stacked(_guidesBtn, _lineNumbersBtn));
 
             panel.Children.Add(VerticalRuleTall());
-            _hyphenBtn = OneLineToggle("minus", "Césure", "Césure");
-            _hyphenBtn.Click += delegate
-            {
-                if (_project == null) return;
-                _pageSetup.Hyphenation = _hyphenBtn.IsChecked == true;
-                AfterPageSetupEdit();
-            };
+            // Lignes lâches (09/10) : à la place du bouton « Césure » (retiré :
+            // la césure se règle par style). Une bande jaune derrière chaque
+            // ligne dont la justification a dû au moins doubler les espaces —
+            // écran seulement, réglage de la machine, pas du document.
+            var looseGesture = Marabook.Settings.AppSettings.Gesture("loose-lines");
+            _looseBtn = OneLineToggle("highlighter-line", "Lignes lâches",
+                "Afficher ou masquer les lignes lâches" + (string.IsNullOrEmpty(looseGesture) ? "" : " (" + Marabook.Settings.AppSettings.DisplayGesture(looseGesture) + ")")
+                + " : une bande jaune derrière chaque ligne justifiée dont les espaces ont dû au moins doubler (écran seulement) — là où une césure manque, où l'approche peut aider");
+            _looseBtn.IsChecked = Marabook.Settings.AppSettings.ShowLooseLines;
+            ComposedRenderer.ShowLooseLines = Marabook.Settings.AppSettings.ShowLooseLines;
+            _looseBtn.Click += delegate { ApplyLooseLines(_looseBtn.IsChecked == true); };
             _folioBtn = OneLineToggle("numbered", "Folio", "Folio");
             _folioBtn.Click += delegate
             {
@@ -972,9 +976,23 @@ namespace Marabook.App
                 _pageSetup.FooterPageNumbers = _folioBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
-            panel.Children.Add(Stacked(_hyphenBtn, _folioBtn));
+            panel.Children.Add(Stacked(_looseBtn, _folioBtn));
             return panel;
         }
+
+        /// <summary>Le réglage des lignes lâches posé partout : réglages,
+        /// dessinateur, pages redessinées.</summary>
+        private void ApplyLooseLines(bool visible)
+        {
+            Marabook.Settings.AppSettings.ShowLooseLines = visible;
+            Marabook.Settings.AppSettings.Save();
+            _looseBtn.IsChecked = visible;
+            _composed.SetLooseLines(visible);
+        }
+
+        /// <summary>Sonde (09/10).</summary>
+        public bool LooseLinesShownForProbe { get { return _looseBtn != null && _looseBtn.IsChecked == true && ComposedRenderer.ShowLooseLines; } }
+        public void ToggleLooseLinesForProbe() { ApplyLooseLines(!Marabook.Settings.AppSettings.ShowLooseLines); }
 
         private TextBlock PageLabel(string text)
         {

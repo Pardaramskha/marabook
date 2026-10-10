@@ -98,6 +98,7 @@ namespace Marabook.Settings
             new ActionDefinition("indent-remove", EditorCategory, "Retirer le décalage", null),
             new ActionDefinition("middle-dot", EditorCategory, "Point médian", null),
             new ActionDefinition("formatting-marks", EditorCategory, "Caractères d'impression", null),
+            new ActionDefinition("loose-lines", EditorCategory, "Lignes lâches", "Ctrl+L"), // afficher / masquer (09/10)
         };
 
         /// <summary>La catégorie des actions que la surface composée résout
@@ -188,6 +189,7 @@ namespace Marabook.Settings
         public static bool WhitePaperInDark; // keep white pages under the dark theme
         public static bool StatsExpanded;    // « Statistiques » accordion of the inspector
         public static bool ShowAnnotations = true; // teintes + bulles de révision
+        public static bool ShowLooseLines = true;  // lignes lâches signalées à l'écran (09/10)
         public static bool ImageGrid;               // grille de placement des images (0.50.0)
         // Les [[liens]] du texte (18/09) : marques visibles et texte du lien
         // en évidence, ou marques masquées (défaut). Jamais persisté : chaque
@@ -225,6 +227,12 @@ namespace Marabook.Settings
         // Options du correcteur (batch 33) : ce qu'il RELÈVE — orthographe et
         // grammaire actives par défaut, typographie et style à la demande.
         public static bool SpellEnabled = true;
+        // Le familier et les néologismes (1.0.5) : deux catégories en indice,
+        // actives par défaut — le familier a son vérificateur, les
+        // néologismes sont une lecture de l'orthographe (un mot inconnu bien
+        // formé n'est plus une faute ; coupé, il rougit comme avant).
+        public static bool FamiliarEnabled = true;
+        public static bool NeologismsEnabled = true;
         public static bool TypographyEnabled;
         public static bool StyleEnabled;
         // L'étage style (batch 44) : sous l'interrupteur Style, ce qu'il
@@ -517,6 +525,7 @@ namespace Marabook.Settings
                 WhitePaperInDark = Json.AsBool(Json.Field(root, "whitePaperInDark"), false);
                 StatsExpanded = Json.AsBool(Json.Field(root, "statsExpanded"), false);
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
+                ShowLooseLines = Json.AsBool(Json.Field(root, "showLooseLines"), true);
                 ImageGrid = Json.AsBool(Json.Field(root, "imageGrid"), false);
                 LexiconPinned = Json.AsBool(Json.Field(root, "lexiconPinned"), false);
                 ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
@@ -540,6 +549,8 @@ namespace Marabook.Settings
                 }
                 GrammarEnabled = Json.AsBool(Json.Field(root, "grammarEnabled"), true);
                 SpellEnabled = Json.AsBool(Json.Field(root, "spellEnabled"), true);
+                FamiliarEnabled = Json.AsBool(Json.Field(root, "familiarEnabled"), true);
+                NeologismsEnabled = Json.AsBool(Json.Field(root, "neologismsEnabled"), true);
                 TypographyEnabled = Json.AsBool(Json.Field(root, "typographyEnabled"), false);
                 StyleEnabled = Json.AsBool(Json.Field(root, "styleEnabled"), false);
                 StyleRepetitions = Json.AsBool(Json.Field(root, "styleRepetitions"), true);
@@ -662,6 +673,7 @@ namespace Marabook.Settings
                 root["whitePaperInDark"] = WhitePaperInDark;
                 root["statsExpanded"] = StatsExpanded;
                 root["showAnnotations"] = ShowAnnotations;
+                root["showLooseLines"] = ShowLooseLines;
                 root["imageGrid"] = ImageGrid;
                 root["lexiconPinned"] = LexiconPinned;
                 root["proofEnabled"] = ProofEnabled;
@@ -673,6 +685,8 @@ namespace Marabook.Settings
                 if (RecentSpecialChars.Count > 0) root["recentSpecialChars"] = new List<object>(RecentSpecialChars.ToArray());
                 root["grammarEnabled"] = GrammarEnabled;
                 root["spellEnabled"] = SpellEnabled;
+                root["familiarEnabled"] = FamiliarEnabled;
+                root["neologismsEnabled"] = NeologismsEnabled;
                 root["typographyEnabled"] = TypographyEnabled;
                 root["styleEnabled"] = StyleEnabled;
                 root["styleRepetitions"] = StyleRepetitions;

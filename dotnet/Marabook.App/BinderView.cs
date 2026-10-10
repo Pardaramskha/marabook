@@ -46,6 +46,7 @@ namespace Marabook.App
         private bool _renameClosing;
 
         public event Action<BinderItem> SelectionChanged;
+        public event Action<BinderItem, string> OccurrenceRequested; // double-clic sur un résultat de la recherche de la Pile (09/10)
         public event Action StructureChanged; // a user-initiated, undoable change happened
         // Des fichiers du système déposés sur la Pile (29/09) : (conteneur
         // visé, chemins). Branché, la coquille décide (documents dans Écrits,
@@ -199,6 +200,22 @@ namespace Marabook.App
                 if (handler != null) handler(SelectedItem);
             };
 
+            // Double-clic sur un résultat (09/10) : l'OCCURRENCE elle-même
+            // (le simple clic ouvre l'élément) — la première du texte cherché.
+            _results.DoubleTapped += delegate(object sender, TappedEventArgs e)
+            {
+                var current = e.Source as Visual;
+                while (current != null && !(current is ListBoxItem))
+                    current = (current as Visual)?.GetVisualParent();
+                var entry = current as ListBoxItem;
+                if (entry == null || entry.Tag == null || _project == null) return;
+                var item = _project.FindById((string)entry.Tag);
+                var query = (_searchBox.Text ?? "").Trim();
+                if (item == null || query.Length == 0) return;
+                var handler = OccurrenceRequested;
+                if (handler != null) handler(item, query);
+            };
+
             var host = new Grid();
             host.Children.Add(_tree);
             host.Children.Add(_results);
@@ -304,7 +321,7 @@ namespace Marabook.App
             {
                 if (e.Key == Key.Escape) { _searchBox.Text = ""; e.Handled = true; }
             };
-            row.Children.Add(_searchBox);
+            row.Children.Add(Ui.WithClear(_searchBox, "Vider la recherche"));
             bar.Child = row;
             return bar;
         }
@@ -506,8 +523,10 @@ namespace Marabook.App
         {
             foreach (var child in item.Children)
                 if (child.Kind != ItemKind.Sheet) node.Items.Add(BuildNode(child));
+            // Catégories d'ensemble puis leurs sous-catégories (1.0.5), ces
+            // dernières nommées par leur chemin (« Personnage › Héros »).
             var groups = new List<KeyValuePair<SheetCategory, List<BinderItem>>>();
-            foreach (var category in _project.SheetCategories)
+            foreach (var category in _project.OrderedCategories())
                 groups.Add(new KeyValuePair<SheetCategory, List<BinderItem>>(category, new List<BinderItem>()));
             var loose = new List<BinderItem>();
             foreach (var child in item.Children)
@@ -522,7 +541,7 @@ namespace Marabook.App
             foreach (var group in groups)
             {
                 if (group.Value.Count == 0) continue;
-                node.Items.Add(CategoryRow(group.Key.Name));
+                node.Items.Add(CategoryRow(_project.CategoryPath(group.Key)));
                 foreach (var sheet in Alphabetical(group.Value)) node.Items.Add(BuildNode(sheet));
             }
             if (loose.Count > 0)
@@ -707,7 +726,7 @@ namespace Marabook.App
                 _renameBox = null;
                 var newTitle = (box.Text ?? "").Trim();
                 if (commit && newTitle.Length > 0 && newTitle != item.Title)
-                    RunAndSelect(new RenameItemAction(item, newTitle), item.Id, null);
+                    RunAndSelect(new RenameItemAction(item, newTitle, _project), item.Id, null); // les [[liens]] suivent (1.0.5)
                 else
                     Rebuild(); // restore the plain label
             };
@@ -802,7 +821,7 @@ namespace Marabook.App
                     return false;
                 }
             }
-            if (!_multi.Remove(item.Id)) _multi.Add(item.Id);
+            if (!_multi.Remove(item.Id)) { _multi.Add(item.Id); _multiAnchor = item; }
             if (_multi.Count == 1 && _selectedId != null && _multi.Contains(_selectedId)) _multi.Clear(); // retombé sur la seule ligne sélectionnée
             ApplyMultiVisuals();
             AnnounceMulti();
@@ -811,6 +830,37 @@ namespace Marabook.App
 
         /// <summary>La sonde : le Ctrl+clic sur cette ligne.</summary>
         internal void ToggleMultiForProbe(string id) { ToggleMulti(_project.FindById(id)); }
+
+        /// <summary>MAJ+clic (1.0.5) : tout ce qui se trouve entre l'ANCRE —
+        /// la ligne sélectionnée, ou la dernière du lot — et la ligne cliquée,
+        /// dans l'ordre de la Pile, parmi les lignes VISIBLES de la même
+        /// grande catégorie (un dossier replié n'ouvre pas ses enfants).
+        /// Faux si rien ne peut servir d'ancre.</summary>
+        private bool RangeMulti(BinderItem item)
+        {
+            if (item == null || item.IsCategory || item.RootCategory() == null) return false;
+            var anchor = _multi.Count > 0 ? _multiAnchor : SelectedItem;
+            if (anchor == null || anchor.IsCategory || anchor == item) return false;
+            var root = item.RootCategory().CategoryKey;
+            if (anchor.RootCategory() == null || anchor.RootCategory().CategoryKey != root) return false;
+            var order = new List<BinderItem>();
+            foreach (var candidate in _project.AllItems())
+                if (!candidate.IsCategory && _nodesById.ContainsKey(candidate.Id)
+                    && candidate.RootCategory() != null && candidate.RootCategory().CategoryKey == root)
+                    order.Add(candidate);
+            var a = order.IndexOf(anchor);
+            var b = order.IndexOf(item);
+            if (a < 0 || b < 0) return false;
+            for (var i = Math.Min(a, b); i <= Math.Max(a, b); i++) _multi.Add(order[i].Id);
+            ApplyMultiVisuals();
+            AnnounceMulti();
+            return true;
+        }
+        private BinderItem _multiAnchor; // la dernière ligne entrée dans le lot par Ctrl+clic
+
+        /// <summary>La sonde : le MAJ+clic sur cette ligne.</summary>
+        internal bool RangeMultiForProbe(string id) { return RangeMulti(_project.FindById(id)); }
+        internal int MultiCountForProbe { get { return _multi.Count; } }
 
         /// <summary>Le lot à la corbeille (1.0.3), une étape d'annulation.</summary>
         public void DeleteMany(List<BinderItem> items)
@@ -1032,6 +1082,25 @@ namespace Marabook.App
                 if (fromPile && item.CanHaveChildren && item.Children.Count > 1
                     && item.RootCategory().CategoryKey == Project.KeySheets)
                     AddMenu(menu, "Classer par ordre alphabétique", delegate { SortChildren(item); });
+                // Un dossier de Fiches (1.0.5) : « Gérer les fiches › Casser le
+                // dossier » — ses fiches rejoignent la racine Fiches, le
+                // dossier part à la corbeille. Depuis la Pile ou une tuile.
+                if (item.Kind == ItemKind.Folder && item.RootCategory().CategoryKey == Project.KeySheets)
+                {
+                    var manage = new MenuItem { Header = "Gérer les fiches" };
+                    var sheets = new List<BinderItem>();
+                    BreakFolderAction.CollectSheets(item, sheets);
+                    var breakFolder = new MenuItem
+                    {
+                        Header = "Casser le dossier",
+                        IsEnabled = sheets.Count > 0,
+                        [ToolTip.TipProperty] = sheets.Count == 0 ? "Aucune fiche dans ce dossier"
+                            : "Renvoyer " + (sheets.Count == 1 ? "sa fiche" : "ses " + sheets.Count + " fiches") + " dans la catégorie Fiches, puis mettre le dossier à la corbeille"
+                    };
+                    breakFolder.Click += delegate { BreakFolder(item); };
+                    manage.Items.Add(breakFolder);
+                    menu.Items.Add(manage);
+                }
                 // Le dossier Hors-livre (29/09) : ni renommé, ni changé d'icône, ni supprimé.
                 if (item.IsOutOfBook) return menu;
                 AddMenu(menu, "Renommer…", delegate { Rename(item); });
@@ -1367,7 +1436,7 @@ namespace Marabook.App
             }
             var answer = await InputDialog.Ask(Ui.OwnerOf(this), "Renommer", "Nouveau titre :", item.Title);
             if (answer == null || answer == item.Title) return;
-            RunAndSelect(new RenameItemAction(item, answer), item.Id, null);
+            RunAndSelect(new RenameItemAction(item, answer, _project), item.Id, null); // les [[liens]] suivent (1.0.5)
         }
 
         /// <summary>Renommage par dialogue SANS déplacer la sélection — le
@@ -1377,7 +1446,7 @@ namespace Marabook.App
             if (item == null || item.IsCategory) return;
             var answer = await InputDialog.Ask(Ui.OwnerOf(this), "Renommer", "Nouveau titre :", item.Title);
             if (answer == null || answer == item.Title) return;
-            RunAndSelect(new RenameItemAction(item, answer), null, null);
+            RunAndSelect(new RenameItemAction(item, answer, _project), null, null); // les [[liens]] suivent (1.0.5)
         }
 
         /// <summary>« Options du livre » (batch 32) : nom, icône, objectif de
@@ -1457,6 +1526,20 @@ namespace Marabook.App
             if (handler != null) handler(id);
         }
 
+        /// <summary>« Casser le dossier » (1.0.5) : les fiches à la racine
+        /// Fiches, le dossier à la corbeille — un cran d'annulation.</summary>
+        public void BreakFolder(BinderItem folder)
+        {
+            if (folder == null || folder.Kind != ItemKind.Folder || _project == null) return;
+            var root = folder.RootCategory();
+            if (root == null || root.CategoryKey != Project.KeySheets) return;
+            var action = new BreakFolderAction(folder, root, _project.Trash);
+            RunAndSelect(action, root.Id, root.Id);
+        }
+
+        /// <summary>La sonde : casser ce dossier.</summary>
+        internal void BreakFolderForProbe(string id) { BreakFolder(_project.FindById(id)); }
+
         public async void EmptyTrash()
         {
             if (_project.Trash.Children.Count == 0) return;
@@ -1467,7 +1550,7 @@ namespace Marabook.App
             // « Terre brûlée » / « Masochiste » : les suppressions DÉFINITIVES,
             // descendants compris (12/09).
             Settings.AppSettings.PermanentlyDeleted += Achievements.CountAll(_project.Trash.Children);
-            RunAndSelect(new EmptyTrashAction(_project.Trash), null, null);
+            RunAndSelect(new EmptyTrashAction(_project.Trash, _project), null, null); // relations et fiches liées purgées avec (1.0.5)
         }
 
         private void Restore(BinderItem item)
@@ -1529,6 +1612,18 @@ namespace Marabook.App
             // La sélection multiple (1.0.3) : Ctrl+clic ajoute ou retire la
             // ligne ; un clic ordinaire sur une ligne du lot attend le
             // relâchement (un glisser emporte le lot) ; ailleurs, le lot tombe.
+            // MAJ+clic (1.0.5) : la plage entre l'ancre et la ligne.
+            if ((e.KeyModifiers & KeyModifiers.Shift) == KeyModifiers.Shift && !Ui.HasCommand(e.KeyModifiers)
+                && _renameBox == null && clicked != null && !clicked.IsCategory && e.ClickCount == 1)
+            {
+                if (RangeMulti(clicked))
+                {
+                    _dragCandidate = clicked;
+                    _dragStart = e.GetPosition(_tree);
+                    e.Handled = true;
+                    return;
+                }
+            }
             if (Ui.HasCommand(e.KeyModifiers) && _renameBox == null && clicked != null && !clicked.IsCategory && e.ClickCount == 1)
             {
                 if (ToggleMulti(clicked))

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Marabook.Print;
 
@@ -13,7 +14,14 @@ namespace Marabook.Tests
         // Score mesuré à la création du harnais (batch 24) : 446 coupures
         // justes, 25 fautives, 22 manquées → 421. Toute régression sous ce
         // plancher échoue ; toute amélioration doit le relever.
-        public const int ScoreFloor = 421;
+        public const int ScoreFloor = 464; // 09/10 : groupes de consonnes, x intervocalique, finales muettes (421 avant)
+
+        private static string Mark(string word, List<int> cuts)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (var i = 0; i < word.Length; i++) { if (cuts.Contains(i)) sb.Append('-'); sb.Append(word[i]); }
+            return sb.ToString();
+        }
 
         public static void Run(Harness t)
         {
@@ -45,6 +53,12 @@ namespace Marabook.Tests
                 }
                 foreach (var cut in expected)
                     if (!produced.Contains(cut)) missed++;
+                if (Environment.GetEnvironmentVariable("MARABOOK_HYPHEN_DETAIL") == "1")
+                {
+                    var same = produced.Count == expected.Count;
+                    foreach (var cut in produced) if (!expected.Contains(cut)) same = false;
+                    if (!same) Console.WriteLine("    " + entry.PadRight(34) + " obtenu : " + Mark(word, produced));
+                }
             }
 
             var score = correct - faulty;
@@ -66,6 +80,20 @@ namespace Marabook.Tests
                     if (cut < 2 || word.Length - cut < 3) clean = false;
             }
             t.Check(clean, "minima 2/3 respectés sur tout le corpus");
+
+            // Élisions et mots composés (09/10) : « d’incompréhension » en bout
+            // de ligne laissait un trou immense (Rémi, chapitre 1 d'Enerya).
+            var elided = FrenchHyphenator.BreakPoints("d’incompréhension", 5, 2, 3);
+            t.Check(elided.Count > 0 && elided[0] >= 4, "« d’incompréhension » se coupe derrière l'apostrophe (" + string.Join(",", elided.ConvertAll(c => c.ToString()).ToArray()) + ")");
+            t.Check(!elided.Contains(2), "…jamais juste après l'apostrophe");
+            t.Check(FrenchHyphenator.BreakPoints("l'entourait", 5, 2, 3).Count > 0, "l'apostrophe droite aussi");
+            t.Equal(0, FrenchHyphenator.BreakPoints("qu’elle", 5, 2, 3).Count, "« qu’elle » : trop court derrière l'apostrophe");
+            t.Equal(0, FrenchHyphenator.BreakPoints("aujourd'hui", 5, 2, 3).Count, "« aujourd'hui » reste soudé");
+            t.Equal(0, FrenchHyphenator.BreakPoints("l’Ouest", 5, 2, 3).Count, "« l’Ouest » : la majuscule derrière garde ses règles (court)");
+            var compound = FrenchHyphenator.BreakPoints("peut-être", 5, 2, 3);
+            t.Check(compound.Count == 1 && compound[0] == -5, "« peut-être » : une coupe après le trait, sans en ajouter (" + string.Join(",", compound.ConvertAll(c => c.ToString()).ToArray()) + ")");
+            var rainbow = FrenchHyphenator.BreakPoints("arc-en-ciel", 5, 2, 3);
+            t.Check(rainbow.Count == 2 && rainbow[0] == -4 && rainbow[1] == -7, "« arc-en-ciel » : après chaque trait");
         }
     }
 }

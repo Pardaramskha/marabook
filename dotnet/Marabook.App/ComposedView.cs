@@ -1936,6 +1936,9 @@ namespace Marabook.App
             // raccourcis (Préférences › Raccourcis › Éditeur) décide.
             var action = Settings.AppSettings.EditorActionFor(e.Key.ToString(), Geo.ToCore(e.KeyModifiers));
             if (action != null && RunEditorAction(action)) { e.Handled = true; return; }
+            // Les macros de styles (1.0.5) : après les actions, un style qui
+            // porte la combinaison s'applique au paragraphe.
+            if (TryStyleShortcut(e.Key.ToString(), Geo.ToCore(e.KeyModifiers))) { e.Handled = true; return; }
             var ctrl = Ui.HasCommand(e.KeyModifiers);
             var shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
             var alt = (e.KeyModifiers & KeyModifiers.Alt) != 0;
@@ -1979,10 +1982,27 @@ namespace Marabook.App
         /// <summary>Le ¶ demandé au clavier : l'éditeur qui héberge la surface
         /// bascule son bouton (et le réglage) — la surface ne le possède pas.</summary>
         public event Action MarksRequested;
+        public event Action LooseLinesRequested; // Ctrl+L (09/10) : le ruban Mise en page bascule le bouton
 
         /// <summary>Exécute une action de la table des raccourcis de l'éditeur
         /// (public : la coquille et les sondes). Rend false si l'action n'est
         /// pas de son ressort.</summary>
+        /// <summary>Un style visible de l'écrit porte-t-il ce geste ? Alors
+        /// il s'applique (jamais sans modificateur Ctrl/⌘ ou Alt : une
+        /// lettre nue reste une lettre).</summary>
+        private bool TryStyleShortcut(string key, Settings.KeyModifiers modifiers)
+        {
+            if (_item == null || _styles == null || ReadOnly) return false;
+            if ((modifiers & (Settings.KeyModifiers.Control | Settings.KeyModifiers.Alt)) == 0) return false;
+            var style = Settings.StyleShortcuts.Find(_styles.VisibleFor(_item), key, modifiers);
+            if (style == null) return false;
+            ApplyStyle(style.Id);
+            return true;
+        }
+
+        /// <summary>Sonde (1.0.5) : la macro de style pour cette touche.</summary>
+        internal bool RunStyleShortcutForProbe(string key, Settings.KeyModifiers modifiers) { return TryStyleShortcut(key, modifiers); }
+
         public bool RunEditorAction(string id)
         {
             switch (id)
@@ -2006,6 +2026,12 @@ namespace Marabook.App
                 case "formatting-marks":
                     {
                         var handler = MarksRequested;
+                        if (handler != null) handler();
+                        return true;
+                    }
+                case "loose-lines":
+                    {
+                        var handler = LooseLinesRequested;
                         if (handler != null) handler();
                         return true;
                     }
@@ -2198,6 +2224,19 @@ namespace Marabook.App
         }
 
         // ============================================================ edits
+
+        /// <summary>Après une MISE EN FORME (style, gras, alignement, liste,
+        /// décalage — 09/10) : la vue ne bouge pas. UpdateCaretVisual ramenait
+        /// le caret, posé à la fin de la sélection, dans la fenêtre : Ctrl+A
+        /// puis un style renvoyait à la fin de l'écrit (Rémi).</summary>
+        private void AfterEditKeepingView(int firstChangedPage)
+        {
+            var offset = Offset.Y;
+            _keepScroll = true;
+            try { AfterEdit(firstChangedPage); }
+            finally { _keepScroll = false; }
+            Offset = new Vector(Offset.X, offset);
+        }
 
         private void AfterEdit(int firstChangedPage)
         {
@@ -2498,7 +2537,7 @@ namespace Marabook.App
                 paragraph.AlignOverride = align == style.Align ? null : align;
                 _engine.RecomposeParagraph(p);
             }
-            AfterEdit(0);
+            AfterEditKeepingView(0);
         }
 
         /// <summary>Un pas de décalage : 0,5 cm.</summary>
@@ -2552,7 +2591,7 @@ namespace Marabook.App
                 }
                 _engine.RecomposeParagraph(p);
             }
-            AfterEdit(0);
+            AfterEditKeepingView(0);
         }
 
         /// <summary>Quelles lignes du paragraphe une plage d'offsets couvre :
@@ -2939,7 +2978,7 @@ namespace Marabook.App
                 PivotEdit.ApplyFormat(paragraph, from, to, setter);
                 _engine.RecomposeParagraph(p);
             }
-            AfterEdit(0);
+            AfterEditKeepingView(0);
         }
 
         private bool SelectionAll(Func<TextRun, ParagraphStyle, bool> predicate)
@@ -3546,6 +3585,14 @@ namespace Marabook.App
             for (var k = 0; k < _pages.Children.Count; k++) PageAt(k).InvalidateVisual();
         }
 
+        /// <summary>Lignes lâches (09/10) : le drapeau du dessinateur, puis
+        /// chaque page se redessine.</summary>
+        public void SetLooseLines(bool visible)
+        {
+            ComposedRenderer.ShowLooseLines = visible;
+            for (var k = 0; k < _pages.Children.Count; k++) PageAt(k).InvalidateVisual();
+        }
+
         /// <summary>Remplace tous les paragraphes (la passe typographique,
         /// batch 34) : un cran d'annulation, recomposition intégrale.</summary>
         public void ReplaceParagraphs(List<TextParagraph> paragraphs)
@@ -3695,7 +3742,7 @@ namespace Marabook.App
                 _engine.RecomposeParagraph(p);
             }
             _pendingFormat = null;
-            AfterEdit(0);
+            AfterEditKeepingView(0);
         }
 
         /// <summary>Repose sur le paragraphe du caret les écarts locaux qu'un
@@ -3764,7 +3811,7 @@ namespace Marabook.App
                 _item.Document.Paragraphs[p].ListKind = allAlready ? null : kind;
                 _engine.RecomposeParagraph(p);
             }
-            AfterEdit(0);
+            AfterEditKeepingView(0);
         }
 
         public void InsertElementAtCaret(TextRun element)

@@ -21,7 +21,12 @@ namespace Marabook.Model
         public int Columns = 1;
         public bool ShowMarginGuides = true; // « marges apparentes » — visibles par défaut
         public bool LineNumbers;          // printed output (phase 4)
-        public bool Hyphenation;          // « césure » — WPF renders it live
+        // SANS EFFET depuis la v36 (09/10) : la césure se règle par style
+        // (réglage « césure » de chaque style, Corps l'a) ; le bouton du
+        // ruban qui pilotait ce drapeau est retiré — à faux par défaut, il
+        // rendait le style Corps inopérant sans que rien ne le dise. Gardé
+        // (écrit vrai) pour les Marabook d'avant qui lisent le .plot.
+        public bool Hyphenation = true;
         public bool FooterPageNumbers = true;
         public string FooterFont = "Times New Roman";
         public double FooterSizePt = 10;

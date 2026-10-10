@@ -65,6 +65,14 @@ namespace Marabook.App
             options.Margin = new Thickness(6, 0, 0, 0);
             options.Click += delegate { OpenOptionsMenu(options); };
             left.Children.Add(options);
+            // Les mots inconnus du projet (1.0.5, Rémi) : tout ce que
+            // l'orthographe rougit, en une liste à cocher — apprendre en lot.
+            var unknown = Buttons.IconText("magnifying-glass-bold", "Mots inconnus…",
+                "Relever tous les mots que le correcteur ne connaît pas dans les écrits et les fiches, et en apprendre plusieurs d'un coup",
+                Buttons.Bar, Buttons.Look.Outline);
+            unknown.Margin = new Thickness(8, 0, 0, 0);
+            unknown.Click += delegate { ShowUnknownWords(); };
+            left.Children.Add(unknown);
             // Le filtre par nature (29/09) : toutes, ou une seule (nom propre,
             // nom commun, adjectif…) ; et la taille de page — 25 par défaut.
             _classFilter = new ComboBox { Margin = new Thickness(14, 0, 0, 0), MinWidth = 150, VerticalAlignment = VerticalAlignment.Center, [ToolTip.TipProperty] = "N'afficher qu'une nature grammaticale" };
@@ -117,6 +125,27 @@ namespace Marabook.App
             list.Add(entry);
             Rebuild();
             RaiseChanged(projectScope);
+        }
+
+        /// <summary>Le relevé des mots inconnus (1.0.5) ; les mots cochés
+        /// deviennent des entrées « autre » à revoir du dictionnaire choisi.</summary>
+        public async void ShowUnknownWords()
+        {
+            if (_project == null) return;
+            var engine = Correction.SpellDictionary.Default;
+            if (engine == null)
+            {
+                MessageDialog.Show(Ui.OwnerOf(this), "Le dictionnaire embarqué est introuvable : rien à relever.", "Marabook", MessageButtons.OK, MessageIcon.Information);
+                return;
+            }
+            var choice = await UnknownWordsDialog.Ask(Ui.OwnerOf(this), _project, engine);
+            if (choice == null || choice.Words.Count == 0) return;
+            var list = Target(choice.ProjectScope);
+            if (list == null) return;
+            foreach (var word in choice.Words)
+                if (LexiconEntry.Find(list, word) == null) list.Add(LexiconEntry.Simple(word));
+            Rebuild();
+            RaiseChanged(choice.ProjectScope);
         }
 
         private List<LexiconEntry> Target(bool projectScope)

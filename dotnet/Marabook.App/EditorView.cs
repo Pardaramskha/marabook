@@ -94,6 +94,7 @@ namespace Marabook.App
         // b45 : les verbes de dialogue (incises), et la racine des mots pour
         // les répétitions, les incises et le bilan (moteur d'orthographe).
         private readonly Correction.DialogueChecker _dialogueChecker = new Correction.DialogueChecker();
+        private readonly Correction.FamiliarChecker _familiarChecker = new Correction.FamiliarChecker(); // le familier (1.0.5)
         private Func<string, string> _lemma;
         // La grammaire (batch 29) : le pont Grammalecte, PARESSEUX — le
         // processus Python ne démarre qu'au premier paragraphe vérifié, un
@@ -191,7 +192,9 @@ namespace Marabook.App
             {
                 _spellChecker = new Correction.SpellChecker(spellEngine);
                 _spellChecker.GlobalWords = Settings.AppSettings.Lexicon;
+                _spellChecker.Neologisms = Settings.AppSettings.NeologismsEnabled;
                 if (Settings.AppSettings.SpellEnabled) _checkHost.Add(_spellChecker);
+                if (Settings.AppSettings.FamiliarEnabled) _checkHost.Add(_familiarChecker);
                 // Le critère composé lexical / grappe enclitique du
                 // tokeniseur (batch 29, 0.1) : la MÊME connaissance que
                 // l'orthographe — moteur ET mots appris (amendement A1 :
@@ -397,7 +400,6 @@ namespace Marabook.App
                 _columnsCombo.SelectedItem = Math.Max(1, Math.Min(3, page.Columns));
                 _guidesBtn.IsChecked = page.ShowMarginGuides;
                 _lineNumbersBtn.IsChecked = page.LineNumbers;
-                _hyphenBtn.IsChecked = page.Hyphenation;
                 _folioBtn.IsChecked = page.FooterPageNumbers;
             }
             finally
@@ -462,8 +464,19 @@ namespace Marabook.App
             };
             // Le compteur suit la frappe (hotfix 1.0.3-a) : « 12 occurrences »
             // avant de chercher, « 3/12 » dès qu'on navigue.
-            _searchBox.TextChanged += delegate { if (_searchBar.IsVisible) { _searchCurrent = null; ShowSearchCount(); } };
-            panel.Children.Add(_searchBox);
+            _searchBox.TextChanged += delegate
+            {
+                if (!_searchBar.IsVisible) return;
+                _searchCurrent = null;
+                ShowSearchCount();
+                // Une seconde après la dernière frappe (09/10) : la première
+                // occurrence de l'écrit est sélectionnée, sans Entrée.
+                _searchJump.Stop();
+                if (!string.IsNullOrEmpty(_searchBox.Text)) _searchJump.Start();
+            };
+            _searchJump = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _searchJump.Tick += delegate { _searchJump.Stop(); JumpToFirstMatch(); };
+            panel.Children.Add(Ui.WithClear(_searchBox, "Vider la recherche"));
 
             panel.Children.Add(Label("Remplacer :"));
             _replaceBox = new TextBox { Width = 160, Margin = new Thickness(4, 0, 10, 0) };
@@ -789,8 +802,12 @@ namespace Marabook.App
             var report = Correction.StyleReport.Compute(_item.Document, _findings, _lemma,
                 _dialogueChecker.Inventory(_item.Document));
             report.DeferredPending = _checkHost.PendingDeferred > 0;
-            StyleReportWindow.Show(Ui.OwnerOf(this), _item.Title, report);
+            var handler = StyleReportReady; // au rail (09/10), plus une fenêtre
+            if (handler != null) handler(_item.Title, report);
         }
+
+        public event Action<string, Correction.StyleReport> StyleReportReady;
+        internal void ShowStyleReportForProbe() { ShowStyleReport(); }
 
         // ============================================================ correction
 
@@ -840,8 +857,8 @@ namespace Marabook.App
         /// groupes.</summary>
         private static readonly Correction.FindingCategory[] CategoryOrder =
         {
-            Correction.FindingCategory.Spelling, Correction.FindingCategory.Grammar,
-            Correction.FindingCategory.Typography, Correction.FindingCategory.Style
+            Correction.FindingCategory.Spelling, Correction.FindingCategory.Neologism, Correction.FindingCategory.Familiar,
+            Correction.FindingCategory.Grammar, Correction.FindingCategory.Typography, Correction.FindingCategory.Style
         };
 
         private void AddCorrectionFilter(Panel host, Correction.FindingCategory category)
@@ -989,7 +1006,11 @@ namespace Marabook.App
             // vérificateur entre ou sort du pilote ; la grammaire et la
             // typographie partagent Grammalecte (le vol est annulé quand il sort).
             if (_spellChecker != null)
+            {
+                _spellChecker.Neologisms = Settings.AppSettings.NeologismsEnabled;
                 SetCheckerPresent(_spellChecker, Settings.AppSettings.SpellEnabled);
+                SetCheckerPresent(_familiarChecker, Settings.AppSettings.FamiliarEnabled);
+            }
             _repetitionChecker.Radius = Settings.AppSettings.RepetitionRadius;
             SetCheckerPresent(_repetitionChecker,
                 Settings.AppSettings.StyleEnabled && Settings.AppSettings.StyleRepetitions);
@@ -1781,6 +1802,7 @@ namespace Marabook.App
             _composed = new ComposedView { IsVisible = false };
             _composed.Edited += delegate { NotifyEdited(); };
             _composed.StylesRestored += delegate(StyleSheet sheet) { var h = StylesRestored; if (h != null) h(sheet); };
+            _composed.LooseLinesRequested += delegate { ApplyLooseLines(!Marabook.Settings.AppSettings.ShowLooseLines); };
             _composed.MarksRequested += delegate
             {
                 // Le raccourci « Caractères d'impression » (22/09) : même
@@ -2273,6 +2295,7 @@ namespace Marabook.App
         public void HideSearch()
         {
             if (_searchBar.IsVisible == false) return;
+            if (_searchJump != null) _searchJump.Stop();
             _searchBar.IsVisible = false;
             _searchCurrent = null;
             if (ComposedActive) _composed.FocusSurface();
@@ -2284,10 +2307,36 @@ namespace Marabook.App
                 ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase;
         }
 
+        private DispatcherTimer _searchJump; // Ctrl+F : vers la première occurrence, une seconde après la frappe (09/10)
+
         private void FindNext()
         {
+            _searchJump.Stop();
             TryFindNextComposed(true);
         }
+
+        /// <summary>La PREMIÈRE occurrence de l'écrit, depuis son début
+        /// (09/10) — déclenchée une seconde après la dernière frappe dans la
+        /// barre, le clavier reste dans la zone de recherche.</summary>
+        private void JumpToFirstMatch()
+        {
+            if (!_searchBar.IsVisible) return;
+            var needle = _searchBox.Text;
+            if (string.IsNullOrEmpty(needle) || _item == null || !ComposedActive) return;
+            var matches = PivotSearch.FindAll(_item.Document, needle,
+                _caseCheck.IsChecked == true, _wholeWordCheck.IsChecked == true);
+            if (matches.Count == 0) { _searchCurrent = null; _searchInfo.Text = "Aucun résultat"; return; }
+            SelectMatch(matches, 0, null);
+            if (!_searchBox.IsFocused) _searchBox.Focus();
+        }
+
+        /// <summary>Sonde (09/10) : tape dans la barre et attend le saut.</summary>
+        internal void TypeSearchForProbe(string needle)
+        {
+            if (!_searchBar.IsVisible) ShowSearch();
+            _searchBox.Text = needle;
+        }
+        internal string SearchInfoForProbe { get { return _searchInfo.Text; } }
 
         /// <summary>Sonde (hotfix 1.0.3-a) : cherche depuis la barre et rend
         /// le texte du compteur.</summary>
@@ -2303,6 +2352,7 @@ namespace Marabook.App
         /// avant le début de la sélection (ou le caret), reprise à la fin.</summary>
         private void FindPrevious()
         {
+            _searchJump.Stop();
             var needle = _searchBox.Text;
             if (string.IsNullOrEmpty(needle) || _item == null || !ComposedActive) return;
             var matches = PivotSearch.FindAll(_item.Document, needle,
