@@ -1933,8 +1933,7 @@ namespace Marabook.App
                 FontWeight = FontWeight.SemiBold,
                 FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(14, 0, 0, 0),
-                [ToolTip.TipProperty] = "Pages de cet écrit (sa composition)"
+                Margin = new Thickness(14, 0, 0, 0)
             };
             DockPanel.SetDock(_statusPages, Dock.Left);
             dock.Children.Add(_statusPages);
@@ -1944,8 +1943,7 @@ namespace Marabook.App
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(14, 0, 0, 0),
-                [ToolTip.TipProperty] = "Pagination totale du livre (chaque écrit ouvre sur un recto)"
+                Margin = new Thickness(14, 0, 0, 0)
             };
             DockPanel.SetDock(_statusBook, Dock.Left);
             dock.Children.Add(_statusBook);
@@ -6161,16 +6159,14 @@ namespace Marabook.App
             _fontAlertText.Text = unresolved > 0
                 ? (unresolved > 1 ? unresolved + " polices manquantes" : "1 police manquante")
                 : "Tout va bien"; // toutes remplacées (09/10) — l'infobulle dit lesquelles
-            ToolTip.SetTip(_fontAlert, (unresolved > 0
-                ? "Ce projet demande des polices absentes de cet ordinateur : "
-                : "Polices absentes de cet ordinateur, remplacées : ")
-                + string.Join(", ", missing.ToArray()) + "\nClic : choisir les remplacements");
+            // Plus d'infobulle sur les infos de la barre (10/10, Rémi) : le clic ouvre le dialogue, qui dit tout.
             _fontAlert.IsVisible = true;
         }
 
         /// <summary>Les polices manquantes de la sonde (07/10).</summary>
         public IList<string> MissingFontsForProbe { get { return _missingFonts; } }
         public string FontAlertTextForProbe { get { return _fontAlertText.Text; } }
+        public Border FontAlertForProbe { get { return _fontAlert; } } // plus d'infobulle pour la repérer (10/10)
 
         /// <summary>Le dialogue des remplacements, puis tout se recompose
         /// avec les polices remplaçantes (faces oubliées, comptes de pages

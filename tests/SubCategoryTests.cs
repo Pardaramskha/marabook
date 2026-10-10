@@ -20,6 +20,32 @@ namespace Marabook.Tests
             RenameFollowsLinks(t);
             TrashPurgesRelations(t);
             BreakFolder(t);
+            StyleMacros(t);
+        }
+
+        /// <summary>Les macros de styles (1.0.5) : un style porte un geste, la
+        /// touche le retrouve (modificateurs exacts), le doublon se nomme, le
+        /// geste fait l'aller-retour des styles (.plot v38 et réglages).</summary>
+        private static void StyleMacros(Harness t)
+        {
+            var sheet = StyleSheet.CreateDefault();
+            var body = sheet.Styles[0];
+            var title = new ParagraphStyle { Name = "Titre", Shortcut = "Ctrl+D1" };
+            var quote = new ParagraphStyle { Name = "Citation", Shortcut = "Ctrl+Shift+D1" };
+            sheet.Styles.Add(title);
+            sheet.Styles.Add(quote);
+            t.Equal(title, Settings.StyleShortcuts.Find(sheet.Styles, "D1", Settings.KeyModifiers.Control), "Ctrl+1 → Titre");
+            t.Equal(quote, Settings.StyleShortcuts.Find(sheet.Styles, "D1", Settings.KeyModifiers.Control | Settings.KeyModifiers.Shift), "Ctrl+Maj+1 → Citation (modificateurs exacts)");
+            t.Equal(null, Settings.StyleShortcuts.Find(sheet.Styles, "D1", Settings.KeyModifiers.None), "1 seul → rien");
+            t.Equal(null, Settings.StyleShortcuts.Find(sheet.Styles, "D2", Settings.KeyModifiers.Control), "Ctrl+2 → rien");
+            t.Equal(title, Settings.StyleShortcuts.Holder(sheet.Styles, "Ctrl+D1", quote.Id), "le doublon se nomme (hors le style qu'on règle)");
+            t.Equal(null, Settings.StyleShortcuts.Holder(sheet.Styles, "Ctrl+D1", title.Id), "…pas avec soi-même");
+            var node = Persistence.PlotFile.BuildStyles(sheet);
+            var back = Persistence.PlotFile.ReadStylesNode(node);
+            ParagraphStyle backTitle = null, backBody = null;
+            foreach (var style in back.Styles) { if (style.Id == title.Id) backTitle = style; if (style.Id == body.Id) backBody = style; }
+            t.Equal("Ctrl+D1", backTitle == null ? null : backTitle.Shortcut, "le geste fait l'aller-retour (clé « shortcut »)");
+            t.Check(backBody != null && string.IsNullOrEmpty(backBody.Shortcut), "un style sans geste n'en a toujours pas");
         }
 
         /// <summary>« Casser le dossier » (1.0.5) : les fiches, sous-dossiers
@@ -188,7 +214,7 @@ namespace Marabook.Tests
             {
                 Persistence.PlotFile.Save(project, path);
                 var loaded = Persistence.PlotFile.Load(path);
-                t.Equal(37, loaded.LoadedFormatVersion, "écrit en v37");
+                t.Equal(38, loaded.LoadedFormatVersion, "écrit en v38 (v37 sous-catégories, v38 macros de styles)");
                 var back = loaded.FindSheetCategory(heroes.Id);
                 t.Check(back != null && back.IsSub && back.ParentId == character.Id, "la sous-catégorie revient sous son parent");
                 t.Equal(1, back.ExtraFields.Count, "… avec son champ propre");

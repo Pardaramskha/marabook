@@ -186,7 +186,11 @@ namespace Marabook.Persistence
         //      d'avant lit l'entrée comme une catégorie ordinaire sans
         //      modèle : les fiches gardent leurs valeurs (rangées par id de
         //      champ), seuls les champs propres ne s'affichent pas.
-        private const int FormatVersion = 37;
+        // v38: MACROS DE STYLES (1.0.5, 10/10) — "shortcut" sur un style
+        //      (la notation des réglages : « Ctrl+D1 ») : la combinaison
+        //      applique le style dans l'éditeur. Omis = aucun. Vaut aussi
+        //      pour les styles globaux des réglages (même écriture).
+        private const int FormatVersion = 38;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -833,6 +837,7 @@ namespace Marabook.Persistence
                 if (style.Scope != ParagraphStyle.ScopeGlobal) s["scope"] = style.Scope; // v28
                 if (style.OwnerId != null) s["owner"] = style.OwnerId;
                 if (style.Content != null) s["content"] = style.Content;
+                if (!string.IsNullOrEmpty(style.Shortcut)) s["shortcut"] = style.Shortcut; // v38
                 s["font"] = style.FontFamily;
                 s["size"] = style.FontSize;
                 if (style.Bold) s["bold"] = true;
@@ -1296,6 +1301,7 @@ namespace Marabook.Persistence
                     style.Scope = Json.AsString(Json.Field(s, "scope")) ?? ParagraphStyle.ScopeGlobal; // v28
                     style.OwnerId = Json.AsString(Json.Field(s, "owner"));
                     style.Content = Json.AsString(Json.Field(s, "content"));
+                    style.Shortcut = Json.AsString(Json.Field(s, "shortcut")); // v38
                     style.FontFamily = Json.AsString(Json.Field(s, "font")) ?? "Georgia";
                     style.FontSize = Json.AsDouble(Json.Field(s, "size"), 15);
                     style.Bold = Json.AsBool(Json.Field(s, "bold"), false);

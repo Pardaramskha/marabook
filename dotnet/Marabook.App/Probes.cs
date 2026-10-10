@@ -1333,6 +1333,36 @@ namespace Marabook.App
                     }
                 }
 
+                // — Macros de styles (1.0.5) : un style qui porte Ctrl+Maj+9
+                //   s'applique au paragraphe par la touche ; sans modificateur,
+                //   rien ; retiré, plus rien.
+                {
+                    var project = shell.Project;
+                    if (chapter != null && project != null)
+                    {
+                        shell.Binder.SelectItem(chapter.Id);
+                        await Settle();
+                        var composedView = shell.Composed;
+                        var sheetStyles = project.Styles;
+                        var macro = new ParagraphStyle { Name = "Macro (sonde)", Shortcut = "Ctrl+Shift+D9", FontFamily = sheetStyles.Styles[0].FontFamily }; // la police du Corps : pas une « manquante » de plus
+                        sheetStyles.Styles.Add(macro);
+                        var paragraphBefore = chapter.Document.Paragraphs[0].StyleId;
+                        var applied = composedView != null && composedView.RunStyleShortcutForProbe("D9", Settings.KeyModifiers.Control | Settings.KeyModifiers.Shift);
+                        await Settle();
+                        Check(applied && chapter.Document.Paragraphs[0].StyleId == macro.Id, "macro de style : Ctrl+Maj+9 applique le style au paragraphe");
+                        Check(!composedView.RunStyleShortcutForProbe("D9", Settings.KeyModifiers.None), "…une touche nue ne fait rien");
+                        sheetStyles.Styles.Remove(macro);
+                        chapter.Document.Paragraphs[0].StyleId = paragraphBefore;
+                        shell.RefreshFontAlert(); // le style de passage ne compte plus
+                        Check(!composedView.RunStyleShortcutForProbe("D9", Settings.KeyModifiers.Control | Settings.KeyModifiers.Shift), "…le style retiré, la touche ne fait plus rien");
+                        Check(ShortcutConflicts.Describe("Ctrl+Q", null, null, null) != null && ShortcutConflicts.Describe("Ctrl+B", null, null, null) != null
+                            && ShortcutConflicts.Describe("Ctrl+Shift+Alt+F12", null, null, null) == null,
+                            "doublons : ⌘Q (système) et Ctrl+B (Gras) sont signalés, une combinaison libre non");
+                        shell.Binder.SelectItem(chapter.Id);
+                        await Settle();
+                    }
+                }
+
                 // — Les polices manquantes (07/10) : un style qui demande une
                 //   police inconnue allume la pastille rouge ; un remplacement
                 //   global l'apaise et le moteur sert la remplaçante ; le
@@ -1353,13 +1383,9 @@ namespace Marabook.App
                     shell.RefreshFontAlert();
                     await Settle();
                     Check(shell.MissingFontsForProbe.Contains("Police Imaginaire XYZ"), "une police inconnue du catalogue est signalée manquante");
-                    Border alert = null;
-                    foreach (var border in shell.GetVisualDescendants().OfType<Border>())
-                    {
-                        var tip = ToolTip.GetTip(border) as string;
-                        if (tip != null && tip.StartsWith("Ce projet demande des polices")) alert = border;
-                    }
-                    Check(alert != null && alert.IsVisible, "la barre d'état montre la pastille rouge « " + (baselineUnresolved + 1) + " police(s) manquante(s) »");
+                    var alert = shell.FontAlertForProbe; // plus d'infobulle sur la barre (10/10, Rémi)
+                    Check(alert != null && alert.IsVisible && shell.FontAlertTextForProbe.Contains("manquante") && ToolTip.GetTip(alert) == null,
+                        "la barre d'état montre la pastille rouge « " + (baselineUnresolved + 1) + " police(s) manquante(s) », sans infobulle (« " + shell.FontAlertTextForProbe + " »)");
                     string replacement = null;
                     var substitutionTask = FontSubstitutionDialog.Show(shell, new List<string> { "Police Imaginaire XYZ" }, shell.Project);
                     await Settle();
@@ -1401,8 +1427,8 @@ namespace Marabook.App
                     await Settle();
                     var ghostFace = new AvaloniaFontEngine().Resolve("Police Imaginaire XYZ", 400, false);
                     Check(replacement != null && string.Equals(ghostFace.Family, replacement, StringComparison.OrdinalIgnoreCase) && ghostFace.HasGlyphs, "le moteur de polices sert la remplaçante partout (" + ghostFace.Family + ")");
-                    var calmTip = baselineUnresolved > 0 ? "Ce projet demande des polices" : "Polices absentes"; // d'autres manquent encore (Linux) : la pastille reste rouge
-                    Check(alert != null && alert.IsVisible && (ToolTip.GetTip(alert) as string ?? "").StartsWith(calmTip), "la pastille s'apaise, toujours cliquable (" + baselineUnresolved + " autre(s) manquante(s))");
+                    var calm = baselineUnresolved > 0 ? shell.FontAlertTextForProbe.Contains("manquante") : shell.FontAlertTextForProbe == "Tout va bien"; // d'autres manquent encore (Linux) : la pastille reste rouge
+                    Check(alert != null && alert.IsVisible && calm, "la pastille s'apaise, toujours cliquable (" + baselineUnresolved + " autre(s) manquante(s))");
                     Check(baselineUnresolved > 0 || shell.FontAlertTextForProbe == "Tout va bien", "…et dit « Tout va bien » quand tout est remplacé (« " + shell.FontAlertTextForProbe + " »)");
                     AppSettings.FontSubstitutions.Remove("Police Imaginaire XYZ");
                     shell.Project.Styles.Styles.Remove(ghost);

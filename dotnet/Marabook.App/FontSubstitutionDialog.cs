@@ -26,7 +26,11 @@ namespace Marabook.App
 
         private FontSubstitutionDialog(Window owner, List<string> missing, Project project)
         {
-            Title = "Polices manquantes";
+            var replaced = 0;
+            foreach (var family in missing)
+                if (!string.Equals(AppSettings.SubstituteFont(family), family, StringComparison.OrdinalIgnoreCase)) replaced++;
+            var allReplaced = missing.Count > 0 && replaced == missing.Count;
+            Title = allReplaced ? "Polices remplacées" : "Polices manquantes";
             Owner = owner;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             SizeToContent = SizeToContent.WidthAndHeight;
@@ -37,7 +41,14 @@ namespace Marabook.App
             var panel = new StackPanel { Margin = new Thickness(18, 16, 18, 14), MinWidth = 420 };
             panel.Children.Add(new TextBlock
             {
-                Text = (missing.Count > 1 ? missing.Count + " polices demandées par le projet ne sont pas installées sur cet ordinateur."
+                // Déjà remplacées (10/10, Rémi : rouvrir depuis « Tout va bien »
+                // donnait l'impression que rien n'avait été fait) : le dialogue
+                // le dit, et chaque ligne remplacée a sa pastille verte.
+                Text = allReplaced
+                    ? (missing.Count > 1 ? "Les " + missing.Count + " polices manquantes de ce projet sont remplacées — tout va bien. Vous pouvez changer les remplacements."
+                        : "La police manquante de ce projet est remplacée — tout va bien. Vous pouvez changer le remplacement.")
+                    : (missing.Count > 1 ? missing.Count + " polices demandées par le projet ne sont pas installées sur cet ordinateur."
+                        + (replaced > 0 ? " " + replaced + (replaced == 1 ? " est déjà remplacée." : " sont déjà remplacées.") : "")
                     : "Une police demandée par le projet n'est pas installée sur cet ordinateur."),
                 Foreground = Chrome.Ink,
                 TextWrapping = TextWrapping.Wrap,
@@ -62,10 +73,11 @@ namespace Marabook.App
             foreach (var family in missing)
             {
                 var row = new DockPanel { Margin = new Thickness(0, 4, 0, 4) };
+                var substituted = !string.Equals(AppSettings.SubstituteFont(family), family, StringComparison.OrdinalIgnoreCase);
                 var dot = new Border
                 {
                     Width = 8, Height = 8, CornerRadius = new CornerRadius(4),
-                    Background = Chrome.Danger, VerticalAlignment = VerticalAlignment.Center,
+                    Background = substituted ? (IBrush)Chrome.Ok : Chrome.Danger, VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(0, 0, 8, 0)
                 };
                 DockPanel.SetDock(dot, Dock.Left);
