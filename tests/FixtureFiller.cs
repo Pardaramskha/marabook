@@ -52,6 +52,8 @@ namespace Marabook.Tests
                                             //   par la fiche héroïne, b31)
             "SheetCategory.Id",             // référence CategoryId des fiches
             "SheetCategory.TemplateId",     // ↔ modèle de base (exercé)
+            "SheetCategory.ParentId",       // ↔ catégorie d'ensemble (exercée
+                                            //   par la sous-catégorie du Bestiaire, v37)
             "BinderItem.PageTemplateId",    // ↔ gabarit de pages (exercé)
             "BinderItem.ImageId",           // ↔ image du magasin (exercée)
             "BinderItem.Category",          // clé des 4 catégories racines

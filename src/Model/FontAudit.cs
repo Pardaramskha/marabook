@@ -52,6 +52,47 @@ namespace Marabook.Model
             return missing;
         }
 
+        /// <summary>Où une famille est demandée (09/10) : les styles qui la
+        /// portent (« Style « Corps » »), puis les écrits et fiches dont un
+        /// passage ou une note la demande — dans l'ordre de rencontre, sans
+        /// doublon.</summary>
+        public static List<string> UsersOf(Project project, string family)
+        {
+            var users = new List<string>();
+            if (project == null || string.IsNullOrEmpty(family)) return users;
+            if (project.Styles != null)
+                foreach (var style in project.Styles.Styles)
+                    if (Same(style.FontFamily, family)) AddUser(users, "Style « " + style.Name + " »");
+            foreach (var item in project.AllItems())
+            {
+                if (item.Document == null) continue;
+                var found = false;
+                foreach (var paragraph in item.Document.Paragraphs)
+                {
+                    foreach (var run in paragraph.Runs) if (Same(run.FontFamily, family)) { found = true; break; }
+                    if (found) break;
+                }
+                if (!found)
+                    foreach (var note in item.Document.Footnotes)
+                    {
+                        if (note.Runs != null) foreach (var run in note.Runs) if (Same(run.FontFamily, family)) { found = true; break; }
+                        if (found) break;
+                    }
+                if (found) AddUser(users, (item.Kind == ItemKind.Sheet ? "Fiche « " : "Écrit « ") + item.Title + " »");
+            }
+            return users;
+        }
+
+        private static bool Same(string a, string b)
+        {
+            return !string.IsNullOrEmpty(a) && string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void AddUser(List<string> users, string label)
+        {
+            if (!users.Contains(label)) users.Add(label);
+        }
+
         private static void Add(List<string> families, string family)
         {
             if (string.IsNullOrEmpty(family)) return;

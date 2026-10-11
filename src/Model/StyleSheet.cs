@@ -28,6 +28,13 @@ namespace Marabook.Model
         // un style de paragraphe ordinaire.
         public string Content;
 
+        // Le RACCOURCI du style (1.0.5, v38) : « Ctrl+D1 », « Ctrl+Shift+D2 »…
+        // (la notation des réglages, ⌘ enregistré « Ctrl ») — une macro :
+        // la combinaison applique ce style au paragraphe de l'éditeur. Null
+        // ou vide = aucun. Voyage avec le style (projet, livre, écrit, ou
+        // les styles globaux des réglages).
+        public string Shortcut;
+
         public bool IsSeparator { get { return Content != null; } }
         public bool IsGlobal { get { return Scope != ScopeBook && Scope != ScopeDocument; } }
 

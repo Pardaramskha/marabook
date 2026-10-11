@@ -343,6 +343,11 @@ namespace Marabook.Tests
                 TemplateId = template.Id
             };
             project.SheetCategories.Add(bestiaire);
+            // — Sous-catégorie (1.0.5, v37) : une partie du Bestiaire, avec
+            // un champ propre (ParentId exercé ici, ExtraFields par la fixture).
+            var dragons = new SheetCategory { Name = "Dragons", ParentId = bestiaire.Id };
+            dragons.ExtraFields.Add(new SheetField { Name = "Souffle", Kind = "choice", Group = "Pouvoirs" });
+            project.SheetCategories.Add(dragons);
 
             var writings = project.Category(Project.KeyWritings);
             var research = project.Category(Project.KeyResearch);

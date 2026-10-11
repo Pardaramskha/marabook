@@ -197,6 +197,113 @@ namespace Marabook.Model
             return null;
         }
 
+        // ------------------------------------------ sous-catégories (1.0.5, v37)
+
+        /// <summary>La catégorie d'ensemble d'une sous-catégorie ; null pour
+        /// une catégorie (ou une sous-catégorie dont le parent a disparu).</summary>
+        public SheetCategory ParentOf(SheetCategory category)
+        {
+            if (category == null || !category.IsSub) return null;
+            var parent = FindSheetCategory(category.ParentId);
+            return parent != null && parent != category && !parent.IsSub ? parent : null;
+        }
+
+        /// <summary>La catégorie d'ENSEMBLE : elle-même, ou son parent pour
+        /// une sous-catégorie — ce que les icônes, les modules et les
+        /// succès regardent (« Héros » est un Personnage).</summary>
+        public SheetCategory TopOf(SheetCategory category)
+        {
+            var parent = ParentOf(category);
+            return parent ?? category;
+        }
+
+        /// <summary>La catégorie d'ensemble d'une fiche (voir TopOf).</summary>
+        public SheetCategory TopSheetCategoryOf(BinderItem sheet)
+        {
+            return TopOf(SheetCategoryOf(sheet));
+        }
+
+        /// <summary>Les sous-catégories d'une catégorie, dans l'ordre du projet.</summary>
+        public List<SheetCategory> SubCategoriesOf(SheetCategory parent)
+        {
+            var list = new List<SheetCategory>();
+            if (parent == null) return list;
+            foreach (var category in SheetCategories)
+                if (category != parent && category.IsSub && category.ParentId == parent.Id) list.Add(category);
+            return list;
+        }
+
+        /// <summary>Les catégories d'ensemble seules, dans l'ordre du projet
+        /// (une sous-catégorie orpheline y compte comme catégorie).</summary>
+        public List<SheetCategory> TopCategories()
+        {
+            var list = new List<SheetCategory>();
+            foreach (var category in SheetCategories)
+                if (!category.IsSub || ParentOf(category) == null) list.Add(category);
+            return list;
+        }
+
+        /// <summary>Toutes les catégories dans l'ordre d'affichage : chaque
+        /// catégorie d'ensemble suivie de ses sous-catégories.</summary>
+        public List<SheetCategory> OrderedCategories()
+        {
+            var list = new List<SheetCategory>();
+            foreach (var top in TopCategories())
+            {
+                list.Add(top);
+                list.AddRange(SubCategoriesOf(top));
+            }
+            return list;
+        }
+
+        /// <summary>« Personnage › Héros » pour une sous-catégorie, le nom
+        /// seul pour une catégorie.</summary>
+        public string CategoryPath(SheetCategory category)
+        {
+            if (category == null) return "";
+            var parent = ParentOf(category);
+            return parent == null ? category.Name : parent.Name + " › " + category.Name;
+        }
+
+        /// <summary>L'id du modèle de BASE des nouvelles fiches de cette
+        /// catégorie : le sien, ou celui de la catégorie d'ensemble pour une
+        /// sous-catégorie (hérité — changer le modèle de l'ensemble change
+        /// celui de ses sous-catégories).</summary>
+        public string BaseTemplateIdOf(SheetCategory category)
+        {
+            if (category == null) return null;
+            var parent = ParentOf(category);
+            return parent != null ? parent.TemplateId : category.TemplateId;
+        }
+
+        /// <summary>LE modèle effectif d'une fiche — la seule définition : son
+        /// modèle (FindTemplate), complété des champs propres de sa
+        /// sous-catégorie s'il y en a (SheetCategory.Compose). Tout ce qui
+        /// lit ou écrit les champs d'une fiche passe par ici, jamais par
+        /// FindTemplate(sheet.TemplateId) seul.</summary>
+        public SheetTemplate TemplateOf(BinderItem sheet)
+        {
+            if (sheet == null) return null;
+            var template = FindTemplate(sheet.TemplateId);
+            var category = SheetCategoryOf(sheet);
+            if (category == null || !category.IsSub || ParentOf(category) == null) return template;
+            return category.Compose(template);
+        }
+
+        /// <summary>Crée une sous-catégorie sous cette catégorie d'ensemble
+        /// (sans modèle propre, sans champ propre) et la pose juste après
+        /// les sous-catégories existantes du parent. Null si le parent est
+        /// lui-même une sous-catégorie ou n'est pas du projet.</summary>
+        public SheetCategory AddSubCategory(SheetCategory parent, string name)
+        {
+            if (parent == null || parent.IsSub || !SheetCategories.Contains(parent)) return null;
+            var sub = new SheetCategory { Name = (name ?? "").Trim().Length == 0 ? "Sous-catégorie" : name.Trim(), ParentId = parent.Id };
+            var index = SheetCategories.IndexOf(parent) + 1;
+            while (index < SheetCategories.Count && SheetCategories[index].IsSub && SheetCategories[index].ParentId == parent.Id) index++;
+            SheetCategories.Insert(index, sub);
+            return sub;
+        }
+
         /// <summary>Migration des catégories (batch 31), idempotente — appelée
         /// au chargement. Un projet d'avant la v11 : les sept catégories
         /// livrées se créent, chacune adopte le modèle existant de même nom
@@ -236,6 +343,11 @@ namespace Marabook.Model
                         });
                 }
             }
+            // 1.0.5 : une sous-catégorie dont le parent manque (ou se dit
+            // lui-même sous-catégorie) redevient une catégorie — ses fiches
+            // et ses champs propres ne se perdent pas.
+            foreach (var category in SheetCategories)
+                if (category.IsSub && ParentOf(category) == null) category.ParentId = null;
             foreach (var item in AllItems())
             {
                 if (item.Kind != ItemKind.Sheet) continue;

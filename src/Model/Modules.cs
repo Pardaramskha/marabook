@@ -451,7 +451,7 @@ namespace Marabook.Model
         {
             var list = new List<ModuleInfo>();
             if (project == null || sheet == null || sheet.Kind != ItemKind.Sheet) return list;
-            var category = project.SheetCategoryOf(sheet);
+            var category = project.TopSheetCategoryOf(sheet); // « Héros » est un Personnage (1.0.5)
             if (category == null) return list;
             var name = Correction.FrenchTokenizer.Fold(category.Name.Trim());
             foreach (var module in Installed)
@@ -569,7 +569,7 @@ namespace Marabook.Model
         /// module déjà complète) : voir ModuleRules.SheetComplete.</summary>
         public static bool IsSheetComplete(Project project, BinderItem sheet)
         {
-            var template = project.FindTemplate(sheet.TemplateId);
+            var template = project.TemplateOf(sheet);
             if (template == null) return false;
             foreach (var field in template.Fields)
             {

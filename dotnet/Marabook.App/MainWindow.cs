@@ -257,7 +257,7 @@ namespace Marabook.App
             Modules.Changed += delegate
             {
                 if (_current != null && _current.Kind == ItemKind.Sheet && _sheetView.IsVisible)
-                    _sheetView.LoadItem(_current, _project.FindTemplate(_current.TemplateId));
+                    _sheetView.LoadItem(_current, _project.TemplateOf(_current));
                 if (_project != null) _sheetLibrary.Refresh();
                 if (_journalView.IsVisible) _journalView.RefreshAchievements();
                 // Une carte mentale ouverte suit l'arrivée ou le départ du module (22/09).
@@ -629,6 +629,7 @@ namespace Marabook.App
                 _dictionaryView.NewEntry(true);
             };
             _binder.SelectionChanged += OnBinderSelection;
+            _binder.OccurrenceRequested += OpenOccurrence;
             _binder.MultiSelectionChanged += InspectGroup; // Ctrl+clic dans la Pile (1.0.3)
             _binder.BatchMenuProvider = BuildBatchMenu;
             _binder.JournalRequested += ShowJournal;
@@ -767,6 +768,7 @@ namespace Marabook.App
                 UpdateBookPagination();
             };
             _editor.MarksToggled += OnMarksToggled;
+            _editor.StyleReportReady += ShowStyleReport; // le Bilan de style au rail (09/10)
             _editor.StylesRequested += OpenStylesDialog;
             _editor.PreviewRequested += ShowPrintPreview;
             _editor.PrintRequested += PrintCurrent;
@@ -1161,6 +1163,7 @@ namespace Marabook.App
             // Le LEXIQUE (18/09) : la définition d'un mot du dictionnaire
             // personnel, même colonne (MainWindow.Lexicon.cs).
             BuildLexiconPanel(grid);
+            BuildStyleReportPanel(grid); // le Bilan de style au rail (09/10)
             _pinTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
             _pinTimer.Tick += delegate { _pinTimer.Stop(); RefreshSidePin(); };
             _binder.IsSidePinned = delegate(BinderItem item) { return item != null && item == _sidePin; };
@@ -1383,6 +1386,22 @@ namespace Marabook.App
                 UpdateInspector();
                 return;
             }
+            // Un renommage (1.0.5) : les [[liens]] qui visaient l'ancien titre
+            // ont suivi — la vue ouverte recharge si elle en portait, et
+            // l'auteur est prévenu de ce qui a bougé.
+            var rename = action as History.RenameItemAction;
+            if (rename != null)
+            {
+                MarkDirty();
+                if (rename.Plan == null) return;
+                if (_current != null && rename.Touches(_current)) ReloadCurrentView();
+                var where = rename.Plan.Items.Count == 1 ? "1 élément" : rename.Plan.Items.Count + " éléments";
+                var what = rename.Plan.Occurrences == 1 ? "1 lien" : rename.Plan.Occurrences + " liens";
+                ShowToast(null, undone ? "Liens rendus" : "Liens mis à jour",
+                    what + " dans " + where + (undone ? " visent de nouveau « " + rename.Item.Title + " »." : " visent maintenant « " + rename.Item.Title + " »."),
+                    undone ? null : Ui.Keys("Ctrl+Z") + " annule le renommage et les liens", 4);
+                return;
+            }
             // Les restaurations (b38) : même règle du document ouvert.
             var restore = action as History.RestoreSnapshotAction;
             var restoreParagraph = action as History.RestoreParagraphAction;
@@ -1436,6 +1455,24 @@ namespace Marabook.App
             UpdateInspector();
             UpdateStats();
         }
+
+        /// <summary>Double-clic sur un résultat de la Pile (09/10) : la
+        /// première occurrence du texte cherché dans cet élément, comme un
+        /// résultat du panneau Recherche — sans casse ni accents, comme la Pile.</summary>
+        private void OpenOccurrence(BinderItem item, string query)
+        {
+            if (_project == null || item == null || string.IsNullOrEmpty(query)) return;
+            var targets = ProjectSearch.Collect(_project, SearchScope.Document, item, SearchKind.All, true);
+            var compiled = SearchQuery.Create(query, false, false, true, false);
+            SearchResult result;
+            try { result = ProjectSearch.Run(targets, compiled, 1, TimeSpan.FromSeconds(2), System.Threading.CancellationToken.None); }
+            catch { return; }
+            if (result == null || result.Hits.Count == 0) { _binder.SelectItem(item.Id); return; }
+            GoToHit(result.Hits[0]);
+        }
+
+        /// <summary>Sonde (09/10).</summary>
+        public void OpenOccurrenceForProbe(BinderItem item, string query) { OpenOccurrence(item, query); }
 
         private void PositionOnHit(SearchHit hit)
         {
@@ -1896,8 +1933,7 @@ namespace Marabook.App
                 FontWeight = FontWeight.SemiBold,
                 FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(14, 0, 0, 0),
-                [ToolTip.TipProperty] = "Pages de cet écrit (sa composition)"
+                Margin = new Thickness(14, 0, 0, 0)
             };
             DockPanel.SetDock(_statusPages, Dock.Left);
             dock.Children.Add(_statusPages);
@@ -1907,8 +1943,7 @@ namespace Marabook.App
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(14, 0, 0, 0),
-                [ToolTip.TipProperty] = "Pagination totale du livre (chaque écrit ouvre sur un recto)"
+                Margin = new Thickness(14, 0, 0, 0)
             };
             DockPanel.SetDock(_statusBook, Dock.Left);
             dock.Children.Add(_statusBook);
@@ -3005,6 +3040,7 @@ namespace Marabook.App
             // de l'arbre sur l'élément réellement ouvert.
 
             HideCenterViews();
+            DropStyleReportIfStale(item); // le bilan de style ne suit pas un autre écrit (09/10)
             SlideJournalOut(); // la feuille du journal redescend sur la vue qui arrive (03/10)
             if (item == null || item.Kind != ItemKind.Text) { _statusPages.Text = ""; _statusBook.Text = ""; _docPages = 0; }
 
@@ -3063,7 +3099,7 @@ namespace Marabook.App
             if (item != null && item.Kind == ItemKind.Sheet)
             {
                 _editor.Clear();
-                _sheetView.LoadItem(item, _project.FindTemplate(item.TemplateId));
+                _sheetView.LoadItem(item, _project.TemplateOf(item));
                 _sheetView.IsVisible = true;
                 return;
             }
@@ -3347,21 +3383,20 @@ namespace Marabook.App
                 _binder.SelectItem(target.Id);
                 return;
             }
-            var answer = MessageDialog.Show(this,
-                "Aucun élément ne s'intitule « " + title + " ».\nCréer une fiche à ce nom ?",
-                AppName, MessageButtons.YesNo, MessageIcon.Question);
-            if (await answer != MessageResult.Yes) return;
+            // Un lien mort (1.0.5) : la fiche se crée ici même, titre
+            // pré-rempli, CATÉGORIE au choix — plus de fiche parachutée dans
+            // la première catégorie.
+            var choice = await NewSheetDialog.Ask(this, _project, null, title,
+                "Aucun élément ne s'intitule « " + title + " » — la fiche sera créée :");
+            if (choice == null) return;
             var sheets = _project.Category(Project.KeySheets);
-            // Une fiche née d'un [[lien]] rejoint la première catégorie
-            // (batch 31) — déplaçable ensuite depuis la bibliothèque.
-            var home = _project.SheetCategories.Count > 0
-                ? _project.SheetCategories[0] : null;
+            var home = _project.FindSheetCategory(choice.CategoryId);
             var sheet = new BinderItem
             {
                 Kind = ItemKind.Sheet,
-                Title = title,
+                Title = choice.Title,
                 CategoryId = home != null ? home.Id : null,
-                TemplateId = home != null ? home.TemplateId : null
+                TemplateId = _project.BaseTemplateIdOf(home)
             };
             _history.Run(new History.AddItemAction(sheets, sheet, -1));
             MarkDirty();
@@ -3386,7 +3421,9 @@ namespace Marabook.App
             {
                 // La composition à l'écran connaît déjà le compte (22/09) :
                 // rien à recomposer plus tard pour la Pile ou le livre.
-                var pages = _editor.PrintPageCount;
+                // …sauf si l'écrit s'affiche sur une autre page que celle du
+                // livre (09/10) : le cache compte alors sur le gabarit.
+                var pages = EditorCountIsBookCount(_current) ? _editor.PrintPageCount : null;
                 if (pages.HasValue) _pageCountCache[_current.Id] = pages.Value;
                 else _pageCountCache.Remove(_current.Id);
             }
@@ -3745,7 +3782,7 @@ namespace Marabook.App
             _project.Templates = templates;
             // Re-render the current sheet: its fields may have changed.
             if (_current != null && _current.Kind == ItemKind.Sheet)
-                _sheetView.LoadItem(_current, _project.FindTemplate(_current.TemplateId));
+                _sheetView.LoadItem(_current, _project.TemplateOf(_current));
             MarkDirty();
         }
 
@@ -3992,7 +4029,7 @@ namespace Marabook.App
             try
             {
                 var composition = Print.Composer.Compose(Links.Strip(text.Document),
-                    _project.Styles.EffectiveFor(text), text.Page ?? _project.Page, _project, new AvaloniaFontEngine());
+                    _project.Styles.EffectiveFor(text), BookInfo.CountingPageFor(text, _project), _project, new AvaloniaFontEngine());
                 pages = Math.Max(1, composition.Pages.Count);
             }
             catch { pages = 1; }
@@ -4114,6 +4151,36 @@ namespace Marabook.App
             int pages;
             return text != null && _pageCountCache.TryGetValue(text.Id, out pages) ? pages : 0;
         }
+
+        /// <summary>Vrai quand la composition à l'écran de cet écrit (sa page
+        /// propre) compte les mêmes pages que le livre (09/10) : même mise en
+        /// page que le gabarit — la césure, elle, suit toujours l'écrit.</summary>
+        private bool EditorCountIsBookCount(BinderItem text)
+        {
+            if (text == null || _project == null) return false;
+            var shown = text.Page ?? _project.Page;
+            return shown != null && shown.SameLayout(BookInfo.CountingPageFor(text, _project));
+        }
+
+        /// <summary>Le manuscrit d'un livre tel que « Publier » le compose
+        /// (09/10) : compilé sans page de titre ni têtes de chapitre, chaque
+        /// document sur un recto, marques de [[liens]] retirées (elles
+        /// restaient dans le PDF publié).</summary>
+        private TextDocument CompileForPublish(BinderItem book)
+        {
+            return Links.Strip(Exchange.Compiler.Build(_project, book, new Exchange.CompileOptions
+            {
+                TitlePage = false,
+                ChapterHeadings = false,
+                PageBreakPerText = true,
+                RectoChapterStarts = true // chaque document ouvre un recto
+            }));
+        }
+
+        /// <summary>Sonde (09/10) : le total du livre comme le panneau
+        /// Publication le compte, et le manuscrit compilé comme « Publier ».</summary>
+        public int BookPageTotalForProbe(BinderItem book) { _pageCountCache.Clear(); return BookPageTotal(book); }
+        public TextDocument CompileForPublishForProbe(BinderItem book) { return CompileForPublish(book); }
 
         private int BookPageTotal(BinderItem book)
         {
@@ -4239,12 +4306,12 @@ namespace Marabook.App
                 foreach (var sheet in _project.AllItems())
                 {
                     if (sheet.Kind != ItemKind.Sheet || sheet.IsDescendantOf(_project.Trash)) continue;
-                    var category = _project.SheetCategoryOf(sheet);
+                    var category = _project.TopSheetCategoryOf(sheet);
                     if (category == null) continue;
                     var isCharacter = Achievements.IsCharacterCategory(category.Name);
                     var isPlace = category.Name.Trim().ToLowerInvariant().StartsWith("lieu");
                     if (!isCharacter && !isPlace) continue;
-                    var names = Presence.NamesOf(sheet, _project.FindTemplate(sheet.TemplateId));
+                    var names = Presence.NamesOf(sheet, _project.TemplateOf(sheet));
                     if (names.Count == 0) continue;
                     var entry = new ExtraPages.IndexEntry { Name = sheet.Title, Category = isCharacter ? "Personnages" : "Lieux" };
                     foreach (var text in story)
@@ -4350,7 +4417,7 @@ namespace Marabook.App
             }
             var titles = new List<string>();
             foreach (var book in books) titles.Add(book.Title);
-            var choice = await LinkDialog.Ask(this, titles);
+            var choice = await PickDialog.Ask(this, "Copier le gabarit", "Vers quel livre copier « " + gabarit.Title + " » ?", titles, "Copier");
             if (choice == null) return;
             foreach (var book in books)
                 if (book.Title == choice)
@@ -4383,7 +4450,9 @@ namespace Marabook.App
             }
             var titles = new List<string> { "(aucun gabarit)" };
             foreach (var gabarit in gabarits) titles.Add(gabarit.Title);
-            var choice = await LinkDialog.Ask(this, titles);
+            var choice = await PickDialog.Ask(this, "Gabarit de pages",
+                targets.Count > 1 ? "Quel gabarit appliquer à ces " + targets.Count + " écrits ?" : "Quel gabarit appliquer à « " + targets[0].Title + " » ?",
+                titles, "Appliquer");
             if (choice == null) return;
             string id = null;
             foreach (var gabarit in gabarits)
@@ -4410,13 +4479,7 @@ namespace Marabook.App
                 if (ExtraPages.IsDynamic(item) && item.EnclosingBook() == book) RegenerateDynamic(item);
             // Pas de page de titre générée : sa personnalisation arrive — le
             // PDF publié n'est que le contenu, chaque document sur un recto.
-            var document = Exchange.Compiler.Build(_project, book, new Exchange.CompileOptions
-            {
-                TitlePage = false,
-                ChapterHeadings = false,
-                PageBreakPerText = true,
-                RectoChapterStarts = true // chaque document ouvre un recto
-            });
+            var document = CompileForPublish(book);
             var options = await PdfExportDialog.Ask(this, book.Title, true, book.Book.BleedMm,
                 delegate(Print.PdfExportOptions o)
                 { return PreviewPdf(document, book.Book.Template, book.Title, o, null, 0, _project.Styles.EffectiveFor(book)); });
@@ -5004,8 +5067,8 @@ namespace Marabook.App
         /// la colonne (il ne déborde pas pendant la course).</summary>
         private void ShowRightHost(RightPanel shown)
         {
-            var hosts = new[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost };
-            var panels = new[] { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned, RightPanel.Lexicon };
+            var hosts = new[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _styleReportHost };
+            var panels = new[] { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned, RightPanel.Lexicon, RightPanel.StyleReport };
             for (var i = 0; i < hosts.Length; i++)
             {
                 if (hosts[i] == null) continue;
@@ -5068,7 +5131,7 @@ namespace Marabook.App
         /// de la course) ou libre (NaN).</summary>
         private void FreezeRightHosts(double width)
         {
-            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost };
+            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _styleReportHost };
             foreach (var host in hosts)
             {
                 if (host == null) continue;
@@ -5093,14 +5156,14 @@ namespace Marabook.App
             var shown = ShownRightPanel();
             if (!AppSettings.RailLocked || shown != RightPanel.None || AppSettings.RightPanel == RightPanel.None
                 || _journalOpen || _calmMode || _project == null) return shown;
-            foreach (var candidate in RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel))
+            foreach (var candidate in RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel, HasStyleReport))
                 if (IsPanelAvailable(candidate)) return candidate;
             return shown;
         }
 
         private bool IsPanelAvailable(RightPanel panel)
         {
-            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, PanelKind(), PanelHomeRoot(), _sidePin != null, HasLexiconPanel);
+            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, PanelKind(), PanelHomeRoot(), _sidePin != null, HasLexiconPanel, HasStyleReport);
         }
 
         /// <summary>La nature qui décide du panneau de droite (30/09) : la
@@ -5137,6 +5200,9 @@ namespace Marabook.App
         private void SetRightPanel(RightPanel panel)
         {
             if (panel != RightPanel.None && !IsPanelAvailable(panel)) return;
+            // Le rail replié emporte le Bilan de style (09/10) : il ne vit
+            // que le temps où on le regarde.
+            if (panel == RightPanel.None && HasStyleReport) _styleReportItem = null;
             RememberRightWidth();
             AppSettings.RightPanel = panel;
             AppSettings.Save();
@@ -5297,6 +5363,8 @@ namespace Marabook.App
                     icon = "push-pin-bold"; name = "Épinglé au rail"; break;
                 case RightPanel.Lexicon:
                     icon = "pile-dictionnaire"; name = "Lexique — la définition d'un mot du dictionnaire personnel"; break;
+                case RightPanel.StyleReport:
+                    icon = "exam-bold"; name = "Bilan de style de l'écrit ouvert"; break;
                 default:
                     icon = "book-open-text-bold"; name = "Publication du livre"; break;
             }
@@ -5373,7 +5441,7 @@ namespace Marabook.App
             var railOn = !_journalOpen && !_calmMode;
             _rail.IsVisible = railOn ? true : false;
             _railCol.Width = new GridLength(railOn ? RailWidth : 0);
-            var offered = RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel);
+            var offered = RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel, HasStyleReport);
             if (!ReferenceEquals(offered, _railOffered)) RebuildRailTabs(offered);
             UpdatePinTip();
             UpdateRailLock();
@@ -5551,7 +5619,7 @@ namespace Marabook.App
             {
                 _inspTitle.Text = item.Title;
                 var template = item.Kind == ItemKind.Sheet
-                    ? _project.FindTemplate(item.TemplateId) : null;
+                    ? _project.TemplateOf(item) : null;
                 _inspKind.Text = item.IsCategory ? "Catégorie"
                                : item.Kind == ItemKind.Folder ? "Dossier"
                                : item.Kind == ItemKind.Sheet
@@ -5876,7 +5944,7 @@ namespace Marabook.App
             var project = _project;
             var rows = Presence.In(_current, project, delegate(BinderItem sheet)
             {
-                var category = project.SheetCategoryOf(sheet);
+                var category = project.TopSheetCategoryOf(sheet);
                 return category != null && Achievements.IsCharacterCategory(category.Name);
             });
             if (rows.Count == 0)
@@ -6067,7 +6135,7 @@ namespace Marabook.App
             if (_current == null || _current.Kind != ItemKind.Text || _project == null) { _statusBook.Text = ""; return; }
             var book = _current.EnclosingBook();
             if (book == null || _current.IsOutOfBook) { _statusBook.Text = ""; return; }
-            if (_docPages > 0) _pageCountCache[_current.Id] = _docPages;
+            if (_docPages > 0 && EditorCountIsBookCount(_current)) _pageCountCache[_current.Id] = _docPages;
             var total = BookPageTotal(book);
             _statusBook.Text = total > 0 ? "Livre : " + total.ToString("N0", CultureInfo.CurrentCulture) + (total > 1 ? " pages" : " page") : "";
         }
@@ -6090,16 +6158,15 @@ namespace Marabook.App
             _fontAlertDot.Background = unresolved > 0 ? (IBrush)Chrome.Danger : Chrome.Ok;
             _fontAlertText.Text = unresolved > 0
                 ? (unresolved > 1 ? unresolved + " polices manquantes" : "1 police manquante")
-                : (missing.Count > 1 ? missing.Count + " polices remplacées" : "1 police remplacée");
-            ToolTip.SetTip(_fontAlert, (unresolved > 0
-                ? "Ce projet demande des polices absentes de cet ordinateur : "
-                : "Polices absentes de cet ordinateur, remplacées : ")
-                + string.Join(", ", missing.ToArray()) + "\nClic : choisir les remplacements");
+                : "Tout va bien"; // toutes remplacées (09/10) — l'infobulle dit lesquelles
+            // Plus d'infobulle sur les infos de la barre (10/10, Rémi) : le clic ouvre le dialogue, qui dit tout.
             _fontAlert.IsVisible = true;
         }
 
         /// <summary>Les polices manquantes de la sonde (07/10).</summary>
         public IList<string> MissingFontsForProbe { get { return _missingFonts; } }
+        public string FontAlertTextForProbe { get { return _fontAlertText.Text; } }
+        public Border FontAlertForProbe { get { return _fontAlert; } } // plus d'infobulle pour la repérer (10/10)
 
         /// <summary>Le dialogue des remplacements, puis tout se recompose
         /// avec les polices remplaçantes (faces oubliées, comptes de pages
@@ -6107,7 +6174,7 @@ namespace Marabook.App
         private async void ShowFontSubstitutions()
         {
             if (_missingFonts.Count == 0) return;
-            var applied = await FontSubstitutionDialog.Show(this, new List<string>(_missingFonts));
+            var applied = await FontSubstitutionDialog.Show(this, new List<string>(_missingFonts), _project);
             if (!applied) return;
             ApplyFontSubstitutions();
         }

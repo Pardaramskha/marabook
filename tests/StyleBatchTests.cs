@@ -427,6 +427,13 @@ namespace Marabook.Tests
             t.Check(text.Contains("Trop court pour juger le rythme"), "trop court : on le dit au lieu de juger");
             t.Check(text.Contains("Pas de dialogue"), "pas de dialogue : dit simplement");
             t.Check(text.Contains("Aucun adverbe en -ment"), "les tics absents sont dits absents");
+            // Les lignes qui désignent un paragraphe (09/10) : liées à son index.
+            var linkedSection = new StyleReport.Section { Title = "x" };
+            linkedSection.Lines.Add("sans paragraphe");
+            linkedSection.Add(3, "• paragraphe 4 : …");
+            int linked;
+            t.Check(!linkedSection.ParagraphLinks.ContainsKey(0) && linkedSection.ParagraphLinks.TryGetValue(1, out linked) && linked == 3, "une ligne liée connaît son paragraphe, les autres non");
+            t.Check(sections[5].ParagraphLinks.Count == 0, "rien à revoir : aucune ligne liée");
             foreach (var section in sections)
                 foreach (var line in section.Lines)
                     t.Check(!line.Contains("lemme") && !line.Contains("token") && !line.Contains("morpholog"),

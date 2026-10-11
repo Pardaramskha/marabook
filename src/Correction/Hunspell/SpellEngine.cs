@@ -67,15 +67,33 @@ namespace Marabook.Correction.Hunspell
 
         public static SpellEngine Load(string affPath, string dicPath)
         {
+            return Load(affPath, dicPath, null);
+        }
+
+        /// <summary>Le dictionnaire principal, puis les COMPLÉMENTS (1.0.5 :
+        /// dict/fr-complement.dic — les mots que Grammalecte n'a pas, mêmes
+        /// drapeaux, même .aff) : un radical présent dans deux fichiers
+        /// cumule ses jeux de drapeaux. Un complément absent est ignoré.</summary>
+        public static SpellEngine Load(string affPath, string dicPath, IEnumerable<string> extraDicPaths)
+        {
             var affix = AffixFile.Load(affPath);
             var stems = new Dictionary<string, List<string[]>>(
                 100000, StringComparer.Ordinal);
+            ReadDic(dicPath, affix, stems);
+            if (extraDicPaths != null)
+                foreach (var extra in extraDicPaths)
+                    if (extra != null && File.Exists(extra)) ReadDic(extra, affix, stems);
+            return new SpellEngine(affix, stems);
+        }
+
+        private static void ReadDic(string dicPath, AffixFile affix, Dictionary<string, List<string[]>> stems)
+        {
             var lines = File.ReadAllLines(dicPath, Encoding.UTF8);
             // Première ligne = compte annoncé ; on la lit sans s'y fier.
             for (var i = 1; i < lines.Length; i++)
             {
                 var line = lines[i];
-                if (line.Length == 0) continue;
+                if (line.Length == 0 || line[0] == '#') continue; // un commentaire dans un complément
                 // Champs morphologiques éventuels après tab/espace : ignorés.
                 var cut = line.IndexOf('\t');
                 if (cut >= 0) line = line.Substring(0, cut);
@@ -101,7 +119,6 @@ namespace Marabook.Correction.Hunspell
                 }
                 sets.Add(flags);
             }
-            return new SpellEngine(affix, stems);
         }
 
         private static void IndexAffixes(Dictionary<string, AffixRule> rules,
@@ -336,7 +353,13 @@ namespace Marabook.Correction.Hunspell
                     if (!_stems.TryGetValue(stem, out sets)) continue;
                     foreach (var flags in sets)
                     {
-                        if (!Has(flags, hit.Rule.Flag)) continue;
+                        // Le drapeau du suffixe : porté par le radical, OU — en
+                        // croisement, règle Hunspell — par la continuation du
+                        // préfixe déjà retiré (1.0.5 : « PFX Um centi/S. » +
+                        // « mètre/Um » → « centimètres » ; le radical n'a pas S.,
+                        // le préfixe l'apporte — les unités au pluriel rougissaient).
+                        if (!Has(flags, hit.Rule.Flag)
+                            && !(prefixEntry != null && prefixEntry.ContinuationHas(hit.Rule.Flag))) continue;
                         if (Has(flags, _affix.ForbiddenFlag)) continue;
                         if (caseChanged && Has(flags, _affix.KeepCaseFlag)) continue;
                         if (prefixFlag != null && !Has(flags, prefixFlag)

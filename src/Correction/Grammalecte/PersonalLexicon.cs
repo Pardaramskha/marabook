@@ -90,6 +90,25 @@ namespace Marabook.Correction.Grammalecte
                 case LexiconEntry.ClassAdverb:
                     result.Add(new[] { word, word, ":W" });
                     break;
+                case LexiconEntry.ClassInterjection: // 1.0.5 : l'étiquette interjection de Grammalecte
+                case LexiconEntry.ClassOnomatopoeia:
+                    result.Add(new[] { word, word, ":J" });
+                    break;
+            }
+            // Les pratiquants d'une religion ou doctrine (1.0.5) : nom et
+            // adjectif, comme un gentilé.
+            var adherent = entry.AdherentBase();
+            if (!string.IsNullOrEmpty(adherent))
+            {
+                var feminine = LexiconInflector.DeriveFeminine(adherent);
+                var epicene = feminine == adherent;
+                result.Add(new[] { adherent, adherent, ":N:A:" + (epicene ? "e" : "m") + ":s" });
+                result.Add(new[] { LexiconInflector.Pluralize(adherent, LexiconEntry.PluralS), adherent, ":N:A:" + (epicene ? "e" : "m") + ":p" });
+                if (!epicene)
+                {
+                    result.Add(new[] { feminine, adherent, ":N:A:f:s" });
+                    result.Add(new[] { LexiconInflector.Pluralize(feminine, LexiconEntry.PluralS), adherent, ":N:A:f:p" });
+                }
             }
             return result;
         }

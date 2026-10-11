@@ -56,6 +56,8 @@ namespace Marabook.App
         // la coquille ; Suppr sur plusieurs fiches.
         private readonly HashSet<string> _selected = new HashSet<string>();
         private readonly Dictionary<string, Border> _cardsById = new Dictionary<string, Border>();
+        private readonly List<string> _cardOrder = new List<string>(); // l'ordre des tuiles posées (MAJ+clic, 1.0.5)
+        private string _anchorId; // la dernière tuile cliquée (l'ancre du MAJ+clic)
         public event Action<List<BinderItem>> SelectionChanged;
         public Func<List<BinderItem>, ContextMenu> BatchMenuProvider;
         public event Action<List<BinderItem>> DeleteManyRequested;
@@ -112,6 +114,43 @@ namespace Marabook.App
             if (_selected.Count == 0) return;
             _selected.Clear();
             AnnounceSelection(null);
+        }
+
+        /// <summary>MAJ+clic (1.0.5) : toutes les tuiles entre l'ancre (la
+        /// dernière tuile cliquée, sinon la première sélectionnée) et
+        /// celle-ci, dans l'ordre d'affichage. Faux sans ancre.</summary>
+        private bool RangeSelect(string id)
+        {
+            var anchor = _anchorId;
+            if (anchor == null || !_cardOrder.Contains(anchor))
+                foreach (var candidate in _cardOrder) if (_selected.Contains(candidate)) { anchor = candidate; break; }
+            if (anchor == null) return false;
+            var a = _cardOrder.IndexOf(anchor);
+            var b = _cardOrder.IndexOf(id);
+            if (a < 0 || b < 0) return false;
+            for (var i = Math.Min(a, b); i <= Math.Max(a, b); i++) _selected.Add(_cardOrder[i]);
+            return true;
+        }
+
+        /// <summary>Sonde (1.0.5) : le MAJ+clic sur cette tuile, l'ancre étant la dernière cliquée.</summary>
+        internal bool RangeSelectForProbe(string anchorId, string id)
+        {
+            _anchorId = anchorId;
+            var ok = RangeSelect(id);
+            AnnounceSelection(null);
+            return ok;
+        }
+
+        /// <summary>Sonde (1.0.5) : les ids des sous-catégories dont la boîte est posée.</summary>
+        internal List<string> SubBoxIdsForProbe()
+        {
+            var ids = new List<string>();
+            foreach (var child in _rows.Children)
+            {
+                var box = child as Border;
+                if (box != null && box.Tag is string) ids.Add((string)box.Tag);
+            }
+            return ids;
         }
 
         /// <summary>La sonde : choisir ces fiches comme Ctrl+clic l'aurait fait.</summary>
@@ -325,6 +364,7 @@ namespace Marabook.App
         {
             _rows.Children.Clear();
             _cardsById.Clear();
+            _cardOrder.Clear();
             if (_project == null) return;
             var needle = Correction.FrenchTokenizer.Fold((_searchBox.Text ?? "").Trim());
             var searching = needle.Length > 0;
@@ -371,21 +411,44 @@ namespace Marabook.App
                 _rows.Children.Add(wrap);
                 first = false;
             }
-            // Une rangée par catégorie QUI A DES FICHES (1.0.4 : les vides ne
-            // sont plus que des pastilles), dans l'ordre du projet, triée
-            // selon le sélecteur ; un filtre ne garde que sa catégorie.
+            // Une rangée par catégorie d'ensemble QUI A DES FICHES (1.0.4 : les
+            // vides ne sont plus que des pastilles), dans l'ordre du projet,
+            // triée selon le sélecteur ; un filtre ne garde que sa catégorie.
+            // Dans la rangée (1.0.5) : les fiches de la catégorie même, puis
+            // une BOÎTE par sous-catégorie, comme les parties d'un livre —
+            // une sous-catégorie vide garde sa boîte (hors recherche), c'est
+            // là qu'on la renomme, qu'on lui donne ses champs, qu'on la
+            // supprime. Un filtre sur une sous-catégorie ne montre qu'elle.
             var shown = 0;
-            foreach (var category in _project.SheetCategories)
+            var filtered = _project.FindSheetCategory(_filterCategoryId);
+            var filterTop = _project.TopOf(filtered);
+            foreach (var category in _project.TopCategories())
             {
-                if (_filterCategoryId != null && _filterCategoryId != category.Id) continue;
-                List<BinderItem> sheets;
-                if (!byCategory.TryGetValue(category.Id, out sheets)) continue;
-                sheets = Matching(sheets, needle);
-                if (sheets.Count == 0) continue;
-                SortSheets(sheets);
-                AddCategoryRow(category, sheets, first);
+                if (filterTop != null && filterTop != category) continue;
+                List<BinderItem> own;
+                if (!byCategory.TryGetValue(category.Id, out own)) own = new List<BinderItem>();
+                own = filtered != null && filtered != category ? new List<BinderItem>() : Matching(own, needle);
+                var boxes = new List<KeyValuePair<SheetCategory, List<BinderItem>>>();
+                var inBoxes = 0;
+                foreach (var subCategory in _project.SubCategoriesOf(category))
+                {
+                    if (filtered != null && filtered != category && filtered != subCategory) continue;
+                    List<BinderItem> inside;
+                    if (!byCategory.TryGetValue(subCategory.Id, out inside)) inside = new List<BinderItem>();
+                    inside = Matching(inside, needle);
+                    if (inside.Count == 0 && searching) continue;
+                    SortSheets(inside);
+                    boxes.Add(new KeyValuePair<SheetCategory, List<BinderItem>>(subCategory, inside));
+                    inBoxes += inside.Count;
+                }
+                if (own.Count == 0 && inBoxes == 0 && (searching || boxes.Count == 0)) continue;
+                SortSheets(own);
+                AddDivider(first);
+                AddHeader(category.Name, category, own.Count + inBoxes);
+                if (own.Count > 0) AddCards(own, category);
+                foreach (var box in boxes) AddSubBox(box.Key, box.Value, category);
                 first = false;
-                shown += sheets.Count;
+                shown += own.Count + inBoxes;
             }
             if (uncategorized.Count > 0 && (_filterCategoryId == null || _filterCategoryId == UncategorizedKey))
             {
@@ -462,13 +525,12 @@ namespace Marabook.App
             _chips.Children.Add(Chip(null, "Toutes", total, _filterCategoryId == null, false,
                 "Toutes les fiches, catégorie par catégorie",
                 delegate { if (_filterCategoryId != null) { _filterCategoryId = null; RebuildRows(); } }, null));
-            foreach (var category in _project.SheetCategories)
+            foreach (var category in _project.TopCategories()) // une pastille par catégorie d'ensemble, sous-catégories comptées (1.0.5)
             {
                 var categoryRef = category;
-                List<BinderItem> sheets;
-                var count = byCategory.TryGetValue(category.Id, out sheets) ? sheets.Count : 0;
+                var count = CountWithSubs(byCategory, category);
                 var selected = _filterCategoryId == category.Id;
-                _chips.Children.Add(Chip(CategoryIcon(category), category.Name, count, selected, count == 0,
+                _chips.Children.Add(Chip(CategoryIcon(category, _project), category.Name, count, selected, count == 0,
                     count == 0 ? "Aucune fiche — cliquer pour en créer une dans « " + category.Name + " »"
                         : selected ? "Revenir à toutes les catégories" : "Ne montrer que les fiches « " + category.Name + " »",
                     delegate
@@ -583,14 +645,6 @@ namespace Marabook.App
             });
             sheets.Clear();
             foreach (var pair in indexed) sheets.Add(pair.Value);
-        }
-
-        private void AddCategoryRow(SheetCategory category,
-            List<BinderItem> sheets, bool first)
-        {
-            AddDivider(first);
-            AddHeader(category.Name, category, sheets.Count);
-            AddCards(sheets, category);
         }
 
         /// <summary>Le filet séparateur entre catégories.</summary>
@@ -799,7 +853,7 @@ namespace Marabook.App
                     };
             }
             if (pictureContent == null)
-                pictureContent = CategoryPlaceholder(category, 44);
+                pictureContent = CategoryPlaceholder(category, 44, _project);
             var picture = new Border
             {
                 Height = 108,
@@ -901,6 +955,7 @@ namespace Marabook.App
             var sheetRef = sheet;
             card.Tag = sheet;
             _cardsById[sheet.Id] = card;
+            _cardOrder.Add(sheet.Id);
             if (_selected.Contains(sheet.Id)) PaintSelection(card, true);
             // Le DOUBLE-clic ouvre (29/09) ; le clic simple choisit la tuile
             // (Ctrl = plusieurs, 1.0.3), et le Général du rail montre la fiche
@@ -914,8 +969,9 @@ namespace Marabook.App
             };
             card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
                 if (e.InitialPressMouseButton != MouseButton.Left) return;
-                if (Ui.HasCommand(e.KeyModifiers)) { if (!_selected.Remove(sheetRef.Id)) _selected.Add(sheetRef.Id); }
-                else { _selected.Clear(); _selected.Add(sheetRef.Id); }
+                if ((e.KeyModifiers & KeyModifiers.Shift) == KeyModifiers.Shift && !Ui.HasCommand(e.KeyModifiers) && RangeSelect(sheetRef.Id)) { }
+                else if (Ui.HasCommand(e.KeyModifiers)) { if (!_selected.Remove(sheetRef.Id)) _selected.Add(sheetRef.Id); _anchorId = sheetRef.Id; }
+                else { _selected.Clear(); _selected.Add(sheetRef.Id); _anchorId = sheetRef.Id; }
                 AnnounceSelection(_selected.Contains(sheetRef.Id) ? sheetRef : null);
             };
             card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
@@ -937,9 +993,9 @@ namespace Marabook.App
         /// catégorie (personnage, lieu, événement, système, peuple, bestiaire,
         /// pays, faction — les huit « fiche-* » du jeu d'icônes), sinon le
         /// cadre générique. Partagé avec la fiche ouverte.</summary>
-        public static Control CategoryPlaceholder(SheetCategory category, double size)
+        public static Control CategoryPlaceholder(SheetCategory category, double size, Project project = null)
         {
-            var icon = CategoryIcon(category);
+            var icon = CategoryIcon(category, project);
             if (icon != null)
             {
                 var made = Icons.Make(icon, size, Chrome.SoftText);
@@ -969,6 +1025,15 @@ namespace Marabook.App
             return Icons.Has(name) ? name : null;
         }
 
+        /// <summary>L'icône d'une catégorie, ou celle de sa catégorie
+        /// d'ensemble pour une sous-catégorie sans icône à elle (1.0.5).</summary>
+        public static string CategoryIcon(SheetCategory category, Project project)
+        {
+            var own = CategoryIcon(category);
+            if (own != null || project == null) return own;
+            return CategoryIcon(project.ParentOf(category));
+        }
+
         /// <summary>Un clip aux coins HAUTS arrondis : le rectangle déborde
         /// du bas de « radius » pour y garder des coins droits (le bas de la
         /// photo touche le nom, pas le bord de la carte).</summary>
@@ -994,11 +1059,11 @@ namespace Marabook.App
             menu.Items.Add(open);
 
             var move = new MenuItem { Header = "Changer de catégorie" };
-            foreach (var category in _project.SheetCategories)
+            foreach (var category in _project.OrderedCategories()) // catégories puis leurs sous-catégories (1.0.5)
             {
                 var entry = new MenuItem
                 {
-                    Header = category.Name,
+                    Header = (category.IsSub ? "    › " : "") + category.Name,
                     IsChecked = _project.SheetCategoryOf(sheet) == category
                 };
                 var categoryRef = category;
@@ -1046,7 +1111,7 @@ namespace Marabook.App
             {
                 Kind = ItemKind.Sheet,
                 Title = title,
-                TemplateId = category != null ? category.TemplateId : null,
+                TemplateId = _project.BaseTemplateIdOf(category), // hérité pour une sous-catégorie (1.0.5)
                 CategoryId = category != null ? category.Id : null
             };
             _history.Run(new AddItemAction(
@@ -1060,21 +1125,51 @@ namespace Marabook.App
         private void ShowCategoryMenu(Control anchor, SheetCategory category)
         {
             var menu = new ContextMenu();
+            var sub = category.IsSub && _project.ParentOf(category) != null;
+            var kindLabel = sub ? "la sous-catégorie" : "la catégorie";
 
             var rename = new MenuItem { Header = "Renommer…" };
             rename.Click += async delegate
             {
                 var name = await InputDialog.Ask(Ui.OwnerOf(this),
-                    "Renommer la catégorie", "Nom de la catégorie :", category.Name);
+                    "Renommer " + kindLabel, "Nom de " + kindLabel + " :", category.Name);
                 if (name == null || name.Trim().Length == 0) return;
                 var newName = name.Trim();
                 var oldName = category.Name;
-                _history.Run(new SheetStructureAction("Catégorie renommée",
+                _history.Run(new SheetStructureAction(sub ? "Sous-catégorie renommée" : "Catégorie renommée",
                     delegate { category.Name = newName; }, delegate { category.Name = oldName; }));
                 NotifyChanged();
                 RebuildRows();
             };
             menu.Items.Add(rename);
+
+            if (sub)
+            {
+                // Une sous-catégorie (1.0.5) : son modèle est celui de
+                // l'ensemble (hérité, suit ses changements), elle n'a que ses
+                // champs propres à régler.
+                var parent = _project.ParentOf(category);
+                var inherited = _project.FindTemplate(parent.TemplateId);
+                menu.Items.Add(new MenuItem
+                {
+                    Header = "Modèle hérité : " + (inherited != null ? inherited.Name : "aucun") + " (« " + parent.Name + " »)",
+                    IsEnabled = false
+                });
+                var fields = new MenuItem
+                {
+                    Header = "Champs propres…",
+                    [ToolTip.TipProperty] = "Les champs que CETTE sous-catégorie ajoute au modèle hérité, sur chacune de ses fiches"
+                };
+                fields.Click += delegate { EditSubFields(category); };
+                menu.Items.Add(fields);
+                menu.Items.Add(new Separator());
+                var removeSub = new MenuItem { Header = "Supprimer la sous-catégorie" };
+                removeSub.Click += delegate { DeleteCategory(category); };
+                menu.Items.Add(removeSub);
+                menu.PlacementTarget = anchor;
+                Ui.ShowMenu(menu, anchor);
+                return;
+            }
 
             var baseTemplate = new MenuItem
             {
@@ -1112,6 +1207,15 @@ namespace Marabook.App
             menu.Items.Add(editTemplates);
 
             menu.Items.Add(new Separator());
+            var newSub = new MenuItem
+            {
+                Header = "Créer une sous-catégorie…",
+                [ToolTip.TipProperty] = "Une partie de « " + category.Name + " » : même modèle (hérité), plus ses champs propres"
+            };
+            newSub.Click += delegate { NewSubCategory(category); };
+            menu.Items.Add(newSub);
+
+            menu.Items.Add(new Separator());
             var remove = new MenuItem { Header = "Supprimer la catégorie" };
             remove.Click += delegate { DeleteCategory(category); };
             menu.Items.Add(remove);
@@ -1145,6 +1249,17 @@ namespace Marabook.App
 
         private async void DeleteCategory(SheetCategory category)
         {
+            var sub = category.IsSub && _project.ParentOf(category) != null;
+            var what = (sub ? "La sous-catégorie « " : "La catégorie « ") + category.Name + " »";
+            var subs = _project.SubCategoriesOf(category).Count;
+            if (subs > 0)
+            {
+                MessageDialog.Show(Ui.OwnerOf(this),
+                    what + " contient " + subs + (subs == 1 ? " sous-catégorie" : " sous-catégories")
+                    + ".\nSupprimez-les d'abord (le menu de chaque boîte).",
+                    "Marabook", MessageButtons.OK, MessageIcon.Information);
+                return;
+            }
             var used = 0;
             foreach (var item in _project.AllItems())
                 if (item.Kind == ItemKind.Sheet
@@ -1152,24 +1267,142 @@ namespace Marabook.App
             if (used > 0)
             {
                 MessageDialog.Show(Ui.OwnerOf(this),
-                    "La catégorie « " + category.Name + " » contient " + used
+                    what + " contient " + used
                     + (used == 1 ? " fiche" : " fiches") + ".\nDéplacez-les "
                     + "d'abord (clic droit sur une carte → Changer de catégorie).",
                     "Marabook", MessageButtons.OK, MessageIcon.Information);
                 return;
             }
             var answer = MessageDialog.Show(Ui.OwnerOf(this),
-                "Supprimer la catégorie « " + category.Name + " » ?\n"
-                + "Son modèle reste dans l'éditeur de modèles.",
+                "Supprimer " + (sub ? "la sous-catégorie « " : "la catégorie « ") + category.Name + " » ?\n"
+                + (sub ? "Ses champs propres disparaissent avec elle." : "Son modèle reste dans l'éditeur de modèles."),
                 "Marabook", MessageButtons.YesNo, MessageIcon.Question);
             if (await answer != MessageResult.Yes) return;
             var project = _project;
             var index = project.SheetCategories.IndexOf(category);
-            _history.Run(new SheetStructureAction("Catégorie supprimée",
+            _history.Run(new SheetStructureAction(sub ? "Sous-catégorie supprimée" : "Catégorie supprimée",
                 delegate { project.SheetCategories.Remove(category); },
                 delegate { project.SheetCategories.Insert(Math.Min(index, project.SheetCategories.Count), category); }));
             NotifyChanged();
             RebuildRows();
+        }
+
+        // --------------------------------------------- sous-catégories (1.0.5)
+
+        /// <summary>Une sous-catégorie naît sous sa catégorie d'ensemble :
+        /// même modèle (hérité), aucun champ propre encore — « Champs
+        /// propres… » dans le menu de sa boîte. Annulable.</summary>
+        private async void NewSubCategory(SheetCategory parent)
+        {
+            var name = await InputDialog.Ask(Ui.OwnerOf(this),
+                "Nouvelle sous-catégorie de « " + parent.Name + " »",
+                "Nom de la sous-catégorie (ex. « Héros », « Figurants ») :", "Sous-catégorie");
+            if (name == null || name.Trim().Length == 0) return;
+            var project = _project;
+            SheetCategory created = null;
+            var index = -1;
+            _history.Run(new SheetStructureAction("Sous-catégorie créée",
+                delegate
+                {
+                    if (created == null) { created = project.AddSubCategory(parent, name); index = project.SheetCategories.IndexOf(created); }
+                    else project.SheetCategories.Insert(Math.Min(index, project.SheetCategories.Count), created);
+                },
+                delegate { project.SheetCategories.Remove(created); }));
+            NotifyChanged();
+            RebuildRows();
+        }
+
+        /// <summary>Les champs propres d'une sous-catégorie : l'éditeur de
+        /// modèles en mode « un seul », sur ses champs ; la liste validée
+        /// remplace l'ancienne (annulable), les fiches ouvertes suivent.</summary>
+        private async void EditSubFields(SheetCategory sub)
+        {
+            var baseTemplate = _project.FindTemplate(_project.BaseTemplateIdOf(sub));
+            var fields = await TemplatesDialog.EditSubFields(Ui.OwnerOf(this), sub, baseTemplate, _project);
+            if (fields == null) return;
+            var previous = sub.ExtraFields;
+            _history.Run(new SheetStructureAction("Champs propres modifiés",
+                delegate { sub.ExtraFields = fields; },
+                delegate { sub.ExtraFields = previous; }));
+            NotifyChanged();
+            RebuildRows();
+        }
+
+        /// <summary>Le compte d'une catégorie d'ensemble, sous-catégories comprises.</summary>
+        private int CountWithSubs(Dictionary<string, List<BinderItem>> byCategory, SheetCategory top)
+        {
+            List<BinderItem> list;
+            var count = byCategory.TryGetValue(top.Id, out list) ? list.Count : 0;
+            foreach (var sub in _project.SubCategoriesOf(top))
+                if (byCategory.TryGetValue(sub.Id, out list)) count += list.Count;
+            return count;
+        }
+
+        /// <summary>La boîte d'une sous-catégorie, comme une partie de livre
+        /// au tableau : bordure fine à bords ronds, le nom posé DANS la
+        /// bordure avec son compte, son menu à trois points, les cartes à
+        /// l'intérieur ; vide, elle le dit.</summary>
+        private void AddSubBox(SheetCategory sub, List<BinderItem> sheets, SheetCategory top)
+        {
+            var dock = new DockPanel();
+            var head = new DockPanel { Margin = new Thickness(6, 0, 2, 4) };
+            var subRef = sub;
+            var edit = Buttons.Icon("dots-three-vertical-bold", "Modifier la sous-catégorie…", Buttons.Compact, Buttons.Look.Calm);
+            edit.Click += delegate { ShowCategoryMenu(edit, subRef); };
+            DockPanel.SetDock(edit, Dock.Right);
+            head.Children.Add(edit);
+            var title = new StackPanel { Orientation = Orientation.Horizontal };
+            var icon = Icons.Make("folder-bold", 13, Chrome.SoftText) as Control;
+            if (icon != null) { icon.VerticalAlignment = VerticalAlignment.Center; icon.Margin = new Thickness(0, 0, 6, 0); title.Children.Add(icon); }
+            title.Children.Add(new TextBlock
+            {
+                Text = sub.Name,
+                FontSize = 13,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = Chrome.Ink,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            title.Children.Add(new TextBlock
+            {
+                Text = sheets.Count == 0 ? "aucune fiche" : sheets.Count == 1 ? "1 fiche" : sheets.Count + " fiches",
+                FontSize = 11,
+                Foreground = Chrome.SoftText,
+                Margin = new Thickness(10, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            if (sub.ExtraFields.Count > 0)
+                title.Children.Add(new TextBlock
+                {
+                    Text = "· " + sub.ExtraFields.Count + (sub.ExtraFields.Count == 1 ? " champ propre" : " champs propres"),
+                    FontSize = 11,
+                    Foreground = Chrome.SoftText,
+                    Margin = new Thickness(10, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+            head.Children.Add(title);
+            DockPanel.SetDock(head, Dock.Top);
+            dock.Children.Add(head);
+            var wrap = new WrapPanel { Margin = new Thickness(2, 0, 2, 0) };
+            foreach (var sheet in sheets) wrap.Children.Add(BuildCard(sheet, sub));
+            if (sheets.Count == 0)
+                wrap.Children.Add(new TextBlock
+                {
+                    Text = "Rien ici — « + Nouvelle fiche », ou clic droit sur une carte → Changer de catégorie.",
+                    Foreground = Chrome.SoftText,
+                    FontSize = 12,
+                    Margin = new Thickness(6, 2, 0, 6)
+                });
+            dock.Children.Add(wrap);
+            _rows.Children.Add(new Border
+            {
+                BorderBrush = Chrome.Border,
+                BorderThickness = new Thickness(1.4),
+                CornerRadius = new CornerRadius(10),
+                Margin = new Thickness(0, 10, 8, 0),
+                Padding = new Thickness(6, 8, 6, 4),
+                Child = dock,
+                Tag = sub.Id // sonde
+            });
         }
 
         private void NotifyChanged()

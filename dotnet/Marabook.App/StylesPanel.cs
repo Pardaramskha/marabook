@@ -89,6 +89,7 @@ namespace Marabook.App
 
         private TextBox _nameBox;
         private ComboBox _scopeCombo;
+        private TextBox _shortcutBox; // la macro du style (1.0.5)
         // Caractère
         private FontPicker _fontCombo; // le sélecteur partagé du ruban (0.50.0)
         private TextBox _sizeBox, _leadingBox, _colorBox;
@@ -163,6 +164,7 @@ namespace Marabook.App
                 ApplyScope();
                 RaiseChanged();
             };
+            var shortcutRow = BuildShortcutRow();
             scopeRow.Children.Add(_scopeCombo);
             // « Réinitialiser » (28/09) : toute la feuille revient aux styles
             // de Marabook tels qu'à l'installation — après confirmation.
@@ -191,6 +193,7 @@ namespace Marabook.App
                 TextWrapping = TextWrapping.Wrap
             });
             fixedRows.Children.Add(scopeRow);
+            fixedRows.Children.Add(shortcutRow);
             DockPanel.SetDock(fixedRows, Dock.Bottom);
             right.Children.Add(fixedRows);
 
@@ -439,6 +442,83 @@ namespace Marabook.App
             grid.Children.Add(element);
         }
 
+        /// <summary>La MACRO du style (1.0.5, Rémi) : une case qui capte la
+        /// combinaison tapée (Ctrl/⌘+1, Ctrl+Maj+2…), Retour arrière la
+        /// retire, Échap annule ; un doublon (action, autre style, système)
+        /// est signalé mais gardé. L'éditeur applique le style à la frappe.</summary>
+        private DockPanel BuildShortcutRow()
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 6, 0, 0) };
+            row.Children.Add(FixedLabel("Raccourci"));
+            _shortcutBox = new TextBox
+            {
+                Width = 150,
+                IsReadOnly = true,
+                TextAlignment = TextAlignment.Center,
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Focusable = false,
+                IsTabStop = false,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                [ToolTip.TipProperty] = "Cliquer puis taper la combinaison qui appliquera ce style dans l'éditeur (" + Ui.CommandKey + "+1, " + Ui.CommandKey + "+Maj+2…) — Retour arrière : aucun"
+            };
+            _shortcutBox.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+            {
+                _shortcutBox.Focusable = true;
+                _shortcutBox.Focus();
+                e.Handled = true;
+            };
+            _shortcutBox.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                e.Handled = true;
+                if (_current == null) return;
+                var key = e.Key;
+                if (key == Key.LeftCtrl || key == Key.RightCtrl || key == Key.LeftShift || key == Key.RightShift
+                    || key == Key.LeftAlt || key == Key.RightAlt || key == Key.LWin || key == Key.RWin) return;
+                if (key == Key.Escape) { SyncShortcutBox(); return; }
+                if (key == Key.Back) { StoreShortcut(""); return; }
+                var gesture = "";
+                if (Ui.HasCommand(e.KeyModifiers)) gesture += "Ctrl+"; // ⌘ sur macOS, enregistré « Ctrl »
+                if ((e.KeyModifiers & KeyModifiers.Shift) != 0) gesture += "Shift+";
+                if ((e.KeyModifiers & KeyModifiers.Alt) != 0) gesture += "Alt+";
+                if (gesture.Length == 0 || (gesture == "Shift+")) return; // une lettre nue n'est pas une macro
+                StoreShortcut(gesture + key);
+            };
+            row.Children.Add(_shortcutBox);
+            var hint = new TextBlock
+            {
+                Text = "applique le style dans l'éditeur",
+                Foreground = Chrome.FaintText,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 0, 0)
+            };
+            row.Children.Add(hint);
+            return row;
+        }
+
+        private void SyncShortcutBox()
+        {
+            if (_shortcutBox == null) return;
+            var gesture = _current == null ? "" : _current.Shortcut ?? "";
+            _shortcutBox.Text = gesture.Length == 0 ? "—" : Marabook.Settings.AppSettings.DisplayGesture(gesture);
+            _shortcutBox.FontWeight = gesture.Length == 0 ? FontWeight.Normal : FontWeight.SemiBold;
+        }
+
+        private async void StoreShortcut(string gesture)
+        {
+            if (_current == null) return;
+            _current.Shortcut = gesture.Length == 0 ? null : gesture;
+            SyncShortcutBox();
+            RaiseChanged();
+            var conflict = ShortcutConflicts.Describe(gesture, null, Sheet.Styles, _current.Id);
+            if (conflict != null)
+                await MessageDialog.Show(Ui.OwnerOf(this), conflict, "Raccourcis", MessageButtons.OK, MessageIcon.Information);
+        }
+
+        /// <summary>Sonde (1.0.5) : poser la macro du style affiché.</summary>
+        internal void StoreShortcutForProbe(string gesture) { StoreShortcut(gesture ?? ""); }
+        internal string ShortcutBoxTextForProbe { get { return _shortcutBox == null ? "" : _shortcutBox.Text ?? ""; } }
+
         private static TextBlock FixedLabel(string text)
         {
             var label = new TextBlock
@@ -567,6 +647,7 @@ namespace Marabook.App
             _syncing = true;
 
             _nameBox.Text = style.Name;
+            SyncShortcutBox();
             _scopeCombo.SelectedIndex = style.Scope == ParagraphStyle.ScopeBook ? 1
                                       : style.Scope == ParagraphStyle.ScopeDocument ? 2 : 0;
             // « Corps » est le style de secours : global, toujours.

@@ -48,6 +48,10 @@ namespace Marabook.App
         private StackPanel _demonymPanel;
         private CheckBox _demonymCheck;
         private TextBox _demonymSuffix, _demonymForm;
+        // Les pratiquants d'une religion ou doctrine (1.0.5) : même mécanique.
+        private StackPanel _adherentPanel;
+        private CheckBox _adherentCheck;
+        private TextBox _adherentSuffix, _adherentForm;
         private bool _accepted, _syncing;
         // Le choix de chaque groupe de boutons radio, tenu à jour par le
         // bouton qui vient d'être coché (02/10). Avalonia lève
@@ -411,6 +415,7 @@ namespace Marabook.App
                 if (children.Children.Count > 0) host.Children.Add(children);
             }
             host.Children.Add(BuildDemonymPanel(initial));
+            host.Children.Add(BuildAdherentPanel(initial));
             UpdateProperChildren();
             return host;
         }
@@ -473,6 +478,79 @@ namespace Marabook.App
             return _demonymPanel;
         }
 
+        /// <summary>Les pratiquants d'une religion, croyance ou doctrine
+        /// (1.0.5, Rémi) : d'un nom commun (« rhétannisme ») ou d'un nom
+        /// propre « autre », le nom et l'adjectif de ceux qui la suivent
+        /// (rhétanniste, rhétannistes…) par un suffixe choisi ; la forme
+        /// masculine se pose si la règle se trompe.</summary>
+        private StackPanel BuildAdherentPanel(LexiconEntry initial)
+        {
+            _adherentPanel = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+            var initialSuffix = initial == null ? "" : initial.AdherentSuffix.Trim();
+            _adherentCheck = new CheckBox
+            {
+                Content = "Dériver les pratiquants (religion, croyance, doctrine : rhétannisme → rhétanniste, rhétannistes…)",
+                IsChecked = initialSuffix.Length > 0
+            };
+            _adherentCheck.IsCheckedChanged += delegate
+            {
+                if (_syncing) return;
+                if (_adherentCheck.IsChecked == true && (_adherentSuffix.Text ?? "").Trim().Length == 0)
+                    _adherentSuffix.Text = LexiconEntry.AdherentSuffixes[0];
+                UpdateAdherentState();
+                RefreshForms();
+            };
+            _adherentPanel.Children.Add(_adherentCheck);
+
+            var row = new WrapPanel { Margin = new Thickness(26, 4, 0, 0) };
+            row.Children.Add(new TextBlock { Text = "Suffixe :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
+            _adherentSuffix = new TextBox
+            {
+                Width = 64,
+                Text = initialSuffix,
+                Watermark = "iste",
+                Margin = new Thickness(0, 0, 8, 4),
+                [ToolTip.TipProperty] = "Le suffixe qui remplace -isme (ou s'ajoute au mot) — l'une des préconfigurations, ou le vôtre"
+            };
+            _adherentSuffix.TextChanged += delegate { if (!_syncing) RefreshForms(); };
+            row.Children.Add(_adherentSuffix);
+            foreach (var preset in LexiconEntry.AdherentSuffixes)
+            {
+                var suffix = preset;
+                var chip = Buttons.Text("-" + preset, "Suffixe « -" + preset + " »", Buttons.Compact, Buttons.Look.Outline);
+                chip.Margin = new Thickness(0, 0, 4, 4);
+                chip.Click += delegate { _adherentSuffix.Text = suffix; };
+                row.Children.Add(chip);
+            }
+            _adherentPanel.Children.Add(row);
+
+            var formRow = new DockPanel { Margin = new Thickness(26, 2, 0, 0) };
+            formRow.Children.Add(new TextBlock { Text = "Forme masculine :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0), [DockPanel.DockProperty] = Dock.Left });
+            _adherentForm = new TextBox
+            {
+                Text = initial == null ? "" : initial.AdherentForm,
+                [ToolTip.TipProperty] = "Vide : la forme dérivée par la règle (en filigrane) ; tapez-la si la règle se trompe (christianisme → chrétien)"
+            };
+            _adherentForm.TextChanged += delegate { if (!_syncing) RefreshForms(); };
+            formRow.Children.Add(_adherentForm);
+            _adherentPanel.Children.Add(formRow);
+            UpdateAdherentState();
+            return _adherentPanel;
+        }
+
+        private void UpdateAdherentState()
+        {
+            if (_adherentPanel == null) return;
+            var on = _adherentCheck.IsChecked == true;
+            _adherentSuffix.IsEnabled = on;
+            _adherentForm.IsEnabled = on;
+            foreach (var child in ((WrapPanel)_adherentPanel.Children[1]).Children)
+            {
+                var chip = child as Button;
+                if (chip != null) chip.IsEnabled = on;
+            }
+        }
+
         private void UpdateDemonymState()
         {
             if (_demonymPanel == null) return;
@@ -497,6 +575,7 @@ namespace Marabook.App
                 if (trait.ProperKind != kind) box.IsChecked = false;
             }
             if (_demonymPanel != null) _demonymPanel.IsVisible = LexiconEntry.AllowsDemonym(kind) ? true : false;
+            if (_adherentPanel != null) _adherentPanel.IsVisible = SelectedClass() == LexiconEntry.ClassNoun || kind == LexiconEntry.ProperOther;
             foreach (var genderRadio in _firstNameRadios) genderRadio.IsEnabled = kind == LexiconEntry.ProperFirstName;
             // Un gentilé se décline aux deux genres (Mànisien, Mànisienne) ;
             // un autre nom propre ne se fléchit pas (01/10).
@@ -574,6 +653,10 @@ namespace Marabook.App
             _natureHost.IsVisible = hasNature ? true : false;
             foreach (var pair in _naturePanels) pair.Value.IsVisible = pair.Key == cls ? true : false;
             _flexion.IsVisible = FlexionApplies() ? true : false;
+            // Les pratiquants (1.0.5) : un nom commun, ou un nom propre « autre ».
+            if (_adherentPanel != null)
+                _adherentPanel.IsVisible = cls == LexiconEntry.ClassNoun
+                    || (cls == LexiconEntry.ClassProper && SelectedProperKind() == LexiconEntry.ProperOther);
         }
 
         /// <summary>Les quatre champs : ceux que la flexion choisie n'a pas
@@ -598,6 +681,11 @@ namespace Marabook.App
             {
                 probe.DemonymForm = "";
                 _demonymForm.Watermark = probe.DemonymBase() ?? "";
+            }
+            if (_adherentForm != null)
+            {
+                probe.AdherentForm = "";
+                _adherentForm.Watermark = probe.AdherentBase() ?? "";
             }
             RefreshPreview();
         }
@@ -626,6 +714,11 @@ namespace Marabook.App
             {
                 entry.DemonymSuffix = (_demonymSuffix.Text ?? "").Trim().TrimStart('-');
                 entry.DemonymForm = (_demonymForm.Text ?? "").Trim();
+            }
+            if (entry.AllowsAdherents && _adherentCheck != null && _adherentCheck.IsChecked == true)
+            {
+                entry.AdherentSuffix = (_adherentSuffix.Text ?? "").Trim().TrimStart('-');
+                entry.AdherentForm = (_adherentForm.Text ?? "").Trim();
             }
             foreach (var trait in LexiconEntry.TraitCatalog)
             {

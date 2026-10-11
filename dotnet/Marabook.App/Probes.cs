@@ -114,7 +114,85 @@ namespace Marabook.App
                 Check(shell.StatusPagesText.Contains("page"), "la barre d'état donne les pages de l'écrit (" + shell.StatusPagesText + ")");
                 Check(shell.StatusText.Contains("signes EC") && !shell.StatusText.Contains("feuillet") && !shell.StatusText.Contains("min"), "…et mots · signes EC, sans feuillets ni temps de lecture (" + shell.StatusText + ")");
                 Check(shell.ZoomPanelVisibleForProbe, "le curseur de zoom est montré dans l'éditeur");
+                // — Lignes lâches (09/10) : signalées par défaut, le bouton du ruban Mise en page les coupe et les rallume.
+                Check(editor.LooseLinesShownForProbe && AppSettings.ShowLooseLines, "les lignes lâches sont signalées par défaut");
+                editor.ToggleLooseLinesForProbe();
+                Check(!editor.LooseLinesShownForProbe && !ComposedRenderer.ShowLooseLines, "Mise en page › Lignes lâches les éteint");
+                editor.ToggleLooseLinesForProbe();
+                Check(editor.LooseLinesShownForProbe, "…et les rallume");
+                // — Ctrl+F (09/10) : une seconde après la frappe, la première occurrence est sélectionnée.
+                editor.TypeSearchForProbe("volets");
+                await Task.Delay(1300);
+                await Settle();
+                Check(editor.SearchInfoForProbe.StartsWith("1/"), "Ctrl+F : une seconde après la frappe, la première occurrence est sélectionnée (" + editor.SearchInfoForProbe + ")");
+                editor.HideSearch();
+                // — Double-clic sur un résultat de la Pile (09/10) : l'occurrence elle-même.
+                shell.OpenOccurrenceForProbe(chapter, "volets");
+                await Settle();
+                await Settle();
+                Check(editor.ShowsItem(chapter) && editor.SelectedPlainText() == "volets", "la Pile : un double-clic sur un résultat sélectionne l'occurrence (« " + editor.SelectedPlainText() + " »)");
+                // — Le Bilan de style au rail (09/10) : un onglet le temps du bilan.
+                var railBefore = AppSettings.RightPanel;
+                editor.ShowStyleReportForProbe();
+                await Settle();
+                Check(shell.HasStyleReportForProbe && AppSettings.RightPanel == RightPanel.StyleReport, "le Bilan de style ouvre un onglet du rail, pas une fenêtre");
+                Check(OpenWindow<Window>() == null || !(OpenWindow<Window>().Title ?? "").StartsWith("Bilan"), "…aucune fenêtre « Bilan de style »");
+                shell.CloseStyleReportForProbe();
+                await Settle();
+                Check(!shell.HasStyleReportForProbe && AppSettings.RightPanel == RightPanel.None, "la croix du bilan ferme l'onglet et replie le rail");
+                editor.ShowStyleReportForProbe();
+                await Settle();
+                shell.OpenByTitle("Chapitre deux — La maison aux volets");
+                await Settle();
+                await Settle();
+                Check(!shell.HasStyleReportForProbe && AppSettings.RightPanel != RightPanel.StyleReport, "changer d'écrit ferme le bilan et son onglet");
+                shell.OpenByTitle(chapter.Title);
+                await Settle();
+                await Settle();
+                shell.SetRightPanelForProbe(railBefore);
+                await Settle();
+                // — Le choix d'un gabarit a sa propre fenêtre (09/10), plus celle du lien.
+                {
+                    var pickTask = PickDialog.Ask(shell, "Gabarit de pages", "Quel gabarit appliquer ?", new List<string> { "(aucun gabarit)", "Sonde" }, "Appliquer");
+                    await Settle();
+                    var pick = OpenWindow<PickDialog>();
+                    Check(pick != null && pick.Title == "Gabarit de pages", "le choix d'un gabarit ouvre « Gabarit de pages », pas « Lien vers une fiche »");
+                    if (pick != null)
+                    {
+                        var cancel = FindButton(pick, "Annuler");
+                        if (cancel != null) cancel.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else pick.Close();
+                    }
+                    var picked = await pickTask;
+                    Check(picked == null, "…Annuler ne choisit rien");
+                }
+                // — Actions groupées : « Appliquer le gabarit du livre » sur des écrits d'un livre (09/10).
+                {
+                    var demoBook = chapter == null ? null : chapter.EnclosingBook();
+                    if (demoBook != null && demoBook.Children.Count >= 2)
+                    {
+                        var labels = shell.BatchLabelsForProbe(new List<BinderItem> { demoBook.Children[0], demoBook.Children[1] });
+                        Check(labels.Contains("Appliquer le gabarit du livre") && labels.Contains("Appliquer un gabarit…"), "les actions groupées proposent « Appliquer le gabarit du livre » (" + labels.Count + " actions)");
+                    }
+                }
+                Check(AppSettings.Gesture("loose-lines") == "Ctrl+L", "le raccourci par défaut est Ctrl+L / ⌘L (" + AppSettings.Gesture("loose-lines") + ")");
+                Check(composed != null && composed.RunEditorAction("loose-lines") && !editor.LooseLinesShownForProbe, "l'action de l'éditeur « loose-lines » bascule le bouton du ruban");
+                composed.RunEditorAction("loose-lines");
+                Check(editor.LooseLinesShownForProbe, "…dans les deux sens");
                 Check(shell.StatusBookText.StartsWith("Livre : ") && shell.StatusBookText.Contains("page"), "…et la pagination totale du livre (" + shell.StatusBookText + ")");
+                // — Le panneau Publication et « Publier » comptent les MÊMES
+                //   pages (09/10) : le cache compte sur la page du livre.
+                {
+                    var demoBook = chapter == null ? null : chapter.EnclosingBook();
+                    if (demoBook != null)
+                    {
+                        var compiled = shell.CompileForPublishForProbe(demoBook);
+                        var publishSetup = demoBook.Book != null && demoBook.Book.Template != null ? demoBook.Book.Template : shell.Project.Page;
+                        var merged = Marabook.Print.Composer.Compose(compiled, shell.Project.Styles.EffectiveFor(demoBook), publishSetup, shell.Project, new AvaloniaFontEngine());
+                        var panelTotal = shell.BookPageTotalForProbe(demoBook);
+                        Check(panelTotal == merged.Pages.Count, "le panneau Publication compte les pages du PDF publié (" + panelTotal + " = " + merged.Pages.Count + ")");
+                        shell.BookPageTotalForProbe(demoBook); // le cache repart propre
+                    }
+                }
                 // — Le total du livre est STABLE (07/10 soir) : ouvrir les
                 //   chapitres l'un après l'autre ne l'additionne pas en boucle,
                 //   et chaque chapitre dit SES pages, sans le folio du livre.
@@ -1062,6 +1140,22 @@ namespace Marabook.App
                         var count = sheetView.SpellNowForProbe();
                         if (count < 0) Console.WriteLine("  [sonde] dictionnaire absent à côté de l'exécutable : correcteur des fiches sauté");
                         else Check(count == 2, "le corps de la fiche souligne « tezte » et « fôte », pas le lien wiki (" + count + " signalement(s))");
+                        // Le menu du clic droit unifié (10/10) : édition, puis le
+                        // signalement sous le clic avec ses suggestions.
+                        if (count == 2)
+                        {
+                            var menu = sheetView.BuildBodyMenuForProbe("Un ".Length + 1);
+                            var headers = new List<string>();
+                            foreach (var entry in menu.Items) { var item = entry as MenuItem; if (item != null) headers.Add(item.Header as string ?? ""); }
+                            Check(headers.Contains("Couper") && headers.Contains("Coller") && headers.Contains("Tout sélectionner"),
+                                "clic droit dans le corps Markdown : Couper / Copier / Coller / Tout sélectionner (" + string.Join(" · ", headers.ToArray()) + ")");
+                            Check(headers.Contains("texte") && headers.Contains("Ignorer ici") && headers.Exists(delegate(string h) { return h.StartsWith("Ajouter « tezte »"); }),
+                                "…puis la suggestion « texte », Ignorer ici, Ajouter au dictionnaire");
+                            var plain = sheetView.BuildBodyMenuForProbe("Un tezte avec une fôte et [[Kaladinn]] dedans.".Length - 2);
+                            var plainHeaders = new List<string>();
+                            foreach (var entry in plain.Items) { var item = entry as MenuItem; if (item != null) plainHeaders.Add(item.Header as string ?? ""); }
+                            Check(plainHeaders.Count == 4 && !plainHeaders.Contains("Ignorer ici"), "…et rien de plus sur un mot sain");
+                        }
                         sheetView.BodyBox.Text = kept;
                         await Settle();
                     }
@@ -1127,6 +1221,164 @@ namespace Marabook.App
                     else Console.WriteLine("  [sonde] pas de champ texte sur Keira : rendu wiki des champs sauté");
                 }
 
+                // — Sous-catégories de fiches (1.0.5) : une boîte dans la
+                //   bibliothèque, le modèle hérité plus les champs propres sur
+                //   la fiche, le chemin « Personnage › Héros » en tête.
+                {
+                    var project = shell.Project;
+                    var keira = project.FindByTitle("Keira Varenh");
+                    var top = keira == null ? null : project.TopSheetCategoryOf(keira);
+                    if (keira != null && top != null && !keira.IsDescendantOf(project.Trash))
+                    {
+                        var keptCategory = keira.CategoryId;
+                        var heroes = project.AddSubCategory(top, "Héros (sonde)");
+                        var oath = new SheetField { Name = "Serment (sonde)", Kind = FieldKinds.Multiline };
+                        heroes.ExtraFields.Add(oath);
+                        keira.CategoryId = heroes.Id;
+                        shell.Binder.SelectItem(project.Category(Project.KeySheets).Id);
+                        await Settle();
+                        var library = shell.SheetLibraryForProbe;
+                        Check(library != null && library.IsVisible && library.SubBoxIdsForProbe().Contains(heroes.Id),
+                            "bibliothèque : la sous-catégorie a sa boîte dans la rangée de « " + top.Name + " »");
+                        shell.Binder.SelectItem(keira.Id);
+                        await Settle();
+                        var sheetView = shell.Sheet;
+                        Check(sheetView != null && sheetView.HasItem && sheetView.HasFieldBoxForProbe(oath.Id),
+                            "fiche d'une sous-catégorie : le champ propre s'ajoute au modèle hérité");
+                        Check(sheetView != null && sheetView.CategoryLabelForProbe.Contains(top.Name + " › Héros (sonde)"),
+                            "…et la tête dit le chemin (" + (sheetView == null ? "-" : sheetView.CategoryLabelForProbe) + ")");
+                        Check(project.TemplateOf(keira).Fields.Count == project.FindTemplate(keira.TemplateId).Fields.Count + 1
+                            && project.BaseTemplateIdOf(heroes) == top.TemplateId,
+                            "le modèle effectif = le modèle de base de l'ensemble + 1 champ propre");
+                        keira.CategoryId = keptCategory;
+                        project.SheetCategories.Remove(heroes);
+                        shell.Binder.SelectItem(project.Category(Project.KeySheets).Id);
+                        await Settle();
+                        shell.Binder.SelectItem(keira.Id);
+                        await Settle();
+                        Check(shell.Sheet != null && !shell.Sheet.HasFieldBoxForProbe(oath.Id), "sous-catégorie retirée : le champ propre disparaît de la fiche");
+                    }
+                    else Console.WriteLine("  [sonde] Keira introuvable : sous-catégories sautées");
+                }
+
+                // — Hygiène des liens (1.0.5) : renommer une fiche recible ses
+                //   [[liens]], Ctrl+Z rend les deux.
+                {
+                    var project = shell.Project;
+                    var keira = project.FindByTitle("Keira Varenh");
+                    if (keira != null)
+                    {
+                        var writingsRoot = project.Category(Project.KeyWritings);
+                        var scratch = new BinderItem { Kind = ItemKind.Text, Title = "Brouillon (sonde liens)" };
+                        scratch.Document.Paragraphs.Clear();
+                        var paragraph = new TextParagraph();
+                        paragraph.Runs.Add(new TextRun { Text = "Avec [[Keira Varenh]] et [[keira varenh|elle]]." });
+                        scratch.Document.Paragraphs.Add(paragraph);
+                        scratch.Parent = writingsRoot;
+                        writingsRoot.Children.Add(scratch);
+                        var linksBefore = LinkHygiene.CountLinksTo(project, "Keira Varenh");
+                        var history = shell.HistoryForProbe;
+                        history.Run(new History.RenameItemAction(keira, "Keira Varenh (sonde)", project));
+                        await Settle();
+                        var flat = PivotEdit.FlatText(scratch.Document.Paragraphs[0]);
+                        Check(keira.Title == "Keira Varenh (sonde)" && flat == "Avec [[Keira Varenh (sonde)]] et [[Keira Varenh (sonde)|elle]].",
+                            "renommer la fiche recible ses liens (« " + flat + " »)");
+                        Check(LinkHygiene.CountLinksTo(project, "Keira Varenh (sonde)") == linksBefore, "…tous les liens du projet (" + linksBefore + ")");
+                        history.Undo();
+                        await Settle();
+                        Check(keira.Title == "Keira Varenh" && PivotEdit.FlatText(scratch.Document.Paragraphs[0]) == "Avec [[Keira Varenh]] et [[keira varenh|elle]].",
+                            "Ctrl+Z rend le titre et les liens tels quels");
+                        writingsRoot.Children.Remove(scratch);
+                        shell.Binder.Rebuild();
+                        await Settle();
+                    }
+                }
+
+                // — Casser le dossier (1.0.5) : un dossier de Fiches avec deux
+                //   fiches ; cassé, les fiches sont à la racine, le dossier à
+                //   la corbeille ; Ctrl+Z remet tout.
+                {
+                    var project = shell.Project;
+                    var sheetsHome = project.Category(Project.KeySheets);
+                    var folder = new BinderItem { Kind = ItemKind.Folder, Title = "Dossier (sonde)", Parent = sheetsHome };
+                    var one = new BinderItem { Kind = ItemKind.Sheet, Title = "Fiche une (sonde)", Parent = folder, CategoryId = project.SheetCategories[0].Id, TemplateId = project.SheetCategories[0].TemplateId };
+                    var two = new BinderItem { Kind = ItemKind.Sheet, Title = "Fiche deux (sonde)", Parent = folder, CategoryId = project.SheetCategories[0].Id, TemplateId = project.SheetCategories[0].TemplateId };
+                    folder.Children.Add(one);
+                    folder.Children.Add(two);
+                    sheetsHome.Children.Add(folder);
+                    shell.Binder.Rebuild();
+                    await Settle();
+                    var trashBefore = project.Trash.Children.Count;
+                    shell.Binder.BreakFolderForProbe(folder.Id);
+                    await Settle();
+                    Check(one.Parent == sheetsHome && two.Parent == sheetsHome && sheetsHome.Children.IndexOf(one) < sheetsHome.Children.IndexOf(two),
+                        "casser le dossier : ses fiches rejoignent la racine Fiches, dans l'ordre");
+                    Check(folder.Parent == project.Trash && folder.Children.Count == 0, "…et le dossier vide part à la corbeille");
+                    shell.HistoryForProbe.Undo();
+                    await Settle();
+                    Check(one.Parent == folder && folder.Parent == sheetsHome && project.Trash.Children.Count == trashBefore, "Ctrl+Z : le dossier et ses fiches reviennent");
+                    sheetsHome.Children.Remove(folder);
+                    shell.Binder.Rebuild();
+                    await Settle();
+                }
+
+                // — MAJ+clic (1.0.5) : la plage entre la ligne choisie et la
+                //   ligne cliquée dans la Pile ; même chose sur les tuiles.
+                {
+                    var project = shell.Project;
+                    var bookItem = project.FindByTitle(book == null ? "" : book.Title);
+                    if (book != null && book.Children.Count >= 3)
+                    {
+                        shell.Binder.SelectItem(book.Children[0].Id);
+                        await Settle();
+                        var ok = shell.Binder.RangeMultiForProbe(book.Children[2].Id);
+                        Check(ok && shell.Binder.MultiCountForProbe == 3, "Pile : clic sur le chapitre 1 puis MAJ+clic sur le 3 = trois lignes (" + shell.Binder.MultiCountForProbe + ")");
+                        shell.Binder.ClearMultiSelection();
+                    }
+                    var sheetsHome = project.Category(Project.KeySheets);
+                    shell.Binder.SelectItem(sheetsHome.Id);
+                    await Settle();
+                    var library = shell.SheetLibraryForProbe;
+                    var ids = new List<string>();
+                    foreach (var item in sheetsHome.Children) if (item.Kind == ItemKind.Sheet) ids.Add(item.Id);
+                    if (library != null && library.IsVisible && ids.Count >= 2)
+                    {
+                        var ok = library.RangeSelectForProbe(ids[0], ids[ids.Count - 1]);
+                        Check(ok && library.SelectedItems().Count >= 2, "bibliothèque : MAJ+clic d'une tuile à l'autre choisit la plage (" + library.SelectedItems().Count + ")");
+                        library.ClearSelection();
+                    }
+                }
+
+                // — Macros de styles (1.0.5) : un style qui porte Ctrl+Maj+9
+                //   s'applique au paragraphe par la touche ; sans modificateur,
+                //   rien ; retiré, plus rien.
+                {
+                    var project = shell.Project;
+                    if (chapter != null && project != null)
+                    {
+                        shell.Binder.SelectItem(chapter.Id);
+                        await Settle();
+                        var composedView = shell.Composed;
+                        var sheetStyles = project.Styles;
+                        var macro = new ParagraphStyle { Name = "Macro (sonde)", Shortcut = "Ctrl+Shift+D9", FontFamily = sheetStyles.Styles[0].FontFamily }; // la police du Corps : pas une « manquante » de plus
+                        sheetStyles.Styles.Add(macro);
+                        var paragraphBefore = chapter.Document.Paragraphs[0].StyleId;
+                        var applied = composedView != null && composedView.RunStyleShortcutForProbe("D9", Settings.KeyModifiers.Control | Settings.KeyModifiers.Shift);
+                        await Settle();
+                        Check(applied && chapter.Document.Paragraphs[0].StyleId == macro.Id, "macro de style : Ctrl+Maj+9 applique le style au paragraphe");
+                        Check(!composedView.RunStyleShortcutForProbe("D9", Settings.KeyModifiers.None), "…une touche nue ne fait rien");
+                        sheetStyles.Styles.Remove(macro);
+                        chapter.Document.Paragraphs[0].StyleId = paragraphBefore;
+                        shell.RefreshFontAlert(); // le style de passage ne compte plus
+                        Check(!composedView.RunStyleShortcutForProbe("D9", Settings.KeyModifiers.Control | Settings.KeyModifiers.Shift), "…le style retiré, la touche ne fait plus rien");
+                        Check(ShortcutConflicts.Describe("Ctrl+Q", null, null, null) != null && ShortcutConflicts.Describe("Ctrl+B", null, null, null) != null
+                            && ShortcutConflicts.Describe("Ctrl+Shift+Alt+F12", null, null, null) == null,
+                            "doublons : ⌘Q (système) et Ctrl+B (Gras) sont signalés, une combinaison libre non");
+                        shell.Binder.SelectItem(chapter.Id);
+                        await Settle();
+                    }
+                }
+
                 // — Les polices manquantes (07/10) : un style qui demande une
                 //   police inconnue allume la pastille rouge ; un remplacement
                 //   global l'apaise et le moteur sert la remplaçante ; le
@@ -1147,20 +1399,33 @@ namespace Marabook.App
                     shell.RefreshFontAlert();
                     await Settle();
                     Check(shell.MissingFontsForProbe.Contains("Police Imaginaire XYZ"), "une police inconnue du catalogue est signalée manquante");
-                    Border alert = null;
-                    foreach (var border in shell.GetVisualDescendants().OfType<Border>())
-                    {
-                        var tip = ToolTip.GetTip(border) as string;
-                        if (tip != null && tip.StartsWith("Ce projet demande des polices")) alert = border;
-                    }
-                    Check(alert != null && alert.IsVisible, "la barre d'état montre la pastille rouge « " + (baselineUnresolved + 1) + " police(s) manquante(s) »");
+                    var alert = shell.FontAlertForProbe; // plus d'infobulle sur la barre (10/10, Rémi)
+                    Check(alert != null && alert.IsVisible && shell.FontAlertTextForProbe.Contains("manquante") && ToolTip.GetTip(alert) == null,
+                        "la barre d'état montre la pastille rouge « " + (baselineUnresolved + 1) + " police(s) manquante(s) », sans infobulle (« " + shell.FontAlertTextForProbe + " »)");
                     string replacement = null;
-                    var substitutionTask = FontSubstitutionDialog.Show(shell, new List<string> { "Police Imaginaire XYZ" });
+                    var substitutionTask = FontSubstitutionDialog.Show(shell, new List<string> { "Police Imaginaire XYZ" }, shell.Project);
                     await Settle();
                     var substitution = OpenWindow<FontSubstitutionDialog>();
                     Check(substitution != null, "le dialogue des polices manquantes s'ouvre");
                     if (substitution != null)
                     {
+                        // L'accordéon « où elle manque » (09/10) : replié, le style Fantôme dedans.
+                        TextBlock where = null; TextBlock ghostUser = null;
+                        foreach (var block in substitution.GetVisualDescendants().OfType<TextBlock>())
+                        {
+                            if (block.Text != null && block.Text.EndsWith("emplacement")) where = block;
+                            if (block.Text == "Style « Fantôme »") ghostUser = block;
+                        }
+                        Check(where != null && where.Text == "› 1 emplacement", "…avec l'accordéon « 1 emplacement » replié sous la police");
+                        if (where != null)
+                        {
+                            where.RaiseEvent(new PointerPressedEventArgs(where, new Avalonia.Input.Pointer(1, PointerType.Mouse, true), where, new Point(1, 1), 0, new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), Avalonia.Input.KeyModifiers.None));
+                            await Settle();
+                        }
+                        ghostUser = null;
+                        foreach (var block in substitution.GetVisualDescendants().OfType<TextBlock>())
+                            if (block.Text == "Style « Fantôme »" && block.IsEffectivelyVisible) ghostUser = block;
+                        Check(ghostUser != null && where != null && where.Text.StartsWith("⌄"), "…qui se déplie sur « Style « Fantôme » »");
                         var combo = substitution.GetVisualDescendants().OfType<ComboBox>().FirstOrDefault();
                         var index = -1;
                         if (combo != null)
@@ -1178,8 +1443,9 @@ namespace Marabook.App
                     await Settle();
                     var ghostFace = new AvaloniaFontEngine().Resolve("Police Imaginaire XYZ", 400, false);
                     Check(replacement != null && string.Equals(ghostFace.Family, replacement, StringComparison.OrdinalIgnoreCase) && ghostFace.HasGlyphs, "le moteur de polices sert la remplaçante partout (" + ghostFace.Family + ")");
-                    var calmTip = baselineUnresolved > 0 ? "Ce projet demande des polices" : "Polices absentes"; // d'autres manquent encore (Linux) : la pastille reste rouge
-                    Check(alert != null && alert.IsVisible && (ToolTip.GetTip(alert) as string ?? "").StartsWith(calmTip), "la pastille s'apaise : « 1 police remplacée », toujours cliquable (" + baselineUnresolved + " autre(s) manquante(s))");
+                    var calm = baselineUnresolved > 0 ? shell.FontAlertTextForProbe.Contains("manquante") : shell.FontAlertTextForProbe == "Tout va bien"; // d'autres manquent encore (Linux) : la pastille reste rouge
+                    Check(alert != null && alert.IsVisible && calm, "la pastille s'apaise, toujours cliquable (" + baselineUnresolved + " autre(s) manquante(s))");
+                    Check(baselineUnresolved > 0 || shell.FontAlertTextForProbe == "Tout va bien", "…et dit « Tout va bien » quand tout est remplacé (« " + shell.FontAlertTextForProbe + " »)");
                     AppSettings.FontSubstitutions.Remove("Police Imaginaire XYZ");
                     shell.Project.Styles.Styles.Remove(ghost);
                     shell.ApplyFontSubstitutions();

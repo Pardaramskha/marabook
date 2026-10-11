@@ -29,6 +29,11 @@ namespace Marabook.App
         /// jamais été portée sur la surface composée — le bouton ¶ repeignait
         /// un calque du classique replié. Écran seulement, jamais au papier.</summary>
         public static bool ShowMarks;
+        // Lignes lâches (09/10) : une bande jaune pâle derrière la ligne dont
+        // la justification a dû forcer les espaces (ComposedLine.Loose) —
+        // écran seulement, Affichage › Lignes lâches.
+        public static bool ShowLooseLines = true;
+        private static readonly IBrush LooseBrush = new SolidColorBrush(Color.FromArgb(0x3C, 0xFF, 0xC4, 0x00));
         private static readonly Typeface MarksTypeface = new Typeface(FontFamily.Default);
         private static readonly IBrush MarksBrush = FrozenBrush(Color.FromRgb(0x5B, 0x67, 0xD8));
 
@@ -376,6 +381,8 @@ namespace Marabook.App
         private static readonly Pen TypographyPen = FrozenPen(Color.FromRgb(0xD9, 0xA4, 0x06));
         private static readonly Pen StylePen = FrozenPen(Color.FromRgb(0x2E, 0x9E, 0x6B));
         private static readonly Pen AdverbPen = FrozenPen(Color.FromRgb(0x8E, 0x44, 0xAD));
+        private static readonly Pen FamiliarPen = FrozenPen(Color.FromRgb(0xC2, 0x7B, 0x2E));   // familier (1.0.5) : ocre
+        private static readonly Pen NeologismPen = FrozenPen(Color.FromRgb(0x2A, 0x9D, 0x9F));  // néologismes (1.0.5) : sarcelle
         private static readonly Pen DullVerbPen = FrozenPen(Color.FromRgb(0x85, 0x85, 0x85));
 
         private static Pen FrozenPen(Color color)
@@ -410,6 +417,8 @@ namespace Marabook.App
                 case Correction.FindingCategory.Spelling: return "Orthographe";
                 case Correction.FindingCategory.Grammar: return "Grammaire";
                 case Correction.FindingCategory.Typography: return "Typographie";
+                case Correction.FindingCategory.Familiar: return "Familier";
+                case Correction.FindingCategory.Neologism: return "Néologismes";
                 default: return "Style";
             }
         }
@@ -438,6 +447,8 @@ namespace Marabook.App
                 case Correction.FindingCategory.Spelling: return SpellingPen;
                 case Correction.FindingCategory.Grammar: return GrammarPen;
                 case Correction.FindingCategory.Typography: return TypographyPen;
+                case Correction.FindingCategory.Familiar: return FamiliarPen;
+                case Correction.FindingCategory.Neologism: return NeologismPen;
                 default: return StylePen;
             }
         }
@@ -498,6 +509,13 @@ namespace Marabook.App
             bool screenExtras = true)
         {
             var baseline = top + line.Ascent;
+
+            if (screenExtras && ShowLooseLines && line.Loose)
+            {
+                var extent = 0.0;
+                foreach (var piece in line.Pieces) extent = Math.Max(extent, piece.Origin.X + piece.VisualWidth());
+                if (extent > 1) dc.DrawRectangle(LooseBrush, null, new Rect(left, top, extent, Math.Max(1, line.Height)));
+            }
 
             // Pass 1 — highlights, behind everything (spaces included). Les
             // teintes d'annotation (semi-transparentes) sont écran seulement.

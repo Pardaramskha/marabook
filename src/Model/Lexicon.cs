@@ -30,13 +30,19 @@ namespace Marabook.Model
         public const string ClassAdjective = "adjective";
         public const string ClassVerb = "verb";
         public const string ClassAdverb = "adverb";
+        // Interjection (« hé », « zut ») et onomatopée (« kwak », « tssss »)
+        // (1.0.5, Rémi) : invariables, sans flexion ; un Marabook d'avant
+        // les relit comme « autre ».
+        public const string ClassInterjection = "interjection";
+        public const string ClassOnomatopoeia = "onomatopoeia";
         public const string ClassOther = "other";
 
         /// <summary>Les types dans l'ordre d'affichage : Nom, Adjectif,
-        /// Adverbe, Nom propre (la liste d'Antidote), puis Verbe ; « autre »
-        /// n'est que le type des mots importés ou migrés sans nature.</summary>
+        /// Adverbe, Nom propre (la liste d'Antidote), puis Verbe,
+        /// Interjection, Onomatopée ; « autre » n'est que le type des mots
+        /// importés ou migrés sans nature.</summary>
         public static readonly string[] Classes =
-        { ClassNoun, ClassAdjective, ClassAdverb, ClassProper, ClassVerb, ClassOther };
+        { ClassNoun, ClassAdjective, ClassAdverb, ClassProper, ClassVerb, ClassInterjection, ClassOnomatopoeia, ClassOther };
 
         // Pluriels : "s" (régulier), "x", "inv" (invariable).
         public const string PluralS = "s";
@@ -89,6 +95,62 @@ namespace Marabook.Model
         public static readonly string[] DemonymSuffixes =
         { "ien", "ais", "ois", "ain", "éen", "in", "an", "on", "ard", "ite", "ol" };
 
+        // ---- les PRATIQUANTS dérivés (1.0.5, Rémi) : d'une religion, d'une
+        // croyance ou d'une doctrine — un nom commun (« rhétannisme ») ou un
+        // nom propre « autre » (« Rhétannisme ») — le nom et l'adjectif de
+        // ceux qui la suivent : rhétanniste, rhétannistes ; par un suffixe
+        // choisi (-iste, -ien, -ite, -ain…) ou tapé ; la forme masculine se
+        // pose à la main si la règle se trompe (christianisme → chrétien).
+        public string AdherentSuffix = ""; // "" = pas de pratiquants dérivés
+        public string AdherentForm = "";   // masc. sg. posé ("" = dérivé du mot et du suffixe)
+
+        /// <summary>Les suffixes de pratiquants proposés en préconfiguration.</summary>
+        public static readonly string[] AdherentSuffixes =
+        { "iste", "ien", "ite", "ain", "éen", "in", "ier" };
+
+        /// <summary>Un nom commun, ou un nom propre « autre » (une religion
+        /// qui prend la majuscule), peut dériver ses pratiquants.</summary>
+        public bool AllowsAdherents
+        {
+            get { return Class == ClassNoun || (Class == ClassProper && ProperKind == ProperOther); }
+        }
+
+        public bool HasAdherents
+        {
+            get { return AllowsAdherents && AdherentSuffix.Trim().Length > 0; }
+        }
+
+        /// <summary>Le pratiquant masculin singulier : posé, sinon dérivé du
+        /// mot et du suffixe ; null sans pratiquants.</summary>
+        public string AdherentBase()
+        {
+            if (!HasAdherents) return null;
+            if (AdherentForm.Trim().Length > 0) return AdherentForm.Trim();
+            return LexiconInflector.DeriveAdherent(Word, AdherentSuffix);
+        }
+
+        /// <summary>Les formes des pratiquants : masc. sg., masc. pl., fém.
+        /// sg., fém. pl. (les mêmes au féminin pour -iste et -ite), en
+        /// minuscule (« les rhétannistes », « un rite rhétanniste ») et à
+        /// majuscule initiale (en tête de phrase, ou le peuple). Vide sans
+        /// pratiquants.</summary>
+        public List<string> AdherentForms()
+        {
+            var forms = new List<string>();
+            var masculine = AdherentBase();
+            if (string.IsNullOrEmpty(masculine)) return forms;
+            var feminine = LexiconInflector.DeriveFeminine(masculine);
+            foreach (var form in new[] { masculine, LexiconInflector.Pluralize(masculine, PluralS), feminine, LexiconInflector.Pluralize(feminine, PluralS) })
+            {
+                if (string.IsNullOrEmpty(form)) continue;
+                var lower = LexiconInflector.Uncapitalize(form);
+                if (!forms.Contains(lower)) forms.Add(lower);
+                var capital = LexiconInflector.Capitalize(form);
+                if (!forms.Contains(capital)) forms.Add(capital);
+            }
+            return forms;
+        }
+
         /// <summary>Les sortes de nom propre dont on dérive un gentilé : un
         /// lieu, une raison sociale, une marque, un nom propre « autre » (un
         /// peuple, une planète…). Un gentilé, un prénom, un nom de famille ou
@@ -138,6 +200,7 @@ namespace Marabook.Model
             new TraitDefinition { Key = "role", Label = "Fonction sociale", Class = ClassNoun, Parent = "person" },
             new TraitDefinition { Key = "animal", Label = "Animal", Class = ClassNoun },
             new TraitDefinition { Key = "unit", Label = "Unité de mesure", Class = ClassNoun },
+            new TraitDefinition { Key = "doctrine", Label = "Religion, croyance ou doctrine", Class = ClassNoun, Parent = "thing" },
             new TraitDefinition { Key = "demonym", Label = "Nom d'habitant", Class = ClassAdjective },
             new TraitDefinition { Key = "language", Label = "Langue", Class = ClassAdjective, Parent = "demonym" },
             new TraitDefinition { Key = "manner", Label = "De manière", Class = ClassAdverb },
@@ -195,6 +258,8 @@ namespace Marabook.Model
                 case ClassAdjective: return "Adjectif";
                 case ClassVerb: return "Verbe";
                 case ClassAdverb: return "Adverbe";
+                case ClassInterjection: return "Interjection";
+                case ClassOnomatopoeia: return "Onomatopée";
                 default: return "Autre (invariable)";
             }
         }
@@ -301,6 +366,8 @@ namespace Marabook.Model
                 parts.Add(LexiconInflector.VerbGroup(Word) == 0 ? "infinitif seul" : "conjugaison régulière");
             var demonym = DemonymBase();
             if (!string.IsNullOrEmpty(demonym)) parts.Add("gentilé " + demonym);
+            var adherent = AdherentBase();
+            if (!string.IsNullOrEmpty(adherent)) parts.Add("pratiquants " + adherent);
             return string.Join(" · ", parts.ToArray());
         }
 
@@ -397,7 +464,8 @@ namespace Marabook.Model
                 Definition = Definition, Note = Note,
                 Genders = Genders, MascSg = MascSg, MascPl = MascPl, FemSg = FemSg, FemPl = FemPl,
                 Traits = new List<string>(Traits), ProperKind = ProperKind, NeedsReview = NeedsReview,
-                DemonymSuffix = DemonymSuffix, DemonymForm = DemonymForm
+                DemonymSuffix = DemonymSuffix, DemonymForm = DemonymForm,
+                AdherentSuffix = AdherentSuffix, AdherentForm = AdherentForm
             };
         }
 
@@ -430,6 +498,8 @@ namespace Marabook.Model
             if (NeedsReview) node["review"] = true;
             if (DemonymSuffix.Length > 0) node["gentileSuffix"] = DemonymSuffix;
             if (DemonymForm.Length > 0) node["gentile"] = DemonymForm;
+            if (AdherentSuffix.Length > 0) node["adherentSuffix"] = AdherentSuffix; // 1.0.5
+            if (AdherentForm.Length > 0) node["adherent"] = AdherentForm;
             return node;
         }
 
@@ -474,6 +544,8 @@ namespace Marabook.Model
             entry.NeedsReview = Json.AsBool(Json.Field(node, "review"), false);
             entry.DemonymSuffix = Json.AsString(Json.Field(node, "gentileSuffix")) ?? "";
             entry.DemonymForm = Json.AsString(Json.Field(node, "gentile")) ?? "";
+            entry.AdherentSuffix = Json.AsString(Json.Field(node, "adherentSuffix")) ?? ""; // 1.0.5
+            entry.AdherentForm = Json.AsString(Json.Field(node, "adherent")) ?? "";
             return entry;
         }
 
@@ -600,7 +672,27 @@ namespace Marabook.Model
             else if (entry.Class == LexiconEntry.ClassVerb)
                 foreach (var form in Conjugate(word)) Add(forms, form);
             foreach (var form in entry.DemonymForms()) Add(forms, form);
+            foreach (var form in entry.AdherentForms()) Add(forms, form); // 1.0.5
             return forms;
+        }
+
+        /// <summary>Le pratiquant dérivé d'une religion ou doctrine (1.0.5) :
+        /// « rhétannisme » + « iste » → « rhétanniste » — la finale -isme
+        /// tombe (c'est le cas courant : bouddhisme → bouddhiste), sinon
+        /// une voyelle finale muette, et deux voyelles identiques à la
+        /// jointure n'en font qu'une ; en minuscule.</summary>
+        public static string DeriveAdherent(string word, string suffix)
+        {
+            var stem = (word ?? "").Trim().ToLowerInvariant();
+            var ending = (suffix ?? "").Trim().TrimStart('-').ToLowerInvariant();
+            if (stem.Length == 0 || ending.Length == 0) return null;
+            if (stem.Length > 5 && stem.EndsWith("isme")) stem = stem.Substring(0, stem.Length - 4);
+            else if (stem.Length > 5 && stem.EndsWith("ismes")) stem = stem.Substring(0, stem.Length - 5);
+            else if (stem.Length > 3 && (stem.EndsWith("e") || stem.EndsWith("a") || stem.EndsWith("o")))
+                stem = stem.Substring(0, stem.Length - 1);
+            if (stem.Length > 0 && stem[stem.Length - 1] == ending[0] && "aeiou".IndexOf(ending[0]) >= 0)
+                stem = stem.Substring(0, stem.Length - 1);
+            return stem + ending;
         }
 
         /// <summary>Majuscule initiale (« mànisien » → « Mànisien »).</summary>
