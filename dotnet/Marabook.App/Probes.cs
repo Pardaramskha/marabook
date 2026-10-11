@@ -1371,9 +1371,11 @@ namespace Marabook.App
                         chapter.Document.Paragraphs[0].StyleId = paragraphBefore;
                         shell.RefreshFontAlert(); // le style de passage ne compte plus
                         Check(!composedView.RunStyleShortcutForProbe("D9", Settings.KeyModifiers.Control | Settings.KeyModifiers.Shift), "…le style retiré, la touche ne fait plus rien");
-                        Check(ShortcutConflicts.Describe("Ctrl+Q", null, null, null) != null && ShortcutConflicts.Describe("Ctrl+B", null, null, null) != null
+                        // La combinaison réservée dépend du système (release dev 11/10 : ⌘Q n'est réservé que sur mac).
+                        var reserved = AppPlatform.IsMac ? "Ctrl+Q" : "Alt+F4";
+                        Check(ShortcutConflicts.Describe(reserved, null, null, null) != null && ShortcutConflicts.Describe("Ctrl+B", null, null, null) != null
                             && ShortcutConflicts.Describe("Ctrl+Shift+Alt+F12", null, null, null) == null,
-                            "doublons : ⌘Q (système) et Ctrl+B (Gras) sont signalés, une combinaison libre non");
+                            "doublons : " + AppSettings.DisplayGesture(reserved) + " (système) et Ctrl+B (Gras) sont signalés, une combinaison libre non");
                         shell.Binder.SelectItem(chapter.Id);
                         await Settle();
                     }
