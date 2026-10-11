@@ -669,15 +669,11 @@ namespace Marabook.App
                 var handler = ShortcutsChanged;
                 if (handler != null) handler();
                 if (gesture.Length == 0) return;
-                foreach (var other in AppSettings.Actions)
-                {
-                    if (other.Id == action.Id || AppSettings.Gesture(other.Id) != gesture) continue;
-                    await MessageDialog.Show(this,
-                        AppSettings.DisplayGesture(gesture) + " est déjà le raccourci de « " + other.Name + " » (" + other.Category + ").\n\n"
-                        + "Les deux le gardent ; le premier atteint l'emporte. Changez l'un des deux si cela gêne.",
-                        "Raccourcis", MessageButtons.OK, MessageIcon.Information);
-                    break;
-                }
+                // Le doublon (1.0.5) : une autre action, un style, ou le système — une seule définition.
+                var conflict = ShortcutConflicts.Describe(gesture, action.Id,
+                    AppSettings.GlobalStyles == null ? null : AppSettings.GlobalStyles.Styles, null);
+                if (conflict != null)
+                    await MessageDialog.Show(this, conflict, "Raccourcis", MessageButtons.OK, MessageIcon.Information);
             };
             box.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
             {

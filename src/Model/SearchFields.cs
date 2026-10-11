@@ -119,7 +119,7 @@ namespace Marabook.Model
             }
             if (item.Kind == ItemKind.Sheet)
             {
-                var template = project == null ? null : project.FindTemplate(item.TemplateId);
+                var template = project == null ? null : project.TemplateOf(item);
                 if (template != null)
                     foreach (var templateField in template.Fields)
                     {
@@ -431,7 +431,7 @@ namespace Marabook.Model
             }
             if (item.Kind == ItemKind.Sheet)
             {
-                var template = project == null ? null : project.FindTemplate(item.TemplateId);
+                var template = project == null ? null : project.TemplateOf(item);
                 if (template != null)
                     foreach (var templateField in template.Fields)
                     {

@@ -303,7 +303,54 @@ namespace Marabook.Model
     {
         public string Id = Guid.NewGuid().ToString("N");
         public string Name = "Catégorie";
-        public string TemplateId; // modèle de base des nouvelles fiches
+        public string TemplateId; // modèle de base des nouvelles fiches (catégorie d'ensemble seulement)
+
+        // SOUS-CATÉGORIE (1.0.5, .plot v37) : l'id de la catégorie d'ensemble,
+        // null pour une catégorie. Une sous-catégorie n'a pas de modèle à
+        // elle : ses fiches naissent sur le modèle de base de la catégorie
+        // d'ensemble (changer celui-ci change donc le leur), et elle y
+        // AJOUTE ses champs propres (ExtraFields), rendus à la suite du
+        // modèle sur chaque fiche de la sous-catégorie — voir Compose.
+        public string ParentId;
+        public List<SheetField> ExtraFields = new List<SheetField>();
+
+        public bool IsSub { get { return !string.IsNullOrEmpty(ParentId); } }
+
+        /// <summary>Le modèle EFFECTIF d'une fiche de cette sous-catégorie :
+        /// le modèle de base tel quel quand elle n'ajoute rien, sinon une
+        /// copie (même id, même nom, mêmes réglages) dont les champs sont
+        /// ceux du modèle PUIS les champs propres, et dont les sections
+        /// gagnent celles que les champs propres nomment. Les objets
+        /// SheetField sont partagés, jamais copiés : la valeur d'une fiche
+        /// reste rangée par id de champ. Sans modèle de base, un modèle au
+        /// nom de la sous-catégorie portant les seuls champs propres.</summary>
+        public SheetTemplate Compose(SheetTemplate template)
+        {
+            if (ExtraFields.Count == 0) return template;
+            SheetTemplate composed;
+            if (template == null)
+                composed = new SheetTemplate { Id = "sub:" + Id, Name = Name };
+            else
+            {
+                composed = template.Clone();
+                composed.Fields = new List<SheetField>(template.Fields);
+                composed.Sections = new List<string>(template.Sections);
+            }
+            foreach (var field in ExtraFields)
+            {
+                composed.Fields.Add(field);
+                if (field.Group.Length > 0 && !composed.HasSection(field.Group)) composed.Sections.Add(field.Group);
+            }
+            return composed;
+        }
+
+        public SheetCategory Clone()
+        {
+            var copy = (SheetCategory)MemberwiseClone();
+            copy.ExtraFields = new List<SheetField>();
+            foreach (var field in ExtraFields) copy.ExtraFields.Add(field.Clone());
+            return copy;
+        }
     }
 
     /// <summary>Les catégories livrées et leurs modèles par défaut — la liste

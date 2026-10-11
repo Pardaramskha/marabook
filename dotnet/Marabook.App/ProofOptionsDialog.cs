@@ -23,7 +23,7 @@ namespace Marabook.App
     /// Grammalecte reste dans Préférences → Correction.</summary>
     public class ProofOptionsDialog : Window
     {
-        private readonly CheckBox _spell, _grammar, _typography, _style;
+        private readonly CheckBox _spell, _neologisms, _familiar, _grammar, _typography, _style;
         // L'étage style (batch 44) : trois sous-cases et la liste des verbes
         // ternes, sous la case Style — grisées quand elle est décochée.
         private readonly CheckBox _repetitions, _adverbs, _dullVerbs, _dialogue;
@@ -54,6 +54,14 @@ namespace Marabook.App
             _spell = Option("Orthographe",
                 "Les mots que le dictionnaire ne connaît pas (ni le vôtre)",
                 AppSettings.SpellEnabled, Dot(Correction.FindingCategory.Spelling, ""));
+            _neologisms = Option("Néologismes",
+                "Les mots inconnus mais bien construits — féminins (gouverneuse), adjectifs en -able, "
+                + "-mancie, préfixes… — relevés à part, en indice, au lieu d'une faute",
+                AppSettings.NeologismsEnabled, Dot(Correction.FindingCategory.Neologism, ""));
+            _familiar = Option("Familier",
+                "Les élisions et contractions de l'oral (« y’a », « t’as », « j’suis », « p’tit ») : "
+                + "relevées à part, jamais comme des fautes",
+                AppSettings.FamiliarEnabled, Dot(Correction.FindingCategory.Familiar, ""));
             _grammar = Option("Grammaire",
                 "Accords, conjugaisons, confusions… — arrive quelques instants après la frappe",
                 AppSettings.GrammarEnabled, Dot(Correction.FindingCategory.Grammar, ""));
@@ -64,7 +72,7 @@ namespace Marabook.App
             _style = Option("Style",
                 "Des indices sur la manière d'écrire, jamais des fautes : à vous de juger",
                 AppSettings.StyleEnabled);
-            foreach (var box in new[] { _spell, _grammar, _typography, _style })
+            foreach (var box in new[] { _spell, _neologisms, _familiar, _grammar, _typography, _style })
                 panel.Children.Add(box);
 
             // Les sous-options du style (batch 44), en retrait sous la case.
@@ -206,6 +214,8 @@ namespace Marabook.App
             await Dialogs.ShowModal(dialog, owner);
             if (!dialog._accepted) return false;
             var spell = dialog._spell.IsChecked == true;
+            var neologisms = dialog._neologisms.IsChecked == true;
+            var familiar = dialog._familiar.IsChecked == true;
             var grammar = dialog._grammar.IsChecked == true;
             var typography = dialog._typography.IsChecked == true;
             var style = dialog._style.IsChecked == true;
@@ -221,12 +231,15 @@ namespace Marabook.App
                 dullList = new System.Collections.Generic.List<string>(
                     Correction.Grammalecte.StyleChecker.DefaultDullVerbs);
             var changed = spell != AppSettings.SpellEnabled || grammar != AppSettings.GrammarEnabled
+                || neologisms != AppSettings.NeologismsEnabled || familiar != AppSettings.FamiliarEnabled
                 || typography != AppSettings.TypographyEnabled || style != AppSettings.StyleEnabled
                 || repetitions != AppSettings.StyleRepetitions || adverbs != AppSettings.StyleAdverbs
                 || dullVerbs != AppSettings.StyleDullVerbs
                 || dialogue != AppSettings.StyleDialogue || radius != AppSettings.RepetitionRadius
                 || !SameList(dullList, AppSettings.DullVerbs);
             AppSettings.SpellEnabled = spell;
+            AppSettings.NeologismsEnabled = neologisms;
+            AppSettings.FamiliarEnabled = familiar;
             AppSettings.GrammarEnabled = grammar;
             AppSettings.TypographyEnabled = typography;
             AppSettings.StyleEnabled = style;

@@ -100,7 +100,7 @@ namespace Marabook.App
                         AppName, MessageButtons.OK, MessageIcon.Information);
                 return;
             }
-            var chosen = await CharactersDialog.Ask(this, sourceTitle, candidates, _project.SheetCategories, PreferredCharacterCategory());
+            var chosen = await CharactersDialog.Ask(this, sourceTitle, candidates, _project.TopCategories(), PreferredCharacterCategory());
             if (chosen == null) return;
             CreateCharacterSheets(chosen);
         }
@@ -112,7 +112,7 @@ namespace Marabook.App
             foreach (var item in _project.AllItems())
             {
                 if (item.Kind != ItemKind.Sheet) continue;
-                names.AddRange(Presence.NamesOf(item, _project.FindTemplate(item.TemplateId)));
+                names.AddRange(Presence.NamesOf(item, _project.TemplateOf(item)));
                 if (!names.Contains(item.Title)) names.Add(item.Title);
             }
             return names;

@@ -23,6 +23,70 @@ namespace Marabook.Tests
             Format2(t);
             Natures(t);
             Demonyms(t);
+            Adherents(t);
+            InterjectionClasses(t);
+        }
+
+        /// <summary>1.0.5 : les pratiquants d'une religion ou doctrine —
+        /// -isme tombe, le suffixe prend sa place, nom et adjectif, les deux
+        /// genres, minuscule et majuscule ; la forme posée gagne ; un nom
+        /// propre « autre » y a droit, un prénom non.</summary>
+        private static void Adherents(Harness t)
+        {
+            t.Equal("rhétanniste", LexiconInflector.DeriveAdherent("rhétannisme", "iste"), "rhétannisme + -iste");
+            t.Equal("rhétannien", LexiconInflector.DeriveAdherent("Rhétannisme", "-ien"), "majuscule et tiret du suffixe absorbés");
+            t.Equal("sunnite", LexiconInflector.DeriveAdherent("sunnisme", "ite"), "sunnisme → sunnite");
+            t.Equal("voduiste", LexiconInflector.DeriveAdherent("vodu", "iste"), "sans -isme : le suffixe s'ajoute");
+            t.Equal("rhêtiste", LexiconInflector.DeriveAdherent("Rhêta", "iste"), "une voyelle finale tombe devant le suffixe");
+            t.Equal(null, LexiconInflector.DeriveAdherent("rhétannisme", ""), "sans suffixe : rien");
+
+            var faith = new LexiconEntry { Word = "rhétannisme", Class = LexiconEntry.ClassNoun, Genders = LexiconEntry.GendersMasculine, AdherentSuffix = "iste" };
+            faith.Traits.Add("thing"); faith.Traits.Add("doctrine");
+            t.Check(faith.AllowsAdherents && faith.HasAdherents, "un nom à suffixe a ses pratiquants");
+            t.Equal("rhétanniste", faith.AdherentBase(), "la forme dérivée");
+            t.Check(Has(faith, "rhétannisme") && Has(faith, "rhétannismes") && Has(faith, "rhétanniste") && Has(faith, "rhétannistes")
+                && Has(faith, "Rhétanniste") && Has(faith, "Rhétannistes"), "le mot, son pluriel, les pratiquants aux deux casses (" + LexiconInflector.Preview(faith, 20) + ")");
+            t.Equal(4, faith.AdherentForms().Count, "-iste : épicène, quatre formes (sg/pl × casse)");
+            t.Check(faith.Summary().Contains("pratiquants rhétanniste"), "le résumé dit les pratiquants");
+
+            var ien = faith.Clone(); ien.AdherentSuffix = "ien";
+            t.Check(Has(ien, "rhétannien") && Has(ien, "rhétannienne") && Has(ien, "rhétanniennes") && Has(ien, "Rhétanniens"), "-ien : le féminin se dérive (" + LexiconInflector.Preview(ien, 20) + ")");
+
+            var posed = faith.Clone(); posed.Word = "christianisme"; posed.AdherentForm = "chrétien";
+            t.Check(Has(posed, "chrétien") && Has(posed, "chrétienne") && Has(posed, "Chrétiens") && !Has(posed, "christianiste"), "la forme posée remplace la règle");
+
+            var proper = new LexiconEntry { Word = "Rhétannisme", Class = LexiconEntry.ClassProper, ProperKind = LexiconEntry.ProperOther, AdherentSuffix = "iste" };
+            t.Check(proper.HasAdherents && Has(proper, "rhétanniste") && Has(proper, "Rhétannistes"), "un nom propre « autre » dérive aussi ses pratiquants");
+            var firstName = new LexiconEntry { Word = "Keira", Class = LexiconEntry.ClassProper, ProperKind = LexiconEntry.ProperFirstName, AdherentSuffix = "iste" };
+            t.Check(!firstName.HasAdherents && firstName.Forms().Count == 1, "un prénom n'a pas de pratiquants, même avec un suffixe oublié");
+
+            var back = LexiconEntry.FromJson(posed.ToJson());
+            t.Equal("iste", back.AdherentSuffix, "le suffixe fait l'aller-retour");
+            t.Equal("chrétien", back.AdherentForm, "la forme posée aussi");
+            t.Check(Has(back, "chrétiennes"), "et les formes avec");
+
+            // Grammalecte reçoit nom et adjectif, genre et nombre.
+            var triples = Correction.Grammalecte.PersonalLexicon.Triples(ien);
+            var tagged = 0;
+            foreach (var triple in triples) if (triple[0] == "rhétanniennes" && triple[2] == ":N:A:f:p") tagged++;
+            t.Equal(1, tagged, "le triplet Grammalecte du féminin pluriel");
+        }
+
+        /// <summary>1.0.5 : Interjection et Onomatopée — deux types
+        /// invariables, libellés, sans flexion ni nature, étiquetés :J pour
+        /// Grammalecte ; un type inconnu d'une vieille version vaut « autre ».</summary>
+        private static void InterjectionClasses(Harness t)
+        {
+            t.Equal(8, LexiconEntry.Classes.Length, "huit types");
+            t.Equal("Interjection", LexiconEntry.ClassLabel(LexiconEntry.ClassInterjection), "libellé Interjection");
+            t.Equal("Onomatopée", LexiconEntry.ClassLabel(LexiconEntry.ClassOnomatopoeia), "libellé Onomatopée");
+            var kwak = new LexiconEntry { Word = "kwak", Class = LexiconEntry.ClassOnomatopoeia };
+            t.Check(!kwak.HasFlexion && kwak.Forms().Count == 1 && kwak.IsComplete(), "une onomatopée : invariable, complète");
+            t.Equal(0, LexiconEntry.TraitsFor(LexiconEntry.ClassInterjection).Count, "pas de nature pour une interjection");
+            var back = LexiconEntry.FromJson(kwak.ToJson());
+            t.Equal(LexiconEntry.ClassOnomatopoeia, back.Class, "le type fait l'aller-retour");
+            var triples = Correction.Grammalecte.PersonalLexicon.Triples(new LexiconEntry { Word = "zou", Class = LexiconEntry.ClassInterjection });
+            t.Check(triples.Count == 1 && triples[0][2] == ":J", "Grammalecte : une interjection");
         }
 
         /// <summary>Les natures changent les formes (01/10) : non comptable =

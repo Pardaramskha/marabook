@@ -90,7 +90,7 @@ namespace Marabook.App
             var category = project == null ? null : project.SheetCategoryOf(item);
             head.Children.Add(new TextBlock
             {
-                Text = category != null ? category.Name : template != null ? template.Name : "Fiche",
+                Text = category != null ? project.CategoryPath(category) : template != null ? template.Name : "Fiche",
                 FontSize = 12,
                 Foreground = Chrome.SoftText,
                 Margin = new Thickness(0, 2, 0, 8)

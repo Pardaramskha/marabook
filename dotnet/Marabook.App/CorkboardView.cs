@@ -652,6 +652,39 @@ namespace Marabook.App
             return cards;
         }
 
+        private string _anchorId; // la dernière carte cliquée (l'ancre du MAJ+clic, 1.0.5)
+
+        /// <summary>MAJ+clic (1.0.5) : toutes les cartes entre l'ancre (la
+        /// dernière carte cliquée, sinon la première sélectionnée) et
+        /// celle-ci, dans l'ordre du tableau, parties comprises.</summary>
+        private bool RangeSelect(string id)
+        {
+            var order = new List<string>();
+            foreach (var card in AllCards())
+            {
+                var item = card.Tag as BinderItem;
+                if (item != null) order.Add(item.Id);
+            }
+            var anchor = _anchorId;
+            if (anchor == null || !order.Contains(anchor))
+                foreach (var candidate in order) if (_selected.Contains(candidate)) { anchor = candidate; break; }
+            if (anchor == null) return false;
+            var a = order.IndexOf(anchor);
+            var b = order.IndexOf(id);
+            if (a < 0 || b < 0) return false;
+            for (var i = Math.Min(a, b); i <= Math.Max(a, b); i++) _selected.Add(order[i]);
+            return true;
+        }
+
+        /// <summary>Sonde (1.0.5) : le MAJ+clic sur cette carte, l'ancre étant la dernière cliquée.</summary>
+        internal bool RangeSelectForProbe(string anchorId, string id)
+        {
+            _anchorId = anchorId;
+            var ok = RangeSelect(id);
+            RefreshSelectionVisuals();
+            return ok;
+        }
+
         private void RefreshSelectionVisuals()
         {
             foreach (var card in AllCards())
@@ -1812,14 +1845,20 @@ namespace Marabook.App
                 if (e.InitialPressMouseButton != MouseButton.Left) return; // le droit ne touche pas à la sélection (1.0.3)
                 if (_dragCandidate != item) return; // un glisser est parti
                 _dragCandidate = null;
-                if (Ui.HasCommand(e.KeyModifiers))
+                if ((e.KeyModifiers & KeyModifiers.Shift) == KeyModifiers.Shift && !Ui.HasCommand(e.KeyModifiers) && RangeSelect(item.Id))
+                {
+                    // MAJ+clic (1.0.5) : la plage entre l'ancre et la carte.
+                }
+                else if (Ui.HasCommand(e.KeyModifiers))
                 {
                     if (!_selected.Remove(item.Id)) _selected.Add(item.Id);
+                    _anchorId = item.Id;
                 }
                 else
                 {
                     _selected.Clear();
                     _selected.Add(item.Id);
+                    _anchorId = item.Id;
                 }
                 AnnounceSelection(_selected.Contains(item.Id) ? item : null);
             };

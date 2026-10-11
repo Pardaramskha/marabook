@@ -88,6 +88,16 @@ namespace Marabook.Print
         public bool EndsParagraph;
         public bool Hyphenated;
         public bool ForcedBreak; // Shift+Enter ended this line
+        // Ligne LÂCHE (09/10) : justifiée au-delà des tolérances du style, le
+        // déversoir d'urgence a gonflé ses espaces — LooseRatio = largeur
+        // finale d'un espace / sa largeur naturelle (1,0 = juste). Loose dès
+        // LooseSpaceRatio — des espaces au moins DOUBLÉS : à 1,5, un chapitre
+        // de Rémi sortait un quart de ses lignes, le signal se noyait ; à 2,
+        // ce sont les trous qui sautent aux yeux. L'écran la signale, jamais
+        // le papier.
+        public bool Loose;
+        public double LooseRatio = 1.0;
+        public const double LooseSpaceRatio = 2.0;
     }
 
     /// <summary>A paragraph fully composed into lines (page-agnostic).</summary>
@@ -1026,10 +1036,11 @@ namespace Marabook.Print
                             Strike = strike,
                             Highlight = highlight,
                             HighlightRole = highlightKind,
-                            // La césure obéit au bouton du document (PageSetup)
-                            // ET au réglage du style — et jamais sur un mot
-                            // des exceptions du projet.
-                            Breaks = _setup.Hyphenation && style.HyphenationEnabled
+                            // La césure se règle PAR STYLE (09/10 : le bouton du
+                            // document est retiré, deux commandes qui s'additionnaient
+                            // pour un seul effet) — et jamais sur un mot des
+                            // exceptions du projet.
+                            Breaks = style.HyphenationEnabled
                                 && !superscript && !IsHyphenException(word)
                                 ? FrenchHyphenator.BreakPoints(word,
                                     style.HyphenMinWordLength, style.HyphenMinBefore, style.HyphenMinAfter)
@@ -1174,18 +1185,19 @@ namespace Marabook.Print
                     && style.HyphenConsecutiveLimit > 0
                     && consecutiveHyphens < style.HyphenConsecutiveLimit)
                 {
-                    var bestCut = -1;
+                    var bestCut = 0; // jamais une coupe valide (0 lettre avant)
                     foreach (var cut in atom.Breaks)
                     {
-                        var prefix = atom.Text.Substring(0, cut) + "-";
+                        var prefix = CutPrefix(atom.Text, cut);
                         if (x + MeasureText(prefix, atom.Font, atom.Size, atom.Tracking) <= avail + 0.05)
                             bestCut = cut;
                     }
-                    if (bestCut > 0)
+                    if (bestCut != 0)
                     {
-                        AddAtomPiece(line, atom, atom.Text.Substring(0, bestCut) + "-", bestCut, x);
+                        var cutLength = CutLength(bestCut);
+                        AddAtomPiece(line, atom, CutPrefix(atom.Text, bestCut), cutLength, x);
                         UpdateMetrics(atom, ref ascent, ref height);
-                        var rest = atom.Text.Substring(bestCut);
+                        var rest = atom.Text.Substring(cutLength);
                         atoms[index] = new Atom
                         {
                             Text = rest,
@@ -1200,14 +1212,14 @@ namespace Marabook.Print
                             Strike = atom.Strike,
                             Highlight = atom.Highlight,
                             HighlightRole = atom.HighlightRole,
-                            SourceStart = atom.SourceStart < 0 ? -1 : atom.SourceStart + bestCut,
-                            SourceLength = atom.SourceLength - bestCut,
+                            SourceStart = atom.SourceStart < 0 ? -1 : atom.SourceStart + cutLength,
+                            SourceLength = atom.SourceLength - cutLength,
                             Breaks = FrenchHyphenator.BreakPoints(rest,
                                 style.HyphenMinWordLength, style.HyphenMinBefore, style.HyphenMinAfter)
                         };
                         line.Hyphenated = true;
                         consecutiveHyphens++;
-                        cursor += bestCut;
+                        cursor += cutLength;
                         line.Ascent = ascent;
                         line.Height = height;
                         line.End = cursor;
@@ -1262,11 +1274,21 @@ namespace Marabook.Print
             if (next.Breaks != null && next.Breaks.Count > 0 && style.HyphenConsecutiveLimit > 0
                 && consecutiveHyphens < style.HyphenConsecutiveLimit)
             {
-                var prefix = next.Text.Substring(0, next.Breaks[0]) + "-";
+                var prefix = CutPrefix(next.Text, next.Breaks[0]);
                 if (x + MeasureText(prefix, next.Font, next.Size, next.Tracking) <= avail + 0.05) return true;
             }
             return false;
         }
+
+        /// <summary>Le début du mot avant une coupe : avec le trait ajouté
+        /// (cut &gt; 0), ou jusqu'au trait que le mot porte déjà (cut &lt; 0,
+        /// mots composés — 09/10).</summary>
+        private static string CutPrefix(string text, int cut)
+        {
+            return cut < 0 ? text.Substring(0, -cut) : text.Substring(0, cut) + "-";
+        }
+
+        private static int CutLength(int cut) { return cut < 0 ? -cut : cut; }
 
         private void UpdateMetrics(Atom atom, ref double ascent, ref double height)
         {
@@ -1482,6 +1504,12 @@ namespace Marabook.Print
                 spaceAdjust += delta; // déversoir d'urgence (plafonds au backlog)
 
             var perSpace = spaces.Count > 0 ? spaceAdjust / spaces.Count : 0;
+            if (spaces.Count > 0)
+            {
+                var naturalSpace = spaceBase / spaces.Count;
+                line.LooseRatio = naturalSpace > 0 ? (naturalSpace + perSpace) / naturalSpace : 1.0;
+                line.Loose = line.LooseRatio >= ComposedLine.LooseSpaceRatio;
+            }
             double x = 0;
             foreach (var piece in line.Pieces)
             {
