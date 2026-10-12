@@ -2232,12 +2232,18 @@ namespace Marabook.App
             });
         }
 
+        /// <summary>Le nœud d'ITEM sous la source, ou null : une ligne de
+        /// catégorie de fiches (1.0.5-a : repliable, donc active) est un
+        /// TreeViewItem sans BinderItem — pour la sélection, le glisser et
+        /// le menu, elle vaut « nulle part » (sinon : « Object reference not
+        /// set… » au clic, 12/10).</summary>
         private static TreeViewItem NodeFromSource(object source)
         {
             var current = source as Visual;
             while (current != null && !(current is TreeViewItem))
                 current = (current as Visual)?.GetVisualParent();
-            return current as TreeViewItem;
+            var node = current as TreeViewItem;
+            return node != null && node.Tag is BinderItem ? node : null;
         }
     }
 }
