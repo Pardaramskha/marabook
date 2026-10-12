@@ -90,7 +90,9 @@ namespace Marabook.App
             var sb = new StringBuilder();
             foreach (var text in texts)
                 if (text != null && text.Document != null) sb.AppendLine(text.Document.ToPlainText());
-            var candidates = NameExtractor.Extract(sb.ToString(), KnownSheetNames());
+            var engine = Correction.SpellDictionary.Default; // les noms communs en majuscule de titre tombent (1.0.5-a)
+            var candidates = NameExtractor.Extract(sb.ToString(), KnownSheetNames(), NameExtractor.DefaultMinCount,
+                engine == null ? (Func<string, bool>)null : delegate(string w) { return engine.Accepts(w); });
             if (candidates.Count == 0)
             {
                 if (explicitRequest)

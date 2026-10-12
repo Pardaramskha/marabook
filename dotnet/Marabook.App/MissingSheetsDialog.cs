@@ -133,8 +133,10 @@ namespace Marabook.App
             {
                 return LexiconEntry.FindByForm(projectLexicon, word) != null || LexiconEntry.FindByForm(globalLexicon, word) != null;
             };
+            var engine = SpellDictionary.Default;
+            Func<string, bool> isCommonWord = engine == null ? (Func<string, bool>)null : delegate(string word) { return engine.Accepts(word); };
             List<MissingName> names;
-            try { names = await Task.Run(delegate { return MissingNames.Collect(project, scope, inLexicon); }); }
+            try { names = await Task.Run(delegate { return MissingNames.Collect(project, scope, inLexicon, isCommonWord); }); }
             catch (Exception error) { names = new List<MissingName>(); Console.Error.WriteLine("[fiches manquantes] " + error); }
             _names = names;
             RebuildRows();
@@ -172,6 +174,7 @@ namespace Marabook.App
                 });
                 if (name.HasSheet) line.Children.Add(UnknownWordsDialog.Pill("fiche éponyme créée", Chrome.Ok));
                 if (name.InLexicon) line.Children.Add(UnknownWordsDialog.Pill("présent dans le dictionnaire", Chrome.Accent));
+                if (name.CommonWord) line.Children.Add(UnknownWordsDialog.Pill("nom commun employé comme nom", Chrome.SoftText));
                 text.Children.Add(line);
                 text.Children.Add(new TextBlock { Text = name.Context, Foreground = Chrome.FaintText, FontSize = 11, TextWrapping = TextWrapping.Wrap, FontStyle = FontStyle.Italic });
                 row.Children.Add(text);

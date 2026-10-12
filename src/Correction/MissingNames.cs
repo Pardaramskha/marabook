@@ -18,6 +18,7 @@ namespace Marabook.Correction
         public string Context = "";   // un bout de phrase (NameExtractor)
         public bool HasSheet;         // une fiche porte déjà ce titre
         public bool InLexicon;        // le dictionnaire personnel le connaît
+        public bool CommonWord;       // un mot du dictionnaire employé comme nom (« le Cairn ») — à juger
     }
 
     public static class MissingNames
@@ -30,6 +31,15 @@ namespace Marabook.Correction
         /// — « Keira » est servie par la fiche « Keira Varenh ». Un nom qui a
         /// déjà sa fiche ET son entrée au dictionnaire n'est plus proposé.</summary>
         public static List<MissingName> Collect(Project project, List<BinderItem> texts, Func<string, bool> inLexicon)
+        {
+            return Collect(project, texts, inLexicon, null);
+        }
+
+        /// <summary>Avec isCommonWord (1.0.5-a) : le mot est-il connu du
+        /// dictionnaire en minuscules ? Les noms communs promus (« le Cairn »)
+        /// restent et portent CommonWord ; les majuscules de titre après une
+        /// virgule (« Nom, Discours public ») tombent — voir NameExtractor.</summary>
+        public static List<MissingName> Collect(Project project, List<BinderItem> texts, Func<string, bool> inLexicon, Func<string, bool> isCommonWord)
         {
             var result = new List<MissingName>();
             if (project == null) return result;
@@ -44,9 +54,9 @@ namespace Marabook.Correction
                 plain.Add(new KeyValuePair<BinderItem, string>(text, content));
                 sb.AppendLine(content);
             }
-            foreach (var candidate in NameExtractor.Extract(sb.ToString(), null))
+            foreach (var candidate in NameExtractor.Extract(sb.ToString(), null, NameExtractor.DefaultMinCount, isCommonWord))
             {
-                var entry = new MissingName { Name = candidate.Name, Count = candidate.Count, Context = candidate.Context };
+                var entry = new MissingName { Name = candidate.Name, Count = candidate.Count, Context = candidate.Context, CommonWord = candidate.CommonWord };
                 foreach (var pair in plain)
                     if (pair.Value.IndexOf(candidate.Name, StringComparison.Ordinal) >= 0) { entry.Where = pair.Key.Title ?? ""; break; }
                 entry.HasSheet = known.Contains(NameExtractor.Key(candidate.Name));
