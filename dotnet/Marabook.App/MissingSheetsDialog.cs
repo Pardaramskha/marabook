@@ -32,7 +32,6 @@ namespace Marabook.App
         private readonly TextBlock _status;
         private readonly Button _create;
         private readonly ComboBox _where;
-        private readonly ComboBox _defaultCategory;
         private readonly List<Scope> _scopes;
         private readonly List<SheetCategory> _categories;
         private readonly Project _project;
@@ -65,8 +64,9 @@ namespace Marabook.App
             var head = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
             head.Children.Add(new TextBlock
             {
-                Text = "Les noms propres qui reviennent dans les écrits (trois fois au moins, dont deux hors début de phrase). "
-                    + "Cochez ceux qui méritent une fiche et choisissez sa catégorie : les fiches se créent d'un coup, vides, à remplir.",
+                Text = "Les noms propres qui reviennent dans les écrits (trois fois au moins, dont deux hors début de phrase), "
+                    + "sauf ceux qu'une fiche porte déjà — titre, nom, prénom, alias — et que le dictionnaire connaît. "
+                    + "Cochez ceux qui méritent une fiche et choisissez son type : les fiches se créent d'un coup, vides, à remplir.",
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 TextWrapping = TextWrapping.Wrap
@@ -104,17 +104,7 @@ namespace Marabook.App
             Dialogs.Arrange(right, _create);
             DockPanel.SetDock(right, Dock.Right);
             buttons.Children.Add(right);
-            var defaultRow = new StackPanel { Orientation = Orientation.Horizontal };
-            defaultRow.Children.Add(new TextBlock { Text = "Catégorie proposée :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
-            _defaultCategory = new ComboBox { MinWidth = 200, VerticalAlignment = VerticalAlignment.Center, [ToolTip.TipProperty] = "La catégorie posée sur toutes les lignes ; chaque ligne peut en changer" };
-            foreach (var category in _categories) _defaultCategory.Items.Add((category.IsSub ? "   › " : "") + category.Name);
-            _defaultCategory.SelectedIndex = PreferredIndex();
-            _defaultCategory.SelectionChanged += delegate
-            {
-                foreach (var row in _boxes) row.Category.SelectedIndex = _defaultCategory.SelectedIndex;
-            };
-            defaultRow.Children.Add(_defaultCategory);
-            buttons.Children.Add(defaultRow);
+            buttons.Children.Add(new TextBlock { Text = "Chaque fiche cochée doit avoir son type.", Foreground = Chrome.FaintText, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
             DockPanel.SetDock(buttons, Dock.Bottom);
             root.Children.Add(buttons);
 
@@ -128,14 +118,6 @@ namespace Marabook.App
             Content = root;
             _create.IsEnabled = false;
             Collect();
-        }
-
-        /// <summary>« Personnage » d'office, sinon la première catégorie.</summary>
-        private int PreferredIndex()
-        {
-            for (var i = 0; i < _categories.Count; i++)
-                if (string.Equals(_categories[i].Name, "Personnage", StringComparison.CurrentCultureIgnoreCase)) return i;
-            return _categories.Count > 0 ? 0 : -1;
         }
 
         private async void Collect()
@@ -169,11 +151,12 @@ namespace Marabook.App
                 box.IsCheckedChanged += delegate { UpdateStatus(); };
                 DockPanel.SetDock(box, Dock.Left);
                 row.Children.Add(box);
-                var category = new ComboBox { MinWidth = 170, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(10, 0, 0, 0), IsEnabled = !name.HasSheet, [ToolTip.TipProperty] = "La catégorie de la fiche à créer" };
+                // Le type n'est jamais pré-rempli (Rémi, 12/10) : « Choisir le type… ».
+                var category = new ComboBox { MinWidth = 170, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(10, 0, 0, 0), IsEnabled = !name.HasSheet, PlaceholderText = "Choisir le type…", [ToolTip.TipProperty] = "Le type (la catégorie) de la fiche à créer" };
                 foreach (var candidate in _categories) category.Items.Add((candidate.IsSub ? "   › " : "") + candidate.Name);
-                category.SelectedIndex = _defaultCategory.SelectedIndex;
+                category.SelectedIndex = -1;
                 var boxRef = box;
-                category.SelectionChanged += delegate { if (boxRef.IsEnabled && boxRef.IsChecked != true) boxRef.IsChecked = true; };
+                category.SelectionChanged += delegate { if (boxRef.IsEnabled && boxRef.IsChecked != true) boxRef.IsChecked = true; UpdateStatus(); };
                 DockPanel.SetDock(category, Dock.Right);
                 row.Children.Add(category);
                 var text = new StackPanel();
@@ -209,13 +192,19 @@ namespace Marabook.App
         private void UpdateStatus()
         {
             var selected = 0;
+            var untyped = 0;
             var done = 0;
-            foreach (var row in _boxes) { if (row.Box.IsChecked == true && row.Box.IsEnabled) selected++; if (row.Name.HasSheet) done++; }
+            foreach (var row in _boxes)
+            {
+                if (row.Box.IsChecked == true && row.Box.IsEnabled) { selected++; if (row.Category.SelectedIndex < 0) untyped++; }
+                if (row.Name.HasSheet) done++;
+            }
             _status.Text = _names.Count == 0 ? "" : (_names.Count == 1 ? "1 nom" : _names.Count + " noms")
                 + (done > 0 ? " · " + done + (done == 1 ? " a déjà sa fiche" : " ont déjà leur fiche") : "")
-                + (selected > 0 ? " · " + selected + (selected == 1 ? " coché" : " cochés") : "");
+                + (selected > 0 ? " · " + selected + (selected == 1 ? " coché" : " cochés") : "")
+                + (untyped > 0 ? " · " + untyped + " sans type" : "");
             _create.Content = selected > 0 ? "Créer les fiches (" + selected + ")" : "Créer les fiches";
-            _create.IsEnabled = selected > 0;
+            _create.IsEnabled = selected > 0 && untyped == 0;
         }
 
         /// <summary>Sonde : le relevé affiché et le spectre choisi.</summary>
@@ -233,7 +222,8 @@ namespace Marabook.App
             {
                 if (row.Box.IsChecked != true || !row.Box.IsEnabled) continue;
                 var index = row.Category.SelectedIndex;
-                choices.Add(new Choice { Name = row.Name.Name, Category = index >= 0 && index < dialog._categories.Count ? dialog._categories[index] : null });
+                if (index < 0 || index >= dialog._categories.Count) continue; // sans type : pas de fiche
+                choices.Add(new Choice { Name = row.Name.Name, Category = dialog._categories[index] });
             }
             return choices;
         }

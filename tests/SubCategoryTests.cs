@@ -87,6 +87,27 @@ namespace Marabook.Tests
             t.Equal("Nardra×3, Zelandra×3·fiche", string.Join(", ", found.ToArray()), "les noms récurrents du livre (trois fois, deux hors début de phrase), avec leurs pastilles (" + string.Join(", ", found.ToArray()) + ")");
             var nardra = missing.Find(delegate(MissingName m) { return m.Name == "Nardra"; });
             t.Check(missing.Count == 2 && nardra != null && !nardra.HasSheet && nardra.Where == "Chapitre 1", "Nardra n'a pas de fiche, le premier endroit est dit");
+            // Une fiche « Nardra Vel » sert « Nardra » par son composant ; avec
+            // l'entrée du dictionnaire en plus, le nom n'est plus proposé.
+            var vel = new BinderItem { Kind = ItemKind.Sheet, Title = "Nardra Vel", CategoryId = project.SheetCategories[0].Id, TemplateId = project.SheetCategories[0].TemplateId };
+            project.Category(Project.KeySheets).Children.Add(vel);
+            project.RelinkParents();
+            var served = MissingNames.Collect(project, project.TextsIn(book), delegate(string w) { return LexiconEntry.FindByForm(project.Lexicon, w) != null; });
+            var nardra2 = served.Find(delegate(MissingName m) { return m.Name == "Nardra"; });
+            t.Check(nardra2 != null && nardra2.HasSheet, "« Nardra Vel » sert « Nardra » (composant du titre) : pastille fiche");
+            project.Lexicon.Add(LexiconEntry.Simple("Nardra"));
+            var gone = MissingNames.Collect(project, project.TextsIn(book), delegate(string w) { return LexiconEntry.FindByForm(project.Lexicon, w) != null; });
+            t.Check(gone.Find(delegate(MissingName m) { return m.Name == "Nardra"; }) == null && gone.Count == 1, "fiche ET dictionnaire : Nardra n'est plus proposé, Zelandra reste");
+            // Le prénom d'une fiche compte aussi (Presence.NamesOf : Nom, Prénom, Alias).
+            var template = project.FindTemplate(project.SheetCategories[0].TemplateId);
+            SheetField firstName = null;
+            foreach (var f in template.Fields) if (f.Name == "Prénom") firstName = f;
+            if (firstName != null)
+            {
+                vel.Title = "Capitaine";
+                vel.FieldValues[firstName.Id] = "Nardra";
+                t.Check(MissingNames.KnownSheetNameKeys(project).Contains(NameExtractor.Key("Nardra")), "un prénom de fiche est un nom connu");
+            }
         }
 
         /// <summary>Les macros de styles (1.0.5) : un style porte un geste, la
