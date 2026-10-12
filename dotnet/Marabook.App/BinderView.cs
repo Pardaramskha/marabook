@@ -541,12 +541,17 @@ namespace Marabook.App
             foreach (var group in groups)
             {
                 if (group.Value.Count == 0) continue;
-                node.Items.Add(CategoryRow(_project.CategoryPath(group.Key)));
+                // Repliable (1.0.5-a) : un clic sur la ligne cache ses fiches —
+                // le même état que la boîte de la bibliothèque.
+                var key = group.Key.Id;
+                var collapsed = SheetLibraryView.CollapsedCategories.Contains(key);
+                node.Items.Add(CategoryRow(_project.CategoryPath(group.Key) + (collapsed ? "  (" + group.Value.Count + ")" : ""), key, collapsed, group.Key.Color));
+                if (collapsed) continue;
                 foreach (var sheet in Alphabetical(group.Value)) node.Items.Add(BuildNode(sheet));
             }
             if (loose.Count > 0)
             {
-                node.Items.Add(CategoryRow("Sans catégorie"));
+                node.Items.Add(CategoryRow("Sans catégorie", null, false, null));
                 foreach (var sheet in Alphabetical(loose)) node.Items.Add(BuildNode(sheet));
             }
         }
@@ -561,13 +566,25 @@ namespace Marabook.App
 
         /// <summary>La ligne d'une catégorie : son nom en petit, un filet
         /// jusqu'au bord — inerte (ni sélection, ni menu, ni dépôt).</summary>
-        private static TreeViewItem CategoryRow(string name)
+        private TreeViewItem CategoryRow(string name, string categoryId, bool collapsed, string color)
         {
             var row = new DockPanel { Margin = new Thickness(0, 5, 8, 2), MinWidth = 120 };
+            var ink = color != null ? (IBrush)new SolidColorBrush(Ink.Parse(color).ToColor()) : Chrome.SoftText; // la couleur de la sous-catégorie (1.0.5-a)
+            if (categoryId != null)
+            {
+                var caret = Icons.Make(collapsed ? "caret-right-bold" : "caret-down-bold", 9, ink) as Control;
+                if (caret != null)
+                {
+                    caret.VerticalAlignment = VerticalAlignment.Center;
+                    caret.Margin = new Thickness(0, 0, 4, 0);
+                    DockPanel.SetDock(caret, Dock.Left);
+                    row.Children.Add(caret);
+                }
+            }
             var label = new TextBlock
             {
                 Text = name,
-                Foreground = Chrome.SoftText,
+                Foreground = ink,
                 FontSize = 10.5,
                 FontWeight = FontWeight.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -576,7 +593,41 @@ namespace Marabook.App
             DockPanel.SetDock(label, Dock.Left);
             row.Children.Add(label);
             row.Children.Add(new Border { Height = 1, Background = Chrome.Border, VerticalAlignment = VerticalAlignment.Center });
-            return new TreeViewItem { Header = row, IsEnabled = false, Focusable = false }; // Tag nul, comme le filet sous l'Accueil
+            if (categoryId == null)
+                return new TreeViewItem { Header = row, IsEnabled = false, Focusable = false }; // Tag nul, comme le filet sous l'Accueil
+            // Repliable (1.0.5-a) : la ligne reste inerte pour la sélection et
+            // le dépôt, mais le clic la replie ou la déplie.
+            row.Background = Brushes.Transparent;
+            row.Cursor = new Cursor(StandardCursorType.Hand);
+            ToolTip.SetTip(row, collapsed ? "Déplier" : "Replier");
+            row.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e) { e.Handled = true; }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            row.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            {
+                if (e.InitialPressMouseButton != MouseButton.Left) return;
+                e.Handled = true;
+                if (!SheetLibraryView.CollapsedCategories.Remove(categoryId)) SheetLibraryView.CollapsedCategories.Add(categoryId);
+                Rebuild();
+            };
+            return new TreeViewItem { Header = row, Focusable = false };
+        }
+
+        /// <summary>Sonde (1.0.5-a) : replier ou déplier une catégorie de la Pile.</summary>
+        internal void ToggleCategoryRowForProbe(string categoryId)
+        {
+            if (!SheetLibraryView.CollapsedCategories.Remove(categoryId)) SheetLibraryView.CollapsedCategories.Add(categoryId);
+            Rebuild();
+        }
+
+        /// <summary>Sonde : le nombre de lignes de fiches sous la racine Fiches.</summary>
+        internal int SheetRowsForProbe()
+        {
+            var count = 0;
+            foreach (var pair in _nodesById)
+            {
+                var item = pair.Value.Tag as BinderItem;
+                if (item != null && item.Kind == ItemKind.Sheet) count++;
+            }
+            return count;
         }
 
         private Control BuildHeader(BinderItem item)
@@ -599,6 +650,18 @@ namespace Marabook.App
             else
                 panel.Children.Add(ItemIcons.Render(item, 12,
                     item.IsCategory ? (IBrush)Chrome.Accent : Chrome.SoftText));
+            // Le projet actif (1.0.5-a) : une pastille verte entre l'icône et le nom.
+            if (_project != null && _project.ActiveScope() == item)
+                panel.Children.Add(new Ellipse
+                {
+                    Width = 7,
+                    Height = 7,
+                    Fill = Chrome.Ok,
+                    Margin = new Thickness(5, 0, 5, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    [ToolTip.TipProperty] = "Projet actif : le spectre par défaut des relevés (mots inconnus, fiches manquantes)",
+                    Tag = "active-scope" // sonde
+                });
 
             var title = new TextBlock
             {
@@ -1075,6 +1138,14 @@ namespace Marabook.App
                         if (handler != null) handler(item);
                     });
                 }
+                // Le projet actif (1.0.5-a) : un écrit, un dossier ou un livre
+                // d'Écrits — le spectre par défaut des relevés ; un seul à la fois.
+                if ((item.Kind == ItemKind.Text || item.Kind == ItemKind.Folder || item.Kind == ItemKind.Book)
+                    && !item.IsExtraPage && item.RootCategory().CategoryKey == Project.KeyWritings)
+                {
+                    var active = _project.ActiveScope() == item;
+                    AddMenu(menu, active ? "Ne plus en faire le projet actif" : "Projet actif", delegate { SetActiveScope(active ? null : item); });
+                }
                 if (item.Kind == ItemKind.Book)
                     AddMenu(menu, "Options du livre…", delegate { BookOptions(item); });
                 // Un dossier de Fiches, depuis la Pile (29/09) : classer ses
@@ -1524,6 +1595,30 @@ namespace Marabook.App
         {
             var handler = AchievementEvent;
             if (handler != null) handler(id);
+        }
+
+        /// <summary>Le projet actif (1.0.5-a) : posé ou retiré, annulable.</summary>
+        public void SetActiveScope(BinderItem item)
+        {
+            if (_project == null) return;
+            var project = _project;
+            var previous = project.ActiveScopeId;
+            var next = item == null ? null : item.Id;
+            if (previous == next) return;
+            RunAndSelect(new DelegateAction(delegate { project.ActiveScopeId = next; }, delegate { project.ActiveScopeId = previous; }), null, null);
+        }
+
+        /// <summary>Sonde : la pastille verte est-elle posée sur cette ligne ?</summary>
+        internal bool HasActiveDotForProbe(string id)
+        {
+            TreeViewItem node;
+            if (!_nodesById.TryGetValue(id, out node)) return false;
+            foreach (var visual in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(node))
+            {
+                var ellipse = visual as Ellipse;
+                if (ellipse != null && (ellipse.Tag as string) == "active-scope") return true;
+            }
+            return false;
         }
 
         /// <summary>« Casser le dossier » (1.0.5) : les fiches à la racine
@@ -2137,12 +2232,18 @@ namespace Marabook.App
             });
         }
 
+        /// <summary>Le nœud d'ITEM sous la source, ou null : une ligne de
+        /// catégorie de fiches (1.0.5-a : repliable, donc active) est un
+        /// TreeViewItem sans BinderItem — pour la sélection, le glisser et
+        /// le menu, elle vaut « nulle part » (sinon : « Object reference not
+        /// set… » au clic, 12/10).</summary>
         private static TreeViewItem NodeFromSource(object source)
         {
             var current = source as Visual;
             while (current != null && !(current is TreeViewItem))
                 current = (current as Visual)?.GetVisualParent();
-            return current as TreeViewItem;
+            var node = current as TreeViewItem;
+            return node != null && node.Tag is BinderItem ? node : null;
         }
     }
 }

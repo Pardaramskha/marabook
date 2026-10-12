@@ -271,6 +271,14 @@ namespace Marabook.App
             templates.Margin = new Thickness(8, 0, 0, 0);
             templates.Click += delegate { EditTemplates(); };
             left.Children.Add(templates);
+            // Les fiches manquantes (1.0.5-a, Rémi) : les noms propres récurrents
+            // des écrits sans fiche, à créer en lot — le pendant des mots inconnus.
+            var missing = Buttons.IconText("magnifying-glass-bold", "Fiches manquantes…",
+                "Relever les noms propres récurrents des écrits qui n'ont pas de fiche, et en créer plusieurs d'un coup",
+                Buttons.Bar, Buttons.Look.Outline);
+            missing.Margin = new Thickness(8, 0, 0, 0);
+            missing.Click += delegate { ShowMissingSheets(); };
+            left.Children.Add(missing);
             toolbar.Children.Add(left);
             Children.Add(toolbar);
 
@@ -866,7 +874,9 @@ namespace Marabook.App
             var grid = new Grid();
             grid.Children.Add(picture);
             // — la puce « modèle différent du modèle de base »
-            if (category != null && sheet.TemplateId != category.TemplateId)
+            // Pour une sous-catégorie, le modèle de base est celui de l'ensemble
+            // (1.0.5-a : la puce marquait toutes ses fiches).
+            if (category != null && sheet.TemplateId != _project.BaseTemplateIdOf(category))
                 grid.Children.Add(new Border
                 {
                     Width = 10,
@@ -1162,6 +1172,16 @@ namespace Marabook.App
                 };
                 fields.Click += delegate { EditSubFields(category); };
                 menu.Items.Add(fields);
+                // La couleur (1.0.5-a) : le nuancier des dossiers, annulable.
+                var colour = new MenuItem { Header = "Couleur", Icon = ColorMenus.Dot(category.Color, 1, Chrome.Border) };
+                ColorMenus.Fill(colour, Ui.OwnerOf(this), _project, category.Color, delegate(string value)
+                {
+                    var previous = category.Color;
+                    _history.Run(new SheetStructureAction("Couleur de la sous-catégorie", delegate { category.Color = value; }, delegate { category.Color = previous; }));
+                    NotifyChanged();
+                    RebuildRows();
+                });
+                menu.Items.Add(colour);
                 menu.Items.Add(new Separator());
                 var removeSub = new MenuItem { Header = "Supprimer la sous-catégorie" };
                 removeSub.Click += delegate { DeleteCategory(category); };
@@ -1342,17 +1362,31 @@ namespace Marabook.App
         /// au tableau : bordure fine à bords ronds, le nom posé DANS la
         /// bordure avec son compte, son menu à trois points, les cartes à
         /// l'intérieur ; vide, elle le dit.</summary>
+        // Les sous-catégories REPLIÉES (1.0.5-a, Rémi : « gagner de la place ») —
+        // pour la session, partagé avec la Pile, par id de catégorie.
+        internal static readonly HashSet<string> CollapsedCategories = new HashSet<string>();
+
         private void AddSubBox(SheetCategory sub, List<BinderItem> sheets, SheetCategory top)
         {
             var dock = new DockPanel();
             var head = new DockPanel { Margin = new Thickness(6, 0, 2, 4) };
             var subRef = sub;
+            var collapsed = CollapsedCategories.Contains(sub.Id);
+            var accent = sub.Color != null ? (Color?)Ink.Parse(sub.Color).ToColor() : null; // la couleur, comme un dossier (1.0.5-a)
             var edit = Buttons.Icon("dots-three-vertical-bold", "Modifier la sous-catégorie…", Buttons.Compact, Buttons.Look.Calm);
             edit.Click += delegate { ShowCategoryMenu(edit, subRef); };
             DockPanel.SetDock(edit, Dock.Right);
             head.Children.Add(edit);
-            var title = new StackPanel { Orientation = Orientation.Horizontal };
-            var icon = Icons.Make("folder-bold", 13, Chrome.SoftText) as Control;
+            var title = new StackPanel { Orientation = Orientation.Horizontal, Cursor = new Cursor(StandardCursorType.Hand), Background = Brushes.Transparent, [ToolTip.TipProperty] = collapsed ? "Déplier la sous-catégorie" : "Replier la sous-catégorie" };
+            var caret = Icons.Make(collapsed ? "caret-right-bold" : "caret-down-bold", 11, Chrome.SoftText) as Control;
+            if (caret != null) { caret.VerticalAlignment = VerticalAlignment.Center; caret.Margin = new Thickness(0, 0, 6, 0); title.Children.Add(caret); }
+            title.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            {
+                if (e.InitialPressMouseButton != MouseButton.Left) return;
+                if (!CollapsedCategories.Remove(subRef.Id)) CollapsedCategories.Add(subRef.Id);
+                RebuildRows();
+            };
+            var icon = Icons.Make("folder-bold", 13, accent.HasValue ? (IBrush)new SolidColorBrush(accent.Value) : Chrome.SoftText) as Control;
             if (icon != null) { icon.VerticalAlignment = VerticalAlignment.Center; icon.Margin = new Thickness(0, 0, 6, 0); title.Children.Add(icon); }
             title.Children.Add(new TextBlock
             {
@@ -1382,7 +1416,7 @@ namespace Marabook.App
             head.Children.Add(title);
             DockPanel.SetDock(head, Dock.Top);
             dock.Children.Add(head);
-            var wrap = new WrapPanel { Margin = new Thickness(2, 0, 2, 0) };
+            var wrap = new WrapPanel { Margin = new Thickness(2, 0, 2, 0), IsVisible = !collapsed };
             foreach (var sheet in sheets) wrap.Children.Add(BuildCard(sheet, sub));
             if (sheets.Count == 0)
                 wrap.Children.Add(new TextBlock
@@ -1395,14 +1429,49 @@ namespace Marabook.App
             dock.Children.Add(wrap);
             _rows.Children.Add(new Border
             {
-                BorderBrush = Chrome.Border,
+                BorderBrush = accent.HasValue ? (IBrush)new SolidColorBrush(accent.Value) : Chrome.Border,
                 BorderThickness = new Thickness(1.4),
                 CornerRadius = new CornerRadius(10),
+                Background = accent.HasValue ? (IBrush)new SolidColorBrush(Chrome.Blend(accent.Value, Chrome.WindowBg.Color, 0.88)) : Brushes.Transparent,
                 Margin = new Thickness(0, 10, 8, 0),
-                Padding = new Thickness(6, 8, 6, 4),
+                Padding = new Thickness(6, collapsed ? 4 : 8, 6, collapsed ? 2 : 4),
                 Child = dock,
                 Tag = sub.Id // sonde
             });
+        }
+
+        /// <summary>Sonde (1.0.5-a) : la boîte de cette sous-catégorie est-elle repliée (cartes cachées) ?</summary>
+        internal bool SubBoxCollapsedForProbe(string id)
+        {
+            foreach (var child in _rows.Children)
+            {
+                var box = child as Border;
+                if (box == null || (box.Tag as string) != id) continue;
+                var dock = box.Child as DockPanel;
+                return dock != null && dock.Children.Count > 1 && !dock.Children[1].IsVisible;
+            }
+            return false;
+        }
+
+        /// <summary>Les fiches manquantes (1.0.5-a) : les noms cochés deviennent
+        /// des fiches vides dans la catégorie choisie, en un cran d'annulation.</summary>
+        private async void ShowMissingSheets()
+        {
+            if (_project == null) return;
+            var choices = await MissingSheetsDialog.Ask(Ui.OwnerOf(this), _project);
+            if (choices == null || choices.Count == 0) return;
+            var items = new List<BinderItem>();
+            foreach (var choice in choices)
+                items.Add(new BinderItem
+                {
+                    Kind = ItemKind.Sheet,
+                    Title = choice.Name,
+                    CategoryId = choice.Category != null ? choice.Category.Id : null,
+                    TemplateId = _project.BaseTemplateIdOf(choice.Category)
+                });
+            _history.Run(new AddItemsAction(_scope ?? _project.Category(Project.KeySheets), items));
+            NotifyChanged();
+            RebuildRows();
         }
 
         private void NotifyChanged()

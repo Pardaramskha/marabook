@@ -92,6 +92,13 @@ namespace Marabook.App
                 if (_launch.Probe) { await Probes.Run(this); QuitNow(); return; }
                 if (_launch.FontProbe != null) { FontProbe(_launch.FontProbe); QuitNow(); return; }
                 if (_launch.WordProbe != null) { WordProbe(_launch.WordProbe); QuitNow(); return; }
+                if (_launch.NamesProbe != null)
+                {
+                    try { NamesProbe(_launch.NamesProbe); }
+                    catch (Exception error) { Console.WriteLine("NOMS ÉCHEC : " + error); Environment.ExitCode = 1; }
+                    QuitNow();
+                    return;
+                }
                 if (_launch.SpellingProbe != null)
                 {
                     try { SpellingProbe(_launch.SpellingProbe); }
@@ -228,6 +235,23 @@ namespace Marabook.App
                     + (ok ? "   radicaux : " + string.Join(", ", engine.Stems(word).ToArray()) + (noSuggest ? "   (jamais proposé)" : "")
                           : "   suggestions : " + string.Join(", ", engine.Suggest(word).ToArray())));
             }
+        }
+
+        /// <summary>Diagnostic des fiches manquantes (12/10) : « --noms
+        /// <fichier.plot> » — les noms propres récurrents de tous les écrits,
+        /// avec le compte, le premier écrit, le contexte et les pastilles.</summary>
+        private static void NamesProbe(string path)
+        {
+            var warnings = new List<string>();
+            var project = Persistence.PlotFile.Load(path, warnings);
+            var engine = Correction.SpellDictionary.Default;
+            var names = Correction.MissingNames.Collect(project, null, delegate(string w) { return LexiconEntry.FindByForm(project.Lexicon, w) != null; },
+                engine == null ? (Func<string, bool>)null : delegate(string w) { return engine.Accepts(w); });
+            Console.WriteLine("NOMS — " + project.Name + " : " + names.Count + " candidat(s)");
+            foreach (var name in names)
+                Console.WriteLine("  " + name.Name + " ×" + name.Count + (name.HasSheet ? " [fiche]" : "") + (name.InLexicon ? " [dico]" : "")
+                    + (engine != null && engine.Accepts(name.Name.ToLowerInvariant()) ? " [mot courant]" : "")
+                    + "  — " + name.Where + " — " + name.Context.Replace("\n", " "));
         }
 
         /// <summary>Diagnostic de l'orthographe d'un projet (10/10) : « --ortho
@@ -468,6 +492,7 @@ namespace Marabook.App
         public EditorView Editor { get { return _editor; } }
         public SheetView Sheet { get { return _sheetView; } }
         internal SheetLibraryView SheetLibraryForProbe { get { return _sheetLibrary; } }
+        internal LexiconPanel LexiconPanelForProbe { get { return _lexiconPanel; } }
         internal History.HistoryManager HistoryForProbe { get { return _history; } }
         internal PinnedPanel PinnedPanelForProbe { get { return _pinnedPanel; } }
         internal PlanView PlanForProbe { get { return _planView; } }

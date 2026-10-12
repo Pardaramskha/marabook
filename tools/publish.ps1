@@ -207,6 +207,7 @@ if ($ridMac) {
       <key>LSItemContentTypes</key>
       <array>
         <string>com.pardaramskha.marabook.plot</string>
+        <string>io.pardaramskha.marabook.plot</string>
       </array>
     </dict>
   </array>
@@ -217,6 +218,28 @@ if ($ridMac) {
       <string>com.pardaramskha.marabook.plot</string>
       <key>UTTypeDescription</key>
       <string>Projet Marabook</string>
+      <key>UTTypeIconFile</key>
+      <string>plot.icns</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>plot</string>
+        </array>
+      </dict>
+    </dict>
+    <!-- L'identifiant de la 0.42 alpha (12/10) : un Mac qui l'a connu range encore
+         les .plot sous io.… — on le réclame aussi, même icône, même rôle, sinon
+         les fichiers restent sans icône. -->
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>io.pardaramskha.marabook.plot</string>
+      <key>UTTypeDescription</key>
+      <string>Projet Marabook (ancien identifiant)</string>
       <key>UTTypeIconFile</key>
       <string>plot.icns</string>
       <key>UTTypeConformsTo</key>

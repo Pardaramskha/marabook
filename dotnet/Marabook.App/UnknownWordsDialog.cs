@@ -30,7 +30,11 @@ namespace Marabook.App
         private readonly TextBlock _status;
         private readonly Button _learn;
         private readonly ComboBox _scope;
+        private readonly ComboBox _where;        // le spectre (1.0.5-a)
+        private readonly List<Scope> _scopes;
         private readonly TextBox _filter;
+        private readonly Project _project;
+        private readonly Correction.Hunspell.SpellEngine _engine;
         private List<UnknownWord> _words = new List<UnknownWord>();
         private bool _accepted;
 
@@ -57,12 +61,21 @@ namespace Marabook.App
                 FontSize = 12,
                 TextWrapping = TextWrapping.Wrap
             });
+            _project = project;
+            _engine = engine;
             var tools = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
             _filter = new TextBox { Width = 200, Watermark = "Filtrer…", [ToolTip.TipProperty] = "Ne montrer que les mots contenant ces lettres" };
             _filter.TextChanged += delegate { RebuildRows(); };
             DockPanel.SetDock(_filter, Dock.Right);
             tools.Children.Add(_filter);
             var left = new StackPanel { Orientation = Orientation.Horizontal };
+            // Le spectre (1.0.5-a) : le projet actif d'abord, tous les écrits, un livre ou un dossier.
+            _scopes = Scopes.Build(project);
+            _where = new ComboBox { MinWidth = 220, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0), [ToolTip.TipProperty] = "Où relever : le projet actif, tous les écrits (et les fiches), un livre ou un dossier" };
+            foreach (var scope in _scopes) _where.Items.Add(scope.Label);
+            _where.SelectedIndex = Scopes.DefaultIndex(_scopes);
+            _where.SelectionChanged += delegate { Collect(); };
+            left.Children.Add(_where);
             var all = Buttons.Text("Tout cocher", "Cocher tous les mots affichés", Buttons.Compact, Buttons.Look.Outline);
             all.Click += delegate { SetAll(true); };
             var none = Buttons.Text("Tout décocher", "Décocher tous les mots affichés", Buttons.Compact, Buttons.Look.Outline);
@@ -109,19 +122,24 @@ namespace Marabook.App
             Content = root;
             _rows.Children.Add(new TextBlock { Text = "Relevé en cours…", Foreground = Chrome.SoftText, Margin = new Thickness(12) });
             _learn.IsEnabled = false;
-            Collect(project, engine);
+            Collect();
         }
 
-        private async void Collect(Project project, Correction.Hunspell.SpellEngine engine)
+        private async void Collect()
         {
-            var checker = new SpellChecker(engine)
+            var project = _project;
+            var checker = new SpellChecker(_engine)
             {
                 ProjectWords = project.Lexicon,
                 GlobalWords = AppSettings.Lexicon,
                 Neologisms = AppSettings.NeologismsEnabled
             };
+            var index = _where.SelectedIndex;
+            var scope = index >= 0 && index < _scopes.Count ? _scopes[index].Texts : null;
+            _rows.Children.Clear();
+            _rows.Children.Add(new TextBlock { Text = "Relevé en cours…", Foreground = Chrome.SoftText, Margin = new Thickness(12) });
             List<UnknownWord> words;
-            try { words = await Task.Run(delegate { return UnknownWords.Collect(project, checker); }); }
+            try { words = await Task.Run(delegate { return UnknownWords.Collect(project, checker, scope); }); }
             catch (Exception error) { words = new List<UnknownWord>(); Console.Error.WriteLine("[mots inconnus] " + error); }
             _words = words;
             RebuildRows();
@@ -153,6 +171,7 @@ namespace Marabook.App
                     Margin = new Thickness(10, 0, 0, 0),
                     VerticalAlignment = VerticalAlignment.Bottom
                 });
+                if (word.HasSheet) line.Children.Add(Pill("fiche éponyme créée", Chrome.Ok)); // le relevé des fiches a fait sa part (1.0.5-a)
                 text.Children.Add(line);
                 text.Children.Add(new TextBlock { Text = word.Sample, Foreground = Chrome.FaintText, FontSize = 11, TextWrapping = TextWrapping.Wrap, FontStyle = FontStyle.Italic });
                 row.Children.Add(text);
@@ -168,6 +187,24 @@ namespace Marabook.App
                 });
             UpdateStatus();
         }
+
+        /// <summary>La pastille d'un état déjà acquis ailleurs (1.0.5-a) : « fiche
+        /// éponyme créée », « présent dans le dictionnaire ».</summary>
+        public static Border Pill(string text, IBrush ink)
+        {
+            return new Border
+            {
+                Background = Chrome.AccentTint,
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(7, 1, 7, 1),
+                Margin = new Thickness(10, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock { Text = "● " + text, Foreground = ink, FontSize = 10.5 }
+            };
+        }
+
+        /// <summary>Sonde : le spectre choisi.</summary>
+        internal string ScopeLabelForProbe { get { return _where.SelectedItem as string ?? ""; } }
 
         private void SetAll(bool value)
         {

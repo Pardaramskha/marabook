@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -29,6 +30,11 @@ namespace Marabook.App
         private readonly Button _edit;
         private LexiconEntry _entry;
         private bool _projectScope;
+        // La recherche d'entrées (1.0.5-a) : en tête de la colonne, filtre les
+        // dictionnaires du projet et global (fournis par la coquille).
+        private readonly TextBox _search;
+        private readonly StackPanel _results;
+        public Func<List<KeyValuePair<LexiconEntry, bool>>> EntriesProvider; // les entrées (entrée, portée projet)
 
         public event Action<bool> PinToggled;               // épinglé au rail (vrai) ou retiré
         public event Action CloseRequested;
@@ -85,6 +91,15 @@ namespace Marabook.App
             });
             Children.Add(head);
 
+            var searchHost = new StackPanel { Margin = new Thickness(12, 0, 12, 6) };
+            _search = new TextBox { Watermark = "Rechercher une entrée…", [ToolTip.TipProperty] = "Un mot ou une forme des dictionnaires du projet et de tous les projets" };
+            _search.TextChanged += delegate { RebuildResults(); };
+            searchHost.Children.Add(Ui.WithClear(_search, "Effacer la recherche"));
+            _results = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+            searchHost.Children.Add(_results);
+            SetDock(searchHost, Dock.Top);
+            Children.Add(searchHost);
+
             _body = new StackPanel { Margin = new Thickness(16, 4, 16, 16) };
             _word = new TextBlock { Foreground = Chrome.Ink, FontSize = 22, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap };
             _summary = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
@@ -120,6 +135,57 @@ namespace Marabook.App
             Children.Add(scroller);
             Show(null, true);
         }
+
+        /// <summary>Les entrées dont le mot ou une forme contient la recherche
+        /// (accents et casse pliés), vingt au plus ; un clic montre l'entrée.</summary>
+        private void RebuildResults()
+        {
+            _results.Children.Clear();
+            var needle = Correction.FrenchTokenizer.Fold((_search.Text ?? "").Trim());
+            if (needle.Length == 0 || EntriesProvider == null) return;
+            var shown = 0;
+            var total = 0;
+            foreach (var pair in EntriesProvider())
+            {
+                var entry = pair.Key;
+                var hit = Correction.FrenchTokenizer.Fold(entry.Word ?? "").Contains(needle);
+                if (!hit)
+                    foreach (var form in entry.Forms())
+                        if (Correction.FrenchTokenizer.Fold(form).Contains(needle)) { hit = true; break; }
+                if (!hit) continue;
+                total++;
+                if (shown >= 20) continue;
+                shown++;
+                var entryRef = entry;
+                var scope = pair.Value;
+                var row = new Border
+                {
+                    Padding = new Thickness(8, 4, 8, 4),
+                    CornerRadius = new CornerRadius(5),
+                    Background = Brushes.Transparent,
+                    Cursor = new Cursor(StandardCursorType.Hand)
+                };
+                var line = new StackPanel { Orientation = Orientation.Horizontal };
+                line.Children.Add(new TextBlock { Text = entry.Word, Foreground = Chrome.Ink, FontSize = 12, FontWeight = FontWeight.SemiBold });
+                line.Children.Add(new TextBlock { Text = LexiconEntry.ClassLabel(entry.Class) + (scope ? "" : " · tous les projets"), Foreground = Chrome.SoftText, FontSize = 11, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Bottom });
+                row.Child = line;
+                row.PointerEntered += delegate { row.Background = Chrome.AccentTint; };
+                row.PointerExited += delegate { row.Background = Brushes.Transparent; };
+                row.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+                {
+                    if (e.InitialPressMouseButton != MouseButton.Left) return;
+                    Show(entryRef, scope);
+                };
+                _results.Children.Add(row);
+            }
+            if (total == 0)
+                _results.Children.Add(new TextBlock { Text = "Aucune entrée.", Foreground = Chrome.SoftText, FontSize = 11, Margin = new Thickness(8, 2, 0, 0) });
+            else if (total > shown)
+                _results.Children.Add(new TextBlock { Text = "… et " + (total - shown) + " de plus : précisez.", Foreground = Chrome.FaintText, FontSize = 11, Margin = new Thickness(8, 2, 0, 0) });
+        }
+
+        /// <summary>Sonde (1.0.5-a) : taper une recherche, compter les résultats.</summary>
+        internal int SearchForProbe(string needle) { _search.Text = needle; RebuildResults(); return _results.Children.Count; }
 
         /// <summary>L'état de l'épingle, tenu par la coquille (réglage persisté).</summary>
         public void SetPinned(bool pinned)

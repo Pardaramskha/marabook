@@ -11,6 +11,7 @@ namespace Marabook.Model
         public string Name = "";
         public int Count;
         public string Context = "";
+        public bool CommonWord; // un mot du dictionnaire employé comme nom (« le Cairn », « les Mages ») — 1.0.5-a
     }
 
     /// <summary>L'EXTRACTION DE PERSONNAGES à l'import (b49) — sans IA : un
@@ -51,13 +52,36 @@ namespace Marabook.Model
         {
             public string Name;
             public bool SentenceStart;
+            public bool AfterDeterminer; // « le Cairn », « les Mages », « d’une Ligue » (1.0.5-a)
             public int Start, End;
         }
+
+        // Ce qui précède un NOM COMMUN promu nom propre (1.0.5-a) : un
+        // déterminant ou une préposition — « le Cairn », « les Effacés »,
+        // « vers Galàs ». « Nom, Discours public » (une virgule) n'en est pas.
+        private static readonly HashSet<string> Determiners = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "le", "la", "les", "l", "un", "une", "des", "du", "de", "d", "au", "aux", "ce", "cet", "cette", "ces",
+            "mon", "ton", "son", "ma", "ta", "sa", "mes", "tes", "ses", "notre", "votre", "leur", "nos", "vos", "leurs",
+            "a", "en", "chez", "vers", "dans", "sur", "sous", "par", "pour", "avec", "sans", "contre", "entre", "jusqu", "qu"
+        };
 
         /// <summary>Les noms candidats d'un texte, les plus fréquents d'abord.
         /// knownNames : les noms déjà portés par des fiches (exclus, parts
         /// comprises).</summary>
         public static List<NameCandidate> Extract(string text, IEnumerable<string> knownNames, int minCount = DefaultMinCount)
+        {
+            return Extract(text, knownNames, minCount, null);
+        }
+
+        /// <summary>Avec isCommonWord (1.0.5-a, Rémi : « les mots détectés sont
+        /// souvent des typos ou des erreurs ») : un nom d'UN mot que le
+        /// dictionnaire connaît en minuscules (« Discours », « Conversation »,
+        /// « Générale ») n'est retenu que s'il est au moins une fois précédé
+        /// d'un déterminant ou d'une préposition — « le Cairn », « les Mages »
+        /// restent, le titre d'une source après une virgule tombe ; le
+        /// candidat retenu porte CommonWord.</summary>
+        public static List<NameCandidate> Extract(string text, IEnumerable<string> knownNames, int minCount, Func<string, bool> isCommonWord)
         {
             var result = new List<NameCandidate>();
             if (string.IsNullOrEmpty(text)) return result;
@@ -83,6 +107,7 @@ namespace Marabook.Model
                 var end = token.CoreEnd;
                 var name = token.CoreSurface;
                 var sentenceStart = IsSentenceStart(text, token.Start);
+                var afterDeterminer = token.ElisionPrefix.Length > 0 || PrecededByDeterminer(text, tokens, i);
                 // Prolonge le nom : majuscule (particule) majuscule…
                 var j = i + 1;
                 while (j < tokens.Count)
@@ -109,13 +134,14 @@ namespace Marabook.Model
                     }
                     break;
                 }
-                hits.Add(new Hit { Name = Normalize(name), SentenceStart = sentenceStart, Start = start, End = end });
+                hits.Add(new Hit { Name = Normalize(name), SentenceStart = sentenceStart, AfterDeterminer = afterDeterminer, Start = start, End = end });
                 i = j;
             }
 
             // Comptes par nom : total, et hors début de phrase.
             var total = new Dictionary<string, int>(StringComparer.Ordinal);
             var inner = new Dictionary<string, int>(StringComparer.Ordinal);
+            var determined = new Dictionary<string, int>(StringComparer.Ordinal);
             var first = new Dictionary<string, Hit>(StringComparer.Ordinal);
             foreach (var hit in hits)
             {
@@ -129,6 +155,7 @@ namespace Marabook.Model
                 var key = Key(trimmed);
                 if (known.Contains(key)) continue;
                 Bump(total, key);
+                if (hit.AfterDeterminer && !hit.SentenceStart) Bump(determined, key);
                 if (!hit.SentenceStart)
                 {
                     Bump(inner, key);
@@ -142,7 +169,9 @@ namespace Marabook.Model
                 inner.TryGetValue(pair.Key, out innerCount);
                 if (pair.Value < minCount || innerCount < Math.Min(2, minCount)) continue;
                 var hit = first[pair.Key];
-                result.Add(new NameCandidate { Name = hit.Name, Count = pair.Value, Context = ContextOf(text, hit) });
+                var common = isCommonWord != null && hit.Name.IndexOf(' ') < 0 && isCommonWord(hit.Name.ToLowerInvariant());
+                if (common && !determined.ContainsKey(pair.Key)) continue; // un mot courant jamais introduit comme un nom
+                result.Add(new NameCandidate { Name = hit.Name, Count = pair.Value, Context = ContextOf(text, hit), CommonWord = common });
             }
             result.Sort(delegate(NameCandidate a, NameCandidate b)
             {
@@ -150,6 +179,21 @@ namespace Marabook.Model
                 return byCount != 0 ? byCount : string.Compare(a.Name, b.Name, StringComparison.CurrentCulture);
             });
             return result;
+        }
+
+        /// <summary>Le mot juste avant (des blancs seulement entre les deux)
+        /// est-il un déterminant ou une préposition ?</summary>
+        private static bool PrecededByDeterminer(string text, List<Token> tokens, int index)
+        {
+            if (index <= 0) return false;
+            var previous = tokens[index - 1];
+            if (previous.Kind != TokenKind.Word) return false;
+            var gapStart = previous.Start + previous.Length;
+            var gapEnd = tokens[index].Start;
+            if (gapEnd < gapStart || gapEnd - gapStart > 3) return false;
+            for (var k = gapStart; k < gapEnd; k++)
+                if (!char.IsWhiteSpace(text[k])) return false;
+            return Determiners.Contains(FrenchTokenizer.Fold(previous.CoreSurface));
         }
 
         private static void Bump(Dictionary<string, int> counts, string key)
@@ -224,10 +268,13 @@ namespace Marabook.Model
             while (k >= 0)
             {
                 var c = text[k];
-                if (c == ' ' || c == ' ' || c == '\t' || c == '«' || c == '"' || c == '“' || c == '‘'
+                if (c == '\n' || c == '\r' || c == '\u2028' || c == '\u2029') return true;
+                // TOUT blanc (1.0.5-a) : l'espace fine ou insécable après le tiret
+                // de dialogue (« —\u202FMerde ! ») n'était pas reconnue, et le
+                // juron ouvrait une « occurrence hors début de phrase ».
+                if (char.IsWhiteSpace(c) || c == '«' || c == '"' || c == '“' || c == '‘'
                     || c == '\'' || c == '(' || c == '—' || c == '–' || c == '-' || c == '*' || c == '_')
                 { k--; continue; }
-                if (c == '\n' || c == '\r') return true;
                 return c == '.' || c == '!' || c == '?' || c == '…' || c == ':' || c == '»' || c == '”';
             }
             return true;

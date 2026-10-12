@@ -317,6 +317,7 @@ namespace Marabook.App
             // reste ») : Couper / Copier / Coller / Tout sélectionner, puis le
             // [[lien]] sous le clic, puis le signalement sous le clic avec ses
             // suggestions — comme l'éditeur composé, aux mêmes coins ronds.
+            _bodyBox.ContextFlyout = null; // sinon le menu du thème s'ouvrait AUSSI : deux menus (12/10, Rémi)
             _bodyBox.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e)
             {
                 if (!e.GetCurrentPoint(_bodyBox).Properties.IsRightButtonPressed) return;
@@ -2266,6 +2267,7 @@ namespace Marabook.App
             if (box == null) return;
             box.GotFocus += delegate { _activeBox = box; };
             if (box == _bodyBox) return; // le corps a son propre tunnel (correcteur + liens)
+            box.ContextFlyout = null; // un seul menu, le nôtre (12/10)
             box.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e)
             {
                 if (!e.GetCurrentPoint(box).Properties.IsRightButtonPressed) return;
