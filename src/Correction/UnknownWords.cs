@@ -16,6 +16,7 @@ namespace Marabook.Correction
         public string Where = "";       // le titre du premier item qui le porte
         public int Items;               // le nombre d'items distincts
         public string Sample = "";      // un bout de phrase autour de la première occurrence
+        public bool HasSheet;           // une fiche porte ce titre (1.0.5-a : « fiche éponyme »)
     }
 
     public static class UnknownWords
@@ -26,13 +27,24 @@ namespace Marabook.Correction
         /// « riune » sont une seule ligne, la première graphie l'emporte.</summary>
         public static List<UnknownWord> Collect(Project project, SpellChecker checker)
         {
+            return Collect(project, checker, null);
+        }
+
+        /// <summary>Le relevé sur un SPECTRE (1.0.5-a) : ces écrits seulement
+        /// (un livre, un dossier, le projet actif) — les fiches n'y sont pas ;
+        /// null = tout le projet, fiches comprises.</summary>
+        public static List<UnknownWord> Collect(Project project, SpellChecker checker, List<BinderItem> scope)
+        {
             var byKey = new Dictionary<string, UnknownWord>(StringComparer.Ordinal);
             var itemsByKey = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
             if (project == null || checker == null) return new List<UnknownWord>();
+            var scoped = scope == null ? null : new HashSet<string>();
+            if (scope != null) foreach (var text in scope) scoped.Add(text.Id);
             foreach (var item in project.AllItems())
             {
                 if (item.IsCategory || item.IsDescendantOf(project.Trash)) continue;
                 if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet) continue;
+                if (scoped != null && !scoped.Contains(item.Id)) continue;
                 foreach (var field in item.SearchFields(project))
                 {
                     if (field.Kind == SearchField.KindTitle || string.IsNullOrEmpty(field.Text)) continue;
@@ -59,7 +71,12 @@ namespace Marabook.Correction
                 }
             }
             var list = new List<UnknownWord>(byKey.Values);
-            foreach (var entry in list) entry.Items = itemsByKey[FrenchTokenizer.Fold(entry.Word)].Count;
+            foreach (var entry in list)
+            {
+                entry.Items = itemsByKey[FrenchTokenizer.Fold(entry.Word)].Count;
+                var sheet = project.FindByTitle(entry.Word);
+                entry.HasSheet = sheet != null && sheet.Kind == ItemKind.Sheet;
+            }
             list.Sort(delegate(UnknownWord a, UnknownWord b)
             {
                 if (a.Count != b.Count) return b.Count.CompareTo(a.Count);

@@ -96,6 +96,40 @@ namespace Marabook.Model
         // dont l'item n'existe plus (ou dort à la corbeille) vaut rien.
         public string SidePinId;
 
+        // Le PROJET ACTIF (1.0.5-a, v39) : un écrit, un dossier ou un livre
+        // d'Écrits, pastille verte dans la Pile — le spectre par défaut des
+        // relevés (mots inconnus, fiches manquantes). Null = aucun.
+        public string ActiveScopeId;
+
+        /// <summary>L'item du projet actif, s'il existe encore, hors corbeille
+        /// et dans Écrits ; null sinon.</summary>
+        public BinderItem ActiveScope()
+        {
+            if (string.IsNullOrEmpty(ActiveScopeId)) return null;
+            var item = FindById(ActiveScopeId);
+            if (item == null || item.IsCategory || item.IsDescendantOf(Trash)) return null;
+            var root = item.RootCategory();
+            return root != null && root.CategoryKey == KeyWritings ? item : null;
+        }
+
+        /// <summary>Les écrits d'un spectre : ceux sous cet item (lui-même
+        /// compris s'il est un écrit), hors pages extra et hors corbeille ;
+        /// null = tous les écrits du projet.</summary>
+        public List<BinderItem> TextsIn(BinderItem scope)
+        {
+            var texts = new List<BinderItem>();
+            var root = scope ?? Category(KeyWritings);
+            if (root == null) return texts;
+            CollectTexts(root, texts);
+            return texts;
+        }
+
+        private static void CollectTexts(BinderItem item, List<BinderItem> into)
+        {
+            if (item.Kind == ItemKind.Text && !item.IsExtraPage && !item.IsToc) into.Add(item);
+            foreach (var child in item.Children) CollectTexts(child, into);
+        }
+
         // Les instantanés (batch 38, v17) — tous les items confondus, dans
         // l'ordre chronologique ; chacun est sa propre entrée du .plot.
         public List<Snapshot> Snapshots = new List<Snapshot>();

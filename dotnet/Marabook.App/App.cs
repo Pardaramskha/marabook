@@ -17,6 +17,11 @@ namespace Marabook.App
 
         public override void Initialize()
         {
+            // Le nom de l'application (12/10, Rémi) : sans lui, Avalonia bâtit
+            // le menu d'application de macOS avec « Avalonia Application »
+            // (titre de la barre du haut, « Masquer », « Quitter »), malgré le
+            // CFBundleName du bundle.
+            Name = Marabook.Model.AppInfo.Name;
             Launch = Launch.Parse(Program.Args);
             AppPlatform.Install();
             if (Launch.SettingsPath != null) AppSettings.PathOverride = Launch.SettingsPath;

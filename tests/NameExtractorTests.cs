@@ -80,6 +80,26 @@ namespace Marabook.Tests
             t.Check(NameExtractor.IsSentenceStart("Il dit : « Gandalf", 11), "après deux-points et guillemet");
             t.Check(NameExtractor.IsSentenceStart("ligne\n— Gandalf", 8), "après un tiret de dialogue en tête de ligne");
             t.Check(NameExtractor.IsSentenceStart("Gandalf", 0), "en tête de texte");
+            // 1.0.5-a : l'espace fine ou insécable après le tiret de dialogue.
+            t.Check(NameExtractor.IsSentenceStart("ligne\n—\u202FMerde", 8), "après un tiret suivi d'une espace fine");
+            t.Check(NameExtractor.IsSentenceStart("ligne\n—\u00A0Merde", 8), "après un tiret suivi d'une insécable");
+            t.Check(!NameExtractor.IsSentenceStart("il vit\u00A0Merde", 8), "une insécable seule au milieu d'une phrase n'ouvre rien");
+            var dialogue = "ligne\n—\u202FMerde ! dit-il.\nEt puis\u202FMerde encore, Merde toujours.\n—\u202FMerde !";
+            var sworn = new List<string>();
+            foreach (var c in NameExtractor.Extract(dialogue, null, 3)) sworn.Add(c.Name);
+            t.Check(sworn.Contains("Merde"), "sans dictionnaire : « Merde » passe encore (deux hors début)");
+            // 1.0.5-a : un mot courant n'est un nom que s'il suit un déterminant ou une préposition.
+            Func<string, bool> common = delegate(string w) { return w == "merde" || w == "cairn" || w == "discours" || w == "mages"; };
+            var world = "Ils entrèrent dans le Cairn. Le Cairn dormait, et les Mages veillaient sur le Cairn avec les Mages, pour les Mages.\n"
+                + "— Ziusudra, Discours public (E5.905).\n— Keira, Discours privé.\n— Nadra, Discours public.\n"
+                + "Galàs vint, puis Galàs partit ; on parla de Galàs.";
+            var refined = NameExtractor.Extract(world, null, 3, common);
+            var refinedNames = new List<string>();
+            foreach (var c in refined) refinedNames.Add(c.Name + (c.CommonWord ? "·commun" : ""));
+            t.Check(refinedNames.Contains("Cairn·commun") && refinedNames.Contains("Mages·commun"), "« le Cairn », « les Mages » : noms communs promus, gardés et marqués (" + string.Join(", ", refinedNames.ToArray()) + ")");
+            t.Check(!refinedNames.Contains("Discours") && !refinedNames.Contains("Discours·commun"), "« Nom, Discours public » : jamais après un déterminant — écarté");
+            t.Check(refinedNames.Contains("Galàs"), "un nom inconnu du dictionnaire passe sans condition");
+            t.Equal(0, NameExtractor.Extract(dialogue, null, 3, common).Count, "avec le dictionnaire, « Merde » en tête de réplique tombe");
             t.Check(!NameExtractor.IsSentenceStart("il vit Gandalf", 7), "au cœur d'une phrase");
             t.Check(!NameExtractor.IsSentenceStart("il vit, Gandalf", 8), "après une virgule");
 

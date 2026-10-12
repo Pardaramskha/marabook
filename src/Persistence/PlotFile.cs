@@ -190,7 +190,12 @@ namespace Marabook.Persistence
         //      (la notation des réglages : « Ctrl+D1 ») : la combinaison
         //      applique le style dans l'éditeur. Omis = aucun. Vaut aussi
         //      pour les styles globaux des réglages (même écriture).
-        private const int FormatVersion = 38;
+        // v39: 1.0.5-patch-a (12/10) — "color" sur une sous-catégorie de
+        //      fiches (« #RRGGBB », omis = neutre) ; "activeProject" dans le
+        //      manifeste : l'id de l'écrit, du dossier ou du livre déclaré
+        //      « Projet actif » (le spectre par défaut des relevés — mots
+        //      inconnus, fiches manquantes), omis = aucun.
+        private const int FormatVersion = 39;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -574,6 +579,7 @@ namespace Marabook.Persistence
                 manifest["recents"] = recents;
             }
             if (!string.IsNullOrEmpty(project.SidePinId)) manifest["sidePin"] = project.SidePinId; // v21
+            if (!string.IsNullOrEmpty(project.ActiveScopeId)) manifest["activeProject"] = project.ActiveScopeId; // v39
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
             if (!string.IsNullOrEmpty(project.SaveId)) manifest["saveId"] = project.SaveId; // l'empreinte (1.0.3, clé additive : les versions d'avant l'ignorent)
@@ -929,6 +935,7 @@ namespace Marabook.Persistence
                 if (category.TemplateId != null) c["template"] = category.TemplateId;
                 if (category.IsSub) c["parent"] = category.ParentId; // v37
                 if (category.ExtraFields.Count > 0) c["fields"] = BuildFields(category.ExtraFields); // v37
+                if (!string.IsNullOrEmpty(category.Color)) c["color"] = category.Color; // v39
                 categories.Add(c);
             }
             root["categories"] = categories;
@@ -1110,6 +1117,7 @@ namespace Marabook.Persistence
                         });
                     }
                 project.SidePinId = Json.AsString(Json.Field(manifest, "sidePin")); // v21
+                project.ActiveScopeId = Json.AsString(Json.Field(manifest, "activeProject")); // v39
                 var ignoredRules = Json.AsList(Json.Field(manifest, "ignoredRules"));
                 if (ignoredRules != null)
                     foreach (var entry in ignoredRules)
@@ -1437,6 +1445,7 @@ namespace Marabook.Persistence
                     category.TemplateId = Json.AsString(Json.Field(c, "template"));
                     category.ParentId = Json.AsString(Json.Field(c, "parent")); // v37 — EnsureSheetCategories tranche les orphelines
                     ReadFields(Json.Field(c, "fields"), category.ExtraFields); // v37
+                    category.Color = Json.AsString(Json.Field(c, "color")); // v39
                     categories.Add(category);
                 }
             project.SheetCategories = categories;

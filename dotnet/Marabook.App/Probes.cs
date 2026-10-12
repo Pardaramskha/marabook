@@ -1381,6 +1381,71 @@ namespace Marabook.App
                     }
                 }
 
+                // — 1.0.5-a : projet actif (pastille dans la Pile, spectre par
+                //   défaut), catégories repliables, couleur d'une sous-catégorie,
+                //   puce de modèle juste, corps Markdown sans second menu,
+                //   recherche du Lexique.
+                {
+                    var project = shell.Project;
+                    if (book != null && project != null)
+                    {
+                        shell.Binder.SetActiveScope(book);
+                        await Settle();
+                        Check(project.ActiveScope() == book && shell.Binder.HasActiveDotForProbe(book.Id), "« Projet actif » : la pastille verte sur le livre dans la Pile");
+                        var scopes = Scopes.Build(project);
+                        Check(scopes.Count >= 2 && scopes[Scopes.DefaultIndex(scopes)].IsActive && scopes[0].Label.StartsWith("Projet actif"), "…et le spectre par défaut des relevés (" + scopes[0].Label + ")");
+                        shell.HistoryForProbe.Undo();
+                        await Settle();
+                        Check(project.ActiveScope() == null && !shell.Binder.HasActiveDotForProbe(book.Id), "Ctrl+Z retire le projet actif");
+                    }
+                    var keira = project == null ? null : project.FindByTitle("Keira Varenh");
+                    var top = keira == null ? null : project.TopSheetCategoryOf(keira);
+                    if (keira != null && top != null && !keira.IsDescendantOf(project.Trash))
+                    {
+                        var keptCategory = keira.CategoryId;
+                        var heroes = project.AddSubCategory(top, "Héros (sonde)");
+                        heroes.Color = "#2E9E6B";
+                        keira.CategoryId = heroes.Id;
+                        shell.Binder.SelectItem(project.Category(Project.KeySheets).Id);
+                        await Settle();
+                        var library = shell.SheetLibraryForProbe;
+                        Check(library != null && !library.SubBoxCollapsedForProbe(heroes.Id), "la boîte d'une sous-catégorie est dépliée d'abord");
+                        SheetLibraryView.CollapsedCategories.Add(heroes.Id);
+                        library.Refresh();
+                        await Settle();
+                        Check(library.SubBoxCollapsedForProbe(heroes.Id), "…repliée d'un clic sur son titre (cartes cachées)");
+                        var rowsBefore = shell.Binder.SheetRowsForProbe();
+                        shell.Binder.Rebuild();
+                        await Settle();
+                        Check(shell.Binder.SheetRowsForProbe() < rowsBefore || rowsBefore == 0, "la Pile suit : la catégorie repliée cache ses fiches (" + rowsBefore + " → " + shell.Binder.SheetRowsForProbe() + ")");
+                        SheetLibraryView.CollapsedCategories.Remove(heroes.Id);
+                        library.Refresh();
+                        await Settle();
+                        Check(!library.SubBoxCollapsedForProbe(heroes.Id), "…et se redéplie");
+                        keira.CategoryId = keptCategory;
+                        project.SheetCategories.Remove(heroes);
+                        shell.Binder.Rebuild();
+                        library.Refresh();
+                        await Settle();
+                    }
+                    var sheetView = shell.Sheet;
+                    Check(sheetView == null || sheetView.BodyBox == null || sheetView.BodyBox.ContextFlyout == null, "le corps Markdown n'a plus le menu du thème en double");
+                    var lexiconRail = shell.LexiconPanelForProbe;
+                    if (lexiconRail != null && project != null)
+                    {
+                        var probeEntry = LexiconEntry.Simple("Zelandra (sonde)");
+                        project.Lexicon.Add(probeEntry);
+                        var hits = lexiconRail.SearchForProbe("zelan");
+                        var none = lexiconRail.SearchForProbe("xqzw");
+                        Check(hits == 1 && none == 1, "Lexique : la recherche en tête du rail trouve « Zelandra (sonde) » (" + hits + "), et dit « Aucune entrée » sinon");
+                        lexiconRail.SearchForProbe("");
+                        project.Lexicon.Remove(probeEntry);
+                    }
+                    // L'épingle par défaut (1.0.5-a) se vérifie sur des réglages NEUFS : le fichier
+                    // de la sonde porte l'ancien choix — c'est le défaut du code qui compte.
+                    Check(AppSettings.LexiconPinned || AppSettings.LoadedFromFile, "le Lexique est épinglé au rail par défaut (sauf réglage enregistré)");
+                }
+
                 // — Les polices manquantes (07/10) : un style qui demande une
                 //   police inconnue allume la pastille rouge ; un remplacement
                 //   global l'apaise et le moteur sert la remplaçante ; le
