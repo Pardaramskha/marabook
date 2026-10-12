@@ -52,7 +52,7 @@ namespace Marabook.App
                     papers[i].Margin = new Thickness(0, 10, 0, i == papers.Count - 1 ? 12 : 0);
                     stack.Children.Add(papers[i]);
                 }
-                stack.Children.Add(BuildBody(body, linkClicked, taskToggled));
+                stack.Children.Add(BuildBody(body, project, linkClicked, taskToggled));
                 page.Child = stack;
                 return page;
             }
@@ -70,7 +70,7 @@ namespace Marabook.App
             }
             var main = new StackPanel();
             main.Children.Add(BuildHead(item, template, project, false));
-            main.Children.Add(BuildBody(body, linkClicked, taskToggled));
+            main.Children.Add(BuildBody(body, project, linkClicked, taskToggled));
             layout.Children.Add(main);
             page.Child = layout;
             return page;
@@ -99,9 +99,17 @@ namespace Marabook.App
             return head;
         }
 
-        private static Control BuildBody(string body, Action<string> linkClicked, Action<int> taskToggled)
+        /// <summary>L'image du magasin du projet pour un ID (1.0.5-b) — les
+        /// « ![nom](image:ID) » du corps ; null si le projet ou l'image manque.</summary>
+        public static Func<string, Avalonia.Media.Imaging.Bitmap> ImagesOf(Project project)
         {
-            var flow = MarkdownRender.Build(body ?? "", linkClicked, taskToggled);
+            if (project == null) return null;
+            return delegate(string id) { return ImageCache.For(project.FindImage(id)); };
+        }
+
+        private static Control BuildBody(string body, Project project, Action<string> linkClicked, Action<int> taskToggled)
+        {
+            var flow = MarkdownRender.Build(body ?? "", linkClicked, taskToggled, ImagesOf(project));
             return new ScrollViewer { Content = flow,
                 [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Disabled,
                 Focusable = false

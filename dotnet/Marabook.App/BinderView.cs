@@ -431,7 +431,10 @@ namespace Marabook.App
 
                 TreeViewItem selected;
                 if (_selectedId != null && _nodesById.TryGetValue(_selectedId, out selected))
+                {
+                    DeselectUnder(_tree, selected); // une seule ligne (1.0.5-b)
                     selected.IsSelected = true;
+                }
                 else
                     _selectedId = null;
                 // Le lot survit au rebâti (déplacement, couleur…) ; ce qui a
@@ -966,6 +969,7 @@ namespace Marabook.App
             }
 
             _selectedId = id;
+            if (node != null) DeselectOthers(node); // une seule ligne surlignée (1.0.5-b)
             var handler = SelectionChanged;
             if (handler != null) handler(node == null ? null : (BinderItem)node.Tag);
         }
@@ -979,7 +983,10 @@ namespace Marabook.App
             {
                 TreeViewItem node;
                 if (_selectedId != null && _nodesById.TryGetValue(_selectedId, out node))
+                {
+                    DeselectUnder(_tree, node); // le fantôme s'éteint, lui seul reste (1.0.5-b)
                     node.IsSelected = true;
+                }
                 else if (phantom != null)
                     phantom.IsSelected = false;
             }
@@ -1002,6 +1009,8 @@ namespace Marabook.App
             _selectedId = id;
             _expectedSelectId = id; // sélection programmée = légitime
             TreeViewItem node;
+            if (id != null && !_nodesById.TryGetValue(id, out node) && UnfoldFor(id))
+                _nodesById.TryGetValue(id, out node); // la ligne existe maintenant (1.0.5-b)
             if (id != null && _nodesById.TryGetValue(id, out node))
             {
                 // Open the path down to the item so the selection is visible.
@@ -1011,13 +1020,82 @@ namespace Marabook.App
                     parent.IsExpanded = true;
                     parent = parent.Parent as TreeViewItem;
                 }
+                // UNE seule ligne surlignée (1.0.5-b) : l'arbre d'Avalonia
+                // laissait la précédente sélectionnée quand la nouvelle l'était
+                // par programme (lien wiki, Retour, tuile) — deux, puis trois
+                // fiches « sélectionnées » dans la Pile.
+                DeselectOthers(node);
+                var wasSelected = node.IsSelected && _selectedNode == node;
                 node.IsSelected = true;
                 if (bringIntoView) BringIntoViewVertically(node);
                 // Avalonia ne lève pas toujours SelectionChanged pour un nœud
                 // imbriqué (parent replié à l'instant, arbre rebâti) : la vue
                 // annonce elle-même la sélection — OnBinderSelection ignore
-                // un doublon sur l'élément déjà ouvert.
-                if (_selectedNode != node) OnSelectedItemChanged(_tree, null);
+                // un doublon sur l'élément déjà ouvert. Une sélection demandée
+                // (bringIntoView) sur la ligne déjà choisie s'annonce aussi
+                // (1.0.5-b) : la fenêtre décide si la vue est déjà là.
+                if (_selectedNode != node || (wasSelected && bringIntoView)) OnSelectedItemChanged(_tree, null);
+            }
+        }
+
+        /// <summary>Une fiche sans ligne dans la Pile (1.0.5-b) : sa catégorie
+        /// y est repliée (1.0.5-a) — la tuile double-cliquée dans la bibliothèque
+        /// ne s'ouvrait plus, SelectItem ne trouvant rien. La catégorie (et ses
+        /// parentes) se déplient, l'arbre se rebâtit ; vrai si quelque chose
+        /// a changé.</summary>
+        private bool UnfoldFor(string id)
+        {
+            var item = _project == null ? null : _project.FindById(id);
+            if (item == null || item.Kind != ItemKind.Sheet) return false;
+            var changed = false;
+            var category = _project.SheetCategoryOf(item);
+            while (category != null)
+            {
+                if (SheetLibraryView.CollapsedCategories.Remove(category.Id)) changed = true;
+                category = category.ParentId == null ? null : _project.FindSheetCategory(category.ParentId);
+            }
+            if (!changed) return false;
+            Rebuild();
+            return true;
+        }
+
+        /// <summary>Toutes les lignes de l'arbre sauf celle-ci perdent leur
+        /// sélection, sans annonce (1.0.5-b).</summary>
+        private void DeselectOthers(TreeViewItem keep)
+        {
+            var guard = _rebuilding;
+            _rebuilding = true;
+            try { DeselectUnder(_tree, keep); }
+            finally { _rebuilding = guard; }
+        }
+
+        private static void DeselectUnder(ItemsControl host, TreeViewItem keep)
+        {
+            foreach (var entry in host.Items)
+            {
+                var row = entry as TreeViewItem;
+                if (row == null) continue;
+                if (row != keep && row.IsSelected) row.IsSelected = false;
+                DeselectUnder(row, keep);
+            }
+        }
+
+        /// <summary>Sonde (1.0.5-b) : le nombre de lignes sélectionnées de l'arbre.</summary>
+        internal int SelectedRowsForProbe()
+        {
+            var count = 0;
+            CountSelected(_tree, ref count);
+            return count;
+        }
+
+        private static void CountSelected(ItemsControl host, ref int count)
+        {
+            foreach (var entry in host.Items)
+            {
+                var row = entry as TreeViewItem;
+                if (row == null) continue;
+                if (row.IsSelected) count++;
+                CountSelected(row, ref count);
             }
         }
 

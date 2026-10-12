@@ -61,9 +61,10 @@ namespace Marabook.App
             if (_presenter == null || _presenter.TextLayout == null) return null;
             var inPresenter = _box.TranslatePoint(pointInBox, _presenter);
             if (inPresenter == null) return null;
-            var hit = _presenter.TextLayout.HitTestPoint(inPresenter.Value);
-            if (!hit.IsInside) return null;
-            var position = hit.TextPosition;
+            // Ligne par ligne (TextHit, 1.0.5-b) : HitTestPoint jugeait
+            // « dehors » tout ce qui suit la première ligne.
+            var position = TextHit.PositionAt(_presenter.TextLayout, inPresenter.Value);
+            if (position < 0) return null;
             foreach (var finding in _findings)
                 if (position >= finding.Start && position < finding.Start + finding.Length) return finding;
             return null;
