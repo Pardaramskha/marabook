@@ -190,6 +190,11 @@ namespace Marabook.Model
                 foreach (var paragraph in item.Document.Paragraphs)
                     foreach (var run in paragraph.Runs)
                         if (run.ImageId != null) used.Add(run.ImageId);
+                // Le corps Markdown d'une fiche cite ses images par
+                // « ![nom](image:ID) » (1.0.5-b) : elles aussi restent.
+                if (item.Kind == ItemKind.Sheet)
+                    foreach (var id in MarkdownDialect.StoredImageIds(item.Document.ToPlainText()))
+                        used.Add(id);
             }
             return used;
         }

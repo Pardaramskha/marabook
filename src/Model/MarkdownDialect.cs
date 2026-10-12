@@ -40,6 +40,40 @@ namespace Marabook.Model
 
     public static class MarkdownDialect
     {
+        /// <summary>L'adresse d'une image du magasin du projet dans un corps
+        /// Markdown (1.0.5-b) : « ![nom](image:ID) » — l'ID du magasin
+        /// derrière ce préfixe, jamais un chemin de fichier.</summary>
+        public const string ImagePrefix = "image:";
+
+        private static readonly Regex StoredImagePattern = new Regex(
+            @"!\[[^\]]*\]\(" + ImagePrefix + @"(?<id>[0-9a-fA-F]{32})\)");
+
+        /// <summary>L'adresse Markdown d'une image du magasin.</summary>
+        public static string ImageAddress(string imageId) { return ImagePrefix + imageId; }
+
+        /// <summary>L'ID du magasin d'une adresse d'image, ou null si ce
+        /// n'en est pas une (adresse web, chemin).</summary>
+        public static string StoredImageId(string url)
+        {
+            if (url == null || !url.StartsWith(ImagePrefix, StringComparison.Ordinal)) return null;
+            var id = url.Substring(ImagePrefix.Length);
+            return id.Length == 32 ? id : null;
+        }
+
+        /// <summary>Les ID des images du magasin que cite un texte Markdown —
+        /// ce que la sauvegarde doit garder (1.0.5-b).</summary>
+        public static List<string> StoredImageIds(string source)
+        {
+            var ids = new List<string>();
+            if (string.IsNullOrEmpty(source)) return ids;
+            foreach (Match m in StoredImagePattern.Matches(source))
+            {
+                var id = m.Groups["id"].Value;
+                if (!ids.Contains(id)) ids.Add(id);
+            }
+            return ids;
+        }
+
         public static List<MdBlock> Parse(string source)
         {
             var blocks = new List<MdBlock>();

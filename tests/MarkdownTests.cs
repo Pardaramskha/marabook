@@ -18,6 +18,7 @@ namespace Marabook.Tests
             t.Suite("C10 — markdown des fiches et catégories");
             Blocks(t);
             Inlines(t);
+            BodyImages(t);
             TasksAndCode(t);
             Tables(t);
             CategoriesSeed(t);
@@ -117,6 +118,37 @@ namespace Marabook.Tests
         }
 
         // --------------------------------------------------------- en ligne
+
+        /// <summary>1.0.5-b : les images du magasin dans le corps d'une fiche —
+        /// « ![nom](image:ID) » parsé en image, l'ID relevé, et la sauvegarde
+        /// les garde (UsedImageIds) ; une adresse web n'est pas du magasin.</summary>
+        private static void BodyImages(Harness t)
+        {
+            var project = Project.CreateNew();
+            var id = project.AddImage(new byte[] { 1, 2, 3 }, ".png");
+            var address = MarkdownDialect.ImageAddress(id);
+            t.Equal(id, MarkdownDialect.StoredImageId(address), "l'adresse « image:ID » rend son ID");
+            t.Check(MarkdownDialect.StoredImageId("https://a.b/c.png") == null && MarkdownDialect.StoredImageId("image:court") == null,
+                "une adresse web ou un ID tronqué ne sont pas du magasin");
+            var body = "Avant\n\n![Le phare](" + address + ")\n\nAprès ![web](https://a.b/c.png)";
+            var blocks = MarkdownDialect.Parse(body);
+            MdInline image = null;
+            foreach (var block in blocks)
+                foreach (var inline in block.Inlines ?? new List<MdInline>())
+                    if (inline.ImageUrl == address) image = inline;
+            t.Check(image != null && image.Text == "Le phare", "le corps parse « ![nom](image:ID) » en image, l'alt en texte");
+            var ids = MarkdownDialect.StoredImageIds(body + "\n![encore](" + address + ")");
+            t.Check(ids.Count == 1 && ids[0] == id, "StoredImageIds relève l'ID une fois, jamais l'adresse web");
+            var sheet = new BinderItem { Kind = ItemKind.Sheet, Title = "Phare", Document = TextDocument.FromPlainText(body) };
+            project.Category(Project.KeySheets).Children.Add(sheet);
+            sheet.Parent = project.Category(Project.KeySheets);
+            t.Check(project.UsedImageIds().Contains(id), "la sauvegarde garde l'image citée par le corps d'une fiche");
+            project.PurgeUnusedImages();
+            t.Check(project.FindImage(id) != null, "…et la purge ne la jette pas");
+            sheet.Document = TextDocument.FromPlainText("Plus d'image");
+            project.PurgeUnusedImages();
+            t.Check(project.FindImage(id) == null, "la citation retirée, l'image devient inutile et part à la purge");
+        }
 
         private static void Inlines(Harness t)
         {

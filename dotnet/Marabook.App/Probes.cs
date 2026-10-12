@@ -53,6 +53,22 @@ namespace Marabook.App
             return null;
         }
 
+        /// <summary>Une petite image PNG valide (12 × 8, rouge) pour les sondes
+        /// d'images (1.0.5-b).</summary>
+        private static byte[] ProbePng()
+        {
+            using (var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize(12, 8)))
+            {
+                using (var context = bitmap.CreateDrawingContext())
+                    context.FillRectangle(Avalonia.Media.Brushes.Red, new Rect(0, 0, 12, 8));
+                using (var stream = new System.IO.MemoryStream())
+                {
+                    bitmap.Save(stream);
+                    return stream.ToArray();
+                }
+            }
+        }
+
         private static async Task Settle()
         {
             await Task.Delay(120);
@@ -1156,6 +1172,42 @@ namespace Marabook.App
                             foreach (var entry in plain.Items) { var item = entry as MenuItem; if (item != null) plainHeaders.Add(item.Header as string ?? ""); }
                             Check(plainHeaders.Count == 4 && !plainHeaders.Contains("Ignorer ici"), "…et rien de plus sur un mot sain");
                         }
+                        // 1.0.5-b : le clic droit au-delà de la première ligne —
+                        // l'index sous le point d'un [[lien]] de la seconde ligne
+                        // (HitTestPoint le jugeait « dehors »).
+                        sheetView.BodyBox.Text = "Première ligne du corps.\nSeconde ligne avec [[Kaladinn]] dedans.";
+                        await Settle();
+                        var linkAt = sheetView.BodyBox.Text.IndexOf("Kaladinn", StringComparison.Ordinal);
+                        var found = sheetView.BodyIndexRoundTripForProbe(linkAt + 2);
+                        Check(found >= 0 && Links.At(sheetView.BodyBox.Text, found) != null,
+                            "le clic droit sur la seconde ligne retrouve le lien sous le pointeur (index " + found + ")");
+                        // 1.0.5-b : une image du magasin insérée dans le corps —
+                        // « ![nom](image:ID) » seule sur sa ligne, gardée par la
+                        // sauvegarde, rendue en vraie image par le miroir.
+                        var imageId = shell.Project.AddImage(ProbePng(), ".png");
+                        sheetView.BodyBox.Text = "Avant";
+                        Ui.Select(sheetView.BodyBox, 5, 0);
+                        sheetView.InsertStoredImage(imageId, "Le phare");
+                        await Settle();
+                        var bodyText = sheetView.BodyBox.Text ?? "";
+                        Check(bodyText == "Avant\n![Le phare](image:" + imageId + ")",
+                            "l'image insérée au caret cite le magasin sur sa propre ligne (« " + bodyText.Replace("\n", "⏎") + " »)");
+                        Check(shell.Project.UsedImageIds().Contains(imageId), "…et la sauvegarde la garde");
+                        var rendered = MarkdownRender.Build(bodyText, delegate { }, delegate { }, SheetWiki.ImagesOf(shell.Project)) as StackPanel;
+                        var pictures = 0;
+                        if (rendered != null)
+                            foreach (var child in rendered.Children)
+                            {
+                                var block = child as TextBlock;
+                                if (block == null || block.Inlines == null) continue;
+                                foreach (var inline in block.Inlines)
+                                {
+                                    var container = inline as Avalonia.Controls.Documents.InlineUIContainer;
+                                    if (container != null && container.Child is Image) pictures++;
+                                }
+                            }
+                        Check(pictures == 1, "…et le rendu Markdown la montre en vraie image (" + pictures + ")");
+                        shell.Project.Images.Remove(imageId);
                         sheetView.BodyBox.Text = kept;
                         await Settle();
                     }
@@ -1418,6 +1470,26 @@ namespace Marabook.App
                         shell.Binder.Rebuild();
                         await Settle();
                         Check(shell.Binder.SheetRowsForProbe() < rowsBefore || rowsBefore == 0, "la Pile suit : la catégorie repliée cache ses fiches (" + rowsBefore + " → " + shell.Binder.SheetRowsForProbe() + ")");
+                        // 1.0.5-b : la tuile double-cliquée d'une fiche dont la
+                        // catégorie est repliée dans la Pile — SelectItem ne
+                        // trouvait pas de ligne et la fiche ne s'ouvrait pas.
+                        shell.Binder.SelectItem(keira.Id);
+                        await Settle();
+                        var opened = shell.Binder.SelectedItem;
+                        Check(opened != null && opened.Id == keira.Id && !SheetLibraryView.CollapsedCategories.Contains(heroes.Id) && shell.Sheet != null && shell.Sheet.IsVisible,
+                            "sélectionner une fiche d'une catégorie repliée dans la Pile la déplie et l'ouvre (1.0.5-b)");
+                        Check(shell.Binder.SelectedRowsForProbe() == 1, "…une seule ligne surlignée dans la Pile (" + shell.Binder.SelectedRowsForProbe() + ")");
+                        // La double sélection (1.0.5-b) : Fiches puis Keira par
+                        // programme (lien wiki, Retour) laissait les deux lignes
+                        // surlignées.
+                        shell.Binder.SelectItem(project.Category(Project.KeySheets).Id);
+                        await Settle();
+                        shell.Binder.SelectItem(keira.Id);
+                        await Settle();
+                        Check(shell.Binder.SelectedRowsForProbe() == 1 && shell.Binder.SelectedItem != null && shell.Binder.SelectedItem.Id == keira.Id,
+                            "Fiches puis Keira par programme : une seule ligne surlignée (" + shell.Binder.SelectedRowsForProbe() + ")");
+                        shell.Binder.SelectItem(project.Category(Project.KeySheets).Id);
+                        await Settle();
                         SheetLibraryView.CollapsedCategories.Remove(heroes.Id);
                         library.Refresh();
                         await Settle();

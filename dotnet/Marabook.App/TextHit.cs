@@ -17,10 +17,20 @@ namespace Marabook.App
         /// TextBlock), ou -1 hors du texte.</summary>
         public static int PositionAt(TextBlock block, Point point)
         {
-            var layout = block.TextLayout;
+            if (block.TextLayout == null) return -1;
+            return PositionAt(block.TextLayout, new Point(point.X - block.Padding.Left, point.Y - block.Padding.Top));
+        }
+
+        /// <summary>L'index du caractère sous le point (coordonnées de la mise
+        /// en page elle-même — celle du TextPresenter d'un TextBox, par
+        /// exemple), ou -1 hors du texte. Le clic droit du corps Markdown des
+        /// fiches passait par HitTestPoint : au-delà de la première ligne,
+        /// ni lien ni signalement sous le clic (1.0.5-b).</summary>
+        public static int PositionAt(TextLayout layout, Point point)
+        {
             if (layout == null) return -1;
-            var x = point.X - block.Padding.Left;
-            var y = point.Y - block.Padding.Top;
+            var x = point.X;
+            var y = point.Y;
             if (x < 0 || y < 0) return -1;
             var top = 0.0;
             foreach (var line in layout.TextLines)

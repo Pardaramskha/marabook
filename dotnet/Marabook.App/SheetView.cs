@@ -13,6 +13,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Avalonia.Platform.Storage;
 
 using Marabook.History;
 using Marabook.Model;
@@ -1594,7 +1595,7 @@ namespace Marabook.App
             if (!_mirrorMode || _item == null) { _mirror.Content = null; return; }
             var flow = MarkdownRender.Build(_bodyBox.Text,
                 delegate(string target) { var handler = LinkClicked; if (handler != null) handler(target); },
-                ToggleTask);
+                ToggleTask, SheetWiki.ImagesOf(_project));
             _mirror.Content = new ScrollViewer { Content = flow,
                 [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Disabled,
                 Focusable = false
@@ -2223,7 +2224,56 @@ namespace Marabook.App
         /// <summary>L'ancienne forme (18/09) : l'expression sélectionnée
         /// devient le texte du lien — voir ApplyWikiLink (07/10).</summary>
         public void InsertWikiLink(string title) { ApplyWikiLink(title, _bodyBox.SelectedText); }
-        public void InsertImage() { InsertAtCaret("![description](adresse)"); }
+        /// <summary>Insérer une image (1.0.5-b) : une vraie fenêtre de choix,
+        /// les octets dans le magasin d'images du projet (sauvés dans le
+        /// .plot, comme celles de l'éditeur composé), et au caret
+        /// « ![nom](image:ID) » sur sa propre ligne — rendue dans le miroir
+        /// et le mode wiki. Plus de « ![description](adresse) » à remplir.</summary>
+        public async void InsertImage()
+        {
+            if (_item == null || _project == null) return;
+            var top = TopLevel.GetTopLevel(this);
+            if (top == null) return;
+            var picked = await top.StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+            {
+                Title = "Insérer une image",
+                AllowMultiple = false,
+                FileTypeFilter = new[] { new Avalonia.Platform.Storage.FilePickerFileType("Images") { Patterns = new[] { "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp" } } }
+            });
+            var fileName = picked == null || picked.Count == 0 ? null : picked[0].TryGetLocalPath();
+            if (fileName == null || _item == null || _project == null) return;
+            try
+            {
+                var info = new System.IO.FileInfo(fileName);
+                if (info.Length > 20 * 1024 * 1024)
+                    throw new InvalidOperationException("image de plus de 20 Mo — réduisez-la d'abord.");
+                var bytes = System.IO.File.ReadAllBytes(fileName);
+                InsertStoredImage(_project.AddImage(bytes, System.IO.Path.GetExtension(fileName)),
+                    System.IO.Path.GetFileNameWithoutExtension(fileName));
+            }
+            catch (Exception error)
+            {
+                MessageDialog.Show(Ui.OwnerOf(this),
+                    "Impossible d'insérer l'image :\n" + error.Message,
+                    "Marabook", MessageButtons.OK, MessageIcon.Warning);
+            }
+        }
+
+        /// <summary>La citation d'une image du magasin au caret, seule sur sa
+        /// ligne (sonde : sans dialogue).</summary>
+        internal void InsertStoredImage(string imageId, string name)
+        {
+            var alt = (name ?? "").Replace("]", "").Replace("\n", " ").Trim();
+            if (alt.Length == 0) alt = "image";
+            var whole = _bodyBox.Text ?? "";
+            int at, length;
+            OrderedSelection(out at, out length);
+            at = Math.Min(at, whole.Length);
+            var lineStart = at == 0 || whole[at - 1] == '\n';
+            var after = at + Math.Min(length, whole.Length - at);
+            var lineEnd = after >= whole.Length || whole[after] == '\n';
+            InsertAtCaret((lineStart ? "" : "\n") + "![" + alt + "](" + MarkdownDialect.ImageAddress(imageId) + ")" + (lineEnd ? "" : "\n"));
+        }
         public void InsertRule() { InsertAtCaret("\n---\n"); }
         public void InsertSeparator()
         {
@@ -2419,11 +2469,24 @@ namespace Marabook.App
             if (presenter == null || presenter.TextLayout == null) return -1;
             var inPresenter = box.TranslatePoint(pointInBox, presenter);
             if (inPresenter == null) return -1;
-            var hit = presenter.TextLayout.HitTestPoint(inPresenter.Value);
-            return hit.IsInside ? hit.TextPosition : -1;
+            // Ligne par ligne (TextHit, 1.0.5-b) : HitTestPoint jugeait
+            // « dehors » tout ce qui suit la première ligne — le clic droit
+            // n'offrait ni le lien ni le signalement sous le pointeur.
+            return TextHit.PositionAt(presenter.TextLayout, inPresenter.Value);
         }
 
         private int BodyIndexAt(Point pointInBox) { return IndexAt(_bodyBox, pointInBox); }
+
+        /// <summary>Sonde (1.0.5-b) : l'index retrouvé sous le point où ce
+        /// caractère est dessiné — -1 si rien n'est trouvé.</summary>
+        internal int BodyIndexRoundTripForProbe(int index)
+        {
+            var presenter = _bodyBox.FindDescendantOfType<TextPresenter>();
+            if (presenter == null || presenter.TextLayout == null) return -1;
+            var rect = presenter.TextLayout.HitTestTextPosition(index);
+            var inBox = presenter.TranslatePoint(new Point(rect.X + Math.Max(1, rect.Width / 2), rect.Y + rect.Height / 2), _bodyBox);
+            return inBox == null ? -1 : BodyIndexAt(inBox.Value);
+        }
 
         /// <summary>LE menu du clic droit d'une zone de texte (10/10) — le
         /// même pour le corps Markdown et les champs, calqué sur celui de
