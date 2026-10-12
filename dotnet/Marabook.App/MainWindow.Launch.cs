@@ -468,6 +468,7 @@ namespace Marabook.App
         public EditorView Editor { get { return _editor; } }
         public SheetView Sheet { get { return _sheetView; } }
         internal SheetLibraryView SheetLibraryForProbe { get { return _sheetLibrary; } }
+        internal LexiconPanel LexiconPanelForProbe { get { return _lexiconPanel; } }
         internal History.HistoryManager HistoryForProbe { get { return _history; } }
         internal PinnedPanel PinnedPanelForProbe { get { return _pinnedPanel; } }
         internal PlanView PlanForProbe { get { return _planView; } }

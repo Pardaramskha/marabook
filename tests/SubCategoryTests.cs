@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Marabook.Correction;
 using Marabook.History;
 using Marabook.Model;
 
@@ -21,6 +22,71 @@ namespace Marabook.Tests
             TrashPurgesRelations(t);
             BreakFolder(t);
             StyleMacros(t);
+            ActiveScopeAndMissing(t);
+        }
+
+        /// <summary>1.0.5-a : le projet actif (un spectre d'écrits), les écrits
+        /// d'un spectre, les mots inconnus restreints au spectre, les fiches
+        /// manquantes avec leurs pastilles.</summary>
+        private static void ActiveScopeAndMissing(Harness t)
+        {
+            var project = Project.CreateNew();
+            var writings = project.Category(Project.KeyWritings);
+            var book = new BinderItem { Kind = ItemKind.Book, Title = "Livre", Book = new BookInfo() };
+            var part = new BinderItem { Kind = ItemKind.Folder, Title = "Partie" };
+            var c1 = new BinderItem { Kind = ItemKind.Text, Title = "Chapitre 1" };
+            var c2 = new BinderItem { Kind = ItemKind.Text, Title = "Chapitre 2" };
+            var extra = new BinderItem { Kind = ItemKind.Text, Title = "Faux-titre", IsExtraPage = true };
+            var loose = new BinderItem { Kind = ItemKind.Text, Title = "Note libre" };
+            c1.Document.Paragraphs.Clear(); c1.Document.Paragraphs.Add(Paragraph("Ils virent Nardra. Nardra sourit, puis Nardra partit vers Riune avec Zelandra. Zelandra et Zelandra encore."));
+            c2.Document.Paragraphs.Clear(); c2.Document.Paragraphs.Add(Paragraph("Riune dormait. Zorglub aussi."));
+            loose.Document.Paragraphs.Clear(); loose.Document.Paragraphs.Add(Paragraph("Zorglub, Zorglub et Zorglub."));
+            part.Children.Add(c1);
+            book.Children.Add(part);
+            book.Children.Add(c2);
+            book.Children.Add(extra);
+            writings.Children.Add(book);
+            writings.Children.Add(loose);
+            var keira = new BinderItem { Kind = ItemKind.Sheet, Title = "Zelandra", CategoryId = project.SheetCategories[0].Id, TemplateId = project.SheetCategories[0].TemplateId };
+            project.Category(Project.KeySheets).Children.Add(keira);
+            project.RelinkParents();
+
+            t.Equal(null, project.ActiveScope(), "sans projet actif : rien");
+            project.ActiveScopeId = book.Id;
+            t.Equal(book, project.ActiveScope(), "le livre est le projet actif");
+            project.ActiveScopeId = keira.Id;
+            t.Equal(null, project.ActiveScope(), "une fiche ne peut pas l'être");
+            project.ActiveScopeId = "disparu";
+            t.Equal(null, project.ActiveScope(), "un id disparu non plus");
+            t.Equal("Chapitre 1|Chapitre 2", string.Join("|", project.TextsIn(book).ConvertAll(delegate(BinderItem i) { return i.Title; }).ToArray()), "les écrits d'un livre, parties traversées, pages extra exclues");
+            t.Equal("Chapitre 1", string.Join("|", project.TextsIn(part).ConvertAll(delegate(BinderItem i) { return i.Title; }).ToArray()), "les écrits d'un dossier");
+            t.Equal("Chapitre 1", string.Join("|", project.TextsIn(c1).ConvertAll(delegate(BinderItem i) { return i.Title; }).ToArray()), "un écrit seul vaut pour lui");
+            var everything = project.TextsIn(null);
+            t.Check(everything.Contains(c1) && everything.Contains(c2) && everything.Contains(loose) && !everything.Contains(extra), "null = tous les écrits (pages extra exclues)");
+
+            var dir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dict");
+            var aff = System.IO.Path.Combine(dir, "fr-toutesvariantes.aff");
+            var dic = System.IO.Path.Combine(dir, "fr-toutesvariantes.dic");
+            if (System.IO.File.Exists(aff) && System.IO.File.Exists(dic))
+            {
+                var checker = new SpellChecker(Correction.Hunspell.SpellEngine.Load(aff, dic));
+                var all = UnknownWords.Collect(project, checker, null);
+                var inBook = UnknownWords.Collect(project, checker, project.TextsIn(book));
+                var names = new List<string>();
+                foreach (var u in inBook) names.Add(u.Word + "×" + u.Count);
+                t.Equal("Nardra×3, Zelandra×3, Riune×2, Zorglub×1", string.Join(", ", names.ToArray()), "mots inconnus du livre seul (" + string.Join(", ", names.ToArray()) + ")");
+                t.Check(all.Count >= inBook.Count && all.Find(delegate(UnknownWord u) { return u.Word == "Zorglub"; }).Count == 4, "tout le projet compte aussi la note libre");
+                t.Check(inBook.Find(delegate(UnknownWord u) { return u.Word == "Zelandra"; }).HasSheet && !inBook.Find(delegate(UnknownWord u) { return u.Word == "Nardra"; }).HasSheet, "la pastille « fiche éponyme » sur Zelandra, pas sur Nardra");
+            }
+
+            project.Lexicon.Add(LexiconEntry.Simple("Riune"));
+            var missing = MissingNames.Collect(project, project.TextsIn(book), delegate(string w) { return LexiconEntry.FindByForm(project.Lexicon, w) != null; });
+            var found = new List<string>();
+            foreach (var m in missing) found.Add(m.Name + "×" + m.Count + (m.HasSheet ? "·fiche" : "") + (m.InLexicon ? "·dico" : ""));
+            found.Sort(string.CompareOrdinal);
+            t.Equal("Nardra×3, Zelandra×3·fiche", string.Join(", ", found.ToArray()), "les noms récurrents du livre (trois fois, deux hors début de phrase), avec leurs pastilles (" + string.Join(", ", found.ToArray()) + ")");
+            var nardra = missing.Find(delegate(MissingName m) { return m.Name == "Nardra"; });
+            t.Check(missing.Count == 2 && nardra != null && !nardra.HasSheet && nardra.Where == "Chapitre 1", "Nardra n'a pas de fiche, le premier endroit est dit");
         }
 
         /// <summary>Les macros de styles (1.0.5) : un style porte un geste, la
@@ -202,8 +268,10 @@ namespace Marabook.Tests
             power.Options.Add("feu");
             power.Options.Add("givre");
             heroes.ExtraFields.Add(power);
+            heroes.Color = "#A1B2C3";
             var sheet = new BinderItem { Kind = ItemKind.Sheet, Title = "Keira", CategoryId = heroes.Id, TemplateId = character.TemplateId };
             sheet.FieldValues[power.Id] = "givre";
+            project.ActiveScopeId = sheet.Id;
             project.Category(Project.KeySheets).Children.Add(sheet);
             project.RelinkParents();
 
@@ -214,8 +282,11 @@ namespace Marabook.Tests
             {
                 Persistence.PlotFile.Save(project, path);
                 var loaded = Persistence.PlotFile.Load(path);
-                t.Equal(38, loaded.LoadedFormatVersion, "écrit en v38 (v37 sous-catégories, v38 macros de styles)");
+                t.Equal(39, loaded.LoadedFormatVersion, "écrit en v39 (v37 sous-catégories, v38 macros, v39 couleur et projet actif)");
                 var back = loaded.FindSheetCategory(heroes.Id);
+                t.Equal("#A1B2C3", back == null ? null : back.Color, "la couleur de la sous-catégorie fait l'aller-retour");
+                t.Equal(sheet.Id, loaded.ActiveScopeId, "le projet actif aussi (même si c'est une fiche ici : ActiveScope() le refuse)");
+                t.Equal(null, loaded.ActiveScope(), "une fiche n'est pas un spectre d'écrits");
                 t.Check(back != null && back.IsSub && back.ParentId == character.Id, "la sous-catégorie revient sous son parent");
                 t.Equal(1, back.ExtraFields.Count, "… avec son champ propre");
                 t.Equal("choice|Héroïsme|feu,givre", back.ExtraFields[0].Kind + "|" + back.ExtraFields[0].Group + "|" + string.Join(",", back.ExtraFields[0].Options.ToArray()), "nature, section et options du champ propre");

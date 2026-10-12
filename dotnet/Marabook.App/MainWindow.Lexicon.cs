@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -40,6 +41,13 @@ namespace Marabook.App
             _lexiconPanel.PinToggled += SetLexiconPinned;
             _lexiconPanel.CloseRequested += CloseLexicon;
             _lexiconPanel.EditRequested += EditLexiconEntry;
+            _lexiconPanel.EntriesProvider = delegate
+            {
+                var entries = new List<KeyValuePair<LexiconEntry, bool>>();
+                if (_project != null) foreach (var entry in _project.Lexicon) entries.Add(new KeyValuePair<LexiconEntry, bool>(entry, true));
+                foreach (var entry in AppSettings.Lexicon) entries.Add(new KeyValuePair<LexiconEntry, bool>(entry, false));
+                return entries;
+            };
             _lexiconHost = new Border { Child = _lexiconPanel };
             Grid.SetColumn(_lexiconHost, 4);
             grid.Children.Add(_lexiconHost);

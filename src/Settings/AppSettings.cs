@@ -195,7 +195,8 @@ namespace Marabook.Settings
         // en évidence, ou marques masquées (défaut). Jamais persisté : chaque
         // session repart cachée, l'insertion d'un lien les montre.
         public static bool ShowLinks;
-        public static bool LexiconPinned; // le panneau Lexique tient un onglet du rail (18/09)
+        public static bool LoadedFromFile; // vrai quand Load a lu un fichier (la sonde distingue un défaut d'un choix enregistré)
+        public static bool LexiconPinned = true; // le panneau Lexique tient un onglet du rail (18/09) — épinglé par défaut (1.0.5-a)
         public static bool ProofEnabled = true; // vérification continue (Révision)
         public static int SnapshotCap = 20;        // instantanés gardés par item (b38, 5–100)
         public static bool DailySnapshot = true;   // capture à la première modification du jour (b38)
@@ -527,7 +528,8 @@ namespace Marabook.Settings
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
                 ShowLooseLines = Json.AsBool(Json.Field(root, "showLooseLines"), true);
                 ImageGrid = Json.AsBool(Json.Field(root, "imageGrid"), false);
-                LexiconPinned = Json.AsBool(Json.Field(root, "lexiconPinned"), false);
+                LexiconPinned = Json.AsBool(Json.Field(root, "lexiconPinned"), true);
+                LoadedFromFile = true;
                 ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
                 SnapshotCap = (int)Json.AsDouble(Json.Field(root, "snapshotCap"), 20);
                 if (SnapshotCap < 5) SnapshotCap = 5;

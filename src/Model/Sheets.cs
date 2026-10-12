@@ -313,6 +313,9 @@ namespace Marabook.Model
         // modèle sur chaque fiche de la sous-catégorie — voir Compose.
         public string ParentId;
         public List<SheetField> ExtraFields = new List<SheetField>();
+        // La COULEUR d'une sous-catégorie (1.0.5-a, v39) : « #RRGGBB », null =
+        // neutre — la bordure et le fond de sa boîte, comme un dossier.
+        public string Color;
 
         public bool IsSub { get { return !string.IsNullOrEmpty(ParentId); } }
 
