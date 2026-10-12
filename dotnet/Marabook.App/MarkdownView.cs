@@ -41,9 +41,18 @@ namespace Marabook.App
         public static Control Build(string source,
             Action<string> wikiClicked, Action<int> taskToggled)
         {
+            return Build(source, wikiClicked, taskToggled, null);
+        }
+
+        /// <summary>images : l'image du magasin pour un ID (1.0.5-b) — les
+        /// « ![nom](image:ID) » du corps d'une fiche se rendent en vraies
+        /// images ; null (ou image inconnue) = la référence « 🖼 nom ».</summary>
+        public static Control Build(string source,
+            Action<string> wikiClicked, Action<int> taskToggled, Func<string, Avalonia.Media.Imaging.Bitmap> images)
+        {
             var stack = new StackPanel();
             foreach (var block in MarkdownDialect.Parse(source))
-                stack.Children.Add(BuildBlock(block, wikiClicked, taskToggled));
+                stack.Children.Add(BuildBlock(block, wikiClicked, taskToggled, images));
             return stack;
         }
 
@@ -60,7 +69,7 @@ namespace Marabook.App
         }
 
         private static Control BuildBlock(MdBlock block,
-            Action<string> wikiClicked, Action<int> taskToggled)
+            Action<string> wikiClicked, Action<int> taskToggled, Func<string, Avalonia.Media.Imaging.Bitmap> images)
         {
             switch (block.Kind)
             {
@@ -72,7 +81,7 @@ namespace Marabook.App
                     paragraph.FontSize = sizes[block.HeadingLevel - 1];
                     paragraph.FontWeight = FontWeight.Bold;
                     paragraph.Margin = new Thickness(0, block.HeadingLevel == 1 ? 6 : 10, 0, 4);
-                    FillInlines(paragraph, block.Inlines, wikiClicked);
+                    FillInlines(paragraph, block.Inlines, wikiClicked, images);
                     if (block.HeadingLevel == 1)
                         return new Border
                         {
@@ -98,7 +107,7 @@ namespace Marabook.App
                         var paragraph = Paragraph();
                         paragraph.Foreground = Chrome.SoftText;
                         paragraph.Margin = new Thickness(0, 2, 0, 2);
-                        FillInlines(paragraph, line, wikiClicked);
+                        FillInlines(paragraph, line, wikiClicked, images);
                         lines.Children.Add(paragraph);
                     }
                     return new Border
@@ -149,7 +158,7 @@ namespace Marabook.App
                         paragraph.Inlines.Add(new Run(block.Ordered
                             ? block.Number + ". " : "•  ")
                         { FontWeight = FontWeight.SemiBold });
-                    FillInlines(paragraph, block.Inlines, wikiClicked);
+                    FillInlines(paragraph, block.Inlines, wikiClicked, images);
                     return paragraph;
                 }
                 case MdBlockKind.Table:
@@ -161,13 +170,13 @@ namespace Marabook.App
                     var rowIndex = 0;
                     grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
                     for (var c = 0; c < columns; c++)
-                        AddCell(grid, rowIndex, c, block.TableHeader[c], block.TableAligns[c], true, wikiClicked);
+                        AddCell(grid, rowIndex, c, block.TableHeader[c], block.TableAligns[c], true, wikiClicked, images);
                     foreach (var row in block.TableRows)
                     {
                         rowIndex++;
                         grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
                         for (var c = 0; c < row.Count && c < columns; c++)
-                            AddCell(grid, rowIndex, c, row[c], block.TableAligns[c], false, wikiClicked);
+                            AddCell(grid, rowIndex, c, row[c], block.TableAligns[c], false, wikiClicked, images);
                     }
                     return new Border
                     {
@@ -181,20 +190,20 @@ namespace Marabook.App
                 {
                     var paragraph = Paragraph();
                     paragraph.Margin = new Thickness(0, 4, 0, 8);
-                    FillInlines(paragraph, block.Inlines, wikiClicked);
+                    FillInlines(paragraph, block.Inlines, wikiClicked, images);
                     return paragraph;
                 }
             }
         }
 
         private static void AddCell(Grid grid, int row, int column, List<MdInline> inlines, int align,
-            bool header, Action<string> wikiClicked)
+            bool header, Action<string> wikiClicked, Func<string, Avalonia.Media.Imaging.Bitmap> images)
         {
             var paragraph = Paragraph();
             paragraph.TextAlignment = align == 1 ? TextAlignment.Center
                 : align == 2 ? TextAlignment.Right : TextAlignment.Left;
             if (header) paragraph.FontWeight = FontWeight.SemiBold;
-            FillInlines(paragraph, inlines, wikiClicked);
+            FillInlines(paragraph, inlines, wikiClicked, images);
             var cell = new Border
             {
                 Background = header ? Chrome.BarBgLight : null,
@@ -276,8 +285,32 @@ namespace Marabook.App
             return null;
         }
 
+        /// <summary>L'image d'un corps Markdown (1.0.5-b) : jamais plus large
+        /// que son paragraphe ni plus grande que ses pixels, l'alt en infobulle.
+        /// L'optimisation (vignette, cache dédié) viendra plus tard.</summary>
+        private static Control StoredImage(TextBlock owner, Avalonia.Media.Imaging.Bitmap bitmap, string alt)
+        {
+            var image = new Image
+            {
+                Source = bitmap,
+                Stretch = Stretch.Uniform,
+                StretchDirection = StretchDirection.DownOnly,
+                MaxHeight = 480,
+                Margin = new Thickness(0, 4, 0, 4)
+            };
+            if (!string.IsNullOrEmpty(alt)) ToolTip.SetTip(image, alt);
+            Action fit = delegate
+            {
+                var width = owner.Bounds.Width - owner.Padding.Left - owner.Padding.Right;
+                if (width > 24) image.MaxWidth = width;
+            };
+            Ui.OnSizeChanged(owner, fit);
+            fit();
+            return image;
+        }
+
         private static void FillInlines(TextBlock owner,
-            List<MdInline> inlines, Action<string> wikiClicked)
+            List<MdInline> inlines, Action<string> wikiClicked, Func<string, Avalonia.Media.Imaging.Bitmap> images)
         {
             var into = owner.Inlines;
             foreach (var inline in inlines)
@@ -325,9 +358,17 @@ namespace Marabook.App
                 }
                 else if (inline.ImageUrl != null)
                 {
-                    // Les images de corps restent une référence affichée (le
-                    // portrait de la fiche porte l'illustration) — l'alt en
-                    // italique doux.
+                    // Une image du magasin du projet (1.0.5-b) : la vraie
+                    // image, réduite à la largeur du paragraphe, l'alt en
+                    // infobulle. Les autres adresses (web, chemins) restent
+                    // une référence affichée — l'alt en italique doux.
+                    var storedId = MarkdownDialect.StoredImageId(inline.ImageUrl);
+                    var bitmap = storedId != null && images != null ? images(storedId) : null;
+                    if (bitmap != null)
+                    {
+                        into.Add(new InlineUIContainer(StoredImage(owner, bitmap, inline.Text)));
+                        continue;
+                    }
                     run.Text = "🖼 " + ((inline.Text ?? "").Length > 0 ? inline.Text : inline.ImageUrl);
                     run.FontStyle = FontStyle.Italic;
                     run.Foreground = Chrome.SoftText;
