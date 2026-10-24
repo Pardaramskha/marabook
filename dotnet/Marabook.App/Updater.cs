@@ -93,6 +93,8 @@ namespace Marabook.App
             public string PageUrl = "";  // la page de la release
             public string Notes = "";    // le texte de la release (Markdown brut) — les patch notes de Rémi (patchnotes/<version>.md)
             public string PublishedAt = ""; // « 2026-10-02T09:12:33Z » (02/10)
+            public string Commit = "";   // target_commitish : le SHA du commit publié (13/10) — la beta au même tag se rebâtit
+            public bool Beta;            // une pré-release vX.Y.Z-beta (13/10)
         }
 
         /// <summary>Le résultat d'une vérification, lisible tel quel.</summary>
@@ -134,8 +136,108 @@ namespace Marabook.App
         /// 22/09) et l'URL de l'asset au nom donné. Même chemin, mêmes messages.</summary>
         public static Info LatestOf(string repository, string assetName)
         {
+            return Parse(Get("https://api.github.com/repos/" + repository + "/releases/latest"), assetName);
+        }
+
+        /// <summary>La beta en cours (13/10) : la pré-release la plus récente
+        /// étiquetée vX.Y.Z-beta — publiée depuis la branche beta pour les
+        /// patchs massifs, jamais « latest » (releases/latest l'ignore, la
+        /// ligne principale de l'accueil ne la voit donc pas). Null s'il n'y
+        /// en a aucune ; l'asset de CE système peut manquer (Mac Intel :
+        /// pas de build beta) — ZipUrl reste alors vide.</summary>
+        public static Info LatestBeta()
+        {
+            return BetaFrom(Get("https://api.github.com/repos/" + Repository + "/releases?per_page=20"));
+        }
+
+        /// <summary>La beta dans la liste des releases (le JSON de
+        /// /releases) : la première pré-release vX.Y.Z-beta non brouillon —
+        /// GitHub les rend de la plus récente à la plus ancienne. Null sinon.</summary>
+        public static Info BetaFrom(string json)
+        {
+            if (string.IsNullOrEmpty(json)) return null;
+            // Un objet release commence par son « url …/releases/N » (ceux des
+            // assets finissent en /releases/assets/N) : on découpe là.
+            var starts = Regex.Matches(json, "\"url\"\\s*:\\s*\"[^\"]+/releases/[0-9]+\"");
+            for (var r = 0; r < starts.Count; r++)
+            {
+                var from = starts[r].Index;
+                var to = r + 1 < starts.Count ? starts[r + 1].Index : json.Length;
+                var chunk = json.Substring(from, to - from);
+                if (!Regex.IsMatch(chunk, "\"prerelease\"\\s*:\\s*true")) continue;
+                if (Regex.IsMatch(chunk, "\"draft\"\\s*:\\s*true")) continue;
+                if (!IsBeta(Field(chunk, "tag_name"))) continue;
+                var info = Parse(chunk, PortableZip);
+                info.Beta = true;
+                return info;
+            }
+            return null;
+        }
+
+        /// <summary>Vrai pour « 1.1.0-beta » (13/10) : la version d'essai des
+        /// patchs massifs, sous la stable aux mêmes nombres.</summary>
+        public static bool IsBeta(string version)
+        {
+            return Regex.IsMatch(version ?? "", @"-beta$", RegexOptions.IgnoreCase);
+        }
+
+        /// <summary>Le SHA du commit dont cette application est bâtie (13/10) :
+        /// le workflow passe SourceRevisionId au build, le SDK l'accroche à
+        /// l'InformationalVersion (« 1.1.0-beta+abc123… »). Vide hors CI.</summary>
+        public static string LocalCommit()
+        {
+            try
+            {
+                var assembly = typeof(Updater).Assembly;
+                var attributes = assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false);
+                if (attributes.Length == 0) return "";
+                var text = ((System.Reflection.AssemblyInformationalVersionAttribute)attributes[0]).InformationalVersion ?? "";
+                var plus = text.IndexOf('+');
+                return plus < 0 ? "" : text.Substring(plus + 1).Trim();
+            }
+            catch { return ""; }
+        }
+
+        /// <summary>Le verdict beta (13/10), jamais d'exception. Available :
+        /// la beta est plus récente que nous — ou c'est la nôtre, rebâtie
+        /// (même tag, autre commit) ; Latest reste posé même sans asset pour
+        /// ce système, le message le dit.</summary>
+        public static Check RunBeta(string localVersion)
+        {
+            var check = new Check();
+            try
+            {
+                var info = LatestBeta();
+                if (info == null) { check.Message = "Aucune version beta en cours"; return check; }
+                check.Latest = info;
+                if (string.IsNullOrEmpty(info.ZipUrl))
+                {
+                    check.Message = "Beta " + info.Version + " publiée, mais pas pour ce système";
+                    return check;
+                }
+                var sameNumbers = string.Equals(info.Version, localVersion, StringComparison.OrdinalIgnoreCase);
+                var local = LocalCommit();
+                var rebuilt = sameNumbers && local.Length > 0 && info.Commit.Length > 0
+                    && !info.Commit.StartsWith(local, StringComparison.OrdinalIgnoreCase)
+                    && !local.StartsWith(info.Commit, StringComparison.OrdinalIgnoreCase);
+                check.Available = IsNewer(info.Version, localVersion) || rebuilt;
+                check.Message = rebuilt ? "Beta " + info.Version + " rebâtie, nouvelle version d'essai disponible"
+                    : check.Available ? "Beta " + info.Version + " disponible"
+                    : sameNumbers ? "Vous utilisez la beta " + info.Version
+                    : "Beta " + info.Version + " publiée, votre version est plus récente";
+            }
+            catch (Exception failure)
+            {
+                check.Message = failure.Message;
+            }
+            return check;
+        }
+
+        /// <summary>L'API GitHub, avec le jeton s'il existe ; les échecs
+        /// deviennent des messages lisibles (aucune release, pas de réseau…).</summary>
+        private static string Get(string url)
+        {
             ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; // TLS 1.2
-            string json;
             using (var client = new WebClient())
             {
                 client.Headers[HttpRequestHeader.UserAgent] = "Marabook";
@@ -146,7 +248,7 @@ namespace Marabook.App
                 client.Encoding = Encoding.UTF8;
                 try
                 {
-                    json = client.DownloadString("https://api.github.com/repos/" + repository + "/releases/latest");
+                    return client.DownloadString(url);
                 }
                 catch (WebException failure)
                 {
@@ -158,12 +260,18 @@ namespace Marabook.App
                     throw new Exception("Pas de connexion à GitHub");
                 }
             }
+        }
+
+        /// <summary>Le JSON d'UNE release → ses champs et l'asset au nom donné.</summary>
+        private static Info Parse(string json, string assetName)
+        {
             var info = new Info
             {
                 Version = Field(json, "tag_name").TrimStart('v', 'V'),
                 PageUrl = Field(json, "html_url"),
                 Notes = Field(json, "body"),
-                PublishedAt = Field(json, "published_at")
+                PublishedAt = Field(json, "published_at"),
+                Commit = Field(json, "target_commitish")
             };
             // L'asset au nom voulu : son URL de téléchargement, et son URL
             // d'API — le dernier champ « url …/releases/assets/N » qui la
@@ -203,15 +311,21 @@ namespace Marabook.App
         }
 
         /// <summary>« 0.43.0 » > « 0.42.0-alpha » ? Les trois nombres, le
-        /// suffixe (alpha, beta) ignoré — SAUF le correctif à chaud (hotfix
+        /// suffixe (alpha) ignoré — SAUF le correctif à chaud (hotfix
         /// 1.0.3-a) : « 1.0.3-patch-a » est plus récent que « 1.0.3 », et
-        /// « 1.0.3-patch-b » que « 1.0.3-patch-a ».</summary>
+        /// « 1.0.3-patch-b » que « 1.0.3-patch-a » — et SAUF la beta (13/10) :
+        /// aux mêmes nombres, « 1.1.0 » est plus récente que « 1.1.0-beta »
+        /// (la stable sortie, le testeur est invité à l'installer), jamais
+        /// l'inverse.</summary>
         public static bool IsNewer(string remote, string local)
         {
             var a = Numbers(remote);
             var b = Numbers(local);
             for (var i = 0; i < 3; i++)
                 if (a[i] != b[i]) return a[i] > b[i];
+            var remoteBeta = IsBeta(remote);
+            var localBeta = IsBeta(local);
+            if (remoteBeta != localBeta) return localBeta;
             return string.CompareOrdinal(Patch(remote), Patch(local)) > 0;
         }
 
