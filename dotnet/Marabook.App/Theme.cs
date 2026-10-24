@@ -380,6 +380,17 @@ namespace Marabook.App
             // d'Avalonia ignorait le Tag : les modes avaient disparu (29/09).
             styles.Add(Style(x => x.OfType<TabControl>().Class("ribbon"),
                 new Setter(TemplatedControl.TemplateProperty, new FuncControlTemplate<TabControl>(RibbonTabsFace))));
+            // Les onglets en COLONNE (classe « column », Préférences 24/10) :
+            // une pile de chips alignées à gauche, pleine largeur de colonne,
+            // la colonne elle-même sur le fond du chrome avec un filet à droite.
+            styles.Add(Style(x => x.OfType<TabControl>().Class("column").Descendant().OfType<TabItem>(),
+                new Setter(Layoutable.HorizontalAlignmentProperty, HorizontalAlignment.Stretch),
+                new Setter(Layoutable.MinWidthProperty, 170.0),
+                new Setter(Layoutable.MarginProperty, new Thickness(8, 2, 8, 2)),
+                new Setter(TemplatedControl.PaddingProperty, new Thickness(12, 6)),
+                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(8))));
+            styles.Add(Style(x => x.OfType<TabControl>().Class("column").Template().OfType<ItemsPresenter>().Name("PART_ItemsPresenter"),
+                new Setter(Layoutable.MarginProperty, new Thickness(0, 4, 8, 0))));
             // Encre et graisse sont posées sur l'EN-TÊTE (Bg), jamais sur le
             // TabItem : son contenu en hériterait (règle héritée de WPF, b42).
             styles.Add(Style(x => x.OfType<TabItem>(),

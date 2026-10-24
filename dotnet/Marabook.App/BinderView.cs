@@ -62,6 +62,11 @@ namespace Marabook.App
         // Fourni par MainWindow (cache de composition) : total de pages d'un
         // livre, pour le garde-fou « page finale impaire ». Null = pas d'icône.
         public Func<BinderItem, int> BookPageTotal;
+        // L'enchaînement des pages (18/10, 1.0.6) : le folio impair de la
+        // dernière page d'un chapitre (0 = rien à signaler, ou avertissement
+        // débrayé sur le livre) — la pastille et l'entrée « Unifier ».
+        public Func<BinderItem, int> ChapterOddEnd;
+        public event Action<BinderItem> UnifyRequested;
         public event Action DictionaryEntryRequested; // « Nouvelle entrée… » de la racine Dictionnaire (b33)
 
         private TextBox _searchBox;
@@ -717,6 +722,21 @@ namespace Marabook.App
                 return row;
             }
 
+            // Un chapitre qui finit sur une page impaire (18/10) : la pastille
+            // d'enchaînement, même signe que l'entrée « Unifier » du menu.
+            var oddEnd = item.Kind == ItemKind.Text && ChapterOddEnd != null ? ChapterOddEnd(item) : 0;
+            if (oddEnd > 0)
+            {
+                var flow = FlowIcon(12);
+                if (flow != null)
+                {
+                    flow.Margin = new Thickness(5, 0, 0, 0);
+                    ToolTip.SetTip(flow, "Ce chapitre finit sur une page impaire (p. " + oddEnd
+                        + ") : un verso blanc suivra. Clic droit › Unifier ajoute cette page blanche à sa fin.");
+                    panel.Children.Add(flow);
+                }
+            }
+
             // Books: alert chip when a document strays from the gabarit.
             if (item.Kind == ItemKind.Book && BookHasDivergentDocs(item))
                 panel.Children.Add(new Ellipse
@@ -730,22 +750,22 @@ namespace Marabook.App
                         + "(clic droit → Appliquer le gabarit à tous les documents)"
                 });
 
-            // Livres : garde-fou d'imposition — icône danger quand la page
-            // finale n'est pas impaire (erreur de mise en page courante).
-            if (item.Kind == ItemKind.Book && BookPageTotal != null)
+            // Livres : garde-fou d'imposition — le livre entier finit sur une
+            // page IMPAIRE (18/10 : la règle était inversée ; un nombre de
+            // pages impair est ce que l'imprimeur refuse). Débrayable par
+            // livre (Gabarits & Format › Contenu & Fichiers).
+            if (item.Kind == ItemKind.Book && BookPageTotal != null && BookFlow.Enabled(item))
             {
                 var total = BookPageTotal(item);
-                if (total > 0 && total % 2 == 0)
+                if (total > 0 && total % 2 == 1)
                 {
-                    var danger = Icons.Make("warning-fill", 12,
-                        new SolidColorBrush(Color.FromRgb(241, 196, 15))) as Control;
+                    var danger = FlowIcon(12);
                     if (danger != null)
                     {
-                        danger.VerticalAlignment = VerticalAlignment.Center;
                         danger.Margin = new Thickness(5, 0, 0, 0);
                         ToolTip.SetTip(danger, "La page finale de ce livre (" + total
-                            + ") n'est pas impaire — ajoutez ou retirez une page "
-                            + "pour une imposition correcte.");
+                            + ") est impaire : il manque une page blanche pour une imposition correcte "
+                            + "(clic droit sur le dernier chapitre › Unifier).");
                         panel.Children.Add(danger);
                     }
                 }
@@ -1226,6 +1246,19 @@ namespace Marabook.App
                 }
                 if (item.Kind == ItemKind.Book)
                     AddMenu(menu, "Options du livre…", delegate { BookOptions(item); });
+                // « Unifier » (18/10) : le chapitre finit sur une page impaire —
+                // une page blanche à sa fin, la pastille du signalement en icône.
+                if (item.Kind == ItemKind.Text && ChapterOddEnd != null && ChapterOddEnd(item) > 0)
+                {
+                    var unify = new MenuItem { Header = "Unifier", Icon = FlowIcon(12), Tag = "unify" };
+                    ToolTip.SetTip(unify, "Ajoute une page blanche à la fin de ce chapitre, au gabarit du document — comme un saut de page après sa dernière ligne.");
+                    unify.Click += delegate
+                    {
+                        var handler = UnifyRequested;
+                        if (handler != null) handler(item);
+                    };
+                    menu.Items.Add(unify);
+                }
                 // Un dossier de Fiches, depuis la Pile (29/09) : classer ses
                 // fiches par ordre alphabétique — annulable.
                 if (fromPile && item.CanHaveChildren && item.Children.Count > 1
@@ -1627,7 +1660,9 @@ namespace Marabook.App
                 if (info.Length > 20 * 1024 * 1024)
                     throw new InvalidOperationException("image de plus de 20 Mo — réduisez-la d'abord.");
                 var bytes = System.IO.File.ReadAllBytes(dialogPath);
-                imageId = _project.AddImage(bytes, System.IO.Path.GetExtension(dialogPath));
+                var edited = await ImageEditDialog.Show(Ui.OwnerOf(this), bytes, System.IO.Path.GetExtension(dialogPath)); // 1.0.6
+                if (edited == null || _project == null) return;
+                imageId = _project.AddImage(edited.Bytes, edited.Extension);
             }
             catch (Exception error)
             {
@@ -1684,6 +1719,49 @@ namespace Marabook.App
             var next = item == null ? null : item.Id;
             if (previous == next) return;
             RunAndSelect(new DelegateAction(delegate { project.ActiveScopeId = next; }, delegate { project.ActiveScopeId = previous; }), null, null);
+        }
+
+        /// <summary>La pastille d'enchaînement des pages (18/10) : le signe
+        /// « danger » dans la couleur d'avertissement du thème — la même sur
+        /// la ligne, la tuile et l'entrée « Unifier ».</summary>
+        internal static Control FlowIcon(double size)
+        {
+            var icon = Icons.Make("warning-fill", size, Chrome.Warn) as Control;
+            if (icon != null)
+            {
+                icon.VerticalAlignment = VerticalAlignment.Center;
+                icon.Tag = "flow-odd"; // sonde
+            }
+            return icon;
+        }
+
+        /// <summary>Sonde : la pastille d'enchaînement est-elle posée sur cette ligne ?</summary>
+        internal bool HasFlowDotForProbe(string id)
+        {
+            TreeViewItem node;
+            if (!_nodesById.TryGetValue(id, out node)) return false;
+            var header = node.Header as Control;
+            if (header == null) return false;
+            foreach (var visual in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(header))
+            {
+                var control = visual as Control;
+                if (control != null && (control.Tag as string) == "flow-odd") return true;
+            }
+            return false;
+        }
+
+        /// <summary>Sonde : le menu de cet item porte-t-il « Unifier » ?</summary>
+        internal bool MenuHasUnifyForProbe(string id)
+        {
+            var item = _project == null ? null : _project.FindById(id);
+            var menu = item == null ? null : BuildContextMenu(item);
+            if (menu == null) return false;
+            foreach (var entry in menu.Items)
+            {
+                var menuItem = entry as MenuItem;
+                if (menuItem != null && (menuItem.Tag as string) == "unify") return true;
+            }
+            return false;
         }
 
         /// <summary>Sonde : la pastille verte est-elle posée sur cette ligne ?</summary>

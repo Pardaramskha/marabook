@@ -82,7 +82,12 @@ namespace Marabook.App
             {
                 new BoxShadowsTransition { Property = Border.BoxShadowProperty, Duration = Down, Easing = new CubicEaseOut() }
             };
-            shadowHost.BoxShadow = Rest();
+            // Au repos, AUCUNE ombre (14/10, 1.0.6) : l'ombre transparente
+            // n'est pas « vide » pour Avalonia (décalage et flou non nuls),
+            // Skia la floutait donc à chaque image pour chacune des tuiles
+            // visibles — la bibliothèque des fiches ramait au défilement. La
+            // forme transparente n'est posée, sans transition, qu'à l'entrée
+            // du pointeur ; de là l'animateur interpole vers l'ombre levée.
             shadowHost.Transitions = transitions;
             host.Children.Add(shadowHost);
             if (content != null) host.Children.Add(content);
@@ -108,12 +113,21 @@ namespace Marabook.App
                 }
                 shadowHost.BoxShadow = Lifted();
             };
+            var exits = new int[1]; // la génération de la dernière sortie du pointeur
             card.PointerExited += delegate
             {
                 scale.ScaleX = 1;
                 scale.ScaleY = 1;
                 translate.Y = 0;
                 shadowHost.BoxShadow = Rest();
+                // La descente finie, l'ombre transparente s'efface pour de bon
+                // (plus rien à flouter) ; une tuile re-survolée entre-temps
+                // garde la sienne.
+                var exited = ++exits[0];
+                DispatcherTimer.RunOnce(delegate
+                {
+                    if (exits[0] == exited && !card.IsPointerOver) shadowHost.BoxShadow = default(BoxShadows);
+                }, Down + TimeSpan.FromMilliseconds(40));
             };
         }
 

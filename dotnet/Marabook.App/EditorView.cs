@@ -254,6 +254,7 @@ namespace Marabook.App
             // La typographie à la frappe (b45) : les règles retenues, ou rien.
             _composed.LiveTypography = Settings.AppSettings.TypographyLiveEnabled
                 ? Settings.AppSettings.TypographyLive : null;
+            _composed.AutoCapitalize = Settings.AppSettings.AutoCapitalize; // (24/10)
             _grammarBridge.StateChanged += delegate
             {
                 // Pont redevenu prêt : les échecs de synonymes sont oubliés.
@@ -1018,6 +1019,7 @@ namespace Marabook.App
                 Settings.AppSettings.StyleEnabled && Settings.AppSettings.StyleDialogue);
             _composed.LiveTypography = Settings.AppSettings.TypographyLiveEnabled
                 ? Settings.AppSettings.TypographyLive : null;
+            _composed.AutoCapitalize = Settings.AppSettings.AutoCapitalize; // (24/10)
             if (_styleChecker != null)
             {
                 ApplyStyleSettings();
@@ -2249,7 +2251,9 @@ namespace Marabook.App
                 if (info.Length > 20 * 1024 * 1024)
                     throw new InvalidOperationException("image de plus de 20 Mo — réduisez-la d'abord.");
                 var bytes = System.IO.File.ReadAllBytes(fileName);
-                var id = _project.AddImage(bytes, System.IO.Path.GetExtension(fileName));
+                var edited = await ImageEditDialog.Show(Ui.OwnerOf(this), bytes, System.IO.Path.GetExtension(fileName)); // 1.0.6
+                if (edited == null || _item == null || _project == null) return;
+                var id = _project.AddImage(edited.Bytes, edited.Extension);
                 if (!ComposedActive) return;
                 // L'image naît attachée à sa ligne, centrée, réduite à la
                 // colonne, et sélectionnée (0.50.0) : poignées et onglet Image.

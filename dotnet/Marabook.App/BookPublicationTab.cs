@@ -31,6 +31,8 @@ namespace Marabook.App
         private Func<BinderItem, int> _pageCounter;
         private readonly StackPanel _checklist;
         private readonly Grid _sizes;
+        private readonly StackPanel _stats; // Statistiques : un texte par ligne (18/10), surlignée au survol (24/10)
+        private readonly Expander _statsBox;
 
         public event Action<BinderItem> PublishRequested;
         public event Action<BinderItem> EpubRequested; // « Créer un EPUB » (22/09)
@@ -72,6 +74,19 @@ namespace Marabook.App
             for (var c = 0; c < 4; c++)
                 _sizes.ColumnDefinitions.Add(new ColumnDefinition { Width = c == 0 ? new GridLength(260) : new GridLength(110) });
             Children.Add(_sizes);
+            // L'accordéon « Statistiques » (18/10, 1.0.6) : mots, signes et
+            // pages de CHAQUE texte du livre, dans l'ordre des pages.
+            _stats = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+            _statsBox = new Expander
+            {
+                Header = new TextBlock { Text = "Statistiques", Foreground = Chrome.SoftText, FontSize = 12 },
+                Content = _stats,
+                IsExpanded = false,
+                Margin = new Thickness(0, 10, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Tag = "stats-expander" // sonde
+            };
+            Children.Add(_statsBox);
         }
 
         public void Load(BinderItem book, Project project, Func<BinderItem, int> pageCounter)
@@ -90,6 +105,7 @@ namespace Marabook.App
             _checklist.Children.Clear();
             _sizes.Children.Clear();
             _sizes.RowDefinitions.Clear();
+            _stats.Children.Clear();
             if (_item == null || _item.Book == null) return;
             var book = _item.Book;
             var culture = CultureInfo.CurrentCulture;
@@ -130,9 +146,26 @@ namespace Marabook.App
             var templates = 0;
             foreach (var child in _item.Children) if (child.Kind == ItemKind.PageTemplate) templates++;
             Row(templates > 0, templates > 0 ? templates + " gabarit" + (templates > 1 ? "s" : "") + " de pages" : "Aucun gabarit de pages (en-têtes, pieds, folios)", templates > 0 ? null : "Gabarits & Format › Nouveau gabarit");
+            // Critique (18/10) : un texte hors gabarit sort en rouge.
             var divergent = BookFormatPanel.DivergentCount(_item, _project);
             Row(divergent == 0, divergent == 0 ? "Tous les textes suivent le format du livre" : divergent + " texte" + (divergent > 1 ? "s ne suivent" : " ne suit") + " pas le format du livre",
-                divergent == 0 ? null : "Icône orange à côté de leur titre → clic droit › Appliquer le gabarit du livre");
+                divergent == 0 ? null : "Icône orange à côté de leur titre → clic droit › Appliquer le gabarit du livre", true, "template-row");
+            // L'enchaînement des pages (18/10), si le livre veut l'avertissement :
+            // critique aussi — un chapitre ou le livre finissant sur une page impaire.
+            if (BookFlow.Enabled(_item) && _pageCounter != null)
+            {
+                var flow = BookFlow.Analyse(_item, _pageCounter);
+                var odd = flow.OddChapters;
+                var names = new List<string>();
+                foreach (var text in odd) names.Add(text.Title + " (p. " + flow.LastPage[text.Id] + ")");
+                var constat = odd.Count == 0 ? "Enchaînement des pages : chaque chapitre finit sur une page paire"
+                    : odd.Count == 1 ? "Enchaînement des pages : un chapitre finit sur une page impaire"
+                    : "Enchaînement des pages : " + odd.Count + " chapitres finissent sur une page impaire";
+                if (flow.BookEndsOdd) constat += " — le livre aussi (" + flow.Total + " pages)";
+                Row(odd.Count == 0, constat,
+                    odd.Count == 0 ? null : "Pastille à côté de leur titre (Pile, Textes) → clic droit › Unifier ajoute une page blanche : " + Join(names, 5),
+                    true, "flow-row");
+            }
 
             // — Métadonnées d'édition.
             var missing = new List<string>();
@@ -160,6 +193,117 @@ namespace Marabook.App
             foreach (var item in all) if (item.IsExtraPage || item.IsToc) extras.Add(item);
             SizeRow("Liminaires, pages de fin, annexes", extras);
             SizeRow("Livre entier", all);
+
+            // — Statistiques : un texte par ligne, dans l'ordre des pages.
+            StatsHeader();
+            var ordered = new List<BinderItem>();
+            BookFlow.Texts(_item, ordered);
+            foreach (var text in ordered) StatsRow(text);
+            _statsBox.IsVisible = ordered.Count > 0;
+        }
+
+        /// <summary>Une ligne de l'accordéon : quatre colonnes aux largeurs des
+        /// Tailles, dans un cadre qui se surligne au survol (24/10) — la ligne
+        /// entière, pour la lire d'un trait.</summary>
+        private static Grid StatsLine()
+        {
+            var grid = new Grid();
+            for (var c = 0; c < 4; c++)
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = c == 0 ? new GridLength(254) : new GridLength(110) });
+            return grid;
+        }
+
+        private void StatsHeader()
+        {
+            var line = StatsLine();
+            string[] heads = { "Texte", "Mots", "Signes", "Pages" };
+            for (var c = 0; c < 4; c++)
+                StatsCell(line, c, new TextBlock { Text = heads[c], Foreground = Chrome.FaintText, FontSize = 11, Margin = new Thickness(0, 0, 0, 2), HorizontalAlignment = c == 0 ? HorizontalAlignment.Left : HorizontalAlignment.Right });
+            _stats.Children.Add(new Border { Child = line, Padding = new Thickness(6, 0, 6, 0) });
+        }
+
+        private void StatsRow(BinderItem text)
+        {
+            var stats = TextStats.Compute(text.Document.ToPlainText());
+            var culture = CultureInfo.CurrentCulture;
+            var line = StatsLine();
+            StatsCell(line, 0, new TextBlock { Text = text.Title, Foreground = Chrome.Ink, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 8, 2) });
+            StatsCell(line, 1, Number(stats.Words.ToString("N0", culture)));
+            StatsCell(line, 2, Number(stats.Sec.ToString("N0", culture)));
+            StatsCell(line, 3, Number(_pageCounter == null ? "—" : _pageCounter(text).ToString("N0", culture)));
+            var row = new Border
+            {
+                Child = line,
+                Padding = new Thickness(6, 0, 6, 0),
+                CornerRadius = new CornerRadius(4),
+                Background = Brushes.Transparent,
+                Tag = "stats-row" // sonde
+            };
+            row.PointerEntered += delegate { HoverStatsRow(row, true); };
+            row.PointerExited += delegate { HoverStatsRow(row, false); };
+            _stats.Children.Add(row);
+        }
+
+        private static void HoverStatsRow(Border row, bool on)
+        {
+            row.Background = on ? (IBrush)Chrome.AccentTint : Brushes.Transparent;
+        }
+
+        private static void StatsCell(Grid line, int column, Control element)
+        {
+            Grid.SetColumn(element, column);
+            line.Children.Add(element);
+        }
+
+        // — Sonde (18/10, 24/10).
+        internal int StatsRowsForProbe()
+        {
+            var count = 0;
+            foreach (var child in _stats.Children) if ((child.Tag as string) == "stats-row") count++;
+            return count;
+        }
+        internal bool HoverStatsRowForProbe(int index, bool on)
+        {
+            var seen = 0;
+            foreach (var child in _stats.Children)
+            {
+                var row = child as Border;
+                if (row == null || (row.Tag as string) != "stats-row") continue;
+                if (seen++ != index) continue;
+                HoverStatsRow(row, on);
+                return ReferenceEquals(row.Background, Chrome.AccentTint) == on;
+            }
+            return false;
+        }
+        internal int DividersForProbe()
+        {
+            var count = 0;
+            foreach (var child in _checklist.Children) if ((child.Tag as string) == "checklist-divider") count++;
+            return count;
+        }
+        internal int RowsForProbe()
+        {
+            var count = 0;
+            foreach (var child in _checklist.Children) if (child is DockPanel) count++;
+            return count;
+        }
+        /// <summary>La ligne étiquetée : null si absente ; sinon vrai si elle est en rouge (critique et en défaut).</summary>
+        internal bool? RowIsRedForProbe(string tag)
+        {
+            foreach (var child in _checklist.Children)
+            {
+                var row = child as DockPanel;
+                if (row == null || (row.Tag as string) != tag) continue;
+                foreach (var part in row.Children)
+                {
+                    var lines = part as StackPanel;
+                    if (lines == null || lines.Children.Count == 0) continue;
+                    var text = lines.Children[0] as TextBlock;
+                    return text != null && ReferenceEquals(text.Foreground, Chrome.Danger);
+                }
+                return false;
+            }
+            return null;
         }
 
         private void SizeHeader()
@@ -207,12 +351,24 @@ namespace Marabook.App
         }
 
         /// <summary>Une ligne de la check-list : coche verte ou alerte orange,
-        /// le constat, et le remède en dessous.</summary>
-        private void Row(bool ok, string text, string remedy)
+        /// le constat, et le remède en dessous. Les lignes sont séparées par
+        /// un filet discret (18/10) ; une ligne CRITIQUE en défaut (gabarit,
+        /// enchaînement) sort en rouge — les autres restent orange, elles
+        /// n'empêchent pas la publication.</summary>
+        private void Row(bool ok, string text, string remedy, bool critical = false, string tag = null)
         {
-            var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
+            if (_checklist.Children.Count > 0)
+                _checklist.Children.Add(new Border
+                {
+                    Height = 1,
+                    Background = Chrome.Border,
+                    Margin = new Thickness(22, 3, 0, 3),
+                    Tag = "checklist-divider"
+                });
+            var red = critical && !ok;
+            var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3), Tag = tag };
             var icon = Icons.Make(ok ? "check-square-bold" : "warning-fill", 14,
-                ok ? (IBrush)Chrome.Ok : new SolidColorBrush(Color.FromRgb(230, 126, 34))) as Control;
+                ok ? (IBrush)Chrome.Ok : red ? Chrome.Danger : new SolidColorBrush(Color.FromRgb(230, 126, 34))) as Control;
             if (icon != null)
             {
                 icon.VerticalAlignment = VerticalAlignment.Top;
@@ -221,7 +377,7 @@ namespace Marabook.App
                 row.Children.Add(icon);
             }
             var lines = new StackPanel();
-            lines.Children.Add(new TextBlock { Text = text, Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap });
+            lines.Children.Add(new TextBlock { Text = text, Foreground = red ? Chrome.Danger : Chrome.Ink, TextWrapping = TextWrapping.Wrap });
             if (remedy != null)
                 lines.Children.Add(new TextBlock { Text = remedy, Foreground = Chrome.SoftText, FontSize = 11, TextWrapping = TextWrapping.Wrap });
             row.Children.Add(lines);

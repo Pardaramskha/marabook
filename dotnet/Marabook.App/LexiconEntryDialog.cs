@@ -761,6 +761,8 @@ namespace Marabook.App
         /// <summary>Ouvre le dialogue : initial null = nouvelle entrée ;
         /// projectScope entre en proposition, la portée choisie sort dans le
         /// Choice. Null si annulé.</summary>
+        internal static LexiconEntryDialog ForProbe(Window owner) { return new LexiconEntryDialog(owner, null, false, true); }
+
         public static async Task<Choice> Ask(Window owner, LexiconEntry initial, bool projectScope)
         {
             var dialog = new LexiconEntryDialog(owner, initial, projectScope, true);

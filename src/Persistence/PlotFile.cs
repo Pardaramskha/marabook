@@ -195,7 +195,12 @@ namespace Marabook.Persistence
         //      manifeste : l'id de l'écrit, du dossier ou du livre déclaré
         //      « Projet actif » (le spectre par défaut des relevés — mots
         //      inconnus, fiches manquantes), omis = aucun.
-        private const int FormatVersion = 39;
+        // v40: 1.0.6 (15/10) — "listLevel" sur un paragraphe de liste : le
+        //      niveau (Tab dans l'éditeur ; sous-puces, sous-numéros), omis
+        //      = 0. Un Marabook d'avant l'ignore : l'article reste une puce
+        //      de premier niveau. "flowWarnings" sur un livre (18/10) : faux
+        //      = avertissements d'enchaînement des pages débrayés, omis = vrai.
+        private const int FormatVersion = 40;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -733,6 +738,7 @@ namespace Marabook.Persistence
                 if (item.Book.BackCover.Length > 0) book["backCover"] = item.Book.BackCover;
                 book["bleedMm"] = item.Book.BleedMm;
                 if (item.Book.ChapterGoal > 0) book["chapterGoal"] = item.Book.ChapterGoal;
+                if (!item.Book.FlowWarnings) book["flowWarnings"] = false; // v40 : avertissements d'enchaînement débrayés
                 if (item.Book.Deadline.Length > 0) book["deadline"] = item.Book.Deadline; // v23
                 if (item.Book.SizeGoal > 0) book["sizeGoal"] = item.Book.SizeGoal;
                 if (item.Book.SizeUnit != "words") book["sizeUnit"] = item.Book.SizeUnit;
@@ -992,6 +998,7 @@ namespace Marabook.Persistence
                 if (paragraph.StyleId != "body") p["style"] = paragraph.StyleId;
                 if (paragraph.AlignOverride != null) p["align"] = paragraph.AlignOverride;
                 if (paragraph.ListKind != null) p["list"] = paragraph.ListKind;
+                if (paragraph.ListKind != null && paragraph.ListLevel > 0) p["listLevel"] = paragraph.ListLevel; // v40
                 if (paragraph.Indent.HasValue) p["indent"] = paragraph.Indent.Value;
                 if (paragraph.FirstIndent.HasValue) p["firstIndent"] = paragraph.FirstIndent.Value; // v25
                 if (paragraph.PageBreakBefore) p["pb"] = true;
@@ -1570,6 +1577,7 @@ namespace Marabook.Persistence
                     item.Book.BackCover = Json.AsString(Json.Field(book, "backCover")) ?? "";
                     item.Book.BleedMm = Json.AsDouble(Json.Field(book, "bleedMm"), 3);
                     item.Book.ChapterGoal = Math.Max(0, Json.AsInt(Json.Field(book, "chapterGoal"), 0));
+                    item.Book.FlowWarnings = Json.AsBool(Json.Field(book, "flowWarnings"), true); // v40
                     item.Book.Deadline = Json.AsString(Json.Field(book, "deadline")) ?? ""; // v23
                     item.Book.SizeGoal = Math.Max(0, Json.AsInt(Json.Field(book, "sizeGoal"), 0));
                     item.Book.SizeUnit = Json.AsString(Json.Field(book, "sizeUnit")) ?? "words";
@@ -1758,6 +1766,8 @@ namespace Marabook.Persistence
                     paragraph.StyleId = Json.AsString(Json.Field(p, "style")) ?? "body";
                     paragraph.AlignOverride = Json.AsString(Json.Field(p, "align"));
                     paragraph.ListKind = Json.AsString(Json.Field(p, "list"));
+                    paragraph.ListLevel = paragraph.ListKind == null ? 0
+                        : Math.Max(0, Math.Min(TextParagraph.MaxListLevel, (int)Json.AsDouble(Json.Field(p, "listLevel"), 0))); // v40
                     var indent = Json.Field(p, "indent");
                     paragraph.Indent = indent == null ? (double?)null : Math.Max(0, Json.AsDouble(indent, 0));
                     var firstIndent = Json.Field(p, "firstIndent"); // v25

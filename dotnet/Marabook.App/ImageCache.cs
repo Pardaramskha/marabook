@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
 using Avalonia.Media.Imaging;
@@ -29,6 +30,40 @@ namespace Marabook.App
             catch (ArgumentException) { }
             return bitmap;
         }
+
+        /// <summary>Une VIGNETTE de l'image (14/10, 1.0.6) : décodée une fois
+        /// à la largeur demandée et gardée avec l'image (table faible, comme
+        /// la bitmap pleine). La bibliothèque des fiches en rebâtit ses tuiles
+        /// à chaque recherche, tri ou changement : sur le Serment (vingt
+        /// portraits de 3 000 à 5 000 px, 43 Mo), chaque reconstruction
+        /// redécodait tout — d'où la bibliothèque qui ramait.</summary>
+        public static Bitmap Thumbnail(ProjectImage stored, int width)
+        {
+            if (stored == null || stored.Bytes == null || width <= 0) return null;
+            Dictionary<int, object> sizes;
+            lock (Thumbnails)
+            {
+                if (!Thumbnails.TryGetValue(stored, out sizes))
+                {
+                    sizes = new Dictionary<int, object>();
+                    try { Thumbnails.Add(stored, sizes); }
+                    catch (ArgumentException) { }
+                }
+            }
+            object cached;
+            lock (sizes)
+            {
+                if (sizes.TryGetValue(width, out cached)) return cached as Bitmap;
+            }
+            // Jamais agrandie : une image plus étroite que la vignette est
+            // décodée telle quelle.
+            var pixelWidth = ImageHeader.PixelWidth(stored.Bytes);
+            var bitmap = TryDecode(stored.Bytes, pixelWidth > 0 && pixelWidth <= width ? 0 : width);
+            lock (sizes) { sizes[width] = (object)bitmap ?? Unreadable; }
+            return bitmap;
+        }
+
+        private static readonly ConditionalWeakTable<ProjectImage, Dictionary<int, object>> Thumbnails = new ConditionalWeakTable<ProjectImage, Dictionary<int, object>>();
 
         /// <summary>Décode des octets d'image ; decodeWidth > 0 = réduite à
         /// cette largeur. Null si illisible.</summary>

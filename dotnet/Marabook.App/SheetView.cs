@@ -2092,7 +2092,10 @@ namespace Marabook.App
                 if (info.Length > 20 * 1024 * 1024)
                     throw new InvalidOperationException("image de plus de 20 Mo — réduisez-la d'abord.");
                 var bytes = System.IO.File.ReadAllBytes(dialogPath);
-                SetPortrait(_project.AddImage(bytes, System.IO.Path.GetExtension(dialogPath)));
+                // Recadrage, rotation, optimisation (1.0.6) ; null = l'utilisateur a renoncé.
+                var edited = await ImageEditDialog.Show(Ui.OwnerOf(this), bytes, System.IO.Path.GetExtension(dialogPath));
+                if (edited == null || _item == null || _project == null) return;
+                SetPortrait(_project.AddImage(edited.Bytes, edited.Extension));
             }
             catch (Exception error)
             {
@@ -2248,7 +2251,9 @@ namespace Marabook.App
                 if (info.Length > 20 * 1024 * 1024)
                     throw new InvalidOperationException("image de plus de 20 Mo — réduisez-la d'abord.");
                 var bytes = System.IO.File.ReadAllBytes(fileName);
-                InsertStoredImage(_project.AddImage(bytes, System.IO.Path.GetExtension(fileName)),
+                var edited = await ImageEditDialog.Show(Ui.OwnerOf(this), bytes, System.IO.Path.GetExtension(fileName)); // 1.0.6
+                if (edited == null || _item == null || _project == null) return;
+                InsertStoredImage(_project.AddImage(edited.Bytes, edited.Extension),
                     System.IO.Path.GetFileNameWithoutExtension(fileName));
             }
             catch (Exception error)

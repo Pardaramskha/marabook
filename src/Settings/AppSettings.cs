@@ -93,6 +93,8 @@ namespace Marabook.Settings
             new ActionDefinition("align-justify", EditorCategory, "Justifier", null),
             new ActionDefinition("list-bullets", EditorCategory, "Liste à puces", null),
             new ActionDefinition("list-numbers", EditorCategory, "Liste numérotée", null),
+            new ActionDefinition("list-indent", EditorCategory, "Liste : niveau suivant", "Tab"), // sous-puces (15/10, 1.0.6)
+            new ActionDefinition("list-outdent", EditorCategory, "Liste : niveau précédent", "Shift+Tab"),
             new ActionDefinition("check-box", EditorCategory, "Case à cocher", null),
             new ActionDefinition("indent-add", EditorCategory, "Ajouter un décalage", null),
             new ActionDefinition("indent-remove", EditorCategory, "Retirer le décalage", null),
@@ -189,7 +191,7 @@ namespace Marabook.Settings
         public static bool WhitePaperInDark; // keep white pages under the dark theme
         public static bool StatsExpanded;    // « Statistiques » accordion of the inspector
         public static bool ShowAnnotations = true; // teintes + bulles de révision
-        public static bool ShowLooseLines = true;  // lignes lâches signalées à l'écran (09/10)
+        public static bool ShowLooseLines;         // lignes lâches signalées à l'écran (09/10) — CACHÉES par défaut, opt-in (13/10) : clé « looseLinesVisible », l'ancienne « showLooseLines » (vraie d'office) est ignorée
         public static bool ImageGrid;               // grille de placement des images (0.50.0)
         // Les [[liens]] du texte (18/09) : marques visibles et texte du lien
         // en évidence, ou marques masquées (défaut). Jamais persisté : chaque
@@ -207,8 +209,12 @@ namespace Marabook.Settings
         // tirer une sélection la déplace là où le caret de dépôt se pose.
         public static bool TextDragDrop = true;
         // La vitesse du défilement à la molette (0.50.0) : un multiplicateur
-        // du pas de Windows, 0,25 à 3 — Préférences › Personnalisation.
+        // du pas de Windows, 0,25 à 3 — Préférences › Général (« Personnalisation » jusqu'à la 1.0.5).
         public static double ScrollSpeed = 1;
+        // Les animations de l'interface (14/10, 1.0.6) — Préférences › Général :
+        // l'entrée des tuiles, la glissade de la Pile et celle de la colonne de
+        // droite. Décochée, tout se pose d'un coup.
+        public static bool Animations = true;
         // Les derniers caractères spéciaux insérés (tiroir du ruban, 0.50.0).
         public static List<string> RecentSpecialChars = new List<string>();
 
@@ -251,6 +257,10 @@ namespace Marabook.Settings
         public static bool StyleDialogue = true;
         public static int RepetitionRadius = 100;
         public static bool TypographyLiveEnabled = true;
+        // La majuscule automatique en début de phrase (24/10, 1.0.6) : la
+        // lettre d'un mot tapé en tête de phrase prend sa capitale (accents
+        // compris) ; Ctrl+Z la refuse. Vrai par défaut ("autoCapitalize").
+        public static bool AutoCapitalize = true;
         public static Correction.TypographyOptions TypographyLive = DefaultLiveTypography();
 
         /// <summary>Les règles retenues à la frappe par défaut : tout sauf
@@ -526,7 +536,8 @@ namespace Marabook.Settings
                 WhitePaperInDark = Json.AsBool(Json.Field(root, "whitePaperInDark"), false);
                 StatsExpanded = Json.AsBool(Json.Field(root, "statsExpanded"), false);
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
-                ShowLooseLines = Json.AsBool(Json.Field(root, "showLooseLines"), true);
+                ShowLooseLines = Json.AsBool(Json.Field(root, "looseLinesVisible"), false);
+                Animations = Json.AsBool(Json.Field(root, "animations"), true);
                 ImageGrid = Json.AsBool(Json.Field(root, "imageGrid"), false);
                 LexiconPinned = Json.AsBool(Json.Field(root, "lexiconPinned"), true);
                 LoadedFromFile = true;
@@ -569,6 +580,7 @@ namespace Marabook.Settings
                 if (RepetitionRadius < 20) RepetitionRadius = 20;
                 if (RepetitionRadius > 500) RepetitionRadius = 500;
                 TypographyLiveEnabled = Json.AsBool(Json.Field(root, "typographyLiveEnabled"), true);
+                AutoCapitalize = Json.AsBool(Json.Field(root, "autoCapitalize"), true);
                 var live = Json.AsObject(Json.Field(root, "typographyLive"));
                 TypographyLive = live == null ? DefaultLiveTypography() : Correction.TypographyOptions.FromJson(live);
                 var grammarOptions = Json.AsObject(Json.Field(root, "grammarOptions"));
@@ -675,7 +687,8 @@ namespace Marabook.Settings
                 root["whitePaperInDark"] = WhitePaperInDark;
                 root["statsExpanded"] = StatsExpanded;
                 root["showAnnotations"] = ShowAnnotations;
-                root["showLooseLines"] = ShowLooseLines;
+                root["looseLinesVisible"] = ShowLooseLines;
+                root["animations"] = Animations;
                 root["imageGrid"] = ImageGrid;
                 root["lexiconPinned"] = LexiconPinned;
                 root["proofEnabled"] = ProofEnabled;
@@ -699,6 +712,7 @@ namespace Marabook.Settings
                 root["styleDialogue"] = StyleDialogue;
                 root["repetitionRadius"] = RepetitionRadius;
                 root["typographyLiveEnabled"] = TypographyLiveEnabled;
+                root["autoCapitalize"] = AutoCapitalize;
                 root["typographyLive"] = TypographyLive.ToJson();
                 if (GrammarOptions.Count > 0)
                 {

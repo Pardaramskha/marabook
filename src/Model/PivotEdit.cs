@@ -137,6 +137,7 @@ namespace Marabook.Model
                 StyleId = paragraph.StyleId,
                 AlignOverride = paragraph.AlignOverride,
                 ListKind = paragraph.ListKind,
+                ListLevel = paragraph.ListLevel,
                 Indent = paragraph.Indent,
                 FirstIndent = paragraph.FirstIndent,
                 PageBreakBefore = paragraph.PageBreakBefore,
@@ -299,6 +300,7 @@ namespace Marabook.Model
                 StyleId = paragraph.StyleId,
                 AlignOverride = paragraph.AlignOverride,
                 ListKind = paragraph.ListKind,
+                ListLevel = paragraph.ListLevel,
                 Indent = paragraph.Indent
             };
             int runIndex, inner;
@@ -429,6 +431,7 @@ namespace Marabook.Model
                     StyleId = paragraph.StyleId,
                     AlignOverride = paragraph.AlignOverride,
                     ListKind = paragraph.ListKind,
+                    ListLevel = paragraph.ListLevel,
                     Indent = paragraph.Indent,
                     FirstIndent = paragraph.FirstIndent,
                     PageBreakBefore = paragraph.PageBreakBefore,
