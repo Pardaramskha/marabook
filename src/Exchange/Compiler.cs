@@ -90,6 +90,7 @@ namespace Marabook.Exchange
                         StyleId = paragraph.StyleId,
                         AlignOverride = paragraph.AlignOverride,
                         ListKind = paragraph.ListKind,
+                        ListLevel = paragraph.ListLevel,
                         Indent = paragraph.Indent,
                         FirstIndent = paragraph.FirstIndent,
                         PageBreakBefore = paragraph.PageBreakBefore,
@@ -141,17 +142,16 @@ namespace Marabook.Exchange
             if (!needed) return document;
 
             var output = new TextDocument { Footnotes = document.Footnotes, Annotations = document.Annotations, LineSpacing = document.LineSpacing };
-            var number = 0;
-            foreach (var paragraph in document.Paragraphs)
+            var numbers = TextParagraph.ListNumbers(document.Paragraphs);
+            for (var index = 0; index < document.Paragraphs.Count; index++)
             {
+                var paragraph = document.Paragraphs[index];
                 var source = FlattenRulesIn(paragraph);
                 if (source.ListKind == null)
                 {
-                    number = 0;
                     output.Paragraphs.Add(source);
                     continue;
                 }
-                number = source.ListKind == "number" ? number + 1 : 0;
                 var copy = new TextParagraph
                 {
                     StyleId = source.StyleId,
@@ -159,9 +159,12 @@ namespace Marabook.Exchange
                     Indent = source.Indent,
                     PageBreakBefore = source.PageBreakBefore
                 };
+                // La marque du niveau (15/10) ; les niveaux plus profonds se
+                // décalent au texte, faute de retrait de liste ici.
                 copy.Runs.Add(new TextRun
                 {
-                    Text = source.ListKind == "number" ? number + ". " : "•  "
+                    Text = new string(' ', 4 * System.Math.Max(0, source.ListLevel))
+                        + TextParagraph.ListMarker(source.ListKind, source.ListLevel, numbers[index])
                 });
                 copy.Runs.AddRange(source.Runs);
                 output.Paragraphs.Add(copy);
@@ -196,6 +199,7 @@ namespace Marabook.Exchange
                 StyleId = paragraph.StyleId,
                 AlignOverride = paragraph.AlignOverride ?? "center",
                 ListKind = paragraph.ListKind,
+                ListLevel = paragraph.ListLevel,
                 PageBreakBefore = paragraph.PageBreakBefore
             };
             foreach (var run in paragraph.Runs)

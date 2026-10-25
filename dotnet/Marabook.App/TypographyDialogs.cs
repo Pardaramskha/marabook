@@ -115,6 +115,22 @@ namespace Marabook.App
                 Margin = new Thickness(0, 2, 0, 6)
             };
             panel.Children.Add(_liveMaster);
+            // La majuscule automatique en début de phrase (24/10, 1.0.6).
+            _autoCapital = new CheckBox
+            {
+                Content = new TextBlock
+                {
+                    Text = "Majuscule automatique en début de phrase, accents compris (é → É) — après un point, « ! », « ? », en tête de réplique ; "
+                        + Ui.Keys("Ctrl+Z") + " la refuse, l'incise reste en bas de casse",
+                    Foreground = Chrome.Ink,
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 660
+                },
+                IsChecked = AppSettings.AutoCapitalize,
+                Margin = new Thickness(0, 2, 0, 6),
+                Tag = "auto-capital" // sonde
+            };
+            panel.Children.Add(_autoCapital);
             _rulesGrid = new Grid();
             _rulesGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _rulesGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -222,6 +238,8 @@ namespace Marabook.App
         /// <summary>Les options reconstruites : à partir du jeu d'origine (les
         /// raccourcis tapés, réglés ailleurs, restent), le préréglage, les
         /// cases et la norme de dialogue par-dessus.</summary>
+        private CheckBox _autoCapital;
+
         private TypographyOptions Build(TypographyOptions source, List<KeyValuePair<CheckBox, string>> rules)
         {
             var node = source.ToJson();
@@ -241,6 +259,7 @@ namespace Marabook.App
             if (!dialog._accepted) return false;
             AppSettings.TypographyLive = dialog.Build(dialog._liveSource, dialog._liveRules);
             AppSettings.TypographyLiveEnabled = dialog._liveMaster.IsChecked == true;
+            AppSettings.AutoCapitalize = dialog._autoCapital.IsChecked == true;
             AppSettings.Typography = dialog.Build(dialog._source, dialog._rules);
             AppSettings.Save();
             return true;

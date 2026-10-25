@@ -15,6 +15,16 @@ namespace Marabook.Exchange
 
         // ------------------------------------------------------- export
 
+        /// <summary>« - », « * » ou « 12. » en tête : un article de liste.</summary>
+        private static bool IsListStart(string line)
+        {
+            if (line.StartsWith("- ") || line.StartsWith("* ")) return true;
+            var dot = line.IndexOf(". ", StringComparison.Ordinal);
+            if (dot <= 0 || dot > 3) return false;
+            for (var d = 0; d < dot; d++) if (!char.IsDigit(line[d])) return false;
+            return true;
+        }
+
         public static string Export(TextDocument document)
         {
             var sb = new StringBuilder();
@@ -22,13 +32,16 @@ namespace Marabook.Exchange
             for (var i = 0; i < document.Footnotes.Count; i++)
                 noteNumbers[document.Footnotes[i].Id] = i + 1;
 
-            var listNumber = 0;
-            foreach (var paragraph in document.Paragraphs)
+            var listNumbers = TextParagraph.ListNumbers(document.Paragraphs);
+            for (var index = 0; index < document.Paragraphs.Count; index++)
             {
-                if (paragraph.ListKind == "number") sb.Append(++listNumber).Append(". ");
+                var paragraph = document.Paragraphs[index];
+                // Le niveau (15/10) : quatre espaces par cran, ce que Markdown
+                // lit sous une puce comme sous un numéro.
+                if (paragraph.ListKind != null && paragraph.ListLevel > 0) sb.Append(' ', 4 * paragraph.ListLevel);
+                if (paragraph.ListKind == "number") sb.Append(listNumbers[index]).Append(". ");
                 else
                 {
-                    listNumber = 0;
                     if (paragraph.ListKind == "bullet") sb.Append("- ");
                     else if (paragraph.StyleId == "title1") sb.Append("# ");
                     else if (paragraph.StyleId == "title2") sb.Append("## ");
@@ -119,6 +132,20 @@ namespace Marabook.Exchange
                 if (raw.StartsWith("[^") && raw.Contains("]:")) continue; // definition line
                 var line = raw;
                 var paragraph = new TextParagraph();
+                // Un article en retrait (15/10) : deux à quatre espaces par
+                // niveau, une tabulation = un niveau.
+                var leading = 0;
+                var leadingWidth = 0;
+                while (leading < line.Length && (line[leading] == ' ' || line[leading] == '\t'))
+                {
+                    leadingWidth += line[leading] == '\t' ? 4 : 1;
+                    leading++;
+                }
+                if (leading > 0 && leading < line.Length && IsListStart(line.Substring(leading)))
+                {
+                    line = line.Substring(leading);
+                    paragraph.ListLevel = Math.Min(TextParagraph.MaxListLevel, leadingWidth / 4 + (leadingWidth % 4 >= 2 ? 1 : 0));
+                }
                 if (line.StartsWith("# ")) { paragraph.StyleId = "title1"; line = line.Substring(2); }
                 else if (line.StartsWith("## ")) { paragraph.StyleId = "title2"; line = line.Substring(3); }
                 else if (line.StartsWith("### ")) { paragraph.StyleId = "title2"; line = line.Substring(4); }
@@ -136,6 +163,7 @@ namespace Marabook.Exchange
                         if (digits) { paragraph.ListKind = "number"; line = line.Substring(dot + 2); }
                     }
                 }
+                if (paragraph.ListKind == null) paragraph.ListLevel = 0;
 
                 var trimmed = line.Trim();
                 if (trimmed == "---" || trimmed == "___" || trimmed == "- - -")
@@ -193,7 +221,9 @@ namespace Marabook.Exchange
                     if (Array.IndexOf(ImportedImages.Supported, extension) < 0) return null;
                     var info = new System.IO.FileInfo(path);
                     if (info.Length == 0 || info.Length > 20 * 1024 * 1024) return null;
-                    var id = Project.AddImage(System.IO.File.ReadAllBytes(path), extension);
+                    string stored;
+                    var optimized = Platform.Images.Optimize(System.IO.File.ReadAllBytes(path), extension, out stored); // 1.0.6
+                    var id = Project.AddImage(optimized, stored);
                     return new TextRun { ImageId = id, Image = new ImageLayout { Name = System.IO.Path.GetFileName(path) } };
                 }
                 catch (Exception) { return null; }

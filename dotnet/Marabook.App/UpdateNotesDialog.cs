@@ -23,12 +23,17 @@ namespace Marabook.App
         public UpdateNotesDialog(Window owner, Updater.Info info, string localVersion, bool prepared, Action install)
             : this(owner, info, localVersion, prepared, install, false) { }
 
+        /// <summary>L'avertissement posé au-dessus des patch notes d'une beta
+        /// (13/10), le texte de Rémi tel quel.</summary>
+        public const string BetaWarning = "Vous vous apprêtez à télécharger une version beta de l'application. Ces versions sont exclusivement réservées aux tests et peuvent être particulièrement instables. Ne les utilisez pas pour lire ou modifier vos projets d'importance, mais seulement pour aider le développement de Marabook (merci, by the way).";
+
         /// <summary>current = Aide › Nouveautés (07/10) : les notes de la
         /// version INSTALLÉE (patchnotes embarquées), sans lien de release ni
         /// installation — un seul bouton, « Fermer ».</summary>
         private UpdateNotesDialog(Window owner, Updater.Info info, string localVersion, bool prepared, Action install, bool current)
         {
-            Title = "Nouveautés de Marabook " + info.Version;
+            var beta = info.Beta && !current;
+            Title = (beta ? "Version beta de Marabook " : "Nouveautés de Marabook ") + info.Version;
             if (owner != null)
             {
                 Owner = owner;
@@ -81,6 +86,27 @@ namespace Marabook.App
             // le cadre restait blanc sous un texte d'encre claire, illisible.
             // Un filet au-dessus suffit à poser la zone ; le texte (Chrome.Ink)
             // suit le fond du dialogue (Chrome.RaisedBg).
+            // ---- la beta (13/10) : l'avertissement AVANT les notes, dans la
+            // couleur d'alerte — on ne télécharge pas une version d'essai sans
+            // l'avoir lu.
+            if (beta)
+                panel.Children.Add(new Border
+                {
+                    Background = new SolidColorBrush(Color.FromArgb(0x22, 0xC4, 0x82, 0x0E)), // la teinte de Chrome.Warn
+                    BorderBrush = Chrome.Warn,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(12, 10, 12, 10),
+                    Margin = new Thickness(0, 0, 0, 4),
+                    Child = new TextBlock
+                    {
+                        Text = BetaWarning,
+                        FontSize = 12.5,
+                        Foreground = Chrome.Ink,
+                        TextWrapping = TextWrapping.Wrap,
+                        Tag = "beta-warning"
+                    }
+                });
             var notes = (info.Notes ?? "").Trim();
             Control body;
             if (notes.Length > 0)
@@ -149,7 +175,8 @@ namespace Marabook.App
             var later = new Button { Content = "Plus tard", IsCancel = true, MinWidth = 88 };
             later.Click += delegate { Close(false); };
             buttons.Children.Add(later);
-            var go = new Button { Content = "Installer et redémarrer", IsDefault = true, MinWidth = 88 };
+            var go = new Button { Content = beta ? "Télécharger la beta et redémarrer" : "Installer et redémarrer", IsDefault = !beta, MinWidth = 88 };
+            if (beta) later.IsDefault = true; // Entrée ne lance pas une version d'essai par réflexe
             ToolTip.SetTip(go, prepared
                 ? "La mise à jour est déjà téléchargée : Marabook se ferme, remplace ses fichiers (vos projets et réglages restent) et redémarre"
                 : "Télécharge la mise à jour, puis Marabook se ferme, remplace ses fichiers (vos projets et réglages restent) et redémarre");

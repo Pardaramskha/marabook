@@ -265,6 +265,7 @@ namespace Marabook.App
             _overlay.Children.Add(_caretBar);
             _dropCaret = new Rectangle { Width = 2, Fill = Chrome.Accent, IsVisible = false };
             _overlay.Children.Add(_dropCaret);
+            InitIme(); // les touches mortes sur mac (15/10, 1.0.6)
             _column = new Grid
             {
                 Margin = new Thickness(24, 20, 24, 20),
@@ -897,7 +898,8 @@ namespace Marabook.App
         private void ClearOverlay()
         {
             for (var i = _overlay.Children.Count - 1; i >= 0; i--)
-                if (!ReferenceEquals(_overlay.Children[i], _caretBar) && !ReferenceEquals(_overlay.Children[i], _dropCaret))
+                if (!ReferenceEquals(_overlay.Children[i], _caretBar) && !ReferenceEquals(_overlay.Children[i], _dropCaret)
+                    && !ReferenceEquals(_overlay.Children[i], _preeditBlock))
                     _overlay.Children.RemoveAt(i);
         }
 
@@ -928,6 +930,7 @@ namespace Marabook.App
             if (line == null) { _caretBar.IsVisible = false; return; }
             var x = CaretX(line, _caretOffset, _engine.Current.LeftPxFor(pageIndex));
             var y = PageTop(pageIndex) + lineY;
+            x += PlacePreedit(x, y, line); // le texte en composition (touche morte) devant le caret
             Canvas.SetLeft(_caretBar, x);
             Canvas.SetTop(_caretBar, y + 1);
             _caretBar.Height = Math.Max(8, line.Height - 2);
@@ -1860,6 +1863,44 @@ namespace Marabook.App
             _caretDesiredX = -1;
             if (!ApplyLiveTypography(text.Length))
                 AfterEdit(_engine.RecomposeParagraph(_caretParagraph));
+            ApplyAutoCapital(); // la majuscule de début de phrase (24/10)
+        }
+
+        /// <summary>La majuscule automatique en début de phrase (24/10,
+        /// 1.0.6), posée par EditorView depuis les réglages.</summary>
+        public bool AutoCapitalize = true;
+
+        /// <summary>Après une frappe : le mot en tête de phrase prend sa
+        /// capitale (AutoCapital). Un cran d'annulation À PART, comme la
+        /// typographie à la frappe : Ctrl+Z rend la minuscule et la REFUSE à
+        /// cet endroit (veto) — l'incise « ! » dit-il » reste en bas de casse
+        /// même en continuant d'écrire. Vrai si le paragraphe a été réécrit.</summary>
+        private bool ApplyAutoCapital(bool beforeBreak = false)
+        {
+            if (!AutoCapitalize || ReadOnly || NoteEditing || _item == null) return false;
+            var paragraph = _item.Document.Paragraphs[_caretParagraph];
+            var flat = PivotEdit.FlatText(paragraph);
+            char upper;
+            // Entrée termine le mot comme un espace : la règle voit un
+            // séparateur au caret (le texte réel n'en reçoit pas).
+            var index = beforeBreak
+                ? Correction.AutoCapital.Find(flat.Insert(Math.Min(_caretOffset, flat.Length), " "), _caretOffset + 1, out upper)
+                : Correction.AutoCapital.Find(flat, _caretOffset, out upper);
+            if (index < 0) return false;
+            var lower = flat[index].ToString();
+            if (IsVetoed(_caretParagraph, index, lower)) return false;
+            var replaced = flat.Substring(0, index) + upper + flat.Substring(index + 1);
+            var ops = CharDiff.Diff(flat, replaced);
+            if (ops == null || ops.Count == 0) return false;
+            PushUndo(false);
+            var snapshot = _undo[_undo.Count - 1];
+            snapshot.AutoParagraph = _caretParagraph;
+            snapshot.AutoBlocks = new List<KeyValuePair<int, string>> { new KeyValuePair<int, string>(index, lower) };
+            var replacement = Correction.TypographyPass.Redistribute(paragraph, ops);
+            paragraph.Runs.Clear();
+            paragraph.Runs.AddRange(replacement.Runs);
+            AfterEdit(_engine.RecomposeParagraph(_caretParagraph));
+            return true;
         }
 
         /// <summary>La typographie à la frappe (b45), ou null = éteinte —
@@ -2018,6 +2059,11 @@ namespace Marabook.App
                 case "align-justify": ApplyAlign("justify"); return true;
                 case "list-bullets": ApplyList("bullet"); return true;
                 case "list-numbers": ApplyList("number"); return true;
+                // Tab / Maj+Tab dans une liste (15/10, 1.0.6) : un cran plus
+                // profond, un cran moins — hors liste, la touche suit son
+                // cours ordinaire (faux = pas consommée).
+                case "list-indent": return ChangeListLevel(1);
+                case "list-outdent": return ChangeListLevel(-1);
                 case "check-box": TypeText("☐ "); return true;
                 case "indent-add": ApplyIndent(true); return true;
                 case "indent-remove": ApplyIndent(false); return true;
@@ -2429,6 +2475,9 @@ namespace Marabook.App
             PushUndo(false);
             if (DeleteSelectionIfAny()) { AfterEdit(0); return; }
             var document = _item.Document;
+            // En tête d'un article de liste (15/10) : la puce s'en va avant le
+            // texte — comme dans Word.
+            if (_caretOffset == 0 && LeaveListStep()) return;
             if (_caretOffset > 0)
             {
                 var paragraph = document.Paragraphs[_caretParagraph];
@@ -2482,10 +2531,14 @@ namespace Marabook.App
         public void InsertParagraphBreak()
         {
             if (NoteEditing) { CloseNoteEditor(true); return; } // Entrée dans la note : on sort (27/09)
+            if (!HasSelection()) ApplyAutoCapital(true); // le mot que le retour termine (24/10)
             PushUndo(false);
             DeleteSelectionIfAny();
             ClearVetoes();
             var document = _item.Document;
+            // Entrée sur un article VIDE (15/10) : pas d'article de plus, la
+            // liste se referme (ou remonte d'un niveau) — comme dans Word.
+            if (PivotEdit.FlatLength(document.Paragraphs[_caretParagraph]) == 0 && LeaveListStep()) return;
             // Le format au caret passe au nouveau paragraphe (0.50.0) : un
             // retour à la ligne en fin de paragraphe ne rendait aucun run au
             // suivant, et la frappe y retombait sur la police du style.
@@ -3809,9 +3862,60 @@ namespace Marabook.App
             for (var p = pa; p <= pb; p++)
             {
                 _item.Document.Paragraphs[p].ListKind = allAlready ? null : kind;
+                if (allAlready) _item.Document.Paragraphs[p].ListLevel = 0; // la liste retirée oublie son niveau
                 _engine.RecomposeParagraph(p);
             }
             AfterEditKeepingView(0);
+        }
+
+        /// <summary>Le NIVEAU des articles de liste au caret ou dans la
+        /// sélection (15/10) : +1 = sous-puce (« ◦ », « a. »), −1 = remonte.
+        /// Faux si aucun paragraphe visé n'est une liste, ou si rien ne peut
+        /// bouger (premier niveau remonté, dernier niveau descendu).</summary>
+        public bool ChangeListLevel(int delta)
+        {
+            if (NoteEditing || ReadOnly || _item == null) return false;
+            int pa, pb;
+            if (HasSelection())
+            {
+                int oa, ob;
+                OrderedSelection(out pa, out oa, out pb, out ob);
+            }
+            else { pa = _caretParagraph; pb = _caretParagraph; }
+            var movable = false;
+            for (var p = pa; p <= pb; p++)
+            {
+                var paragraph = _item.Document.Paragraphs[p];
+                if (paragraph.ListKind == null) continue;
+                var next = Math.Max(0, Math.Min(TextParagraph.MaxListLevel, paragraph.ListLevel + delta));
+                if (next != paragraph.ListLevel) movable = true;
+            }
+            if (!movable) return false;
+            PushUndo(false);
+            for (var p = pa; p <= pb; p++)
+            {
+                var paragraph = _item.Document.Paragraphs[p];
+                if (paragraph.ListKind == null) continue;
+                paragraph.ListLevel = Math.Max(0, Math.Min(TextParagraph.MaxListLevel, paragraph.ListLevel + delta));
+                _engine.RecomposeParagraph(p);
+            }
+            AfterEditKeepingView(0);
+            return true;
+        }
+
+        /// <summary>Retour arrière en tête d'un article, ou Entrée sur un
+        /// article vide (15/10, règle de Word) : un niveau en moins, et au
+        /// premier niveau la liste s'en va — le paragraphe reste, redevenu
+        /// ordinaire. Faux si le caret n'est pas en tête d'une liste.</summary>
+        private bool LeaveListStep()
+        {
+            var paragraph = _item.Document.Paragraphs[_caretParagraph];
+            if (paragraph.ListKind == null) return false;
+            if (paragraph.ListLevel > 0) paragraph.ListLevel--;
+            else { paragraph.ListKind = null; paragraph.ListLevel = 0; }
+            _caretOffset = 0;
+            AfterEdit(_engine.RecomposeParagraph(_caretParagraph));
+            return true;
         }
 
         public void InsertElementAtCaret(TextRun element)

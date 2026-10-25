@@ -181,6 +181,7 @@ namespace Marabook.Model
             landing.StyleId = tail.StyleId;
             landing.AlignOverride = tail.AlignOverride;
             landing.ListKind = tail.ListKind;
+            landing.ListLevel = tail.ListLevel;
             landing.Indent = tail.Indent;
             landing.FirstIndent = tail.FirstIndent;
             landing.AllowWidows = tail.AllowWidows;
@@ -290,6 +291,7 @@ namespace Marabook.Model
             to.StyleId = from.StyleId;
             to.AlignOverride = from.AlignOverride;
             to.ListKind = from.ListKind;
+            to.ListLevel = from.ListLevel;
             to.Indent = from.Indent;
             to.FirstIndent = from.FirstIndent;
             to.PageBreakBefore = from.PageBreakBefore;

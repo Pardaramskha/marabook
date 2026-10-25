@@ -105,6 +105,11 @@ namespace Marabook.Model
 
         /// <summary>L'image réencodée en PNG ; null = impossible.</summary>
         byte[] ToPng(byte[] bytes);
+
+        /// <summary>L'image OPTIMISÉE pour entrer dans un projet (1.0.6) :
+        /// réduite et réencodée si elle est trop grande ; sinon, ou sans
+        /// décodeur, les octets tels quels. newExtension = celle du résultat.</summary>
+        byte[] Optimize(byte[] bytes, string extension, out string newExtension);
     }
 
     /// <summary>Le codec sans interface : il lit les en-têtes, ne décode rien.</summary>
@@ -125,6 +130,12 @@ namespace Marabook.Model
         public byte[] ToPng(byte[] bytes)
         {
             return null;
+        }
+
+        public byte[] Optimize(byte[] bytes, string extension, out string newExtension)
+        {
+            newExtension = extension;
+            return bytes;
         }
     }
 

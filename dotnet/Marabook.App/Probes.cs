@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Marabook.Model;
 using Marabook.Settings;
+using SkiaSharp;
 
 namespace Marabook.App
 {
@@ -130,12 +131,14 @@ namespace Marabook.App
                 Check(shell.StatusPagesText.Contains("page"), "la barre d'état donne les pages de l'écrit (" + shell.StatusPagesText + ")");
                 Check(shell.StatusText.Contains("signes EC") && !shell.StatusText.Contains("feuillet") && !shell.StatusText.Contains("min"), "…et mots · signes EC, sans feuillets ni temps de lecture (" + shell.StatusText + ")");
                 Check(shell.ZoomPanelVisibleForProbe, "le curseur de zoom est montré dans l'éditeur");
-                // — Lignes lâches (09/10) : signalées par défaut, le bouton du ruban Mise en page les coupe et les rallume.
-                Check(editor.LooseLinesShownForProbe && AppSettings.ShowLooseLines, "les lignes lâches sont signalées par défaut");
+                // — Lignes lâches (09/10) : CACHÉES par défaut (13/10, opt-in), le bouton du ruban Mise en page les montre et les cache.
+                Check(!AppSettings.ShowLooseLines || AppSettings.LoadedFromFile, "les lignes lâches sont cachées par défaut (sauf réglage enregistré)");
+                if (AppSettings.ShowLooseLines) editor.ToggleLooseLinesForProbe();
+                Check(!editor.LooseLinesShownForProbe && !ComposedRenderer.ShowLooseLines, "cachées : rien n'est signalé");
                 editor.ToggleLooseLinesForProbe();
-                Check(!editor.LooseLinesShownForProbe && !ComposedRenderer.ShowLooseLines, "Mise en page › Lignes lâches les éteint");
+                Check(editor.LooseLinesShownForProbe && ComposedRenderer.ShowLooseLines, "Mise en page › Lignes lâches les montre");
                 editor.ToggleLooseLinesForProbe();
-                Check(editor.LooseLinesShownForProbe, "…et les rallume");
+                Check(!editor.LooseLinesShownForProbe, "…et les cache à nouveau");
                 // — Ctrl+F (09/10) : une seconde après la frappe, la première occurrence est sélectionnée.
                 editor.TypeSearchForProbe("volets");
                 await Task.Delay(1300);
@@ -191,9 +194,9 @@ namespace Marabook.App
                     }
                 }
                 Check(AppSettings.Gesture("loose-lines") == "Ctrl+L", "le raccourci par défaut est Ctrl+L / ⌘L (" + AppSettings.Gesture("loose-lines") + ")");
-                Check(composed != null && composed.RunEditorAction("loose-lines") && !editor.LooseLinesShownForProbe, "l'action de l'éditeur « loose-lines » bascule le bouton du ruban");
+                Check(composed != null && composed.RunEditorAction("loose-lines") && editor.LooseLinesShownForProbe, "l'action de l'éditeur « loose-lines » bascule le bouton du ruban (cachées par défaut → montrées)");
                 composed.RunEditorAction("loose-lines");
-                Check(editor.LooseLinesShownForProbe, "…dans les deux sens");
+                Check(!editor.LooseLinesShownForProbe, "…dans les deux sens");
                 Check(shell.StatusBookText.StartsWith("Livre : ") && shell.StatusBookText.Contains("page"), "…et la pagination totale du livre (" + shell.StatusBookText + ")");
                 // — Le panneau Publication et « Publier » comptent les MÊMES
                 //   pages (09/10) : le cache compte sur la page du livre.
@@ -207,6 +210,75 @@ namespace Marabook.App
                         var panelTotal = shell.BookPageTotalForProbe(demoBook);
                         Check(panelTotal == merged.Pages.Count, "le panneau Publication compte les pages du PDF publié (" + panelTotal + " = " + merged.Pages.Count + ")");
                         shell.BookPageTotalForProbe(demoBook); // le cache repart propre
+                    }
+                }
+                // — L'enchaînement des pages (18/10, 1.0.6) : pastille sur le
+                //   chapitre qui finit sur une page impaire, « Unifier » au
+                //   menu ajoute la page blanche, l'option se débraye par livre.
+                {
+                    var flowBook = chapter == null ? null : chapter.EnclosingBook();
+                    if (flowBook != null)
+                    {
+                        Check(Marabook.Model.BookFlow.Enabled(flowBook), "les avertissements d'enchaînement sont activés par défaut");
+                        if (flowBook.Book == null) flowBook.Book = new BookInfo();
+                        var report = Marabook.Model.BookFlow.Analyse(flowBook, shell.PageCountForProbe);
+                        Check(report.OddChapters.Count > 0, "le livre de démonstration a au moins un chapitre finissant sur une page impaire (" + report.OddChapters.Count + ")");
+                        if (report.OddChapters.Count > 0)
+                        {
+                            var odd = report.OddChapters[0];
+                            shell.Binder.Rebuild();
+                            await Settle();
+                            Check(shell.ChapterOddEndForProbe(odd) % 2 == 1, "la coquille relève le folio impair de sa dernière page (p. " + shell.ChapterOddEndForProbe(odd) + ")");
+                            Check(shell.Binder.HasFlowDotForProbe(odd.Id), "la pastille d'enchaînement est posée sur sa ligne dans la Pile");
+                            Check(shell.Binder.MenuHasUnifyForProbe(odd.Id), "…et son menu propose « Unifier »");
+                            var pagesBefore = shell.PageCountForProbe(odd);
+                            var paragraphsBefore = odd.Document.Paragraphs.Count;
+                            shell.UnifyForProbe(odd);
+                            await Settle();
+                            var lastParagraph = odd.Document.Paragraphs[odd.Document.Paragraphs.Count - 1];
+                            Check(odd.Document.Paragraphs.Count == paragraphsBefore + 1 && lastParagraph.PageBreakBefore && shell.PageCountForProbe(odd) == pagesBefore + 1,
+                                "« Unifier » ajoute une page blanche à la fin du chapitre (" + pagesBefore + " → " + shell.PageCountForProbe(odd) + " pages)");
+                            Check(shell.ChapterOddEndForProbe(odd) == 0 && !shell.Binder.HasFlowDotForProbe(odd.Id), "…la pastille s'éteint");
+                            Check(!shell.Binder.MenuHasUnifyForProbe(odd.Id), "…et « Unifier » quitte le menu");
+                            Check(shell.UndoForProbe() && odd.Document.Paragraphs.Count == paragraphsBefore && shell.PageCountForProbe(odd) == pagesBefore, "Ctrl+Z retire la page blanche");
+                            await Settle();
+                            // Le livre : la pastille sur sa ligne quand il finit impair.
+                            var bookOdd = Marabook.Model.BookFlow.Analyse(flowBook, shell.PageCountForProbe).BookEndsOdd;
+                            Check(shell.Binder.HasFlowDotForProbe(flowBook.Id) == bookOdd, "la ligne du livre porte la pastille si et seulement si le livre finit sur une page impaire (" + (bookOdd ? "oui" : "non") + ")");
+                            // Débrayé : plus rien, ni pastille ni menu.
+                            flowBook.Book.FlowWarnings = false;
+                            shell.Binder.Rebuild();
+                            await Settle();
+                            Check(shell.ChapterOddEndForProbe(odd) == 0 && !shell.Binder.HasFlowDotForProbe(odd.Id) && !shell.Binder.MenuHasUnifyForProbe(odd.Id) && !shell.Binder.HasFlowDotForProbe(flowBook.Id),
+                                "avertissement débrayé sur le livre : ni pastille, ni « Unifier »");
+                            flowBook.Book.FlowWarnings = true;
+                            shell.Binder.Rebuild();
+                            await Settle();
+                            // La page livre : la case de Gabarits & Format, la check-list.
+                            shell.Binder.SelectItem(flowBook.Id, true);
+                            await Settle();
+                            var bookView = shell.BookViewPublic;
+                            Check(bookView.FlowWarningsBoxForProbe.IsChecked == true, "Gabarits & Format › Contenu & Fichiers : la case suit le livre (cochée)");
+                            bookView.SelectedTab = 4;
+                            await Settle();
+                            var publication = bookView.PublicationForProbe;
+                            Check(publication.RowIsRedForProbe("flow-row") == true, "check-list : la ligne d'enchaînement est là, en rouge (critique)");
+                            Check(publication.RowIsRedForProbe("template-row") != null, "check-list : la ligne du gabarit est là");
+                            Check(publication.DividersForProbe() == publication.RowsForProbe() - 1, "les lignes sont séparées par des filets (" + publication.DividersForProbe() + " filets pour " + publication.RowsForProbe() + " lignes)");
+                            var ordered = new List<BinderItem>();
+                            Marabook.Model.BookFlow.Texts(flowBook, ordered);
+                            Check(publication.StatsRowsForProbe() == ordered.Count, "Tailles › Statistiques : une ligne par texte (" + publication.StatsRowsForProbe() + ")");
+                            Check(publication.HoverStatsRowForProbe(0, true) && publication.HoverStatsRowForProbe(0, false), "…la ligne entière se surligne au survol, et s'éteint");
+                            bookView.FlowWarningsBoxForProbe.IsChecked = false;
+                            await Settle();
+                            Check(!flowBook.Book.FlowWarnings && publication.RowIsRedForProbe("flow-row") == null, "décocher la case débraye l'avertissement : la ligne quitte la check-list");
+                            bookView.FlowWarningsBoxForProbe.IsChecked = true;
+                            await Settle();
+                            Check(flowBook.Book.FlowWarnings && publication.RowIsRedForProbe("flow-row") == true, "…et la recocher la ramène");
+                            bookView.SelectedTab = 0;
+                            shell.Binder.SelectItem(chapter.Id, true);
+                            await Settle();
+                        }
                     }
                 }
                 // — Le total du livre est STABLE (07/10 soir) : ouvrir les
@@ -245,6 +317,109 @@ namespace Marabook.App
                 await Settle();
                 Check(document.Paragraphs[0].ToPlainText() == "Sonde " + original, "la frappe entre dans le pivot");
                 Check(composed.Undo() && document.Paragraphs[0].ToPlainText() == original, "Ctrl+Z la retire");
+                // — Les touches mortes (15/10, 1.0.6) : l'éditeur déclare un
+                //   client de saisie ; le « ^ » en composition s'affiche au
+                //   caret sans entrer dans le pivot, la lettre composée entre
+                //   seule ensuite.
+                composed.PlaceCaret(0, 0, false);
+                Check(composed.ImeClientForProbe != null && composed.ImeClientForProbe.SupportsPreedit, "l'éditeur déclare un client de saisie (touches mortes mac)");
+                composed.SetPreeditForProbe("^");
+                await Settle();
+                Check(composed.PreeditShownForProbe && document.Paragraphs[0].ToPlainText() == original, "« ^ » en composition s'affiche au caret sans entrer dans le pivot");
+                Check(composed.CaretLeftForProbe > composed.PreeditLeftForProbe + 2, "…et le caret se tient après lui");
+                composed.SetPreeditForProbe(null);
+                composed.TypeText("ê");
+                await Settle();
+                Check(!composed.PreeditShownForProbe && document.Paragraphs[0].ToPlainText() == "ê" + original, "…puis la lettre composée entre seule (ê, pas ^e)");
+                Check(composed.Undo() && document.Paragraphs[0].ToPlainText() == original, "…et Ctrl+Z la retire");
+                // — La majuscule automatique (24/10, 1.0.6) : « élan » en tête
+                //   de paragraphe prend sa capitale à l'espace ; Ctrl+Z la
+                //   refuse et la suite de la frappe ne la remet pas.
+                {
+                    var wasOn = composed.AutoCapitalize;
+                    composed.AutoCapitalize = true;
+                    composed.PlaceCaret(0, 0, false);
+                    composed.TypeText("élan");
+                    await Settle();
+                    Check(document.Paragraphs[0].ToPlainText().StartsWith("élan"), "« élan » en cours de frappe reste tel quel");
+                    composed.TypeText(" ");
+                    await Settle();
+                    Check(document.Paragraphs[0].ToPlainText().StartsWith("Élan "), "…l'espace pose la capitale accentuée (" + document.Paragraphs[0].ToPlainText().Substring(0, 5) + ")");
+                    Check(composed.Undo() && document.Paragraphs[0].ToPlainText().StartsWith("élan "), "Ctrl+Z rend la minuscule sans effacer la frappe, espace compris");
+                    composed.TypeText("x ");
+                    await Settle();
+                    Check(document.Paragraphs[0].ToPlainText().StartsWith("élan x "), "…et la suite de la frappe ne la remet pas (refus)");
+                    // Entrée termine le mot comme un espace.
+                    for (var round = 0; round < 6 && document.Paragraphs[0].ToPlainText() != original; round++) composed.Undo();
+                    composed.PlaceCaret(0, 0, false);
+                    composed.TypeText("ému");
+                    composed.InsertParagraphBreak();
+                    await Settle();
+                    Check(document.Paragraphs[0].ToPlainText() == "Ému", "Entrée après « ému » pose la capitale avant de couper (" + document.Paragraphs[0].ToPlainText() + ")");
+                    for (var round = 0; round < 6 && document.Paragraphs[0].ToPlainText() != original; round++) composed.Undo();
+                    Check(document.Paragraphs[0].ToPlainText() == original, "la frappe s'annule entièrement");
+                    composed.AutoCapitalize = false;
+                    composed.PlaceCaret(0, 0, false);
+                    composed.TypeText("élan ");
+                    await Settle();
+                    Check(document.Paragraphs[0].ToPlainText().StartsWith("élan "), "réglage éteint : rien ne change");
+                    for (var round = 0; round < 6 && document.Paragraphs[0].ToPlainText() != original; round++) composed.Undo();
+                    composed.AutoCapitalize = wasOn;
+                    Check(document.Paragraphs[0].ToPlainText() == original, "…et le texte est rendu");
+                }
+                // — Le caret d'un paragraphe VIDE (15/10) : Entrée en tête du
+                //   chapitre ouvre un paragraphe vide ; le caret s'y pose à
+                //   l'alinéa, là où le texte du voisin commence, pas à la marge.
+                composed.PlaceCaret(0, 0, false);
+                composed.InsertParagraphBreak();
+                await Settle();
+                Check(document.Paragraphs[0].ToPlainText() == "" && document.Paragraphs[1].ToPlainText() == original, "Entrée en tête : un paragraphe vide devant le texte");
+                composed.PlaceCaret(1, 0, false);
+                await Settle();
+                var textLeft = composed.CaretLeftForProbe;
+                composed.PlaceCaret(0, 0, false);
+                await Settle();
+                var emptyLeft = composed.CaretLeftForProbe;
+                var indentPx = emptyLeft - composed.PageLeftForProbe;
+                Check(Math.Abs(emptyLeft - textLeft) < 0.5 && indentPx > 5, "le caret du paragraphe vide est à l'alinéa, comme le texte du voisin (" + indentPx.ToString("0.0") + " px de la marge)");
+                // — Un article de liste VIDE : le caret après la puce et son
+                //   écart (espaces rognés en bout de ligne compris), pas
+                //   contre la marge ni collé au point.
+                composed.ApplyList("bullet");
+                await Settle();
+                var bulletLeft = composed.CaretLeftForProbe;
+                Check(document.Paragraphs[0].ListKind == "bullet" && bulletLeft > emptyLeft + 8, "article de liste vide : le caret après « • » et son écart (+" + (bulletLeft - emptyLeft).ToString("0.0") + " px)");
+                // — Les niveaux de liste (15/10) : Tab descend d'un cran
+                //   (sous-puce), Maj+Tab remonte ; Entrée sur un article
+                //   vide le referme, Retour arrière en tête retire la puce.
+                Check(AppSettings.EditorActionFor("Tab", Settings.KeyModifiers.None) == "list-indent"
+                    && AppSettings.EditorActionFor("Tab", Settings.KeyModifiers.Shift) == "list-outdent", "Tab et Maj+Tab sont les gestes « niveau suivant / précédent » de la table des raccourcis");
+                Check(composed.RunEditorAction("list-indent") && document.Paragraphs[0].ListLevel == 1, "Tab sur la puce : niveau 1 (sous-puce)");
+                await Settle();
+                Check(composed.CaretLeftForProbe > bulletLeft + 20, "…la sous-puce est décalée d'un cran de plus (+" + (composed.CaretLeftForProbe - bulletLeft).ToString("0.0") + " px)");
+                composed.TypeText("Sous-point");
+                await Settle();
+                composed.InsertParagraphBreak();
+                await Settle();
+                Check(document.Paragraphs.Count >= 3 && document.Paragraphs[1].ListKind == "bullet" && document.Paragraphs[1].ListLevel == 1 && document.Paragraphs[1].ToPlainText() == "", "Entrée sur un article plein : un article vide de même niveau");
+                composed.InsertParagraphBreak();
+                await Settle();
+                Check(document.Paragraphs[1].ListKind == "bullet" && document.Paragraphs[1].ListLevel == 0 && document.Paragraphs[1].ToPlainText() == "", "Entrée sur l'article vide de niveau 1 : il remonte au niveau 0, sans paragraphe de plus");
+                composed.InsertParagraphBreak();
+                await Settle();
+                Check(document.Paragraphs[1].ListKind == null && document.Paragraphs[1].ToPlainText() == "" && document.Paragraphs[2].ToPlainText() == original, "Entrée sur l'article vide de niveau 0 : la liste se referme, le paragraphe reste (ordinaire)");
+                Check(!composed.RunEditorAction("list-indent"), "Tab hors liste : le geste ne consomme pas la touche");
+                composed.PlaceCaret(0, 0, false);
+                Check(composed.RunEditorAction("list-outdent") && document.Paragraphs[0].ListLevel == 0 && document.Paragraphs[0].ListKind == "bullet", "Maj+Tab sur la sous-puce : retour au niveau 0, toujours une puce");
+                Check(!composed.RunEditorAction("list-outdent"), "Maj+Tab au niveau 0 : rien à remonter, la touche n'est pas consommée");
+                composed.BackspaceForProbe();
+                await Settle();
+                Check(document.Paragraphs[0].ListKind == null && document.Paragraphs[0].ToPlainText() == "Sous-point", "Retour arrière en tête d'une puce : la puce s'en va, le texte reste");
+                composed.BackspaceForProbe();
+                await Settle();
+                Check(document.Paragraphs[0].ToPlainText() == "Sous-point", "…et en tête du premier paragraphe, rien de plus ne bouge");
+                for (var round = 0; round < 12 && document.Paragraphs[0].ToPlainText() != original; round++) composed.Undo();
+                Check(document.Paragraphs[0].ToPlainText() == original && document.Paragraphs[0].ListKind == null, "…et Ctrl+Z referme le paragraphe");
                 composed.SelectAll();
                 composed.ToggleBold();
                 await Settle();
@@ -1292,6 +1467,124 @@ namespace Marabook.App
                         var library = shell.SheetLibraryForProbe;
                         Check(library != null && library.IsVisible && library.SubBoxIdsForProbe().Contains(heroes.Id),
                             "bibliothèque : la sous-catégorie a sa boîte dans la rangée de « " + top.Name + " »");
+                        // — L'entrée des tuiles (1.0.6) : à l'ouverture du panneau, les
+                        //   tuiles arrivent en fondu décalé ; une demi-seconde plus tard
+                        //   tout est posé (opacité 1), et un rebâti sur recherche n'anime pas.
+                        if (library != null)
+                        {
+                            var entering = library.EnteringCardsForProbe();
+                            Check(entering > 0, "à l'ouverture, les tuiles entrent en fondu (" + entering + " en cours)");
+                            await Task.Delay(900); await Settle();
+                            Check(library.EnteringCardsForProbe() == 0, "…et sont toutes posées après la course");
+                            library.Refresh();
+                            await Settle();
+                            Check(library.EnteringCardsForProbe() == 0, "un rafraîchissement ne rejoue pas l'entrée");
+                            // — L'entrée menée par l'écran (retour de Rémi, 14/10) : hors de la zone
+                            //   visible, les tuiles attendent effacées ; le défilement les fait
+                            //   entrer, une sortie franche les efface pour qu'elles rejouent.
+                            // La bibliothèque de démonstration est courte : soixante fiches de
+                            // passage la font défiler, retirées à la fin.
+                            var fillerHome = project.Category(Project.KeySheets);
+                            var fillers = new List<BinderItem>();
+                            for (var f = 0; f < 60; f++)
+                            {
+                                var filler = new BinderItem { Kind = ItemKind.Sheet, Title = "Figurant " + (f + 1) + " (sonde)", Parent = fillerHome, CategoryId = top.Id, TemplateId = top.TemplateId };
+                                fillerHome.Children.Add(filler);
+                                fillers.Add(filler);
+                            }
+                            shell.Binder.SelectItem(project.Category(Project.KeyWritings).Id);
+                            await Settle();
+                            shell.Binder.SelectItem(fillerHome.Id);
+                            await Settle();
+                            library = shell.SheetLibraryForProbe;
+                            await Task.Delay(900); await Settle();
+                            if (library.ScrollableForProbe)
+                            {
+                                Check(library.PendingCardsForProbe() > 0, "les tuiles hors de l'écran attendent, effacées (" + library.PendingCardsForProbe() + ")");
+                                library.ScrollToForProbe(library.ScrollExtentForProbe);
+                                await Settle();
+                                Check(library.EnteringCardsForProbe() > 0 || library.PendingCardsForProbe() == 0, "défiler jusqu'au bout les fait entrer (" + library.EnteringCardsForProbe() + " en cours)");
+                                await Task.Delay(900); await Settle();
+                                Check(library.EnteringCardsForProbe() == 0, "…et elles se posent");
+                                library.ScrollToForProbe(0);
+                                await Settle();
+                                Check(library.PendingCardsForProbe() > 0, "revenu en haut : les tuiles du bas sorties de l'écran sont effacées, prêtes à rejouer (" + library.PendingCardsForProbe() + ")");
+                                await Task.Delay(900); await Settle();
+                            }
+                            else Check(false, "la bibliothèque garnie de soixante figurants défile");
+                            foreach (var filler in fillers) fillerHome.Children.Remove(filler);
+                            shell.Binder.Rebuild();
+                            shell.Binder.SelectItem(fillerHome.Id);
+                            await Settle();
+                            var saved = AppSettings.Animations;
+                            AppSettings.Animations = false;
+                            shell.Binder.SelectItem(project.Category(Project.KeyWritings).Id);
+                            await Settle();
+                            shell.Binder.SelectItem(project.Category(Project.KeySheets).Id);
+                            await Settle();
+                            Check(shell.SheetLibraryForProbe.EnteringCardsForProbe() == 0, "Animations décoché : les tuiles se posent d'un coup");
+                            AppSettings.Animations = saved;
+                        }
+                        // — L'optimisation des images à l'import (1.0.6) : une grande image
+                        //   opaque devient un JPEG de 2 048 px de côté ; avec transparence, un
+                        //   PNG ; une petite reste intacte ; le quart de tour et le recadrage
+                        //   donnent leurs dimensions ; l'illisible passe tel quel.
+                        var big = ImageImport.Synthetic(3000, 2000, false, true);
+                        var optimized = ImageImport.Optimize(big, ".png");
+                        Check(optimized.Changed && optimized.Width == 2048 && optimized.Height == 1365 && optimized.Extension == ".jpg" && optimized.Bytes.Length < big.Length,
+                            "une image opaque de 3 000 px devient un JPEG de 2 048 px (" + optimized.Width + "×" + optimized.Height + " " + optimized.Extension + ", " + optimized.Bytes.Length / 1024 + " Ko contre " + big.Length / 1024 + ")");
+                        var alpha = ImageImport.Optimize(ImageImport.Synthetic(3000, 2000, true, true), ".png");
+                        Check(alpha.Changed && alpha.Extension == ".png" && alpha.Width == 2048, "avec de la transparence, elle reste un PNG réduit (" + alpha.Extension + ")");
+                        var small = ImageImport.Synthetic(400, 300, false, true);
+                        var kept = ImageImport.Optimize(small, ".png");
+                        Check(!kept.Changed && ReferenceEquals(kept.Bytes, small) && kept.Extension == ".png", "une petite image reste intacte, octet pour octet");
+                        var turned = ImageImport.Apply(small, ".png", 1, SKRectI.Empty);
+                        Check(turned != null && turned.Width == 300 && turned.Height == 400, "un quart de tour échange largeur et hauteur (" + (turned == null ? "-" : turned.Width + "×" + turned.Height) + ")");
+                        var cropped = ImageImport.Apply(small, ".png", 0, new SKRectI(10, 20, 210, 120));
+                        Check(cropped != null && cropped.Width == 200 && cropped.Height == 100, "le recadrage donne ses dimensions (" + (cropped == null ? "-" : cropped.Width + "×" + cropped.Height) + ")");
+                        Check(ImageImport.Optimize(new byte[] { 1, 2, 3 }, ".png").Bytes.Length == 3 && !ImageImport.Optimize(new byte[] { 1, 2, 3 }, ".png").Changed, "une image illisible passe telle quelle");
+                        string viaCore;
+                        Check(Marabook.Model.Platform.Images.Optimize(big, ".png", out viaCore).Length < big.Length && viaCore == ".jpg", "le codec du cœur optimise aussi (imports .docx et Markdown)");
+                        // — La fenêtre d'import : pivoter, recadrer, importer ; ou annuler.
+                        var editTask = ImageEditDialog.Show(shell, big, ".png");
+                        await Settle();
+                        ImageEditDialog imageEditor = null;
+                        foreach (var window in ((Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)Avalonia.Application.Current.ApplicationLifetime).Windows)
+                            if (window is ImageEditDialog) imageEditor = (ImageEditDialog)window;
+                        Check(imageEditor != null && imageEditor.IsVisible && imageEditor.Decodable && imageEditor.CropForProbe.Width == 3000, "la fenêtre d'import s'ouvre sur toute l'image (" + (imageEditor == null ? "-" : imageEditor.CropForProbe.Width + "×" + imageEditor.CropForProbe.Height) + ")");
+                        if (imageEditor != null)
+                        {
+                            Check(FindButton(imageEditor, "Pivoter à gauche") != null && FindButton(imageEditor, "Pivoter à droite") != null && FindButton(imageEditor, "Toute l'image") != null && FindButton(imageEditor, "Importer") != null, "…avec ses boutons : pivoter à gauche et à droite, toute l'image, importer");
+                            imageEditor.TurnForProbe(1);
+                            await Settle();
+                            Check(imageEditor.TurnsForProbe == 1 && imageEditor.CropForProbe.Width == 2000 && imageEditor.CropForProbe.Height == 3000, "pivoter à droite : le cadre suit l'image tournée (" + imageEditor.CropForProbe.Width + "×" + imageEditor.CropForProbe.Height + ")");
+                            imageEditor.SetCropForProbe(new SKRectI(100, 200, 1100, 1700));
+                            await Settle();
+                            // MARABOOK_PROBE_SHOT_DIR : la fenêtre rendue en PNG (vérification à l'œil, 1.0.6)
+                            var shotDir = Environment.GetEnvironmentVariable("MARABOOK_PROBE_SHOT_DIR");
+                            if (!string.IsNullOrEmpty(shotDir))
+                                try
+                                {
+                                    var content = (Control)imageEditor.Content;
+                                    using (var shot = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize((int)content.Bounds.Width * 2, (int)content.Bounds.Height * 2), new Vector(192, 192)))
+                                    {
+                                        shot.Render(content);
+                                        shot.Save(System.IO.Path.Combine(shotDir, "image-edit-dialog.png"));
+                                    }
+                                }
+                                catch (Exception error) { Console.WriteLine("  (capture de la fenêtre d'import impossible : " + error.Message + ")"); }
+                            imageEditor.ImportForProbe();
+                        }
+                        var imported = await editTask;
+                        Check(imported != null && imported.Width == 1000 && imported.Height == 1500 && imported.Extension == ".jpg", "« Importer » applique rotation, recadrage et optimisation (" + (imported == null ? "-" : imported.Width + "×" + imported.Height + " " + imported.Extension) + ")");
+                        var cancelTask = ImageEditDialog.Show(shell, small, ".png");
+                        await Settle();
+                        ImageEditDialog second = null;
+                        foreach (var window in ((Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)Avalonia.Application.Current.ApplicationLifetime).Windows)
+                            if (window is ImageEditDialog) second = (ImageEditDialog)window;
+                        var cancel = second == null ? null : FindButton(second, "Annuler");
+                        if (cancel != null) cancel.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else if (second != null) second.Close(false);
+                        Check(await cancelTask == null, "« Annuler » n'importe rien");
                         shell.Binder.SelectItem(keira.Id);
                         await Settle();
                         var sheetView = shell.Sheet;
@@ -1729,10 +2022,21 @@ namespace Marabook.App
                 prefs.Show(shell);
                 await Settle();
                 Check(prefs.Tabs.Items.Count == 8, "les Préférences ont huit onglets (" + prefs.Tabs.Items.Count + ")");
+                Check(prefs.Tabs.TabStripPlacement == Dock.Left && prefs.Tabs.Classes.Contains("column"), "…en colonne à gauche (24/10)");
+                Check(prefs.Height >= 420 && Math.Abs(prefs.Height - Math.Max(420, Dialogs.AvailableHeight(shell))) < 1 && prefs.Bounds.Height <= Dialogs.AvailableHeight(shell) + 1, "…et la fenêtre prend toute la hauteur disponible de l'écran sans en sortir (" + prefs.Bounds.Height.ToString("0") + " px sur " + Dialogs.AvailableHeight(shell).ToString("0") + ")");
                 var titles = new List<string>();
                 foreach (var item in prefs.Tabs.Items) titles.Add(((TabItem)item).Header as string);
                 Check(titles.Contains("Raccourcis") && titles.Contains("DLC") && titles.Contains("Catalogue de polices"),
                     "…Raccourcis, DLC et Catalogue de polices en font partie");
+                // — 1.0.6 : le premier onglet s'appelle « Général » (« Personnalisation »
+                //   avant) et porte la case « Animations », cochée par défaut.
+                Check(titles.Count > 0 && titles[0] == "Général" && !titles.Contains("Personnalisation"), "le premier onglet est « Général » (" + (titles.Count > 0 ? titles[0] : "-") + ")");
+                prefs.Tabs.SelectedIndex = 0;
+                await Settle();
+                CheckBox animationsBox = null;
+                foreach (var box in prefs.GetVisualDescendants().OfType<CheckBox>())
+                    if ("animations".Equals(box.Tag)) animationsBox = box;
+                Check(animationsBox != null && animationsBox.IsChecked == AppSettings.Animations && (AppSettings.Animations || AppSettings.LoadedFromFile), "la case « Animations » est là, cochée par défaut (sauf réglage enregistré)");
                 for (var i = 0; i < prefs.Tabs.Items.Count; i++)
                 {
                     prefs.Tabs.SelectedIndex = i;
@@ -1841,6 +2145,35 @@ namespace Marabook.App
                 foreach (var block in shell.Welcome.GetVisualDescendants().OfType<TextBlock>())
                     if (block.Text != null && block.Text.StartsWith("Mise à jour")) foot = block;
                 Check(foot != null && foot.Text.Contains("non vérifiée"), "l'accueil dit que la mise à jour n'est pas vérifiée en sonde (" + (foot == null ? "-" : foot.Text) + ")");
+                // — La seconde ligne (13/10) : la beta en cours, sous la mise à
+                //   jour ; en sonde, non vérifiée elle aussi.
+                TextBlock betaLine = null;
+                foreach (var block in shell.Welcome.GetVisualDescendants().OfType<TextBlock>())
+                    if (block.Text != null && block.Text.StartsWith("Beta")) betaLine = block;
+                Check(betaLine != null && betaLine.Text.Contains("non vérifiée"), "la seconde ligne de l'accueil porte la beta, non vérifiée en sonde (" + (betaLine == null ? "-" : betaLine.Text) + ")");
+                var footTop = foot == null ? null : foot.TranslatePoint(new Point(0, 0), shell.Welcome);
+                var betaTop = betaLine == null ? null : betaLine.TranslatePoint(new Point(0, 0), shell.Welcome);
+                Check(footTop != null && betaTop != null && betaTop.Value.Y > footTop.Value.Y, "…et elle est bien SOUS la ligne de mise à jour (" + (footTop == null ? "-" : footTop.Value.Y.ToString("0")) + " → " + (betaTop == null ? "-" : betaTop.Value.Y.ToString("0")) + ")");
+                // — L'ordre des versions avec la beta (13/10) : la stable aux
+                //   mêmes nombres prime, le correctif à chaud aussi, jamais l'inverse.
+                Check(Updater.IsBeta("1.1.0-beta") && !Updater.IsBeta("1.1.0") && !Updater.IsBeta("1.0.5-patch-b"), "« 1.1.0-beta » est une beta, pas « 1.1.0 » ni un correctif");
+                Check(Updater.IsNewer("1.1.0-beta", "1.0.5-patch-b"), "la beta 1.1.0 est plus récente que la 1.0.5-patch-b");
+                Check(Updater.IsNewer("1.1.0", "1.1.0-beta") && !Updater.IsNewer("1.1.0-beta", "1.1.0"), "la stable 1.1.0 prime sur sa beta, jamais l'inverse");
+                Check(Updater.IsNewer("1.1.0-patch-a", "1.1.0-beta") && !Updater.IsNewer("1.1.0-beta", "1.1.0-beta"), "le correctif prime sur la beta ; la même beta n'est pas plus récente");
+                Check(!Updater.IsNewer("1.0.5-patch-c", "1.1.0-beta"), "un correctif de la 1.0.5 ne rétrograde pas un testeur de la 1.1.0-beta");
+                // — La lecture de la liste des releases (13/10) : la stable
+                //   « latest » et un brouillon sont ignorés, la pré-release
+                //   -beta est prise avec SON asset (pas celui de la stable),
+                //   son commit et ses notes.
+                var mine = Updater.PortableZip;
+                var list = "[{\"url\": \"https://api.github.com/repos/x/marabook/releases/3\", \"html_url\": \"https://github.com/x/marabook/releases/tag/v1.1.0-beta\", \"tag_name\": \"v1.1.0-beta\", \"target_commitish\": \"abcdef0123456789\", \"draft\": true, \"prerelease\": true, \"body\": \"brouillon\", \"assets\": []},"
+                    + " {\"url\": \"https://api.github.com/repos/x/marabook/releases/2\", \"html_url\": \"https://github.com/x/marabook/releases/tag/v1.0.5-patch-b\", \"tag_name\": \"v1.0.5-patch-b\", \"target_commitish\": \"1111111\", \"draft\": false, \"prerelease\": false, \"body\": \"stable\", \"published_at\": \"2026-10-12T18:15:48Z\", \"assets\": [{\"url\": \"https://api.github.com/repos/x/marabook/releases/assets/20\", \"browser_download_url\": \"https://github.com/x/marabook/releases/download/v1.0.5-patch-b/" + mine + "\", \"uploader\": {\"url\": \"https://api.github.com/users/x\"}}]},"
+                    + " {\"url\": \"https://api.github.com/repos/x/marabook/releases/1\", \"html_url\": \"https://github.com/x/marabook/releases/tag/v1.1.0-beta\", \"tag_name\": \"v1.1.0-beta\", \"target_commitish\": \"2222222\", \"draft\": false, \"prerelease\": true, \"body\": \"## Beta\\n\\n* essai\", \"published_at\": \"2026-10-13T09:00:00Z\", \"assets\": [{\"url\": \"https://api.github.com/repos/x/marabook/releases/assets/10\", \"browser_download_url\": \"https://github.com/x/marabook/releases/download/v1.1.0-beta/" + mine + "\", \"uploader\": {\"url\": \"https://api.github.com/users/x\"}}]}]";
+                var betaFound = Updater.BetaFrom(list);
+                Check(betaFound != null && betaFound.Version == "1.1.0-beta" && betaFound.Beta, "la pré-release -beta est trouvée dans la liste, le brouillon ignoré (" + (betaFound == null ? "-" : betaFound.Version) + ")");
+                Check(betaFound != null && betaFound.ZipUrl.Contains("/v1.1.0-beta/" + mine) && betaFound.AssetApiUrl.EndsWith("/assets/10"), "…avec l'asset de ce système, celui de la beta (" + (betaFound == null ? "-" : betaFound.ZipUrl) + ")");
+                Check(betaFound != null && betaFound.Commit == "2222222" && betaFound.Notes.Contains("* essai") && betaFound.PublishedAt.StartsWith("2026-10-13"), "…son commit, ses notes et sa date");
+                Check(Updater.BetaFrom("[{\"url\": \"https://api.github.com/repos/x/marabook/releases/2\", \"tag_name\": \"v1.0.5\", \"draft\": false, \"prerelease\": false, \"assets\": []}]") == null && Updater.BetaFrom("[]") == null, "sans pré-release -beta : rien");
 
                 // — La fenêtre des nouveautés (02/10) : le nom de la version,
                 //   les patch notes rendues depuis le Markdown, le bouton
@@ -1874,6 +2207,27 @@ namespace Marabook.App
                 }
                 var chosen = await notesTask;
                 Check(!chosen && !installed, "« Plus tard » ferme sans installer");
+                // — La même fenêtre pour une beta (13/10) : l'avertissement de
+                //   Rémi au-dessus des notes, le bouton de téléchargement nommé.
+                var betaInfo = new Updater.Info { Version = "9.9.9-beta", Beta = true, Notes = "* une beta", PublishedAt = "2026-10-13T09:00:00Z" };
+                var betaTask = UpdateNotesDialog.Show(shell.Welcome, betaInfo, "1.0.1", false, delegate { installed = true; });
+                await Settle();
+                UpdateNotesDialog betaDialog = null;
+                foreach (var window in ((Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)Avalonia.Application.Current.ApplicationLifetime).Windows)
+                    if (window is UpdateNotesDialog) betaDialog = (UpdateNotesDialog)window;
+                Check(betaDialog != null && betaDialog.Title.StartsWith("Version beta"), "la fenêtre d'une beta se nomme ainsi (" + (betaDialog == null ? "-" : betaDialog.Title) + ")");
+                if (betaDialog != null)
+                {
+                    TextBlock warning = null;
+                    foreach (var block in betaDialog.GetVisualDescendants().OfType<TextBlock>())
+                        if ("beta-warning".Equals(block.Tag)) warning = block;
+                    Check(warning != null && warning.Text == UpdateNotesDialog.BetaWarning && warning.Text.Contains("merci, by the way"), "l'avertissement beta est posé, tel quel");
+                    Check(FindButton(betaDialog, "Télécharger la beta") != null, "le bouton dit « Télécharger la beta et redémarrer »");
+                    var betaLater = FindButton(betaDialog, "Plus tard");
+                    if (betaLater != null) betaLater.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else betaDialog.Close();
+                }
+                var betaChosen = await betaTask;
+                Check(!betaChosen && !installed, "« Plus tard » ferme la beta sans rien télécharger");
 
                 // — Aide › Nouveautés (07/10) : les patch notes embarquées de la
                 //   version installée, « Fermer » pour seule issue, pas de lien
@@ -1905,6 +2259,26 @@ namespace Marabook.App
                 }
                 await currentTask;
                 Check(current == null || !current.IsVisible, "« Fermer » ferme la fenêtre des nouveautés");
+                // — Les fenêtres tiennent dans l'écran (18/10, 1.0.6) : une
+                //   fenêtre dimensionnée par un contenu trop haut est plafonnée
+                //   et son contenu défile ; une fenêtre à hauteur fixe trop
+                //   haute est réduite.
+                {
+                    var tall = new Window { SizeToContent = SizeToContent.WidthAndHeight, Content = new StackPanel { Width = 300, Height = 2000 }, ShowInTaskbar = false };
+                    Dialogs.Fit(tall, 600);
+                    var scroller = tall.Content as ScrollViewer;
+                    Check(scroller != null && tall.MaxHeight == 600, "fenêtre dimensionnée par son contenu : plafond posé et contenu enveloppé dans un ScrollViewer");
+                    tall.Show(shell);
+                    await Settle();
+                    Check(tall.Bounds.Height <= 600.5 && scroller != null && scroller.Extent.Height >= 1999, "…montrée : au plus 600 px de haut, les 2 000 px du contenu défilent (" + tall.Bounds.Height.ToString("0") + " px, étendue " + (scroller == null ? 0 : scroller.Extent.Height).ToString("0") + ")");
+                    tall.Close();
+                    var fixedTall = new Window { Width = 300, Height = 1500, Content = new Border(), ShowInTaskbar = false };
+                    Dialogs.Fit(fixedTall, 600);
+                    Check(fixedTall.Height == 600 && fixedTall.MaxHeight == 600 && !(fixedTall.Content is ScrollViewer), "fenêtre à hauteur fixe : réduite au plafond, sans ScrollViewer ajouté");
+                    var lexiconDialog = LexiconEntryDialog.ForProbe(shell);
+                    Dialogs.FitToScreen(lexiconDialog, shell);
+                    Check(lexiconDialog.MaxHeight > 200 && !double.IsInfinity(lexiconDialog.MaxHeight) && lexiconDialog.Content is ScrollViewer, "le dialogue d'entrée du dictionnaire est plafonné à l'écran (" + lexiconDialog.MaxHeight.ToString("0") + " px) et défile");
+                }
             }
             catch (Exception error)
             {

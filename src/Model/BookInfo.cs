@@ -61,6 +61,11 @@ namespace Marabook.Model
         /// <summary>Objectif du livre : nombre de chapitres visé (0 = aucun).
         /// Rendu par la barre de progression de l'inspecteur (batch 32).</summary>
         public int ChapterGoal;
+        // Avertissements d'ENCHAÎNEMENT des pages (18/10, 1.0.6) : un chapitre
+        // ou le livre qui finit sur une page impaire (BookFlow). Vrai par
+        // défaut ; Gabarits & Format › Contenu & Fichiers. Persisté
+        // ("flowWarnings", omis = vrai).
+        public bool FlowWarnings = true;
 
         // b48 « objectifs et temps » (v23) : l'ÉCHÉANCE du livre (« yyyy-MM-dd »,
         // vide = aucune) et l'objectif de TAILLE (0 = aucun) en mots ou en

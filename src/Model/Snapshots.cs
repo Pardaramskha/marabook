@@ -134,6 +134,7 @@ namespace Marabook.Model
                 hash = Mix(hash, paragraph.StyleId);
                 hash = Mix(hash, paragraph.AlignOverride);
                 hash = Mix(hash, paragraph.ListKind);
+                if (paragraph.ListLevel > 0) hash = Mix(hash, "L" + paragraph.ListLevel);
                 hash = Mix(hash, paragraph.Indent.HasValue
                     ? paragraph.Indent.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : null);
                 foreach (var run in paragraph.Runs)

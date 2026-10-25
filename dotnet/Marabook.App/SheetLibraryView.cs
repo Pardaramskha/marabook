@@ -301,6 +301,9 @@ namespace Marabook.App
                 [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Auto,
                 Content = _rows
             };
+            // Le défilement mène l'entrée des tuiles (1.0.6) : ce qui arrive à l'écran entre.
+            _scroll.ScrollChanged += delegate { Sweep(false); };
+            _scroll.SizeChanged += delegate { PostSweep(false); };
             Children.Add(_scroll);
         }
 
@@ -316,8 +319,176 @@ namespace Marabook.App
             _back.IsVisible = _scope != null ? true : false;
             _scopeLabel.IsVisible = _back.IsVisible;
             _scopeLabel.Text = _scope != null ? _scope.Title : "";
+            _entranceOn = true; // les tuiles entrent en fondu à l'ouverture du panneau (1.0.6)
             RebuildRows();
         }
+
+        // ---------------------------------------------------- l'entrée des tuiles (1.0.6)
+
+        private bool _entranceOn;   // vrai le temps d'une reconstruction après Load
+        private const double EntranceDurationMs = 170;
+        private const int EntranceStepMs = 26;   // le décalage d'une tuile à la suivante dans un même passage
+        private const int EntranceMaxSteps = 22; // au-delà, ensemble : jamais d'attente
+        private const double EntranceRise = 12;  // la montée, en px
+        private const double LeaveMargin = 48;   // sortie franche de l'écran avant de s'effacer (pas de clignotement au bord)
+        public static bool EntranceAnimationsForProbe = true;
+
+        private enum EntranceState { Pending, Entering, Done }
+
+        private sealed class EntranceEntry
+        {
+            public Border Wrapper;
+            public TranslateTransform Slide;
+            public EntranceState State;
+            public DateTime Start; // le départ, décalage compris
+        }
+
+        private readonly List<EntranceEntry> _entrances = new List<EntranceEntry>();
+        private bool _entranceLoop;
+        private bool _entranceSweepPosted;
+
+        /// <summary>La tuile arrive en fondu, de bas en haut, chacune un peu
+        /// après la précédente — des cartes présentées une à une (demande de
+        /// Rémi, 14/10). L'entrée est menée par L'ÉCRAN (retour du 14/10) :
+        /// une tuile hors de la zone visible reste effacée et n'entre qu'en y
+        /// arrivant, au défilement ; une tuile qui en sort franchement s'efface
+        /// et rejouera à son retour. Rien si Préférences › Général › Animations
+        /// est décoché. Après Load, tout est à entrer ; après un rafraîchissement
+        /// ou une recherche, ce qui est à l'écran se pose d'un coup, le reste
+        /// attend son tour. L'enveloppe (sans fond) porte l'opacité et la
+        /// translation : la tuile garde son RenderTransform de soulèvement.</summary>
+        private Control Entrance(Control card)
+        {
+            if (!Marabook.Settings.AppSettings.Animations || !EntranceAnimationsForProbe) return card;
+            var wrapper = new Border { Child = card, Tag = "entrance" };
+            var slide = new TranslateTransform(0, 0);
+            wrapper.RenderTransform = slide;
+            var entry = new EntranceEntry { Wrapper = wrapper, Slide = slide, State = EntranceState.Done };
+            if (_entranceOn) Hide(entry);
+            _entrances.Add(entry);
+            PostSweep(!_entranceOn);
+            return wrapper;
+        }
+
+        private static void Hide(EntranceEntry entry)
+        {
+            entry.State = EntranceState.Pending;
+            entry.Wrapper.Opacity = 0;
+            entry.Slide.Y = EntranceRise;
+        }
+
+        private static void Land(EntranceEntry entry)
+        {
+            entry.State = EntranceState.Done;
+            entry.Wrapper.Opacity = 1;
+            entry.Slide.Y = 0;
+        }
+
+        /// <summary>Un passage après la prochaine mise en page (les Bounds sont
+        /// alors posés). settle : ce qui est à l'écran se pose sans entrer
+        /// (rafraîchissement), le reste est effacé pour entrer plus tard.</summary>
+        private void PostSweep(bool settle)
+        {
+            if (_entranceSweepPosted) return;
+            _entranceSweepPosted = true;
+            Avalonia.Threading.Dispatcher.UIThread.Post(delegate
+            {
+                _entranceSweepPosted = false;
+                Sweep(settle);
+            }, Avalonia.Threading.DispatcherPriority.Background);
+        }
+
+        /// <summary>Le passage sur toutes les enveloppes : ce qui entre à
+        /// l'écran démarre (décalé dans l'ordre des tuiles), ce qui en est
+        /// franchement sorti s'efface.</summary>
+        private void Sweep(bool settle)
+        {
+            if (_entrances.Count == 0 || _scroll == null) return;
+            var height = _scroll.Viewport.Height;
+            if (height <= 0) return;
+            var started = 0;
+            var now = DateTime.Now;
+            foreach (var entry in _entrances)
+            {
+                var at = entry.Wrapper.TranslatePoint(new Point(0, 0), _scroll);
+                if (at == null) continue;
+                var top = at.Value.Y;
+                var bottom = top + entry.Wrapper.Bounds.Height;
+                var visible = bottom > 0 && top < height;
+                var gone = bottom < -LeaveMargin || top > height + LeaveMargin;
+                switch (entry.State)
+                {
+                    case EntranceState.Pending:
+                        if (!visible) break;
+                        if (settle) { Land(entry); break; }
+                        entry.State = EntranceState.Entering;
+                        entry.Start = now + TimeSpan.FromMilliseconds(Math.Min(started++, EntranceMaxSteps) * EntranceStepMs);
+                        break;
+                    case EntranceState.Entering:
+                        if (gone) Hide(entry);
+                        break;
+                    case EntranceState.Done:
+                        if (settle && !visible) Hide(entry);
+                        else if (gone) Hide(entry);
+                        break;
+                }
+            }
+            if (started > 0) EnsureEntranceLoop();
+        }
+
+        /// <summary>Une seule montre pour toutes les tuiles qui entrent : le
+        /// temps fait le fondu (opacité) et la montée (translation) image par
+        /// image, cubique sortante — comme la Pile.</summary>
+        private void EnsureEntranceLoop()
+        {
+            if (_entranceLoop) return;
+            var top = TopLevel.GetTopLevel(this);
+            if (top == null)
+            {
+                foreach (var entry in _entrances) if (entry.State == EntranceState.Entering) Land(entry);
+                return;
+            }
+            _entranceLoop = true;
+            Action frame = null;
+            frame = delegate
+            {
+                var now = DateTime.Now;
+                var pending = false;
+                foreach (var entry in _entrances)
+                {
+                    if (entry.State != EntranceState.Entering) continue;
+                    var t = Math.Max(0, Math.Min(1, (now - entry.Start).TotalMilliseconds / EntranceDurationMs));
+                    var eased = 1 - Math.Pow(1 - t, 3);
+                    entry.Wrapper.Opacity = eased;
+                    entry.Slide.Y = EntranceRise * (1 - eased);
+                    if (t >= 1) entry.State = EntranceState.Done;
+                    else pending = true;
+                }
+                if (pending) top.RequestAnimationFrame(delegate { frame(); });
+                else _entranceLoop = false;
+            };
+            frame();
+        }
+
+        /// <summary>Le nombre de tuiles en train d'entrer, et celles qui
+        /// attendent hors de l'écran (sonde).</summary>
+        internal int EnteringCardsForProbe()
+        {
+            var count = 0;
+            foreach (var entry in _entrances) if (entry.State == EntranceState.Entering) count++;
+            return count;
+        }
+
+        internal int PendingCardsForProbe()
+        {
+            var count = 0;
+            foreach (var entry in _entrances) if (entry.State == EntranceState.Pending) count++;
+            return count;
+        }
+
+        internal bool ScrollableForProbe { get { return _scroll.Extent.Height > _scroll.Viewport.Height + 60; } }
+        internal void ScrollToForProbe(double offset) { _scroll.Offset = new Vector(0, Math.Max(0, Math.Min(offset, _scroll.Extent.Height - _scroll.Viewport.Height))); }
+        internal double ScrollExtentForProbe { get { return _scroll.Extent.Height; } }
 
         public bool ShowsFolder(BinderItem folder) { return folder != null && _scope == folder; }
 
@@ -370,6 +541,20 @@ namespace Marabook.App
 
         private void RebuildRows()
         {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            _entrances.Clear(); // une reconstruction oublie les enveloppes (elles meurent avec les rangées)
+            try { RebuildRowsCore(); }
+            finally
+            {
+                _entranceOn = false;
+                // MARABOOK_LIBRARY_TIMING=1 : le temps de reconstruction sur la console (1.0.6).
+                if (Environment.GetEnvironmentVariable("MARABOOK_LIBRARY_TIMING") == "1")
+                    Console.WriteLine("[bibliothèque] " + _cardOrder.Count + " tuiles en " + watch.ElapsedMilliseconds + " ms");
+            }
+        }
+
+        private void RebuildRowsCore()
+        {
             _rows.Children.Clear();
             _cardsById.Clear();
             _cardOrder.Clear();
@@ -415,7 +600,7 @@ namespace Marabook.App
             {
                 AddHeader("Dossiers", null, -1);
                 var wrap = new WrapPanel();
-                foreach (var folder in folders) wrap.Children.Add(BuildFolderCard(folder));
+                foreach (var folder in folders) wrap.Children.Add(Entrance(BuildFolderCard(folder)));
                 _rows.Children.Add(wrap);
                 first = false;
             }
@@ -736,11 +921,15 @@ namespace Marabook.App
 
         // ------------------------------------------------------------ cartes
 
+        /// <summary>La largeur de décodage des vignettes : deux fois la tuile
+        /// (132 px), net sur un écran Retina.</summary>
+        public const int ThumbnailWidth = 264;
+
         private void AddCards(List<BinderItem> sheets, SheetCategory category)
         {
             var wrap = new WrapPanel();
             foreach (var sheet in sheets)
-                wrap.Children.Add(BuildCard(sheet, category));
+                wrap.Children.Add(Entrance(BuildCard(sheet, category)));
             if (sheets.Count == 0)
                 wrap.Children.Add(new TextBlock
                 {
@@ -844,32 +1033,29 @@ namespace Marabook.App
             // gauche), et le cadre est découpé selon ses coins arrondis :
             // ClipToBounds ne coupe qu'au rectangle, l'image mordait les
             // arrondis de la carte.
-            Control pictureContent = null;
-            var image = _project.FindImage(sheet.ImageId);
-            if (image != null)
-            {
-                var source = MediaView.TryImage(image.Bytes, 260);
-                if (source != null)
-                    pictureContent = new Rectangle
-                    {
-                        Fill = new ImageBrush(source)
-                        {
-                            Stretch = Stretch.UniformToFill,
-                            AlignmentX = AlignmentX.Center,
-                            AlignmentY = AlignmentY.Center
-                        }
-                    };
-            }
-            if (pictureContent == null)
-                pictureContent = CategoryPlaceholder(category, 44, _project);
+            // 1.0.6 (14/10) : la vignette vient du cache (ImageCache.Thumbnail,
+            // décodée une fois par image, pas à chaque reconstruction) et
+            // elle est le FOND de la bordure arrondie — Avalonia remplit un
+            // rectangle arrondi avec un ImageBrush, centré et rogné : plus de
+            // Clip par chemin ni de Rectangle, qui coûtaient à chaque image
+            // du défilement pour chaque tuile visible.
             var picture = new Border
             {
                 Height = 108,
                 Background = Chrome.BarBgLight,
-                CornerRadius = new CornerRadius(3, 3, 0, 0),
-                Child = pictureContent
+                CornerRadius = new CornerRadius(3, 3, 0, 0)
             };
-            Ui.OnSizeChanged(picture, delegate { picture.Clip = TopRoundedClip(picture.Bounds.Width, picture.Bounds.Height, 3); });
+            var image = _project.FindImage(sheet.ImageId);
+            var source = image == null ? null : ImageCache.Thumbnail(image, ThumbnailWidth);
+            if (source != null)
+                picture.Background = new ImageBrush(source)
+                {
+                    Stretch = Stretch.UniformToFill,
+                    AlignmentX = AlignmentX.Center,
+                    AlignmentY = AlignmentY.Center
+                };
+            else
+                picture.Child = CategoryPlaceholder(category, 44, _project);
 
             var grid = new Grid();
             grid.Children.Add(picture);
@@ -1417,7 +1603,7 @@ namespace Marabook.App
             DockPanel.SetDock(head, Dock.Top);
             dock.Children.Add(head);
             var wrap = new WrapPanel { Margin = new Thickness(2, 0, 2, 0), IsVisible = !collapsed };
-            foreach (var sheet in sheets) wrap.Children.Add(BuildCard(sheet, sub));
+            foreach (var sheet in sheets) wrap.Children.Add(Entrance(BuildCard(sheet, sub)));
             if (sheets.Count == 0)
                 wrap.Children.Add(new TextBlock
                 {

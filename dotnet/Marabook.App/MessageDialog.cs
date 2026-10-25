@@ -94,6 +94,7 @@ namespace Marabook.App
             var dialog = new MessageDialog(text, caption, icon, labels, primaryIndex);
             if (owner != null)
             {
+                Dialogs.FitToScreen(dialog, owner);
                 await dialog.ShowDialog(owner);
                 return dialog._choice;
             }
@@ -221,6 +222,7 @@ namespace Marabook.App
             var dialog = new MessageDialog(text, caption, buttons, icon);
             if (owner != null)
             {
+                Dialogs.FitToScreen(dialog, owner);
                 await dialog.ShowDialog(owner);
                 return dialog._result;
             }

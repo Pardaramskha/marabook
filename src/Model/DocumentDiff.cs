@@ -282,7 +282,7 @@ namespace Marabook.Model
         public static bool SameStyle(TextParagraph a, TextParagraph b)
         {
             if (a.StyleId != b.StyleId || a.AlignOverride != b.AlignOverride || a.ListKind != b.ListKind
-                || a.Indent != b.Indent
+                || a.ListLevel != b.ListLevel || a.Indent != b.Indent
                 || a.PageBreakBefore != b.PageBreakBefore || a.AllowWidows != b.AllowWidows) return false;
             if (a.Runs.Count != b.Runs.Count) return false;
             for (var i = 0; i < a.Runs.Count; i++)

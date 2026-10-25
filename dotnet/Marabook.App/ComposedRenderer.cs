@@ -32,7 +32,7 @@ namespace Marabook.App
         // Lignes lâches (09/10) : une bande jaune pâle derrière la ligne dont
         // la justification a dû forcer les espaces (ComposedLine.Loose) —
         // écran seulement, Affichage › Lignes lâches.
-        public static bool ShowLooseLines = true;
+        public static bool ShowLooseLines; // cachées par défaut (13/10), EditorView.Ribbon recopie le réglage
         private static readonly IBrush LooseBrush = new SolidColorBrush(Color.FromArgb(0x3C, 0xFF, 0xC4, 0x00));
         private static readonly Typeface MarksTypeface = new Typeface(FontFamily.Default);
         private static readonly IBrush MarksBrush = FrozenBrush(Color.FromRgb(0x5B, 0x67, 0xD8));
@@ -478,11 +478,25 @@ namespace Marabook.App
         /// des signalements et le caret parlent du même pixel.</summary>
         public static double OffsetX(ComposedLine line, int offset, double left)
         {
-            var x = left;
+            // Une ligne vide commence où sa composition l'a posée (15/10,
+            // 1.0.6) : alinéa ou centrage compris — avant, le caret d'un
+            // paragraphe vide tombait contre la marge.
+            var x = left + line.X;
             double best = -1;
+            var seenSource = false;
             foreach (var piece in line.Pieces)
             {
-                if (piece.SourceStart < 0 || piece.SourceLength <= 0) continue;
+                if (piece.SourceStart < 0 || piece.SourceLength <= 0)
+                {
+                    // La marque d'une liste (puce, numéro) devant le texte : le
+                    // caret d'un article vide se pose après elle.
+                    // (Les espaces de la marque en bout de ligne sont rognés à
+                    // zéro : leur largeur naturelle, pour un article vide.)
+                    if (!seenSource && piece.SourceStart < 0 && (piece.HasText || piece.IsSpace))
+                        x = left + piece.Origin.X + (piece.IsSpace ? piece.SpaceNatural : piece.VisualWidth());
+                    continue;
+                }
+                seenSource = true;
                 if (offset <= piece.SourceStart)
                 {
                     if (best < 0) best = left + piece.Origin.X;

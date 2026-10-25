@@ -38,6 +38,8 @@ namespace Marabook.App
         private DispatcherTimer _sweep;
         private TextBlock _updateText;
         private Border _updateDot;
+        private TextBlock _betaText; // la seconde ligne (13/10) : la beta en cours
+        private Border _betaDot;
 
         public WelcomeWindow(MainWindow shell)
         {
@@ -113,6 +115,41 @@ namespace Marabook.App
             ToolTip.SetTip(_updateText, available
                 ? "Le nom de la nouvelle version et ses nouveautés — et le bouton pour l'installer"
                 : null);
+            RefreshBetaStatus();
+        }
+
+        /// <summary>La seconde ligne (13/10) : la beta en cours — cliquable
+        /// quand elle est téléchargeable pour ce système (la fenêtre d'avertissement
+        /// et des notes, « Télécharger la beta et redémarrer »). Sinon ce que
+        /// dit la vérification, en retrait ; jamais rien en lancement isolé.</summary>
+        private void RefreshBetaStatus()
+        {
+            if (_betaText == null) return;
+            var check = _shell.LastBetaCheck;
+            var available = check != null && check.Available && check.Latest != null;
+            string text;
+            IBrush color = Chrome.FaintText;
+            IBrush dot = Chrome.Border;
+            if (available)
+            {
+                text = check.Message + " — voir l'avertissement et les nouveautés";
+                color = Chrome.Warn;
+                dot = Chrome.Warn;
+            }
+            else if (_shell.UpdateCheckSkipped)
+                text = "Beta : non vérifiée dans ce mode de lancement";
+            else if (check == null)
+                text = _shell.LastUpdateCheck == null ? "Beta : vérification au lancement…" : "Beta : vérification…";
+            else
+                text = "Beta : " + char.ToLowerInvariant(check.Message[0]) + check.Message.Substring(1);
+            _betaText.Text = text;
+            _betaText.Foreground = color;
+            _betaText.TextDecorations = available ? TextDecorations.Underline : null;
+            _betaText.Cursor = new Cursor(available ? StandardCursorType.Hand : StandardCursorType.Arrow);
+            _betaDot.Background = dot;
+            ToolTip.SetTip(_betaText, available
+                ? "Une version d'essai, réservée aux tests : Windows, Mac Apple Silicon et Linux — l'avertissement, les notes et le bouton pour la télécharger"
+                : "Les versions beta accompagnent les gros patchs ; elles disparaissent quand la version stable sort");
         }
 
         /// <summary>Un projet est ouvert (ou l'app se ferme) : l'accueil se
@@ -199,9 +236,11 @@ namespace Marabook.App
             });
             root.Children.Add(head);
 
-            // ---- en pied : le statut de mise à jour (02/10), rempli par RefreshUpdateStatus
+            // ---- en pied : le statut de mise à jour (02/10), rempli par
+            // RefreshUpdateStatus — et dessous la ligne de la beta (13/10)
+            var footRows = new StackPanel();
+            DockPanel.SetDock(footRows, Dock.Bottom);
             var foot = new StackPanel { Orientation = Orientation.Horizontal };
-            DockPanel.SetDock(foot, Dock.Bottom);
             _updateDot = new Border
             {
                 Width = 8,
@@ -224,7 +263,32 @@ namespace Marabook.App
                 if (check != null && check.Available) _shell.ShowUpdateNotes(this);
             };
             foot.Children.Add(_updateText);
-            root.Children.Add(foot);
+            footRows.Children.Add(foot);
+            var betaRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 5, 0, 0) };
+            _betaDot = new Border
+            {
+                Width = 8,
+                Height = 8,
+                CornerRadius = new CornerRadius(4),
+                Background = Chrome.Border,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 1, 8, 0)
+            };
+            betaRow.Children.Add(_betaDot);
+            _betaText = new TextBlock
+            {
+                FontSize = 12,
+                Foreground = Chrome.FaintText,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            _betaText.PointerReleased += delegate
+            {
+                var check = _shell.LastBetaCheck;
+                if (check != null && check.Available) _shell.ShowBetaNotes(this);
+            };
+            betaRow.Children.Add(_betaText);
+            footRows.Children.Add(betaRow);
+            root.Children.Add(footRows);
 
             // ---- au centre : les tuiles, sur UNE ligne
             var center = new StackPanel { VerticalAlignment = VerticalAlignment.Center };

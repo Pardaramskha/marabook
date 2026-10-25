@@ -64,6 +64,7 @@ namespace Marabook.App
         public static async Task<string> Ask(Window owner, string title, string label, string initial)
         {
             var dialog = new InputDialog(title, label, initial);
+            Dialogs.FitToScreen(dialog, owner);
             if (owner != null) await dialog.ShowDialog(owner);
             else
             {

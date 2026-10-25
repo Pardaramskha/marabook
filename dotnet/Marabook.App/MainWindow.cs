@@ -658,6 +658,8 @@ namespace Marabook.App
                 ScheduleAchievementCheck();
             };
             _binder.BookPageTotal = BookPageTotal;
+            _binder.ChapterOddEnd = ChapterOddEnd; // l'enchaînement des pages (18/10)
+            _binder.UnifyRequested += UnifyChapter;
             Grid.SetColumn(_binder, 0);
             grid.Children.Add(_binder);
             // La Pile repliée (29/09) : une bande étroite avec le caret de
@@ -806,6 +808,7 @@ namespace Marabook.App
 
             _corkboard = new CorkboardView { IsVisible = false };
             _corkboard.PageCounter = PageCountOf; // le tri « Pages » des filtres
+            _corkboard.ChapterOddEnd = ChapterOddEnd;
             _corkboard.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _corkboard.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             _corkboard.ExportRequested += ExportItem;
@@ -913,6 +916,7 @@ namespace Marabook.App
 
             _bookView = new BookView { IsVisible = false };
             _bookView.PageCounter = PageCountOf; // filtres du corkboard du livre
+            _bookView.ChapterOddEnd = ChapterOddEnd; // la pastille d'enchaînement des tuiles (18/10)
             _bookView.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _bookView.Changed += delegate
             {
@@ -2356,6 +2360,7 @@ namespace Marabook.App
         private bool _updateCheckRunning;
         private bool _updateToastShown;          // le toast « prête » n'est montré qu'une fois par lancement (02/10)
         private Updater.Check _lastUpdateCheck;  // le dernier verdict de GitHub (02/10), lu par l'accueil
+        private Updater.Check _lastBetaCheck;    // le verdict beta (13/10) : la seconde ligne de l'accueil, rien d'autre
 
         /// <summary>Ce que l'accueil affiche au pied (02/10) : le verdict de
         /// la dernière vérification (null tant qu'elle n'a pas répondu).</summary>
@@ -2366,6 +2371,10 @@ namespace Marabook.App
         public bool UpdatePrepared { get { return _preparedUpdate != null; } }
         /// <summary>Vrai quand le lancement ne vérifie jamais (sonde, démo, capture).</summary>
         public bool UpdateCheckSkipped { get { return _launch != null && _launch.Isolated; } }
+        /// <summary>La beta en cours (13/10), null tant que GitHub n'a pas
+        /// répondu : l'accueil en fait sa seconde ligne. Ni toast, ni menu
+        /// Aide — la beta ne se télécharge que par cette ligne.</summary>
+        public Updater.Check LastBetaCheck { get { return _lastBetaCheck; } }
         /// <summary>Levé sur le fil UI à chaque pas : vérification lancée,
         /// verdict reçu, mise à jour prête. L'accueil s'y abonne.</summary>
         public event Action UpdateStateChanged;
@@ -2401,6 +2410,15 @@ namespace Marabook.App
                     Ui.Post(DispatcherPriority.Background, new Action(delegate
                     {
                         _lastUpdateCheck = check;
+                        RaiseUpdateState();
+                    }));
+                    // La beta (13/10), dans la foulée : une seconde requête,
+                    // son verdict sur la seconde ligne de l'accueil — jamais
+                    // téléchargée d'avance.
+                    var beta = Updater.RunBeta(version);
+                    Ui.Post(DispatcherPriority.Background, new Action(delegate
+                    {
+                        _lastBetaCheck = beta;
                         RaiseUpdateState();
                     }));
                     if (!check.Available || check.Latest == null) return null;
@@ -2446,6 +2464,29 @@ namespace Marabook.App
             if (info == null) return;
             var _ = UpdateNotesDialog.Show(owner ?? this, info, AppVersion, _preparedUpdate != null,
                 delegate { var __ = PrepareAndInstall(info); });
+        }
+
+        /// <summary>La fenêtre de la beta (13/10) : l'avertissement, les notes
+        /// de la pré-release, « Télécharger la beta et redémarrer ». Ouverte
+        /// par la seconde ligne de l'accueil seulement. Rien si aucune beta
+        /// n'est disponible pour ce système.</summary>
+        public void ShowBetaNotes(Window owner)
+        {
+            var check = _lastBetaCheck;
+            if (check == null || !check.Available || check.Latest == null) return;
+            var info = check.Latest;
+            var _ = UpdateNotesDialog.Show(owner ?? this, info, AppVersion, false, delegate
+            {
+                // Une stable préparée au lancement ne doit pas se poser à la
+                // place de la beta demandée : on l'oublie d'abord.
+                if (_preparedUpdate != null && _preparedUpdate.Info != info)
+                {
+                    _preparedUpdate.Discard();
+                    _preparedUpdate = null;
+                    RaiseUpdateState();
+                }
+                var __ = PrepareAndInstall(info);
+            });
         }
 
         /// <summary>Installe : la mise à jour déjà préparée telle quelle, sinon
@@ -4014,13 +4055,53 @@ namespace Marabook.App
 
         private static void CollectBookTexts(BinderItem root, List<BinderItem> texts)
         {
-            foreach (var child in root.Children)
-            {
-                if (child.IsOutOfBook) continue; // Hors-livre (29/09) : ni folios, ni pages, ni statistiques
-                if (child.Kind == ItemKind.Text) texts.Add(child);
-                CollectBookTexts(child, texts);
-            }
+            BookFlow.Texts(root, texts); // Hors-livre exclu (29/09) : ni folios, ni pages, ni statistiques
         }
+
+        /// <summary>L'enchaînement des pages d'un livre (18/10) : le folio de
+        /// la dernière page de ce chapitre s'il est IMPAIR et que le livre
+        /// veut l'avertissement, 0 sinon — la pastille de la Pile et du
+        /// tableau Textes, l'entrée « Unifier » du menu.</summary>
+        private int ChapterOddEnd(BinderItem text)
+        {
+            if (text == null || _project == null || text.Kind != ItemKind.Text || text.IsInsideOutOfBook()) return 0;
+            var book = text.EnclosingBook();
+            if (!BookFlow.Enabled(book)) return 0;
+            return BookFlow.Analyse(book, PageCountOf).OddEnd(text);
+        }
+
+        /// <summary>« Unifier » (18/10) : une page blanche à la fin du chapitre
+        /// — un paragraphe vide avec saut de page, au gabarit du document.
+        /// Annulable ; l'éditeur, la Pile, le tableau du livre et la
+        /// check-list suivent.</summary>
+        private void UnifyChapter(BinderItem text)
+        {
+            if (text == null || text.Kind != ItemKind.Text || text.Document == null) return;
+            TextParagraph added = null;
+            var shell = this;
+            Action refresh = delegate
+            {
+                shell._pageCountCache.Remove(text.Id);
+                shell.MarkDirty();
+                if (shell._current == text && shell._editor.ShowsItem(text))
+                {
+                    shell._editor.ApplyPageSetup(text.Page ?? shell._project.Page);
+                    shell._editor.LoadItem(text);
+                }
+                shell._binder.Rebuild();
+                if (shell._current != null && shell._current.Kind == ItemKind.Book) shell._bookView.Load(shell._current, shell._history, shell._project);
+                shell.RefreshOpenCorkboards();
+            };
+            _history.Run(new DelegateAction(
+                delegate { added = BookFlow.Unify(text.Document); refresh(); },
+                delegate { if (added != null) text.Document.Paragraphs.Remove(added); refresh(); }));
+        }
+
+        // Sonde (18/10) : le compte de pages d'un texte, « Unifier », l'enchaînement.
+        internal int PageCountForProbe(BinderItem text) { _pageCountCache.Remove(text.Id); return PageCountOf(text); }
+        internal void UnifyForProbe(BinderItem text) { UnifyChapter(text); }
+        internal int ChapterOddEndForProbe(BinderItem text) { return ChapterOddEnd(text); }
+        internal bool UndoForProbe() { if (!_history.CanUndo) return false; _history.Undo(); return true; }
 
         private int PageCountOf(BinderItem text)
         {
@@ -4973,7 +5054,7 @@ namespace Marabook.App
             var binderOn = AppSettings.BinderVisible && !_calmMode;
             var from = _binderCol.Width.Value;
             var to = binderOn ? AppSettings.BinderWidth : !_calmMode ? BinderStripWidth : 0;
-            var top = TopLevel.GetTopLevel(this);
+            var top = AppSettings.Animations ? TopLevel.GetTopLevel(this) : null; // Préférences › Général › Animations (1.0.6)
             if (top == null || Math.Abs(to - from) < 1) { ApplyPanelVisibility(); return; }
             _binder.ClipToBounds = true; // la Pile se rogne au lieu de déborder sur le centre
             _binder.IsVisible = true;
@@ -5079,7 +5160,10 @@ namespace Marabook.App
 
         private int _rightMotion; // la génération de la course en cours
         private bool _rightAnimating;
-        private bool _rightAnimationsOn; // après l'ouverture de la fenêtre (jamais en sonde)
+        private bool _rightAnimationsOnAfterOpen; // après l'ouverture de la fenêtre (jamais en sonde)
+        /// <summary>La colonne de droite et le journal glissent : fenêtre ouverte,
+        /// hors sonde, et Préférences › Général › Animations coché (1.0.6).</summary>
+        private bool _rightAnimationsOn { get { return _rightAnimationsOnAfterOpen && AppSettings.Animations; } }
 
         /// <summary>La colonne de droite glisse comme la Pile (1.0.3) : même
         /// course de 240 ms, ease-in-out cubique, image par image. Sans

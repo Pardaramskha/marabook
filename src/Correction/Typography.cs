@@ -468,16 +468,21 @@ namespace Marabook.Correction
             // ponctuation de fin de parole et précède une incise — « mon
             // ami, » rétorqua l'autre. La virgule tapée APRÈS le guillemet
             // (« ami", rétorqua ») passe devant lui.
+            // La citation doit être ouverte À L'ENDROIT du guillemet — par un
+            // paragraphe d'avant, OU par un « déjà posé dans celui-ci (13/10) :
+            // « Bonjour !" tapé d'un trait, premier paragraphe d'un écrit
+            // frais, restait droit parce que seul openQuotesBefore comptait.
             var reservedClose = -1;
             var swapPunctuation = false;
-            if (odd && !openAtStart && depth >= 1)
+            if (odd && !openAtStart)
             {
                 var last = quotes[quotes.Count - 1];
-                if (IsAtParagraphEnd(work, last)) reservedClose = last;
+                if (IsAtParagraphEnd(work, last) && DepthAt(work, last, depth, continuation) >= 1) reservedClose = last;
                 else
                     for (var q = quotes.Count - 1; q >= 0; q--)
                     {
                         bool swap;
+                        if (DepthAt(work, quotes[q], depth, continuation) < 1) continue;
                         if (!IsBeforeIncise(work, quotes[q], out swap)) continue;
                         reservedClose = quotes[q];
                         swapPunctuation = swap;
@@ -530,8 +535,22 @@ namespace Marabook.Correction
             return sb.ToString();
         }
 
-        /// <summary>Le guillemet est le premier signe du paragraphe — rien
-        /// avant lui que des blancs, ou un tiret de dialogue et ses blancs.</summary>
+        /// <summary>Combien de « » sont ouverts juste avant l'index (13/10) :
+        /// ceux des paragraphes d'avant (depthBefore, déjà plafonné à 1), plus
+        /// les « et moins les » déjà posés dans ce paragraphe — le guillemet
+        /// de suite (continuation) n'ouvre rien.</summary>
+        private static int DepthAt(string work, int index, int depthBefore, int continuation)
+        {
+            var depth = depthBefore;
+            for (var i = 0; i < index && i < work.Length; i++)
+            {
+                var c = work[i];
+                if (c == '«' || c == '\u201C') { if (i != continuation) depth++; }
+                else if ((c == '»' || c == '\u201D') && depth > 0) depth--;
+            }
+            return depth;
+        }
+
         /// <summary>Ce paragraphe est-il une réplique (30/09) : tiret en tête,
         /// ou guillemet ouvrant en tête — pour que le suivant prenne le signe
         /// de REPRISE plutôt que celui d'ouverture.</summary>
@@ -546,6 +565,8 @@ namespace Marabook.Correction
                 || (c == '-' && i + 1 < text.Length && (text[i + 1] == ' ' || text[i + 1] == '-'));
         }
 
+        /// <summary>Le guillemet est le premier signe du paragraphe — rien
+        /// avant lui que des blancs, ou un tiret de dialogue et ses blancs.</summary>
         private static bool IsAtParagraphStart(string text, int index)
         {
             for (var i = 0; i < index; i++)

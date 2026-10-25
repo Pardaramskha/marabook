@@ -251,6 +251,23 @@ namespace Marabook.Tests
             t.Equal(0, pass.Summary.Warnings.Count, "aucun avertissement d'orphelin (" + string.Join(" | ", pass.Summary.Warnings.ToArray()) + ")");
             var closed = Typography.Clean("Il dit \"non\", rétorqua l’autre.", options, null, 0).Text;
             t.Check(closed.Contains("«") && closed.Contains("»"), "sans citation ouverte : la paire ordinaire (" + closed + ")");
+            // Le bug du 13/10 : l'ouvrant est DANS le paragraphe (déjà converti
+            // à la frappe), rien d'ouvert avant — un écrit frais qui commence
+            // par une réplique. Le fermant restait droit, « ! » ou pas.
+            var fresh = Typography.Clean("«\u00A0Bonjour\u202F!\"", options, null, 0).Text;
+            t.Check(fresh.EndsWith("!\u00A0»") && !fresh.Contains("\""), "ouvrant dans le paragraphe, rien avant : le fermant après « ! » devient » (" + fresh + ")");
+            var freshDot = Typography.Clean("«\u00A0Bonjour.\"", options, null, 0).Text;
+            t.Check(freshDot.EndsWith(".\u00A0»"), "…après un point aussi (" + freshDot + ")");
+            var freshIncise = Typography.Clean("«\u00A0Non\u202F!\" cria-t-elle.", options, null, 0).Text;
+            t.Check(freshIncise.Contains("!\u00A0» cria"), "…et devant une incise (" + freshIncise + ")");
+            var reclosed = Typography.Clean("«\u00A0Salut\u202F!\u00A0» Il dit oui.\" rien", options, null, 0).Text;
+            t.Check(reclosed.Contains("oui.\""), "citation déjà refermée dans le paragraphe : un orphelin n'est pas un fermant (" + reclosed + ")");
+            var freshTyping = Typography.Clean("«\u00A0Je sais pas si \"aller", options, null, 0).Text;
+            t.Check(freshTyping.EndsWith("\"aller"), "à la frappe, ouvrant dans le paragraphe : « si \"aller » n'est pas un fermant (" + freshTyping + ")");
+            var freshDoc = Document("«\u00A0Bonjour\u202F!\"", "— Salut.");
+            var freshPass = TypographyPass.Run(freshDoc, options);
+            var first = PivotEdit.FlatText(freshPass.Paragraphs[0]);
+            t.Check(first.EndsWith("»") && freshPass.Summary.Warnings.Count == 0, "premier paragraphe d'un écrit, par la passe : fermé, sans avertissement (" + first + ")");
         }
 
         /// <summary>Le tiret de dialogue est suivi d'une insécable — ce que

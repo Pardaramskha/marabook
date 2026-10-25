@@ -219,6 +219,13 @@ namespace Marabook.Tests
             t.Equal("media/a.png", ImportedImages.Resolve("word/", "../media/a.png"), "« .. » résolu");
             t.Equal("Pictures/a.png", ImportedImages.Resolve("", "./Pictures/a.png"), "« ./ » ôté");
             t.Equal(null, ImportedImages.Resolve("word/", ""), "vide : null");
+            // L'optimisation à l'import (1.0.6) passe par le codec de l'interface :
+            // sans décodeur (le cœur seul), les octets et l'extension ne bougent pas.
+            string stored;
+            var raw = new byte[] { 1, 2, 3 };
+            var codec = new HeaderImageCodec();
+            t.Check(ReferenceEquals(codec.Optimize(raw, ".png", out stored), raw) && stored == ".png", "le codec d'en-têtes n'optimise rien : octets et extension intacts");
+            t.Check(ReferenceEquals(Platform.Images.Optimize(raw, ".jpg", out stored), raw) && stored == ".jpg", "le codec courant du cœur aussi (sans l'app)");
         }
     }
 }
