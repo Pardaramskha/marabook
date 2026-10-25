@@ -66,7 +66,10 @@ namespace Marabook.Exchange
                 _byEntry[entryName] = null;
                 return null;
             }
-            id = _project.AddImage(bytes, extension);
+            // Optimisée à l'import (1.0.6) : réduite et réencodée si le codec le peut.
+            string stored;
+            bytes = Platform.Images.Optimize(bytes, extension, out stored);
+            id = _project.AddImage(bytes, stored);
             _byEntry[entryName] = id;
             Stored++;
             return id;

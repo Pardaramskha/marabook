@@ -106,6 +106,9 @@ namespace Marabook.Tests
             WidowControl(t);
             OrphanControl(t);
             IndentOverride(t);
+            ListHangingIndent(t);
+            ListLevels(t);
+            EmptyLineStart(t);
             DocumentLeading(t);
             IncrementalStats(t);
             RunBoundaryGlued(t);
@@ -193,6 +196,121 @@ namespace Marabook.Tests
             document.Paragraphs[0].FirstIndent = 0; // sans Indent : l'alinéa du style effacé, le bloc au style
             engine.ComposeAll();
             t.Equal(0.0, engine.Current.Paragraphs[0].Lines[0].Pieces[0].Origin.X, "FirstIndent 0 sans décalage de bloc : plus d'alinéa du style");
+        }
+
+        private static double FirstTextX(ComposedLine line)
+        {
+            foreach (var piece in line.Pieces)
+                if (piece.SourceStart >= 0 && piece.SourceLength > 0) return piece.Origin.X;
+            return -1;
+        }
+
+        /// <summary>Les listes en RETRAIT SUSPENDU (15/10, 1.0.6) : les lignes
+        /// suivantes d'une puce ou d'un numéro s'alignent sur le texte qui
+        /// suit la marque, pas sur le retrait du bloc — avant, avec l'alinéa
+        /// du style, la suite revenait à GAUCHE de la puce.</summary>
+        private static void ListHangingIndent(Harness t)
+        {
+            var document = Document("un deux trois quatre cinq six sept huit neuf dix onze douze",
+                "un deux trois quatre cinq six sept huit neuf dix onze douze");
+            document.Paragraphs[0].ListKind = "bullet";
+            document.Paragraphs[1].ListKind = "number";
+            var styles = Styles();
+            styles.Find("body").FirstLineIndent = 10;
+            var engine = new CompositionEngine(document, styles, Setup(), null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            var bullet = engine.Current.Paragraphs[0].Lines;
+            t.Check(bullet.Count >= 2, "puce : deux lignes au moins");
+            t.Equal(34.0, bullet[0].Pieces[0].Origin.X, "puce : la marque au retrait de liste (24) + l'alinéa (10)");
+            t.Equal(49.0, FirstTextX(bullet[0]), "puce : le texte après « •  » (3 × 5 px)");
+            t.Equal(49.0, bullet[1].Pieces[0].Origin.X, "puce : la deuxième ligne alignée sur le texte, pas sous la puce");
+            t.Equal(49.0, bullet[1].X, "…et la ligne porte son abscisse de départ");
+            t.Equal(49.0, engine.Current.Paragraphs[0].ListHang ?? -1, "…et le paragraphe son retrait suspendu");
+            var number = engine.Current.Paragraphs[1].Lines;
+            t.Check(number.Count >= 2, "numéro : deux lignes au moins");
+            t.Equal(54.0, FirstTextX(number[0]), "numéro : le texte après « 1.  » (4 × 5 px)");
+            t.Equal(54.0, number[1].Pieces[0].Origin.X, "numéro : la deuxième ligne alignée sur le texte — même règle pour toutes les listes");
+
+            // Justifié : les espaces de la marque ne s'étirent pas, le retrait
+            // suspendu tient.
+            styles.Find("body").Align = "justify";
+            engine.ComposeAll();
+            var justified = engine.Current.Paragraphs[0].Lines;
+            t.Equal(49.0, FirstTextX(justified[0]), "justifié : l'écart de la puce reste naturel");
+            t.Equal(49.0, justified[1].Pieces[0].Origin.X, "justifié : la deuxième ligne toujours sur le texte");
+
+            // Un article vide : rien que la marque, le retrait suspendu à la
+            // largeur naturelle — le caret s'y posera après la puce.
+            var empty = new TextDocument();
+            var item = new TextParagraph { ListKind = "bullet" };
+            empty.Paragraphs.Add(item);
+            var engine2 = new CompositionEngine(empty, styles, Setup(), null, false, new StubGlyphMetrics());
+            engine2.ComposeAll();
+            t.Equal(49.0, engine2.Current.Paragraphs[0].ListHang ?? -1, "article vide : le retrait suspendu à la largeur naturelle de la marque");
+            t.Equal(34.0, engine2.Current.Paragraphs[0].Lines[0].X, "article vide : la ligne part à l'alinéa");
+        }
+
+        /// <summary>Les NIVEAUX de liste (15/10, 1.0.6) : marque par niveau
+        /// (• ◦ ▪ ; 1. a. i.), 24 px de plus par cran, numérotation par
+        /// niveau qui repart en descendant et se poursuit en remontant.</summary>
+        private static void ListLevels(Harness t)
+        {
+            var document = Document("un", "deux", "trois", "quatre", "cinq", "six", "sept", "huit");
+            string[] kinds = { "number", "number", "bullet", "number", "number", "number", null, "number" };
+            int[] levels = { 0, 1, 1, 2, 2, 0, 0, 0 };
+            for (var i = 0; i < kinds.Length; i++)
+            {
+                document.Paragraphs[i].ListKind = kinds[i];
+                document.Paragraphs[i].ListLevel = levels[i];
+            }
+            var numbers = TextParagraph.ListNumbers(document.Paragraphs);
+            t.Equal("1,1,0,1,2,2,0,1", string.Join(",", numbers), "numéros par niveau : 1 / a / • / i / ii / 2 / — / 1 (la puce ne casse pas la suite, le texte ordinaire si)");
+            t.Equal("1.  ", TextParagraph.ListMarker("number", 0, 1), "marque niveau 0 : « 1. »");
+            t.Equal("b.  ", TextParagraph.ListMarker("number", 1, 2), "marque niveau 1 : « b. »");
+            t.Equal("iv.  ", TextParagraph.ListMarker("number", 2, 4), "marque niveau 2 : « iv. »");
+            t.Equal("1.  ", TextParagraph.ListMarker("number", 3, 1), "marque niveau 3 : la boucle repart aux chiffres");
+            t.Equal("aa.  ", TextParagraph.ListMarker("number", 1, 27), "lettres : « aa. » après « z. »");
+            t.Equal("•  ", TextParagraph.ListMarker("bullet", 0, 0), "puce niveau 0 : •");
+            t.Equal("◦  ", TextParagraph.ListMarker("bullet", 1, 0), "puce niveau 1 : ◦");
+            t.Equal("▪  ", TextParagraph.ListMarker("bullet", 2, 0), "puce niveau 2 : ▪");
+            t.Check(TextParagraph.ListMarker(null, 0, 0) == null, "hors liste : aucune marque");
+
+            var styles = Styles();
+            styles.Find("body").FirstLineIndent = 0;
+            var engine = new CompositionEngine(document, styles, Setup(), null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            t.Equal(24.0, engine.Current.Paragraphs[0].Lines[0].Pieces[0].Origin.X, "niveau 0 : la marque à 24 px");
+            t.Equal(48.0, engine.Current.Paragraphs[1].Lines[0].Pieces[0].Origin.X, "niveau 1 : 48 px");
+            t.Equal(72.0, engine.Current.Paragraphs[3].Lines[0].Pieces[0].Origin.X, "niveau 2 : 72 px");
+            t.Equal(68.0, engine.Current.Paragraphs[1].ListHang ?? -1, "niveau 1 : le texte après « a.  » (48 + 20 px)");
+            t.Equal(63.0, engine.Current.Paragraphs[2].ListHang ?? -1, "sous-puce : le texte après « ◦  » (48 + 15 px)");
+
+            // Le compositeur suit un changement de niveau au recomposé.
+            document.Paragraphs[5].ListLevel = 1;
+            engine.RecomposeParagraph(5);
+            t.Equal(48.0, engine.Current.Paragraphs[5].Lines[0].Pieces[0].Origin.X, "recomposé : le paragraphe descendu d'un cran se décale");
+            t.Equal("1,1,0,1,2,2,0,1", string.Join(",", TextParagraph.ListNumbers(document.Paragraphs)), "…et devient « b. » : la suite du niveau 1 (i, ii étaient au niveau 2)");
+        }
+
+        /// <summary>Une ligne vide sait où elle commence (15/10) : X porte
+        /// l'alinéa (ou le centrage) — l'éditeur y pose le caret, au lieu de
+        /// la marge.</summary>
+        private static void EmptyLineStart(Harness t)
+        {
+            var document = Document("", "");
+            var styles = Styles();
+            styles.Find("body").FirstLineIndent = 18.9;
+            document.Paragraphs[1].AlignOverride = "center";
+            var engine = new CompositionEngine(document, styles, Setup(), null, false, new StubGlyphMetrics());
+            engine.ComposeAll();
+            var line = engine.Current.Paragraphs[0].Lines[0];
+            t.Equal(0, line.Pieces.Count, "paragraphe vide : aucune pièce");
+            t.Equal(18.9, line.X, "paragraphe vide : la ligne part à l'alinéa du style");
+            var centered = engine.Current.Paragraphs[1].Lines[0];
+            t.Check(centered.X > 80 && centered.X < 110, "paragraphe vide centré : la ligne part au milieu de la colonne (" + centered.X.ToString("0.0") + ")");
+            document.Paragraphs[0].Indent = 0;
+            engine.ComposeAll();
+            t.Equal(0.0, engine.Current.Paragraphs[0].Lines[0].X, "décalage 0 : la ligne vide part à la marge");
         }
 
         /// <summary>Le drapeau « césure » de la page n'a PLUS d'effet (09/10) :

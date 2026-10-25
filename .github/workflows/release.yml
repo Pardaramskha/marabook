@@ -4,41 +4,58 @@
 #   main  branche de release : ne reçoit que des fusions de dev
 #   dev   pré-release et bac à sable : toutes les branches de travail
 #         (feat/…, fix/…, hotfix/…) partent de dev et y reviennent
+#   beta  (13/10) le socle des patchs MASSIFS (la 1.1.0…) : il part de dev,
+#         reçoit ses branches de travail, et dev continue de sortir des
+#         correctifs rapides pendant ce temps (à y refusionner au fil de
+#         l'eau). Quand VERSION y porte le suffixe -beta, chaque poussée
+#         publie une PRÉ-RELEASE vX.Y.Z-beta (remplacée à la poussée
+#         suivante) ; sans suffixe, essai à blanc. Prêt : beta > dev > main,
+#         VERSION sans suffixe — la stable sort et efface les betas.
+#         Une beta ne se bumpe JAMAIS sans que Rémi le demande.
 #   Les branches fusionnées par PR sont supprimées automatiquement
 #   (réglage du dépôt) ; main et dev sont protégées contre la suppression
-#   (ruleset « Branches permanentes »).
+#   (ruleset « Branches permanentes ») — beta est à y ajouter.
 #
 # Ce workflow tourne à chaque poussée sur dev (essai à blanc : compile,
 # teste et fabrique sans rien publier, pour vérifier que la release
-# passerait) et sur main (donc à chaque fusion dev > main), où il publie
-# une release GitHub :
+# passerait), sur beta (pré-release si VERSION finit par -beta, sinon
+# essai à blanc) et sur main (donc à chaque fusion dev > main), où il
+# publie une release GitHub :
 #   1. lit VERSION (à incrémenter sur dev AVANT de fusionner : si le tag
-#      vVERSION existe déjà, le workflow échoue plutôt que d'écraser)
+#      vVERSION existe déjà, le workflow échoue plutôt que d'écraser —
+#      sauf une beta, qui se remplace) ; une VERSION -beta sur main échoue
 #   2. sur Windows, Ubuntu et macOS : compile, lance les tests du cœur
 #      (dotnet test) et la sonde de l'application (--probe, sous Xvfb
 #      sur Ubuntu), fabrique l'archive du système (tools/publish.ps1)
-#      — plus l'installeur sur Windows (tools/release.ps1)
+#      — plus l'installeur sur Windows (tools/release.ps1). Le SHA du
+#      commit est passé au build (SourceRevisionId) : l'application le
+#      lit pour savoir qu'une beta au même tag a été rebâtie.
+#      Une beta ne se fabrique PAS pour Mac Intel (osx-x64).
 #   3. crée la release vVERSION avec les assets à noms stables
-#      (le README et l'Updater pointent releases/latest → jamais en
-#      « pre-release », même avec un suffixe -beta) ; le TEXTE de la
-#      release est patchnotes/VERSION.md — les patch notes écrites par
-#      Rémi à chaque bump (02/10) ; l'application le montre tel quel dans
-#      sa fenêtre « Nouveautés ». Absent : échec sur main, avertissement
-#      sur dev — on ne publie pas sans notes.
+#      (le README et l'Updater pointent releases/latest : une beta est une
+#      « pre-release », jamais « latest ») ; le TEXTE de la release est
+#      patchnotes/VERSION.md — les patch notes écrites par Rémi à chaque
+#      bump (02/10 ; patchnotes/X.Y.Z-beta.md pour une beta) ;
+#      l'application le montre tel quel dans sa fenêtre « Nouveautés ».
+#      Absent : échec sur main et beta, avertissement sur dev — on ne
+#      publie pas sans notes.
 #        marabook-windows-portable.zip   Marabook-Setup-Windows.exe
 #        marabook-linux-x64.tar.gz
 #        marabook-macos-x64.zip          marabook-macos-arm64.zip
-#   4. ne garde que les 3 releases les plus récentes, supprime les
-#      autres (release + tag)
+#   4. une stable publiée efface TOUTES les pré-releases -beta (release
+#      + tag) — l'Updater des testeurs voit alors la stable, plus récente
+#      que leur beta, et la propose ; puis ne garde que les 3 releases
+#      stables les plus récentes, supprime les autres (release + tag)
 #
 # Lancement manuel (Actions > Release > Run workflow) : par défaut un
-# essai à blanc ; décocher « dry_run » depuis main pour publier à la main.
+# essai à blanc ; décocher « dry_run » depuis main (ou beta) pour publier
+# à la main.
 
 name: Release
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, beta]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -66,6 +83,9 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      beta: ${{ steps.version.outputs.beta }}
+      publish: ${{ steps.version.outputs.publish }}
+      matrix: ${{ steps.version.outputs.matrix }}
     steps:
       - name: Récupérer les sources
         uses: actions/checkout@v7
@@ -78,9 +98,32 @@ jobs:
           if ($v -notmatch '^\d+\.\d+\.\d+(-[A-Za-z0-9.-]+)?$') {
             throw "VERSION doit être de la forme majeure.mineure.correctif[-suffixe] (lu : « $v »)."
           }
+          $ref = '${{ github.ref }}'
+          $beta = $v -match '-beta$'
+          if ($beta -and $ref -eq 'refs/heads/main') {
+            throw "VERSION « $v » est une beta : une beta ne se publie que depuis la branche beta, jamais depuis main. Retirez le suffixe -beta sur dev avant de fusionner."
+          }
+          # Ce que cette poussée publie : la stable depuis main, la beta depuis
+          # beta (VERSION -beta) ; tout le reste est un essai à blanc.
+          $publish = 'none'
+          if ($ref -eq 'refs/heads/main') { $publish = 'stable' }
+          elseif ($ref -eq 'refs/heads/beta' -and $beta) { $publish = 'beta' }
+          elseif ($ref -eq 'refs/heads/beta') { Write-Host "::warning::VERSION « $v » n'a pas le suffixe -beta : essai à blanc, rien n'est publié depuis beta." }
+          # La matrice des systèmes : pas de Mac Intel pour une beta.
+          $systems = @(
+            @{ os = 'windows-latest'; rid = 'win-x64'; assets = "dist/marabook-windows-portable.zip`ndist/Marabook-Setup-Windows.exe" },
+            @{ os = 'ubuntu-latest'; rid = 'linux-x64'; assets = 'dist/marabook-linux-x64.tar.gz' },
+            @{ os = 'macos-latest'; rid = 'osx-arm64'; assets = 'dist/marabook-macos-arm64.zip' }
+          )
+          if (-not $beta) { $systems += @{ os = 'macos-15-intel'; rid = 'osx-x64'; assets = 'dist/marabook-macos-x64.zip' } }
+          $matrix = ConvertTo-Json -Compress -InputObject @($systems)
           "version=$v" >> $env:GITHUB_OUTPUT
           "tag=v$v" >> $env:GITHUB_OUTPUT
-          Write-Host "Version : $v (tag v$v)"
+          "beta=$($beta.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          "publish=$publish" >> $env:GITHUB_OUTPUT
+          "matrix=$matrix" >> $env:GITHUB_OUTPUT
+          Write-Host "Version : $v (tag v$v, beta : $beta, publication : $publish)"
+          Write-Host "Systèmes : $(($systems | ForEach-Object rid) -join ', ')"
 
       - name: Vérifier les patch notes (patchnotes/VERSION.md)
         shell: pwsh
@@ -89,12 +132,13 @@ jobs:
           $notes = "patchnotes/$v.md"
           if (-not (Test-Path $notes) -or ([IO.File]::ReadAllText($notes)).Trim().Length -eq 0) {
             $message = "Patch notes manquantes : $notes (le texte de la release et de la fenêtre « Nouveautés » de l'application)."
-            if ('${{ github.ref }}' -eq 'refs/heads/main') { throw $message }
-            Write-Host "::warning::$message À écrire avant de fusionner dans main."
+            if ('${{ steps.version.outputs.publish }}' -ne 'none') { throw $message }
+            Write-Host "::warning::$message À écrire avant de publier."
           }
           else { Write-Host "Patch notes : $notes" }
 
       - name: Vérifier que la release n'existe pas déjà
+        # Une beta (branche beta) se remplace à chaque poussée : pas de garde.
         if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
         shell: pwsh
         run: |
@@ -113,25 +157,17 @@ jobs:
     needs: version
     strategy:
       fail-fast: false
+      # La matrice vient du job version (13/10) : les quatre systèmes pour
+      # une stable, trois pour une beta (pas de Mac Intel). Les assets de
+      # Windows font un chemin par ligne : upload-artifact lisait « a b »
+      # comme UN chemin introuvable et ne conservait rien (01/10).
       matrix:
-        include:
-          - os: windows-latest
-            rid: win-x64
-            # Un chemin par ligne : upload-artifact lisait « a b » comme UN
-            # chemin introuvable et ne conservait rien pour Windows (01/10).
-            assets: |
-              dist/marabook-windows-portable.zip
-              dist/Marabook-Setup-Windows.exe
-          - os: ubuntu-latest
-            rid: linux-x64
-            assets: "dist/marabook-linux-x64.tar.gz"
-          - os: macos-latest
-            rid: osx-arm64
-            assets: "dist/marabook-macos-arm64.zip"
-          - os: macos-15-intel
-            rid: osx-x64
-            assets: "dist/marabook-macos-x64.zip"
+        include: ${{ fromJSON(needs.version.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
+    env:
+      # Le SHA du commit bâti, accroché par le SDK à l'InformationalVersion
+      # (« 1.1.0-beta+abc… ») : Updater.LocalCommit le relit (13/10).
+      SourceRevisionId: ${{ github.sha }}
     steps:
       - name: Récupérer les sources
         uses: actions/checkout@v7
@@ -215,7 +251,7 @@ jobs:
 
   publish:
     needs: [version, build]
-    if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
+    if: ${{ needs.version.outputs.publish != 'none' && !inputs.dry_run }}
     runs-on: ubuntu-latest
     steps:
       - name: Récupérer les sources (pour les patch notes)
@@ -236,22 +272,61 @@ jobs:
           if (-not (Test-Path $notes)) { throw "Patch notes manquantes : $notes" }
           $assets = Get-ChildItem artefacts -Recurse -File | ForEach-Object { $_.FullName }
           Write-Host "Assets : $($assets -join ', ')"
-          gh release create $tag @assets `
-            --repo $env:GITHUB_REPOSITORY `
-            --target $env:GITHUB_SHA `
-            --title "Marabook $version" `
-            --notes-file $notes `
-            --latest
-          if ($LASTEXITCODE -ne 0) { throw "gh release create a échoué." }
-          Write-Host "Release $tag publiée."
+          if ('${{ needs.version.outputs.publish }}' -eq 'beta') {
+            # La beta se REMPLACE : même tag, nouveau commit — l'application
+            # compare le SHA (target_commitish) au sien pour le dire.
+            gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "La beta $tag existe : remplacée."
+              gh release delete $tag --repo $env:GITHUB_REPOSITORY --cleanup-tag --yes
+              if ($LASTEXITCODE -ne 0) { throw "Suppression de l'ancienne beta $tag ratée." }
+            }
+            gh release create $tag @assets `
+              --repo $env:GITHUB_REPOSITORY `
+              --target $env:GITHUB_SHA `
+              --title "Marabook $version" `
+              --notes-file $notes `
+              --prerelease `
+              --latest=false
+            if ($LASTEXITCODE -ne 0) { throw "gh release create (beta) a échoué." }
+            Write-Host "Pré-release $tag publiée (jamais « latest » : l'Updater ne la voit que par la ligne beta de l'accueil)."
+          }
+          else {
+            gh release create $tag @assets `
+              --repo $env:GITHUB_REPOSITORY `
+              --target $env:GITHUB_SHA `
+              --title "Marabook $version" `
+              --notes-file $notes `
+              --latest
+            if ($LASTEXITCODE -ne 0) { throw "gh release create a échoué." }
+            Write-Host "Release $tag publiée."
+          }
+
+      - name: Effacer les betas (la stable est sortie)
+        if: ${{ needs.version.outputs.publish == 'stable' }}
+        shell: pwsh
+        run: |
+          # Toutes les pré-releases -beta disparaissent avec leur tag : les
+          # testeurs voient alors la stable, plus récente que leur beta aux
+          # mêmes nombres (Updater.IsNewer), et sont invités à l'installer.
+          $betas = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 `
+            --json tagName,isPrerelease | ConvertFrom-Json
+          $betas = @($betas | Where-Object { $_.isPrerelease -and $_.tagName -match '-beta$' })
+          if ($betas.Count -eq 0) { Write-Host "Aucune beta à effacer."; exit 0 }
+          foreach ($b in $betas) {
+            Write-Host "Suppression de la beta $($b.tagName) et de son tag…"
+            gh release delete $b.tagName --repo $env:GITHUB_REPOSITORY --cleanup-tag --yes
+            if ($LASTEXITCODE -ne 0) { throw "Suppression de $($b.tagName) ratée." }
+          }
 
       - name: Ne garder que les ${{ env.KEEP_RELEASES }} releases les plus récentes
+        if: ${{ needs.version.outputs.publish == 'stable' }}
         shell: pwsh
         run: |
           $keep = [int]$env:KEEP_RELEASES
           $releases = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 `
-            --json tagName,createdAt,isDraft | ConvertFrom-Json
-          $releases = $releases | Where-Object { -not $_.isDraft } |
+            --json tagName,createdAt,isDraft,isPrerelease | ConvertFrom-Json
+          $releases = $releases | Where-Object { -not $_.isDraft -and -not $_.isPrerelease } |
             Sort-Object { [DateTime]$_.createdAt } -Descending
           $aSupprimer = @($releases | Select-Object -Skip $keep)
           if ($aSupprimer.Count -eq 0) {

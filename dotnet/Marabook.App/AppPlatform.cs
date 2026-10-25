@@ -155,6 +155,13 @@ namespace Marabook.App
             catch { return null; }
         }
 
+        public byte[] Optimize(byte[] bytes, string extension, out string newExtension)
+        {
+            var result = ImageImport.Optimize(bytes, extension);
+            newExtension = result.Extension;
+            return result.Bytes;
+        }
+
         public byte[] ToPng(byte[] bytes)
         {
             if (bytes == null) return null;

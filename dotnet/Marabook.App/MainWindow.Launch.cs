@@ -29,7 +29,7 @@ namespace Marabook.App
         {
             _launch = launch ?? new Launch();
             Opened += delegate { ScheduleUpdateCheck(); }; // la vérification silencieuse du lancement (01/10)
-            Opened += delegate { _rightAnimationsOn = !_launch.Probe; }; // la colonne de droite glisse (1.0.3) — pas en sonde
+            Opened += delegate { _rightAnimationsOnAfterOpen = !_launch.Probe; }; // la colonne de droite glisse (1.0.3) — pas en sonde
             if (_launch.Isolated)
             {
                 WindowState = WindowState.Normal;
@@ -110,6 +110,9 @@ namespace Marabook.App
                 if (_launch.UpdateRolledBack)
                     await MessageDialog.Show(this, "La mise à jour n'a pas pu démarrer : la version précédente a été remise en place.\n\nRéessayez plus tard depuis Aide › Vérifier les mises à jour, ou téléchargez la release depuis GitHub.",
                         "Mise à jour annulée", MessageButtons.OK, MessageIcon.Warning);
+                // --open vaut aussi pour la capture d'un vrai .plot (1.0.6) : « Fiches »
+                // ouvre la bibliothèque — le chrono MARABOOK_LIBRARY_TIMING=1 s'y mesure.
+                if (_launch.CapturePath != null && !_launch.Demo && _launch.OpenTitle != null && _project != null) { await Task.Delay(200); OpenByTitle(_launch.OpenTitle); await Task.Delay(200); }
                 if (_launch.CapturePath != null) await CaptureAndQuit(_launch.CapturePath);
                 else if (_launch.Lab) BuildLab().Show(this);
             };
@@ -193,6 +196,11 @@ namespace Marabook.App
                 Console.WriteLine("  MAJ ÉCHEC : " + failure.Message);
                 Environment.ExitCode = 1;
             }
+            // La beta (13/10) : le verdict seul, rien n'est téléchargé — il
+            // n'y en a pas forcément une, ce n'est pas un échec.
+            var beta = Updater.RunBeta("0.0.0");
+            Console.WriteLine("== Beta : " + beta.Message + (beta.Latest == null ? "" : " — " + (beta.Latest.ZipUrl.Length > 0 ? beta.Latest.ZipUrl : "sans asset pour ce système") + " (commit " + beta.Latest.Commit + ")"));
+            Console.WriteLine("  build locale : " + (Updater.LocalCommit().Length > 0 ? Updater.LocalCommit() : "sans commit (hors CI)"));
         }
 
         /// <summary>« --police famille » (29/09) : comment le moteur résout la
@@ -677,6 +685,14 @@ private async Task CaptureAndQuit(string path)
                 var size = new PixelSize(Math.Max(1, (int)(content.Bounds.Width * scale)), Math.Max(1, (int)(content.Bounds.Height * scale)));
                 using (var bitmap = new RenderTargetBitmap(size, new Vector(96 * scale, 96 * scale)))
                 {
+                    // MARABOOK_LIBRARY_TIMING=1 (1.0.6) : le coût d'UNE image entière, rendue dix fois.
+                    if (Environment.GetEnvironmentVariable("MARABOOK_LIBRARY_TIMING") == "1")
+                    {
+                        bitmap.Render(content);
+                        var watch = System.Diagnostics.Stopwatch.StartNew();
+                        for (var i = 0; i < 10; i++) bitmap.Render(content);
+                        Console.WriteLine("[rendu] 10 images en " + watch.ElapsedMilliseconds + " ms (" + (watch.ElapsedMilliseconds / 10.0).ToString("0.0") + " ms l'image)");
+                    }
                     bitmap.Render(content);
                     Directory.CreateDirectory(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path)));
                     bitmap.Save(path);

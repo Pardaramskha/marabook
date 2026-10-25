@@ -56,6 +56,9 @@ namespace Marabook.App
         /// <summary>Compte de pages d'un texte (tri « Pages ») — câblé par la
         /// coquille (cache de composition de MainWindow) ; null = tri neutre.</summary>
         public Func<BinderItem, int> PageCounter;
+        // L'enchaînement des pages (18/10) : le folio impair de la dernière
+        // page d'un chapitre, 0 = rien — la pastille à côté du titre.
+        public Func<BinderItem, int> ChapterOddEnd;
 
         private readonly WrapPanel _templateCards; // section gabarits (livres)
         private readonly Border _templateSeparator;
@@ -1618,6 +1621,19 @@ namespace Marabook.App
                     titleLeft.Children.Add(warning);
                 }
             }
+            // Un chapitre qui finit sur une page impaire (18/10) : la pastille
+            // d'enchaînement, la même que dans la Pile et sur « Unifier ».
+            var oddEnd = enclosing != null && item.Kind == ItemKind.Text && ChapterOddEnd != null ? ChapterOddEnd(item) : 0;
+            if (oddEnd > 0)
+            {
+                var flow = BinderView.FlowIcon(12);
+                if (flow != null)
+                {
+                    flow.Margin = new Thickness(0, 0, 5, 0);
+                    ToolTip.SetTip(flow, "Ce chapitre finit sur une page impaire (p. " + oddEnd + ") : un verso blanc suivra. Clic droit › Unifier ajoute cette page blanche à sa fin.");
+                    titleLeft.Children.Add(flow);
+                }
+            }
             titleLeft.Children.Add(new TextBlock
             {
                 Text = item.Title,
@@ -1625,7 +1641,7 @@ namespace Marabook.App
                 FontWeight = FontWeight.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center, // centré si la barre grandit (29/09)
-                MaxWidth = divergent ? 133 : 150
+                MaxWidth = 150 - (divergent ? 17 : 0) - (oddEnd > 0 ? 17 : 0)
             });
             titleRow.Children.Add(titleLeft);
             titleBar.Child = titleRow;

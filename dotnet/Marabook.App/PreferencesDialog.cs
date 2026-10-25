@@ -15,7 +15,7 @@ using Marabook.Settings;
 namespace Marabook.App
 {
     /// <summary>Les Préférences (portées de View/PreferencesDialog.cs),
-    /// appliquées en direct. Onglets : Personnalisation, Édition, Correction,
+    /// appliquées en direct. Onglets : Général (« Personnalisation » jusqu'à la 1.0.5), Édition, Correction,
     /// Styles globaux, Catalogue de polices, Auteur, Raccourcis, DLC. Taille
     /// unique, bornée à l'écran ; les chips se replient sur plusieurs rangées
     /// quand la fenêtre est étroite (WrapPanel). Tout est dans AppSettings.
@@ -52,23 +52,28 @@ namespace Marabook.App
             _project = project;
             Title = "Préférences";
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            var area = owner != null && owner.Screens.ScreenFromWindow(owner) != null
-                ? owner.Screens.ScreenFromWindow(owner).WorkingArea
-                : new PixelRect(0, 0, 1200, 800);
-            var scale = owner != null ? owner.RenderScaling : 1.0;
-            Width = Math.Min(900, Math.Max(520, area.Width / scale - 40));
-            Height = Math.Min(660, Math.Max(420, area.Height / scale - 40));
+            var availableWidth = Dialogs.AvailableWidth(owner);
+            var availableHeight = Dialogs.AvailableHeight(owner);
+            Width = Math.Min(960, Math.Max(520, availableWidth > 0 ? availableWidth : 900));
+            // Toute la hauteur de l'écran (24/10, 1.0.6) : la zone de travail
+            // moins la barre de titre — la fenêtre ne sort jamais de l'écran.
+            Height = Math.Max(420, availableHeight > 0 ? availableHeight : 660);
             CanResize = false;
             ShowInTaskbar = false;
             Background = Chrome.RaisedBg;
 
+            // Les onglets en COLONNE à gauche (24/10, 1.0.6) : huit chips sur
+            // deux rangées se lisaient mal ; la colonne (classe « column »,
+            // Theme) les aligne et laisse tout le reste au contenu.
             Tabs = new TabControl
             {
                 Margin = new Thickness(10),
-                ItemsPanel = new FuncTemplate<Panel>(() => new WrapPanel())
+                TabStripPlacement = Dock.Left,
+                ItemsPanel = new FuncTemplate<Panel>(() => new StackPanel { Orientation = Orientation.Vertical })
             };
+            Tabs.Classes.Add("column");
             _swatches = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Left };
-            Tabs.Items.Add(Tab("Personnalisation", BuildPersonalizationTab()));
+            Tabs.Items.Add(Tab("Général", BuildPersonalizationTab())); // « Personnalisation » jusqu'à la 1.0.5 — l'en-tête seul change, aucun réglage n'est nommé d'après l'onglet
             Tabs.Items.Add(Tab("Édition", BuildEditingTab()));
             Tabs.Items.Add(Tab("Correction", BuildProofingTab()));
             Tabs.Items.Add(Tab("Styles globaux", BuildGlobalStylesTab()));
@@ -546,6 +551,18 @@ namespace Marabook.App
             speedColumn.Children.Add(speedLabel);
             speedColumn.Children.Add(Note("Le défilement à la molette est fluide partout ; ce réglage en change le pas.", 4, 0));
             panel.Children.Add(speedColumn);
+
+            panel.Children.Add(Caption("Animations", 18));
+            var animations = new CheckBox { Content = "Animations", IsChecked = AppSettings.Animations, Margin = new Thickness(0, 6, 0, 0), Tag = "animations" };
+            ToolTip.SetTip(animations, "L'entrée des tuiles de la bibliothèque, la glissade de la Pile et celle de la colonne de droite.\nDécochée : tout se pose d'un coup.");
+            animations.IsCheckedChanged += delegate
+            {
+                if (AppSettings.Animations == (animations.IsChecked == true)) return;
+                AppSettings.Animations = animations.IsChecked == true;
+                AppSettings.Save();
+            };
+            panel.Children.Add(animations);
+            panel.Children.Add(Note("Les effets d'interface (1.0.6) : les tuiles arrivent en fondu, la Pile et le rail glissent.", 4, 0));
 
             panel.Children.Add(Caption("Mode sombre", 18));
             _darkCheck = new CheckBox { Content = "Mode sombre", IsChecked = AppSettings.DarkTheme, Margin = new Thickness(0, 6, 0, 0) };

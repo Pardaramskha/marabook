@@ -556,7 +556,10 @@ namespace Marabook.Print
             var leading = Leading(style);
             double leftIndent, firstX;
             paragraph.EffectiveIndents(style, out leftIndent, out firstX);
-            var firstLineIndent = firstX - leftIndent;
+            // Le retrait suspendu des listes (15/10) : celui posé par la
+            // composition de base, sinon la marque à sa largeur naturelle.
+            var hang = paragraph.ListKind == null ? leftIndent
+                : layout.ListHang ?? firstX + MarkerWidth(cached);
             var first = cursor == 0;
             var consecutiveHyphens = 0;
             var lineCounter = PlacedLinesOf(page, p);
@@ -579,7 +582,7 @@ namespace Marabook.Print
                 var lines = new List<ComposedLine>();
                 foreach (var segment in segments)
                 {
-                    var s0 = Math.Max(segment.X, leftIndent + (first ? firstLineIndent : 0));
+                    var s0 = Math.Max(segment.X, first ? firstX : hang);
                     var s1 = Math.Min(segment.X + segment.Width, contentWidth - style.RightIndent);
                     if (s1 - s0 < MinSegmentPx && segments.Count > 1) continue;
                     var avail = Math.Max(40, s1 - s0);
@@ -593,6 +596,11 @@ namespace Marabook.Print
                     else if (align == "right") x += Math.Max(0, lineAvail - LineWidth(line));
                     OffsetLine(line, x);
                     FinalizeCharRights(line);
+                    if (first && paragraph.ListKind != null)
+                    {
+                        var textX = FirstSourceX(line);
+                        if (textX.HasValue) hang = textX.Value;
+                    }
                     line.Height = line.Height < 1 ? leading : Math.Max(line.Height, leading);
                     lines.Add(line);
                     first = false;

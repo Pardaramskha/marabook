@@ -921,7 +921,8 @@ namespace Marabook.App
                 }
                 catch (Exception) { continue; }
                 if (placed == 0) PushUndo(false);
-                var id = _project.AddImage(bytes, System.IO.Path.GetExtension(file));
+                var optimized = ImageImport.Optimize(bytes, System.IO.Path.GetExtension(file)); // déposée : optimisée en silence (1.0.6)
+                var id = _project.AddImage(optimized.Bytes, optimized.Extension);
                 var run = new TextRun
                 {
                     ImageId = id,

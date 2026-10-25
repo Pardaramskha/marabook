@@ -393,6 +393,7 @@ namespace Marabook.Tests
                     Publisher = "Éditions du Marabout", Collection = "Plumes",
                     Isbn = "978-2-1234-5680-3", Year = "2026", BleedMm = 5,
                     Deadline = "2027-03-12", SizeGoal = 80000, SizeUnit = "chars", // b48, v23
+                    FlowWarnings = false, // avertissements d'enchaînement débrayés (v40, 18/10)
                     Template = new PageSetup
                     {
                         PageWidthMm = 140, PageHeightMm = 216,
@@ -587,7 +588,7 @@ namespace Marabook.Tests
             var list = new TextParagraph { ListKind = "bullet", PageBreakBefore = true, Indent = 0 };
             list.Runs.Add(new TextRun { Text = "une puce" });
             document.Paragraphs.Add(list);
-            var numbered = new TextParagraph { ListKind = "number" };
+            var numbered = new TextParagraph { ListKind = "number", ListLevel = 1 }; // le niveau (v40)
             numbered.Runs.Add(new TextRun { Text = "un numéro" });
             document.Paragraphs.Add(numbered);
 

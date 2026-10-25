@@ -88,6 +88,36 @@ namespace Marabook.App
             var formatSection = new StackPanel();
             formatSection.Children.Add(BookPanelParts.Caption("Format d'impression", 0));
             formatSection.Children.Add(_format);
+            // Contenu & Fichiers (18/10, 1.0.6) : l'avertissement d'enchaînement
+            // des pages — un chapitre ou le livre qui finit sur une page impaire.
+            formatSection.Children.Add(BookPanelParts.Caption("Contenu & Fichiers", 16));
+            _flowWarnings = new CheckBox
+            {
+                Content = "Avertir des enchaînements de pages",
+                Foreground = Chrome.Ink,
+                IsChecked = true,
+                Tag = "flow-warnings" // sonde
+            };
+            ToolTip.SetTip(_flowWarnings, "Signale un chapitre, ou le livre entier, qui finit sur une page impaire (un verso blanc suivra) : pastille dans la Pile et sur la tuile, « Unifier » au clic droit, ligne critique de la check-list.");
+            _flowWarnings.IsCheckedChanged += delegate
+            {
+                if (_syncingFlow || _item == null || _item.Book == null) return;
+                var on = _flowWarnings.IsChecked == true;
+                if (_item.Book.FlowWarnings == on) return;
+                _item.Book.FlowWarnings = on;
+                _texts.Refresh(); // les pastilles des tuiles
+                if (_tabs.SelectedItem == _publicationTab) _publication.Refresh();
+                RaiseChanged(); // la Pile et le fichier
+            };
+            formatSection.Children.Add(_flowWarnings);
+            formatSection.Children.Add(new TextBlock
+            {
+                Text = "Un chapitre qui finit sur une page impaire laisse un verso blanc ; un livre qui finit sur une page impaire a un nombre de pages impair. « Unifier » (clic droit sur le chapitre signalé) ajoute la page blanche à sa fin.",
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0)
+            });
             formatSection.Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0);
             _format.Margin = new Thickness(0);
             DockPanel.SetDock(formatSection, Dock.Top);
@@ -223,6 +253,9 @@ namespace Marabook.App
             }
             else _format.Sync();
             _publication.Load(book, project, PageCounter);
+            _syncingFlow = true;
+            _flowWarnings.IsChecked = book.Book.FlowWarnings;
+            _syncingFlow = false;
             BuildStylesTab();
             if (_tabs.SelectedIndex != _lastTab && _lastTab >= 0 && _lastTab < _tabs.Items.Count)
                 _tabs.SelectedIndex = _lastTab;
@@ -258,6 +291,19 @@ namespace Marabook.App
 
         /// <summary>Le tableau des textes du livre (sonde).</summary>
         internal CorkboardView TextsBoard { get { return _texts; } }
+
+        private CheckBox _flowWarnings;
+        private bool _syncingFlow;
+
+        /// <summary>L'enchaînement des pages (18/10) : relais vers les tuiles.</summary>
+        public Func<BinderItem, int> ChapterOddEnd
+        {
+            set { _texts.ChapterOddEnd = value; _templates.ChapterOddEnd = value; }
+        }
+
+        /// <summary>Sonde : la case « Avertir des enchaînements de pages ».</summary>
+        internal CheckBox FlowWarningsBoxForProbe { get { return _flowWarnings; } }
+        internal BookPublicationTab PublicationForProbe { get { return _publication; } }
 
         /// <summary>Relais du compteur de pages vers le corkboard du livre
         /// (tri « Pages » des filtres, batch 28) et la check-list.</summary>

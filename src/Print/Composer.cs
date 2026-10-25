@@ -88,6 +88,11 @@ namespace Marabook.Print
         public bool EndsParagraph;
         public bool Hyphenated;
         public bool ForcedBreak; // Shift+Enter ended this line
+        /// <summary>L'abscisse de DÉPART de la ligne depuis la marge gauche
+        /// (15/10, 1.0.6) : alinéa, retrait de liste, centrage compris. Une
+        /// ligne vide n'a aucune pièce — sans cela le caret d'un paragraphe
+        /// vide tombait contre la marge, l'alinéa oublié.</summary>
+        public double X;
         // Ligne LÂCHE (09/10) : justifiée au-delà des tolérances du style, le
         // déversoir d'urgence a gonflé ses espaces — LooseRatio = largeur
         // finale d'un espace / sa largeur naturelle (1,0 = juste). Loose dès
@@ -106,6 +111,11 @@ namespace Marabook.Print
         public List<ComposedLine> Lines = new List<ComposedLine>();
         public ParagraphStyle Style;
         public double SpaceBefore, SpaceAfter;
+        /// <summary>Le RETRAIT SUSPENDU d'une liste (15/10, 1.0.6) : l'abscisse
+        /// où le texte commence après la puce ou le numéro sur la première
+        /// ligne — les lignes suivantes s'y alignent, toutes listes
+        /// confondues. Null hors liste.</summary>
+        public double? ListHang;
         public bool PageBreakBefore;
         public bool StartOnRecto; // books: chapter opens on an odd folio
         public int FlatLength;
@@ -458,12 +468,11 @@ namespace Marabook.Print
         {
             _listNumbers = new List<int>();
             _noteBases = new List<int>();
-            var listNumber = 0;
             var noteBase = 0;
+            // Les numéros par niveau (15/10) : la règle est au modèle.
+            _listNumbers = TextParagraph.ListNumbers(_document.Paragraphs);
             foreach (var paragraph in _document.Paragraphs)
             {
-                listNumber = paragraph.ListKind == "number" ? listNumber + 1 : 0;
-                _listNumbers.Add(listNumber);
                 _noteBases.Add(noteBase);
                 foreach (var run in paragraph.Runs)
                     if (run.FootnoteId != null) noteBase++;
@@ -749,8 +758,13 @@ namespace Marabook.Print
             // ou retrait suspendu (négatif = elle déborde à gauche du bloc).
             double leftIndent, firstX;
             paragraph.EffectiveIndents(style, out leftIndent, out firstX);
-            var firstLineIndent = firstX - leftIndent;
-            var baseAvail = Math.Max(40, contentWidth - leftIndent - style.RightIndent);
+            // Les listes en RETRAIT SUSPENDU (15/10, 1.0.6) : les lignes
+            // suivantes d'une puce ou d'un numéro s'alignent sur le texte qui
+            // suit la marque, pas sur le retrait du bloc — avant, une phrase
+            // longue revenait sous la puce, et même à sa gauche quand le style
+            // porte un alinéa.
+            var hang = paragraph.ListKind != null ? firstX + MarkerWidth(atoms) : leftIndent;
+            layout.ListHang = paragraph.ListKind != null ? hang : (double?)null;
             // Une copie : FillLine remplace les atomes coupés (césure), la
             // liste gardée pour la pagination doit rester intacte.
             atoms = new List<Atom>(atoms);
@@ -761,7 +775,8 @@ namespace Marabook.Print
             var consecutiveHyphens = 0;
             while (index < atoms.Count || first)
             {
-                var avail = baseAvail - (first ? firstLineIndent : 0);
+                var lineLeft = first ? firstX : hang;
+                var avail = Math.Max(40, contentWidth - lineLeft - style.RightIndent);
                 var line = FillLine(atoms, ref index, ref cursor, avail, style, ref consecutiveHyphens);
                 line.EndsParagraph = index >= atoms.Count;
                 if (line.EndsParagraph) line.End = layout.FlatLength;
@@ -769,11 +784,18 @@ namespace Marabook.Print
                 var lineAvail = avail - (line.EndsParagraph ? style.LastLineIndent : 0);
                 if (!line.ForcedBreak) JustifyLine(line, lineAvail, align, style);
 
-                var x = leftIndent + (first ? firstLineIndent : 0);
+                var x = lineLeft;
                 if (align == "center") x += Math.Max(0, (lineAvail - LineWidth(line)) / 2);
                 else if (align == "right") x += Math.Max(0, lineAvail - LineWidth(line));
                 OffsetLine(line, x);
                 FinalizeCharRights(line);
+                if (first && paragraph.ListKind != null)
+                {
+                    // La marque posée (justification comprise) : le retrait
+                    // suspendu exact, là où le texte commence vraiment.
+                    var textX = FirstSourceX(line);
+                    if (textX.HasValue) { hang = textX.Value; layout.ListHang = hang; }
+                }
 
                 line.Height = line.Height < 1 ? leading : Math.Max(line.Height, leading);
                 layout.Lines.Add(line);
@@ -787,10 +809,8 @@ namespace Marabook.Print
             int listNumber, int noteBase)
         {
             var atoms = new List<Atom>();
-            if (paragraph.ListKind == "bullet")
-                AddTextAtoms(atoms, "•  ", style, null, false, -1);
-            else if (paragraph.ListKind == "number")
-                AddTextAtoms(atoms, listNumber + ".  ", style, null, false, -1);
+            if (paragraph.ListKind != null)
+                AddTextAtoms(atoms, TextParagraph.ListMarker(paragraph.ListKind, paragraph.ListLevel, listNumber), style, null, false, -1);
 
             var offset = 0;
             var notesSeen = 0;
@@ -1459,8 +1479,10 @@ namespace Marabook.Print
 
             var spaces = new List<ComposedPiece>();
             double spaceBase = 0;
+            // Les espaces de la marque de liste (SourceStart < 0) ne s'étirent
+            // pas (15/10) : la puce garde son écart, le retrait suspendu tient.
             foreach (var piece in line.Pieces)
-                if (piece.IsSpace && piece.SpaceWidth > 0) { spaces.Add(piece); spaceBase += piece.SpaceWidth; }
+                if (piece.IsSpace && piece.SpaceWidth > 0 && piece.SourceStart >= 0) { spaces.Add(piece); spaceBase += piece.SpaceWidth; }
 
             var natural = LineWidth(line);
             var delta = avail - natural;
@@ -1516,7 +1538,7 @@ namespace Marabook.Print
                 if (piece.IsSpace)
                 {
                     piece.Origin = new Pos(x, 0);
-                    if (piece.SpaceWidth > 0)
+                    if (piece.SpaceWidth > 0 && piece.SourceStart >= 0)
                     {
                         piece.SpaceWidth += perSpace;
                         // Garde de rendu : sur une ligne sur-remplie le déversoir
@@ -1547,8 +1569,35 @@ namespace Marabook.Print
             }
         }
 
+        /// <summary>La largeur naturelle de la MARQUE d'une liste (15/10) :
+        /// les atomes de tête sans offset source (« •  », « 3.  »), espaces
+        /// compris.</summary>
+        private static double MarkerWidth(List<Atom> atoms)
+        {
+            double width = 0;
+            foreach (var atom in atoms)
+            {
+                if (atom.IsHidden || atom.IsAnchor) continue;
+                if (atom.SourceStart >= 0) break;
+                width += atom.Width;
+            }
+            return width;
+        }
+
+        /// <summary>L'abscisse (depuis la marge) de la première pièce de
+        /// TEXTE SOURCE d'une ligne posée — null si la ligne ne porte que sa
+        /// marque de liste.</summary>
+        private static double? FirstSourceX(ComposedLine line)
+        {
+            foreach (var piece in line.Pieces)
+                if (piece.SourceStart >= 0 && piece.SourceLength > 0 && !piece.IsAnchor)
+                    return piece.Origin.X;
+            return null;
+        }
+
         private static void OffsetLine(ComposedLine line, double x)
         {
+            line.X += x;
             foreach (var piece in line.Pieces)
             {
                 piece.Origin = new Pos(piece.Origin.X + x, piece.Origin.Y);

@@ -66,6 +66,85 @@ namespace Marabook.Model
         public string StyleId = "body";
         public string AlignOverride; // "left"|"center"|"right"|"justify", null = style alignment
         public string ListKind;      // null | "bullet" | "number"
+        // Le NIVEAU d'une liste (15/10, 1.0.6) : 0 = premier niveau, Tab
+        // dans l'éditeur descend d'un cran (sous-puces « ◦ », sous-numéros
+        // « a. » puis « i. »), Maj+Tab remonte. Persisté (.plot v40, clé
+        // "listLevel", omis = 0). Sans effet hors liste.
+        public int ListLevel;
+        public const int MaxListLevel = 8;
+
+        /// <summary>La MARQUE d'un article de liste : puce selon le niveau
+        /// (• ◦ ▪, en boucle), ou numéro (1. puis a. puis i., en boucle) —
+        /// suivie de deux espaces. Null hors liste.</summary>
+        public static string ListMarker(string kind, int level, int number)
+        {
+            if (kind == null) return null;
+            if (level < 0) level = 0;
+            if (kind == "number")
+            {
+                var n = Math.Max(1, number);
+                switch (level % 3)
+                {
+                    case 1: return Letters(n) + ".  ";
+                    case 2: return Roman(n) + ".  ";
+                    default: return n + ".  ";
+                }
+            }
+            switch (level % 3)
+            {
+                case 1: return "◦  ";
+                case 2: return "▪  ";
+                default: return "•  ";
+            }
+        }
+
+        /// <summary>Les NUMÉROS des articles d'un document, un par
+        /// paragraphe (0 hors liste numérotée) : chaque niveau compte pour
+        /// lui, un niveau plus profond repart à 1 quand on y descend, un
+        /// paragraphe hors liste remet tout à zéro ; une puce entre deux
+        /// numéros du même niveau ne casse pas la suite.</summary>
+        public static List<int> ListNumbers(IList<TextParagraph> paragraphs)
+        {
+            var numbers = new List<int>(paragraphs.Count);
+            var counters = new int[MaxListLevel + 1];
+            foreach (var paragraph in paragraphs)
+            {
+                if (paragraph.ListKind == null)
+                {
+                    Array.Clear(counters, 0, counters.Length);
+                    numbers.Add(0);
+                    continue;
+                }
+                var level = Math.Max(0, Math.Min(MaxListLevel, paragraph.ListLevel));
+                for (var deeper = level + 1; deeper < counters.Length; deeper++) counters[deeper] = 0;
+                if (paragraph.ListKind == "number") numbers.Add(++counters[level]);
+                else numbers.Add(0);
+            }
+            return numbers;
+        }
+
+        private static string Letters(int n)
+        {
+            var sb = new StringBuilder();
+            while (n > 0)
+            {
+                n--;
+                sb.Insert(0, (char)('a' + n % 26));
+                n /= 26;
+            }
+            return sb.ToString();
+        }
+
+        private static string Roman(int n)
+        {
+            if (n >= 4000) return n.ToString();
+            var values = new[] { 1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1 };
+            var digits = new[] { "m", "cm", "d", "cd", "c", "xc", "l", "xl", "x", "ix", "v", "iv", "i" };
+            var sb = new StringBuilder();
+            for (var i = 0; i < values.Length; i++)
+                while (n >= values[i]) { sb.Append(digits[i]); n -= values[i]; }
+            return sb.ToString();
+        }
         // Décalage (17/09/2026) : retrait gauche UNIFORME du paragraphe en px,
         // posé depuis le ruban par pas de 0,5 cm. Null = le style décide
         // (retrait gauche + alinéa + les 24 px d'une liste) ; une valeur
@@ -107,7 +186,7 @@ namespace Marabook.Model
         /// sinon le bloc quand Indent est posé, sinon l'alinéa du style).</summary>
         public void EffectiveIndents(ParagraphStyle style, out double left, out double first)
         {
-            left = Indent ?? (style.LeftIndent + (ListKind != null ? 24 : 0));
+            left = Indent ?? (style.LeftIndent + (ListKind != null ? 24 * (Math.Max(0, ListLevel) + 1) : 0));
             first = FirstIndent ?? (Indent.HasValue ? left : left + style.FirstLineIndent);
         }
 

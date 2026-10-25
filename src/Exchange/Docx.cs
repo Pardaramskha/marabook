@@ -394,19 +394,38 @@ namespace Marabook.Exchange
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
               .Append("<w:numbering ").Append(W).Append(">")
-              .Append("<w:abstractNum w:abstractNumId=\"0\">")
-              .Append("<w:lvl w:ilvl=\"0\"><w:start w:val=\"1\"/><w:numFmt w:val=\"bullet\"/>")
-              .Append("<w:lvlText w:val=\"•\"/><w:lvlJc w:val=\"left\"/>")
-              .Append("<w:pPr><w:ind w:left=\"720\" w:hanging=\"360\"/></w:pPr></w:lvl>")
-              .Append("</w:abstractNum>")
-              .Append("<w:abstractNum w:abstractNumId=\"1\">")
-              .Append("<w:lvl w:ilvl=\"0\"><w:start w:val=\"1\"/><w:numFmt w:val=\"decimal\"/>")
-              .Append("<w:lvlText w:val=\"%1.\"/><w:lvlJc w:val=\"left\"/>")
-              .Append("<w:pPr><w:ind w:left=\"720\" w:hanging=\"360\"/></w:pPr></w:lvl>")
-              .Append("</w:abstractNum>")
+              .Append(AbstractNum(0, true))
+              .Append(AbstractNum(1, false))
               .Append("<w:num w:numId=\"1\"><w:abstractNumId w:val=\"0\"/></w:num>")
               .Append("<w:num w:numId=\"2\"><w:abstractNumId w:val=\"1\"/></w:num>")
               .Append("</w:numbering>");
+            return sb.ToString();
+        }
+
+        /// <summary>Les neuf niveaux d'une liste (15/10) : puces • ◦ ▪ ou
+        /// numéros 1. a. i., en boucle, chaque niveau 360 twips plus à
+        /// droite — ce que Word attend derrière un ilvl.</summary>
+        private static string AbstractNum(int id, bool bullets)
+        {
+            var sb = new StringBuilder();
+            sb.Append("<w:abstractNum w:abstractNumId=\"").Append(id).Append("\">");
+            for (var level = 0; level <= TextParagraph.MaxListLevel; level++)
+            {
+                sb.Append("<w:lvl w:ilvl=\"").Append(level).Append("\"><w:start w:val=\"1\"/>");
+                if (bullets)
+                {
+                    var glyph = level % 3 == 1 ? "◦" : level % 3 == 2 ? "▪" : "•";
+                    sb.Append("<w:numFmt w:val=\"bullet\"/><w:lvlText w:val=\"").Append(glyph).Append("\"/>");
+                }
+                else
+                {
+                    var format = level % 3 == 1 ? "lowerLetter" : level % 3 == 2 ? "lowerRoman" : "decimal";
+                    sb.Append("<w:numFmt w:val=\"").Append(format).Append("\"/><w:lvlText w:val=\"%").Append(level + 1).Append(".\"/>");
+                }
+                sb.Append("<w:lvlJc w:val=\"left\"/><w:pPr><w:ind w:left=\"").Append(720 + 360 * level)
+                  .Append("\" w:hanging=\"360\"/></w:pPr></w:lvl>");
+            }
+            sb.Append("</w:abstractNum>");
             return sb.ToString();
         }
 
@@ -524,7 +543,7 @@ namespace Marabook.Exchange
                 var style = styles.Find(paragraph.StyleId);
                 sb.Append("<w:p><w:pPr><w:pStyle w:val=\"").Append(Esc(style.Id)).Append("\"/>");
                 if (paragraph.ListKind != null)
-                    sb.Append("<w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"")
+                    sb.Append("<w:numPr><w:ilvl w:val=\"").Append(Math.Max(0, Math.Min(TextParagraph.MaxListLevel, paragraph.ListLevel))).Append("\"/><w:numId w:val=\"")
                       .Append(paragraph.ListKind == "number" ? 2 : 1).Append("\"/></w:numPr>");
                 if (isRule)
                     sb.Append("<w:pBdr><w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"1\" w:color=\"auto\"/></w:pBdr>");
@@ -1001,6 +1020,10 @@ namespace Marabook.Exchange
             {
                 string kind;
                 paragraph.ListKind = numbering.TryGetValue(numId, out kind) ? kind : "bullet";
+                var ilvl = Attr(pPr.SelectSingleNode("w:numPr/w:ilvl", ns), "w:val"); // le niveau (15/10)
+                int level;
+                if (ilvl != null && int.TryParse(ilvl, out level))
+                    paragraph.ListLevel = Math.Max(0, Math.Min(TextParagraph.MaxListLevel, level));
             }
 
             ReadRuns(p, ns, paragraph, style, footnotes, ctx);
