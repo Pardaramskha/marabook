@@ -112,6 +112,9 @@ namespace Marabook.App
         /// ouvert : la liste se refait.</summary>
         private readonly List<TabItem> _moduleTabs = new List<TabItem>();
 
+        /// <summary>Sonde : les onglets venus des modules (le filet « DLC » compris).</summary>
+        public int ModuleTabCount { get { return _moduleTabs.Count; } }
+
         private void AddModuleTabs()
         {
             foreach (var tab in _moduleTabs) Tabs.Items.Remove(tab);

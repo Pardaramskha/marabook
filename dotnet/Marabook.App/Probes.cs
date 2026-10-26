@@ -2022,7 +2022,8 @@ namespace Marabook.App
                 var prefs = new PreferencesDialog(shell, shell.Project);
                 prefs.Show(shell);
                 await Settle();
-                Check(prefs.Tabs.Items.Count == 8, "les Préférences ont huit onglets (" + prefs.Tabs.Items.Count + ")");
+                // …plus ceux des modules chargés (le filet « DLC » et l'onglet de chaque DLC, 26/10 soir).
+                Check(prefs.Tabs.Items.Count == 8 + prefs.ModuleTabCount, "les Préférences ont huit onglets (" + prefs.Tabs.Items.Count + ", dont " + prefs.ModuleTabCount + " des modules)");
                 Check(prefs.Tabs.TabStripPlacement == Dock.Left && prefs.Tabs.Classes.Contains("column"), "…en colonne à gauche (24/10)");
                 Check(prefs.Height >= 420 && Math.Abs(prefs.Height - Math.Max(420, Dialogs.AvailableHeight(shell))) < 1 && prefs.Bounds.Height <= Dialogs.AvailableHeight(shell) + 1, "…et la fenêtre prend toute la hauteur disponible de l'écran sans en sortir (" + prefs.Bounds.Height.ToString("0") + " px sur " + Dialogs.AvailableHeight(shell).ToString("0") + ")");
                 var titles = new List<string>();
