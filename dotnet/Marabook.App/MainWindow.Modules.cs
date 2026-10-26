@@ -17,6 +17,44 @@ namespace Marabook.App
         private readonly HashSet<string> _moduleUpdatesOffered = new HashSet<string>();
         private bool _moduleUpdatesHooked;
 
+        // ------------------------------------------------------------ le projet vu par les modules (26/10 soir)
+
+        /// <summary>Les éléments liables du projet (ni catégories, ni corbeille).</summary>
+        public List<HostItem> ItemsForModules()
+        {
+            var items = new List<HostItem>();
+            if (_project == null) return items;
+            foreach (var item in _project.AllItems())
+                if (ItemTiles.IsLinkable(item)) items.Add(ItemTiles.Describe(item));
+            return items;
+        }
+
+        public HostItem FindItemForModules(string id)
+        {
+            var item = _project == null || string.IsNullOrEmpty(id) ? null : _project.FindById(id);
+            return ItemTiles.IsLinkable(item) ? ItemTiles.Describe(item) : null;
+        }
+
+        public async System.Threading.Tasks.Task<HostItem> PickItemForModules(string caption, string[] kinds)
+        {
+            var item = await ItemPickerDialog.Ask(this, _project, caption, kinds);
+            return item == null ? null : ItemTiles.Describe(item);
+        }
+
+        /// <summary>Ouvre l'élément au centre, comme un clic dans la Pile.</summary>
+        public void OpenItemForModules(string id)
+        {
+            var item = _project == null || string.IsNullOrEmpty(id) ? null : _project.FindById(id);
+            if (!ItemTiles.IsLinkable(item)) return;
+            _binder.SelectItem(item.Id, true);
+        }
+
+        public Avalonia.Controls.Control TileForModules(string id, double width, bool condensed)
+        {
+            var item = _project == null || string.IsNullOrEmpty(id) ? null : _project.FindById(id);
+            return ItemTiles.IsLinkable(item) ? ItemTiles.Build(_project, item, width, condensed) : null;
+        }
+
         private void CheckModuleUpdates()
         {
             if (UpdateCheckSkipped) return;

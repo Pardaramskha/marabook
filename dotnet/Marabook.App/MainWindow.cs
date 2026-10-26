@@ -56,6 +56,7 @@ namespace Marabook.App
         private PlanView _planView;             // un plan (b35)
         private Grid _mindMapHost;                   // une carte mentale : l'éditeur du module Mental-o (22/09)
         private IMindMapEditor _mindMapEditor;
+        private ContentControl _moduleSection; // l'inspecteur d'une carte mentale dans le Général (26/10 soir)
         private BinderItem _mindMapItem;             // la carte chargée dans l'éditeur
         private TextBlock _inspPlanLink;             // « Plan : … » d'un livre/dossier (b35)
         private StackPanel _planSection;             // options d'un plan (b35)
@@ -659,6 +660,7 @@ namespace Marabook.App
                 if (_sheetView.IsVisible) _sheetView.RefreshTitle();
                 if (_planView.IsVisible) _planView.Refresh();
                 UpdateInspector();
+                CodeModuleHost.Instance.NotifyProjectChanged(); // les liens et tuiles des cartes mentales suivent (26/10 soir)
                 // Chauffe le cache de mots : un document importé entre au cache
                 // à sa taille réelle, sans jamais créditer le journal.
                 ProjectWords();
@@ -1548,6 +1550,11 @@ namespace Marabook.App
             };
             panel.Children.Add(_inspKind);
             panel.Children.Add(BuildBatchSection()); // le Général en mode lot (1.0.3)
+            // Une carte mentale (26/10 soir) : l'inspecteur du module — les réglages
+            // de la boîte, du texte, du lien ou du groupe sélectionné — à la place
+            // du synopsis.
+            _moduleSection = new ContentControl { IsVisible = false, Margin = new Thickness(0, 0, 0, 10) };
+            panel.Children.Add(_moduleSection);
             // Livre ou dossier relié à un plan (batch 35) : le lien, cliquable.
             _inspPlanLink = new TextBlock
             {
@@ -2127,6 +2134,7 @@ namespace Marabook.App
             AcquireLock(path);                  // « ce projet est ouvert sur … »
             _current = null; _inspected = null; _inspectedGroup = null;
             _dirty = false;
+            CodeModuleHost.Instance.NotifyProjectChanged(); // un autre projet : les liens des cartes se relisent (26/10 soir)
             _readOnlyBanner.IsVisible = project.ReadOnlyNewerFormat
                 ? true : false;
             _history.Clear();
@@ -3004,6 +3012,7 @@ namespace Marabook.App
             }
             _mindMapItem = item;
             _mindMapEditor.Load(item.Id, item.Title, item.MapBytes);
+            RefreshModuleSection(item); // le Général montre l'inspecteur de la carte (26/10 soir)
         }
 
         /// <summary>Les octets de la carte modifiée reviennent dans son élément
@@ -5810,6 +5819,7 @@ namespace Marabook.App
                 _goalSection.IsVisible = false;
                 _tagsSection.IsVisible = false;
                 SetInspectorFieldVisibility(true, false);
+                RefreshModuleSection(null);
             }
             else
             {
@@ -5840,8 +5850,10 @@ namespace Marabook.App
                         && item.Kind != ItemKind.PageTemplate
                         && item.Kind != ItemKind.Plan // un plan : la couleur, rien d'autre (b35)
                         && item.Kind != ItemKind.Book // le synopsis d'un livre vit dans Édition (b43)
+                        && item.Kind != ItemKind.MindMap // une carte : l'inspecteur du module (26/10 soir)
                         && !item.IsCategory,
                     item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet);
+                RefreshModuleSection(item);
 
                 // État (textes seulement) + couleur de carte (documents,
                 // fiches, médias — et dossiers, dont les boîtes de livre).
@@ -5884,6 +5896,7 @@ namespace Marabook.App
                 _goalSection.IsVisible = false;
                 _tagsSection.IsVisible = false;
                 SetInspectorFieldVisibility(false, false);
+                RefreshModuleSection(null);
             }
 
             // Le plan d'un livre ou d'un dossier (batch 35).
@@ -6287,6 +6300,18 @@ namespace Marabook.App
             var open = AppSettings.StatsExpanded;
             _statsChevron.Data = Geometry.Parse(open ? "M0,0 L4,4 8,0" : "M0,0 L4,4 0,8");
             _inspStats.IsVisible = open ? true : false;
+        }
+
+        /// <summary>Le Général d'une carte mentale (26/10 soir) : l'inspecteur du
+        /// module — réglages de la boîte, du texte, du lien ou du groupe choisi
+        /// sur la toile — à la place du synopsis et des notes.</summary>
+        private void RefreshModuleSection(BinderItem item)
+        {
+            if (_moduleSection == null) return;
+            var inspector = item != null && item.Kind == ItemKind.MindMap && _mindMapEditor != null
+                && _mindMapItem != null && ReferenceEquals(_mindMapItem, item) ? _mindMapEditor.Inspector : null;
+            if (!ReferenceEquals(_moduleSection.Content, inspector)) _moduleSection.Content = inspector;
+            _moduleSection.IsVisible = inspector != null;
         }
 
         private void SetInspectorFieldVisibility(bool synopsis, bool notes)

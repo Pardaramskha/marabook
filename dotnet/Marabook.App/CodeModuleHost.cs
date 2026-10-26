@@ -94,5 +94,45 @@ namespace Marabook.App
         {
             return MessageDialog.Show(_window, text, caption, buttons, icon);
         }
+
+        // ---- le projet (26/10 soir) : tout passe par la fenêtre principale
+
+        public event Action ProjectChanged;
+
+        private MainWindow Shell { get { return _window as MainWindow; } }
+
+        public List<HostItem> Items()
+        {
+            return Shell == null ? new List<HostItem>() : Shell.ItemsForModules();
+        }
+
+        public HostItem FindItem(string id)
+        {
+            return Shell == null ? null : Shell.FindItemForModules(id);
+        }
+
+        public System.Threading.Tasks.Task<HostItem> PickItem(string caption, string[] kinds)
+        {
+            if (Shell == null) return System.Threading.Tasks.Task.FromResult<HostItem>(null);
+            return Shell.PickItemForModules(caption, kinds);
+        }
+
+        public void OpenItem(string id)
+        {
+            if (Shell != null) Shell.OpenItemForModules(id);
+        }
+
+        public Control Tile(string id, double width, bool condensed)
+        {
+            return Shell == null ? null : Shell.TileForModules(id, width, condensed);
+        }
+
+        /// <summary>La fenêtre signale un changement du projet (renommage,
+        /// structure, autre projet ouvert).</summary>
+        public void NotifyProjectChanged()
+        {
+            var handler = ProjectChanged;
+            if (handler != null) handler();
+        }
     }
 }

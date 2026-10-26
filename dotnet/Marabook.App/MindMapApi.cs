@@ -20,6 +20,23 @@ namespace Marabook.App
         double Zoom { get; }
         event Action<double> ZoomChanged;
         void SetZoom(double percent);
+        /// <summary>L'inspecteur de l'éditeur (26/10 soir) : les réglages de
+        /// l'élément sélectionné (texte, boîte, lien, groupe), que Marabook pose
+        /// dans le Général du rail à la place du synopsis. Null = rien à montrer.</summary>
+        Control Inspector { get; }
+    }
+
+    /// <summary>Un élément du projet vu par un module (26/10 soir) : de quoi le
+    /// nommer, le reconnaître et le rouvrir — pour les liens et les tuiles que
+    /// Mental-O pose dans ses boîtes.</summary>
+    public class HostItem
+    {
+        public string Id;
+        public string Title;
+        /// <summary>« texte », « fiche », « media », « livre », « plan », « dossier », « carte », « gabarit ».</summary>
+        public string Kind;
+        /// <summary>La couleur de tuile (#RRGGBB), ou null.</summary>
+        public string Color;
     }
 
     public interface IMindMapProvider
@@ -62,6 +79,24 @@ namespace Marabook.App
         string SettingsFolder { get; }
         event Action ThemeChanged;
         System.Threading.Tasks.Task<MessageResult> Message(string text, string caption, MessageButtons buttons, MessageIcon icon);
+
+        // ---- le projet, pour les liens et les tuiles (26/10 soir)
+
+        /// <summary>Les éléments du projet (sans les catégories ni la corbeille).</summary>
+        System.Collections.Generic.List<HostItem> Items();
+        /// <summary>Un élément par son identifiant ; null s'il n'existe plus.</summary>
+        HostItem FindItem(string id);
+        /// <summary>Le dialogue de choix d'un élément ; « kinds » restreint aux
+        /// genres donnés (null = tous). Null si l'utilisateur renonce.</summary>
+        System.Threading.Tasks.Task<HostItem> PickItem(string caption, string[] kinds);
+        /// <summary>Ouvre l'élément au centre de Marabook.</summary>
+        void OpenItem(string id);
+        /// <summary>La tuile d'un élément, comme dans son tableau ; condensée =
+        /// le titre et la couleur seulement. Null s'il n'existe plus.</summary>
+        Control Tile(string id, double width, bool condensed);
+        /// <summary>Le projet a changé (titres, structure, ouverture d'un autre
+        /// projet) : les liens et tuiles posés par un module se rafraîchissent.</summary>
+        event Action ProjectChanged;
     }
 
     /// <summary>LE CONTRAT D'UN MODULE À CODE (26/10/2026) : le type d'entrée
