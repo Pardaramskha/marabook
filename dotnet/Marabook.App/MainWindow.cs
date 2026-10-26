@@ -741,8 +741,8 @@ namespace Marabook.App
             _editor.LinksChanged += UpdateLinksPanel;        // le rail Général suit les liens posés (07/10)
             // Le zoom n'a de sens que dans l'éditeur (07/10) : le curseur suit
             // sa visibilité.
-            Ui.OnVisibilityChanged(_editor, delegate { _zoomPanel.IsVisible = _editor.IsVisible; });
-            _zoomPanel.IsVisible = _editor.IsVisible;
+            Ui.OnVisibilityChanged(_editor, delegate { SyncZoomForView(); });
+            SyncZoomForView();
             FontCatalog.Changed += delegate { Ui.Post(DispatcherPriority.Background, new Action(RefreshFontAlert)); };
             _editor.DefinitionRequested += ShowDefinition; // clic droit › « Afficher la définition » (18/09)
             _editor.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
@@ -922,6 +922,8 @@ namespace Marabook.App
             };
             center.Children.Add(_planView);
             _mindMapHost = new Grid { IsVisible = false, Background = Chrome.WindowBg };
+            // La carte mentale (26/10) a le même curseur de zoom que les pages.
+            Ui.OnVisibilityChanged(_mindMapHost, delegate { SyncZoomForView(); });
             center.Children.Add(_mindMapHost);
 
             _bookView = new BookView { IsVisible = false };
@@ -2050,17 +2052,55 @@ namespace Marabook.App
         /// <summary>Sets the page zoom (both editors), clamped to 50–300 %.</summary>
         private void ApplyZoom(double percent)
         {
+            // Une carte mentale à l'écran (26/10) : le curseur règle la toile
+            // (20-400 %), sans toucher au zoom des pages.
+            if (MindMapZoomShown)
+            {
+                percent = Math.Max(20, Math.Min(400, Math.Round(percent / 10) * 10));
+                _mindMapEditor.SetZoom(percent);
+                ShowZoom(percent);
+                return;
+            }
             percent = Math.Max(50, Math.Min(300, Math.Round(percent / 10) * 10));
             AppSettings.Zoom = percent;
             _editor.SetZoom(percent / 100.0);
             _sheetView.SetZoom(percent / 100.0);
+            ShowZoom(percent);
+            AppSettings.Save();
+        }
+
+        private bool MindMapZoomShown
+        {
+            get { return _mindMapHost != null && _mindMapHost.IsVisible && _mindMapEditor != null; }
+        }
+
+        /// <summary>Le curseur et l'étiquette montrent ce zoom, sans le réappliquer.</summary>
+        private void ShowZoom(double percent)
+        {
+            if (_zoomLabel == null) return;
             _zoomLabel.Text = percent.ToString("0") + " %";
             if (_zoomSlider != null && Math.Abs(_zoomSlider.Value - percent) > 0.01)
             {
                 _syncingZoom = true;
                 try { _zoomSlider.Value = percent; } finally { _syncingZoom = false; }
             }
-            AppSettings.Save();
+        }
+
+        /// <summary>Le curseur de zoom suit la vue : visible pour les pages et les
+        /// cartes mentales, bornes et valeur de la vue montrée.</summary>
+        private void SyncZoomForView()
+        {
+            if (_zoomPanel == null || _zoomSlider == null) return;
+            bool map = MindMapZoomShown;
+            _zoomPanel.IsVisible = _editor.IsVisible || map;
+            _syncingZoom = true;
+            try
+            {
+                _zoomSlider.Minimum = map ? 20 : 50;
+                _zoomSlider.Maximum = map ? 400 : 300;
+            }
+            finally { _syncingZoom = false; }
+            ShowZoom(map ? _mindMapEditor.Zoom : AppSettings.Zoom);
         }
 
         // ============================================================= project lifecycle
@@ -2955,6 +2995,7 @@ namespace Marabook.App
             {
                 _mindMapEditor = provider.CreateEditor();
                 _mindMapEditor.Changed += delegate { MarkDirty(); ScheduleAchievementCheck(); };
+                _mindMapEditor.ZoomChanged += delegate(double percent) { if (_mindMapHost.IsVisible) ShowZoom(percent); };
             }
             if (_mindMapHost.Children.Count != 1 || _mindMapHost.Children[0] != _mindMapEditor.View)
             {

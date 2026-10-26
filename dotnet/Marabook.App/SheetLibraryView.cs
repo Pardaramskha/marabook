@@ -722,6 +722,7 @@ namespace Marabook.App
             _syncingTags = true;
             try
             {
+                _tagBox.SelectedIndex = -1; // vider la sélection AVANT les éléments : le modèle de sélection énumère pendant Clear() (plantage du 26/10)
                 _tagBox.Items.Clear();
                 var all = new ComboBoxItem { Content = tags.Count == 0 ? "Aucun tag" : "Tous les tags", Tag = null };
                 _tagBox.Items.Add(all);

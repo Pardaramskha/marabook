@@ -15,6 +15,11 @@ namespace Marabook.App
         bool IsDirty { get; }
         void Load(string itemId, string title, byte[] tea);
         byte[] Save(byte[] previous);
+        /// <summary>Le zoom de la carte en pour cent (26/10) : le curseur de la
+        /// barre d'état de Marabook le montre et le règle, comme celui des pages.</summary>
+        double Zoom { get; }
+        event Action<double> ZoomChanged;
+        void SetZoom(double percent);
     }
 
     public interface IMindMapProvider
@@ -51,6 +56,10 @@ namespace Marabook.App
     {
         Window MainWindow { get; }
         bool DarkTheme { get; }
+        /// <summary>Le dossier des réglages de Marabook : un module y range les
+        /// siens (sous-dossier à son nom) ; il suit « --settings », donc une sonde
+        /// ou une capture n'écrit jamais chez l'utilisateur.</summary>
+        string SettingsFolder { get; }
         event Action ThemeChanged;
         System.Threading.Tasks.Task<MessageResult> Message(string text, string caption, MessageButtons buttons, MessageIcon icon);
     }

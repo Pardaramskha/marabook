@@ -70,6 +70,8 @@ namespace Marabook.App
 
         public bool DarkTheme { get { return _dark; } }
 
+        public string SettingsFolder { get { return Marabook.Settings.AppSettings.SettingsFolder(); } }
+
         public event Action ThemeChanged;
 
         /// <summary>La fenêtre principale se présente (au démarrage) : les

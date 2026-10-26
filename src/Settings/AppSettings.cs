@@ -431,6 +431,9 @@ namespace Marabook.Settings
         /// de la copie de secours, ou illisibles et mis de côté.</summary>
         public static string LoadNotice = "";
 
+        /// <summary>Le dossier des réglages (26/10) : un module à code y range les siens ; suit --settings.</summary>
+        public static string SettingsFolder() { return Path.GetDirectoryName(SettingsPath()); }
+
         private static string SettingsPath()
         {
             if (!string.IsNullOrEmpty(PathOverride)) return PathOverride;
