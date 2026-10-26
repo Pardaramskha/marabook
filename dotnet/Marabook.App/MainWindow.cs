@@ -270,8 +270,10 @@ namespace Marabook.App
                 // Une carte mentale ouverte suit l'arrivée ou le départ du module (22/09).
                 if (_current != null && _current.Kind == ItemKind.MindMap) { CommitMindMap(); _mindMapEditor = null; ShowMindMap(_current); }
                 RefreshOpenCorkboards();
+                if (_project != null) _binder.Rebuild(); // la racine « Cartes mentales » paraît ou se retire (26/10)
                 ScheduleAchievementCheck();
             };
+            CodeModuleHost.Instance.Attach(this); // les modules à code voient la fenêtre (dialogues, 26/10)
             _editor.CalmRequested += ToggleCalmMode;
             // Les menus se grisent selon la vue affichée (13/09).
             Ui.OnVisibilityChanged(_editor, delegate { RefreshMenuAvailability(); });
@@ -2468,6 +2470,7 @@ namespace Marabook.App
                 if (_updateCheckRunning || _preparedUpdate != null) return;
                 _updateCheckRunning = true;
                 RaiseUpdateState();
+                CheckModuleUpdates(); // les DLC installés, en même temps (26/10, Mental-O)
                 System.Threading.Tasks.Task.Factory.StartNew(delegate
                 {
                     var check = Updater.Run(version);
@@ -2938,7 +2941,8 @@ namespace Marabook.App
         /// tuile qui invite à l'installer. Un seul éditeur par session.</summary>
         private void ShowMindMap(BinderItem item)
         {
-            IMindMapProvider provider = null; // Mental-o revient sur Avalonia après la V1 : la carte est gardée telle quelle
+            // Le module Mental-O (DLC Avalonia, 26/10) fournit l'éditeur ; sans lui, la carte est gardée telle quelle.
+            IMindMapProvider provider = MindMapModules.Provider;
             if (provider == null)
             {
                 _mindMapEditor = null;
@@ -2984,7 +2988,7 @@ namespace Marabook.App
             });
             panel.Children.Add(new TextBlock
             {
-                Text = MindMaps.Inspect(item.MapBytes).Label + "\n\nCette carte mentale s'ouvre avec le module Mental-o. Installez-le depuis Préférences › DLC ; la carte est gardée telle quelle en attendant.",
+                Text = MindMaps.Inspect(item.MapBytes).Label + "\n\nCette carte mentale s'ouvre avec le module Mental-O. Installez-le depuis Préférences › DLC ; la carte est gardée telle quelle en attendant.",
                 Foreground = Chrome.SoftText,
                 TextWrapping = TextWrapping.Wrap,
                 TextAlignment = TextAlignment.Center
@@ -5642,6 +5646,7 @@ namespace Marabook.App
             if (_darkMenu != null) _darkMenu.IsChecked = AppSettings.DarkTheme; // le commutateur des Préférences (22/09)
             var themeHandler = ThemeChanged; // les modules à code suivent le thème (22/09)
             if (themeHandler != null) themeHandler();
+            CodeModuleHost.Instance.SetDarkTheme(AppSettings.DarkTheme); // Mental-O en DLC (26/10)
         }
 
         private async void OpenPreferences()

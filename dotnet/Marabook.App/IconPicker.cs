@@ -68,7 +68,7 @@ namespace Marabook.App
                 if (item.CategoryKey == Project.KeyResearch) return "pile-recherche";
                 if (item.CategoryKey == Project.KeySheets) return "pile-fiches";
                 if (item.CategoryKey == Project.KeyPlans) return "pile-plans";
-                if (item.CategoryKey == Project.KeyMindMaps) return "connection"; // cartes mentales (22/09)
+                if (item.CategoryKey == Project.KeyMindMaps) return "mental-o"; // cartes mentales : l'icône de Mental-O (26/10, de Rémi)
                 if (item.CategoryKey == Project.KeyDictionary) return "pile-dictionnaire";
                 if (item.CategoryKey == Project.KeyTrash) return "pile-corbeille";
             }
@@ -76,7 +76,7 @@ namespace Marabook.App
             if (item.Kind == ItemKind.Book) return "book-bold";
             if (item.Kind == ItemKind.PageTemplate) return "article-bold";
             if (item.Kind == ItemKind.Plan) return "plan"; // plan.svg livré (b36)
-            if (item.Kind == ItemKind.MindMap) return "git-branch"; // carte mentale (22/09)
+            if (item.Kind == ItemKind.MindMap) return "diagram"; // une carte mentale : diagram.png de Rémi (26/10)
             if (item.Kind == ItemKind.Sheet) return "fiche-individual";
             if (item.Kind == ItemKind.Media)
                 return MediaView.IsImage(item.MediaExtension) ? "image-square-bold" : null;

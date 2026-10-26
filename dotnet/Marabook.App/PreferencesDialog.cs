@@ -81,6 +81,9 @@ namespace Marabook.App
             Tabs.Items.Add(Tab("Auteur", BuildAuthorTab()));
             Tabs.Items.Add(Tab("Raccourcis", BuildShortcutsTab()));
             Tabs.Items.Add(Tab("DLC", BuildModulesTab()));
+            AddModuleTabs();
+            MindMapModules.ProviderChanged += OnProviderChanged;
+            Closed += delegate { MindMapModules.ProviderChanged -= OnProviderChanged; };
 
             var layout = new DockPanel();
             var buttons = new StackPanel
@@ -100,6 +103,58 @@ namespace Marabook.App
             layout.Children.Add(buttons);
             layout.Children.Add(Tabs);
             Content = layout;
+        }
+
+        /// <summary>Les onglets des modules à code (26/10/2026, Mental-O en
+        /// DLC) : sous un filet « DLC » (un onglet inerte, en petites
+        /// capitales), un onglet par module qui en apporte un — « Mental-O
+        /// (dlc) ». Installé ou désinstallé pendant que le dialogue est
+        /// ouvert : la liste se refait.</summary>
+        private readonly List<TabItem> _moduleTabs = new List<TabItem>();
+
+        private void AddModuleTabs()
+        {
+            foreach (var tab in _moduleTabs) Tabs.Items.Remove(tab);
+            _moduleTabs.Clear();
+            var modules = new List<IMarabookModule>();
+            foreach (var module in CodeModuleHost.Instance.Loaded)
+                if (!string.IsNullOrEmpty(module.PreferencesTitle)) modules.Add(module);
+            if (modules.Count == 0) return;
+            var divider = new TabItem
+            {
+                Header = new TextBlock
+                {
+                    Text = "DLC",
+                    FontSize = 10,
+                    FontWeight = FontWeight.SemiBold,
+                    Foreground = Chrome.FaintText,
+                    Margin = new Thickness(0, 6, 0, 0)
+                },
+                IsEnabled = false,
+                IsHitTestVisible = false,
+                Focusable = false
+            };
+            divider.Classes.Add("divider");
+            _moduleTabs.Add(divider);
+            Tabs.Items.Add(divider);
+            foreach (var module in modules)
+            {
+                Control content;
+                try { content = module.PreferencesTab(); }
+                catch (Exception failure)
+                {
+                    content = Note("L'onglet du module n'a pas pu se construire : " + failure.Message);
+                }
+                if (content == null) continue;
+                var tab = Tab(module.PreferencesTitle, content);
+                _moduleTabs.Add(tab);
+                Tabs.Items.Add(tab);
+            }
+        }
+
+        private void OnProviderChanged()
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(delegate { AddModuleTabs(); RefreshModules(); });
         }
 
         private static TabItem Tab(string header, Control content)

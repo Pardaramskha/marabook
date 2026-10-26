@@ -618,6 +618,18 @@ public static Project SampleProject()
             AddPlanColumn(plan, "Acte III — La grande marée", "Le retour du marabout|5");
             AddPlanColumn(plan, "Épilogue", "La mer, au loin|2");
             plans.Children.Add(plan);
+            // Une carte mentale garnie (26/10) quand le module Mental-O est là
+            // (MARABOOK_DLC_ROOT pour une capture ou une sonde avec le DLC).
+            var mindMaps = MindMapModules.Provider;
+            if (mindMaps != null)
+            {
+                var maps = project.Category(Project.KeyMindMaps);
+                if (maps != null)
+                {
+                    try { maps.Children.Add(new BinderItem { Title = "Carte de démo", Kind = ItemKind.MindMap, Parent = maps, MapBytes = mindMaps.SampleMap("Carte de démo") }); }
+                    catch { }
+                }
+            }
             return project;
         }
 
