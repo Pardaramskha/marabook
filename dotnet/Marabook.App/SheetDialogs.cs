@@ -30,6 +30,7 @@ namespace Marabook.App
         private readonly List<SheetTemplate> _templates;
         private readonly ListBox _list;
         private readonly TextBox _nameBox;
+        private readonly TextBlock _usedBy; // les catégories du modèle (1.1.0)
         private readonly StackPanel _sectionsPanel, _fieldsPanel;
         private readonly CheckBox _relationsCheck;
         // Les sections extras (21/09) : le suivi des noms et son amplitude
@@ -205,7 +206,17 @@ namespace Marabook.App
             _nameBox.TextChanged += delegate { CommitName(); }; // le nom suit la frappe (et l'historique, 1.0.4)
             nameRow.Children.Add(_nameBox);
             DockPanel.SetDock(nameRow, Dock.Top);
-            if (!_single) right.Children.Add(nameRow);
+            // Les catégories qui emploient ce modèle (1.1.0, Rémi), sous le nom.
+            _usedBy = new TextBlock
+            {
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(110, -6, 0, 10),
+                Tag = "used-by" // sonde
+            };
+            DockPanel.SetDock(_usedBy, Dock.Top);
+            if (!_single) { right.Children.Add(nameRow); right.Children.Add(_usedBy); }
             else
             {
                 var hint = new TextBlock
@@ -499,10 +510,28 @@ namespace Marabook.App
             _scopeAll.IsChecked = !some;
             _scopeSome.IsChecked = some;
             _syncing = false;
+            if (_usedBy != null) _usedBy.Text = UsedByLabel(template);
             RebuildSections();
             RebuildFields();
             RebuildAxes();
             RebuildScope();
+        }
+
+        /// <summary>« Modèle de base de : Personnage (et ses sous-catégories
+        /// Héros, Figurants) » — ou qu'aucune catégorie ne l'emploie.</summary>
+        internal string UsedByLabel(SheetTemplate template)
+        {
+            if (template == null || _project == null) return "";
+            var names = new List<string>();
+            foreach (var category in _project.TopCategories())
+            {
+                if (category.TemplateId != template.Id) continue;
+                var subs = new List<string>();
+                foreach (var sub in _project.SubCategoriesOf(category)) subs.Add(sub.Name);
+                names.Add(category.Name + (subs.Count == 0 ? "" : " (et " + (subs.Count == 1 ? "sa sous-catégorie " : "ses sous-catégories ") + string.Join(", ", subs.ToArray()) + ")"));
+            }
+            if (names.Count == 0) return "Modèle de base d'aucune catégorie — les fiches qui le portent le gardent.";
+            return "Modèle de base de : " + string.Join(" · ", names.ToArray());
         }
 
         // ------------------------------------------------------------ suivi (21/09)

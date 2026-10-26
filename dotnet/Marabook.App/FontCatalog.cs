@@ -83,25 +83,35 @@ namespace Marabook.App
         }
 
         /// <summary>Le nombre de styles (graisses × italique) d'une famille,
-        /// 0 si la police ne se lit pas.</summary>
+        /// 0 si la police ne se lit pas. Lu dans le gestionnaire de polices
+        /// de Skia (1.1.0) : demander chaque graisse à Avalonia faisait
+        /// FABRIQUER des faces synthétiques (gras, italique simulés) en lisant
+        /// le fichier de la police — et certaines polices installées plantent
+        /// Skia à cette lecture (ExecutionEngineException dans sk_stream_read,
+        /// le catalogue tombait au défilement). Mémorisé par famille.</summary>
         public static int StyleCount(FontFamily family)
         {
-            if (family == null) return 0;
+            return family == null ? 0 : StyleCount(family.Name);
+        }
+
+        private static readonly Dictionary<string, int> _styleCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        public static int StyleCount(string family)
+        {
+            if (string.IsNullOrEmpty(family)) return 0;
+            int cached;
+            lock (_styleCounts)
+            {
+                if (_styleCounts.TryGetValue(family, out cached)) return cached;
+            }
             var count = 0;
             try
             {
-                // Avalonia n'énumère pas les styles : chaque graisse demandée,
-                // droite et italique, compte si la face rendue est la vraie.
-                foreach (var weight in new[] { 100, 200, 300, 400, 500, 600, 700, 800, 900 })
-                    foreach (var style in new[] { FontStyle.Normal, FontStyle.Italic })
-                    {
-                        IGlyphTypeface glyphs;
-                        if (!FontManager.Current.TryGetGlyphTypeface(new Typeface(family, style, (FontWeight)weight), out glyphs)) continue;
-                        if ((int)glyphs.Weight != weight || glyphs.Style != style || glyphs.FontSimulations != FontSimulations.None) continue;
-                        count++;
-                    }
+                using (var styles = SkiaSharp.SKFontManager.Default.GetFontStyles(family))
+                    if (styles != null) count = styles.Count;
             }
             catch (Exception) { }
+            lock (_styleCounts) _styleCounts[family] = count;
             return count;
         }
 
@@ -126,15 +136,20 @@ namespace Marabook.App
             {
                 var fontFamily = new FontFamily(family);
                 var regular = new Typeface(fontFamily, FontStyle.Normal, FontWeight.Normal);
+                // Les graisses DROITES du jeu de styles de Skia (1.1.0) — sans
+                // demander de faces à Avalonia, qui en synthétise en lisant le
+                // fichier (voir StyleCount) ; seules les graisses canoniques
+                // (100…900) comptent.
                 if (!AvaloniaFontEngine.IsVariableFamily(family, false, regular))
-                    foreach (var weight in new[] { 100, 200, 300, 400, 500, 600, 700, 800, 900 })
-                    {
-                        IGlyphTypeface glyphs;
-                        if (!FontManager.Current.TryGetGlyphTypeface(new Typeface(fontFamily, FontStyle.Normal, (FontWeight)weight), out glyphs)) continue;
-                        if (glyphs == null || (int)glyphs.Weight != weight || glyphs.Style != FontStyle.Normal || glyphs.FontSimulations != FontSimulations.None) continue;
-                        if (!string.Equals(glyphs.FamilyName, family, StringComparison.OrdinalIgnoreCase)) continue; // la face de repli d'une autre famille ne compte pas
-                        result.Add(weight);
-                    }
+                    using (var styles = SkiaSharp.SKFontManager.Default.GetFontStyles(family))
+                        if (styles != null)
+                            foreach (var style in styles)
+                            {
+                                if (style.Slant != SkiaSharp.SKFontStyleSlant.Upright) continue;
+                                var weight = style.Weight;
+                                if (weight < 100 || weight > 900 || weight % 100 != 0) continue;
+                                if (!result.Contains(weight)) result.Add(weight);
+                            }
             }
             catch (Exception) { }
             if (!result.Contains(400)) result.Insert(0, 400);
@@ -146,6 +161,7 @@ namespace Marabook.App
         public static void InvalidateRealWeights()
         {
             lock (_realWeights) _realWeights.Clear();
+            lock (_styleCounts) _styleCounts.Clear();
         }
 
         private static List<Entry> _entries;

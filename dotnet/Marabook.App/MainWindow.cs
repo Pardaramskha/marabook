@@ -114,6 +114,13 @@ namespace Marabook.App
         private VersionsPanel _versionsPanel;
         private CompareWindow _compareWindow; // le paper flottant de comparaison (batch 38)
         private TextBlock _inspTitle, _inspKind, _inspStats, _inspDates;
+        // L'objectif et la limite d'un écrit, les tags d'une fiche (1.1.0).
+        private StackPanel _goalSection, _tagsSection;
+        private TextBox _goalBox, _limitBox, _tagInput;
+        private ComboBox _goalUnit, _limitUnit;
+        private ColumnDefinition _goalFillCol, _goalRestCol;
+        private TextBlock _goalLabel, _limitLabel;
+        private WrapPanel _tagChips;
         // Livre (batch 32) : objectif de chapitres au-dessus des statistiques,
         // panneaux Métadonnées / Publication dépliés sous les dates.
         private StackPanel _progressSection;
@@ -809,6 +816,7 @@ namespace Marabook.App
             _corkboard = new CorkboardView { IsVisible = false };
             _corkboard.PageCounter = PageCountOf; // le tri « Pages » des filtres
             _corkboard.ChapterOddEnd = ChapterOddEnd;
+            _corkboard.LimitExceeded = LimitExceeded; // le liseré rouge d'une limite dépassée (1.1.0)
             _corkboard.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _corkboard.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             _corkboard.ExportRequested += ExportItem;
@@ -917,6 +925,7 @@ namespace Marabook.App
             _bookView = new BookView { IsVisible = false };
             _bookView.PageCounter = PageCountOf; // filtres du corkboard du livre
             _bookView.ChapterOddEnd = ChapterOddEnd; // la pastille d'enchaînement des tuiles (18/10)
+            _bookView.LimitExceeded = LimitExceeded; // le liseré rouge d'une limite dépassée (1.1.0)
             _bookView.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _bookView.Changed += delegate
             {
@@ -1614,6 +1623,61 @@ namespace Marabook.App
             _colorButton.Click += delegate { OpenColorMenu(); };
             _statusSection.Children.Add(_colorButton);
             panel.Children.Add(_statusSection);
+
+            // L'OBJECTIF et la LIMITE d'un écrit (1.1.0, Rémi) : un nombre et
+            // son unité (mots, signes, pages). L'objectif se remplit à mesure
+            // qu'on écrit ; la limite dépassée s'écrit en rouge et cercle la
+            // carte de rouge au tableau.
+            _goalSection = new StackPanel { Margin = new Thickness(0, 0, 0, 10), IsVisible = false };
+            _goalSection.Children.Add(InspectorLabel("Objectif du texte",
+                "Le but à atteindre — en mots, en signes (espaces comprises) ou en pages ; 0 = aucun", 0));
+            _goalBox = GoalNumberBox();
+            _goalUnit = GoalUnitBox();
+            _goalSection.Children.Add(GoalRow(_goalBox, _goalUnit));
+            var track = new Grid { Height = 6, Margin = new Thickness(0, 6, 0, 0) };
+            _goalFillCol = new ColumnDefinition { Width = new GridLength(0, GridUnitType.Star) };
+            _goalRestCol = new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) };
+            track.ColumnDefinitions.Add(_goalFillCol);
+            track.ColumnDefinitions.Add(_goalRestCol);
+            var trackBg = new Border { Background = Chrome.BarBgLight, BorderBrush = Chrome.Border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3) };
+            Grid.SetColumnSpan(trackBg, 2);
+            track.Children.Add(trackBg);
+            var fill = new Border { Background = Chrome.Accent, CornerRadius = new CornerRadius(3), Tag = "goal-fill" };
+            Grid.SetColumn(fill, 0);
+            track.Children.Add(fill);
+            _goalSection.Children.Add(track);
+            _goalLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap, Tag = "goal-label" };
+            _goalSection.Children.Add(_goalLabel);
+            _goalSection.Children.Add(InspectorLabel("Limite du texte",
+                "Le plafond à ne pas dépasser — dépassé, la carte se cercle de rouge au tableau ; 0 = aucune", 8));
+            _limitBox = GoalNumberBox();
+            _limitUnit = GoalUnitBox();
+            _goalSection.Children.Add(GoalRow(_limitBox, _limitUnit));
+            _limitLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap, Tag = "limit-label" };
+            _goalSection.Children.Add(_limitLabel);
+            _goalBox.LostFocus += delegate { CommitGoal(); };
+            _limitBox.LostFocus += delegate { CommitGoal(); };
+            _goalUnit.SelectionChanged += delegate { CommitGoal(); };
+            _limitUnit.SelectionChanged += delegate { CommitGoal(); };
+            panel.Children.Add(_goalSection);
+
+            // Les TAGS d'une fiche (1.1.0, Rémi) : des puces supprimables, un
+            // champ qui en ajoute un à la fois (Entrée) ; le filtre par tag
+            // de la bibliothèque les reprend.
+            _tagsSection = new StackPanel { Margin = new Thickness(0, 0, 0, 10), IsVisible = false };
+            _tagsSection.Children.Add(InspectorLabel("Tags",
+                "Des mots libres pour retrouver la fiche — le filtre par tag de la bibliothèque et la recherche de la Pile les lisent", 0));
+            _tagChips = new WrapPanel();
+            _tagsSection.Children.Add(_tagChips);
+            _tagInput = new TextBox { Watermark = "Ajouter un tag, puis Entrée", Margin = new Thickness(0, 4, 0, 0), Tag = "tag-input" };
+            _tagInput.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key != Key.Return && e.Key != Key.Enter) return;
+                e.Handled = true;
+                AddTagFromInput();
+            };
+            _tagsSection.Children.Add(_tagInput);
+            panel.Children.Add(_tagsSection);
 
             // Options d'un plan (batch 35) : le mot des nouvelles colonnes.
             _planSection = new StackPanel { Margin = new Thickness(0, 0, 0, 10), IsVisible = false };
@@ -5697,6 +5761,8 @@ namespace Marabook.App
                 _notesBox.IsEnabled = false;
                 _statusSection.IsVisible = false;
                 _planSection.IsVisible = false;
+                _goalSection.IsVisible = false;
+                _tagsSection.IsVisible = false;
                 SetInspectorFieldVisibility(true, false);
             }
             else
@@ -5754,6 +5820,8 @@ namespace Marabook.App
                 var isPlan = item.Kind == ItemKind.Plan;
                 _planSection.IsVisible = isPlan ? true : false;
                 if (isPlan && item.Plan != null) _planColumnWord.Text = item.Plan.ColumnWord;
+                RefreshGoalBars(); // l'objectif et la limite d'un écrit (1.1.0)
+                RefreshTagChips(); // les tags d'une fiche (1.1.0)
             }
             _loadingInspector = false;
 
@@ -5767,6 +5835,8 @@ namespace Marabook.App
             if (homeRoot)
             {
                 _statusSection.IsVisible = false;
+                _goalSection.IsVisible = false;
+                _tagsSection.IsVisible = false;
                 SetInspectorFieldVisibility(false, false);
             }
 
@@ -5796,6 +5866,249 @@ namespace Marabook.App
 
             UpdateBookProgress();
         }
+
+        // ------------------------------------------ objectif, limite, tags (1.1.0)
+
+        private static TextBlock InspectorLabel(string text, string tip, double top)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                Foreground = Chrome.SoftText,
+                FontSize = 12,
+                Margin = new Thickness(0, top, 0, 4),
+                [ToolTip.TipProperty] = tip
+            };
+        }
+
+        private static TextBox GoalNumberBox()
+        {
+            var box = new TextBox { Width = 76, HorizontalContentAlignment = HorizontalAlignment.Right, [ToolTip.TipProperty] = "Un nombre ; 0 ou vide = aucun" };
+            box.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key != Key.Return && e.Key != Key.Enter) return;
+                e.Handled = true;
+                var top = TopLevel.GetTopLevel(box);
+                if (top != null && top.FocusManager != null) top.FocusManager.ClearFocus(); // LostFocus commet
+            };
+            return box;
+        }
+
+        private static ComboBox GoalUnitBox()
+        {
+            var combo = new ComboBox { MinWidth = 92, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            foreach (var unit in TextGoal.Units) combo.Items.Add(TextGoal.Label(unit));
+            combo.SelectedIndex = 0;
+            return combo;
+        }
+
+        private static Control GoalRow(TextBox box, ComboBox unit)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(box);
+            row.Children.Add(unit);
+            return row;
+        }
+
+        /// <summary>Le nombre et l'unité tapés deviennent l'objectif et la
+        /// limite de l'écrit montré ; les barres et le tableau suivent.</summary>
+        private void CommitGoal()
+        {
+            if (_loadingInspector) return;
+            var item = InspectedItem;
+            if (item == null || item.Kind != ItemKind.Text) return;
+            var goal = TextGoal.Parse(_goalBox.Text);
+            var goalUnit = TextGoal.Units[Math.Max(0, Math.Min(TextGoal.Units.Length - 1, _goalUnit.SelectedIndex))];
+            var limit = TextGoal.Parse(_limitBox.Text);
+            var limitUnit = TextGoal.Units[Math.Max(0, Math.Min(TextGoal.Units.Length - 1, _limitUnit.SelectedIndex))];
+            var changed = goal != item.Goal || goalUnit != item.GoalUnit || limit != item.Limit || limitUnit != item.LimitUnit;
+            item.Goal = goal;
+            item.GoalUnit = goalUnit;
+            item.Limit = limit;
+            item.LimitUnit = limitUnit;
+            _loadingInspector = true;
+            _goalBox.Text = goal > 0 ? goal.ToString() : "";
+            _limitBox.Text = limit > 0 ? limit.ToString() : "";
+            _loadingInspector = false;
+            if (!changed) { RefreshGoalBars(); return; }
+            MarkDirty();
+            RefreshGoalBars();
+            RefreshOpenCorkboards(); // le liseré rouge d'une limite dépassée
+        }
+
+        /// <summary>La mesure d'un écrit dans l'unité d'un objectif.</summary>
+        private int MeasureOf(BinderItem item, string unit)
+        {
+            switch (TextGoal.Normalize(unit))
+            {
+                case TextGoal.Chars: return CharsOfItem(item);
+                case TextGoal.Pages: return PageCountOf(item);
+                default: return WordsOfItem(item);
+            }
+        }
+
+        /// <summary>La limite de cet écrit est-elle franchie ? (la carte du
+        /// tableau se cercle de rouge.)</summary>
+        private bool LimitExceeded(BinderItem item)
+        {
+            if (item == null || item.Kind != ItemKind.Text || item.Limit <= 0) return false;
+            return TextGoal.Exceeded(MeasureOf(item, item.LimitUnit), item.Limit);
+        }
+
+        /// <summary>Les champs, la barre et les libellés de l'objectif et de
+        /// la limite, depuis l'écrit montré — à chaque navigation et à chaque
+        /// pause de frappe (UpdateStats).</summary>
+        private void RefreshGoalBars()
+        {
+            var item = InspectedItem;
+            var text = item != null && item.Kind == ItemKind.Text && !item.IsCategory;
+            _goalSection.IsVisible = text ? true : false;
+            if (!text) return;
+            var was = _loadingInspector;
+            _loadingInspector = true;
+            try
+            {
+                if (!_goalBox.IsFocused) _goalBox.Text = item.Goal > 0 ? item.Goal.ToString() : "";
+                if (!_limitBox.IsFocused) _limitBox.Text = item.Limit > 0 ? item.Limit.ToString() : "";
+                _goalUnit.SelectedIndex = Array.IndexOf(TextGoal.Units, TextGoal.Normalize(item.GoalUnit));
+                _limitUnit.SelectedIndex = Array.IndexOf(TextGoal.Units, TextGoal.Normalize(item.LimitUnit));
+            }
+            finally { _loadingInspector = was; }
+            var culture = CultureInfo.CurrentCulture;
+            if (item.Goal > 0)
+            {
+                var measured = MeasureOf(item, item.GoalUnit);
+                var ratio = TextGoal.Ratio(measured, item.Goal);
+                _goalFillCol.Width = new GridLength(ratio, GridUnitType.Star);
+                _goalRestCol.Width = new GridLength(1 - ratio, GridUnitType.Star);
+                var reached = measured >= item.Goal;
+                _goalLabel.Text = measured.ToString("N0", culture) + " / " + TextGoal.Count(item.Goal, item.GoalUnit)
+                    + " — " + (reached ? "objectif atteint" : (ratio * 100).ToString("0", culture) + " %");
+                _goalLabel.Foreground = reached ? Chrome.Ok : Chrome.SoftText;
+            }
+            else
+            {
+                _goalFillCol.Width = new GridLength(0, GridUnitType.Star);
+                _goalRestCol.Width = new GridLength(1, GridUnitType.Star);
+                _goalLabel.Text = "Aucun objectif";
+                _goalLabel.Foreground = Chrome.SoftText;
+            }
+            if (item.Limit > 0)
+            {
+                var measured = MeasureOf(item, item.LimitUnit);
+                var over = TextGoal.Exceeded(measured, item.Limit);
+                _limitLabel.Text = measured.ToString("N0", culture) + " / " + TextGoal.Count(item.Limit, item.LimitUnit)
+                    + (over ? " — limite dépassée de " + TextGoal.Count(measured - item.Limit, item.LimitUnit) : "");
+                _limitLabel.Foreground = over ? Chrome.Danger : Chrome.SoftText;
+                _limitLabel.FontWeight = over ? FontWeight.SemiBold : FontWeight.Normal;
+            }
+            else
+            {
+                _limitLabel.Text = "Aucune limite";
+                _limitLabel.Foreground = Chrome.SoftText;
+                _limitLabel.FontWeight = FontWeight.Normal;
+            }
+        }
+
+        /// <summary>Sonde (1.1.0) : ce que la colonne de droite montre et pourquoi.</summary>
+        internal string RightStateForProbe
+        {
+            get
+            {
+                return "panneau=" + DisplayedRightPanel() + " réglé=" + AppSettings.RightPanel + " courant=" + (_current == null ? "-" : _current.Title)
+                    + " inspecté=" + (_inspected == null ? "-" : _inspected.Title) + " lot=" + (_inspectedGroup == null ? "-" : _inspectedGroup.Count.ToString())
+                    + " épingle=" + (_sidePin != null) + " lexique=" + HasLexiconPanel + " bilan=" + HasStyleReport;
+            }
+        }
+
+        /// <summary>Sonde (1.1.0) : les libellés de l'objectif et de la limite.</summary>
+        internal string GoalLabelForProbe { get { return _goalLabel.Text ?? ""; } }
+        internal string LimitLabelForProbe { get { return _limitLabel.Text ?? ""; } }
+        internal bool GoalSectionVisibleForProbe { get { return _goalSection.IsVisible; } }
+        internal void SetGoalForProbe(int goal, string goalUnit, int limit, string limitUnit)
+        {
+            _goalBox.Text = goal.ToString();
+            _goalUnit.SelectedIndex = Array.IndexOf(TextGoal.Units, goalUnit);
+            _limitBox.Text = limit.ToString();
+            _limitUnit.SelectedIndex = Array.IndexOf(TextGoal.Units, limitUnit);
+            CommitGoal();
+        }
+
+        /// <summary>Les puces des tags de la fiche montrée.</summary>
+        private void RefreshTagChips()
+        {
+            var item = InspectedItem;
+            var sheet = item != null && item.Kind == ItemKind.Sheet;
+            _tagsSection.IsVisible = sheet ? true : false;
+            _tagChips.Children.Clear();
+            if (!sheet) return;
+            foreach (var tag in item.Tags)
+            {
+                var tagRef = tag;
+                var row = new StackPanel { Orientation = Orientation.Horizontal };
+                row.Children.Add(new TextBlock { Text = tag, FontSize = 12, Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center });
+                var remove = new Border
+                {
+                    Child = new TextBlock { Text = "×", FontSize = 13, Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center },
+                    Padding = new Thickness(5, 0, 2, 0),
+                    Background = Brushes.Transparent,
+                    Cursor = new Cursor(StandardCursorType.Hand),
+                    [ToolTip.TipProperty] = "Retirer le tag « " + tag + " »"
+                };
+                remove.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+                {
+                    if (e.InitialPressMouseButton != MouseButton.Left) return;
+                    e.Handled = true;
+                    EditSheetTags(item, delegate { SheetTags.Remove(item, tagRef); });
+                };
+                row.Children.Add(remove);
+                _tagChips.Children.Add(new Border
+                {
+                    Child = row,
+                    Background = Chrome.BarBgLight,
+                    BorderBrush = Chrome.Border,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(10),
+                    Padding = new Thickness(9, 2, 6, 2),
+                    Margin = new Thickness(0, 0, 5, 5),
+                    Tag = "tag:" + tag // sonde
+                });
+            }
+            if (item.Tags.Count == 0)
+                _tagChips.Children.Add(new TextBlock { Text = "Aucun tag", Foreground = Chrome.FaintText, FontSize = 11, Margin = new Thickness(0, 0, 0, 2) });
+        }
+
+        private void AddTagFromInput()
+        {
+            var item = InspectedItem;
+            if (item == null || item.Kind != ItemKind.Sheet) return;
+            var tag = SheetTags.Normalize(_tagInput.Text);
+            _tagInput.Text = "";
+            if (tag.Length == 0 || SheetTags.Has(item, tag)) return;
+            EditSheetTags(item, delegate { SheetTags.Add(item, tag); });
+        }
+
+        /// <summary>Un changement de tags, annulable comme un champ de la
+        /// fiche ; la bibliothèque et la Pile suivent.</summary>
+        private void EditSheetTags(BinderItem sheet, Action change)
+        {
+            var before = SheetSnapshot.Capture(_project, sheet);
+            change();
+            _history.Push(new SheetEditAction(_project, sheet, before, SheetSnapshot.Capture(_project, sheet), "tags-set"));
+            MarkDirty();
+            RefreshTagChips();
+            if (_sheetLibrary.IsVisible) _sheetLibrary.Refresh();
+        }
+
+        /// <summary>Sonde (1.1.0) : poser un tag par le champ du Général.</summary>
+        internal void AddTagForProbe(string tag) { _tagInput.Text = tag; AddTagFromInput(); }
+        internal List<string> TagChipsForProbe()
+        {
+            var list = new List<string>();
+            foreach (var child in _tagChips.Children) { var border = child as Border; if (border != null && border.Tag is string) list.Add((string)border.Tag); }
+            return list;
+        }
+        internal bool TagsSectionVisibleForProbe { get { return _tagsSection.IsVisible; } }
 
         /// <summary>Un bouton des raccourcis « Commencer » du Général de
         /// l'Accueil (b43) — pleine largeur, empilés.</summary>
@@ -6165,6 +6478,7 @@ namespace Marabook.App
                 _wordCache[_current.Id] = stats.Words;
                 _statusRight.Text = stats.ShortLabel();
                 _inspStats.Text = stats.LongLabel();
+                if (_goalSection.IsVisible && InspectedItem == _current) RefreshGoalBars(); // l'objectif se remplit à mesure (1.1.0)
             }
             else if (_current != null && _current.Kind == ItemKind.Sheet && _sheetView.HasItem)
             {

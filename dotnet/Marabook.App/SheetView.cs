@@ -148,23 +148,26 @@ namespace Marabook.App
             _previewToggle = new ToggleButton
             {
                 Classes = { Marabook.App.Theme.Owned },
-                Content = Icons.Label("apercu-wiki", "Mode wiki", 13, Chrome.Ink), // une icône du jeu : l'emoji 📖 sortait en « ??? » sur macOS (07/10)
+                Content = Icons.Label("apercu-wiki", "Mode wiki (F1)", 13, Chrome.Ink), // une icône du jeu : l'emoji 📖 sortait en « ??? » sur macOS (07/10)
                 FontWeight = FontWeight.SemiBold,
                 Padding = new Thickness(12, 4, 12, 4),
-                [ToolTip.TipProperty] = "Voir la fiche en lecture, comme une page de wiki"
+                [ToolTip.TipProperty] = "Voir la fiche en lecture, comme une page de wiki — F1"
             };
             _previewToggle.Checked += delegate { ShowPreview(); };
             _previewToggle.Unchecked += delegate { HidePreview(); };
             rightTools.Children.Add(_previewToggle);
             _genealogyButton = new Button
             {
-                Content = Icons.Label("tree-bold", "Généalogie", 13, Chrome.Ink),
+                Content = Icons.Label("tree-bold", "Généalogie (F2)", 13, Chrome.Ink),
                 Padding = new Thickness(12, 4, 12, 4),
                 Margin = new Thickness(8, 0, 0, 0),
-                [ToolTip.TipProperty] = "L'arbre généalogique de la fiche, d'après ses relations (section flottante)"
+                [ToolTip.TipProperty] = "L'arbre généalogique de la fiche, d'après ses relations (section flottante) — F2"
             };
             _genealogyButton.Click += delegate { ShowGenealogy(); };
             rightTools.Children.Add(_genealogyButton);
+            // F1 = mode wiki, F2 = généalogie (1.1.0, Rémi) : captés en tunnel,
+            // avant les zones de texte de la fiche.
+            AddHandler(KeyDownEvent, new EventHandler<KeyEventArgs>(OnFunctionKey), RoutingStrategies.Tunnel);
             DockPanel.SetDock(rightTools, Dock.Right);
             bannerRow.Children.Add(rightTools);
 
@@ -589,12 +592,52 @@ namespace Marabook.App
             _showTracking = _template != null && _template.Tracking;
             _showEvolution = (_template != null && _template.Evolution)
                 || (_item != null && _item.Evolution.Count > 0);
-            // Sans paper Relations, pas de généalogie (batch 43).
-            _genealogyButton.IsEnabled = _showRelations;
-            ToolTip.SetTip(_genealogyButton, _showRelations
-                ? "L'arbre généalogique de la fiche, d'après ses relations (section flottante)"
-                : "Généalogie indisponible : le modèle de cette fiche n'active pas les relations");
+            // Sans paper Relations, pas de généalogie (batch 43) — et plus de
+            // bouton du tout (1.1.0, Rémi : « retire le bouton des éléments
+            // non concernés »).
+            _genealogyButton.IsVisible = _showRelations;
             LayoutPapers(true);
+        }
+
+        /// <summary>F1 bascule le mode wiki, F2 ouvre la généalogie quand la
+        /// fiche en a une (1.1.0).</summary>
+        private void OnFunctionKey(object sender, KeyEventArgs e)
+        {
+            if (_item == null || e.KeyModifiers != KeyModifiers.None) return;
+            if (e.Key == Key.F1)
+            {
+                _previewToggle.IsChecked = _previewToggle.IsChecked != true;
+                e.Handled = true;
+            }
+            else if (e.Key == Key.F2 && _showRelations)
+            {
+                ShowGenealogy();
+                e.Handled = true;
+            }
+        }
+
+        /// <summary>Sonde (1.1.0) : le bouton Généalogie est-il posé ?</summary>
+        internal bool GenealogyButtonVisibleForProbe { get { return _genealogyButton.IsVisible; } }
+        internal bool PreviewOnForProbe { get { return _previewToggle.IsChecked == true; } }
+
+        /// <summary>Une fiche peut-elle recevoir une relation GÉNÉALOGIQUE
+        /// (une nature livrée : père, sœur, épouse…) ? Seulement si son modèle
+        /// active les relations (1.1.0, Rémi : « empêche la création de
+        /// relations généalogiques avec les éléments non concernés »).</summary>
+        internal static bool GenealogyAllowed(Project project, BinderItem target)
+        {
+            if (project == null || target == null) return false;
+            var template = project.TemplateOf(target);
+            return (template != null && template.Relations) || target.Relations.Count > 0;
+        }
+
+        private async void RefuseGenealogy(BinderItem target, string kind)
+        {
+            await MessageDialog.Show(Ui.OwnerOf(this),
+                "« " + target.Title + " » ne peut pas recevoir une relation généalogique (« " + RelationKinds.Canonical(kind) + " ») : "
+                + "le modèle de sa fiche n'active pas les relations.\n\nChoisissez une nature libre (« Mentor », « Rivale »…), "
+                + "ou activez les relations sur son modèle dans l'éditeur de modèles.",
+                "Relations", MessageButtons.OK, MessageIcon.Information);
         }
 
         /// <summary>Le nom de section déjà connu qui correspond (sans casse), ou null.</summary>
@@ -1439,6 +1482,14 @@ namespace Marabook.App
             var text = RelationKinds.Canonical(kindBox.Text ?? "");
             if (text == NewKindEntry) return;
             if (text == relation.Kind) return;
+            // Une nature généalogique vers une fiche sans relations : refusée (1.1.0).
+            var aimed = relation.TargetId == null ? null : _project.FindById(relation.TargetId);
+            if (aimed != null && RelationKinds.Find(text) != null && !GenealogyAllowed(_project, aimed))
+            {
+                kindBox.Text = relation.Kind;
+                RefuseGenealogy(aimed, text);
+                return;
+            }
             var previous = relation.Kind;
             relation.Kind = text;
             if (kindBox.Text != text) kindBox.Text = text;
@@ -1475,6 +1526,14 @@ namespace Marabook.App
             var newId = match != null ? match.Id : null;
             var newName = match != null ? "" : text;
             if (newId == relation.TargetId && newName == relation.Name) return;
+            // Une fiche sans relations ne reçoit pas de nature généalogique (1.1.0).
+            if (match != null && RelationKinds.Find(relation.Kind) != null && !GenealogyAllowed(_project, match))
+            {
+                var current = relation.TargetId == null ? null : _project.FindById(relation.TargetId);
+                combo.Text = current != null ? current.Title : relation.Name;
+                RefuseGenealogy(match, relation.Kind);
+                return;
+            }
             if (relation.TargetId != null && relation.TargetId != newId)
                 RelationSync.Unmirror(_project, _item, relation.TargetId, relation.Kind);
             relation.TargetId = newId;

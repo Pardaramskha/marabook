@@ -59,6 +59,9 @@ namespace Marabook.App
         // L'enchaînement des pages (18/10) : le folio impair de la dernière
         // page d'un chapitre, 0 = rien — la pastille à côté du titre.
         public Func<BinderItem, int> ChapterOddEnd;
+        // La LIMITE d'un écrit dépassée (1.1.0) : la coquille mesure ; la
+        // carte se cercle de rouge et le dit en pied.
+        public Func<BinderItem, bool> LimitExceeded;
 
         private readonly WrapPanel _templateCards; // section gabarits (livres)
         private readonly Border _templateSeparator;
@@ -1539,6 +1542,8 @@ namespace Marabook.App
                 WireCard(mockup, item);
                 return mockup;
             }
+            // La limite du texte dépassée (1.1.0) : le liseré ROUGE prime.
+            var over = item.Kind == ItemKind.Text && LimitExceeded != null && LimitExceeded(item);
             var card = new Border
             {
                 Width = 210,
@@ -1546,13 +1551,14 @@ namespace Marabook.App
                 Background = Chrome.CardBg,
                 // La sélection et le liseré de divergence colorent la bordure ;
                 // la couleur personnelle vit en dégradé dans la barre de titre.
-                BorderBrush = selected ? (IBrush)Chrome.Accent : Chrome.Border,
-                BorderThickness = new Thickness(selected ? 2 : 1),
+                BorderBrush = over ? Chrome.Danger : selected ? (IBrush)Chrome.Accent : Chrome.Border,
+                BorderThickness = new Thickness(selected || over ? 2 : 1),
                 CornerRadius = new CornerRadius(6),
-                Margin = new Thickness(selected ? 7 : 8), // épaisseur compensée
+                Margin = new Thickness(selected || over ? 7 : 8), // épaisseur compensée
                 Tag = item,
                 [DragDrop.AllowDropProperty] = true
             };
+            if (over) ToolTip.SetTip(card, "La limite du texte est dépassée (Général du rail › Limite du texte)");
 
             var layout = new DockPanel();
 
@@ -1750,6 +1756,17 @@ namespace Marabook.App
                     Margin = new Thickness(0, 0, 10, 0)
                 });
             }
+            if (over)
+                footer.Children.Add(new TextBlock
+                {
+                    Text = "Limite dépassée",
+                    Foreground = Chrome.Danger,
+                    FontSize = 10,
+                    FontWeight = FontWeight.SemiBold,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 10, 0),
+                    Tag = "over-limit" // sonde
+                });
             // Une page extra dit sa section (b49) : Liminaire, Page de fin, Annexe.
             if (item.Kind == ItemKind.Text && (item.IsExtraPage || item.IsToc))
                 footer.Children.Add(new TextBlock

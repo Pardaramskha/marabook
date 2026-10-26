@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -1946,7 +1947,7 @@ namespace Marabook.App
                 {
                     shell.Binder.SelectItem(sheetsRoot.Id, true);
                     await Settle();
-                    Check(shell.RightColumnWidth < 1, "racine Fiches sans sélection : la colonne de droite est repliée (" + shell.RightColumnWidth.ToString("0") + ")");
+                    Check(shell.RightColumnWidth < 1, "racine Fiches sans sélection : la colonne de droite est repliée (" + shell.RightColumnWidth.ToString("0") + " ; " + shell.RightStateForProbe + ")");
                     shell.Binder.SelectItem(chapter.Id, true);
                     await Settle();
                     Check(shell.RightColumnWidth > 1, "…et revient sur un écrit (" + shell.RightColumnWidth.ToString("0") + ")");
@@ -2279,6 +2280,9 @@ namespace Marabook.App
                     Dialogs.FitToScreen(lexiconDialog, shell);
                     Check(lexiconDialog.MaxHeight > 200 && !double.IsInfinity(lexiconDialog.MaxHeight) && lexiconDialog.Content is ScrollViewer, "le dialogue d'entrée du dictionnaire est plafonné à l'écran (" + lexiconDialog.MaxHeight.ToString("0") + " px) et défile");
                 }
+
+                // ================================================== 1.1.0 (26/10)
+                await Probe110(shell);
             }
             catch (Exception error)
             {
@@ -2286,6 +2290,242 @@ namespace Marabook.App
                 Console.WriteLine("  ÉCHEC  exception : " + error);
             }
             Console.WriteLine(Failures == 0 ? "SONDE OK (" + _checks + " vérifications)" : "*** SONDE : " + Failures + " échec(s) sur " + _checks + " ***");
+        }
+
+        /// <summary>Les correctifs de la 1.1.0 (26/10) : la Pile en sections,
+        /// les pastilles en icônes, le « + » des catégories, les tags, le
+        /// filtre par tag, le dépôt sur une catégorie, la suppression d'une
+        /// catégorie avec son modèle, F1/F2 et le bouton Généalogie, l'objectif
+        /// et la limite d'un écrit (liseré rouge), le catalogue de polices
+        /// (comptes de styles sans plantage, exclues en bas), les filets des
+        /// Préférences et les facettes du panneau des styles.</summary>
+        private static async Task Probe110(MainWindow shell)
+        {
+            var project = shell.Project;
+
+            // — La Pile en sections.
+            var rows = shell.Binder.TopRowsForProbe();
+            var joined = string.Join(" | ", rows.ToArray());
+            Check(rows.IndexOf("Écriture") >= 0 && rows.IndexOf("Encyclopédie") > rows.IndexOf("Écriture")
+                && rows.IndexOf("Structure") > rows.IndexOf("Encyclopédie") && rows.IndexOf("Outils") > rows.IndexOf("Structure"),
+                "Pile : les sections Écriture, Encyclopédie, Structure, Outils dans l'ordre (" + joined + ")");
+            Check(rows.IndexOf("Écrits") == rows.IndexOf("Écriture") + 1 && rows.IndexOf("Recherche") == rows.IndexOf("Écrits") + 1, "…Écrits puis Recherche sous Écriture");
+            Check(rows.IndexOf("Fiches") == rows.IndexOf("Encyclopédie") + 1 && rows.IndexOf("Dictionnaire") == rows.IndexOf("Fiches") + 1, "…Fiches puis Dictionnaire sous Encyclopédie");
+            Check(rows.IndexOf("Plans") == rows.IndexOf("Structure") + 1 && rows.IndexOf(BinderView.UnderConstruction) == rows.IndexOf("Outils") + 1, "…Plans sous Structure, « En construction » sous Outils");
+            Check(rows.Count >= 2 && rows[rows.Count - 1] == "Corbeille" && rows[rows.Count - 2] == "—", "…la Corbeille en dernier, derrière un simple filet");
+            shell.Binder.ToggleSectionForProbe("Encyclopédie");
+            await Settle();
+            rows = shell.Binder.TopRowsForProbe();
+            Check(!rows.Contains("Fiches") && !rows.Contains("Dictionnaire") && rows.Contains("Encyclopédie  (2)"), "section repliée : ses racines disparaissent, son compte s'affiche (" + string.Join(" | ", rows.ToArray()) + ")");
+            shell.Binder.SelectItem(project.Category(Project.KeySheets).Id);
+            await Settle();
+            rows = shell.Binder.TopRowsForProbe();
+            Check(rows.Contains("Fiches") && !BinderView.CollapsedSections.Contains("Encyclopédie") && shell.SheetLibraryForProbe.IsVisible, "sélectionner une racine d'une section repliée la déplie et ouvre la vue");
+
+            // — La bibliothèque : pastilles en icônes, « + », icône choisie.
+            var library = shell.SheetLibraryForProbe;
+            var chips = library.ChipsForProbe();
+            Check(chips.Count > 1 && chips[0].StartsWith("chip:Toutes#") && Icons.Has("all"), "bibliothèque : « Toutes » porte l'icône « all » et son compte (" + string.Join(" ", chips.ToArray()) + ")");
+            var plainChips = 0;
+            foreach (var chip in chips) if (!chip.Contains("#") && !chip.EndsWith("*") || chip.EndsWith("#+")) plainChips++;
+            Check(plainChips == chips.Count - 1, "…les autres pastilles sont des icônes seules, sans compte ni nom (« + » sur les vides)");
+            var top = project.TopCategories()[0];
+            var second = project.TopCategories()[1];
+            library.SetCategoryIcon(top, "fiche-objet");
+            await Settle();
+            chips = shell.SheetLibraryForProbe.ChipsForProbe();
+            Check(chips.Contains("chip:" + top.Name + "*") && SheetLibraryView.CategoryIcon(top, project) == "fiche-objet", "une icône choisie marque la pastille d'une astérisque (" + string.Join(" ", chips.ToArray()) + ")");
+            Check(shell.UndoPublic() && top.Icon == null, "…annulable");
+            await Settle();
+            library = shell.SheetLibraryForProbe;
+            var plusCount = 0;
+            foreach (var button in library.GetVisualDescendants().OfType<Button>())
+                if ((button.Tag as string ?? "").StartsWith("plus:")) plusCount++;
+            Check(plusCount > 0, "chaque rangée de catégorie et chaque boîte de sous-catégorie ont leur « + » (" + plusCount + ")");
+            var created = library.CreateSheetIn(top, "Fiche du plus (sonde)");
+            await Settle();
+            Check(created.CategoryId == top.Id && created.TemplateId == top.TemplateId && shell.Sheet.HasItem, "le « + » crée la fiche dans la catégorie, sur son modèle de base, et l'ouvre");
+
+            // — Les tags, dans le Général du rail, puis le filtre de la bibliothèque.
+            Check(shell.TagsSectionVisibleForProbe, "fiche ouverte : la section Tags du Général est là");
+            shell.AddTagForProbe("héros");
+            shell.AddTagForProbe("  Héros ");
+            shell.AddTagForProbe("mage noir");
+            await Settle();
+            Check(created.Tags.Count == 2 && created.Tags[0] == "héros" && created.Tags[1] == "mage noir", "les tags s'ajoutent un par un, sans doublon (" + string.Join(", ", created.Tags.ToArray()) + ")");
+            Check(shell.TagChipsForProbe().Count == 2 && shell.TagChipsForProbe()[1] == "tag:mage noir", "…en puces dans le Général");
+            Check(shell.UndoPublic() && created.Tags.Count == 1, "…annulable");
+            await Settle();
+            shell.Binder.SelectItem(project.Category(Project.KeySheets).Id);
+            await Settle();
+            library = shell.SheetLibraryForProbe;
+            Check(library.TagChoicesForProbe == 2, "le filtre par tag propose « Tous les tags » puis « héros » (" + library.TagChoicesForProbe + ")");
+            library.FilterByTagForProbe("héros");
+            await Settle();
+            Check(library.CardsCountForProbe == 1, "filtré par tag : la seule fiche taguée reste (" + library.CardsCountForProbe + ")");
+            library.FilterByTagForProbe(null);
+            await Settle();
+            Check(library.CardsCountForProbe > 1, "sans filtre : toutes reviennent");
+
+            // — Le dépôt d'une tuile sur une catégorie.
+            library.DropOnCategoryForProbe(new[] { created.Id }, second.Id);
+            await Settle();
+            Check(created.CategoryId == second.Id, "une tuile lâchée sur une catégorie en change (" + second.Name + ")");
+            Check(shell.UndoPublic() && created.CategoryId == top.Id, "…annulable");
+            await Settle();
+
+            // — Supprimer une catégorie avec son modèle, en un cran.
+            var probeTemplate = new SheetTemplate { Name = "Modèle sonde" };
+            var probeCategory = new SheetCategory { Name = "Catégorie sonde", TemplateId = probeTemplate.Id };
+            project.Templates.Add(probeTemplate);
+            project.SheetCategories.Add(probeCategory);
+            shell.SheetLibraryForProbe.DeleteCategoryNow(probeCategory, probeTemplate);
+            await Settle();
+            Check(!project.SheetCategories.Contains(probeCategory) && !project.Templates.Contains(probeTemplate), "supprimer la catégorie avec son modèle retire les deux");
+            Check(shell.UndoPublic() && project.SheetCategories.Contains(probeCategory) && project.Templates.Contains(probeTemplate), "…et Ctrl+Z rend les deux");
+            project.SheetCategories.Remove(probeCategory);
+            project.Templates.Remove(probeTemplate);
+            created.Parent.Children.Remove(created);
+            shell.Binder.Rebuild();
+            await Settle();
+
+            // — F1 / F2 et le bouton Généalogie. Le projet d'exemple n'a que
+            //   des personnages : un lieu de passage sert de fiche sans relations.
+            BinderItem character = null, other = null;
+            foreach (var item in project.AllItems())
+            {
+                if (item.Kind != ItemKind.Sheet || item.RootCategory().CategoryKey == Project.KeyTrash) continue;
+                var template = project.TemplateOf(item);
+                if (template == null) continue;
+                if (template.Relations && character == null) character = item;
+                if (!template.Relations && item.Relations.Count == 0 && other == null) other = item;
+            }
+            BinderItem placeOfPassage = null;
+            if (other == null)
+            {
+                SheetCategory placeCategory = null;
+                foreach (var category in project.TopCategories())
+                {
+                    var template = project.FindTemplate(category.TemplateId);
+                    if (template != null && !template.Relations) { placeCategory = category; break; }
+                }
+                if (placeCategory != null)
+                {
+                    placeOfPassage = new BinderItem { Kind = ItemKind.Sheet, Title = "Lieu de passage (sonde)", CategoryId = placeCategory.Id, TemplateId = placeCategory.TemplateId, Parent = project.Category(Project.KeySheets) };
+                    project.Category(Project.KeySheets).Children.Add(placeOfPassage);
+                    shell.Binder.Rebuild();
+                    await Settle();
+                    other = placeOfPassage;
+                }
+            }
+            if (character != null)
+            {
+                shell.Binder.SelectItem(character.Id);
+                await Settle();
+                Check(shell.Sheet.GenealogyButtonVisibleForProbe, "fiche à relations : le bouton « Généalogie (F2) » est là");
+                shell.Sheet.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F1, Source = shell.Sheet });
+                await Settle();
+                Check(shell.Sheet.PreviewOnForProbe, "F1 passe en mode wiki");
+                shell.Sheet.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F1, Source = shell.Sheet });
+                await Settle();
+                Check(!shell.Sheet.PreviewOnForProbe, "…et F1 en sort");
+            }
+            else Check(false, "une fiche à relations existe dans le projet d'exemple");
+            if (other != null)
+            {
+                shell.Binder.SelectItem(other.Id);
+                await Settle();
+                Check(!shell.Sheet.GenealogyButtonVisibleForProbe, "fiche sans relations : pas de bouton Généalogie");
+                Check(!SheetView.GenealogyAllowed(project, other) && SheetView.GenealogyAllowed(project, character), "une relation généalogique ne peut viser qu'une fiche à relations");
+            }
+            else Check(false, "une fiche sans relations existe dans le projet d'exemple");
+            if (placeOfPassage != null)
+            {
+                shell.Binder.SelectItem(project.Category(Project.KeyWritings).Id);
+                await Settle();
+                project.Category(Project.KeySheets).Children.Remove(placeOfPassage);
+                shell.Binder.Rebuild();
+                await Settle();
+            }
+
+            // — L'objectif et la limite d'un écrit, le liseré rouge au tableau.
+            var writings = project.Category(Project.KeyWritings);
+            BinderItem loose = null;
+            foreach (var child in writings.Children) if (child.Kind == ItemKind.Text && loose == null) loose = child;
+            if (loose != null)
+            {
+                shell.Binder.SelectItem(loose.Id);
+                await Settle();
+                Check(shell.GoalSectionVisibleForProbe, "écrit ouvert : l'objectif et la limite sont dans le Général");
+                var words = Marabook.Correction.TextStats.Compute(loose.Document.ToPlainText()).Words;
+                shell.SetGoalForProbe(words + 10, TextGoal.Words, Math.Max(1, words - 1), TextGoal.Words);
+                await Settle();
+                Check(loose.Goal == words + 10 && loose.Limit == Math.Max(1, words - 1), "objectif et limite posés depuis le Général");
+                Check(shell.GoalLabelForProbe.Contains("/ " + (words + 10).ToString("N0", CultureInfo.CurrentCulture)) && shell.GoalLabelForProbe.Contains("%"), "l'objectif se dit en part atteinte (" + shell.GoalLabelForProbe + ")");
+                Check(words > 1 == shell.LimitLabelForProbe.Contains("dépassée"), "la limite dépassée se dit (" + shell.LimitLabelForProbe + ")");
+                shell.Binder.SelectItem(writings.Id);
+                await Settle();
+                Border looseCard = null;
+                foreach (var border in shell.Corkboard.GetVisualDescendants().OfType<Border>())
+                    if (ReferenceEquals(border.Tag, loose)) { looseCard = border; break; }
+                Check(looseCard != null && (words > 1) == ReferenceEquals(looseCard.BorderBrush, Chrome.Danger), "au tableau, la carte d'un écrit à limite dépassée est cerclée de rouge");
+                loose.Goal = 0; loose.Limit = 0;
+                shell.Corkboard.Refresh();
+                await Settle();
+                looseCard = null;
+                foreach (var border in shell.Corkboard.GetVisualDescendants().OfType<Border>())
+                    if (ReferenceEquals(border.Tag, loose)) { looseCard = border; break; }
+                Check(looseCard != null && !ReferenceEquals(looseCard.BorderBrush, Chrome.Danger), "…sans limite, le liseré rouge disparaît");
+            }
+            else Check(false, "un écrit libre existe dans Écrits");
+
+            // — Le catalogue de polices : les comptes de styles sans plantage, les exclues en bas.
+            var crashed = false;
+            var styled = 0;
+            try { foreach (var entry in FontCatalog.Entries) if (FontCatalog.StyleCount(entry.Family) > 0) styled++; }
+            catch (Exception) { crashed = true; }
+            Check(!crashed && styled > 0, "les styles de chaque police se comptent sans faire tomber Skia (" + styled + " familles à styles)");
+            var arial = FontCatalog.Find("Arial");
+            Check(arial == null || FontCatalog.StyleCount(arial.Family) >= 2, "Arial compte au moins deux styles (" + (arial == null ? "absente" : FontCatalog.StyleCount(arial.Family).ToString()) + ")");
+            var catalog = new FontCatalogTab();
+            var victim = FontCatalog.Entries[0].Name;
+            var wasExcluded = AppSettings.IsExcludedFont(victim);
+            catalog.ToggleExcludeForProbe(victim);
+            var names = catalog.RowNamesForProbe();
+            var lastIndex = names.LastIndexOf(victim);
+            Check(!wasExcluded ? lastIndex == names.Count - 1 || AppSettings.IsExcludedFont(names[names.Count - 1]) : lastIndex < names.Count - 1,
+                "une police exclue passe en bas de la liste (" + victim + " en " + lastIndex + " sur " + names.Count + ")");
+            catalog.ToggleExcludeForProbe(victim);
+            Check(AppSettings.IsExcludedFont(victim) == wasExcluded, "…et revient à sa place une fois réintégrée");
+
+            // — Les Préférences : un filet contrasté entre les sous-sections ; les facettes des styles.
+            var prefs = new PreferencesDialog(shell, project);
+            prefs.Show(shell);
+            await Settle();
+            prefs.Tabs.SelectedIndex = 0;
+            await Settle();
+            var dividers = 0;
+            foreach (var border in prefs.GetVisualDescendants().OfType<Border>())
+                if ("caption-divider".Equals(border.Tag)) dividers++;
+            Check(dividers >= 2, "Préférences › Général : un fin filet sépare les sous-sections (" + dividers + ")");
+            StylesPanel panel = null;
+            for (var i = 0; i < prefs.Tabs.Items.Count && panel == null; i++)
+            {
+                prefs.Tabs.SelectedIndex = i;
+                await Settle();
+                panel = prefs.GetVisualDescendants().OfType<StylesPanel>().FirstOrDefault();
+            }
+            Check(panel != null && panel.FacetButtonsForProbe == 5 && panel.FacetForProbe == "Caractère", "styles globaux : cinq facettes en boutons, Caractère d'abord (" + (panel == null ? "panneau absent" : panel.FacetForProbe) + ")");
+            if (panel != null)
+            {
+                panel.ShowFacetForProbe("Paragraphe");
+                await Settle();
+                Check(panel.FacetForProbe == "Paragraphe", "…un bouton montre sa facette");
+                var scroller = panel.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault(delegate(ScrollViewer s) { return s.Content is Border; });
+                Check(scroller != null, "…dans une zone qui défile (rien ne passe sous le bord)");
+            }
+            prefs.Close();
+            await Settle();
         }
     }
 }

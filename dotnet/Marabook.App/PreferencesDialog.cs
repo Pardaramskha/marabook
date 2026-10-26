@@ -185,15 +185,29 @@ namespace Marabook.App
             };
         }
 
-        private static TextBlock Caption(string text, double topMargin = 0)
+        /// <summary>L'intertitre d'une sous-section ; au-delà du premier
+        /// (marge haute), un FIN FILET CONTRASTÉ le précède (1.1.0, Rémi) —
+        /// l'encre du thème, éclaircie : noir sur clair, blanc sur sombre.</summary>
+        private static Control Caption(string text, double topMargin = 0)
         {
-            return new TextBlock
+            var label = new TextBlock
             {
                 Text = text,
                 Foreground = Chrome.Ink,
-                FontWeight = FontWeight.SemiBold,
-                Margin = new Thickness(0, topMargin, 0, 0)
+                FontWeight = FontWeight.SemiBold
             };
+            if (topMargin <= 0) return label;
+            var block = new StackPanel { Margin = new Thickness(0, topMargin, 0, 0) };
+            block.Children.Add(new Border
+            {
+                Height = 1,
+                Background = Chrome.Ink,
+                Opacity = 0.3,
+                Margin = new Thickness(0, 0, 0, 10),
+                Tag = "caption-divider" // sonde
+            });
+            block.Children.Add(label);
+            return block;
         }
 
         // ------------------------------------------------------------ DLC

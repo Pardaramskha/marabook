@@ -200,7 +200,15 @@ namespace Marabook.Persistence
         //      = 0. Un Marabook d'avant l'ignore : l'article reste une puce
         //      de premier niveau. "flowWarnings" sur un livre (18/10) : faux
         //      = avertissements d'enchaînement des pages débrayés, omis = vrai.
-        private const int FormatVersion = 40;
+        // v41: 1.1.0 (26/10) — "tags" sur une fiche (la liste de ses tags,
+        //      omise si vide) ; "goal" / "goalUnit" et "limit" / "limitUnit"
+        //      sur un écrit (l'objectif et la limite du texte, en mots,
+        //      signes ou pages — omis = aucun, unité « words » par défaut) ;
+        //      "icon" sur une catégorie de fiches (le nom de l'icône choisie,
+        //      omis = celle de son nom). Le modèle Personnage d'un projet
+        //      d'avant reçoit « Date de décès » sous le lieu de naissance
+        //      (UpgradeCharacterTemplate, une fois, gardé par la version lue).
+        private const int FormatVersion = 41;
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -752,6 +760,13 @@ namespace Marabook.Persistence
             if (item.CardColor != null) node["cardColor"] = item.CardColor;
             if (item.Pinned) node["pinned"] = true; // v18 — omis au défaut
             if (item.ImageId != null) node["image"] = item.ImageId;
+            // L'objectif et la limite d'un écrit (v41) — omis sans valeur ; l'unité
+            // telle quelle (TextGoal.Normalize à la lecture d'usage), omise en mots.
+            if (item.Goal > 0) node["goal"] = item.Goal;
+            if (!string.IsNullOrEmpty(item.GoalUnit) && item.GoalUnit != TextGoal.Words) node["goalUnit"] = item.GoalUnit;
+            if (item.Limit > 0) node["limit"] = item.Limit;
+            if (!string.IsNullOrEmpty(item.LimitUnit) && item.LimitUnit != TextGoal.Words) node["limitUnit"] = item.LimitUnit;
+            if (item.Tags.Count > 0) node["tags"] = new List<object>(item.Tags.ToArray()); // v41 — les fiches, mais rien ne se perd ailleurs
             if (item.Kind == ItemKind.Sheet)
             {
                 if (item.TemplateId != null) node["template"] = item.TemplateId;
@@ -942,6 +957,7 @@ namespace Marabook.Persistence
                 if (category.IsSub) c["parent"] = category.ParentId; // v37
                 if (category.ExtraFields.Count > 0) c["fields"] = BuildFields(category.ExtraFields); // v37
                 if (!string.IsNullOrEmpty(category.Color)) c["color"] = category.Color; // v39
+                if (!string.IsNullOrEmpty(category.Icon)) c["icon"] = category.Icon; // v41
                 categories.Add(c);
             }
             root["categories"] = categories;
@@ -1274,10 +1290,11 @@ namespace Marabook.Persistence
                 // 1.0.4 (v35) : la section Narration du Personnage (la même
                 // migration, idempotente) et les trois catégories ajoutées.
                 if (project.LoadedFormatVersion < 35)
-                {
-                    project.UpgradeCharacterTemplate();
                     project.AddCategoriesOfV35();
-                }
+                // 1.1.0 (v41) : « Date de décès » sous le lieu de naissance —
+                // la même migration, idempotente, rejouée une fois.
+                if (project.LoadedFormatVersion < 41)
+                    project.UpgradeCharacterTemplate();
                 return project;
             }
         }
@@ -1453,6 +1470,7 @@ namespace Marabook.Persistence
                     category.ParentId = Json.AsString(Json.Field(c, "parent")); // v37 — EnsureSheetCategories tranche les orphelines
                     ReadFields(Json.Field(c, "fields"), category.ExtraFields); // v37
                     category.Color = Json.AsString(Json.Field(c, "color")); // v39
+                    category.Icon = Json.AsString(Json.Field(c, "icon")); // v41
                     categories.Add(category);
                 }
             project.SheetCategories = categories;
@@ -1589,6 +1607,14 @@ namespace Marabook.Persistence
             if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
                 item.Document = ReadDocument(item, archive, warnings);
 
+            item.Goal = Math.Max(0, Json.AsInt(Json.Field(obj, "goal"), 0)); // v41
+            item.GoalUnit = Json.AsString(Json.Field(obj, "goalUnit")) ?? TextGoal.Words;
+            item.Limit = Math.Max(0, Json.AsInt(Json.Field(obj, "limit"), 0));
+            item.LimitUnit = Json.AsString(Json.Field(obj, "limitUnit")) ?? TextGoal.Words;
+            var tags = Json.AsList(Json.Field(obj, "tags")); // v41
+            if (tags != null)
+                foreach (var tagNode in tags)
+                    SheetTags.Add(item, tagNode as string);
             if (item.Kind == ItemKind.Sheet)
             {
                 item.TemplateId = Json.AsString(Json.Field(obj, "template"));

@@ -138,7 +138,10 @@ namespace Marabook.App
             List<MissingName> names;
             try { names = await Task.Run(delegate { return MissingNames.Collect(project, scope, inLexicon, isCommonWord); }); }
             catch (Exception error) { names = new List<MissingName>(); Console.Error.WriteLine("[fiches manquantes] " + error); }
-            _names = names;
+            // Un nom qui a déjà sa fiche éponyme n'est plus proposé (1.1.0,
+            // Rémi) : la liste ne garde que ce qui reste à créer.
+            _names = new List<MissingName>();
+            foreach (var name in names) if (!name.HasSheet) _names.Add(name);
             RebuildRows();
         }
 
@@ -182,7 +185,7 @@ namespace Marabook.App
                 _boxes.Add(new Row { Box = box, Category = category, Name = name });
             }
             if (_names.Count == 0)
-                _rows.Children.Add(new TextBlock { Text = "Aucun nom propre récurrent dans ce spectre.", Foreground = Chrome.SoftText, Margin = new Thickness(12) });
+                _rows.Children.Add(new TextBlock { Text = "Aucun nom propre récurrent sans fiche dans ce spectre.", Foreground = Chrome.SoftText, Margin = new Thickness(12) });
             UpdateStatus();
         }
 

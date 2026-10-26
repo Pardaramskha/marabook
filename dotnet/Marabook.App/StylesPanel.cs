@@ -132,9 +132,14 @@ namespace Marabook.App
             Grid.SetColumn(left, 0);
             Children.Add(left);
 
-            // --- right: tabs, then the fixed Nom / Portée rows ---
+            // --- right (1.1.0, Rémi : « on ne comprend pas que Caractère ou
+            // Paragraphe sont des onglets, une partie de l'UI est cachée ») :
+            // le Nom, la Portée et le Raccourci EN HAUT, toujours visibles ;
+            // dessous, un SÉLECTEUR DE FACETTES explicite (des boutons à icône
+            // dans une barre segmentée, le choisi en accent) ; puis la facette
+            // dans une zone qui DÉFILE — plus rien ne passe sous le bord bas.
             var right = new DockPanel();
-            var fixedRows = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+            var fixedRows = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
             var nameRow = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
             nameRow.Children.Add(FixedLabel("Nom"));
             _nameBox = new TextBox();
@@ -194,21 +199,133 @@ namespace Marabook.App
             });
             fixedRows.Children.Add(scopeRow);
             fixedRows.Children.Add(shortcutRow);
-            DockPanel.SetDock(fixedRows, Dock.Bottom);
+            fixedRows.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 10, 0, 0) });
+            DockPanel.SetDock(fixedRows, Dock.Top);
             right.Children.Add(fixedRows);
 
-            var tabs = new TabControl { Background = Brushes.Transparent };
-            tabs.Items.Add(new TabItem { Header = "Caractère", Content = BuildCharacterTab() });
-            tabs.Items.Add(new TabItem { Header = "Paragraphe", Content = BuildParagraphTab() });
-            tabs.Items.Add(new TabItem { Header = "Césure", Content = BuildHyphenationTab() });
-            tabs.Items.Add(new TabItem { Header = "Justification", Content = BuildJustificationTab() });
-            tabs.Items.Add(new TabItem { Header = "Enchaînements", Content = BuildKeepsTab() });
-            right.Children.Add(tabs);
+            _facets = new List<Facet>
+            {
+                new Facet { Name = "Caractère", Icon = "text-t-bold", Tip = "Police, variante, taille, gras, italique, interligne, ligatures, couleur", Content = BuildCharacterTab() },
+                new Facet { Name = "Paragraphe", Icon = "paragraph-bold", Tip = "Alignement, retraits, espaces avant et après", Content = BuildParagraphTab() },
+                new Facet { Name = "Césure", Icon = "kerning", Tip = "La coupure des mots en fin de ligne", Content = BuildHyphenationTab() },
+                new Facet { Name = "Justification", Icon = "text-align-justify-bold", Tip = "Les plages d'espacement du compositeur", Content = BuildJustificationTab() },
+                new Facet { Name = "Enchaînements", Icon = "files-bold", Tip = "Ce qui reste solidaire d'une page à l'autre", Content = BuildKeepsTab() }
+            };
+            var facetsHeader = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 6) };
+            facetsHeader.Children.Add(new TextBlock
+            {
+                Text = "Réglages du style",
+                Foreground = Chrome.Ink,
+                FontWeight = FontWeight.SemiBold,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            facetsHeader.Children.Add(new TextBlock
+            {
+                Text = "— choisissez une facette :",
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            DockPanel.SetDock(facetsHeader, Dock.Top);
+            right.Children.Add(facetsHeader);
+            _facetBar = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+            DockPanel.SetDock(_facetBar, Dock.Top);
+            right.Children.Add(_facetBar);
+            _facetHost = new ContentControl();
+            right.Children.Add(new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = new Border
+                {
+                    BorderBrush = Chrome.Border,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Background = Chrome.BarBgLight,
+                    Child = _facetHost
+                }
+            });
+            ShowFacet(0);
 
             Grid.SetColumn(right, 1);
             Children.Add(right);
             FillList(null);
         }
+
+        // ---------------------------------------------- les facettes (1.1.0)
+
+        private sealed class Facet
+        {
+            public string Name, Icon, Tip;
+            public Control Content;
+            public Border Button;
+        }
+
+        private List<Facet> _facets;
+        private WrapPanel _facetBar;
+        private ContentControl _facetHost;
+        private int _facet = -1;
+
+        /// <summary>Le sélecteur : un bouton par facette — icône et nom, bordé,
+        /// le choisi plein d'accent et en gras, les autres sur le fond du
+        /// chrome avec un survol d'accent. Des boutons, pas des onglets plats.</summary>
+        private void ShowFacet(int index)
+        {
+            if (_facets == null || index < 0 || index >= _facets.Count) return;
+            _facet = index;
+            _facetBar.Children.Clear();
+            for (var i = 0; i < _facets.Count; i++)
+            {
+                var facet = _facets[i];
+                var chosen = i == index;
+                var row = new StackPanel { Orientation = Orientation.Horizontal };
+                var icon = Icons.Make(facet.Icon, 13, chosen ? Brushes.White : (IBrush)Chrome.Ink) as Control;
+                if (icon != null) { icon.VerticalAlignment = VerticalAlignment.Center; icon.Margin = new Thickness(0, 0, 6, 0); row.Children.Add(icon); }
+                row.Children.Add(new TextBlock
+                {
+                    Text = facet.Name,
+                    FontSize = 12,
+                    FontWeight = chosen ? FontWeight.Bold : FontWeight.SemiBold,
+                    Foreground = chosen ? Brushes.White : (IBrush)Chrome.Ink,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                var button = new Border
+                {
+                    Child = row,
+                    Padding = new Thickness(11, 5, 11, 5),
+                    Margin = new Thickness(0, 0, 6, 6),
+                    CornerRadius = new CornerRadius(8),
+                    Background = chosen ? Chrome.Accent : (IBrush)Chrome.RaisedBg,
+                    BorderBrush = chosen ? Chrome.Accent : (IBrush)Chrome.Border,
+                    BorderThickness = new Thickness(1),
+                    Cursor = new Cursor(StandardCursorType.Hand),
+                    Tag = "facet:" + facet.Name, // sonde
+                    [ToolTip.TipProperty] = facet.Tip
+                };
+                var indexRef = i;
+                button.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+                {
+                    if (e.InitialPressMouseButton != MouseButton.Left) return;
+                    e.Handled = true;
+                    ShowFacet(indexRef);
+                };
+                button.PointerEntered += delegate { if (_facet != indexRef) button.BorderBrush = Chrome.Accent; };
+                button.PointerExited += delegate { if (_facet != indexRef) button.BorderBrush = Chrome.Border; };
+                facet.Button = button;
+                _facetBar.Children.Add(button);
+            }
+            _facetHost.Content = _facets[index].Content;
+        }
+
+        /// <summary>Sonde (1.1.0) : la facette montrée, et le choix par nom.</summary>
+        internal string FacetForProbe { get { return _facet < 0 ? "" : _facets[_facet].Name; } }
+        internal void ShowFacetForProbe(string name)
+        {
+            for (var i = 0; i < _facets.Count; i++) if (_facets[i].Name == name) { ShowFacet(i); return; }
+        }
+        internal int FacetButtonsForProbe { get { return _facetBar.Children.Count; } }
 
         /// <summary>Commet le formulaire dans le style courant (avant Valider).</summary>
         public void Commit()

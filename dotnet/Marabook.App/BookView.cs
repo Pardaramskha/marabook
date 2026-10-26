@@ -301,6 +301,12 @@ namespace Marabook.App
             set { _texts.ChapterOddEnd = value; _templates.ChapterOddEnd = value; }
         }
 
+        /// <summary>La limite dépassée d'un écrit (1.1.0) : relais vers les tuiles.</summary>
+        public Func<BinderItem, bool> LimitExceeded
+        {
+            set { _texts.LimitExceeded = value; }
+        }
+
         /// <summary>Sonde : la case « Avertir des enchaînements de pages ».</summary>
         internal CheckBox FlowWarningsBoxForProbe { get { return _flowWarnings; } }
         internal BookPublicationTab PublicationForProbe { get { return _publication; } }

@@ -48,9 +48,6 @@ namespace Marabook.App
             SetDock(toolbar, Dock.Top);
             _searchBox = new TextBox { [ToolTip.TipProperty] = "Filtrer les entrées (mot ou forme acceptée)" };
             _searchBox.TextChanged += delegate { ResetPages(); Rebuild(); };
-            var search = SheetLibraryView.SearchField(_searchBox);
-            DockPanel.SetDock(search, Dock.Right);
-            toolbar.Children.Add(search);
             var left = new StackPanel { Orientation = Orientation.Horizontal };
             var newEntry = Buttons.IconText("plus-bold", "Nouvelle entrée",
                 "Ajouter un mot au dictionnaire personnel avec sa nature grammaticale",
@@ -89,6 +86,12 @@ namespace Marabook.App
             left.Children.Add(_pageSize);
             toolbar.Children.Add(left);
             Children.Add(toolbar);
+            // La recherche sur SA ligne, sous les boutons (1.1.0, Rémi) —
+            // comme dans la bibliothèque de fiches.
+            var searchRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(24, 10, 24, 0) };
+            SetDock(searchRow, Dock.Top);
+            searchRow.Children.Add(SheetLibraryView.SearchField(_searchBox));
+            Children.Add(searchRow);
 
             _sections = new StackPanel { Margin = new Thickness(16, 12, 16, 24), MaxWidth = 980, HorizontalAlignment = HorizontalAlignment.Left };
             Children.Add(new ScrollViewer
