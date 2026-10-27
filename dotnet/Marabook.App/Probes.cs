@@ -2545,8 +2545,8 @@ namespace Marabook.App
             try
             {
                 Check(!Profiles.Chosen && Profiles.Enabled(Profiles.Sheets) && Profiles.Enabled(Profiles.BookFormat), "sans profil choisi, tout est actif");
-                Check(Profiles.HiddenBy(Profiles.Writer).Length == 8 && Profiles.HiddenBy(Profiles.Publisher).Length == 3 && Profiles.HiddenBy(Profiles.Everything).Length == 0,
-                    "les profils prédéfinis cachent 8, 3 et 0 fonctionnalités");
+                Check(Profiles.HiddenBy(Profiles.Writer).Length == 9 && Profiles.HiddenBy(Profiles.Publisher).Length == 3 && Profiles.HiddenBy(Profiles.Everything).Length == 0,
+                    "les profils prédéfinis cachent 9, 3 et 0 fonctionnalités");
 
                 Profiles.Choose(Profiles.Publisher);
                 await Settle();
@@ -2572,12 +2572,13 @@ namespace Marabook.App
                 Check(!bookView.ExtraPageButtonsShownForProbe, "…plus de Nouvelle liminaire / page de fin / annexe");
                 Check(bookView.StylesFacetCountForProbe == 2, "…les styles n'ont que Caractère et Paragraphe (" + bookView.StylesFacetCountForProbe + " facettes)");
                 Check(!BookFlow.Enabled(book), "…les enchaînements de pages se taisent (le réglage du livre reste " + (book.Book == null || book.Book.FlowWarnings) + ")");
+                Check(!ComposedRenderer.ShowWidowMarks, "…les marqueurs de veuves et d'orphelines se taisent");
 
                 Profiles.Choose(Profiles.Custom);
                 Profiles.SetHidden(Profiles.Sprints, true);
                 await Settle();
-                Check(bookView.FormatTabShownForProbe && !shell.SprintMenuShownForProbe && shell.NewSheetMenuShownForProbe,
-                    "profil Moi-même : décocher Sprints cache le sprint seul, le livre retrouve ses onglets");
+                Check(bookView.FormatTabShownForProbe && !shell.SprintMenuShownForProbe && shell.NewSheetMenuShownForProbe && ComposedRenderer.ShowWidowMarks,
+                    "profil Moi-même : décocher Sprints cache le sprint seul, le livre retrouve ses onglets, les marqueurs reviennent");
                 var chooser = new ProfileChooser(true);
                 Check(chooser.Selected == Profiles.Custom && chooser.FeaturesButtonShownForProbe, "le sélecteur reprend le profil et propose « Choisir les fonctionnalités… » pour Moi-même");
                 chooser.Select(Profiles.Everything, false);

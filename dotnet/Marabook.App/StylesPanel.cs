@@ -178,6 +178,7 @@ namespace Marabook.App
                 Buttons.Compact, Buttons.Look.Outline);
             reset.Margin = new Thickness(8, 0, 0, 0);
             reset.VerticalAlignment = VerticalAlignment.Center;
+            reset.HorizontalAlignment = HorizontalAlignment.Left; // dernier de la rangée : pas étiré (27/10)
             reset.Click += async delegate
             {
                 var answer = await MessageDialog.Show(Ui.OwnerOf(this),
@@ -189,16 +190,16 @@ namespace Marabook.App
                 ResetToDefaults();
             };
             scopeRow.Children.Add(reset);
-            scopeRow.Children.Add(new TextBlock
+            fixedRows.Children.Add(scopeRow);
+            // La note sous la rangée (27/10) : à droite, elle débordait du cadre des Préférences.
+            fixedRows.Children.Add(new TextBlock
             {
                 Text = "Global : tous les projets · Livre : les écrits de ce livre · Document : cet écrit seul",
                 Foreground = Chrome.FaintText,
                 FontSize = 11,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(10, 0, 0, 0),
+                Margin = new Thickness(70, 2, 0, 0),
                 TextWrapping = TextWrapping.Wrap
             });
-            fixedRows.Children.Add(scopeRow);
             fixedRows.Children.Add(shortcutRow);
             fixedRows.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 10, 0, 0) });
             DockPanel.SetDock(fixedRows, Dock.Top);
@@ -358,20 +359,24 @@ namespace Marabook.App
             // police en a, on les demande telles quelles au lieu de forcer
             // la case Gras (qui émule). « Selon la case Gras » = l'ancien
             // comportement.
-            var weightRow = new StackPanel { Orientation = Orientation.Horizontal };
+            // Une rangée qui REPLIE son indication (27/10) : en pile horizontale,
+            // elle passait sous le bord droit des Préférences.
+            var weightRow = new DockPanel();
             _weightCombo = new ComboBox
             {
                 MinWidth = 190,
                 VerticalAlignment = VerticalAlignment.Center,
                 [ToolTip.TipProperty] = "La graisse installée à employer — une variante posée remplace la case Gras"
             };
+            DockPanel.SetDock(_weightCombo, Dock.Left);
             weightRow.Children.Add(_weightCombo);
             _weightHint = new TextBlock
             {
                 Foreground = Chrome.SoftText,
                 FontSize = 11,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(8, 0, 0, 0)
+                Margin = new Thickness(8, 0, 0, 0),
+                TextWrapping = TextWrapping.Wrap
             };
             weightRow.Children.Add(_weightHint);
             form.Children.Add(FormRow("Variante", weightRow));
@@ -388,14 +393,16 @@ namespace Marabook.App
             sizeRow.Children.Add(_italicCheck);
             form.Children.Add(FormRow("Taille (pt)", sizeRow));
 
-            var leadingRow = new StackPanel { Orientation = Orientation.Horizontal };
+            var leadingRow = new DockPanel();
             leadingRow.Children.Add(_leadingBox = new TextBox { Width = 60, [ToolTip.TipProperty] = "0 = automatique" });
+            DockPanel.SetDock(_leadingBox, Dock.Left);
             leadingRow.Children.Add(new TextBlock
             {
                 Text = "pt (0 = auto) — l'interligne du document la multiplie",
                 Foreground = Chrome.SoftText,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(6, 0, 0, 0)
+                Margin = new Thickness(6, 0, 0, 0),
+                TextWrapping = TextWrapping.Wrap
             });
             form.Children.Add(FormRow("Valeur d'interligne", leadingRow));
 

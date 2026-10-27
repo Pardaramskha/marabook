@@ -313,7 +313,9 @@ namespace Marabook.App
                 var tag = chosen == null ? null : chosen.Tag as string;
                 if (tag == _filterTag) return;
                 _filterTag = tag;
-                RebuildRows();
+                // Après le tour du ComboBox (27/10) : rebâtir ses choix PENDANT son
+                // changement de sélection faisait énumérer une liste déjà vidée.
+                Ui.Post(DispatcherPriority.Background, new Action(RebuildRows));
             };
             searchRow.Children.Add(_tagBox);
             _sortBox.Margin = new Thickness(8, 0, 0, 0);
@@ -806,8 +808,7 @@ namespace Marabook.App
                 var selected = _filterCategoryId == category.Id;
                 var chip = Chip(CategoryIcon(category, _project) ?? GenericCategoryIcon, category.Name, count, selected, count == 0,
                     !string.IsNullOrEmpty(category.Icon),
-                    category.Name + " — " + (count == 0 ? "aucune fiche, cliquer pour en créer une"
-                        : Plural(count, "fiche", "fiches") + (selected ? " · cliquer pour revenir à toutes" : " · cliquer pour ne montrer qu'elles")),
+                    category.Name + " — " + (count == 0 ? "aucune fiche" : Plural(count, "fiche", "fiches")), // sans mode d'emploi (27/10, Rémi)
                     delegate
                     {
                         if (count == 0) { NewSheet(categoryRef.Id); return; }
@@ -822,7 +823,7 @@ namespace Marabook.App
             {
                 var selected = _filterCategoryId == UncategorizedKey;
                 _chips.Children.Add(Chip("file-dashed-bold", "Sans catégorie", uncategorized, selected, false, false,
-                    "Sans catégorie — " + Plural(uncategorized, "fiche", "fiches") + (selected ? " · cliquer pour revenir à toutes" : " · cliquer pour ne montrer qu'elles"),
+                    "Sans catégorie — " + Plural(uncategorized, "fiche", "fiches"),
                     delegate { _filterCategoryId = selected ? null : UncategorizedKey; RebuildRows(); }, null));
             }
         }
@@ -1116,6 +1117,7 @@ namespace Marabook.App
                 var categoryRef = category;
                 var edit = Buttons.Icon("dots-three-vertical-bold", "Modifier la catégorie…", Buttons.Compact, Buttons.Look.Calm);
                 edit.Click += delegate { ShowCategoryMenu(edit, categoryRef); };
+                edit.Cursor = new Cursor(StandardCursorType.Arrow); // la flèche sur les trois points, la main sur la tuile (27/10, Rémi)
                 DockPanel.SetDock(edit, Dock.Right);
                 header.Children.Add(edit);
             }
@@ -1175,9 +1177,20 @@ namespace Marabook.App
         private Button PlusButton(SheetCategory category)
         {
             var categoryRef = category;
-            var plus = Buttons.Icon("plus-bold", "Nouvelle fiche dans « " + _project.CategoryPath(category) + " », sur son modèle de base",
-                Buttons.Compact, Buttons.Look.Calm);
-            plus.Margin = new Thickness(6, 0, 0, 0);
+            // Petit (27/10, Rémi) : une croix de 11 px dans un carré de 20, calme, après le compte.
+            var plus = new Button
+            {
+                Content = Icons.Make("plus-bold", 11, Chrome.SoftText),
+                Width = 20,
+                Height = 20,
+                MinHeight = 20,
+                Padding = new Thickness(0),
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Focusable = false,
+                Classes = { Marabook.App.Theme.Owned, Marabook.App.Theme.Calm },
+                [ToolTip.TipProperty] = "Nouvelle fiche dans « " + _project.CategoryPath(category) + " », sur son modèle de base"
+            };
             plus.Tag = "plus:" + category.Id; // sonde
             plus.Click += delegate { NewSheetIn(categoryRef); };
             return plus;
@@ -1967,6 +1980,7 @@ namespace Marabook.App
             var collapsed = CollapsedCategories.Contains(sub.Id);
             var accent = sub.Color != null ? (Color?)Ink.Parse(sub.Color).ToColor() : null; // la couleur, comme un dossier (1.0.5-a)
             var edit = Buttons.Icon("dots-three-vertical-bold", "Modifier la sous-catégorie…", Buttons.Compact, Buttons.Look.Calm);
+            edit.Cursor = new Cursor(StandardCursorType.Arrow);
             edit.Click += delegate { ShowCategoryMenu(edit, subRef); };
             DockPanel.SetDock(edit, Dock.Right);
             head.Children.Add(edit);
@@ -1997,7 +2011,7 @@ namespace Marabook.App
                 Margin = new Thickness(10, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center
             });
-            head.Children.Add(PlusButton(sub)); // « + » à côté du compte (1.1.0) — hors de la zone cliquable du repli
+            title.Children.Add(PlusButton(sub)); // « + » juste après le compte (27/10, Rémi) — le bouton consomme son clic, le repli ne bouge pas
             if (sub.ExtraFields.Count > 0)
                 title.Children.Add(new TextBlock
                 {

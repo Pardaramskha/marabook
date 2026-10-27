@@ -29,7 +29,7 @@ namespace Marabook.App
             Background = Chrome.BarBgLight;
             var head = new DockPanel { Margin = new Thickness(12, 10, 12, 6) };
             SetDock(head, Dock.Top);
-            var close = Buttons.Icon("exclude", "Fermer le bilan (le rail se replie)", Buttons.Compact, Buttons.Look.Calm);
+            var close = Buttons.Close("Fermer le bilan (le rail se replie)");
             close.Click += delegate { var h = CloseRequested; if (h != null) h(); };
             DockPanel.SetDock(close, Dock.Right);
             head.Children.Add(close);

@@ -120,7 +120,8 @@ namespace Marabook.App
         private TextBlock _inspTitle, _inspKind, _inspStats, _inspDates;
         // L'objectif et la limite d'un écrit, les tags d'une fiche (1.1.0).
         private StackPanel _goalSection, _tagsSection;
-        private TextBox _goalBox, _limitBox, _tagInput;
+        private TextBox _goalBox, _limitBox;
+        private ComboBox _tagInput; // éditable : les tags du projet en suggestions (27/10, Rémi)
         private ComboBox _goalUnit, _limitUnit;
         private ColumnDefinition _goalFillCol, _goalRestCol;
         private TextBlock _goalLabel, _limitLabel;
@@ -1700,7 +1701,13 @@ namespace Marabook.App
                 "Des mots libres pour retrouver la fiche — le filtre par tag de la bibliothèque et la recherche de la Pile les lisent", 0));
             _tagChips = new WrapPanel();
             _tagsSection.Children.Add(_tagChips);
-            _tagInput = new TextBox { Watermark = "Ajouter un tag, puis Entrée", Margin = new Thickness(0, 4, 0, 0), Tag = "tag-input" };
+            // Un sélecteur éditable (27/10, Rémi) : taper propose les tags déjà
+            // employés dans le projet, cliquer une suggestion pose le tag aussitôt ;
+            // Entrée pose ce qui est tapé.
+            _tagInput = new ComboBox { IsEditable = true, PlaceholderText = "Ajouter un tag, puis Entrée", Margin = new Thickness(0, 4, 0, 0), HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "tag-input" };
+            Suggestions.Attach(_tagInput,
+                delegate { return _project == null ? new List<string>() : SheetTags.All(_project); },
+                delegate(string chosen) { _tagInput.Text = chosen; AddTagFromInput(); });
             _tagInput.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key != Key.Return && e.Key != Key.Enter) return;

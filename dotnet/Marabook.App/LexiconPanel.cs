@@ -50,7 +50,7 @@ namespace Marabook.App
 
             var head = new DockPanel { Margin = new Thickness(12, 10, 12, 8) };
             SetDock(head, Dock.Top);
-            var close = Buttons.Text("✕", "Fermer le Lexique", Buttons.Compact, Buttons.Look.Calm);
+            var close = Buttons.Close("Fermer le Lexique"); // le même « Fermer » sur tout le rail (27/10, Rémi)
             close.Click += delegate { var h = CloseRequested; if (h != null) h(); };
             DockPanel.SetDock(close, Dock.Right);
             head.Children.Add(close);

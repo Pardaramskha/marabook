@@ -54,7 +54,8 @@ namespace Marabook.Settings
         public const string StylePao = "styles-pao";
         public const string BookChecklistEdition = "livre-checklist-edition";
         public const string BookExtraPages = "livre-pages-editeur";
-        public const string LooseLines = "lignes-laches";
+        public const string LooseLines = "lignes-laches"; // « Options d'espacement » : lignes lâches et approche (27/10)
+        public const string Widows = "veuves-orphelines";
         public const string Sheets = "fiches";
         public const string Plans = "plans";
         public const string Sprints = "sprints";
@@ -71,7 +72,8 @@ namespace Marabook.Settings
             new Feature { Key = BookChecklistEdition, Group = "Livres", Label = "Check-list d'édition", Help = "Dans Publication : page de titre, table des matières, gabarits de pages, format du livre, enchaînements, métadonnées d'édition, couverture." },
             new Feature { Key = BookExtraPages, Group = "Livres", Label = "Pages éditeur", Help = "Liminaires, pages de fin et annexes d'un livre ; marquer un texte comme page extra." },
             new Feature { Key = StylePao, Group = "Éditeur de texte", Label = "Options PAO des styles", Help = "Césure, justification et enchaînements des styles de paragraphe (ils gardent leurs valeurs par défaut, césure activée)." },
-            new Feature { Key = LooseLines, Group = "Éditeur de texte", Label = "Lignes lâches", Help = "Le signalement des lignes trop espacées à l'écran (ruban Mise en page, menu Affichage)." }
+            new Feature { Key = LooseLines, Group = "Éditeur de texte", Label = "Options d'espacement", Help = "Les lignes lâches (ruban Mise en page) et l'approche des caractères (ruban Texte)." },
+            new Feature { Key = Widows, Group = "Éditeur de texte", Label = "Détecteur de veuves et orphelines", Help = "Les marqueurs des lignes isolées en haut ou en bas de page, cliquables pour les tolérer." }
         };
 
         /// <summary>Les fonctionnalités que chaque profil prédéfini cache.</summary>
@@ -80,7 +82,7 @@ namespace Marabook.Settings
             switch (profile)
             {
                 case Writer:
-                    return new[] { BookPublicationDetails, BookAudienceDetails, BookCommercialDetails, BookFormat, StylePao, BookChecklistEdition, BookExtraPages, LooseLines };
+                    return new[] { BookPublicationDetails, BookAudienceDetails, BookCommercialDetails, BookFormat, StylePao, BookChecklistEdition, BookExtraPages, LooseLines, Widows };
                 case Publisher:
                     return new[] { Sheets, Plans, Sprints };
                 default:

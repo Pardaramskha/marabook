@@ -395,13 +395,20 @@ namespace Marabook.App
                 if (handler != null) handler(_marksBtn.IsChecked == true);
             };
             panel.Children.Add(_marksBtn);
-            panel.Children.Add(VerticalRuleTall());
+            // L'approche et son filet : masquables par le profil (« Options
+            // d'espacement », avec les lignes lâches — 27/10, Rémi).
+            _trackingRule = VerticalRuleTall();
+            panel.Children.Add(_trackingRule);
             var rest = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 VerticalAlignment = VerticalAlignment.Center
             };
+            _trackingPanel = rest;
             panel.Children.Add(rest);
+            var spacing = Profiles.Enabled(Profiles.LooseLines);
+            _trackingRule.IsVisible = spacing;
+            _trackingPanel.IsVisible = spacing;
 
             // Approche (tracking, millièmes de cadratin) — champ de valeur à
             // la Adobe : petits boutons ± verticaux à gauche, valeur absolue
@@ -632,7 +639,7 @@ namespace Marabook.App
             // La feuille du calme (13/09) : A4 nue, ombre réelle, air en tête,
             // pas de marqueurs veuves/orphelines — et retour à l'axe choisi
             // (Pages ou Brouillon) en sortant. Même moteur, réglage dérivé.
-            ComposedRenderer.ShowWidowMarks = !calm;
+            ComposedRenderer.ShowWidowMarks = !calm && Profiles.Enabled(Profiles.Widows); // ni pour un profil qui s'en passe (27/10)
             _composed.CalmLook = calm;
             AttachComposed();
             UpdateRulers();      // les règles s'effacent en calme
@@ -845,6 +852,7 @@ namespace Marabook.App
 
         private ComboBox _marginsCombo, _sizeComboPage, _columnsCombo;
         private ToggleButton _guidesBtn, _lineNumbersBtn, _looseBtn, _folioBtn;
+        private Control _trackingRule, _trackingPanel; // l'approche du ruban Texte, masquable par le profil (27/10)
         private ToggleButton _marksBtn;
         private bool _syncingPage;
         private ComboBox _leadingCombo; // l'interligne du document (22/09)
@@ -987,9 +995,12 @@ namespace Marabook.App
         /// cachées (le réglage reste), le bouton « Plan » suit les plans.</summary>
         public void ApplyProfile()
         {
-            var loose = Profiles.Enabled(Profiles.LooseLines);
+            var loose = Profiles.Enabled(Profiles.LooseLines); // « Options d'espacement » : lignes lâches ET approche
             if (_looseBtn != null) _looseBtn.IsVisible = loose;
-            if (_composed != null) _composed.SetLooseLines(loose && Marabook.Settings.AppSettings.ShowLooseLines);
+            if (_trackingRule != null) _trackingRule.IsVisible = loose;
+            if (_trackingPanel != null) _trackingPanel.IsVisible = loose;
+            ComposedRenderer.ShowWidowMarks = !_calm && Profiles.Enabled(Profiles.Widows); // le détecteur de veuves / orphelines
+            if (_composed != null) _composed.SetLooseLines(loose && Marabook.Settings.AppSettings.ShowLooseLines); // redessine les pages (marqueurs compris)
             if (_linkBtn != null) _linkBtn.IsVisible = Profiles.Enabled(Profiles.Sheets);
             RefreshPlanButton();
         }

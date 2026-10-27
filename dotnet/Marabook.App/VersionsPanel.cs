@@ -57,7 +57,7 @@ namespace Marabook.App
             var head = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
             DockPanel.SetDock(head, Dock.Top);
             var titleRow = new DockPanel();
-            var close = new Button { Content = "✕", Width = 22, Padding = new Thickness(0), FontSize = 11, [ToolTip.TipProperty] = "Fermer le panneau des versions", Focusable = false };
+            var close = Buttons.Close("Fermer le panneau des versions"); // le même « Fermer » sur tout le rail (27/10, Rémi)
             close.Click += delegate { OnCloseRequested(); };
             DockPanel.SetDock(close, Dock.Right);
             titleRow.Children.Add(close);

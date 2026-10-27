@@ -735,6 +735,7 @@ namespace Marabook.App
             var button = Buttons.Icon("dots-three-vertical-bold", "Options de la carte", Buttons.Compact, Buttons.Look.Calm);
             button.Margin = new Thickness(4, 0, 0, 0);
             button.Foreground = Chrome.SoftText;
+            button.Cursor = new Cursor(StandardCursorType.Arrow); // la flèche sur les trois points, la main sur la carte (27/10, Rémi)
             DockPanel.SetDock(button, Dock.Right);
             var itemRef = item;
             button.Click += delegate
@@ -1303,6 +1304,7 @@ namespace Marabook.App
             var card = new Border
             {
                 Width = 170,
+                Cursor = new Cursor(StandardCursorType.Hand),
                 Background = Chrome.CardBg,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
@@ -1353,6 +1355,7 @@ namespace Marabook.App
             var button = new Button
             {
                 Content = Icons.Make("dots-three-vertical-bold", 13, Chrome.SoftText),
+                Cursor = new Cursor(StandardCursorType.Arrow),
                 Width = 24,
                 Height = 22,
                 Padding = new Thickness(0),
@@ -1546,6 +1549,7 @@ namespace Marabook.App
                 // autour de la couverture ET du titre avec son ⋮.
                 var mockup = new Border
                 {
+                    Cursor = new Cursor(StandardCursorType.Hand),
                     Width = 210,
                     Background = Chrome.CardBg,
                     BorderBrush = selected ? (IBrush)Chrome.Accent : Chrome.Border,
@@ -1566,6 +1570,7 @@ namespace Marabook.App
             {
                 Width = 210,
                 MinHeight = 130,
+                Cursor = new Cursor(StandardCursorType.Hand), // la main sur toute carte (27/10, Rémi)
                 Background = Chrome.CardBg,
                 // La sélection et le liseré de divergence colorent la bordure ;
                 // la couleur personnelle vit en dégradé dans la barre de titre.
