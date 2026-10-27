@@ -114,6 +114,9 @@ namespace Marabook.App
         public event Action<int> ZoomStepRequested;
         public event Action BackRequested;                 // ← retour (b34)
         public event Action<BinderItem> NavigateRequested; // ouvrir une fiche liée (b34)
+        public event Action RelationsEditorRequested;      // le diagramme relationnel (1.1.0)
+        private Button _relationsEditorButton;
+        internal bool RelationsEditorButtonVisibleForProbe { get { return _relationsEditorButton != null && _relationsEditorButton.IsEffectivelyVisible && _relationsPaper.IsVisible; } }
         public event Action RenameRequested;               // le crayon du bandeau (b43)
         public event Action LexiconChanged;                // le nom ajouté au dictionnaire du projet (12/09)
 
@@ -253,7 +256,17 @@ namespace Marabook.App
             _relationsPanel = new StackPanel();
             var addRelation = AddButton("Ajouter une relation");
             addRelation.Click += delegate { AddRelation(); };
-            _relationsPaper = Paper("Relations", _relationsPanel, addRelation);
+            // Le diagramme relationnel (1.1.0) : l'éditeur des natures de relation
+            // du projet, à droite de « Ajouter une relation ».
+            var relationActions = new StackPanel { Orientation = Orientation.Horizontal };
+            relationActions.Children.Add(addRelation);
+            var editor = Buttons.Icon("family-tree", "Diagramme relationnel : les natures de relation du projet et leur place dans l'arbre (Édition › Fiches)", Buttons.Compact, Buttons.Look.Outline);
+            editor.Margin = new Thickness(6, 0, 0, 0);
+            editor.Tag = "relations-editor"; // sonde
+            editor.Click += delegate { var h = RelationsEditorRequested; if (h != null) h(); };
+            relationActions.Children.Add(editor);
+            _relationsEditorButton = editor;
+            _relationsPaper = Paper("Relations", _relationsPanel, relationActions);
 
             // Présence dans les écrits (b47) : dérivée, jamais saisie — les
             // écrits où le titre, le nom, le prénom ou un alias apparaissent.

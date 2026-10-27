@@ -87,6 +87,11 @@ namespace Marabook.Model
         // proposées ensuite sur toutes les fiches. Les natures livrées
         // (RelationKinds.Defaults) ne sont pas stockées ici.
         public List<string> RelationKinds = new List<string>();
+        // Le schéma des relations (1.1.0, l'éditeur de relations) : les natures
+        // proposées, leur place dans l'arbre, leurs réciproques. Le schéma livré
+        // tant que l'éditeur ne l'a pas remanié ; les natures libres créées
+        // depuis une fiche s'y ajoutent en voie « autres ».
+        public RelationSchema RelationSchema = RelationSchema.Defaults();
         // Les récents (batch 41, v18) : au plus dix items OUVERTS, le plus
         // récent en tête — voir Recents. Purgés au chargement seulement.
         public List<RecentEntry> Recents = new List<RecentEntry>();
@@ -138,18 +143,22 @@ namespace Marabook.Model
         /// puis les personnalisées du projet.</summary>
         public IEnumerable<string> AllRelationKinds()
         {
-            foreach (var kind in Model.RelationKinds.Defaults) yield return kind;
-            foreach (var kind in RelationKinds) yield return kind;
+            foreach (var kind in RelationSchema.Names) yield return kind;
+            foreach (var kind in RelationKinds)
+                if (RelationSchema.Find(kind) == null) yield return kind;
         }
 
         /// <summary>Enregistre une nature personnalisée (sans doublon avec les
-        /// livrées ni les existantes) ; rend la forme retenue.</summary>
+        /// livrées ni les existantes) : dans le schéma (voie « autres ») et dans
+        /// l'ancienne liste, pour les Marabook d'avant le schéma ; rend la forme
+        /// retenue.</summary>
         public string AddRelationKind(string kind)
         {
             var trimmed = (kind ?? "").Trim();
             if (trimmed.Length == 0) return "";
             foreach (var known in AllRelationKinds())
-                if (Model.RelationKinds.Same(known, trimmed)) return known;
+                if (Model.RelationKinds.Same(known, trimmed)) { RelationSchema.AddFree(known); return known; }
+            RelationSchema.AddFree(trimmed);
             RelationKinds.Add(trimmed);
             return trimmed;
         }

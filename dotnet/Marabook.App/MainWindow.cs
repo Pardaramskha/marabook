@@ -66,7 +66,7 @@ namespace Marabook.App
         private MediaView _mediaView;
         private JournalView _journalView;
         // Les entrées et boutons que le profil (1.1.0) peut cacher.
-        private MenuItem _sprintMenu, _namesMenu, _newSheetMenu, _templatesMenu, _insertLinkMenu;
+        private MenuItem _sprintMenu, _namesMenu, _newSheetMenu, _templatesMenu, _insertLinkMenu, _sheetsMenu;
         private Button _homeStartSheet, _homeStartPlan;
         private bool _journalOpen; // le journal masque l'inspecteur
         // La FEUILLE du journal (03/10) : un papier aux coins hauts arrondis
@@ -417,13 +417,21 @@ namespace Marabook.App
             edit.Items.Add(_versionsMenu);
             _sprintMenu = Entry("session-goal", "Lancer un sprint…", StartSprint);
             edit.Items.Add(_sprintMenu);
+            // Édition › Fiches (1.1.0, l'éditeur de relations) : le diagramme
+            // relationnel en tête, puis ce qui touche aux fiches.
+            _sheetsMenu = new MenuItem { Header = "Fiches" };
+            _sheetsMenu.Items.Add(Entry(null, "Diagramme relationnel…", OpenRelationsEditor));
+            _sheetsMenu.Items.Add(new Separator());
+            _newSheetMenu = Entry("new-sheet", "Nouvelle fiche", delegate { _binder.NewSheet(null); });
+            _sheetsMenu.Items.Add(_newSheetMenu);
+            _templatesMenu = Entry("templates", "Modèles de fiches…", OpenTemplatesDialog);
+            _sheetsMenu.Items.Add(_templatesMenu);
             _namesMenu = Entry(null, "Indexeur de noms propres…",
                 delegate { ExtractCharacters(_current); }, TextActive); // b49, renommé le 22/09
-            edit.Items.Add(_namesMenu);
+            _sheetsMenu.Items.Add(_namesMenu);
+            edit.Items.Add(_sheetsMenu);
             edit.Items.Add(new Separator());
             edit.Items.Add(Entry("new-text", "Nouvel écrit", delegate { _binder.NewText(null); }));
-            _newSheetMenu = Entry("new-sheet", "Nouvelle fiche", delegate { _binder.NewSheet(null); });
-            edit.Items.Add(_newSheetMenu);
             edit.Items.Add(Entry("new-folder", "Nouveau dossier", delegate { _binder.NewFolder(null); }));
             edit.Items.Add(Entry("new-book", "Nouveau livre", delegate { _binder.NewBook(null); }));
             edit.Items.Add(Entry("import-media", "Importer dans Recherche…", delegate { _binder.ImportMediaDialog(null); }));
@@ -436,9 +444,6 @@ namespace Marabook.App
             // --- Format ---
             var format = new MenuItem { Header = "F_ormat" };
             format.Items.Add(Entry("styles", "Gérer les styles…", OpenStylesDialog));
-            _templatesMenu = Entry("templates", "Modèles de fiches…", OpenTemplatesDialog);
-            format.Items.Add(_templatesMenu);
-            format.Items.Add(new Separator());
             format.Items.Add(Entry("insert-footnote", "Note de bas de page", InsertFootnoteInActive, TextOrSheetActive));
             _insertLinkMenu = Entry("insert-link", "Lien vers une fiche…", InsertLinkInActive, TextOrSheetActive);
             format.Items.Add(_insertLinkMenu);
@@ -810,6 +815,7 @@ namespace Marabook.App
             _sheetView.LinkClicked += NavigateToTitle;
             _sheetView.LinkEditRequested += InsertLinkInActive; // bouton de la barre, menu du clic droit (07/10)
             _sheetView.LinksChanged += UpdateLinksPanel;
+            _sheetView.RelationsEditorRequested += OpenRelationsEditor; // le diagramme relationnel (1.1.0)
             // Batch 34 : « ← Retour » remonte au tableau du parent (la
             // bibliothèque si la fiche vit à la racine), une relation ouvre
             // la fiche liée.
@@ -2144,6 +2150,7 @@ namespace Marabook.App
             GlobalStyles.Sync(project);
             _project = project;
             _path = path;
+            RelationKinds.Active = project.RelationSchema; // les natures de relation du projet (1.1.0)
             RememberDisk(path, project.SaveId); // la référence du disque (1.0.3)
             AcquireLock(path);                  // « ce projet est ouvert sur … »
             _current = null; _inspected = null; _inspectedGroup = null;
@@ -3962,6 +3969,22 @@ namespace Marabook.App
             _stylesBefore = _project.Styles.Clone();
         }
 
+        /// <summary>Le diagramme relationnel (1.1.0) : l'éditeur des natures de
+        /// relation du projet, en plein écran. Appliqué, le schéma du projet
+        /// change (les fiches ne changent que si l'on a renommé une nature
+        /// qu'elles emploient, et après accord) : la fiche ouverte se refait.</summary>
+        private async void OpenRelationsEditor()
+        {
+            if (_project == null || !Profiles.Enabled(Profiles.Sheets)) return;
+            CommitActive();
+            var applied = await RelationsEditorWindow.Open(this, _project);
+            if (!applied || _project == null) return;
+            RelationKinds.Active = _project.RelationSchema;
+            MarkDirty();
+            if (_current != null && _current.Kind == ItemKind.Sheet)
+                _sheetView.LoadItem(_current, _project.TemplateOf(_current));
+        }
+
         private async void OpenTemplatesDialog()
         {
             CommitActive();
@@ -4764,6 +4787,7 @@ namespace Marabook.App
             var plans = Profiles.Enabled(Profiles.Plans);
             var sprints = Profiles.Enabled(Profiles.Sprints);
             if (_sprintMenu != null) _sprintMenu.IsVisible = sprints;
+            if (_sheetsMenu != null) _sheetsMenu.IsVisible = sheets;
             if (_namesMenu != null) _namesMenu.IsVisible = sheets;
             if (_newSheetMenu != null) _newSheetMenu.IsVisible = sheets;
             if (_templatesMenu != null) _templatesMenu.IsVisible = sheets;
@@ -4783,6 +4807,9 @@ namespace Marabook.App
         /// <summary>Sonde : les entrées de menu que le profil cache.</summary>
         internal bool SprintMenuShownForProbe { get { return _sprintMenu != null && _sprintMenu.IsVisible; } }
         internal bool NewSheetMenuShownForProbe { get { return _newSheetMenu != null && _newSheetMenu.IsVisible; } }
+        internal bool SheetsMenuShownForProbe { get { return _sheetsMenu != null && _sheetsMenu.IsVisible; } }
+        /// <summary>Sonde : les statiques des relations reprennent le schéma du projet (ce que fait l'éditeur en se fermant).</summary>
+        internal void AdoptRelationSchemaForProbe() { if (_project != null) RelationKinds.Active = _project.RelationSchema; }
 
         private async void StartSprint()
         {

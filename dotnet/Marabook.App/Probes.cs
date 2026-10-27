@@ -2286,6 +2286,8 @@ namespace Marabook.App
                 await Probe110(shell);
                 // ================================================== 1.1.0 : les profils (27/10)
                 await ProbeProfiles(shell);
+                // ================================================== 1.1.0 : le diagramme relationnel (27/10)
+                await ProbeRelations(shell);
             }
             catch (Exception error)
             {
@@ -2606,6 +2608,68 @@ namespace Marabook.App
                 Profiles.Notify();
                 await Settle();
             }
+        }
+
+        /// <summary>Le diagramme relationnel (1.1.0, 27/10) : le menu Édition › Fiches,
+        /// le bouton de la fiche, la fenêtre et ses tuiles, déplacer une famille,
+        /// créer une relation, fixer une réciproque, appliquer — le projet suit
+        /// (génération de Mère, nature neuve au sélecteur), le livré revient.
+        /// MARABOOK_RELATIONS_PNG : une photo de la fenêtre.</summary>
+        private static async Task ProbeRelations(MainWindow shell)
+        {
+            var project = shell.Project;
+            Check(shell.SheetsMenuShownForProbe, "le menu Édition › Fiches est là");
+            BinderItem sheet = null;
+            foreach (var item in project.AllItems())
+                if (item.Kind == ItemKind.Sheet && SheetView.GenealogyAllowed(project, item)) { sheet = item; break; }
+            if (sheet != null) shell.Binder.SelectItem(sheet.Id);
+            await Settle();
+            Check(sheet != null && shell.Sheet.RelationsEditorButtonVisibleForProbe, "la fiche montre le bouton du diagramme relationnel à côté de « Ajouter une relation »");
+
+            var editor = new RelationsEditorWindow(project);
+            editor.Show();
+            await Settle();
+            Check(editor.TileCountForProbe == 15, "le diagramme montre une tuile par famille (" + editor.TileCountForProbe + ")");
+            var self = editor.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => Equals(b.Tag, "self-tile"));
+            Check(self != null && self.IsVisible, "…et le Personnage au centre");
+            editor.MoveFamily("parent", RelationLane.Direct, 1, -2);
+            Check(editor.SchemaForProbe.Find("Mère").Generation == -2 && editor.SchemaForProbe.Find("Père").Slot == 1, "déplacer la famille parent : Père et Mère changent de génération et de case");
+            editor.MoveFamily("uncle", RelationLane.Direct, 1, -2);
+            Check(editor.SchemaForProbe.Find("Oncle").Generation == -2 && editor.SchemaForProbe.Find("Père").Lane == RelationLane.Side && editor.SchemaForProbe.Find("Père").Generation == -1,
+                "poser une famille sur une case occupée : les deux s'échangent");
+            var family = editor.CreateFamily(RelationLane.Other, 0, 1);
+            Check(editor.SchemaForProbe.OfFamily(family).Count == 1 && editor.SelectedForProbe == family && editor.TileCountForProbe == 16, "une relation neuve : une tuile de plus, choisie");
+            editor.SetReciprocal(family, "cousin");
+            Check(editor.SchemaForProbe.OfFamily(family)[0].Reciprocal == "cousin" && editor.SchemaForProbe.Find("Cousin").Reciprocal == family, "la réciproque se fixe dans les deux sens");
+            editor.SetReciprocal(family, family);
+            Check(editor.SchemaForProbe.Find("Cousin").Reciprocal == "cousin", "…et se défait : Cousin se répond de nouveau à lui-même");
+            var png = Environment.GetEnvironmentVariable("MARABOOK_RELATIONS_PNG");
+            if (!string.IsNullOrEmpty(png))
+            {
+                await Settle(); // les tuiles redessinées veulent une passe de mise en page avant la photo
+                try
+                {
+                    var size = new PixelSize((int)editor.Bounds.Width, (int)editor.Bounds.Height);
+                    using (var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(size, new Vector(96, 96)))
+                    {
+                        bitmap.Render(editor);
+                        bitmap.Save(png);
+                    }
+                }
+                catch (Exception error) { Console.WriteLine("  (photo du diagramme : " + error.Message + ")"); }
+            }
+            var applied = await editor.ApplyForProbe();
+            await Settle();
+            Check(applied && project.RelationSchema.Find("Oncle") != null && project.RelationSchema.Find("Oncle").Generation == -2
+                && project.RelationSchema.Find("Mère").Lane == RelationLane.Side, "appliquer : le schéma du projet suit (Oncle en -2, Mère collatérale)");
+            shell.AdoptRelationSchemaForProbe();
+            Check(RelationKinds.GenerationOf("Tante") == -2 && RelationKinds.LaneOf("Père") == RelationLane.Side, "…et les statiques du projet ouvert répondent avec lui");
+            Check(new List<string>(project.AllRelationKinds()).Contains("Nouvelle relation"), "la relation neuve se propose au sélecteur des fiches");
+            project.RelationSchema = RelationSchema.Defaults();
+            shell.AdoptRelationSchemaForProbe();
+            Check(RelationKinds.GenerationOf("Mère") == -1, "le schéma livré remis : Mère en -1");
+            if (!editor.IsVisible) { } else editor.Close();
+            await Settle();
         }
 
         private static BinderItem FirstOfKind(Project project, ItemKind kind)

@@ -210,6 +210,29 @@ namespace Marabook.Persistence
         //      (UpgradeCharacterTemplate, une fois, gardé par la version lue).
         private const int FormatVersion = 41;
 
+        // La voie d'une nature de relation dans le .plot (1.1.0, schéma des relations).
+        private static string LaneName(RelationLane lane)
+        {
+            switch (lane)
+            {
+                case RelationLane.Direct: return "direct";
+                case RelationLane.Side: return "side";
+                case RelationLane.Partner: return "partner";
+                default: return "other";
+            }
+        }
+
+        private static RelationLane LaneOf(string name)
+        {
+            switch (name)
+            {
+                case "direct": return RelationLane.Direct;
+                case "side": return RelationLane.Side;
+                case "partner": return RelationLane.Partner;
+                default: return RelationLane.Other;
+            }
+        }
+
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
         private const int MaxTreeDepth = 256;
@@ -577,8 +600,30 @@ namespace Marabook.Persistence
                 manifest["lexicon"] = LexiconEntry.ToJsonList(project.Lexicon);
             if (project.IgnoredRules.Count > 0)
                 manifest["ignoredRules"] = new List<object>(project.IgnoredRules.ToArray());
-            if (project.RelationKinds.Count > 0)
-                manifest["relationKinds"] = new List<object>(project.RelationKinds.ToArray());
+            // Les natures libres pour les Marabook d'avant le schéma (1.1.0) : celles
+            // du schéma hors livrées, plus l'ancienne liste.
+            var legacyKinds = project.RelationSchema.FreeNames();
+            foreach (var kind in project.RelationKinds) if (!legacyKinds.Contains(kind)) legacyKinds.Add(kind);
+            if (legacyKinds.Count > 0)
+                manifest["relationKinds"] = new List<object>(legacyKinds.ToArray());
+            // Le schéma des relations (1.1.0) : écrit seulement s'il diffère du livré.
+            if (!project.RelationSchema.SameAs(RelationSchema.Defaults()))
+            {
+                var kinds = new List<object>();
+                foreach (var kind in project.RelationSchema.Kinds)
+                {
+                    var k = new Dictionary<string, object>();
+                    k["name"] = kind.Name ?? "";
+                    k["family"] = kind.Family ?? "";
+                    k["gender"] = kind.Gender.ToString();
+                    k["generation"] = kind.Generation;
+                    k["lane"] = LaneName(kind.Lane);
+                    k["slot"] = kind.Slot;
+                    if (!string.IsNullOrEmpty(kind.Reciprocal)) k["reciprocal"] = kind.Reciprocal;
+                    kinds.Add(k);
+                }
+                manifest["relationSchema"] = kinds;
+            }
             if (project.Recents.Count > 0) // v18 — tels quels, morts compris (purge au chargement)
             {
                 var recents = new List<object>();
@@ -1145,10 +1190,41 @@ namespace Marabook.Persistence
                 if (ignoredRules != null)
                     foreach (var entry in ignoredRules)
                         if (entry is string) project.IgnoredRules.Add((string)entry);
+                // Le schéma des relations (1.1.0) d'abord, puis l'ancienne liste des
+                // natures libres (déjà dans le schéma : sans doublon).
+                var relationSchema = Json.AsList(Json.Field(manifest, "relationSchema"));
+                if (relationSchema != null && relationSchema.Count > 0)
+                {
+                    var schema = new RelationSchema();
+                    foreach (var entry in relationSchema)
+                    {
+                        var k = Json.AsObject(entry);
+                        if (k == null) continue;
+                        var name = Json.AsString(Json.Field(k, "name"));
+                        if (string.IsNullOrEmpty(name)) continue;
+                        var gender = Json.AsString(Json.Field(k, "gender")) ?? "n";
+                        schema.Kinds.Add(new RelationKindInfo
+                        {
+                            Name = name,
+                            Family = Json.AsString(Json.Field(k, "family")) ?? "",
+                            Gender = gender.Length > 0 ? gender[0] : 'n',
+                            Generation = (int)Json.AsDouble(Json.Field(k, "generation"), 0),
+                            Lane = LaneOf(Json.AsString(Json.Field(k, "lane"))),
+                            Slot = (int)Json.AsDouble(Json.Field(k, "slot"), 0),
+                            Reciprocal = Json.AsString(Json.Field(k, "reciprocal"))
+                        });
+                    }
+                    if (schema.Kinds.Count > 0) project.RelationSchema = schema;
+                }
                 var relationKinds = Json.AsList(Json.Field(manifest, "relationKinds"));
                 if (relationKinds != null)
                     foreach (var entry in relationKinds)
-                        if (entry is string) project.AddRelationKind((string)entry);
+                    {
+                        var kind = entry as string;
+                        if (string.IsNullOrEmpty(kind)) continue;
+                        if (project.RelationSchema.Find(kind) == null) project.AddRelationKind(kind);
+                        else if (!project.RelationKinds.Contains(kind)) project.RelationKinds.Add(kind); // déjà dans le schéma : l'ancienne liste telle quelle
+                    }
                 project.CreatedAt = Json.AsString(Json.Field(manifest, "createdAt")) ?? "";
                 project.ModifiedAt = Json.AsString(Json.Field(manifest, "modifiedAt")) ?? "";
 
