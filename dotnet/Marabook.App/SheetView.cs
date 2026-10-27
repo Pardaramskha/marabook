@@ -28,7 +28,7 @@ namespace Marabook.App
     /// liée), la troisième vide pour l'instant ; « Texte libre » = l'éditeur
     /// markdown pleine largeur, dans la police du wiki, avec la barre de
     /// formatage de Markdown We Go. En bandeau : retour, nom, mode wiki,
-    /// généalogie (le paper flottant GenealogyWindow).</summary>
+    /// généalogie en vue (GenealogyView, F2 — à la place des papers, comme le wiki).</summary>
     public class SheetView : DockPanel
     {
         private const double BodyFontSize = 14.5; // Georgia, comme l'aperçu wiki
@@ -48,8 +48,8 @@ namespace Marabook.App
         private TextBlock _dictState;
         private Button _dictAdd;
         private string _focusFieldId;              // le champ libre qui vient d'être ajouté — lui seul prend le focus
-        private readonly Button _genealogyButton;
-        private GenealogyWindow _genealogy;        // le paper flottant (b36)
+        private readonly ToggleButton _genealogyButton;
+        private readonly GenealogyView _genealogy; // la généalogie en vue, à la place des papers (1.1.0 ; un paper flottant depuis le b36)
         private readonly ScrollViewer _preview;
         private readonly StackPanel _relationsPanel;
         // Les papers de l'onglet Général (batch 42) : l'image, une section
@@ -159,15 +159,24 @@ namespace Marabook.App
             _previewToggle.Checked += delegate { ShowPreview(); };
             _previewToggle.Unchecked += delegate { HidePreview(); };
             rightTools.Children.Add(_previewToggle);
-            _genealogyButton = new Button
+            _genealogyButton = new ToggleButton
             {
+                Classes = { Marabook.App.Theme.Owned },
                 Content = Icons.Label("tree-bold", "Généalogie (F2)", 13, Chrome.Ink),
+                FontWeight = FontWeight.SemiBold,
                 Padding = new Thickness(12, 4, 12, 4),
                 Margin = new Thickness(8, 0, 0, 0),
-                [ToolTip.TipProperty] = "L'arbre généalogique de la fiche, d'après ses relations (section flottante) — F2"
+                [ToolTip.TipProperty] = "L'arbre généalogique de la fiche, d'après ses relations, à la place des papers — F2"
             };
-            _genealogyButton.Click += delegate { ShowGenealogy(); };
+            _genealogyButton.Checked += delegate { ShowGenealogy(); };
+            _genealogyButton.Unchecked += delegate { HideGenealogy(); };
             rightTools.Children.Add(_genealogyButton);
+            _genealogy = new GenealogyView { IsVisible = false };
+            _genealogy.NavigateRequested += delegate(BinderItem target)
+            {
+                var handler = NavigateRequested;
+                if (handler != null) handler(target);
+            };
             // F1 = mode wiki, F2 = généalogie (1.1.0, Rémi) : captés en tunnel,
             // avant les zones de texte de la fiche.
             AddHandler(KeyDownEvent, new EventHandler<KeyEventArgs>(OnFunctionKey), RoutingStrategies.Tunnel);
@@ -480,6 +489,7 @@ namespace Marabook.App
             var center = new Grid();
             center.Children.Add(_body);
             center.Children.Add(_preview);
+            center.Children.Add(_genealogy);
             Children.Add(center);
         }
 
@@ -609,6 +619,7 @@ namespace Marabook.App
             // bouton du tout (1.1.0, Rémi : « retire le bouton des éléments
             // non concernés »).
             _genealogyButton.IsVisible = _showRelations;
+            if (!_showRelations && _genealogyButton.IsChecked == true) _genealogyButton.IsChecked = false;
             LayoutPapers(true);
         }
 
@@ -624,13 +635,17 @@ namespace Marabook.App
             }
             else if (e.Key == Key.F2 && _showRelations)
             {
-                ShowGenealogy();
+                _genealogyButton.IsChecked = _genealogyButton.IsChecked != true;
                 e.Handled = true;
             }
         }
 
         /// <summary>Sonde (1.1.0) : le bouton Généalogie est-il posé ?</summary>
         internal bool GenealogyButtonVisibleForProbe { get { return _genealogyButton.IsVisible; } }
+        internal bool GenealogyOnForProbe { get { return _genealogyButton.IsChecked == true && _genealogy.IsVisible && !_body.IsVisible; } }
+        internal string GenealogyStateForProbe { get { return "coche=" + _genealogyButton.IsChecked + " vue=" + _genealogy.IsVisible + " corps=" + _body.IsVisible + " fiche=" + (_item == null ? "-" : _item.Title) + " relations=" + _showRelations + " vueFiche=" + IsVisible; } }
+        internal void ToggleGenealogyForProbe() { _genealogyButton.IsChecked = _genealogyButton.IsChecked != true; }
+        internal GenealogyView GenealogyForProbe { get { return _genealogy; } }
         internal bool PreviewOnForProbe { get { return _previewToggle.IsChecked == true; } }
 
         /// <summary>Une fiche peut-elle recevoir une relation GÉNÉALOGIQUE
@@ -934,6 +949,7 @@ namespace Marabook.App
         {
             if (_item == null || field == null) return;
             if (_previewToggle.IsChecked == true) _previewToggle.IsChecked = false;
+            if (_genealogyButton.IsChecked == true) _genealogyButton.IsChecked = false; // la généalogie en vue aussi (1.1.0)
             if (field.IsParagraph)
             {
                 _tabs.SelectedIndex = 1;
@@ -1575,28 +1591,27 @@ namespace Marabook.App
             RefreshDictionaryBadge();
         }
 
+        /// <summary>La généalogie en vue (1.1.0) : à la place des papers (et du
+        /// mode wiki, qu'elle éteint), comme F1 pour le wiki.</summary>
         private void ShowGenealogy()
         {
-            if (_item == null) return;
-            if (_genealogy == null)
-            {
-                _genealogy = new GenealogyWindow(Ui.OwnerOf(this));
-                _genealogy.NavigateRequested += delegate(BinderItem target)
-                {
-                    var handler = NavigateRequested;
-                    if (handler != null) handler(target);
-                };
-                _genealogy.Closed += delegate { _genealogy = null; };
-            }
+            if (_item == null) { _genealogyButton.IsChecked = false; return; }
+            if (_previewToggle.IsChecked == true) _previewToggle.IsChecked = false;
             _genealogy.Load(_project, _item);
-            if (!_genealogy.IsVisible) _genealogy.Show();
-            else _genealogy.Activate();
+            _genealogy.IsVisible = true;
+            _body.IsVisible = false;
+        }
+
+        private void HideGenealogy()
+        {
+            _genealogy.IsVisible = false;
+            if (_previewToggle.IsChecked != true) _body.IsVisible = true;
         }
 
         private void SyncGenealogy()
         {
-            if (_genealogy == null) return;
-            if (_item == null) { _genealogy.Close(); return; }
+            if (_genealogyButton.IsChecked != true) return;
+            if (_item == null) { _genealogyButton.IsChecked = false; return; }
             if (_genealogy.Shows(_item)) _genealogy.Refresh();
             else _genealogy.Load(_project, _item);
         }
@@ -1915,6 +1930,7 @@ namespace Marabook.App
         private void LeavePreview()
         {
             if (_previewToggle.IsChecked == true) _previewToggle.IsChecked = false;
+            if (_genealogyButton.IsChecked == true) _genealogyButton.IsChecked = false; // la généalogie en vue aussi (1.1.0)
             ShowTextTab();
         }
 
@@ -2200,6 +2216,7 @@ namespace Marabook.App
         private void ShowPreview()
         {
             if (_item == null) return;
+            if (_genealogyButton.IsChecked == true) _genealogyButton.IsChecked = false; // un seul mode à la fois (1.1.0)
             _preview.Content = BuildPreviewContent();
             _preview.IsVisible = true;
             _body.IsVisible = false;
@@ -2209,7 +2226,7 @@ namespace Marabook.App
         {
             _preview.IsVisible = false;
             _preview.Content = null;
-            _body.IsVisible = true;
+            if (_genealogyButton.IsChecked != true) _body.IsVisible = true;
         }
 
         /// <summary>Rendu wiki (SheetWiki, partagé avec l'épinglé du rail — b47) :
@@ -2801,7 +2818,7 @@ namespace Marabook.App
             RecordEdit();
             var handler = Edited;
             if (handler != null) handler();
-            if (_genealogy != null && _item != null && _genealogy.Shows(_item)) _genealogy.Refresh();
+            if (_genealogyButton.IsChecked == true && _item != null && _genealogy.Shows(_item)) _genealogy.Refresh();
         }
 
         /// <summary>L'édition qui vient d'avoir lieu, dans l'historique (1.0.4) :

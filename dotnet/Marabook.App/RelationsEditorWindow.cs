@@ -33,7 +33,8 @@ namespace Marabook.App
         private const double CellW = 160, CellH = 104, TileW = 136, TileH = 64, LabelW = 130, HeaderH = 40, Dot = 20, Handle = 12;
         private const int Generations = 7; // -3 … +3
         private static readonly RelationLane[] Bands = { RelationLane.Side, RelationLane.Direct, RelationLane.Partner, RelationLane.Other };
-        private static readonly int[] BandSize = { 3, 3, 4, 3 };
+        private static readonly int[] DefaultBandSize = { 3, 3, 4, 3 };
+        private readonly int[] _bandSize = { 3, 3, 4, 3 }; // extensibles : « + » sur chaque bande (27/10 soir)
         private static readonly string[] BandNames = { "Collatéraux", "Ligne directe", "Partenaires", "Autres relations" };
 
         private readonly Project _project;
@@ -65,6 +66,12 @@ namespace Marabook.App
         {
             _project = project;
             _schema = project.RelationSchema.Clone();
+            // Les bandes : leur taille livrée, ou plus si le schéma a déjà des cases au-delà.
+            foreach (var kind in _schema.Kinds)
+            {
+                var band = BandOf(kind.Lane);
+                if (band >= 0 && kind.Slot + 1 > _bandSize[band]) _bandSize[band] = kind.Slot + 1;
+            }
             Title = "Diagramme relationnel";
             WindowState = WindowState.Maximized;
             MinWidth = 900;
@@ -137,18 +144,14 @@ namespace Marabook.App
             root.Children.Add(railBorder);
 
             // ---- la toile : grille à points, bandes et rangées, tuiles
-            _canvas = new Canvas
-            {
-                Width = LabelW + Columns() * CellW + 40,
-                Height = HeaderH + Generations * CellH + 40,
-                Background = Brushes.Transparent
-            };
+            _canvas = new Canvas { Background = Brushes.Transparent };
             _canvas.PointerPressed += OnPressed;
             _canvas.PointerMoved += OnMoved;
             _canvas.PointerReleased += OnReleased;
-            var dots = new DotGrid { Width = _canvas.Width, Height = _canvas.Height };
-            var stage = new Grid();
-            stage.Children.Add(dots);
+            _dots = new DotGrid();
+            Resize();
+            var stage = new Grid { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
+            stage.Children.Add(_dots);
             stage.Children.Add(_canvas);
             root.Children.Add(new ScrollViewer
             {
@@ -164,17 +167,53 @@ namespace Marabook.App
 
         // ------------------------------------------------------------ la grille
 
-        private static int Columns()
+        private DotGrid _dots;
+
+        /// <summary>La toile à la taille des bandes (elles s'élargissent au « + »).</summary>
+        private void Resize()
+        {
+            _canvas.Width = LabelW + Columns() * CellW + 40;
+            _canvas.Height = HeaderH + Generations * CellH + 40;
+            _dots.Width = _canvas.Width;
+            _dots.Height = _canvas.Height;
+        }
+
+        /// <summary>Une colonne de plus dans une bande (27/10 soir, Rémi) : la place
+        /// ne manque plus pour de nouveaux niveaux ; les bandes suivantes glissent.</summary>
+        internal void AddColumn(RelationLane lane)
+        {
+            var band = BandOf(lane);
+            if (band < 0) return;
+            _bandSize[band]++;
+            Resize();
+            Redraw();
+        }
+
+        /// <summary>La dernière colonne d'une bande, si elle est vide et au-delà du livré.</summary>
+        internal void RemoveColumn(RelationLane lane)
+        {
+            var band = BandOf(lane);
+            if (band < 0 || _bandSize[band] <= DefaultBandSize[band]) return;
+            var last = _bandSize[band] - 1;
+            foreach (var kind in _schema.Kinds) if (kind.Lane == lane && kind.Slot >= last) return;
+            _bandSize[band]--;
+            Resize();
+            Redraw();
+        }
+
+        internal int BandSizeForProbe(RelationLane lane) { return _bandSize[BandOf(lane)]; }
+
+        private int Columns()
         {
             var n = 0;
-            foreach (var size in BandSize) n += size;
+            foreach (var size in _bandSize) n += size;
             return n;
         }
 
-        private static int BandStart(int band)
+        private int BandStart(int band)
         {
             var start = 0;
-            for (var i = 0; i < band; i++) start += BandSize[i];
+            for (var i = 0; i < band; i++) start += _bandSize[i];
             return start;
         }
 
@@ -185,10 +224,10 @@ namespace Marabook.App
 
         /// <summary>La colonne d'une case : la ligne directe met sa case 0 au
         /// centre de sa bande (sur le personnage), les autres se suivent.</summary>
-        private static int ColumnOf(RelationLane lane, int slot)
+        private int ColumnOf(RelationLane lane, int slot)
         {
             var band = BandOf(lane);
-            var size = BandSize[band];
+            var size = _bandSize[band];
             slot = Math.Max(0, Math.Min(size - 1, slot));
             if (lane == RelationLane.Direct) slot = slot == 0 ? 1 : slot == 1 ? 0 : 2;
             return BandStart(band) + slot;
@@ -205,7 +244,7 @@ namespace Marabook.App
         }
 
         /// <summary>La case sous un point : voie, case dans la voie, génération — ou faux hors grille.</summary>
-        private static bool CellAt(Point point, out RelationLane lane, out int slot, out int generation)
+        private bool CellAt(Point point, out RelationLane lane, out int slot, out int generation)
         {
             lane = RelationLane.Other; slot = 0; generation = 0;
             var column = (int)Math.Floor((point.X - LabelW) / CellW);
@@ -235,7 +274,7 @@ namespace Marabook.App
         /// <summary>Une case libre dans cette voie et cette génération (-1 : pleine).</summary>
         private int FreeSlot(RelationLane lane, int generation, string except)
         {
-            var size = BandSize[BandOf(lane)];
+            var size = _bandSize[BandOf(lane)];
             for (var slot = 0; slot < size; slot++)
                 if (!IsSelfCell(lane, slot, generation) && FamilyAt(lane, slot, generation, except) == null) return slot;
             return -1;
@@ -253,7 +292,29 @@ namespace Marabook.App
             for (var band = 0; band < Bands.Length; band++)
             {
                 var x = LabelW + BandStart(band) * CellW;
-                var width = BandSize[band] * CellW;
+                var width = _bandSize[band] * CellW;
+                // L'en-tête : le nom de la bande, « − » et « + » pour ses colonnes.
+                var headRow = new Grid();
+                headRow.Children.Add(new TextBlock
+                {
+                    Text = BandNames[band] + "  ·  " + _bandSize[band] + (_bandSize[band] > 1 ? " colonnes" : " colonne"),
+                    Foreground = Chrome.SoftText,
+                    FontSize = 12,
+                    FontWeight = FontWeight.SemiBold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                var columnButtons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
+                var laneOfBand = Bands[band];
+                var fewer = Buttons.Icon("minus", "Retirer la dernière colonne de cette bande (si elle est vide)", 22, Buttons.Look.Calm);
+                fewer.IsVisible = _bandSize[band] > DefaultBandSize[band];
+                fewer.Click += delegate { RemoveColumn(laneOfBand); };
+                columnButtons.Children.Add(fewer);
+                var more = Buttons.Icon("plus-bold", "Une colonne de plus dans cette bande : de la place pour de nouveaux niveaux", 22, Buttons.Look.Calm);
+                more.Tag = "band-plus:" + laneOfBand; // sonde
+                more.Click += delegate { AddColumn(laneOfBand); };
+                columnButtons.Children.Add(more);
+                headRow.Children.Add(columnButtons);
                 var header = new Border
                 {
                     Width = width - 12,
@@ -263,15 +324,7 @@ namespace Marabook.App
                     Background = Chrome.BarBgLight,
                     BorderBrush = Chrome.Border,
                     BorderThickness = new Thickness(1),
-                    Child = new TextBlock
-                    {
-                        Text = BandNames[band],
-                        Foreground = Chrome.SoftText,
-                        FontSize = 12,
-                        FontWeight = FontWeight.SemiBold,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center
-                    }
+                    Child = headRow
                 };
                 Canvas.SetLeft(header, x + 6);
                 Canvas.SetTop(header, 5);
@@ -286,7 +339,7 @@ namespace Marabook.App
             {
                 var caption = new TextBlock
                 {
-                    Text = GenealogyWindow.GenerationCaption(row - 3),
+                    Text = GenealogyView.GenerationCaption(row - 3),
                     Foreground = Chrome.SoftText,
                     FontSize = 11,
                     Width = LabelW - 20,
@@ -690,7 +743,7 @@ namespace Marabook.App
                     var kindsNow = _schema.OfFamily(family);
                     if (kindsNow.Count == 0 || kindsNow[0].Lane == wanted) return;
                     var free = FreeSlot(wanted, kindsNow[0].Generation, family);
-                    if (free < 0) free = BandSize[BandOf(wanted)] - 1;
+                    if (free < 0) free = _bandSize[BandOf(wanted)] - 1;
                     MoveFamily(family, wanted, free, kindsNow[0].Generation);
                     Redraw();
                     RefreshRail();
@@ -698,7 +751,7 @@ namespace Marabook.App
                 _rail.Children.Add(lane);
                 _rail.Children.Add(Label("Génération"));
                 var generation = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-                for (var g = -3; g <= 3; g++) generation.Items.Add(new ComboBoxItem { Content = (g > 0 ? "+" : "") + g + " — " + GenealogyWindow.GenerationCaption(g), Tag = g });
+                for (var g = -3; g <= 3; g++) generation.Items.Add(new ComboBoxItem { Content = (g > 0 ? "+" : "") + g + " — " + GenealogyView.GenerationCaption(g), Tag = g });
                 generation.SelectedIndex = RowOf(first.Generation);
                 ToolTip.SetTip(generation, "La rangée du diagramme : négatif = ascendants, positif = descendants");
                 generation.SelectionChanged += delegate
@@ -710,7 +763,7 @@ namespace Marabook.App
                     var kindsNow = _schema.OfFamily(family);
                     if (kindsNow.Count == 0 || kindsNow[0].Generation == wanted) return;
                     var free = FreeSlot(kindsNow[0].Lane, wanted, family);
-                    if (free < 0) free = BandSize[BandOf(kindsNow[0].Lane)] - 1;
+                    if (free < 0) free = _bandSize[BandOf(kindsNow[0].Lane)] - 1;
                     MoveFamily(family, kindsNow[0].Lane, free, wanted);
                     Redraw();
                     RefreshRail();
@@ -915,25 +968,6 @@ namespace Marabook.App
         {
             await Apply();
             return _project.RelationSchema == _schema;
-        }
-
-        /// <summary>Le fond à points (design fixe, comme la toile de Mental-O) : un
-        /// point tous les 20 px, dans le filet du thème.</summary>
-        private sealed class DotGrid : Control
-        {
-            public override void Render(DrawingContext context)
-            {
-                var brush = new ImmutableSolidColorBrushWrapper(Chrome.Border.Color);
-                for (var y = Dot; y < Bounds.Height; y += Dot)
-                    for (var x = Dot; x < Bounds.Width; x += Dot)
-                        context.DrawEllipse(brush.Brush, null, new Point(x, y), 1.2, 1.2);
-            }
-
-            private sealed class ImmutableSolidColorBrushWrapper
-            {
-                public readonly IBrush Brush;
-                public ImmutableSolidColorBrushWrapper(Color color) { Brush = new SolidColorBrush(color); }
-            }
         }
     }
 }

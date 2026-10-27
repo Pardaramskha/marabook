@@ -2670,6 +2670,70 @@ namespace Marabook.App
             Check(RelationKinds.GenerationOf("Mère") == -1, "le schéma livré remis : Mère en -1");
             if (!editor.IsVisible) { } else editor.Close();
             await Settle();
+
+            // — Les bandes extensibles (27/10 soir) : une colonne de plus, puis de moins.
+            var editor2 = new RelationsEditorWindow(project);
+            editor2.Show();
+            await Settle();
+            var sideBefore = editor2.BandSizeForProbe(RelationLane.Side);
+            editor2.AddColumn(RelationLane.Side);
+            Check(editor2.BandSizeForProbe(RelationLane.Side) == sideBefore + 1, "« + » sur une bande : une colonne de plus (" + editor2.BandSizeForProbe(RelationLane.Side) + ")");
+            editor2.MoveFamily("double", RelationLane.Side, sideBefore, 0);
+            editor2.RemoveColumn(RelationLane.Side);
+            Check(editor2.BandSizeForProbe(RelationLane.Side) == sideBefore + 1, "…occupée, la colonne ne se retire pas");
+            editor2.MoveFamily("double", RelationLane.Side, 0, 2);
+            editor2.RemoveColumn(RelationLane.Side);
+            Check(editor2.BandSizeForProbe(RelationLane.Side) == sideBefore, "…vide, elle se retire");
+            editor2.Close();
+            await Settle();
+
+            // — La généalogie en vue (27/10 soir) : F2 remplace les papers, les
+            // parents joints par un trait, les enfants pendus à un bus.
+            if (sheet != null)
+            {
+                var added = new List<SheetRelation>
+                {
+                    new SheetRelation { Kind = "Père", Name = "Lirin (sonde)" },
+                    new SheetRelation { Kind = "Mère", Name = "Hesina (sonde)" },
+                    new SheetRelation { Kind = "Frère", Name = "Tien (sonde)" },
+                    new SheetRelation { Kind = "Partenaire", Name = "Syl (sonde)" },
+                    new SheetRelation { Kind = "Fils", Name = "Oroden (sonde)" },
+                    new SheetRelation { Kind = "Fille", Name = "Rock (sonde)" },
+                    new SheetRelation { Kind = "Mentor", Name = "Dalinar (sonde)" }
+                };
+                sheet.Relations.AddRange(added);
+                shell.Binder.SelectItem(sheet.Id);
+                await Settle();
+                shell.Sheet.ToggleGenealogyForProbe();
+                await Settle();
+                Check(shell.Sheet.GenealogyOnForProbe, "F2 : la généalogie prend la place des papers de la fiche (" + shell.Sheet.GenealogyStateForProbe + ")");
+                var view = shell.Sheet.GenealogyForProbe;
+                var tiles = view.GetVisualDescendants().OfType<Border>().Count(b => Equals(b.Tag, "genealogy-node"));
+                var lines = view.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Line>().Count();
+                Check(tiles == sheet.Relations.Count && view.GetVisualDescendants().OfType<Border>().Any(b => Equals(b.Tag, "genealogy-self")), "…une tuile par relation et le personnage (" + tiles + ")");
+                // Père–Mère : union, branche, bus, deux pieds (le personnage, Frère) = 5 ; personnage–partenaire : union double, branche, bus, deux pieds (Fils, Fille) = 6.
+                Check(lines >= 11, "…les traits d'union, branches, bus et pieds sont dessinés (" + lines + " traits)");
+                var genealogyPng = Environment.GetEnvironmentVariable("MARABOOK_GENEALOGY_PNG");
+                if (!string.IsNullOrEmpty(genealogyPng))
+                {
+                    try
+                    {
+                        var size = new PixelSize((int)view.Bounds.Width, (int)view.Bounds.Height);
+                        using (var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(size, new Vector(96, 96)))
+                        {
+                            bitmap.Render(view);
+                            bitmap.Save(genealogyPng);
+                        }
+                    }
+                    catch (Exception error) { Console.WriteLine("  (photo de la généalogie : " + error.Message + ")"); }
+                }
+                shell.Sheet.ToggleGenealogyForProbe();
+                await Settle();
+                Check(!shell.Sheet.GenealogyOnForProbe, "F2 encore : les papers reviennent");
+                foreach (var relation in added) sheet.Relations.Remove(relation);
+                shell.Binder.SelectItem(sheet.Id);
+                await Settle();
+            }
         }
 
         private static BinderItem FirstOfKind(Project project, ItemKind kind)
