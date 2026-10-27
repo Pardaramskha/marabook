@@ -235,11 +235,8 @@ namespace Marabook.App
             // sauvegarde) passent par _busy.Run.
             _busy.Watch(delegate { return _editor != null && _editor.IsProofingBusy; });
             _busy.Watch(delegate { return _statusWarmup != null && _statusWarmup.IsVisible; });
-            Loaded += async delegate
+            Loaded += delegate
             {
-                // « Qui êtes-vous ? » (1.1.0) : tant qu'aucun profil n'est choisi, la
-                // fenêtre du profil passe avant tout — jamais en sonde ni en capture.
-                if (!_launch.Isolated && !Profiles.Chosen) await ProfileWindow.Ask(this);
                 // Le .plot reçu en argument s'ouvre ICI, la fenêtre affichée :
                 // ses dialogues (réserves, secours) veulent un propriétaire
                 // visible — avant Run, ils faisaient tomber l'application
@@ -249,6 +246,7 @@ namespace Marabook.App
                     var pending = PendingOpen;
                     PendingOpen = null;
                     OpenFile(pending);
+                    if (_path != null && _welcome == null) HideVeil(); // le voile posé d'avance (1.1.0) n'a plus lieu d'être
                 }
                 // Lancée sans .plot (ni argument, ni fichier ouvert) : l'accueil, et rien d'autre.
                 if (_path == null && !(_launch.Demo || _launch.Probe)) ShowWelcome();
@@ -2413,16 +2411,18 @@ namespace Marabook.App
 
         /// <summary>Montre l'accueil par-dessus une fenêtre vide et
         /// désactivée ; tout revient quand il se retire.</summary>
-        public void ShowWelcome()
+        /// <summary>Le voile de l'accueil, posé : l'image de fond, l'interface
+        /// éteinte dessous. Dès la construction quand on part sans projet (1.1.0 :
+        /// plus de « flash » de l'application vide avant l'accueil), et par ShowWelcome.</summary>
+        private void ShowVeil()
         {
-            if (_welcome != null) return;
             // Un peu de couleur au démarrage (13/09) : assets/background.jpg
             // à côté de l'exe, en remplissage proportionnel derrière
             // l'accueil — son centre est blanc, l'accueil le recouvre.
             // Absent ou illisible : le voile blanc cassé, simplement.
             var background = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                 System.IO.Path.Combine("assets", "background.jpg"));
-            if (File.Exists(background))
+            if (File.Exists(background) && !(_welcomeVeil.Background is ImageBrush))
             {
                 try
                 {
@@ -2438,6 +2438,18 @@ namespace Marabook.App
             }
             _welcomeVeil.IsVisible = true;
             _shellRoot.IsEnabled = false;
+        }
+
+        private void HideVeil()
+        {
+            _welcomeVeil.IsVisible = false;
+            _shellRoot.IsEnabled = true;
+        }
+
+        public void ShowWelcome()
+        {
+            if (_welcome != null) return;
+            ShowVeil();
             _welcome = new WelcomeWindow(this);
             // Un clic sur le voile (hors du papier de l'accueil) ramène
             // l'accueil devant — sans propriétaire, la coquille passait
@@ -2448,8 +2460,7 @@ namespace Marabook.App
             {
                 _welcomeVeil.PointerPressed -= raise;
                 _welcome = null;
-                _welcomeVeil.IsVisible = false;
-                _shellRoot.IsEnabled = true;
+                HideVeil();
                 // Une mise à jour préparée pendant l'accueil, pas encore proposée
                 // par un toast (le statut de l'accueil le disait) : le toast
                 // maintenant, dans la coquille — sauf si l'app se ferme (02/10).

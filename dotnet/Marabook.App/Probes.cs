@@ -2577,9 +2577,27 @@ namespace Marabook.App
                 Check(bookView.FormatTabShownForProbe && !shell.SprintMenuShownForProbe && shell.NewSheetMenuShownForProbe,
                     "profil Moi-même : décocher Sprints cache le sprint seul, le livre retrouve ses onglets");
                 var chooser = new ProfileChooser(true);
-                Check(chooser.Selected == Profiles.Custom && chooser.FeatureTableShownForProbe, "le sélecteur reprend le profil et montre la table des cases pour Moi-même");
+                Check(chooser.Selected == Profiles.Custom && chooser.FeaturesButtonShownForProbe, "le sélecteur reprend le profil et propose « Choisir les fonctionnalités… » pour Moi-même");
                 chooser.Select(Profiles.Everything, false);
-                Check(!chooser.FeatureTableShownForProbe, "…la table se cache pour les autres profils");
+                Check(!chooser.FeaturesButtonShownForProbe, "…le bouton se cache pour les autres profils");
+                var features = new FeaturesWindow();
+                features.Show();
+                await Settle();
+                var boxes = 0;
+                foreach (var box in features.GetVisualDescendants().OfType<CheckBox>()) if (box.Tag is string && ((string)box.Tag).StartsWith("feature:")) boxes++;
+                Check(boxes == Profiles.Features.Length, "la fenêtre des fonctionnalités liste une case par fonctionnalité (" + boxes + ")");
+                features.Close();
+                await Settle();
+
+                // L'accueil du premier lancement : « Qui êtes-vous ? » à la place des projets, « Commencer » éteint tant que rien n'est choisi.
+                var welcome = new WelcomeWindow(shell, true);
+                welcome.Show();
+                await Settle();
+                var start = welcome.GetVisualDescendants().OfType<Button>().FirstOrDefault(b => Equals(b.Tag, "profile-start"));
+                var tiles = welcome.GetVisualDescendants().OfType<Border>().Count(b => b.Tag is string && ((string)b.Tag).StartsWith("profile:"));
+                Check(welcome.ShowsProfileChoice && start != null && !start.IsEnabled && tiles == 4, "l'accueil du premier lancement montre les quatre profils et « Commencer » éteint");
+                welcome.Release();
+                await Settle();
             }
             finally
             {

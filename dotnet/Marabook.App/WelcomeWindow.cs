@@ -41,7 +41,13 @@ namespace Marabook.App
         private TextBlock _betaText; // la seconde ligne (13/10) : la beta en cours
         private Border _betaDot;
 
-        public WelcomeWindow(MainWindow shell)
+        public WelcomeWindow(MainWindow shell) : this(shell, !Profiles.Chosen && !shell.IsolatedLaunch)
+        {
+        }
+
+        /// <param name="profilePage">« Qui êtes-vous ? » à la place des projets :
+        /// le premier lancement (jamais en sonde ni en capture — la sonde le demande elle-même).</param>
+        public WelcomeWindow(MainWindow shell, bool profilePage)
         {
             _shell = shell;
             Title = AppInfo.Name;
@@ -51,14 +57,17 @@ namespace Marabook.App
             WindowStartupLocation = WindowStartupLocation.Manual;
             TransparencyLevelHint = new[] { WindowTransparencyLevel.Transparent };
             Background = Brushes.Transparent;
-            Content = new Border
+            // Au premier lancement (1.1.0), l'accueil montre « Qui êtes-vous ? »
+            // à la place des projets ; « Commencer » le rend aux projets.
+            _paper = new Border
             {
                 Background = Chrome.RaisedBg,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(16),
-                Child = Build()
+                Child = profilePage ? BuildProfilePage() : Build()
             };
+            Content = _paper;
             Closing += delegate(object sender, WindowClosingEventArgs e)
             {
                 // Jamais fermée à la main (Alt+F4 sur elle) ; mais quand la
@@ -211,6 +220,74 @@ namespace Marabook.App
                     _shell.Position.X + (int)Math.Round(offset.X * scale),
                     _shell.Position.Y + (int)Math.Round(offset.Y * scale));
             }
+        }
+
+        private Border _paper;
+
+        /// <summary>Sonde : l'accueil montre le choix du profil (premier lancement).</summary>
+        public bool ShowsProfileChoice { get { return _profileChooser != null; } }
+        private ProfileChooser _profileChooser;
+
+        /// <summary>La page du premier lancement (1.1.0) : le même en-tête, puis le
+        /// sélecteur de profil avec le nom de plume, « Commencer » au pied. Pour
+        /// « Moi-même », la fenêtre des fonctionnalités s'ouvre ensuite, puis
+        /// l'accueil reprend ses projets.</summary>
+        private Control BuildProfilePage()
+        {
+            var root = new DockPanel { Margin = new Thickness(40, 32, 40, 28) };
+            root.Children.Add(Head());
+
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+            DockPanel.SetDock(buttons, Dock.Bottom);
+            var start = Buttons.Text("Commencer", "Garder ce profil et passer aux projets", Buttons.Bar, Buttons.Look.Primary);
+            start.MinWidth = 120;
+            start.IsEnabled = false;
+            start.IsDefault = true;
+            start.Tag = "profile-start"; // sonde
+            buttons.Children.Add(start);
+            root.Children.Add(buttons);
+
+            _profileChooser = new ProfileChooser(false) { Margin = new Thickness(0, 18, 0, 0) };
+            _profileChooser.SelectionChanged += delegate { start.IsEnabled = _profileChooser.Selected != null; };
+            start.Click += async delegate
+            {
+                if (_profileChooser == null || _profileChooser.Selected == null) return;
+                _profileChooser.CommitPenName();
+                var custom = _profileChooser.Selected == Profiles.Custom;
+                _profileChooser = null;
+                if (custom) await FeaturesWindow.Ask(this);
+                _paper.Child = Build();
+                RefreshUpdateStatus();
+            };
+            root.Children.Add(new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = _profileChooser
+            });
+            return root;
+        }
+
+        /// <summary>L'en-tête de l'accueil : le nom de l'application, la version.</summary>
+        private static StackPanel Head()
+        {
+            var head = new StackPanel();
+            DockPanel.SetDock(head, Dock.Top);
+            head.Children.Add(new TextBlock
+            {
+                Text = AppInfo.Name + " - C'est parti pour nerder",
+                FontSize = 26,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = Chrome.Ink
+            });
+            head.Children.Add(new TextBlock
+            {
+                Text = "Version " + AppInfo.Version + " · " + AppPlatform.OsName,
+                FontSize = 13,
+                Foreground = Chrome.SoftText,
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+            return head;
         }
 
         private Control Build()

@@ -28,6 +28,9 @@ namespace Marabook.App
         public MainWindow(Launch launch) : this()
         {
             _launch = launch ?? new Launch();
+            // Sans projet à ouvrir (1.1.0) : le voile de l'accueil dès la première
+            // image — l'application vide ne « flashe » plus avant l'écran d'accueil.
+            if (!_launch.Isolated && _launch.PlotPath == null) ShowVeil();
             Opened += delegate { ScheduleUpdateCheck(); }; // la vérification silencieuse du lancement (01/10)
             Opened += delegate { _rightAnimationsOnAfterOpen = !_launch.Probe; }; // la colonne de droite glisse (1.0.3) — pas en sonde
             if (_launch.Isolated)
@@ -133,6 +136,8 @@ namespace Marabook.App
         public double RightColumnWidth { get { return _inspectorCol.Width.Value; } }
         public void MarkDirtyPublic() { MarkDirty(); }
         public WelcomeWindow Welcome { get { return _welcome; } }
+        /// <summary>Lancement isolé (sonde, capture, démo…) : pas de page du profil à l'accueil.</summary>
+        public bool IsolatedLaunch { get { return _launch.Isolated; } }
         public string InspectorTitle { get { return _inspTitle == null ? "" : _inspTitle.Text ?? ""; } }
         public string InspectorKind { get { return _inspKind == null ? "" : _inspKind.Text ?? ""; } }
         public string InspectorDetail { get { return _inspStats == null ? "" : _inspStats.Text ?? ""; } }

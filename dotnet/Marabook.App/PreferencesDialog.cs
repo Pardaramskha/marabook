@@ -388,7 +388,7 @@ namespace Marabook.App
         private Control BuildProfileTab()
         {
             var panel = TabPanel();
-            panel.Children.Add(new ProfileChooser(true));
+            panel.Children.Add(new ProfileChooser(true) { OpenFeaturesOnChoice = true });
             return panel;
         }
 
