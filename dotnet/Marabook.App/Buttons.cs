@@ -34,7 +34,7 @@ namespace Marabook.App
         /// les boutons Fermer ») : la croix du jeu, calme, compacte — partout la même.</summary>
         public static Button Close(string tooltip)
         {
-            var button = Icon("exclude", tooltip, Compact, Look.Calm);
+            var button = Icon("x-bold", tooltip, Compact, Look.Calm); // la croix X (27/10, Rémi), pas « exclude »
             button.Tag = "rail-close"; // sonde
             return button;
         }
