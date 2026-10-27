@@ -15,6 +15,7 @@ using Avalonia.VisualTree;
 
 using Marabook.History;
 using Marabook.Model;
+using Profiles = Marabook.Settings.Profiles;
 
 namespace Marabook.App
 {
@@ -484,6 +485,10 @@ namespace Marabook.App
         /// d'attente). Le projet la garde : rien ne change dans le .plot.</summary>
         private static bool RootShown(BinderItem root)
         {
+            // Le profil (1.1.0) cache les Fiches ou les Plans : la racine reste
+            // dans le projet, la Pile ne la montre plus.
+            if (root.CategoryKey == Project.KeySheets && !Profiles.Enabled(Profiles.Sheets)) return false;
+            if (root.CategoryKey == Project.KeyPlans && !Profiles.Enabled(Profiles.Plans)) return false;
             return !(root.CategoryKey == Project.KeyMindMaps
                 && MindMapModules.Provider == null && root.Children.Count == 0);
         }
@@ -924,7 +929,7 @@ namespace Marabook.App
             }
 
             // Books: alert chip when a document strays from the gabarit.
-            if (item.Kind == ItemKind.Book && BookHasDivergentDocs(item))
+            if (item.Kind == ItemKind.Book && Profiles.Enabled(Profiles.BookFormat) && BookHasDivergentDocs(item))
                 panel.Children.Add(new Ellipse
                 {
                     Width = 7,
@@ -1624,6 +1629,7 @@ namespace Marabook.App
         /// <summary>Un nouveau plan (batch 35), toujours dans la racine Plans.</summary>
         public async void NewPlan(BinderItem parent)
         {
+            if (!Profiles.Enabled(Profiles.Plans)) return; // profil sans plans (1.1.0)
             var root = _project.Category(Project.KeyPlans);
             if (root == null) return;
             var title = await InputDialog.Ask(Ui.OwnerOf(this), "Nouveau plan", "Nom du plan :", "Nouveau plan");
@@ -2484,6 +2490,7 @@ namespace Marabook.App
 
         public async void NewSheet(BinderItem parent)
         {
+            if (!Profiles.Enabled(Profiles.Sheets)) return; // profil sans fiches (1.1.0) : le raccourci se tait
             if (parent == null)
             {
                 var selected = SelectedItem;

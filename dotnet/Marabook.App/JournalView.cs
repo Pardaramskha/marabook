@@ -16,6 +16,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 using Marabook.Model;
+using Marabook.Settings;
 
 namespace Marabook.App
 {
@@ -286,7 +287,9 @@ namespace Marabook.App
 
             // ---- sprints (b48) ----
             var sprintsCard = Card();
+            _sprintsCard = sprintsCard;
             sprintsCard.Margin = new Thickness(0, 10, 0, 0);
+            sprintsCard.IsVisible = Profiles.Enabled(Profiles.Sprints);
             var sprints = new StackPanel();
             var sprintsHead = new DockPanel();
             var startSprint = Buttons.IconText("play-fill", "Démarrer un sprint",
@@ -558,6 +561,15 @@ namespace Marabook.App
             DrawChart();
             RebuildSprints();
             RefreshAchievements();
+            ApplyProfile();
+        }
+
+        private Border _sprintsCard;
+
+        /// <summary>Le profil (1.1.0) sans sprints : la carte Sprints se cache.</summary>
+        public void ApplyProfile()
+        {
+            if (_sprintsCard != null) _sprintsCard.IsVisible = Profiles.Enabled(Profiles.Sprints);
         }
 
         /// <summary>Les huit derniers sprints, le plus récent en tête (b48).</summary>

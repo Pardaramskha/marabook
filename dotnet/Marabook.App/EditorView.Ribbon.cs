@@ -13,6 +13,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 using Marabook.Model;
+using Profiles = Marabook.Settings.Profiles;
 
 namespace Marabook.App
 {
@@ -976,8 +977,21 @@ namespace Marabook.App
                 _pageSetup.FooterPageNumbers = _folioBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
+            _looseBtn.IsVisible = Profiles.Enabled(Profiles.LooseLines);
             panel.Children.Add(Stacked(_looseBtn, _folioBtn));
             return panel;
+        }
+
+        /// <summary>Le profil (1.1.0) : « Lignes lâches » et « Lien vers une fiche »
+        /// se cachent ; les lignes lâches ne se dessinent plus tant qu'elles sont
+        /// cachées (le réglage reste), le bouton « Plan » suit les plans.</summary>
+        public void ApplyProfile()
+        {
+            var loose = Profiles.Enabled(Profiles.LooseLines);
+            if (_looseBtn != null) _looseBtn.IsVisible = loose;
+            if (_composed != null) _composed.SetLooseLines(loose && Marabook.Settings.AppSettings.ShowLooseLines);
+            if (_linkBtn != null) _linkBtn.IsVisible = Profiles.Enabled(Profiles.Sheets);
+            RefreshPlanButton();
         }
 
         /// <summary>Le réglage des lignes lâches posé partout : réglages,

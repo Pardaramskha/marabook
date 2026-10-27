@@ -185,6 +185,11 @@ namespace Marabook.Settings
         public static string GlobalStylesStamp = "";
         // Préférences › Auteur (22/09) : l'auteur·ice par défaut des documents
         // qui ne sont pas des livres, et les métadonnées générales par défaut.
+        /// <summary>Le profil d'utilisation (1.1.0) : « ecrivain », « editeur »,
+        /// « cingle », « perso » — null tant que rien n'est choisi (Profiles).</summary>
+        public static string Profile;
+        /// <summary>Les fonctionnalités décochées du profil « Moi-même » (clés de Profiles.Features).</summary>
+        public static HashSet<string> HiddenFeatures = new HashSet<string>();
         public static string DefaultAuthor = "";
         public static string DefaultPublisher = "";
         public static string DefaultCollection = "";
@@ -532,6 +537,9 @@ namespace Marabook.Settings
                 GlobalStyles = globalStyles != null ? Persistence.PlotFile.ReadStylesNode(globalStyles) : null;
                 if (GlobalStyles != null) GlobalStyles.EnsureFootnoteStyle(); // réglages d'avant la 0.50.0
                 GlobalStylesStamp = Json.AsString(Json.Field(root, "globalStylesStamp")) ?? "";
+                var profile = Json.AsString(Json.Field(root, "profile"));
+                Profile = profile != null && Profiles.Find(profile) != null ? profile : null;
+                Profiles.LoadHidden(Json.AsStringList(Json.Field(root, "hiddenFeatures")));
                 DefaultAuthor = Json.AsString(Json.Field(root, "defaultAuthor")) ?? "";
                 DefaultPublisher = Json.AsString(Json.Field(root, "defaultPublisher")) ?? "";
                 DefaultCollection = Json.AsString(Json.Field(root, "defaultCollection")) ?? "";
@@ -683,6 +691,8 @@ namespace Marabook.Settings
                 if (AccentColor != null) root["accentColor"] = AccentColor;
                 if (GlobalStyles != null) root["globalStyles"] = Persistence.PlotFile.BuildStyles(GlobalStyles);
                 if (GlobalStylesStamp.Length > 0) root["globalStylesStamp"] = GlobalStylesStamp;
+                if (Profile != null) root["profile"] = Profile;
+                if (HiddenFeatures.Count > 0) root["hiddenFeatures"] = new List<object>(new List<string>(HiddenFeatures).ToArray());
                 if (DefaultAuthor.Length > 0) root["defaultAuthor"] = DefaultAuthor;
                 if (DefaultPublisher.Length > 0) root["defaultPublisher"] = DefaultPublisher;
                 if (DefaultCollection.Length > 0) root["defaultCollection"] = DefaultCollection;

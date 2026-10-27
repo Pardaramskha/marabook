@@ -65,6 +65,9 @@ namespace Marabook.App
         private bool _navigating; // garde anti-sélection-fantôme (voir OnBinderSelection)
         private MediaView _mediaView;
         private JournalView _journalView;
+        // Les entrées et boutons que le profil (1.1.0) peut cacher.
+        private MenuItem _sprintMenu, _namesMenu, _newSheetMenu, _templatesMenu, _insertLinkMenu;
+        private Button _homeStartSheet, _homeStartPlan;
         private bool _journalOpen; // le journal masque l'inspecteur
         // La FEUILLE du journal (03/10) : un papier aux coins hauts arrondis
         // qui se glisse depuis le bas par-dessus la vue en cours, et redescend
@@ -198,6 +201,9 @@ namespace Marabook.App
             root.Children.Add(BuildReadOnlyBanner());
             root.Children.Add(_statusBar);
             root.Children.Add(BuildContent());
+            // Le profil d'utilisation (1.1.0) : appliqué maintenant, et à chaque changement (Préférences › Profil).
+            Profiles.Changed += ApplyProfile;
+            ApplyProfile();
             // Les toasts de succès (12/09) : par-dessus tout, en bas à droite.
             // L'hôte reste cliquable (18/09 : les toasts à boutons du secours
             // y vivent aussi) ; un toast de succès se déclare inerte lui-même.
@@ -229,8 +235,11 @@ namespace Marabook.App
             // sauvegarde) passent par _busy.Run.
             _busy.Watch(delegate { return _editor != null && _editor.IsProofingBusy; });
             _busy.Watch(delegate { return _statusWarmup != null && _statusWarmup.IsVisible; });
-            Loaded += delegate
+            Loaded += async delegate
             {
+                // « Qui êtes-vous ? » (1.1.0) : tant qu'aucun profil n'est choisi, la
+                // fenêtre du profil passe avant tout — jamais en sonde ni en capture.
+                if (!_launch.Isolated && !Profiles.Chosen) await ProfileWindow.Ask(this);
                 // Le .plot reçu en argument s'ouvre ICI, la fenêtre affichée :
                 // ses dialogues (réserves, secours) veulent un propriétaire
                 // visible — avant Run, ils faisaient tomber l'application
@@ -408,12 +417,15 @@ namespace Marabook.App
             _versionsMenu = Entry("versions-panel", "Versions de l'écrit…", OpenVersionsPanel, TextActive);
             _versionsMenu.ToggleType = MenuItemToggleType.CheckBox;
             edit.Items.Add(_versionsMenu);
-            edit.Items.Add(Entry("session-goal", "Lancer un sprint…", StartSprint));
-            edit.Items.Add(Entry(null, "Indexeur de noms propres…",
-                delegate { ExtractCharacters(_current); }, TextActive)); // b49, renommé le 22/09
+            _sprintMenu = Entry("session-goal", "Lancer un sprint…", StartSprint);
+            edit.Items.Add(_sprintMenu);
+            _namesMenu = Entry(null, "Indexeur de noms propres…",
+                delegate { ExtractCharacters(_current); }, TextActive); // b49, renommé le 22/09
+            edit.Items.Add(_namesMenu);
             edit.Items.Add(new Separator());
             edit.Items.Add(Entry("new-text", "Nouvel écrit", delegate { _binder.NewText(null); }));
-            edit.Items.Add(Entry("new-sheet", "Nouvelle fiche", delegate { _binder.NewSheet(null); }));
+            _newSheetMenu = Entry("new-sheet", "Nouvelle fiche", delegate { _binder.NewSheet(null); });
+            edit.Items.Add(_newSheetMenu);
             edit.Items.Add(Entry("new-folder", "Nouveau dossier", delegate { _binder.NewFolder(null); }));
             edit.Items.Add(Entry("new-book", "Nouveau livre", delegate { _binder.NewBook(null); }));
             edit.Items.Add(Entry("import-media", "Importer dans Recherche…", delegate { _binder.ImportMediaDialog(null); }));
@@ -426,10 +438,12 @@ namespace Marabook.App
             // --- Format ---
             var format = new MenuItem { Header = "F_ormat" };
             format.Items.Add(Entry("styles", "Gérer les styles…", OpenStylesDialog));
-            format.Items.Add(Entry("templates", "Modèles de fiches…", OpenTemplatesDialog));
+            _templatesMenu = Entry("templates", "Modèles de fiches…", OpenTemplatesDialog);
+            format.Items.Add(_templatesMenu);
             format.Items.Add(new Separator());
             format.Items.Add(Entry("insert-footnote", "Note de bas de page", InsertFootnoteInActive, TextOrSheetActive));
-            format.Items.Add(Entry("insert-link", "Lien vers une fiche…", InsertLinkInActive, TextOrSheetActive));
+            _insertLinkMenu = Entry("insert-link", "Lien vers une fiche…", InsertLinkInActive, TextOrSheetActive);
+            format.Items.Add(_insertLinkMenu);
             format.Items.Add(Entry("insert-image", "Insérer une image…", InsertImageInActive, TextOrSheetActive));
             format.Items.Add(Entry("insert-rule", "Ligne horizontale", delegate { RouteToActiveEditor("rule"); }, TextOrSheetActive));
             format.Items.Add(Entry("insert-separator", "Séparateur de scène", delegate { RouteToActiveEditor("separator"); }, TextOrSheetActive));
@@ -1529,8 +1543,10 @@ namespace Marabook.App
                 Margin = new Thickness(0, 0, 0, 6)
             });
             _homeStartSection.Children.Add(HomeStartButton("Nouvel écrit", Buttons.Look.Primary, delegate { _binder.NewText(null); }));
-            _homeStartSection.Children.Add(HomeStartButton("Nouvelle fiche", Buttons.Look.Outline, delegate { _binder.NewSheet(null); }));
-            _homeStartSection.Children.Add(HomeStartButton("Nouveau plan", Buttons.Look.Outline, delegate { _binder.NewPlan(null); }));
+            _homeStartSheet = HomeStartButton("Nouvelle fiche", Buttons.Look.Outline, delegate { _binder.NewSheet(null); });
+            _homeStartSection.Children.Add(_homeStartSheet);
+            _homeStartPlan = HomeStartButton("Nouveau plan", Buttons.Look.Outline, delegate { _binder.NewPlan(null); });
+            _homeStartSection.Children.Add(_homeStartPlan);
             panel.Children.Add(_homeStartSection);
 
             _inspTitle = new TextBlock
@@ -3484,8 +3500,9 @@ namespace Marabook.App
             if (_editor.IsVisible == false
                 && _sheetView.IsVisible == false) return;
             var titles = new List<string>();
-            foreach (var item in _project.AllItems())
-                if (item.Kind == ItemKind.Sheet) titles.Add(item.Title);
+            if (Profiles.Enabled(Profiles.Sheets)) // profil sans fiches (1.1.0) : les liens ne visent que les écrits
+                foreach (var item in _project.AllItems())
+                    if (item.Kind == ItemKind.Sheet) titles.Add(item.Title);
             foreach (var item in _project.AllItems())
                 if (item.Kind == ItemKind.Text && (_current == null || item != _current))
                     titles.Add(item.Title);
@@ -3544,7 +3561,8 @@ namespace Marabook.App
             }
             // Un lien mort (1.0.5) : la fiche se crée ici même, titre
             // pré-rempli, CATÉGORIE au choix — plus de fiche parachutée dans
-            // la première catégorie.
+            // la première catégorie. Sans fiches (profil, 1.1.0) : rien.
+            if (!Profiles.Enabled(Profiles.Sheets)) return;
             var choice = await NewSheetDialog.Ask(this, _project, null, title,
                 "Aucun élément ne s'intitule « " + title + " » — la fiche sera créée :");
             if (choice == null) return;
@@ -3760,8 +3778,8 @@ namespace Marabook.App
             if (errors.Count > 0)
                 MessageDialog.Show(this, "Documents non importés :\n\n" + string.Join("\n", errors.ToArray()),
                     AppName, MessageButtons.OK, MessageIcon.Warning);
-            // Les personnages du texte importé (b49) : proposés, jamais imposés.
-            if (items.Count > 0)
+            // Les personnages du texte importé (b49) : proposés, jamais imposés — ni proposés sans fiches (profil, 1.1.0).
+            if (items.Count > 0 && Profiles.Enabled(Profiles.Sheets))
                 OfferCharacters(items, items.Count == 1 ? items[0].Title : items.Count + " documents importés", false);
         }
 
@@ -4723,9 +4741,41 @@ namespace Marabook.App
         /// <summary>Édition › Lancer un sprint… : une durée (15, 25, 45 min ou
         /// libre) et un objectif de mots ; la pastille suit, le journal
         /// consigne à la fin. Un sprint en cours est d'abord arrêté.</summary>
+        // ------------------------------------------------------------ le profil d'utilisation (1.1.0)
+
+        /// <summary>Le profil cache des fonctionnalités, jamais ne les casse : les
+        /// menus, les boutons de l'Accueil, la Pile, le livre, le ruban, le Journal
+        /// et l'inspecteur se refont. Un sprint en cours se clôt si les sprints
+        /// disparaissent.</summary>
+        private void ApplyProfile()
+        {
+            var sheets = Profiles.Enabled(Profiles.Sheets);
+            var plans = Profiles.Enabled(Profiles.Plans);
+            var sprints = Profiles.Enabled(Profiles.Sprints);
+            if (_sprintMenu != null) _sprintMenu.IsVisible = sprints;
+            if (_namesMenu != null) _namesMenu.IsVisible = sheets;
+            if (_newSheetMenu != null) _newSheetMenu.IsVisible = sheets;
+            if (_templatesMenu != null) _templatesMenu.IsVisible = sheets;
+            if (_insertLinkMenu != null) _insertLinkMenu.IsVisible = sheets;
+            if (_homeStartSheet != null) _homeStartSheet.IsVisible = sheets;
+            if (_homeStartPlan != null) _homeStartPlan.IsVisible = plans;
+            if (!sprints && (_sprintActive || _sprintFinished)) CloseSprint();
+            if (_binder != null) _binder.Rebuild();
+            if (_bookView != null) _bookView.ApplyProfile();
+            if (_corkboard != null) _corkboard.Refresh();
+            if (_editor != null) _editor.ApplyProfile();
+            if (_journalView != null) _journalView.ApplyProfile();
+            if (_homeView != null && _homeView.IsVisible) _homeView.Refresh();
+            if (_project != null) UpdateInspector();
+        }
+
+        /// <summary>Sonde : les entrées de menu que le profil cache.</summary>
+        internal bool SprintMenuShownForProbe { get { return _sprintMenu != null && _sprintMenu.IsVisible; } }
+        internal bool NewSheetMenuShownForProbe { get { return _newSheetMenu != null && _newSheetMenu.IsVisible; } }
+
         private async void StartSprint()
         {
-            if (_project == null) return;
+            if (_project == null || !Profiles.Enabled(Profiles.Sprints)) return; // profil sans sprints (1.1.0) : le raccourci se tait
             var choice = await SprintDialog.Ask(this);
             if (choice == null) return;
             if (_sprintActive) FinishSprint();
@@ -4821,6 +4871,7 @@ namespace Marabook.App
         private SprintStatus SprintStatusNow()
         {
             if (!_sprintActive && !_sprintFinished) return null;
+            if (!Profiles.Enabled(Profiles.Sprints)) return null;
             var elapsed = DateTime.Now - _sprintStart;
             var status = new SprintStatus
             {
@@ -5900,7 +5951,7 @@ namespace Marabook.App
             }
 
             // Le plan d'un livre ou d'un dossier (batch 35).
-            var linkedPlan = item != null && (item.Kind == ItemKind.Book || item.Kind == ItemKind.Folder)
+            var linkedPlan = item != null && (item.Kind == ItemKind.Book || item.Kind == ItemKind.Folder) && Profiles.Enabled(Profiles.Plans)
                 ? _project.PlanForContainer(item.Id) : null;
             _inspPlanLink.Tag = linkedPlan;
             _inspPlanLink.Text = linkedPlan == null ? "" : "⇱ Plan : " + linkedPlan.Title;

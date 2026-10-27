@@ -13,6 +13,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 using Marabook.Model;
+using Profiles = Marabook.Settings.Profiles;
 
 namespace Marabook.App
 {
@@ -211,6 +212,10 @@ namespace Marabook.App
                 new Facet { Name = "Justification", Icon = "text-align-justify-bold", Tip = "Les plages d'espacement du compositeur", Content = BuildJustificationTab() },
                 new Facet { Name = "Enchaînements", Icon = "files-bold", Tip = "Ce qui reste solidaire d'une page à l'autre", Content = BuildKeepsTab() }
             };
+            // Le profil (1.1.0) sans options PAO : Caractère et Paragraphe seulement —
+            // césure, justification et enchaînements gardent leurs valeurs (les
+            // contrôles existent, la synchronisation et l'enregistrement les lisent encore).
+            if (!Profiles.Enabled(Profiles.StylePao)) _facets.RemoveRange(2, _facets.Count - 2);
             var facetsHeader = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 6) };
             facetsHeader.Children.Add(new TextBlock
             {
@@ -264,6 +269,7 @@ namespace Marabook.App
         }
 
         private List<Facet> _facets;
+        internal int FacetCountForProbe { get { return _facets == null ? 0 : _facets.Count; } }
         private WrapPanel _facetBar;
         private ContentControl _facetHost;
         private int _facet = -1;

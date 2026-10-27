@@ -74,6 +74,7 @@ namespace Marabook.App
             Tabs.Classes.Add("column");
             _swatches = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Left };
             Tabs.Items.Add(Tab("Général", BuildPersonalizationTab())); // « Personnalisation » jusqu'à la 1.0.5 — l'en-tête seul change, aucun réglage n'est nommé d'après l'onglet
+            Tabs.Items.Add(Tab("Profil", BuildProfileTab())); // le profil d'utilisation (1.1.0)
             Tabs.Items.Add(Tab("Édition", BuildEditingTab()));
             Tabs.Items.Add(Tab("Correction", BuildProofingTab()));
             Tabs.Items.Add(Tab("Styles globaux", BuildGlobalStylesTab()));
@@ -380,6 +381,16 @@ namespace Marabook.App
         }
 
         // ------------------------------------------------------------ auteur
+
+        /// <summary>Onglet « Profil » (1.1.0) : le même sélecteur que la fenêtre du
+        /// premier lancement — Écrivain·e, Éditeur·ice, Cinglé·e, Moi-même et sa
+        /// table de cases, le nom de plume. Chaque clic s'applique aussitôt.</summary>
+        private Control BuildProfileTab()
+        {
+            var panel = TabPanel();
+            panel.Children.Add(new ProfileChooser(true));
+            return panel;
+        }
 
         private Control BuildAuthorTab()
         {
@@ -709,17 +720,31 @@ namespace Marabook.App
         {
             var panel = TabPanel();
             panel.Children.Add(Note("Cliquez un champ puis tapez la combinaison voulue. Retour arrière retire le raccourci ; « Défaut » restaure celui d'origine.", 0, 4));
+            // Les actions d'une fonctionnalité cachée par le profil (1.1.0) ne se listent pas.
             var categories = new List<string>();
             foreach (var action in AppSettings.Actions)
-                if (!categories.Contains(action.Category)) categories.Add(action.Category);
+                if (ActionShown(action) && !categories.Contains(action.Category)) categories.Add(action.Category);
             foreach (var category in categories)
             {
                 panel.Children.Add(Caption(category, 10));
                 foreach (var action in AppSettings.Actions)
-                    if (action.Category == category)
+                    if (action.Category == category && ActionShown(action))
                         panel.Children.Add(ShortcutRow(action));
             }
             return panel;
+        }
+
+        private static bool ActionShown(ActionDefinition action)
+        {
+            switch (action.Id)
+            {
+                case "session-goal": return Profiles.Enabled(Profiles.Sprints);
+                case "new-sheet":
+                case "insert-link":
+                case "templates": return Profiles.Enabled(Profiles.Sheets);
+                case "loose-lines": return Profiles.Enabled(Profiles.LooseLines);
+                default: return true;
+            }
         }
 
         private Control ShortcutRow(ActionDefinition action)

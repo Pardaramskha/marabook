@@ -2018,12 +2018,12 @@ namespace Marabook.App
                 await Settle();
                 Check(Chrome.Ink.Color == before, "…et revient");
 
-                // — Les Préférences : huit onglets, chacun un contenu.
+                // — Les Préférences : neuf onglets (Profil depuis la 1.1.0), chacun un contenu.
                 var prefs = new PreferencesDialog(shell, shell.Project);
                 prefs.Show(shell);
                 await Settle();
                 // …plus ceux des modules chargés (le filet « DLC » et l'onglet de chaque DLC, 26/10 soir).
-                Check(prefs.Tabs.Items.Count == 8 + prefs.ModuleTabCount, "les Préférences ont huit onglets (" + prefs.Tabs.Items.Count + ", dont " + prefs.ModuleTabCount + " des modules)");
+                Check(prefs.Tabs.Items.Count == 9 + prefs.ModuleTabCount, "les Préférences ont neuf onglets (" + prefs.Tabs.Items.Count + ", dont " + prefs.ModuleTabCount + " des modules)");
                 Check(prefs.Tabs.TabStripPlacement == Dock.Left && prefs.Tabs.Classes.Contains("column"), "…en colonne à gauche (24/10)");
                 Check(prefs.Height >= 420 && Math.Abs(prefs.Height - Math.Max(420, Dialogs.AvailableHeight(shell))) < 1 && prefs.Bounds.Height <= Dialogs.AvailableHeight(shell) + 1, "…et la fenêtre prend toute la hauteur disponible de l'écran sans en sortir (" + prefs.Bounds.Height.ToString("0") + " px sur " + Dialogs.AvailableHeight(shell).ToString("0") + ")");
                 var titles = new List<string>();
@@ -2284,6 +2284,8 @@ namespace Marabook.App
 
                 // ================================================== 1.1.0 (26/10)
                 await Probe110(shell);
+                // ================================================== 1.1.0 : les profils (27/10)
+                await ProbeProfiles(shell);
             }
             catch (Exception error)
             {
@@ -2527,6 +2529,71 @@ namespace Marabook.App
             }
             prefs.Close();
             await Settle();
+        }
+
+        /// <summary>Les profils (1.1.0, 27/10) : sans profil tout est actif ;
+        /// Éditeur·ice cache Fiches, Plans et sprints ; Écrivain·e cache l'onglet
+        /// Gabarits & Format, les détails d'édition, les pages éditeur et les
+        /// facettes PAO des styles ; Moi-même coche au détail. Le profil est
+        /// remis tel qu'il était en sortant.</summary>
+        private static async Task ProbeProfiles(MainWindow shell)
+        {
+            var before = AppSettings.Profile;
+            var hiddenBefore = new List<string>(AppSettings.HiddenFeatures);
+            try
+            {
+                Check(!Profiles.Chosen && Profiles.Enabled(Profiles.Sheets) && Profiles.Enabled(Profiles.BookFormat), "sans profil choisi, tout est actif");
+                Check(Profiles.HiddenBy(Profiles.Writer).Length == 8 && Profiles.HiddenBy(Profiles.Publisher).Length == 3 && Profiles.HiddenBy(Profiles.Everything).Length == 0,
+                    "les profils prédéfinis cachent 8, 3 et 0 fonctionnalités");
+
+                Profiles.Choose(Profiles.Publisher);
+                await Settle();
+                var rows = shell.Binder.TopRowsForProbe();
+                var joined = string.Join(" | ", rows.ToArray());
+                Check(!rows.Contains("Fiches") && !rows.Contains("Plans") && rows.Contains("Dictionnaire") && rows.Contains("Encyclopédie") && rows.Contains("Structure"),
+                    "profil Éditeur·ice : la Pile cache Fiches et Plans, garde Dictionnaire et ses sections (" + joined + ")");
+                Check(!shell.SprintMenuShownForProbe && !shell.NewSheetMenuShownForProbe, "…Lancer un sprint et Nouvelle fiche sortent des menus");
+                var sheet = FirstOfKind(shell.Project, ItemKind.Sheet);
+                Check(sheet != null && !ItemTiles.IsLinkable(sheet), "…une fiche n'est plus liable (modules, tuiles de l'Accueil)");
+
+                Profiles.Choose(Profiles.Writer);
+                await Settle();
+                rows = shell.Binder.TopRowsForProbe();
+                Check(rows.Contains("Fiches") && rows.Contains("Plans") && shell.SprintMenuShownForProbe, "profil Écrivain·e : Fiches, Plans et sprint reviennent");
+                var writings = shell.Project.Category(Project.KeyWritings);
+                var book = writings.Children.Count > 1 ? writings.Children[1] : null;
+                if (book != null) shell.Binder.SelectItem(book.Id, true);
+                await Settle();
+                var bookView = shell.BookViewPublic;
+                Check(bookView.IsVisible && !bookView.FormatTabShownForProbe, "…l'onglet Gabarits & Format est caché");
+                Check(!bookView.EditionDetailsShownForProbe, "…les détails de publication, de destination et commerciaux sont repliés");
+                Check(!bookView.ExtraPageButtonsShownForProbe, "…plus de Nouvelle liminaire / page de fin / annexe");
+                Check(bookView.StylesFacetCountForProbe == 2, "…les styles n'ont que Caractère et Paragraphe (" + bookView.StylesFacetCountForProbe + " facettes)");
+                Check(!BookFlow.Enabled(book), "…les enchaînements de pages se taisent (le réglage du livre reste " + (book.Book == null || book.Book.FlowWarnings) + ")");
+
+                Profiles.Choose(Profiles.Custom);
+                Profiles.SetHidden(Profiles.Sprints, true);
+                await Settle();
+                Check(bookView.FormatTabShownForProbe && !shell.SprintMenuShownForProbe && shell.NewSheetMenuShownForProbe,
+                    "profil Moi-même : décocher Sprints cache le sprint seul, le livre retrouve ses onglets");
+                var chooser = new ProfileChooser(true);
+                Check(chooser.Selected == Profiles.Custom && chooser.FeatureTableShownForProbe, "le sélecteur reprend le profil et montre la table des cases pour Moi-même");
+                chooser.Select(Profiles.Everything, false);
+                Check(!chooser.FeatureTableShownForProbe, "…la table se cache pour les autres profils");
+            }
+            finally
+            {
+                AppSettings.Profile = before;
+                Profiles.LoadHidden(hiddenBefore);
+                Profiles.Notify();
+                await Settle();
+            }
+        }
+
+        private static BinderItem FirstOfKind(Project project, ItemKind kind)
+        {
+            foreach (var item in project.AllItems()) if (item.Kind == kind) return item;
+            return null;
         }
     }
 }

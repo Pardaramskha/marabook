@@ -14,6 +14,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 using Marabook.Model;
+using Profiles = Marabook.Settings.Profiles;
 
 namespace Marabook.App
 {
@@ -77,6 +78,7 @@ namespace Marabook.App
         /// <summary>Le plan dont une colonne est reliée à l'écrit, ou null — posé par la coquille.</summary>
         public Func<BinderItem, BinderItem> PlanLocator;
         private Button _planBtn;
+        private Button _linkBtn; // « Lien vers une fiche » du ruban Insertion, masquable par le profil (1.1.0)
 
         private Border _searchBar;
         private TextBox _searchBox, _replaceBox;
@@ -588,6 +590,8 @@ namespace Marabook.App
                 var handler = LinkRequested;
                 if (handler != null) handler();
             };
+            _linkBtn = link;
+            link.IsVisible = Profiles.Enabled(Profiles.Sheets);
             // Afficher/Masquer les liens (18/09) : montrés, les marques
             // [[…]] apparaissent et le texte du lien est en évidence, un
             // clic l'ouvre ; masqués (défaut), le texte seul, Ctrl+clic.
@@ -1804,7 +1808,7 @@ namespace Marabook.App
             _composed = new ComposedView { IsVisible = false };
             _composed.Edited += delegate { NotifyEdited(); };
             _composed.StylesRestored += delegate(StyleSheet sheet) { var h = StylesRestored; if (h != null) h(sheet); };
-            _composed.LooseLinesRequested += delegate { ApplyLooseLines(!Marabook.Settings.AppSettings.ShowLooseLines); };
+            _composed.LooseLinesRequested += delegate { if (Profiles.Enabled(Profiles.LooseLines)) ApplyLooseLines(!Marabook.Settings.AppSettings.ShowLooseLines); };
             _composed.MarksRequested += delegate
             {
                 // Le raccourci « Caractères d'impression » (22/09) : même
@@ -2021,7 +2025,7 @@ namespace Marabook.App
         public void RefreshPlanButton()
         {
             if (_planBtn == null) return;
-            var plan = _item == null || PlanLocator == null ? null : PlanLocator(_item);
+            var plan = _item == null || PlanLocator == null || !Profiles.Enabled(Profiles.Plans) ? null : PlanLocator(_item);
             _planBtn.IsVisible = plan != null ? true : false;
             if (plan != null) ToolTip.SetTip(_planBtn, "Ouvrir le plan « " + plan.Title + " » (une colonne raconte cet écrit)");
         }

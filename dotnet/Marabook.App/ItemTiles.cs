@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Marabook.Model;
+using Marabook.Settings;
 
 namespace Marabook.App
 {
@@ -40,9 +41,19 @@ namespace Marabook.App
         /// ni élément de la corbeille.</summary>
         public static bool IsLinkable(BinderItem item)
         {
-            if (item == null || item.IsCategory) return false;
+            if (item == null || item.IsCategory || !ShownByProfile(item)) return false;
             var root = item.RootCategory();
             return root == null || root.CategoryKey != Project.KeyTrash;
+        }
+
+        /// <summary>Le profil (1.1.0) cache les fiches ou les plans : leurs tuiles
+        /// ne se proposent plus (Accueil, épinglés, modules). L'élément, lui, reste.</summary>
+        public static bool ShownByProfile(BinderItem item)
+        {
+            if (item == null) return false;
+            if (item.Kind == ItemKind.Sheet) return Profiles.Enabled(Profiles.Sheets);
+            if (item.Kind == ItemKind.Plan) return Profiles.Enabled(Profiles.Plans);
+            return true;
         }
 
         public static Control Build(Project project, BinderItem item, double width, bool condensed)

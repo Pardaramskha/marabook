@@ -14,6 +14,7 @@ using Avalonia.VisualTree;
 using Marabook.Correction;
 using Marabook.History;
 using Marabook.Model;
+using Profiles = Marabook.Settings.Profiles;
 
 namespace Marabook.App
 {
@@ -28,6 +29,9 @@ namespace Marabook.App
         private StackPanel _planActions; // racine Plans : « + Nouveau plan » (b35)
         private StackPanel _mindMapActions; // racine Cartes mentales (22/09)
         private WrapPanel _bookActions;    // livre : Nouvel écrit / Nouvelle partie / Nouvelle liminaire / page de fin / annexe (14/09, b49) — replié si étroit
+        private readonly List<Control> _extraPageActions = new List<Control>(); // les trois boutons de pages extra, masquables par le profil (1.1.0)
+        private readonly List<Control> _extraFilter = new List<Control>();      // le filtre « Extras : » du tableau, idem
+        internal bool ExtraPageButtonsShownForProbe { get { return _extraPageActions.Count > 0 && _extraPageActions[0].IsVisible; } }
         private StackPanel _folderActions; // dossier d'Écrits : Nouvel écrit / Nouveau sous-dossier (14/09)
         private StackPanel _writingsActions; // racine Écrits : Nouvel écrit / dossier / livre (12/09)
         private StackPanel _researchActions; // racine Recherche : Importer des fichiers (12/09)
@@ -191,16 +195,19 @@ namespace Marabook.App
             bookExtra.Margin = new Thickness(8, 0, 0, 6);
             bookExtra.Click += delegate { OpenExtraMenu(bookExtra, ExtraPages.SectionFront); };
             _bookActions.Children.Add(bookExtra);
+            _extraPageActions.Add(bookExtra);
             var bookBack = Buttons.IconText("file-dashed-bold", "Nouvelle page de fin",
                 "Après le corps : postface, remerciements, à propos de l'auteur, achevé d'imprimer…", Buttons.Bar, Buttons.Look.Outline);
             bookBack.Margin = new Thickness(8, 0, 0, 6);
             bookBack.Click += delegate { OpenExtraMenu(bookBack, ExtraPages.SectionBack); };
             _bookActions.Children.Add(bookBack);
+            _extraPageActions.Add(bookBack);
             var bookAnnex = Buttons.IconText("file-dashed-bold", "Nouvelle annexe",
                 "Tout à la fin : glossaire, index, chronologie, bibliographie, notes, cartes…", Buttons.Bar, Buttons.Look.Outline);
             bookAnnex.Margin = new Thickness(8, 0, 0, 6);
             bookAnnex.Click += delegate { OpenExtraMenu(bookAnnex, ExtraPages.SectionAnnex); };
             _bookActions.Children.Add(bookAnnex);
+            _extraPageActions.Add(bookAnnex);
             // Dossier d'Écrits (14/09) : « Nouvel écrit » (principal), « Nouveau sous-dossier ».
             _folderActions = new StackPanel
             {
@@ -447,10 +454,13 @@ namespace Marabook.App
             { "Peu importe", "Avec", "Sans" }, 96);
             row.Children.Add(_filterAnnotations);
 
-            row.Children.Add(FilterLabel("Extras :"));
+            var extrasLabel = FilterLabel("Extras :");
+            row.Children.Add(extrasLabel);
             _filterExtras = FilterCombo(new[]
             { "Peu importe", "Extras", "Hors extras" }, 96);
             row.Children.Add(_filterExtras);
+            _extraFilter.Add(extrasLabel);
+            _extraFilter.Add(_filterExtras);
 
             var clear = new Button
             {
@@ -787,7 +797,7 @@ namespace Marabook.App
                     };
                     menu.Items.Add(export);
                 }
-                if (IsDivergent(itemRef))
+                if (IsDivergent(itemRef) && Profiles.Enabled(Profiles.BookFormat))
                 {
                     var bookRef = _folder.EnclosingBook();
                     var applyBook = new MenuItem { Header = "Appliquer le gabarit du livre au document" };
@@ -802,7 +812,7 @@ namespace Marabook.App
                     menu.Items.Add(applyBook);
                 }
                 if (itemRef.Kind == ItemKind.Text && _folder != null
-                    && _folder.EnclosingBook() != null)
+                    && _folder.EnclosingBook() != null && Profiles.Enabled(Profiles.BookFormat))
                 {
                     var apply = new MenuItem { Header = "Appliquer un gabarit…" };
                     apply.Click += delegate
@@ -815,7 +825,10 @@ namespace Marabook.App
                         handler(targets);
                     };
                     menu.Items.Add(apply);
-
+                }
+                if (itemRef.Kind == ItemKind.Text && _folder != null
+                    && _folder.EnclosingBook() != null && Profiles.Enabled(Profiles.BookExtraPages))
+                {
                     // Page extra : hors du récit — sans folio, exclue de la
                     // table des matières. La coche marque l'état actif.
                     var extra = new MenuItem
@@ -898,6 +911,10 @@ namespace Marabook.App
             _templateCards.Children.Clear();
             if (_folder == null) return;
             _bookActions.IsVisible = _folder.Kind == ItemKind.Book && BookTexts ? true : false;
+            // Le profil (1.1.0) peut cacher les pages éditeur : leurs boutons et leur filtre.
+            var extraPages = Profiles.Enabled(Profiles.BookExtraPages);
+            foreach (var control in _extraPageActions) control.IsVisible = extraPages;
+            foreach (var control in _extraFilter) control.IsVisible = extraPages;
             _folderActions.IsVisible = _folder.Kind == ItemKind.Folder && _folder.RootCategory().CategoryKey == Project.KeyWritings
                 ? true : false;
             _planActions.IsVisible = IsRoot(Project.KeyPlans) ? true : false;
@@ -1486,8 +1503,9 @@ namespace Marabook.App
                     "Page vierge tout à la fin du livre");
                 AddExtraEntry(menu, "Glossaire", ExtraPages.KindGlossary,
                     "Les mots du Dictionnaire du projet qui ont une définition — mise à jour dynamique");
-                AddExtraEntry(menu, "Index des personnages et des lieux", ExtraPages.KindIndex,
-                    "Les fiches Personnage et Lieu nommées dans le livre, avec les folios — mise à jour dynamique");
+                if (Profiles.Enabled(Profiles.Sheets)) // l'index vient des fiches (1.1.0)
+                    AddExtraEntry(menu, "Index des personnages et des lieux", ExtraPages.KindIndex,
+                        "Les fiches Personnage et Lieu nommées dans le livre, avec les folios — mise à jour dynamique");
                 AddExtraEntry(menu, "Chronologie", ExtraPages.KindChronology,
                     "Les dates du récit, une par ligne");
                 AddExtraEntry(menu, "Bibliographie", ExtraPages.KindBibliography,
@@ -1615,7 +1633,7 @@ namespace Marabook.App
             // la carte était trop discret.
             var enclosing = _folder == null ? null : _folder.EnclosingBook();
             var divergent = enclosing != null && enclosing.Book != null && item.Kind == ItemKind.Text
-                && _project != null && !item.IsInsideOutOfBook() && IsDivergent(item); // le Hors-livre ne suit pas le gabarit (29/09)
+                && _project != null && !item.IsInsideOutOfBook() && Profiles.Enabled(Profiles.BookFormat) && IsDivergent(item); // le Hors-livre ne suit pas le gabarit (29/09) ; profil sans gabarits (1.1.0)
             if (divergent)
             {
                 var warning = Icons.Make("warning-fill", 12, new SolidColorBrush(Color.FromRgb(230, 126, 34))) as Control;

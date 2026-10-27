@@ -14,6 +14,7 @@ using Avalonia.VisualTree;
 
 using Marabook.Correction;
 using Marabook.Model;
+using Marabook.Settings;
 
 namespace Marabook.App
 {
@@ -138,11 +139,42 @@ namespace Marabook.App
                 if (item.ExtraKind == ExtraPages.KindTitle) hasTitle = true;
                 if (item.IsToc || item.ExtraKind == ExtraPages.KindToc || item.ExtraKind == ExtraPages.KindTocBack) hasToc = true;
             }
-            Row(hasTitle, hasTitle ? "Page de titre présente" : "Pas de page de titre", hasTitle ? null : "Textes › Nouvelle liminaire › Page de titre");
-            Row(hasToc, hasToc ? "Table des matières présente" : "Pas de table des matières", hasToc ? null : "Textes › Nouvelle liminaire › Table des matières");
-            Info(front + " liminaire" + (front > 1 ? "s" : "") + ", " + back + " page" + (back > 1 ? "s" : "") + " de fin, " + annex + " annexe" + (annex > 1 ? "s" : ""));
+            // La check-list d'édition (page de titre, table des matières, gabarits,
+            // format, enchaînements, métadonnées, couverture) se tait pour un
+            // profil qui ne publie pas (1.1.0) : l'écrivain·e garde l'avancement et les tailles.
+            var edition = Profiles.Enabled(Profiles.BookChecklistEdition);
+            if (edition)
+            {
+                Row(hasTitle, hasTitle ? "Page de titre présente" : "Pas de page de titre", hasTitle ? null : "Textes › Nouvelle liminaire › Page de titre");
+                Row(hasToc, hasToc ? "Table des matières présente" : "Pas de table des matières", hasToc ? null : "Textes › Nouvelle liminaire › Table des matières");
+                Info(front + " liminaire" + (front > 1 ? "s" : "") + ", " + back + " page" + (back > 1 ? "s" : "") + " de fin, " + annex + " annexe" + (annex > 1 ? "s" : ""));
+            }
 
             // — Gabarit et mise en page.
+            if (edition) ChecklistEdition(book);
+
+            // — Tailles : le récit seul, puis tout ce qui s'imprime.
+            var all = new List<BinderItem>();
+            foreach (var item in Descendants(_item)) if (item.Kind == ItemKind.Text) all.Add(item);
+            SizeHeader();
+            SizeRow("Récit (chapitres)", story);
+            var extras = new List<BinderItem>();
+            foreach (var item in all) if (item.IsExtraPage || item.IsToc) extras.Add(item);
+            SizeRow("Liminaires, pages de fin, annexes", extras);
+            SizeRow("Livre entier", all);
+
+            // — Statistiques : un texte par ligne, dans l'ordre des pages.
+            StatsHeader();
+            var ordered = new List<BinderItem>();
+            BookFlow.Texts(_item, ordered);
+            foreach (var text in ordered) StatsRow(text);
+            _statsBox.IsVisible = ordered.Count > 0;
+        }
+
+        /// <summary>Les lignes d'édition de la check-list : gabarits, format,
+        /// enchaînement des pages, métadonnées, couverture.</summary>
+        private void ChecklistEdition(BookInfo book)
+        {
             var templates = 0;
             foreach (var child in _item.Children) if (child.Kind == ItemKind.PageTemplate) templates++;
             Row(templates > 0, templates > 0 ? templates + " gabarit" + (templates > 1 ? "s" : "") + " de pages" : "Aucun gabarit de pages (en-têtes, pieds, folios)", templates > 0 ? null : "Gabarits & Format › Nouveau gabarit");
@@ -183,23 +215,6 @@ namespace Marabook.App
             Row(missing.Count == 0, missing.Count == 0 ? "Métadonnées d'édition complètes" : "Métadonnées d'édition incomplètes",
                 missing.Count == 0 ? null : "Manque : " + Join(missing, 9) + " (onglet Édition)");
             Row(_item.ImageId != null, _item.ImageId != null ? "Couverture posée" : "Pas de couverture", _item.ImageId != null ? null : "Onglet Édition › Couverture");
-
-            // — Tailles : le récit seul, puis tout ce qui s'imprime.
-            var all = new List<BinderItem>();
-            foreach (var item in Descendants(_item)) if (item.Kind == ItemKind.Text) all.Add(item);
-            SizeHeader();
-            SizeRow("Récit (chapitres)", story);
-            var extras = new List<BinderItem>();
-            foreach (var item in all) if (item.IsExtraPage || item.IsToc) extras.Add(item);
-            SizeRow("Liminaires, pages de fin, annexes", extras);
-            SizeRow("Livre entier", all);
-
-            // — Statistiques : un texte par ligne, dans l'ordre des pages.
-            StatsHeader();
-            var ordered = new List<BinderItem>();
-            BookFlow.Texts(_item, ordered);
-            foreach (var text in ordered) StatsRow(text);
-            _statsBox.IsVisible = ordered.Count > 0;
         }
 
         /// <summary>Une ligne de l'accordéon : quatre colonnes aux largeurs des
