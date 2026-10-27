@@ -1699,17 +1699,18 @@ namespace Marabook.App
             if (item.Kind == ItemKind.MindMap)
             {
                 // Une tuile de carte mentale (22/09) : la vignette du module
-                // (boîtes et liens en schéma) si le module est là, puis le
-                // résumé lu par Marabook lui-même.
+                // (boîtes et liens en schéma) si le module est là, sur toute la
+                // largeur de la carte comme une image de tuile, puis le compte
+                // lu par Marabook lui-même — sans extrait des boîtes (27/10, Rémi).
                 var summary = MindMaps.Inspect(item.MapBytes);
                 var provider = MindMapModules.Provider;
-                var thumbnail = provider == null || item.MapBytes == null ? null : provider.Thumbnail(item.MapBytes, 186, 96);
+                var thumbnail = provider == null || item.MapBytes == null ? null : provider.Thumbnail(item.MapBytes, 210 - 2 - 16, 96);
                 if (thumbnail != null)
                 {
-                    thumbnail.Margin = new Thickness(0, 0, 0, 6);
+                    thumbnail.Margin = new Thickness(8, 8, 8, 0);
                     body.Children.Add(thumbnail);
                 }
-                text = summary.Label + (summary.Preview.Length > 0 ? "\n" + summary.Preview : "");
+                text = summary.Label;
                 if (provider == null) text += "\n(module Mental-o absent : Préférences › DLC)";
             }
             if (text.Length == 0 && item.Kind == ItemKind.Text && !imageOnly)
