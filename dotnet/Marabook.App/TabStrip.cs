@@ -79,10 +79,7 @@ namespace Marabook.App
                 _views.Add(view);
                 _panel.Children.Add(view);
             }
-            // Les séparateurs : un trait à droite de chaque onglet inactif,
-            // sauf devant l'actif (comme Chrome) et après le dernier.
-            for (var i = 0; i < _views.Count; i++)
-                _views[i].ShowSeparator = !_views[i].IsActive && i + 1 < _views.Count && !_views[i + 1].IsActive;
+            // Plus de séparateurs (28/10, Rémi) : chaque onglet a son contour.
             _panel.Children.Add(_plus);
             var gesture = AppSettings.DisplayGesture(AppSettings.Gesture("new-tab") ?? "");
             _plus.IsEnabled = _model.CanOpen;
@@ -146,31 +143,60 @@ namespace Marabook.App
 
             public TabsPanel(Button plus) { _plus = plus; }
 
-            private double TabWidth(double available)
+            // Chaque onglet prend la largeur de son contenu (icône, titre,
+            // croix — 28/10, Rémi : « rapproche les onglets »), plafonnée à
+            // 220 px ; quand la rangée déborde, tous se serrent à parts égales,
+            // jamais sous 48 px.
+            private readonly Dictionary<Control, double> _wanted = new Dictionary<Control, double>();
+
+            private double Fit(double available)
             {
-                var tabs = Children.Count - (Children.Contains(_plus) ? 1 : 0);
-                if (tabs <= 0) return 0;
+                var tabs = 0;
+                double total = 0;
+                foreach (var child in Children)
+                {
+                    if (ReferenceEquals(child, _plus)) continue;
+                    tabs++;
+                    double wanted;
+                    total += _wanted.TryGetValue(child, out wanted) ? wanted : TabMinWidth;
+                }
+                if (tabs <= 0) return TabMaxWidth;
                 var room = Math.Max(0, available - (Buttons.Compact + PlusGap));
-                return Math.Max(TabMinWidth, Math.Min(TabMaxWidth, Math.Floor(room / tabs)));
+                if (total <= room) return TabMaxWidth; // chacun sa largeur voulue
+                return Math.Max(TabMinWidth, Math.Floor(room / tabs)); // serrés à parts égales
+            }
+
+            private double WidthOf(Control child, double cap)
+            {
+                double wanted;
+                if (!_wanted.TryGetValue(child, out wanted)) wanted = TabMinWidth;
+                return Math.Max(TabMinWidth, Math.Min(cap, wanted));
             }
 
             protected override Size MeasureOverride(Size availableSize)
             {
                 var width = double.IsInfinity(availableSize.Width) ? 800 : availableSize.Width;
                 var height = double.IsInfinity(availableSize.Height) ? 32 : availableSize.Height;
-                var tabWidth = TabWidth(width);
+                _wanted.Clear();
+                foreach (var child in Children)
+                {
+                    if (ReferenceEquals(child, _plus)) continue;
+                    child.Measure(new Size(TabMaxWidth, height));
+                    _wanted[child] = Math.Ceiling(child.DesiredSize.Width);
+                }
+                var cap = Fit(width);
                 double x = 0;
                 foreach (var child in Children)
                 {
                     if (ReferenceEquals(child, _plus)) { child.Measure(new Size(Buttons.Compact, height)); x += PlusGap + child.DesiredSize.Width; }
-                    else { child.Measure(new Size(tabWidth, height)); x += tabWidth; }
+                    else { var w = WidthOf(child, cap); child.Measure(new Size(w, height)); x += w; }
                 }
                 return new Size(Math.Min(width, x), height);
             }
 
             protected override Size ArrangeOverride(Size finalSize)
             {
-                var tabWidth = TabWidth(finalSize.Width);
+                var cap = Fit(finalSize.Width);
                 double x = 0;
                 foreach (var child in Children)
                 {
@@ -183,8 +209,9 @@ namespace Marabook.App
                     }
                     else
                     {
-                        child.Arrange(new Rect(x, 0, tabWidth, finalSize.Height));
-                        x += tabWidth;
+                        var w = WidthOf(child, cap);
+                        child.Arrange(new Rect(x, 0, w, finalSize.Height));
+                        x += w;
                     }
                 }
                 return finalSize;
@@ -247,7 +274,7 @@ namespace Marabook.App
                 };
                 Grid.SetColumn(_title, 1);
                 Children.Add(_title);
-                ToolTip.SetTip(this, TitleOf(item));
+                // Pas d'infobulle au survol d'un onglet (28/10, Rémi).
 
                 _close = new Border
                 {
@@ -258,9 +285,9 @@ namespace Marabook.App
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(0, 0, Corner + 2, 0),
                     Child = Icons.Make("x-bold", 9, ink),
-                    Cursor = new Cursor(StandardCursorType.Hand),
-                    IsVisible = active,
-                    [ToolTip.TipProperty] = "Fermer l'onglet"
+                    Cursor = new Cursor(StandardCursorType.Hand)
+                    // Toujours visible (28/10) : l'onglet prend la largeur de son
+                    // contenu, une croix qui va et vient le ferait sauter.
                 };
                 _close.PointerEntered += delegate { _close.Background = Chrome.Border; };
                 _close.PointerExited += delegate { _close.Background = Brushes.Transparent; };
@@ -274,8 +301,8 @@ namespace Marabook.App
                 Grid.SetColumn(_close, 2);
                 Children.Add(_close);
 
-                PointerEntered += delegate { _hover = true; if (!IsActive) _close.IsVisible = Bounds.Width >= 90; _face.InvalidateVisual(); };
-                PointerExited += delegate { _hover = false; if (!IsActive) _close.IsVisible = false; _face.InvalidateVisual(); };
+                PointerEntered += delegate { _hover = true; _face.InvalidateVisual(); };
+                PointerExited += delegate { _hover = false; _face.InvalidateVisual(); };
                 PointerPressed += delegate(object sender, PointerPressedEventArgs e)
                 {
                     var point = e.GetCurrentPoint(this);
@@ -311,8 +338,6 @@ namespace Marabook.App
                 if (w <= 0 || h <= 0) return;
                 var IsActive = _tab.IsActive;
                 var _hover = _tab.Hover;
-                var ShowSeparator = _tab.ShowSeparator;
-                if (IsActive || _hover)
                 {
                     var r = Math.Min(Corner, Math.Min(w / 4, h / 2));
                     var geometry = new StreamGeometry();
@@ -330,18 +355,18 @@ namespace Marabook.App
                     }
                     if (IsActive)
                     {
-                        // Le fond de la languette descend d'un pixel sous la
-                        // rangée : il efface le filet du bas sous l'onglet.
-                        context.DrawGeometry(Chrome.WindowBg, new Pen(Chrome.Border, 1), geometry);
-                        context.FillRectangle(Chrome.WindowBg, new Rect(r, h - 1, Math.Max(0, w - 2 * r), 1.5));
+                        // L'actif (28/10, Rémi) : fond à la teinte d'accent,
+                        // contour d'accent doux ; le fond descend d'un pixel
+                        // sous la rangée et efface le filet du bas sous lui.
+                        context.DrawGeometry(Chrome.AccentTint, new Pen(Chrome.AccentSoft, 1), geometry);
+                        context.FillRectangle(Chrome.AccentTint, new Rect(r, h - 1, Math.Max(0, w - 2 * r), 1.5));
                     }
                     else
-                        context.DrawGeometry(Chrome.BarBgLight, null, geometry);
-                }
-                if (ShowSeparator && !_hover)
-                {
-                    var top = Math.Max(6, h * 0.25);
-                    context.FillRectangle(Chrome.Border, new Rect(w - 0.5, top, 1, Math.Max(0, h - 2 * top)));
+                    {
+                        // Un inactif garde un contour contrasté (28/10, Rémi :
+                        // « sinon ils se fondent dans le fond ») ; il s'éclaire au survol.
+                        context.DrawGeometry(_hover ? (IBrush)Chrome.BarBgLight : Chrome.BarBg, new Pen(Chrome.BorderStrong, 1), geometry);
+                    }
                 }
             }
         }

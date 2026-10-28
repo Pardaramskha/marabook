@@ -10,8 +10,21 @@ namespace Marabook.Model
     public class WorkTab
     {
         public string ItemId;
+        // La POSITION gardée pour l'onglet (28/10, Rémi) : le caret et le
+        // défilement d'un écrit tels qu'on les a quittés — de la session
+        // seulement, jamais écrits dans le .plot. -1 = rien de retenu.
+        public int Paragraph = -1, Offset;
+        public double ScrollY = -1;
 
         public WorkTab(string itemId) { ItemId = itemId; }
+
+        public void Remember(int paragraph, int offset, double scrollY)
+        {
+            Paragraph = paragraph; Offset = offset; ScrollY = scrollY;
+        }
+
+        public void Forget() { Paragraph = -1; Offset = 0; ScrollY = -1; }
+        public bool HasPosition { get { return Paragraph >= 0; } }
     }
 
     /// <summary>La RANGÉE D'ONGLETS (1.1.0) : une liste ordonnée, un actif,
@@ -80,6 +93,7 @@ namespace Marabook.Model
             }
             if (tab.ItemId == itemId) return false;
             tab.ItemId = itemId;
+            tab.Forget(); // un autre élément : la position retenue ne vaut plus
             return true;
         }
 

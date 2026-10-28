@@ -2764,7 +2764,7 @@ namespace Marabook.App
                 var bar = shell.Binder.SearchBarForTabs;
                 Check(bar != null && Math.Abs(strip.Bounds.Height - bar.Bounds.Height) < 1.5,
                     "…à la hauteur de la barre de recherche de la Pile (" + strip.Bounds.Height.ToString("0") + " / " + (bar == null ? 0 : bar.Bounds.Height).ToString("0") + " px)");
-                var text = FirstOfKind(project, ItemKind.Text);
+                var text = FirstTitled(project, "Chapitre premier") ?? FirstOfKind(project, ItemKind.Text); // un écrit à deux paragraphes (la position gardée)
                 shell.Binder.SelectItem(text.Id, true);
                 await Settle();
                 Check(tabs.Count >= 1 && tabs.ActiveItemId == text.Id, "l'onglet actif suit ce que la Pile ouvre (" + tabs.Count + " onglet(s))");
@@ -2779,6 +2779,25 @@ namespace Marabook.App
                 shell.ActivateTabForProbe(0);
                 await Settle();
                 Check(tabs.ActiveIndex == 0 && shell.CurrentForProbe == text && strip.ActiveIndexForProbe == 0, "activer un onglet rouvre son élément dans la vue, la Pile suit");
+                // La position gardée par onglet (28/10, Rémi) : le caret posé
+                // loin du début revient au même endroit après un aller-retour.
+                var composed = shell.Composed;
+                composed.PlaceCaret(0, 5, false);
+                await Settle();
+                shell.ActivateTabForProbe(1);
+                await Settle();
+                Check(tabs[0].HasPosition && tabs[0].Paragraph == 0 && tabs[0].Offset == 5, "quitter un onglet retient le caret de son écrit (" + tabs[0].Paragraph + ":" + tabs[0].Offset + ")");
+                shell.ActivateTabForProbe(0);
+                await Settle();
+                await Settle();
+                int backParagraph, backOffset;
+                composed.GetCaret(out backParagraph, out backOffset);
+                Check(shell.CurrentForProbe == text && backParagraph == 0 && backOffset == 5, "…et le retrouve au retour (" + backParagraph + ":" + backOffset + ")");
+                shell.Binder.SelectItem(home.Id, true);
+                await Settle();
+                Check(!tabs[0].HasPosition, "la Pile ouvre autre chose dans l'onglet : la position retenue tombe");
+                shell.Binder.SelectItem(text.Id, true);
+                await Settle();
                 var sheet = FirstOfKind(project, ItemKind.Sheet);
                 shell.OpenInNewTabForProbe(sheet);
                 await Settle();
@@ -2849,6 +2868,28 @@ namespace Marabook.App
                 AppSettings.MaxTabs = maxBefore;
                 shell.ApplyTabsSettingsForProbe();
             }
+        }
+
+        /// <summary>Le premier item dont le titre commence ainsi, où qu'il soit dans la Pile ; null sinon.</summary>
+        private static BinderItem FirstTitled(Project project, string prefix)
+        {
+            foreach (var root in project.Roots)
+            {
+                var found = FirstTitledUnder(root, prefix);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private static BinderItem FirstTitledUnder(BinderItem item, string prefix)
+        {
+            if (item.Title != null && item.Title.StartsWith(prefix, StringComparison.Ordinal)) return item;
+            foreach (var child in item.Children)
+            {
+                var found = FirstTitledUnder(child, prefix);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         private static BinderItem FirstOfKind(Project project, ItemKind kind)

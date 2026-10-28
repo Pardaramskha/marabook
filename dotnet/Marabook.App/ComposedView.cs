@@ -2097,6 +2097,26 @@ namespace Marabook.App
             UpdateCaretVisual();
         }
 
+        /// <summary>La VUE D'UN ONGLET retrouvée (1.1.0, 28/10) : le caret à
+        /// sa place d'avant, sans qu'il rappelle la vue à lui, puis le
+        /// défilement tel qu'on l'avait laissé (-1 = le caret fait loi).</summary>
+        public void RestoreView(int paragraph, int offset, double scrollY)
+        {
+            if (_item == null) return;
+            ClearSelection();
+            _caretParagraph = Math.Max(0, paragraph);
+            _caretOffset = Math.Max(0, offset);
+            ClampCaret();
+            if (scrollY >= 0)
+            {
+                _keepScroll = true;
+                try { UpdateCaretVisual(); }
+                finally { _keepScroll = false; }
+                Offset = new Vector(Offset.X, Math.Max(0, Math.Min(scrollY, Math.Max(0, Extent.Height - Viewport.Height))));
+            }
+            else UpdateCaretVisual();
+        }
+
         public void BackspacePublic() { Backspace(); }
         public void DeletePublic() { ForwardDelete(); }
 

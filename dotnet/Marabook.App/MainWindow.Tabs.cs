@@ -33,8 +33,8 @@ namespace Marabook.App
             _tabStrip.Resolve = delegate(string id) { return _project == null ? null : _project.FindById(id); };
             _tabStrip.Activated += ActivateTab;
             _tabStrip.CloseRequested += CloseTab;
-            _tabStrip.CloseOthersRequested += delegate(int index) { _tabs.CloseOthers(index); TabsChanged(); ShowActiveTab(); };
-            _tabStrip.CloseRightRequested += delegate(int index) { _tabs.CloseRight(index); TabsChanged(); ShowActiveTab(); };
+            _tabStrip.CloseOthersRequested += delegate(int index) { TabsRememberPosition(); _tabs.CloseOthers(index); TabsChanged(); ShowActiveTab(); };
+            _tabStrip.CloseRightRequested += delegate(int index) { TabsRememberPosition(); _tabs.CloseRight(index); TabsChanged(); ShowActiveTab(); };
             _tabStrip.NewRequested += OpenNewTab;
             _tabStrip.Bind(_tabs);
             // Ctrl+Tab / Ctrl+Maj+Tab circulent aussi, comme dans tout
@@ -88,8 +88,24 @@ namespace Marabook.App
             if (_tabStrip != null) _tabStrip.Rebuild();
         }
 
+        /// <summary>Avant de quitter l'onglet actif (28/10, Rémi) : s'il montre
+        /// un écrit ouvert dans l'éditeur, il retient le caret et le
+        /// défilement — pour les retrouver au retour.</summary>
+        private void TabsRememberPosition()
+        {
+            var tab = _tabs.Active;
+            if (tab == null || _current == null || tab.ItemId != _current.Id) return;
+            if (_current.Kind != ItemKind.Text || !_editor.IsVisible) return;
+            var composed = Composed;
+            if (composed == null || !composed.HasItem) return;
+            int paragraph, offset;
+            composed.GetCaret(out paragraph, out offset);
+            tab.Remember(paragraph, offset, composed.Offset.Y);
+        }
+
         /// <summary>Montre l'élément de l'onglet actif, par la Pile — s'il
-        /// n'est pas déjà celui qui est ouvert. Un élément disparu fait tomber
+        /// n'est pas déjà celui qui est ouvert — puis lui rend sa position
+        /// retenue, une fois la vue posée. Un élément disparu fait tomber
         /// son onglet et l'on recommence.</summary>
         private void ShowActiveTab()
         {
@@ -106,10 +122,23 @@ namespace Marabook.App
             }
             if (_current == item && IsItemViewVisible(item)) return;
             _binder.SelectItem(item.Id, true);
+            var tab = _tabs.Active;
+            if (tab == null || !tab.HasPosition || item.Kind != ItemKind.Text) return;
+            var paragraph = tab.Paragraph;
+            var offset = tab.Offset;
+            var scrollY = tab.ScrollY;
+            Ui.Post(Avalonia.Threading.DispatcherPriority.Background, new Action(delegate
+            {
+                var composed = Composed;
+                if (_current != item || !_editor.IsVisible || composed == null || !composed.HasItem) return;
+                composed.RestoreView(paragraph, offset, scrollY);
+            }));
         }
 
         private void ActivateTab(int index)
         {
+            if (index == _tabs.ActiveIndex) return;
+            TabsRememberPosition();
             if (!_tabs.Activate(index)) return;
             TabsChanged();
             ShowActiveTab();
@@ -162,6 +191,7 @@ namespace Marabook.App
                     null, null, null, null));
                 return;
             }
+            TabsRememberPosition();
             _tabs.Open(item.Id);
             TabsChanged();
             ShowActiveTab();
@@ -169,14 +199,18 @@ namespace Marabook.App
 
         private void NextTab()
         {
-            if (!TabsOn() || !_tabs.Next()) return;
+            if (!TabsOn() || _tabs.Count < 2) return;
+            TabsRememberPosition();
+            if (!_tabs.Next()) return;
             TabsChanged();
             ShowActiveTab();
         }
 
         private void PreviousTab()
         {
-            if (!TabsOn() || !_tabs.Previous()) return;
+            if (!TabsOn() || _tabs.Count < 2) return;
+            TabsRememberPosition();
+            if (!_tabs.Previous()) return;
             TabsChanged();
             ShowActiveTab();
         }
