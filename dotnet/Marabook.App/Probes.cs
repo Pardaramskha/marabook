@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -2889,7 +2889,7 @@ namespace Marabook.App
                 Profiles.Notify();
                 await Settle();
                 var project = shell.Project;
-                Check(shell.Binder.GraphRowShownForProbe, "la Pile offre « Graphe relationnel » dans Encyclopédie");
+                Check(shell.Binder.GraphRowShownForProbe, "la Pile offre « Gros Graph » dans Encyclopédie");
                 Check(shell.GraphMenuShownForProbe, "…et le menu Édition › Fiches aussi");
                 var view = shell.GraphViewForProbe;
                 // La démo ne nomme pas ses personnages dans ses chapitres : un
@@ -2901,6 +2901,9 @@ namespace Marabook.App
                     paragraph.Runs.Add(new TextRun { Text = "Keira Varenh croisa Le marabout sur la grève. Keira ne dit rien." });
                     chapterTwo.Document.Paragraphs.Add(paragraph);
                 }
+                // Un portrait sur Keira : sa pastille doit le montrer (28/10).
+                var keiraSheet = FirstTitled(project, "Keira");
+                if (keiraSheet != null && keiraSheet.ImageId == null) keiraSheet.ImageId = project.AddImage(ProbePng(), ".png");
                 shell.ShowGraphForProbe();
                 Check(view.IsVisible && view.LoaderShownForProbe, "ouvrir le graphe montre la vue et son voile de chargement");
                 await view.LoadingForProbe;
@@ -2910,9 +2913,12 @@ namespace Marabook.App
                 var keira = FirstTitled(project, "Keira");
                 var graph = view.GraphForProbe;
                 Check(keira != null && graph.Node(keira.Id) != null && graph.Node(keira.Id).Presence > 0, "Keira est un nœud, présente dans au moins un écrit");
+                Check(keira != null && view.NodeShowsPortraitForProbe(keira.Id), "la pastille d'une fiche à image montre son portrait (28/10)");
+                var marabout = FirstTitled(project, "Le marabout");
+                Check(marabout != null && !view.NodeShowsPortraitForProbe(marabout.Id), "…une fiche sans image garde son symbole ou l'icône d'office");
                 Check(shell.CurrentForProbe != null && shell.CurrentForProbe.Id == MainWindow.GraphItemId && shell.TabsForProbe.ActiveItemId == MainWindow.GraphItemId
-                    && shell.TabStripForProbe.TitlesForProbe()[shell.TabsForProbe.ActiveIndex] == "Graphe relationnel",
-                    "le graphe est une page (28/10) : élément courant, sélection de la Pile, onglet actif à son nom");
+                    && shell.TabStripForProbe.TitlesForProbe()[shell.TabsForProbe.ActiveIndex] == "Gros Graph",
+                    "le graphe est une page (28/10) : élément courant, sélection de la Pile, onglet actif à son nom (« Gros Graph »)");
 
                 var shownAll = view.ShownEdgeCountForProbe;
                 view.ToggleKindForProbe(GraphEdgeKind.Presence, false);
@@ -2963,6 +2969,17 @@ namespace Marabook.App
                 view.ScopeForProbe(view.ScopeChoicesForProbe - 1); // le dernier écrit du récit
                 await Settle();
                 Check(matrix.ColumnCountForProbe == 1 && matrix.ColumnCountForProbe < columnsBefore, "limiter l'amplitude à un écrit ne garde que sa colonne");
+                // Les filtres survivent au recalcul (28/10) : le projet change,
+                // on revient au graphe — même amplitude, même nature, même facette.
+                view.TypeForProbe(0);
+                await Settle();
+                var scopeChosen = view.ScopeLabelForProbe;
+                view.Stale = true;
+                view.Open(project);
+                await view.LoadingForProbe;
+                await Settle();
+                Check(view.FacetForProbe == "Présences" && view.ScopeLabelForProbe == scopeChosen && view.TypeLabelForProbe == "Toutes les fiches" && matrix.ColumnCountForProbe == 1,
+                    "après un recalcul, les filtres de la matrice reviennent tels quels (« " + view.ScopeLabelForProbe + " », " + view.TypeLabelForProbe + ")");
                 view.ScopeForProbe(0);
                 view.TypeForProbe(0);
                 await Settle();

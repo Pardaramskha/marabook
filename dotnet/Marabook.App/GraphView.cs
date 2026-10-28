@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -9,6 +9,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Marabook.Model;
 
@@ -68,6 +69,16 @@ namespace Marabook.App
         private readonly List<Func<GraphNode, bool>> _scopeFilters = new List<Func<GraphNode, bool>>();
         private readonly List<Func<GraphNode, bool>> _typeFilters = new List<Func<GraphNode, bool>>();
         private bool _buildingFilters;
+        // La MÉMOIRE des filtres (28/10, Rémi) : l'amplitude et la nature
+        // choisies survivent au recalcul — les aller-retour reviennent aux
+        // mêmes filtres. Par CLÉ (« all », « active », id d'élément ou de
+        // catégorie), pas par index : la liste des choix peut bouger.
+        private readonly List<string> _scopeKeys = new List<string>();
+        private readonly List<string> _typeKeys = new List<string>();
+        private string _scopeMemory, _typeMemory;
+        /// <summary>La largeur des portraits des nœuds (fiches à image) :
+        /// décodés sous le voile, gardés par ImageCache.</summary>
+        internal const int PortraitWidth = 96;
         private readonly WrapPanel _mapTools = new WrapPanel { Orientation = Orientation.Horizontal }; // à la ligne quand la fenêtre est étroite
         private bool _fitPending;
         private readonly TextBox _search;
@@ -151,8 +162,8 @@ namespace Marabook.App
             header.Children.Add(_mapTools);
             ToolTip.SetTip(_scopeBox, "L'amplitude : tout le récit, le projet actif, un livre, un dossier ou un écrit");
             ToolTip.SetTip(_typeBox, "Quelles fiches : une catégorie, ou toutes");
-            _scopeBox.SelectionChanged += delegate { if (!_buildingFilters) _matrix.Reload(); };
-            _typeBox.SelectionChanged += delegate { if (!_buildingFilters) _matrix.Reload(); };
+            _scopeBox.SelectionChanged += delegate { if (_buildingFilters) return; _scopeMemory = KeyAt(_scopeKeys, _scopeBox.SelectedIndex); _matrix.Reload(); };
+            _typeBox.SelectionChanged += delegate { if (_buildingFilters) return; _typeMemory = KeyAt(_typeKeys, _typeBox.SelectedIndex); _matrix.Reload(); };
             var scopeLabel = new TextBlock { Text = "Amplitude", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 4) };
             var typeLabel = new TextBlock { Text = "Fiches", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 6, 4) };
             _matrixTools.Children.Add(scopeLabel);
@@ -265,6 +276,7 @@ namespace Marabook.App
         /// n'a rien d'autre à faire pendant ce temps, aucun hoquet ailleurs.</summary>
         public void Load(Project project)
         {
+            if (!ReferenceEquals(project, _project)) { _scopeMemory = null; _typeMemory = null; } // un autre projet : filtres d'office
             _project = project;
             var generation = ++_generation;
             _items.Clear();
@@ -286,6 +298,16 @@ namespace Marabook.App
             }
             _categoryIndex.Clear();
             for (var i = 0; i < project.SheetCategories.Count; i++) _categoryIndex[project.SheetCategories[i].Id] = i;
+            // Les PORTRAITS (28/10, Rémi) : une fiche à image montre son image
+            // dans sa pastille — décodée ici sous le voile, pas au premier
+            // affichage (vingt portraits de 4 000 px sur le Serment).
+            var portraits = new List<ProjectImage>();
+            foreach (var item in _items.Values)
+            {
+                if (item.Kind != ItemKind.Sheet || item.ImageId == null) continue;
+                var image = project.FindImage(item.ImageId);
+                if (image != null) portraits.Add(image);
+            }
             var known = new Dictionary<string, GraphPosition>();
             foreach (var pair in project.GraphLayout) known[pair.Key] = new GraphPosition { X = pair.Value.X, Y = pair.Value.Y, Pinned = pair.Value.Pinned };
             var options = new GraphOptions { Tags = true, Texts = true }; // tout : les filtres jouent à l'affichage
@@ -301,6 +323,7 @@ namespace Marabook.App
                     graph = RelationGraph.Build(entries, options);
                     var warm = known.Count >= graph.Nodes.Count * 0.9 && known.Count > 0;
                     positions = GraphLayout.Arrange(graph, known, GraphLayout.IterationsFor(graph.Nodes.Count, warm), Seed);
+                    foreach (var image in portraits) ImageCache.Thumbnail(image, PortraitWidth); // la table est verrouillée : sûr hors du fil d'interface
                 }
                 catch (Exception error) { failure = error; }
                 Dispatcher.UIThread.Post(delegate
@@ -731,11 +754,12 @@ namespace Marabook.App
             _buildingFilters = true;
             try
             {
-                _scopeBox.Items.Clear(); _scopeFilters.Clear();
-                _typeBox.Items.Clear(); _typeFilters.Clear();
+                _scopeBox.Items.Clear(); _scopeFilters.Clear(); _scopeKeys.Clear();
+                _typeBox.Items.Clear(); _typeFilters.Clear(); _typeKeys.Clear();
                 if (_project == null || _graph == null) return;
                 _scopeBox.Items.Add("Tout le récit");
                 _scopeFilters.Add(delegate { return true; });
+                _scopeKeys.Add("all");
                 var active = _project.ActiveScope();
                 var defaultScope = 0;
                 if (active != null)
@@ -743,14 +767,16 @@ namespace Marabook.App
                     _scopeBox.Items.Add("Projet actif — " + (string.IsNullOrEmpty(active.Title) ? "Sans titre" : active.Title));
                     var activeRef = active;
                     _scopeFilters.Add(delegate(GraphNode node) { return InScope(node, activeRef); });
+                    _scopeKeys.Add("active");
                     defaultScope = 1;
                 }
                 var writings = _project.Category(Project.KeyWritings);
                 if (writings != null) AddScopeChoices(writings, 0);
-                _scopeBox.SelectedIndex = defaultScope;
+                _scopeBox.SelectedIndex = Remembered(_scopeKeys, _scopeMemory, defaultScope);
 
                 _typeBox.Items.Add("Toutes les fiches");
                 _typeFilters.Add(delegate { return true; });
+                _typeKeys.Add("all");
                 var character = _project.CharacterTemplate();
                 var defaultType = 0;
                 foreach (var category in _project.SheetCategories)
@@ -759,11 +785,28 @@ namespace Marabook.App
                     var categoryRef = category;
                     _typeBox.Items.Add(category.Name);
                     _typeFilters.Add(delegate(GraphNode node) { return RootCategoryIdOf(node.CategoryId) == categoryRef.Id; });
+                    _typeKeys.Add(category.Id);
                     if (character != null && category.TemplateId == character.Id && defaultType == 0) defaultType = _typeFilters.Count - 1;
                 }
-                _typeBox.SelectedIndex = defaultType;
+                _typeBox.SelectedIndex = Remembered(_typeKeys, _typeMemory, defaultType);
             }
             finally { _buildingFilters = false; }
+        }
+
+        private static string KeyAt(List<string> keys, int index) { return index < 0 || index >= keys.Count ? null : keys[index]; }
+
+        /// <summary>L'index du choix mémorisé s'il existe encore, sinon celui d'office.</summary>
+        private static int Remembered(List<string> keys, string memory, int fallback)
+        {
+            var index = memory == null ? -1 : keys.IndexOf(memory);
+            return index < 0 ? fallback : index;
+        }
+
+        /// <summary>Le portrait d'une fiche à image (vignette du cache), sinon null.</summary>
+        private Bitmap PortraitOf(BinderItem item)
+        {
+            if (item == null || item.Kind != ItemKind.Sheet || item.ImageId == null || _project == null) return null;
+            return ImageCache.Thumbnail(_project.FindImage(item.ImageId), PortraitWidth);
         }
 
         private void AddScopeChoices(BinderItem container, int depth)
@@ -775,6 +818,7 @@ namespace Marabook.App
                     var itemRef = child;
                     _scopeBox.Items.Add(new string('\u2003', depth) + (child.Kind == ItemKind.Book ? "Livre : " : "Dossier : ") + (string.IsNullOrEmpty(child.Title) ? "Sans titre" : child.Title));
                     _scopeFilters.Add(delegate(GraphNode node) { return InScope(node, itemRef); });
+                    _scopeKeys.Add(child.Id);
                     AddScopeChoices(child, depth + 1);
                 }
                 else if (child.Kind == ItemKind.Text && _graph.Node(child.Id) != null)
@@ -782,6 +826,7 @@ namespace Marabook.App
                     var itemRef = child;
                     _scopeBox.Items.Add(new string('\u2003', depth) + (string.IsNullOrEmpty(child.Title) ? "Sans titre" : child.Title));
                     _scopeFilters.Add(delegate(GraphNode node) { return node.Id == itemRef.Id; });
+                    _scopeKeys.Add(child.Id);
                     if (child.Children.Count > 0) AddScopeChoices(child, depth + 1);
                 }
             }
@@ -825,6 +870,7 @@ namespace Marabook.App
         public int ScopeChoicesForProbe { get { return _scopeBox.Items.Count; } }
         public string ScopeLabelForProbe { get { return _scopeBox.SelectedItem as string ?? ""; } }
         public string TypeLabelForProbe { get { return _typeBox.SelectedItem as string ?? ""; } }
+        public bool NodeShowsPortraitForProbe(string id) { NodeView view; return _nodes.TryGetValue(id, out view) && view.HasPortrait; }
 
         // ================================================================ l'hygiène
 
@@ -1055,6 +1101,7 @@ namespace Marabook.App
         {
             public readonly GraphNode Node;
             public readonly TextBlock Label;
+            public readonly bool HasPortrait; // la pastille est l'image de la fiche
             private readonly GraphView _owner;
             private readonly double _radius;
             private Point _pressAt;
@@ -1078,10 +1125,23 @@ namespace Marabook.App
                 BorderBrush = Chrome.PaperBg;
                 BorderThickness = new Thickness(2);
                 Cursor = new Cursor(StandardCursorType.Hand);
-                Control icon = null;
-                try { icon = item == null ? null : ItemIcons.Render(item, Math.Max(8, _radius * 0.95), Chrome.PaperBg); }
-                catch (Exception) { icon = null; }
-                if (icon != null) { icon.Margin = new Thickness(0); icon.HorizontalAlignment = HorizontalAlignment.Center; icon.VerticalAlignment = VerticalAlignment.Center; icon.IsHitTestVisible = false; Child = icon; } // Render pose une marge droite (rangées de la Pile) : retirée, sinon l'icône penche (28/10)
+                // La pastille (28/10, Rémi) : l'IMAGE de la fiche si elle en a
+                // une (rognée au rond), sinon son SYMBOLE (item.Icon, rendu par
+                // ItemIcons), sinon l'icône d'office de son genre.
+                Bitmap portrait = null;
+                try { portrait = owner.PortraitOf(item); } catch (Exception) { portrait = null; }
+                if (portrait != null)
+                {
+                    HasPortrait = true;
+                    Background = new ImageBrush(portrait) { Stretch = Stretch.UniformToFill, AlignmentX = AlignmentX.Center, AlignmentY = AlignmentY.Center };
+                }
+                else
+                {
+                    Control icon = null;
+                    try { icon = item == null ? null : ItemIcons.Render(item, Math.Max(8, _radius * 0.95), Chrome.PaperBg); }
+                    catch (Exception) { icon = null; }
+                    if (icon != null) { icon.Margin = new Thickness(0); icon.HorizontalAlignment = HorizontalAlignment.Center; icon.VerticalAlignment = VerticalAlignment.Center; icon.IsHitTestVisible = false; Child = icon; } // Render pose une marge droite (rangées de la Pile) : retirée, sinon l'icône penche (28/10)
+                }
                 Label = new TextBlock
                 {
                     Text = node.Title.Length == 0 ? "Sans titre" : (node.Title.Length > 28 ? node.Title.Substring(0, 27) + "…" : node.Title),

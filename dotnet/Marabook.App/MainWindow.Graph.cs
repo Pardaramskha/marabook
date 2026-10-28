@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Avalonia.Controls;
 using Marabook.Model;
 using Marabook.Settings;
@@ -29,7 +29,7 @@ namespace Marabook.App
             Id = GraphItemId,
             Kind = ItemKind.Category,
             CategoryKey = GraphKey,
-            Title = "Graphe relationnel",
+            Title = "Gros Graph", // le nom de Rémi dans la Pile et l'onglet (28/10) ; la page et le menu gardent « Graphe relationnel »
             Icon = "svg:gg" // le dessin de Rémi (GG.svg)
         };
 
