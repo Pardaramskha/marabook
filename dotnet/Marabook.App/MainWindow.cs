@@ -691,7 +691,7 @@ namespace Marabook.App
                 if (_planView.IsVisible) _planView.Refresh();
                 UpdateInspector();
                 TabsPrune(); // les onglets d'éléments disparus tombent, les titres suivent (1.1.0)
-                if (_graphView != null && _graphView.IsVisible) _graphView.Refresh(); // le graphe ouvert se recalcule (sous son voile) après un changement de structure
+                if (_graphView != null) { _graphView.Stale = true; if (_graphView.IsVisible) _graphView.Refresh(); } // le graphe ouvert se recalcule (sous son voile) après un changement de structure
                 CodeModuleHost.Instance.NotifyProjectChanged(); // les liens et tuiles des cartes mentales suivent (26/10 soir)
                 // Chauffe le cache de mots : un document importé entre au cache
                 // à sa taille réelle, sans jamais créditer le journal.
@@ -3148,7 +3148,7 @@ namespace Marabook.App
             {
                 var targetId = source[source.Count - 1];
                 source.RemoveAt(source.Count - 1);
-                var target = targetId.Length == 0 ? null : _project.FindById(targetId);
+                var target = targetId.Length == 0 ? null : ResolveItem(targetId); // du projet, ou le graphe (28/10)
                 if (targetId.Length > 0 && target == null) continue; // disparu
                 var other = back ? _navForward : _navBack;
                 other.Add(_current == null ? "" : _current.Id);
@@ -3228,6 +3228,8 @@ namespace Marabook.App
         /// « double-clic obligatoire » from a book's corkboard).</summary>
         private bool IsItemViewVisible(BinderItem item)
         {
+            if (IsGraphItem(item))
+                return _graphView != null && _graphView.IsVisible;
             if (item.Kind == ItemKind.Text)
                 return _editor.IsVisible && _editor.ShowsItem(item);
             if (item.Kind == ItemKind.Sheet)
@@ -3287,6 +3289,11 @@ namespace Marabook.App
                 _editor.RefreshPlanButton(); // « Plan » si une colonne le raconte (b35)
                 _editor.IsVisible = true;
                 _editor.FocusEditor();
+                return;
+            }
+            if (IsGraphItem(item)) // le graphe relationnel, une page comme une autre (28/10)
+            {
+                ShowGraphCore();
                 return;
             }
             if (item != null && item.Kind == ItemKind.PageTemplate)
@@ -3732,6 +3739,7 @@ namespace Marabook.App
 
         private void MarkDirty()
         {
+            if (_graphView != null) _graphView.Stale = true; // le graphe se recalculera à sa prochaine ouverture (28/10)
             _recoveryDirty = true; // le secours suit chaque modification (18/09)
             if (_dirty) return;
             _dirty = true;

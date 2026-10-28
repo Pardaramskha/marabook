@@ -118,6 +118,16 @@ namespace Marabook.Tests
             t.Check(graph.Node(world.Keira.Id).Presence == 3 && graph.Node(world.Chapter1.Id).Presence == 2, "le compte de présences d'un nœud (Keira dans 3 écrits ; 2 fiches au chapitre 1)");
             t.Check(graph.Node(world.Keira.Id).Degree == 1 + 3 + 1 + 1, "le degré compte toutes les natures (Keira : relation, 3 présences, lien, tag)");
 
+            // Le prénom du titre compte (28/10, Rémi : « Yiin » pour « Yiin Eiren »).
+            t.Equal("Yiin", Presence.FirstNameOf("Yiin Eiren"), "le premier mot d'un titre à plusieurs mots est un prénom");
+            t.Equal("Jean-Pierre", Presence.FirstNameOf("Jean-Pierre Dupont"), "…trait d'union compris");
+            t.Check(Presence.FirstNameOf("Le marabout") == null && Presence.FirstNameOf("Sir Galahad") == null && Presence.FirstNameOf("Cynèse") == null && Presence.FirstNameOf("Al Capone") == null,
+                "…mais ni un article, ni un titre de civilité, ni un titre d'un seul mot, ni un mot de deux lettres");
+            var yiin = new BinderItem { Kind = ItemKind.Sheet, Title = "Yiin Eiren" };
+            var yiinNames = Presence.NamesForGraph(yiin, null);
+            t.Check(yiinNames.Count == 2 && yiinNames[0] == "Yiin Eiren" && yiinNames[1] == "Yiin", "les noms du graphe : le titre entier puis le prénom (" + string.Join(" | ", yiinNames.ToArray()) + ")");
+            t.Equal(3, Presence.CountIn("Yiin Eiren entra. Yiin sourit ; puis Yiin partit.", yiinNames), "le titre entier masque le prénom qu'il contient, les prénoms seuls comptent");
+
             var sheetsOnly = Graph(world, new GraphOptions { Texts = false });
             t.Check(sheetsOnly.Nodes.Count == 4 && Count(sheetsOnly, GraphEdgeKind.Presence) == 0 && Count(sheetsOnly, GraphEdgeKind.Relation) == 1, "fiches seules : plus d'écrits, plus de présences, la relation reste");
             var bare = Graph(world, new GraphOptions { Relations = false, Wiki = false, Presence = false, Structure = false, Plans = false });

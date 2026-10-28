@@ -102,7 +102,7 @@ namespace Marabook.Model
                     foreach (var relation in item.Relations)
                         if (!string.IsNullOrEmpty(relation.TargetId))
                             entry.Relations.Add(new KeyValuePair<string, string>(relation.TargetId, relation.Kind ?? ""));
-                    entry.Names = Presence.NamesOf(item, project.TemplateOf(item));
+                    entry.Names = Presence.NamesForGraph(item, project.TemplateOf(item)); // prénom du titre compris (28/10)
                 }
                 if (item.Kind == ItemKind.Plan && item.Plan != null)
                     foreach (var column in item.Plan.Columns)

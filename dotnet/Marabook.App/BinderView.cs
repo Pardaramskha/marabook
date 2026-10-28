@@ -56,6 +56,10 @@ namespace Marabook.App
         public event Action CollapseRequested; // le caret de repli sur la ligne Accueil (29/09)
         public event Action JournalRequested; // clic sur « Journal perso » (pied de Pile)
         public event Action GraphRequested;   // clic sur « Graphe relationnel » (section Encyclopédie, 1.1.0)
+        /// <summary>La page du graphe (28/10) : un item synthétique de la
+        /// coquille, montré comme une racine d'Encyclopédie — sélectionnable,
+        /// jamais déplacé ni cible de dépôt, sans menu.</summary>
+        public BinderItem GraphItem;
         // Épingler sur le côté (b47) : la coquille tient l'épingle ; la Pile
         // demande, et sait si l'item est déjà épinglé pour libeller le menu.
         public event Action<BinderItem> SidePinRequested;
@@ -461,24 +465,7 @@ namespace Marabook.App
         /// <summary>Sonde : les titres des lignes de premier niveau, dans l'ordre
         /// affiché (sections comprises, « — » pour un filet).</summary>
         /// <summary>Sonde : la ligne « Graphe relationnel » est-elle dans la Pile ?</summary>
-        internal bool GraphRowShownForProbe
-        {
-            get
-            {
-                foreach (var entry in _tree.Items)
-                {
-                    var row = entry as TreeViewItem;
-                    var panel = row == null ? null : row.Header as StackPanel;
-                    if (panel == null) continue;
-                    foreach (var child in panel.Children)
-                    {
-                        var block = child as TextBlock;
-                        if (block != null && Equals(block.Tag, "graph-row")) return true;
-                    }
-                }
-                return false;
-            }
-        }
+        internal bool GraphRowShownForProbe { get { return _nodesById.ContainsKey(MainWindow.GraphItemId); } }
 
         internal List<string> TopRowsForProbe()
         {
@@ -574,7 +561,7 @@ namespace Marabook.App
                     }
                     // Le graphe relationnel (1.1.0, 28/10) : une entrée fixe
                     // sous le Dictionnaire — pas un item du projet.
-                    if (section.Name == "Encyclopédie" && Profiles.Enabled(Profiles.Graph)) _tree.Items.Add(GraphRow());
+                    if (section.Name == "Encyclopédie" && GraphItem != null && Profiles.Enabled(Profiles.Graph)) _tree.Items.Add(BuildNode(GraphItem)); // une racine comme les autres : sélectionnable, dans l'historique et les onglets
                 }
                 // Une racine qu'aucune section ne nomme (un .plot plus récent) :
                 // jamais perdue, posée à la suite.
@@ -677,32 +664,6 @@ namespace Marabook.App
                 IsEnabled = false,
                 Focusable = false
             };
-        }
-
-        /// <summary>La ligne « Graphe relationnel » (1.1.0) : hors de l'arbre
-        /// des items (jamais sélectionnée, jamais cible de dépôt), un clic
-        /// ouvre la vue au centre ; survol comme le Journal.</summary>
-        private TreeViewItem GraphRow()
-        {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Background = Brushes.Transparent, Cursor = new Cursor(StandardCursorType.Hand), Margin = new Thickness(0, 1, 0, 1) };
-            var icon = Icons.Make("connection", 15, Chrome.SoftText) as Control;
-            if (icon != null)
-            {
-                icon.VerticalAlignment = VerticalAlignment.Center;
-                icon.Margin = new Thickness(0, 0, 8, 0);
-                row.Children.Add(icon);
-            }
-            row.Children.Add(new TextBlock { Text = "Graphe relationnel", Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center, Tag = "graph-row" });
-            ToolTip.SetTip(row, "La carte de tout ce qui se relie dans le projet : relations, liens, présences, livres, plans");
-            row.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e) { e.Handled = true; }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
-            row.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
-            {
-                if (e.InitialPressMouseButton != MouseButton.Left) return;
-                e.Handled = true;
-                var handler = GraphRequested;
-                if (handler != null) handler();
-            };
-            return new TreeViewItem { Header = row, Focusable = false };
         }
 
         // L'en-tête surligné pendant un menu contextuel (batch 28).
@@ -1394,6 +1355,7 @@ namespace Marabook.App
 
         private ContextMenu BuildContextMenu(BinderItem item, bool confirmDelete, bool fromPile)
         {
+            if (item.IsCategory && item.CategoryKey == MainWindow.GraphKey) return null; // la page du graphe : rien à créer, renommer ni supprimer (28/10)
             var menu = new ContextMenu();
             var inTrash = item.RootCategory().CategoryKey == Project.KeyTrash;
             // Les onglets (1.1.0) : tout élément de la Pile peut s'ouvrir dans
@@ -2382,6 +2344,7 @@ namespace Marabook.App
         private static bool DropAllowed(BinderItem dragged, BinderItem target)
         {
             if (dragged == null || target == null || dragged == target) return false;
+            if (target.IsCategory && target.CategoryKey == MainWindow.GraphKey) return false; // la page du graphe n'est pas un conteneur (28/10)
             if (dragged.IsOutOfBook) return false; // le dossier Hors-livre ne bouge pas (29/09)
             if (target == dragged.Parent && target.CanHaveChildren) return false; // no-op move
             if (target.IsDescendantOf(dragged)) return false;

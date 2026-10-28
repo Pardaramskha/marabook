@@ -30,7 +30,7 @@ namespace Marabook.App
         {
             _tabs.Limit = AppSettings.MaxTabs;
             _tabStrip = new TabStrip { IsVisible = TabsOn() };
-            _tabStrip.Resolve = delegate(string id) { return _project == null ? null : _project.FindById(id); };
+            _tabStrip.Resolve = ResolveItem; // du projet, ou le graphe (page synthétique, 28/10)
             _tabStrip.Activated += ActivateTab;
             _tabStrip.CloseRequested += CloseTab;
             _tabStrip.CloseOthersRequested += delegate(int index) { TabsRememberPosition(); _tabs.CloseOthers(index); TabsChanged(); ShowActiveTab(); };
@@ -112,7 +112,7 @@ namespace Marabook.App
             if (_project == null) return;
             var id = _tabs.ActiveItemId;
             if (id == null) { if (_tabs.Count == 0) OpenHomeTab(); return; }
-            var item = _project.FindById(id);
+            var item = ResolveItem(id);
             if (item == null)
             {
                 _tabs.Drop(id);
@@ -221,8 +221,7 @@ namespace Marabook.App
         private void TabsPrune()
         {
             if (_project == null || _tabs.Count == 0) return;
-            var project = _project;
-            var activeDropped = _tabs.Prune(delegate(string id) { return project.FindById(id) != null; });
+            var activeDropped = _tabs.Prune(delegate(string id) { return ResolveItem(id) != null; });
             TabsChanged();
             if (activeDropped) ShowActiveTab();
         }
@@ -236,8 +235,8 @@ namespace Marabook.App
             _tabs.Clear();
             if (!TabsOn()) { TabsChanged(); return fallback; }
             _tabs.Limit = AppSettings.MaxTabs;
-            _tabs.Restore(project.OpenTabs, project.ActiveTab, delegate(string id) { return project.FindById(id) != null; });
-            var active = _tabs.ActiveItemId == null ? null : project.FindById(_tabs.ActiveItemId);
+            _tabs.Restore(project.OpenTabs, project.ActiveTab, delegate(string id) { return id == GraphItemId ? Marabook.Settings.Profiles.Enabled(Marabook.Settings.Profiles.Graph) : project.FindById(id) != null; });
+            var active = _tabs.ActiveItemId == null ? null : (_tabs.ActiveItemId == GraphItemId ? _graphItem : project.FindById(_tabs.ActiveItemId));
             TabsChanged();
             return active ?? fallback;
         }

@@ -48,6 +48,57 @@ namespace Marabook.Model
     {
         private static readonly char[] AliasSeparators = { ',', ';', '/' };
 
+        // Les mots d'un titre qui ne sont pas un prénom (28/10) : articles,
+        // particules, titres de civilité — « Le marabout » ne compte pas pour « Le ».
+        private static readonly HashSet<string> TitleParticles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "le", "la", "les", "l", "un", "une", "des", "du", "de", "d", "au", "aux", "et", "ou",
+            "the", "a", "an", "of", "von", "van", "der", "den", "del", "della", "di", "da", "do", "dos", "das",
+            "sir", "lord", "lady", "dame", "sieur", "messire", "maitre", "maître", "mme", "mlle", "mr", "mrs", "ms", "dr", "pr",
+            "roi", "reine", "prince", "princesse", "duc", "duchesse", "comte", "comtesse", "baron", "baronne",
+            "capitaine", "general", "général", "colonel", "sergent", "pere", "père", "mere", "mère", "frere", "frère", "soeur", "sœur", "saint", "sainte"
+        };
+
+        /// <summary>Les noms d'une fiche POUR LE GRAPHE (1.1.0, 28/10, Rémi :
+        /// « Yiin » doit compter pour « Yiin Eiren ») : ceux de NamesOf, plus le
+        /// PREMIER MOT du titre quand le titre en a plusieurs — s'il fait au
+        /// moins trois lettres, commence par une majuscule et n'est ni un
+        /// article, ni une particule, ni un titre de civilité. Les plus longs
+        /// d'abord, comme toujours (« Yiin Eiren » masque « Yiin »).</summary>
+        public static List<string> NamesForGraph(BinderItem sheet, SheetTemplate template)
+        {
+            var names = NamesOf(sheet, template);
+            if (sheet == null) return names;
+            var first = FirstNameOf(sheet.Title);
+            if (first != null)
+            {
+                AddName(names, first);
+                // Remis en ordre de longueur (AddName ajoute en queue).
+                for (var i = 1; i < names.Count; i++)
+                {
+                    var current = names[i];
+                    var j = i - 1;
+                    while (j >= 0 && names[j].Length < current.Length) { names[j + 1] = names[j]; j--; }
+                    names[j + 1] = current;
+                }
+            }
+            return names;
+        }
+
+        /// <summary>Le prénom probable d'un titre à plusieurs mots (« Yiin
+        /// Eiren » → « Yiin », « Le marabout » → null, « Cynèse » → null : un
+        /// seul mot, déjà compté).</summary>
+        public static string FirstNameOf(string title)
+        {
+            if (string.IsNullOrEmpty(title)) return null;
+            var words = title.Trim().Split(new[] { ' ', ' ' }, StringSplitOptions.RemoveEmptyEntries); // « Jean-Pierre Dupont » → « Jean-Pierre »
+            if (words.Length < 2) return null;
+            var first = words[0].Trim('(', ')', '[', ']', ',', '.', '«', '»', '"');
+            if (first.Length < 3 || !char.IsUpper(first[0])) return null;
+            if (TitleParticles.Contains(first)) return null;
+            return first;
+        }
+
         /// <summary>Les noms cherchés pour une fiche, dédoublonnés (pliés,
         /// casse gardée), les plus longs d'abord. Vide si la fiche n'a pas
         /// de titre utile.</summary>

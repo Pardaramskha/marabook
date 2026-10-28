@@ -41,6 +41,9 @@ namespace Marabook.App
         private readonly Dictionary<string, int> _categoryIndex = new Dictionary<string, int>();
         private int _generation;
         private Task _loading;
+        /// <summary>Le projet a changé depuis le dernier calcul (frappe, structure) :
+        /// la prochaine ouverture recalcule ; sinon le graphe en place suffit.</summary>
+        public bool Stale = true;
         private bool _showTexts = true;
         private readonly Dictionary<GraphEdgeKind, bool> _kinds = new Dictionary<GraphEdgeKind, bool>();
         private readonly Dictionary<GraphEdgeKind, ToggleButton> _kindToggles = new Dictionary<GraphEdgeKind, ToggleButton>();
@@ -56,6 +59,15 @@ namespace Marabook.App
         private readonly ScrollViewer _hygieneHost;
         private readonly StackPanel _hygiene = new StackPanel { Margin = new Thickness(24, 12, 24, 24), Spacing = 6 };
         private readonly PresenceMatrix _matrix;
+        // Les filtres de la matrice (28/10, Rémi) : l'amplitude (tout le récit,
+        // le projet actif, un livre, un dossier, un écrit) et la nature des
+        // fiches (une catégorie, ou toutes).
+        private readonly WrapPanel _matrixTools = new WrapPanel { Orientation = Orientation.Horizontal, IsVisible = false };
+        private readonly ComboBox _scopeBox = new ComboBox { Width = 260, Tag = "graph-scope" };
+        private readonly ComboBox _typeBox = new ComboBox { Width = 180, Tag = "graph-type" };
+        private readonly List<Func<GraphNode, bool>> _scopeFilters = new List<Func<GraphNode, bool>>();
+        private readonly List<Func<GraphNode, bool>> _typeFilters = new List<Func<GraphNode, bool>>();
+        private bool _buildingFilters;
         private readonly WrapPanel _mapTools = new WrapPanel { Orientation = Orientation.Horizontal }; // à la ligne quand la fenêtre est étroite
         private bool _fitPending;
         private readonly TextBox _search;
@@ -137,6 +149,19 @@ namespace Marabook.App
             export.Click += async delegate { await Export(); };
             Tool(export);
             header.Children.Add(_mapTools);
+            ToolTip.SetTip(_scopeBox, "L'amplitude : tout le récit, le projet actif, un livre, un dossier ou un écrit");
+            ToolTip.SetTip(_typeBox, "Quelles fiches : une catégorie, ou toutes");
+            _scopeBox.SelectionChanged += delegate { if (!_buildingFilters) _matrix.Reload(); };
+            _typeBox.SelectionChanged += delegate { if (!_buildingFilters) _matrix.Reload(); };
+            var scopeLabel = new TextBlock { Text = "Amplitude", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 4) };
+            var typeLabel = new TextBlock { Text = "Fiches", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 6, 4) };
+            _matrixTools.Children.Add(scopeLabel);
+            _scopeBox.Margin = new Thickness(0, 0, 4, 4);
+            _matrixTools.Children.Add(_scopeBox);
+            _matrixTools.Children.Add(typeLabel);
+            _typeBox.Margin = new Thickness(0, 0, 4, 4);
+            _matrixTools.Children.Add(_typeBox);
+            header.Children.Add(_matrixTools);
             DockPanel.SetDock(header, Dock.Top);
             Children.Add(header);
 
@@ -226,6 +251,7 @@ namespace Marabook.App
             }
             _mapHost.IsVisible = name == "Carte";
             _mapTools.IsVisible = name == "Carte";
+            _matrixTools.IsVisible = name == "Présences";
             _matrixHost.IsVisible = name == "Présences";
             _hygieneHost.IsVisible = name == "Hygiène";
             if (name == "Présences") _matrix.InvalidateMeasure();
@@ -299,6 +325,7 @@ namespace Marabook.App
         {
             _graph = graph;
             _positions = positions;
+            Stale = false;
             // Le projet retient la disposition (sans salir : relire n'est pas
             // modifier — un nœud tiré, lui, salit).
             if (_project != null)
@@ -311,12 +338,21 @@ namespace Marabook.App
             _fitPending = true;
             FitToView();
             BuildHygiene();
+            BuildMatrixFilters();
             _matrix.Reload();
             _busy.End();
             _loader.IsVisible = false;
             var sheets = 0; var texts = 0;
             foreach (var node in graph.Nodes) { if (node.IsSheet) sheets++; else if (node.IsText) texts++; }
             _summary.Text = graph.Nodes.Count + " nœuds (" + sheets + " fiches, " + texts + " écrits), " + graph.Edges.Count + " liens";
+        }
+
+        /// <summary>Ouvre le graphe : recalcule si le projet a changé depuis le
+        /// dernier calcul (ou si c'est un autre projet), sinon montre tel quel.</summary>
+        public void Open(Project project)
+        {
+            if (project != null && ReferenceEquals(project, _project) && _graph != null && !Stale) return;
+            Load(project);
         }
 
         /// <summary>Recalcule tout (après un changement de structure).</summary>
@@ -684,6 +720,112 @@ namespace Marabook.App
 
         internal Border Viewport { get { return _viewport; } }
 
+        // ================================================================ les filtres de la matrice
+
+        /// <summary>Les choix d'amplitude (tout le récit, le projet actif s'il
+        /// y en a un — choisi d'office —, puis livres, dossiers et écrits de la
+        /// racine Écrits, dans l'ordre et en retrait) et de nature des fiches
+        /// (les catégories de premier niveau, Personnages d'office, ou toutes).</summary>
+        private void BuildMatrixFilters()
+        {
+            _buildingFilters = true;
+            try
+            {
+                _scopeBox.Items.Clear(); _scopeFilters.Clear();
+                _typeBox.Items.Clear(); _typeFilters.Clear();
+                if (_project == null || _graph == null) return;
+                _scopeBox.Items.Add("Tout le récit");
+                _scopeFilters.Add(delegate { return true; });
+                var active = _project.ActiveScope();
+                var defaultScope = 0;
+                if (active != null)
+                {
+                    _scopeBox.Items.Add("Projet actif — " + (string.IsNullOrEmpty(active.Title) ? "Sans titre" : active.Title));
+                    var activeRef = active;
+                    _scopeFilters.Add(delegate(GraphNode node) { return InScope(node, activeRef); });
+                    defaultScope = 1;
+                }
+                var writings = _project.Category(Project.KeyWritings);
+                if (writings != null) AddScopeChoices(writings, 0);
+                _scopeBox.SelectedIndex = defaultScope;
+
+                _typeBox.Items.Add("Toutes les fiches");
+                _typeFilters.Add(delegate { return true; });
+                var character = _project.CharacterTemplate();
+                var defaultType = 0;
+                foreach (var category in _project.SheetCategories)
+                {
+                    if (!string.IsNullOrEmpty(category.ParentId)) continue; // les sous-catégories suivent leur mère
+                    var categoryRef = category;
+                    _typeBox.Items.Add(category.Name);
+                    _typeFilters.Add(delegate(GraphNode node) { return RootCategoryIdOf(node.CategoryId) == categoryRef.Id; });
+                    if (character != null && category.TemplateId == character.Id && defaultType == 0) defaultType = _typeFilters.Count - 1;
+                }
+                _typeBox.SelectedIndex = defaultType;
+            }
+            finally { _buildingFilters = false; }
+        }
+
+        private void AddScopeChoices(BinderItem container, int depth)
+        {
+            foreach (var child in container.Children)
+            {
+                if (child.Kind == ItemKind.Book || child.Kind == ItemKind.Folder)
+                {
+                    var itemRef = child;
+                    _scopeBox.Items.Add(new string('\u2003', depth) + (child.Kind == ItemKind.Book ? "Livre : " : "Dossier : ") + (string.IsNullOrEmpty(child.Title) ? "Sans titre" : child.Title));
+                    _scopeFilters.Add(delegate(GraphNode node) { return InScope(node, itemRef); });
+                    AddScopeChoices(child, depth + 1);
+                }
+                else if (child.Kind == ItemKind.Text && _graph.Node(child.Id) != null)
+                {
+                    var itemRef = child;
+                    _scopeBox.Items.Add(new string('\u2003', depth) + (string.IsNullOrEmpty(child.Title) ? "Sans titre" : child.Title));
+                    _scopeFilters.Add(delegate(GraphNode node) { return node.Id == itemRef.Id; });
+                    if (child.Children.Count > 0) AddScopeChoices(child, depth + 1);
+                }
+            }
+        }
+
+        /// <summary>Un écrit (nœud) est-il l'élément ou l'un de ses descendants ?</summary>
+        private bool InScope(GraphNode node, BinderItem scope)
+        {
+            BinderItem item;
+            if (!_items.TryGetValue(node.Id, out item)) return false;
+            return item == scope || item.IsDescendantOf(scope);
+        }
+
+        private string RootCategoryIdOf(string categoryId)
+        {
+            var guard = 0;
+            var current = _project == null || categoryId == null ? null : _project.FindSheetCategory(categoryId);
+            while (current != null && !string.IsNullOrEmpty(current.ParentId) && guard++ < 20)
+            {
+                var parent = _project.FindSheetCategory(current.ParentId);
+                if (parent == null) break;
+                current = parent;
+            }
+            return current == null ? null : current.Id;
+        }
+
+        internal bool TextInScope(GraphNode node)
+        {
+            var index = _scopeBox.SelectedIndex;
+            return index < 0 || index >= _scopeFilters.Count || _scopeFilters[index](node);
+        }
+
+        internal bool SheetOfType(GraphNode node)
+        {
+            var index = _typeBox.SelectedIndex;
+            return index < 0 || index >= _typeFilters.Count || _typeFilters[index](node);
+        }
+
+        public void ScopeForProbe(int index) { _scopeBox.SelectedIndex = index; }
+        public void TypeForProbe(int index) { _typeBox.SelectedIndex = index; }
+        public int ScopeChoicesForProbe { get { return _scopeBox.Items.Count; } }
+        public string ScopeLabelForProbe { get { return _scopeBox.SelectedItem as string ?? ""; } }
+        public string TypeLabelForProbe { get { return _typeBox.SelectedItem as string ?? ""; } }
+
         // ================================================================ l'hygiène
 
         private void BuildHygiene()
@@ -939,7 +1081,7 @@ namespace Marabook.App
                 Control icon = null;
                 try { icon = item == null ? null : ItemIcons.Render(item, Math.Max(8, _radius * 0.95), Chrome.PaperBg); }
                 catch (Exception) { icon = null; }
-                if (icon != null) { icon.HorizontalAlignment = HorizontalAlignment.Center; icon.VerticalAlignment = VerticalAlignment.Center; icon.IsHitTestVisible = false; Child = icon; }
+                if (icon != null) { icon.Margin = new Thickness(0); icon.HorizontalAlignment = HorizontalAlignment.Center; icon.VerticalAlignment = VerticalAlignment.Center; icon.IsHitTestVisible = false; Child = icon; } // Render pose une marge droite (rangées de la Pile) : retirée, sinon l'icône penche (28/10)
                 Label = new TextBlock
                 {
                     Text = node.Title.Length == 0 ? "Sans titre" : (node.Title.Length > 28 ? node.Title.Substring(0, 27) + "…" : node.Title),
@@ -1075,27 +1217,29 @@ namespace Marabook.App
         /// seul Render, la souris dit la case sous elle.</summary>
         public sealed class PresenceMatrix : Control
         {
-            private const double Cell = 22, RowHead = 170, ColHead = 96, SinceWidth = 120, Top = 8, Left = 16;
+            private const double Cell = 22, RowHead = 170, ColHead = 96, Top = 8, Left = 16;
             private readonly GraphView _owner;
             private readonly List<GraphNode> _rows = new List<GraphNode>();
             private readonly List<GraphNode> _cols = new List<GraphNode>();
-            private readonly Dictionary<string, int> _since = new Dictionary<string, int>();
             private int _hoverRow = -1, _hoverCol = -1;
-            private readonly TextBlock _hint;
+            private string _hint;      // la bulle maison : le texte…
+            private Point _hintAt;     // …et le point sous la souris (les infobulles d'Avalonia visaient à côté, 28/10)
 
             public PresenceMatrix(GraphView owner)
             {
                 _owner = owner;
-                _hint = new TextBlock();
                 PointerMoved += delegate(object sender, PointerEventArgs e) { Hover(e.GetPosition(this)); };
-                PointerExited += delegate { _hoverRow = _hoverCol = -1; ToolTip.SetTip(this, null); InvalidateVisual(); };
+                PointerExited += delegate { _hoverRow = _hoverCol = -1; _hint = null; InvalidateVisual(); };
                 PointerPressed += delegate(object sender, PointerPressedEventArgs e)
                 {
                     var at = e.GetPosition(this);
                     var row = RowAt(at.Y);
-                    if (row < 0 || row >= _rows.Count) return;
                     var col = ColAt(at.X);
-                    var id = col >= 0 && col < _cols.Count && at.X >= Left + RowHead ? _cols[col].Id : _rows[row].Id;
+                    string id = null;
+                    if (row >= 0 && row < _rows.Count && at.X < Left + RowHead) id = _rows[row].Id;
+                    else if (col >= 0 && col < _cols.Count && at.Y < Top + ColHead) id = _cols[col].Id;
+                    else if (row >= 0 && row < _rows.Count && col >= 0 && col < _cols.Count) id = _rows[row].Id;
+                    if (id == null) return;
                     if (e.ClickCount >= 2) { _owner.Open(id, false); e.Handled = true; return; }
                     _owner.Select(id);
                     e.Handled = true;
@@ -1104,14 +1248,17 @@ namespace Marabook.App
 
             public int RowCountForProbe { get { return _rows.Count; } }
             public int ColumnCountForProbe { get { return _cols.Count; } }
-            public int SinceForProbe(string sheetId) { int n; return _since.TryGetValue(sheetId, out n) ? n : -1; }
+            public bool HasRowForProbe(string sheetId) { foreach (var row in _rows) if (row.Id == sheetId) return true; return false; }
 
+            /// <summary>Colonnes : les écrits du récit dans l'amplitude choisie ;
+            /// lignes : les fiches de la nature choisie qui paraissent dans au
+            /// moins une de ces colonnes, par ordre de première apparition.</summary>
             public void Reload()
             {
-                _rows.Clear(); _cols.Clear(); _since.Clear();
+                _rows.Clear(); _cols.Clear();
                 var graph = _owner.Graph;
                 if (graph == null) { InvalidateMeasure(); InvalidateVisual(); return; }
-                _cols.AddRange(graph.Writings);
+                foreach (var text in graph.Writings) if (_owner.TextInScope(text)) _cols.Add(text);
                 var first = new Dictionary<string, int>();
                 for (var c = 0; c < _cols.Count; c++)
                     foreach (var edge in graph.EdgesOf(_cols[c].Id))
@@ -1121,20 +1268,20 @@ namespace Marabook.App
                         if (!first.ContainsKey(sheet)) first[sheet] = c;
                     }
                 foreach (var node in graph.Nodes)
-                    if (node.IsSheet && first.ContainsKey(node.Id)) _rows.Add(node);
+                    if (node.IsSheet && first.ContainsKey(node.Id) && _owner.SheetOfType(node)) _rows.Add(node);
                 _rows.Sort(delegate(GraphNode a, GraphNode b)
                 {
                     var byFirst = first[a.Id].CompareTo(first[b.Id]);
                     return byFirst != 0 ? byFirst : string.Compare(a.Title, b.Title, StringComparison.CurrentCultureIgnoreCase);
                 });
-                foreach (var absence in graph.Absences()) _since[absence.Sheet.Id] = absence.Since;
+                _hoverRow = _hoverCol = -1; _hint = null;
                 InvalidateMeasure();
                 InvalidateVisual();
             }
 
             protected override Size MeasureOverride(Size availableSize)
             {
-                return new Size(Left + RowHead + _cols.Count * Cell + SinceWidth + 24, Top + ColHead + _rows.Count * Cell + 24);
+                return new Size(Left + RowHead + _cols.Count * Cell + 48, Top + ColHead + _rows.Count * Cell + 48);
             }
 
             private int RowAt(double y) { return (int)Math.Floor((y - Top - ColHead) / Cell); }
@@ -1146,22 +1293,19 @@ namespace Marabook.App
                 var col = ColAt(at.X);
                 if (row < 0 || row >= _rows.Count) row = -1;
                 if (col < 0 || col >= _cols.Count || at.X < Left + RowHead) col = -1;
-                if (row == _hoverRow && col == _hoverCol) return;
-                _hoverRow = row; _hoverCol = col;
                 var graph = _owner.Graph;
+                string hint = null;
                 if (row >= 0 && col >= 0 && graph != null)
                 {
                     var count = graph.PresenceCount(_cols[col].Id, _rows[row].Id);
-                    ToolTip.SetTip(this, _rows[row].Title + " — " + _cols[col].Title + " : " + (count == 0 ? "absente" : count + (count > 1 ? " occurrences" : " occurrence")));
+                    hint = _rows[row].Title + " — " + _cols[col].Title + " : " + (count == 0 ? "absente" : count + (count > 1 ? " occurrences" : " occurrence"));
                 }
-                else if (row >= 0)
-                {
-                    int since;
-                    ToolTip.SetTip(this, _rows[row].Title + (_since.TryGetValue(_rows[row].Id, out since) ? (since == 0 ? " — présente dans le dernier écrit" : " — absente depuis " + since + (since > 1 ? " écrits" : " écrit")) : ""));
-                }
-                else if (col >= 0) ToolTip.SetTip(this, _cols[col].Title);
-                else ToolTip.SetTip(this, null);
-                InvalidateVisual();
+                else if (row >= 0) hint = _rows[row].Title;
+                else if (col >= 0 && at.Y < Top + ColHead) hint = _cols[col].Title;
+                if (col >= 0 && at.Y < Top + ColHead) row = -1; // l'en-tête d'une colonne : la colonne seule
+                var changed = row != _hoverRow || col != _hoverCol || hint != _hint;
+                _hoverRow = row; _hoverCol = col; _hint = hint; _hintAt = at;
+                if (changed || hint != null) InvalidateVisual();
             }
 
             public override void Render(DrawingContext context)
@@ -1172,11 +1316,17 @@ namespace Marabook.App
                 var typeface = Typeface.Default;
                 if (_rows.Count == 0 || _cols.Count == 0)
                 {
-                    var empty = new FormattedText(_cols.Count == 0 ? "Aucun écrit dans le récit." : "Aucune fiche ne paraît dans les écrits (vérifiez les noms des fiches : titre, Nom, Prénom, Alias).", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 13, Chrome.SoftText);
+                    var empty = new FormattedText(_cols.Count == 0 ? "Aucun écrit dans cette amplitude." : "Aucune fiche de cette nature ne paraît dans ces écrits (les noms cherchés : titre, prénom du titre, Nom, Prénom, Alias).", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 13, Chrome.SoftText);
                     context.DrawText(empty, new Point(Left + 8, Top + 8));
                     return;
                 }
                 var accent = Chrome.Accent.Color;
+                var gridHeight = _rows.Count * Cell;
+                // La colonne survolée, de l'en-tête au bas de la grille (28/10, Rémi : « pour gagner en précision »).
+                if (_hoverCol >= 0)
+                    context.FillRectangle(Chrome.AccentTint, new Rect(Left + RowHead + _hoverCol * Cell, Top, Cell, ColHead + gridHeight));
+                if (_hoverRow >= 0)
+                    context.FillRectangle(Chrome.AccentTint, new Rect(Left, Top + ColHead + _hoverRow * Cell, RowHead + _cols.Count * Cell, Cell));
                 // Les en-têtes de colonnes, inclinés.
                 for (var c = 0; c < _cols.Count; c++)
                 {
@@ -1189,11 +1339,7 @@ namespace Marabook.App
                 for (var r = 0; r < _rows.Count; r++)
                 {
                     var y = Top + ColHead + r * Cell;
-                    if (r == _hoverRow) context.FillRectangle(Chrome.AccentTint, new Rect(Left, y, RowHead + _cols.Count * Cell + SinceWidth, Cell));
-                    int since;
-                    _since.TryGetValue(_rows[r].Id, out since);
-                    var muted = since >= 2;
-                    var head = new FormattedText(Shorten(_rows[r].Title, 26), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 12, muted ? Chrome.Warn : Chrome.Ink);
+                    var head = new FormattedText(Shorten(_rows[r].Title, 26), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 12, Chrome.Ink);
                     context.DrawText(head, new Point(Left, y + (Cell - head.Height) / 2));
                     for (var c = 0; c < _cols.Count; c++)
                     {
@@ -1208,9 +1354,19 @@ namespace Marabook.App
                             context.DrawRectangle(new SolidColorBrush(Color.FromArgb(alpha, accent.R, accent.G, accent.B)), null, cell, 3, 3);
                         }
                     }
-                    var note = since == 0 ? "jusqu'au dernier" : "absente depuis " + since;
-                    var tail = new FormattedText(note, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 11, muted ? Chrome.Warn : Chrome.FaintText);
-                    context.DrawText(tail, new Point(Left + RowHead + _cols.Count * Cell + 8, y + (Cell - tail.Height) / 2));
+                }
+                // La bulle, posée près de la souris et retenue dans la zone.
+                if (!string.IsNullOrEmpty(_hint))
+                {
+                    var text = new FormattedText(_hint, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 12, Chrome.Ink);
+                    var w = text.Width + 16;
+                    var h = text.Height + 10;
+                    var x = Math.Min(_hintAt.X + 14, Math.Max(0, Bounds.Width - w - 4));
+                    var y = _hintAt.Y + 18;
+                    if (y + h > Bounds.Height) y = _hintAt.Y - h - 6;
+                    var box = new Rect(x, y, w, h);
+                    context.DrawRectangle(Chrome.RaisedBg, new Pen(Chrome.BorderStrong, 1), box, 6, 6);
+                    context.DrawText(text, new Point(x + 8, y + 5));
                 }
             }
 

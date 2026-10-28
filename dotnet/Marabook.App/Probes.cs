@@ -2910,7 +2910,9 @@ namespace Marabook.App
                 var keira = FirstTitled(project, "Keira");
                 var graph = view.GraphForProbe;
                 Check(keira != null && graph.Node(keira.Id) != null && graph.Node(keira.Id).Presence > 0, "Keira est un nœud, présente dans au moins un écrit");
-                Check(shell.CurrentForProbe == null, "la vue est hors de l'arbre : aucun élément courant");
+                Check(shell.CurrentForProbe != null && shell.CurrentForProbe.Id == MainWindow.GraphItemId && shell.TabsForProbe.ActiveItemId == MainWindow.GraphItemId
+                    && shell.TabStripForProbe.TitlesForProbe()[shell.TabsForProbe.ActiveIndex] == "Graphe relationnel",
+                    "le graphe est une page (28/10) : élément courant, sélection de la Pile, onglet actif à son nom");
 
                 var shownAll = view.ShownEdgeCountForProbe;
                 view.ToggleKindForProbe(GraphEdgeKind.Presence, false);
@@ -2953,7 +2955,18 @@ namespace Marabook.App
                 var matrix = view.MatrixForProbe;
                 Check(view.FacetForProbe == "Présences" && matrix.ColumnCountForProbe == graph.Writings.Count && matrix.RowCountForProbe >= 1,
                     "la matrice : une colonne par écrit du récit (" + matrix.ColumnCountForProbe + "), une ligne par fiche présente (" + matrix.RowCountForProbe + ")");
-                Check(matrix.SinceForProbe(keira.Id) >= 0, "…et dit depuis combien d'écrits Keira se tait (" + matrix.SinceForProbe(keira.Id) + ")");
+                Check(matrix.HasRowForProbe(keira.Id), "…Keira a sa ligne");
+                Check(view.ScopeChoicesForProbe >= 3 && view.TypeLabelForProbe.StartsWith("Personnage"), "les filtres (28/10) : l'amplitude (" + view.ScopeChoicesForProbe + " choix) et la nature des fiches, Personnages d'office (" + view.TypeLabelForProbe + ")");
+                var matrixCapture = Environment.GetEnvironmentVariable("MARABOOK_MATRIX_CAPTURE");
+                if (!string.IsNullOrEmpty(matrixCapture)) shell.CaptureForProbe(matrixCapture);
+                var columnsBefore = matrix.ColumnCountForProbe;
+                view.ScopeForProbe(view.ScopeChoicesForProbe - 1); // le dernier écrit du récit
+                await Settle();
+                Check(matrix.ColumnCountForProbe == 1 && matrix.ColumnCountForProbe < columnsBefore, "limiter l'amplitude à un écrit ne garde que sa colonne");
+                view.ScopeForProbe(0);
+                view.TypeForProbe(0);
+                await Settle();
+                Check(matrix.ColumnCountForProbe == columnsBefore && matrix.RowCountForProbe >= 2, "tout le récit et toutes les fiches : la matrice entière revient");
                 view.ShowFacetForProbe("Hygiène");
                 await Settle();
                 Check(view.FacetForProbe == "Hygiène" && view.HygieneCountForProbe("Fiches et écrits orphelins") >= 0 && view.HygieneCountForProbe("Fiches jamais présentes dans un écrit") >= 0 && view.HygieneCountForProbe("Absences longues") >= 0,
@@ -2972,6 +2985,11 @@ namespace Marabook.App
                 shell.Binder.SelectItem(keira.Id, true);
                 await Settle();
                 Check(!view.IsVisible && shell.CurrentForProbe == keira, "un clic dans la Pile reprend la main : le graphe se range, la fiche s'ouvre");
+                shell.GoBackForProbe();
+                await Settle();
+                Check(view.IsVisible && shell.CurrentForProbe != null && shell.CurrentForProbe.Id == MainWindow.GraphItemId && !view.LoaderShownForProbe, "« Précédent » rouvre le graphe — sans recalcul, rien n'a changé");
+                shell.Binder.SelectItem(keira.Id, true);
+                await Settle();
 
                 AppSettings.Profile = Profiles.Publisher;
                 Profiles.Notify();

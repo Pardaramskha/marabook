@@ -49,6 +49,13 @@ namespace Marabook.App
                     QuitNow();
                     return;
                 }
+                if (_launch.GraphProbe != null)
+                {
+                    try { GraphDiagnostic(_launch.GraphProbe); }
+                    catch (Exception error) { Console.WriteLine("GRAPHE ÉCHEC : " + error); Environment.ExitCode = 1; }
+                    QuitNow();
+                    return;
+                }
                 if (_launch.PlotPath != null)
                 {
                     PendingOpen = null;

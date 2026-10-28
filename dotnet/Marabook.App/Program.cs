@@ -106,12 +106,13 @@ namespace Marabook.App
         public bool SaveProbe;      // --save-probe : ouvre le .plot donné, le marque modifié, l'enregistre (silencieux), dit OK ou la pile, quitte
         public string FontProbe;    // --police <famille> : dit comment la face se résout (graisse, simulations), puis quitte (29/09)
         public string PagesProbe;   // --pages <fichier.plot> : la pagination de chaque livre, texte par texte, compte seul contre PDF publié, puis quitte (09/10)
+        public string GraphProbe;   // --graphe <fichier.plot> : le graphe relationnel du projet — noms cherchés et présences de chaque fiche, orphelins — puis quitte (28/10)
         public string WordProbe;    // --mot <mot[,mot…]> : accepté ou refusé par le dictionnaire embarqué, radicaux ou suggestions, puis quitte (10/10)
         public string NamesProbe;    // --noms <fichier.plot> : les fiches manquantes (noms propres récurrents) du projet, puis quitte (12/10)
         public string SpellingProbe; // --ortho <fichier.plot> : les mots inconnus de chaque écrit (MARABOOK_ORTHO_FIND filtre les titres), puis quitte (10/10)
         public bool UpdateProbe;    // --maj-test : interroge GitHub, télécharge et déballe la dernière release comme au lancement, dit le résultat, quitte (01/10)
 
-        public bool Isolated { get { return Demo || Probe || CapturePath != null || SaveProbe || FontProbe != null || UpdateProbe || PagesProbe != null || WordProbe != null || SpellingProbe != null || NamesProbe != null; } }
+        public bool Isolated { get { return Demo || Probe || CapturePath != null || SaveProbe || FontProbe != null || UpdateProbe || PagesProbe != null || GraphProbe != null || WordProbe != null || SpellingProbe != null || NamesProbe != null; } }
 
         public static Launch Parse(string[] args)
         {
@@ -138,6 +139,7 @@ namespace Marabook.App
                 if (arg == "--save-probe") { launch.SaveProbe = true; continue; }
                 if (arg == "--police" && i + 1 < args.Length) { launch.FontProbe = args[++i]; continue; } // diagnostic : comment la face se résout (29/09)
                 if (arg == "--pages" && i + 1 < args.Length) { launch.PagesProbe = args[++i]; continue; } // diagnostic de la pagination d'un livre (09/10)
+                if (arg == "--graphe" && i + 1 < args.Length) { launch.GraphProbe = args[++i]; continue; } // diagnostic du graphe relationnel (28/10)
                 if (arg == "--mot" && i + 1 < args.Length) { launch.WordProbe = args[++i]; continue; } // diagnostic du dictionnaire (10/10)
                 if (arg == "--ortho" && i + 1 < args.Length) { launch.SpellingProbe = args[++i]; continue; }
                 if (arg == "--noms" && i + 1 < args.Length) { launch.NamesProbe = args[++i]; continue; } // diagnostic des fiches manquantes (12/10) // diagnostic de l'orthographe d'un projet (10/10)
