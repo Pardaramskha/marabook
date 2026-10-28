@@ -422,6 +422,9 @@ namespace Marabook.App
             // relationnel en tête, puis ce qui touche aux fiches.
             _sheetsMenu = new MenuItem { Header = "Fiches" };
             _sheetsMenu.Items.Add(Entry(null, "Diagramme relationnel…", OpenRelationsEditor));
+            _graphMenu = Entry(null, "Graphe relationnel", ShowGraph); // la carte des liens du projet (1.1.0, 28/10)
+            _graphMenu.IsVisible = Profiles.Enabled(Profiles.Graph);
+            _sheetsMenu.Items.Add(_graphMenu);
             _sheetsMenu.Items.Add(new Separator());
             _newSheetMenu = Entry("new-sheet", "Nouvelle fiche", delegate { _binder.NewSheet(null); });
             _sheetsMenu.Items.Add(_newSheetMenu);
@@ -667,6 +670,7 @@ namespace Marabook.App
             _binder.MultiSelectionChanged += InspectGroup; // Ctrl+clic dans la Pile (1.0.3)
             _binder.BatchMenuProvider = BuildBatchMenu;
             _binder.JournalRequested += ShowJournal;
+            _binder.GraphRequested += ShowGraph; // le graphe relationnel (1.1.0)
             _binder.NewTabRequested += OpenInNewTab; // « Ouvrir dans un nouvel onglet » (1.1.0)
             _binder.CanOpenTab = delegate { return TabsOn() && _tabs.CanOpen; };
             _binder.FilesDropped += ImportDroppedFiles; // fichiers du système sur la Pile (29/09)
@@ -687,6 +691,7 @@ namespace Marabook.App
                 if (_planView.IsVisible) _planView.Refresh();
                 UpdateInspector();
                 TabsPrune(); // les onglets d'éléments disparus tombent, les titres suivent (1.1.0)
+                if (_graphView != null && _graphView.IsVisible) _graphView.Refresh(); // le graphe ouvert se recalcule (sous son voile) après un changement de structure
                 CodeModuleHost.Instance.NotifyProjectChanged(); // les liens et tuiles des cartes mentales suivent (26/10 soir)
                 // Chauffe le cache de mots : un document importé entre au cache
                 // à sa taille réelle, sans jamais créditer le journal.
@@ -1018,6 +1023,7 @@ namespace Marabook.App
 
             _mediaView = new MediaView { IsVisible = false };
             center.Children.Add(_mediaView);
+            center.Children.Add(BuildGraphView()); // le graphe relationnel (1.1.0)
 
             _journalView = new JournalView { IsVisible = false, Background = Brushes.Transparent }; // le fond est celui de la feuille (coins ronds)
             _journalView.Changed += delegate { MarkDirty(); CheckDailyGoal(); };
@@ -3416,6 +3422,7 @@ namespace Marabook.App
             _templateView.IsVisible = false;
             _templateView.Clear();
             _mediaView.IsVisible = false;
+            if (_graphView != null) _graphView.IsVisible = false; // le graphe relationnel (1.1.0)
             _placeholder.IsVisible = false;
         }
 
@@ -4817,6 +4824,15 @@ namespace Marabook.App
             var plans = Profiles.Enabled(Profiles.Plans);
             var sprints = Profiles.Enabled(Profiles.Sprints);
             if (_sprintMenu != null) _sprintMenu.IsVisible = sprints;
+            // Le graphe relationnel (28/10) : caché pour l'éditeur·ice ; s'il
+            // était ouvert, l'Accueil le remplace.
+            var graph = Profiles.Enabled(Profiles.Graph);
+            if (_graphMenu != null) _graphMenu.IsVisible = graph;
+            if (!graph && _graphView != null && _graphView.IsVisible && _project != null)
+            {
+                var home = _project.Category(Project.KeyHome);
+                if (home != null) _binder.SelectItem(home.Id);
+            }
             if (_sheetsMenu != null) _sheetsMenu.IsVisible = sheets;
             if (_namesMenu != null) _namesMenu.IsVisible = sheets;
             if (_newSheetMenu != null) _newSheetMenu.IsVisible = sheets;

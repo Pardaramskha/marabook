@@ -141,7 +141,8 @@ namespace Marabook.Tests
                 FileGuardTests.Run,      // C47 - garde du .plot : empreinte, conflit, verrou (1.0.3)
                 FontAuditTests.Run,      // C48 - polices employées et manquantes (1.0.4, 07/10)
                 Patch110Tests.Run,       // C53 — 1.1.0 : date de décès, tags, objectif et limite, icône de catégorie (26/10)
-                WorkTabsTests.Run        // C54 — 1.1.0 : onglets (rangée, plafond, fermeture, reprise, .plot v42) (28/10)
+                WorkTabsTests.Run,       // C54 — 1.1.0 : onglets (rangée, plafond, fermeture, reprise, .plot v42) (28/10)
+                GraphTests.Run           // C55 — 1.1.0 : graphe relationnel (arêtes, lectures, disposition, .plot v43) (28/10)
             };
             foreach (var suite in suites)
             {

@@ -2290,6 +2290,8 @@ namespace Marabook.App
                 await ProbeRelations(shell);
                 // ================================================== 1.1.0 : les onglets (28/10)
                 await ProbeTabs(shell);
+                // ================================================== 1.1.0 : le graphe relationnel (28/10)
+                await ProbeGraph(shell);
             }
             catch (Exception error)
             {
@@ -2547,8 +2549,8 @@ namespace Marabook.App
             try
             {
                 Check(!Profiles.Chosen && Profiles.Enabled(Profiles.Sheets) && Profiles.Enabled(Profiles.BookFormat), "sans profil choisi, tout est actif");
-                Check(Profiles.HiddenBy(Profiles.Writer).Length == 9 && Profiles.HiddenBy(Profiles.Publisher).Length == 3 && Profiles.HiddenBy(Profiles.Everything).Length == 0,
-                    "les profils prédéfinis cachent 9, 3 et 0 fonctionnalités");
+                Check(Profiles.HiddenBy(Profiles.Writer).Length == 9 && Profiles.HiddenBy(Profiles.Publisher).Length == 4 && Profiles.HiddenBy(Profiles.Everything).Length == 0,
+                    "les profils prédéfinis cachent 9, 4 et 0 fonctionnalités");
 
                 Profiles.Choose(Profiles.Publisher);
                 await Settle();
@@ -2867,6 +2869,124 @@ namespace Marabook.App
                 AppSettings.TabsEnabled = enabledBefore;
                 AppSettings.MaxTabs = maxBefore;
                 shell.ApplyTabsSettingsForProbe();
+            }
+        }
+
+        /// <summary>Le GRAPHE RELATIONNEL (1.1.0, 28/10) : l'entrée de la Pile
+        /// et du menu, l'ouverture sous le voile puis le calcul (nœuds, liens),
+        /// les filtres par nature, la recherche, la sélection (le Général
+        /// suit) et le voisinage, un nœud tiré (position épinglée, projet
+        /// sale), la matrice des présences et l'hygiène, l'export SVG, la Pile
+        /// qui reprend la main, le profil Éditeur·ice qui cache tout.
+        /// MARABOOK_GRAPH_CAPTURE=<png> enregistre la fenêtre sur la carte.</summary>
+        private static async Task ProbeGraph(MainWindow shell)
+        {
+            var before = AppSettings.Profile;
+            var hiddenBefore = new List<string>(AppSettings.HiddenFeatures);
+            try
+            {
+                AppSettings.Profile = null;
+                Profiles.Notify();
+                await Settle();
+                var project = shell.Project;
+                Check(shell.Binder.GraphRowShownForProbe, "la Pile offre « Graphe relationnel » dans Encyclopédie");
+                Check(shell.GraphMenuShownForProbe, "…et le menu Édition › Fiches aussi");
+                var view = shell.GraphViewForProbe;
+                // La démo ne nomme pas ses personnages dans ses chapitres : un
+                // paragraphe de plus dans un écrit fermé, pour avoir des présences.
+                var chapterTwo = FirstTitled(project, "Chapitre deux");
+                if (chapterTwo != null)
+                {
+                    var paragraph = new TextParagraph();
+                    paragraph.Runs.Add(new TextRun { Text = "Keira Varenh croisa Le marabout sur la grève. Keira ne dit rien." });
+                    chapterTwo.Document.Paragraphs.Add(paragraph);
+                }
+                shell.ShowGraphForProbe();
+                Check(view.IsVisible && view.LoaderShownForProbe, "ouvrir le graphe montre la vue et son voile de chargement");
+                await view.LoadingForProbe;
+                await Settle();
+                Check(!view.LoaderShownForProbe && view.NodeCountForProbe > 0 && view.EdgeCountForProbe > 0,
+                    "le calcul finit, le voile tombe : " + view.NodeCountForProbe + " nœuds, " + view.EdgeCountForProbe + " liens");
+                var keira = FirstTitled(project, "Keira");
+                var graph = view.GraphForProbe;
+                Check(keira != null && graph.Node(keira.Id) != null && graph.Node(keira.Id).Presence > 0, "Keira est un nœud, présente dans au moins un écrit");
+                Check(shell.CurrentForProbe == null, "la vue est hors de l'arbre : aucun élément courant");
+
+                var shownAll = view.ShownEdgeCountForProbe;
+                view.ToggleKindForProbe(GraphEdgeKind.Presence, false);
+                await Settle();
+                Check(view.ShownEdgeCountForProbe < shownAll, "décocher Présences retire ses liens de la carte (" + view.ShownEdgeCountForProbe + " < " + shownAll + ")");
+                view.ToggleKindForProbe(GraphEdgeKind.Presence, true);
+                await Settle();
+                Check(view.ShownEdgeCountForProbe == shownAll, "…recocher les rend");
+
+                view.SearchForProbe("Keira");
+                await Settle();
+                Check(view.LitNodeCountForProbe >= 1 && view.LitNodeCountForProbe < view.ShownNodeCountForProbe, "la recherche garde en lumière les nœuds qui répondent (" + view.LitNodeCountForProbe + " sur " + view.ShownNodeCountForProbe + ")");
+                view.SearchForProbe("");
+                await Settle();
+
+                view.SelectForProbe(keira.Id);
+                await Settle();
+                Check(view.SelectedForProbe == keira.Id && shell.InspectorTitle == keira.Title, "cliquer un nœud le sélectionne et le Général le montre (" + shell.InspectorTitle + ")");
+                var all = view.ShownNodeCountForProbe;
+                view.DepthForProbe(1);
+                await Settle();
+                var hop = view.ShownNodeCountForProbe;
+                Check(hop >= 2 && hop < all, "le voisinage à un saut ne montre que le nœud et ses voisins (" + hop + " sur " + all + ")");
+                view.DepthForProbe(0);
+                await Settle();
+                Check(view.ShownNodeCountForProbe == all, "« Tout » rend le graphe entier");
+
+                var dirtyBefore = shell.DirtyForProbe;
+                view.DragForProbe(keira.Id, 123, -45);
+                await Settle();
+                GraphPosition at;
+                Check(project.GraphLayout.TryGetValue(keira.Id, out at) && at.Pinned && Math.Abs(at.X - 123) < 0.01 && shell.DirtyForProbe,
+                    "un nœud tiré : sa position est épinglée dans le projet (.plot v43) et le projet est sale (avant : " + dirtyBefore + ")");
+                var capture = Environment.GetEnvironmentVariable("MARABOOK_GRAPH_CAPTURE");
+                Console.WriteLine("  [graphe] " + view.DebugForProbe);
+                if (!string.IsNullOrEmpty(capture)) shell.CaptureForProbe(capture);
+
+                view.ShowFacetForProbe("Présences");
+                await Settle();
+                var matrix = view.MatrixForProbe;
+                Check(view.FacetForProbe == "Présences" && matrix.ColumnCountForProbe == graph.Writings.Count && matrix.RowCountForProbe >= 1,
+                    "la matrice : une colonne par écrit du récit (" + matrix.ColumnCountForProbe + "), une ligne par fiche présente (" + matrix.RowCountForProbe + ")");
+                Check(matrix.SinceForProbe(keira.Id) >= 0, "…et dit depuis combien d'écrits Keira se tait (" + matrix.SinceForProbe(keira.Id) + ")");
+                view.ShowFacetForProbe("Hygiène");
+                await Settle();
+                Check(view.FacetForProbe == "Hygiène" && view.HygieneCountForProbe("Fiches et écrits orphelins") >= 0 && view.HygieneCountForProbe("Fiches jamais présentes dans un écrit") >= 0 && view.HygieneCountForProbe("Absences longues") >= 0,
+                    "l'hygiène compte orphelins (" + view.HygieneCountForProbe("Fiches et écrits orphelins") + "), jamais présentes (" + view.HygieneCountForProbe("Fiches jamais présentes dans un écrit") + "), absences longues (" + view.HygieneCountForProbe("Absences longues") + ")");
+                view.ShowFacetForProbe("Carte");
+                var svg = view.Svg();
+                Check(svg.StartsWith("<svg") && svg.Contains("<circle") && svg.Contains("Keira"), "l'export SVG dessine les nœuds et leurs titres");
+                var png = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-graphe-" + Guid.NewGuid().ToString("N") + ".png");
+                try
+                {
+                    view.ExportPng(png);
+                    Check(System.IO.File.Exists(png) && new System.IO.FileInfo(png).Length > 1000, "l'export PNG écrit une image");
+                }
+                finally { try { System.IO.File.Delete(png); } catch (System.IO.IOException) { } }
+
+                shell.Binder.SelectItem(keira.Id, true);
+                await Settle();
+                Check(!view.IsVisible && shell.CurrentForProbe == keira, "un clic dans la Pile reprend la main : le graphe se range, la fiche s'ouvre");
+
+                AppSettings.Profile = Profiles.Publisher;
+                Profiles.Notify();
+                await Settle();
+                Check(!shell.Binder.GraphRowShownForProbe && !shell.GraphMenuShownForProbe, "profil Éditeur·ice : plus de ligne dans la Pile ni d'entrée de menu");
+                shell.ShowGraphForProbe();
+                await Settle();
+                Check(!view.IsVisible, "…et la vue ne s'ouvre pas");
+            }
+            finally
+            {
+                AppSettings.Profile = before;
+                Profiles.LoadHidden(hiddenBefore);
+                Profiles.Notify();
+                await Settle();
             }
         }
 

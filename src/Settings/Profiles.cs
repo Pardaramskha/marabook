@@ -59,12 +59,14 @@ namespace Marabook.Settings
         public const string Sheets = "fiches";
         public const string Plans = "plans";
         public const string Sprints = "sprints";
+        public const string Graph = "graphe"; // le graphe relationnel (28/10) — caché pour l'éditeur·ice
 
         public static readonly Feature[] Features =
         {
             new Feature { Key = Sheets, Group = "Projet", Label = "Fiches", Help = "La bibliothèque de fiches (personnages, lieux…), leur création, les liens vers les fiches depuis les écrits et la généalogie." },
             new Feature { Key = Plans, Group = "Projet", Label = "Plans", Help = "Les plans en colonnes et briques, et leurs liens avec les livres et les écrits." },
             new Feature { Key = Sprints, Group = "Projet", Label = "Sprints d'écriture", Help = "Le chronomètre de sprint (menu Édition, Journal, Accueil)." },
+            new Feature { Key = Graph, Group = "Projet", Label = "Graphe relationnel", Help = "La carte de tout ce qui se relie dans le projet (relations entre fiches, liens, présences dans les écrits, livres, plans), dans la section Encyclopédie de la Pile." },
             new Feature { Key = BookPublicationDetails, Group = "Livres", Label = "Détails de publication", Help = "Collection, ISBN, éditeur, année, série ou cycle dans l'onglet Édition." },
             new Feature { Key = BookAudienceDetails, Group = "Livres", Label = "Détails de destination", Help = "Genre, public cible et thématiques dans l'onglet Édition." },
             new Feature { Key = BookCommercialDetails, Group = "Livres", Label = "Détails commerciaux", Help = "Quatrième de couverture et accroche dans l'onglet Édition." },
@@ -84,7 +86,7 @@ namespace Marabook.Settings
                 case Writer:
                     return new[] { BookPublicationDetails, BookAudienceDetails, BookCommercialDetails, BookFormat, StylePao, BookChecklistEdition, BookExtraPages, LooseLines, Widows };
                 case Publisher:
-                    return new[] { Sheets, Plans, Sprints };
+                    return new[] { Sheets, Plans, Sprints, Graph };
                 default:
                     return new string[0];
             }

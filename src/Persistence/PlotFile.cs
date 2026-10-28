@@ -212,7 +212,11 @@ namespace Marabook.Persistence
         //      ouverts dans la rangée d'onglets, dans l'ordre, omis si vide) et
         //      "activeTab" (l'index de l'actif, 0 par défaut). Un id disparu
         //      est écarté à la reprise ; un vieux Marabook ignore les deux.
-        private const int FormatVersion = 42;
+        // v43: 1.1.0 (28/10) — GRAPHE RELATIONNEL : manifeste "graphLayout"
+        //      (la position de chaque nœud : [{id, x, y, pin}], omis si vide ;
+        //      "pin" présent et vrai = tiré par l'auteur, fixé). Un id disparu
+        //      est ignoré ; un vieux Marabook ignore le tout.
+        private const int FormatVersion = 43;
 
         // La voie d'une nature de relation dans le .plot (1.1.0, schéma des relations).
         private static string LaneName(RelationLane lane)
@@ -646,6 +650,20 @@ namespace Marabook.Persistence
             {
                 manifest["tabs"] = new List<object>(project.OpenTabs.ToArray());
                 if (project.ActiveTab > 0) manifest["activeTab"] = project.ActiveTab;
+            }
+            if (project.GraphLayout.Count > 0) // v43 — la disposition du graphe relationnel
+            {
+                var layout = new List<object>();
+                foreach (var pair in project.GraphLayout)
+                {
+                    var g = new Dictionary<string, object>();
+                    g["id"] = pair.Key;
+                    g["x"] = pair.Value.X;
+                    g["y"] = pair.Value.Y;
+                    if (pair.Value.Pinned) g["pin"] = true;
+                    layout.Add(g);
+                }
+                manifest["graphLayout"] = layout;
             }
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
@@ -1200,6 +1218,21 @@ namespace Marabook.Persistence
                     foreach (var entry in tabs)
                         if (entry is string && ((string)entry).Length > 0) project.OpenTabs.Add((string)entry);
                 project.ActiveTab = Math.Max(0, Json.AsInt(Json.Field(manifest, "activeTab"), 0));
+                var layout = Json.AsList(Json.Field(manifest, "graphLayout")); // v43
+                if (layout != null)
+                    foreach (var entry in layout)
+                    {
+                        var g = Json.AsObject(entry);
+                        if (g == null) continue;
+                        var id = Json.AsString(Json.Field(g, "id"));
+                        if (string.IsNullOrEmpty(id)) continue;
+                        project.GraphLayout[id] = new GraphPosition
+                        {
+                            X = Json.AsDouble(Json.Field(g, "x"), 0),
+                            Y = Json.AsDouble(Json.Field(g, "y"), 0),
+                            Pinned = Json.AsBool(Json.Field(g, "pin"), false)
+                        };
+                    }
                 var ignoredRules = Json.AsList(Json.Field(manifest, "ignoredRules"));
                 if (ignoredRules != null)
                     foreach (var entry in ignoredRules)

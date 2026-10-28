@@ -113,6 +113,11 @@ namespace Marabook.Model
         public List<string> OpenTabs = new List<string>();
         public int ActiveTab;
 
+        // La DISPOSITION DU GRAPHE relationnel (1.1.0, v43) : la position de
+        // chaque nœud telle que la disposition l'a posée ou que l'auteur l'a
+        // tirée (épinglée) — le graphe ne se réorganise pas à chaque ouverture.
+        public Dictionary<string, GraphPosition> GraphLayout = new Dictionary<string, GraphPosition>();
+
         /// <summary>L'item du projet actif, s'il existe encore, hors corbeille
         /// et dans Écrits ; null sinon.</summary>
         public BinderItem ActiveScope()

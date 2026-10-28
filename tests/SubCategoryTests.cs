@@ -303,7 +303,7 @@ namespace Marabook.Tests
             {
                 Persistence.PlotFile.Save(project, path);
                 var loaded = Persistence.PlotFile.Load(path);
-                t.Equal(42, loaded.LoadedFormatVersion, "écrit en v42 (v37 sous-catégories, v38 macros, v39 couleur et projet actif, v40 niveaux de liste, v41 tags, objectifs, icônes, v42 onglets)");
+                t.Equal(43, loaded.LoadedFormatVersion, "écrit en v43 (v37 sous-catégories, v38 macros, v39 couleur et projet actif, v40 niveaux de liste, v41 tags, objectifs, icônes, v42 onglets, v43 graphe)");
                 var back = loaded.FindSheetCategory(heroes.Id);
                 t.Equal("#A1B2C3", back == null ? null : back.Color, "la couleur de la sous-catégorie fait l'aller-retour");
                 t.Equal(sheet.Id, loaded.ActiveScopeId, "le projet actif aussi (même si c'est une fiche ici : ActiveScope() le refuse)");
