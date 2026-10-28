@@ -77,8 +77,11 @@ namespace Marabook.App
         private readonly List<string> _typeKeys = new List<string>();
         private string _scopeMemory, _typeMemory;
         /// <summary>La largeur des portraits des nœuds (fiches à image) :
-        /// décodés sous le voile, gardés par ImageCache.</summary>
-        internal const int PortraitWidth = 96;
+        /// décodés sous le voile, gardés par ImageCache. Assez large pour la
+        /// plus grosse pastille (44 px) au zoom maximal (×3) sur un écran à
+        /// 200 % — à 96 px, les portraits pixellisaient dès qu'on zoomait
+        /// (Rémi, 28/10) ; ~400 Ko par portrait en mémoire.</summary>
+        internal const int PortraitWidth = 320;
         private readonly WrapPanel _mapTools = new WrapPanel { Orientation = Orientation.Horizontal }; // à la ligne quand la fenêtre est étroite
         private bool _fitPending;
         private readonly TextBox _search;
@@ -1134,6 +1137,7 @@ namespace Marabook.App
                 {
                     HasPortrait = true;
                     Background = new ImageBrush(portrait) { Stretch = Stretch.UniformToFill, AlignmentX = AlignmentX.Center, AlignmentY = AlignmentY.Center };
+                    RenderOptions.SetBitmapInterpolationMode(this, BitmapInterpolationMode.HighQuality); // réduit en douceur à tout zoom
                 }
                 else
                 {
