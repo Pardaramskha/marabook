@@ -875,6 +875,21 @@ namespace Marabook.App
         public string TypeLabelForProbe { get { return _typeBox.SelectedItem as string ?? ""; } }
         public bool NodeShowsPortraitForProbe(string id) { NodeView view; return _nodes.TryGetValue(id, out view) && view.HasPortrait; }
 
+        /// <summary>Sonde/capture : la carte centrée, au zoom donné, sur la
+        /// première fiche à portrait (ou le premier nœud à défaut).</summary>
+        public void FocusPortraitForProbe(double zoom)
+        {
+            string target = null;
+            foreach (var pair in _nodes) if (pair.Value.HasPortrait) { target = pair.Key; break; }
+            if (target == null) foreach (var pair in _nodes) { target = pair.Key; break; }
+            GraphPosition at;
+            if (target == null || !_positions.TryGetValue(target, out at)) return;
+            zoom = Math.Max(MinZoom, Math.Min(MaxZoom, zoom));
+            SetZoom(zoom);
+            _pan.X = _viewport.Bounds.Width / 2 - at.X * zoom;
+            _pan.Y = _viewport.Bounds.Height / 2 - at.Y * zoom;
+        }
+
         // ================================================================ l'hygiène
 
         private void BuildHygiene()
@@ -1136,8 +1151,24 @@ namespace Marabook.App
                 if (portrait != null)
                 {
                     HasPortrait = true;
-                    Background = new ImageBrush(portrait) { Stretch = Stretch.UniformToFill, AlignmentX = AlignmentX.Center, AlignmentY = AlignmentY.Center };
-                    RenderOptions.SetBitmapInterpolationMode(this, BitmapInterpolationMode.HighQuality); // réduit en douceur à tout zoom
+                    // Un Image ROGNÉ AU ROND, pas un ImageBrush : Avalonia rend un
+                    // pinceau d'image dans une surface intermédiaire à la taille
+                    // LOGIQUE de la pastille (44 px) puis l'agrandit avec le zoom
+                    // de la carte — flou garanti dès ×2 (vu sur le Serment, 28/10).
+                    // L'Image, elle, se dessine avec la transformation entière et
+                    // échantillonne la vignette de 320 px.
+                    var inner = Math.Max(1, _radius * 2 - 4); // sous la bordure de 2 px
+                    var picture = new Image
+                    {
+                        Source = portrait,
+                        Stretch = Stretch.UniformToFill,
+                        Width = inner,
+                        Height = inner,
+                        IsHitTestVisible = false,
+                        Clip = new EllipseGeometry(new Rect(0, 0, inner, inner))
+                    };
+                    RenderOptions.SetBitmapInterpolationMode(picture, BitmapInterpolationMode.HighQuality);
+                    Child = picture;
                 }
                 else
                 {

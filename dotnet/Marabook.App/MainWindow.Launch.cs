@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -122,7 +122,23 @@ namespace Marabook.App
                         "Mise à jour annulée", MessageButtons.OK, MessageIcon.Warning);
                 // --open vaut aussi pour la capture d'un vrai .plot (1.0.6) : « Fiches »
                 // ouvre la bibliothèque — le chrono MARABOOK_LIBRARY_TIMING=1 s'y mesure.
-                if (_launch.CapturePath != null && !_launch.Demo && _launch.OpenTitle != null && _project != null) { await Task.Delay(200); OpenByTitle(_launch.OpenTitle); await Task.Delay(200); }
+                if (_launch.CapturePath != null && !_launch.Demo && _launch.OpenTitle != null && _project != null)
+                {
+                    await Task.Delay(200); OpenByTitle(_launch.OpenTitle); await Task.Delay(200);
+                    // « --open graphe » : la photo attend le calcul ; MARABOOK_GRAPH_ZOOM=3
+                    // centre la carte, à ce zoom, sur la première fiche à portrait (28/10).
+                    if (_graphView != null && _graphView.IsVisible)
+                    {
+                        await _graphView.LoadingForProbe;
+                        await Task.Delay(300);
+                        double zoom;
+                        if (double.TryParse(Environment.GetEnvironmentVariable("MARABOOK_GRAPH_ZOOM"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out zoom))
+                        {
+                            _graphView.FocusPortraitForProbe(zoom);
+                            await Task.Delay(300);
+                        }
+                    }
+                }
                 if (_launch.CapturePath != null) await CaptureAndQuit(_launch.CapturePath);
                 else if (_launch.Lab) BuildLab().Show(this);
             };
@@ -379,6 +395,7 @@ namespace Marabook.App
         {
             if (_project == null || string.IsNullOrEmpty(title)) return;
             if (title == "journal") { ShowJournal(); return; }
+            if (title == "graphe") { ShowGraph(); return; } // la carte des liens (28/10)
             foreach (var item in _project.AllItems())
                 if (string.Equals(item.Title, title, StringComparison.OrdinalIgnoreCase)) { _binder.SelectItem(item.Id, true); return; }
             foreach (var root in _project.Roots)
