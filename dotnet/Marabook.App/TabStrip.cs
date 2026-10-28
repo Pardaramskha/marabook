@@ -33,6 +33,7 @@ namespace Marabook.App
         public Func<string, BinderItem> Resolve;
 
         public const double TabMaxWidth = 220, TabMinWidth = 48, PlusGap = 4;
+        public const double Overlap = 8; // les pieds de deux voisins se chevauchent d'autant
         private const double Corner = 8;     // le rayon des coins et des pieds
         private const double TopPad = 6;     // le même que la barre de recherche de la Pile
         private const double SidePad = 6;
@@ -76,6 +77,7 @@ namespace Marabook.App
                 var tab = _model[i];
                 var item = Resolve == null ? null : Resolve(tab.ItemId);
                 var view = new TabView(this, i, item, i == _model.ActiveIndex);
+                view.ZIndex = i == _model.ActiveIndex ? 1 : 0; // l'actif devant ses voisins chevauchés
                 _views.Add(view);
                 _panel.Children.Add(view);
             }
@@ -143,60 +145,40 @@ namespace Marabook.App
 
             public TabsPanel(Button plus) { _plus = plus; }
 
-            // Chaque onglet prend la largeur de son contenu (icône, titre,
-            // croix — 28/10, Rémi : « rapproche les onglets »), plafonnée à
-            // 220 px ; quand la rangée déborde, tous se serrent à parts égales,
-            // jamais sous 48 px.
-            private readonly Dictionary<Control, double> _wanted = new Dictionary<Control, double>();
-
-            private double Fit(double available)
+            // Des onglets LARGES à parts égales (48–220 px), qui se
+            // CHEVAUCHENT par leurs pieds (28/10, Rémi : « les rapprocher
+            // légèrement ») — l'actif passe devant par son ZIndex.
+            private int TabCount()
             {
-                var tabs = 0;
-                double total = 0;
-                foreach (var child in Children)
-                {
-                    if (ReferenceEquals(child, _plus)) continue;
-                    tabs++;
-                    double wanted;
-                    total += _wanted.TryGetValue(child, out wanted) ? wanted : TabMinWidth;
-                }
-                if (tabs <= 0) return TabMaxWidth;
-                var room = Math.Max(0, available - (Buttons.Compact + PlusGap));
-                if (total <= room) return TabMaxWidth; // chacun sa largeur voulue
-                return Math.Max(TabMinWidth, Math.Floor(room / tabs)); // serrés à parts égales
+                return Children.Count - (Children.Contains(_plus) ? 1 : 0);
             }
 
-            private double WidthOf(Control child, double cap)
+            private double TabWidth(double available)
             {
-                double wanted;
-                if (!_wanted.TryGetValue(child, out wanted)) wanted = TabMinWidth;
-                return Math.Max(TabMinWidth, Math.Min(cap, wanted));
+                var tabs = TabCount();
+                if (tabs <= 0) return 0;
+                var room = Math.Max(0, available - (Buttons.Compact + PlusGap)) + Overlap * (tabs - 1);
+                return Math.Max(TabMinWidth, Math.Min(TabMaxWidth, Math.Floor(room / tabs)));
             }
 
             protected override Size MeasureOverride(Size availableSize)
             {
                 var width = double.IsInfinity(availableSize.Width) ? 800 : availableSize.Width;
                 var height = double.IsInfinity(availableSize.Height) ? 32 : availableSize.Height;
-                _wanted.Clear();
-                foreach (var child in Children)
-                {
-                    if (ReferenceEquals(child, _plus)) continue;
-                    child.Measure(new Size(TabMaxWidth, height));
-                    _wanted[child] = Math.Ceiling(child.DesiredSize.Width);
-                }
-                var cap = Fit(width);
+                var tabWidth = TabWidth(width);
                 double x = 0;
                 foreach (var child in Children)
                 {
                     if (ReferenceEquals(child, _plus)) { child.Measure(new Size(Buttons.Compact, height)); x += PlusGap + child.DesiredSize.Width; }
-                    else { var w = WidthOf(child, cap); child.Measure(new Size(w, height)); x += w; }
+                    else { child.Measure(new Size(tabWidth, height)); x += tabWidth - Overlap; }
                 }
+                if (TabCount() > 0) x += Overlap; // le dernier onglet ne cède rien
                 return new Size(Math.Min(width, x), height);
             }
 
             protected override Size ArrangeOverride(Size finalSize)
             {
-                var cap = Fit(finalSize.Width);
+                var tabWidth = TabWidth(finalSize.Width);
                 double x = 0;
                 foreach (var child in Children)
                 {
@@ -204,14 +186,13 @@ namespace Marabook.App
                     {
                         var h = child.DesiredSize.Height;
                         var y = Math.Max(0, (finalSize.Height - h) / 2);
-                        child.Arrange(new Rect(x + PlusGap, y, Buttons.Compact, h));
-                        x += PlusGap + Buttons.Compact;
+                        child.Arrange(new Rect(x + Overlap + PlusGap, y, Buttons.Compact, h));
+                        x += Overlap + PlusGap + Buttons.Compact;
                     }
                     else
                     {
-                        var w = WidthOf(child, cap);
-                        child.Arrange(new Rect(x, 0, w, finalSize.Height));
-                        x += w;
+                        child.Arrange(new Rect(x, 0, tabWidth, finalSize.Height));
+                        x += tabWidth - Overlap;
                     }
                 }
                 return finalSize;
@@ -276,18 +257,21 @@ namespace Marabook.App
                 Children.Add(_title);
                 // Pas d'infobulle au survol d'un onglet (28/10, Rémi).
 
+                // La croix (28/10, Rémi) : un poil plus petite, et seulement sur
+                // l'actif ou l'onglet survolé — elle garde sa place (opacité,
+                // pas de visibilité) pour que le titre ne bouge pas.
                 _close = new Border
                 {
-                    Width = 18,
-                    Height = 18,
-                    CornerRadius = new CornerRadius(9),
+                    Width = 16,
+                    Height = 16,
+                    CornerRadius = new CornerRadius(8),
                     Background = Brushes.Transparent,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(0, 0, Corner + 2, 0),
-                    Child = Icons.Make("x-bold", 9, ink),
-                    Cursor = new Cursor(StandardCursorType.Hand)
-                    // Toujours visible (28/10) : l'onglet prend la largeur de son
-                    // contenu, une croix qui va et vient le ferait sauter.
+                    Child = Icons.Make("x-bold", 8, ink),
+                    Cursor = new Cursor(StandardCursorType.Hand),
+                    Opacity = active ? 1 : 0,
+                    IsHitTestVisible = active
                 };
                 _close.PointerEntered += delegate { _close.Background = Chrome.Border; };
                 _close.PointerExited += delegate { _close.Background = Brushes.Transparent; };
@@ -301,8 +285,8 @@ namespace Marabook.App
                 Grid.SetColumn(_close, 2);
                 Children.Add(_close);
 
-                PointerEntered += delegate { _hover = true; _face.InvalidateVisual(); };
-                PointerExited += delegate { _hover = false; _face.InvalidateVisual(); };
+                PointerEntered += delegate { _hover = true; if (!IsActive) { _close.Opacity = 1; _close.IsHitTestVisible = true; } _face.InvalidateVisual(); };
+                PointerExited += delegate { _hover = false; if (!IsActive) { _close.Opacity = 0; _close.IsHitTestVisible = false; } _face.InvalidateVisual(); };
                 PointerPressed += delegate(object sender, PointerPressedEventArgs e)
                 {
                     var point = e.GetCurrentPoint(this);
