@@ -23,6 +23,8 @@ namespace Marabook.App
     public class PreferencesDialog : Window
     {
         public event Action AppearanceChanged;
+        /// <summary>Les onglets (1.1.0) : la bascule ou le plafond a changé.</summary>
+        public event Action TabsChanged;
         public event Action ProofingChanged;
         public event Action ShortcutsChanged;
         public event Action GlobalStylesChanged;
@@ -646,6 +648,44 @@ namespace Marabook.App
             };
             panel.Children.Add(animations);
             panel.Children.Add(Note("Les effets d'interface (1.0.6) : les tuiles arrivent en fondu, la Pile et le rail glissent.", 4, 0));
+
+            // Les ONGLETS (1.1.0, 28/10, Rémi) : la bascule et le plafond, sans
+            // aide — « Onglets maximum » entre WorkTabs.MinLimit et MaxLimit.
+            panel.Children.Add(Caption("Onglets", 18));
+            var tabsOn = new CheckBox { Content = "Activer les onglets", IsChecked = AppSettings.TabsEnabled, Margin = new Thickness(0, 6, 0, 0), Tag = "tabs-enabled" };
+            tabsOn.IsCheckedChanged += delegate
+            {
+                if (AppSettings.TabsEnabled == (tabsOn.IsChecked == true)) return;
+                AppSettings.TabsEnabled = tabsOn.IsChecked == true;
+                AppSettings.Save();
+                var handler = TabsChanged;
+                if (handler != null) handler();
+            };
+            panel.Children.Add(tabsOn);
+            var tabsRow = new DockPanel { Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+            var tabsBox = new TextBox { Width = 56, Text = AppSettings.MaxTabs.ToString(), Tag = "max-tabs" };
+            ToolTip.SetTip(tabsBox, "Entre " + WorkTabs.MinLimit + " et " + WorkTabs.MaxLimit);
+            DockPanel.SetDock(tabsBox, Dock.Left);
+            Action commitTabs = delegate
+            {
+                int value;
+                if (!int.TryParse((tabsBox.Text ?? "").Trim(), out value)) value = AppSettings.MaxTabs;
+                value = WorkTabs.Clamp(value);
+                tabsBox.Text = value.ToString();
+                if (value == AppSettings.MaxTabs) return;
+                AppSettings.MaxTabs = value;
+                AppSettings.Save();
+                var handler = TabsChanged;
+                if (handler != null) handler();
+            };
+            tabsBox.LostFocus += delegate { commitTabs(); };
+            tabsBox.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key == Key.Return || e.Key == Key.Enter) { commitTabs(); e.Handled = true; }
+            };
+            tabsRow.Children.Add(tabsBox);
+            tabsRow.Children.Add(new TextBlock { Text = "Onglets maximum", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) });
+            panel.Children.Add(tabsRow);
 
             panel.Children.Add(Caption("Mode sombre", 18));
             _darkCheck = new CheckBox { Content = "Mode sombre", IsChecked = AppSettings.DarkTheme, Margin = new Thickness(0, 6, 0, 0) };

@@ -106,6 +106,13 @@ namespace Marabook.Model
         // relevés (mots inconnus, fiches manquantes). Null = aucun.
         public string ActiveScopeId;
 
+        // Les ONGLETS ouverts (1.1.0, v42) : les ids des éléments montrés,
+        // dans l'ordre, et l'index de l'actif — la rangée telle qu'on l'a
+        // laissée, reprise à l'ouverture (ids disparus écartés, voir
+        // WorkTabs.Restore). Vide = l'onglet unique de l'élément rouvert.
+        public List<string> OpenTabs = new List<string>();
+        public int ActiveTab;
+
         /// <summary>L'item du projet actif, s'il existe encore, hors corbeille
         /// et dans Écrits ; null sinon.</summary>
         public BinderItem ActiveScope()

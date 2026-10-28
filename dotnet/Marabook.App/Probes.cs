@@ -2288,6 +2288,8 @@ namespace Marabook.App
                 await ProbeProfiles(shell);
                 // ================================================== 1.1.0 : le diagramme relationnel (27/10)
                 await ProbeRelations(shell);
+                // ================================================== 1.1.0 : les onglets (28/10)
+                await ProbeTabs(shell);
             }
             catch (Exception error)
             {
@@ -2734,6 +2736,118 @@ namespace Marabook.App
                 foreach (var relation in added) sheet.Relations.Remove(relation);
                 shell.Binder.SelectItem(sheet.Id);
                 await Settle();
+            }
+        }
+
+        /// <summary>Les ONGLETS de la 1.1.0 (28/10) : la rangée visible à la
+        /// hauteur de la barre de recherche de la Pile, l'onglet actif qui
+        /// suit la Pile, Ctrl+T (Accueil dans un onglet neuf), activer,
+        /// « Ouvrir dans un nouvel onglet », suivant/précédent cycliques,
+        /// Ctrl+W, le plafond (le « + » s'éteint, Ctrl+T se tait, la Pile ne
+        /// propose plus), la rangée retenue par le projet, la bascule du
+        /// réglage. MARABOOK_TABS_CAPTURE=<png> enregistre la fenêtre pleine
+        /// d'onglets.</summary>
+        private static async Task ProbeTabs(MainWindow shell)
+        {
+            var enabledBefore = AppSettings.TabsEnabled;
+            var maxBefore = AppSettings.MaxTabs;
+            try
+            {
+                AppSettings.TabsEnabled = true;
+                AppSettings.MaxTabs = 10;
+                shell.ApplyTabsSettingsForProbe();
+                await Settle();
+                var strip = shell.TabStripForProbe;
+                var tabs = shell.TabsForProbe;
+                var project = shell.Project;
+                Check(strip != null && strip.IsVisible, "la rangée d'onglets est visible quand le réglage est actif");
+                var bar = shell.Binder.SearchBarForTabs;
+                Check(bar != null && Math.Abs(strip.Bounds.Height - bar.Bounds.Height) < 1.5,
+                    "…à la hauteur de la barre de recherche de la Pile (" + strip.Bounds.Height.ToString("0") + " / " + (bar == null ? 0 : bar.Bounds.Height).ToString("0") + " px)");
+                var text = FirstOfKind(project, ItemKind.Text);
+                shell.Binder.SelectItem(text.Id, true);
+                await Settle();
+                Check(tabs.Count >= 1 && tabs.ActiveItemId == text.Id, "l'onglet actif suit ce que la Pile ouvre (" + tabs.Count + " onglet(s))");
+                Check(strip.TitlesForProbe().Count == tabs.Count && strip.ActiveIndexForProbe == tabs.ActiveIndex && strip.TitlesForProbe()[tabs.ActiveIndex] == text.Title,
+                    "la rangée reflète le modèle, titre compris (" + string.Join(" | ", strip.TitlesForProbe().ToArray()) + ")");
+                var baseline = tabs.Count;
+                var home = project.Category(Project.KeyHome);
+                shell.OpenNewTabForProbe();
+                await Settle();
+                Check(tabs.Count == baseline + 1 && tabs.ActiveIndex == tabs.Count - 1 && tabs.ActiveItemId == home.Id && shell.CurrentForProbe == home,
+                    "Ctrl+T ouvre l'Accueil dans un onglet neuf, en bout de rangée, actif, et la vue le montre");
+                shell.ActivateTabForProbe(0);
+                await Settle();
+                Check(tabs.ActiveIndex == 0 && shell.CurrentForProbe == text && strip.ActiveIndexForProbe == 0, "activer un onglet rouvre son élément dans la vue, la Pile suit");
+                var sheet = FirstOfKind(project, ItemKind.Sheet);
+                shell.OpenInNewTabForProbe(sheet);
+                await Settle();
+                Check(tabs.Count == baseline + 2 && tabs.ActiveIndex == tabs.Count - 1 && shell.CurrentForProbe == sheet,
+                    "« Ouvrir dans un nouvel onglet » ajoute en bout de rangée et montre l'élément");
+                shell.NextTabForProbe();
+                await Settle();
+                Check(tabs.ActiveIndex == 0 && shell.CurrentForProbe == text, "Onglet suivant depuis le dernier revient au premier et le montre");
+                shell.PreviousTabForProbe();
+                await Settle();
+                Check(tabs.ActiveIndex == tabs.Count - 1 && shell.CurrentForProbe == sheet, "Onglet précédent depuis le premier va au dernier");
+                shell.CloseActiveTabForProbe();
+                await Settle();
+                Check(tabs.Count == baseline + 1 && tabs.ActiveItemId == home.Id && shell.CurrentForProbe == home, "Ctrl+W ferme l'actif ; son voisin de gauche prend la vue (l'Accueil)");
+                Check(project.OpenTabs.Count == tabs.Count && project.ActiveTab == tabs.ActiveIndex && project.OpenTabs[project.ActiveTab] == home.Id,
+                    "le projet retient la rangée et l'actif, sans attendre (.plot v42)");
+
+                AppSettings.MaxTabs = 5;
+                shell.ApplyTabsSettingsForProbe();
+                await Settle();
+                Check(tabs.Limit == 5 && strip.PlusEnabledForProbe, "le plafond suit le réglage (5), le « + » reste allumé sous le plafond");
+                var guard = 0;
+                while (tabs.CanOpen && guard++ < 10) shell.OpenInNewTabForProbe(text);
+                await Settle();
+                Check(tabs.Count == 5 && !strip.PlusEnabledForProbe, "au plafond : cinq onglets, le « + » s'éteint");
+                shell.OpenNewTabForProbe();
+                await Settle();
+                Check(tabs.Count == 5, "…Ctrl+T n'ouvre plus rien (un mot le dit)");
+                Check(shell.Binder.CanOpenTab != null && !shell.Binder.CanOpenTab(), "…et la Pile ne propose plus « Ouvrir dans un nouvel onglet »");
+                Check(strip.TabWidthForProbe >= TabStrip.TabMinWidth && strip.TabWidthForProbe <= TabStrip.TabMaxWidth, "les onglets se partagent la place entre 48 et 220 px (" + strip.TabWidthForProbe.ToString("0") + " px)");
+                var capture = Environment.GetEnvironmentVariable("MARABOOK_TABS_CAPTURE");
+                if (!string.IsNullOrEmpty(capture)) shell.CaptureForProbe(capture);
+                AppSettings.MaxTabs = 30;
+                shell.ApplyTabsSettingsForProbe();
+                await Settle();
+                Check(tabs.Count == 5 && strip.PlusEnabledForProbe, "relever le plafond rallume le « + » sans toucher à la rangée");
+                shell.ActivateTabForProbe(4);
+                AppSettings.MaxTabs = 5; // 30 → 5 : rien à fermer (5 ouverts) ; puis une rangée serrée
+                shell.ApplyTabsSettingsForProbe();
+                shell.OpenInNewTabForProbe(sheet); // refusé : plein
+                AppSettings.MaxTabs = 30;
+                shell.ApplyTabsSettingsForProbe();
+                shell.OpenInNewTabForProbe(sheet); // 6 onglets, l'actif est le dernier
+                await Settle();
+                AppSettings.MaxTabs = 5;
+                shell.ApplyTabsSettingsForProbe();
+                await Settle();
+                Check(tabs.Count == 5 && tabs.ActiveItemId == sheet.Id && shell.CurrentForProbe == sheet, "abaisser le plafond sous la rangée ferme par la droite en épargnant l'actif");
+
+                AppSettings.TabsEnabled = false;
+                shell.ApplyTabsSettingsForProbe();
+                await Settle();
+                Check(!strip.IsVisible && tabs.Count == 0 && project.OpenTabs.Count == 0, "réglage éteint : la rangée se retire, plus d'onglet, rien d'écrit dans le projet");
+                shell.OpenNewTabForProbe();
+                await Settle();
+                Check(tabs.Count == 0 && shell.CurrentForProbe == sheet, "…et Ctrl+T se tait");
+                shell.Binder.SelectItem(text.Id, true);
+                await Settle();
+                Check(tabs.Count == 0 && shell.CurrentForProbe == text, "…la Pile ouvre toujours, sans onglet");
+                AppSettings.TabsEnabled = true;
+                shell.ApplyTabsSettingsForProbe();
+                await Settle();
+                Check(strip.IsVisible && tabs.Count == 1 && tabs.ActiveItemId == text.Id, "rallumé : un onglet, celui de l'élément ouvert");
+            }
+            finally
+            {
+                AppSettings.TabsEnabled = enabledBefore;
+                AppSettings.MaxTabs = maxBefore;
+                shell.ApplyTabsSettingsForProbe();
             }
         }
 

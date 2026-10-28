@@ -208,7 +208,11 @@ namespace Marabook.Persistence
         //      omis = celle de son nom). Le modèle Personnage d'un projet
         //      d'avant reçoit « Date de décès » sous le lieu de naissance
         //      (UpgradeCharacterTemplate, une fois, gardé par la version lue).
-        private const int FormatVersion = 41;
+        // v42: 1.1.0 (28/10) — ONGLETS : manifeste "tabs" (les ids des éléments
+        //      ouverts dans la rangée d'onglets, dans l'ordre, omis si vide) et
+        //      "activeTab" (l'index de l'actif, 0 par défaut). Un id disparu
+        //      est écarté à la reprise ; un vieux Marabook ignore les deux.
+        private const int FormatVersion = 42;
 
         // La voie d'une nature de relation dans le .plot (1.1.0, schéma des relations).
         private static string LaneName(RelationLane lane)
@@ -638,6 +642,11 @@ namespace Marabook.Persistence
             }
             if (!string.IsNullOrEmpty(project.SidePinId)) manifest["sidePin"] = project.SidePinId; // v21
             if (!string.IsNullOrEmpty(project.ActiveScopeId)) manifest["activeProject"] = project.ActiveScopeId; // v39
+            if (project.OpenTabs.Count > 0) // v42 — la rangée d'onglets telle quelle
+            {
+                manifest["tabs"] = new List<object>(project.OpenTabs.ToArray());
+                if (project.ActiveTab > 0) manifest["activeTab"] = project.ActiveTab;
+            }
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
             if (!string.IsNullOrEmpty(project.SaveId)) manifest["saveId"] = project.SaveId; // l'empreinte (1.0.3, clé additive : les versions d'avant l'ignorent)
@@ -1186,6 +1195,11 @@ namespace Marabook.Persistence
                     }
                 project.SidePinId = Json.AsString(Json.Field(manifest, "sidePin")); // v21
                 project.ActiveScopeId = Json.AsString(Json.Field(manifest, "activeProject")); // v39
+                var tabs = Json.AsList(Json.Field(manifest, "tabs")); // v42
+                if (tabs != null)
+                    foreach (var entry in tabs)
+                        if (entry is string && ((string)entry).Length > 0) project.OpenTabs.Add((string)entry);
+                project.ActiveTab = Math.Max(0, Json.AsInt(Json.Field(manifest, "activeTab"), 0));
                 var ignoredRules = Json.AsList(Json.Field(manifest, "ignoredRules"));
                 if (ignoredRules != null)
                     foreach (var entry in ignoredRules)

@@ -45,7 +45,17 @@ namespace Marabook.Settings
             new ActionDefinition("save-as", "Fichier", "Enregistrer sous", "Ctrl+Shift+S"),
             new ActionDefinition("undo", "Édition", "Annuler", "Ctrl+Z"),
             new ActionDefinition("redo", "Édition", "Rétablir", "Ctrl+Y"),
-            new ActionDefinition("new-text", "Pile", "Nouvel écrit", "Ctrl+T"),
+            // Ctrl+T est passé aux onglets (1.1.0, 28/10, Rémi) : « Nouvel
+            // écrit » garde son T, avec Alt — un raccourci personnalisé
+            // enregistré prime toujours.
+            new ActionDefinition("new-text", "Pile", "Nouvel écrit", "Ctrl+Alt+T"),
+            // Les ONGLETS (1.1.0) : Ctrl+T ouvre l'Accueil dans un onglet neuf,
+            // Ctrl+W ferme l'actif (⌘W reste au système sur macOS : la croix
+            // de l'onglet, ou un autre raccourci), PageDown/PageUp circulent.
+            new ActionDefinition("new-tab", "Onglets", "Nouvel onglet", "Ctrl+T"),
+            new ActionDefinition("close-tab", "Onglets", "Fermer l'onglet", "Ctrl+W"),
+            new ActionDefinition("next-tab", "Onglets", "Onglet suivant", "Ctrl+PageDown"),
+            new ActionDefinition("previous-tab", "Onglets", "Onglet précédent", "Ctrl+PageUp"),
             new ActionDefinition("new-folder", "Pile", "Nouveau dossier", "Ctrl+Shift+T"),
             new ActionDefinition("new-book", "Pile", "Nouveau livre", null),
             new ActionDefinition("rename", "Pile", "Renommer", "F2"),
@@ -206,6 +216,11 @@ namespace Marabook.Settings
         public static bool LexiconPinned = true; // le panneau Lexique tient un onglet du rail (18/09) — épinglé par défaut (1.0.5-a)
         public static bool ProofEnabled = true; // vérification continue (Révision)
         public static int SnapshotCap = 20;        // instantanés gardés par item (b38, 5–100)
+        // Les ONGLETS de la zone centrale (1.1.0, 28/10) : actifs par défaut,
+        // au plus dix ouverts — plafond réglable entre WorkTabs.MinLimit et
+        // MaxLimit (Préférences › Général › Onglets). Clés « tabsEnabled », « maxTabs ».
+        public static bool TabsEnabled = true;
+        public static int MaxTabs = Model.WorkTabs.DefaultLimit;
         public static bool DailySnapshot = true;   // capture à la première modification du jour (b38)
         // L'auto-sélecteur de mot (0.50.0) : un cliquer-glisser qui déborde
         // du mot de départ sélectionne des mots entiers, façon Word.
@@ -556,6 +571,8 @@ namespace Marabook.Settings
                 SnapshotCap = (int)Json.AsDouble(Json.Field(root, "snapshotCap"), 20);
                 if (SnapshotCap < 5) SnapshotCap = 5;
                 if (SnapshotCap > 100) SnapshotCap = 100;
+                TabsEnabled = Json.AsBool(Json.Field(root, "tabsEnabled"), true);
+                MaxTabs = Model.WorkTabs.Clamp((int)Json.AsDouble(Json.Field(root, "maxTabs"), Model.WorkTabs.DefaultLimit));
                 DailySnapshot = Json.AsBool(Json.Field(root, "dailySnapshot"), true);
                 AutoSelectWord = Json.AsBool(Json.Field(root, "autoSelectWord"), true);
                 TextDragDrop = Json.AsBool(Json.Field(root, "textDragDrop"), true);
@@ -706,6 +723,8 @@ namespace Marabook.Settings
                 root["lexiconPinned"] = LexiconPinned;
                 root["proofEnabled"] = ProofEnabled;
                 root["snapshotCap"] = SnapshotCap;
+                root["tabsEnabled"] = TabsEnabled;
+                root["maxTabs"] = MaxTabs;
                 root["dailySnapshot"] = DailySnapshot;
                 root["autoSelectWord"] = AutoSelectWord;
                 root["textDragDrop"] = TextDragDrop;

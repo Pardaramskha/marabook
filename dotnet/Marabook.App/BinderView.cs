@@ -58,6 +58,13 @@ namespace Marabook.App
         // Épingler sur le côté (b47) : la coquille tient l'épingle ; la Pile
         // demande, et sait si l'item est déjà épinglé pour libeller le menu.
         public event Action<BinderItem> SidePinRequested;
+        // Les onglets (1.1.0) : « Ouvrir dans un nouvel onglet » du menu de la
+        // Pile — offert quand la coquille dit que la rangée a de la place.
+        public event Action<BinderItem> NewTabRequested;
+        public Func<bool> CanOpenTab;
+        private Control _searchBar;
+        /// <summary>La barre de recherche : la rangée d'onglets s'aligne sur sa hauteur.</summary>
+        public Control SearchBarForTabs { get { return _searchBar; } }
         public Func<BinderItem, bool> IsSidePinned;
 
         // Fourni par MainWindow (cache de composition) : total de pages d'un
@@ -182,7 +189,8 @@ namespace Marabook.App
             };
 
             var layout = new DockPanel();
-            layout.Children.Add(BuildSearchBar());
+            _searchBar = BuildSearchBar();
+            layout.Children.Add(_searchBar);
             layout.Children.Add(BuildJournalRow());
 
             _results = new ListBox
@@ -1338,6 +1346,14 @@ namespace Marabook.App
         {
             var menu = new ContextMenu();
             var inTrash = item.RootCategory().CategoryKey == Project.KeyTrash;
+            // Les onglets (1.1.0) : tout élément de la Pile peut s'ouvrir dans
+            // un onglet de plus — tant que la rangée a de la place.
+            if (CanOpenTab != null && CanOpenTab())
+                AddMenu(menu, "Ouvrir dans un nouvel onglet", delegate
+                {
+                    var handler = NewTabRequested;
+                    if (handler != null) handler(item);
+                });
 
             if (inTrash)
             {

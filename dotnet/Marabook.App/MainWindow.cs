@@ -473,6 +473,12 @@ namespace Marabook.App
             view.Items.Add(_inspectorMenu);
             view.Items.Add(_rulersMenu);
             view.Items.Add(new Separator());
+            // Les onglets (1.1.0) : grisés quand le réglage les éteint.
+            view.Items.Add(Entry("new-tab", "Nouvel onglet", OpenNewTab, TabsOn));
+            view.Items.Add(Entry("close-tab", "Fermer l'onglet", CloseActiveTab, TabsOn));
+            view.Items.Add(Entry("next-tab", "Onglet suivant", NextTab, TabsOn));
+            view.Items.Add(Entry("previous-tab", "Onglet précédent", PreviousTab, TabsOn));
+            view.Items.Add(new Separator());
             view.Items.Add(_darkMenu);
             menu.Items.Add(view);
 
@@ -661,6 +667,8 @@ namespace Marabook.App
             _binder.MultiSelectionChanged += InspectGroup; // Ctrl+clic dans la Pile (1.0.3)
             _binder.BatchMenuProvider = BuildBatchMenu;
             _binder.JournalRequested += ShowJournal;
+            _binder.NewTabRequested += OpenInNewTab; // « Ouvrir dans un nouvel onglet » (1.1.0)
+            _binder.CanOpenTab = delegate { return TabsOn() && _tabs.CanOpen; };
             _binder.FilesDropped += ImportDroppedFiles; // fichiers du système sur la Pile (29/09)
             _binder.AchievementEvent += UnlockAchievement; // « Ooh la boulette ! » (12/09)
             _binder.StructureChanged += delegate
@@ -678,6 +686,7 @@ namespace Marabook.App
                 if (_sheetView.IsVisible) _sheetView.RefreshTitle();
                 if (_planView.IsVisible) _planView.Refresh();
                 UpdateInspector();
+                TabsPrune(); // les onglets d'éléments disparus tombent, les titres suivent (1.1.0)
                 CodeModuleHost.Instance.NotifyProjectChanged(); // les liens et tuiles des cartes mentales suivent (26/10 soir)
                 // Chauffe le cache de mots : un document importé entre au cache
                 // à sa taille réelle, sans jamais créditer le journal.
@@ -738,7 +747,7 @@ namespace Marabook.App
             var center = new Grid();
             _placeholder = new TextBlock
             {
-                Text = "Sélectionnez un écrit dans la Pile,\nou créez-en un (" + Ui.Keys("Ctrl+T") + ").",
+                Text = "Sélectionnez un écrit dans la Pile,\nou créez-en un (" + Ui.Keys(AppSettings.Gesture("new-text") ?? "") + ").",
                 Foreground = Chrome.SoftText,
                 FontSize = 15,
                 TextAlignment = TextAlignment.Center,
@@ -1134,8 +1143,17 @@ namespace Marabook.App
             _sprintTimer.Tick += delegate { TickSprint(); };
 
             _centerHost = center;
-            Grid.SetColumn(center, 2);
-            grid.Children.Add(center);
+            // Les ONGLETS (1.1.0) coiffent la zone centrale : la rangée en
+            // haut, à la hauteur de la barre de recherche de la Pile, les
+            // vues dessous.
+            var centerColumn = new DockPanel();
+            var tabStrip = BuildTabStrip();
+            DockPanel.SetDock(tabStrip, Dock.Top);
+            centerColumn.Children.Add(tabStrip);
+            centerColumn.Children.Add(center);
+            AlignTabStripWith(_binder.SearchBarForTabs);
+            Grid.SetColumn(centerColumn, 2);
+            grid.Children.Add(centerColumn);
 
             _inspectorSplit = new GridSplitter
             {
@@ -2217,6 +2235,9 @@ namespace Marabook.App
             var first = recents.Count > 0
                 ? project.FindById(recents[0].ItemId)
                 : project.Category(Project.KeyHome);
+            // Les onglets enregistrés (1.1.0, v42) reprennent leur rangée ;
+            // l'élément de l'onglet actif passe devant le dernier récent.
+            first = TabsRestore(project, first);
             if (first != null)
             {
                 _restoringSelection = true;
@@ -3169,6 +3190,7 @@ namespace Marabook.App
                 CommitActive();
                 _current = item; _inspected = null; _inspectedGroup = null;
                 ShowItem(item);
+                TabsFollow(item); // l'onglet actif montre ce que la Pile vient d'ouvrir (1.1.0)
             }
             finally
             {
@@ -3371,7 +3393,7 @@ namespace Marabook.App
             _editor.Clear();
             _sheetView.Clear();
             _placeholder.IsVisible = true;
-            _placeholder.Text = "Sélectionnez un élément dans la Pile,\nou créez un écrit (" + Ui.Keys("Ctrl+T") + ").";
+            _placeholder.Text = "Sélectionnez un élément dans la Pile,\nou créez un écrit (" + Ui.Keys(AppSettings.Gesture("new-text") ?? "") + ").";
         }
 
         /// <summary>Toutes les vues du centre se rangent (sauf la feuille du
@@ -3691,6 +3713,7 @@ namespace Marabook.App
                 UpdateInspector();
                 UpdateStats();
             }
+            TabsPrune(); // un ajout annulé emporte son onglet (1.1.0)
         }
 
         private void OnHistoryChanged()
@@ -5318,6 +5341,7 @@ namespace Marabook.App
             _statusBar.IsVisible = _menuBar.IsVisible;
             _calmExit.IsVisible = calm ? true : false;
             ApplyPanelVisibility();
+            if (_tabStrip != null) _tabStrip.IsVisible = TabsOn() && !calm; // la rangée d'onglets se retire aussi (1.1.0)
             _editor.SetCalm(calm);
             _sheetView.SetCalm(calm);
         }
@@ -5800,6 +5824,7 @@ namespace Marabook.App
             var dialog = new PreferencesDialog(this, _project);
             dialog.AppearanceChanged += ApplyAppearance;
             dialog.AppearanceChanged += ScheduleAchievementCheck; // « Pimp my write »
+            dialog.TabsChanged += ApplyTabsSettings; // bascule et plafond des onglets (1.1.0)
             dialog.ShortcutsChanged += ScheduleAchievementCheck;  // « Picky eater »
             dialog.ProofingChanged += delegate
             {
