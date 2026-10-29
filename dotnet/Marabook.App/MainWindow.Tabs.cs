@@ -271,7 +271,12 @@ namespace Marabook.App
             var size = new Avalonia.PixelSize(Math.Max(1, (int)Bounds.Width), Math.Max(1, (int)Bounds.Height));
             using (var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(size, new Avalonia.Vector(96, 96)))
             {
-                bitmap.Render(_shellRoot ?? (Avalonia.Visual)this); // sous le voile de l'accueil, comme --capture
+                // La grille entière (coquille, toasts, voile de la palette — 29/10),
+                // le voile de l'accueil levé le temps du rendu, comme --capture.
+                var veil = _welcomeVeil != null && _welcomeVeil.IsVisible;
+                if (veil) _welcomeVeil.IsVisible = false;
+                try { bitmap.Render((Avalonia.Visual)_shellGrid ?? _shellRoot ?? this); }
+                finally { if (veil) _welcomeVeil.IsVisible = true; }
                 bitmap.Save(path);
             }
         }

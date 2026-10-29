@@ -415,6 +415,13 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<TabItem>().Class(":selected").Template().OfType<Border>().Name("Bg"),
                 new Setter(TextElement.ForegroundProperty, Chrome.RaisedBg),
                 new Setter(TextElement.FontWeightProperty, FontWeight.Bold)));
+            // Un onglet désactivé (Gabarit pour un écrit de livre, 29/10) : son
+            // libellé en gris clair, sans main — on voit qu'il est inerte.
+            styles.Add(Style(x => x.OfType<TabItem>().Class(":disabled").Template().OfType<Border>().Name("Bg"),
+                new Setter(TextElement.ForegroundProperty, Chrome.FaintText),
+                new Setter(TextElement.FontWeightProperty, FontWeight.Normal),
+                new Setter(Visual.OpacityProperty, 0.6),
+                new Setter(InputElement.CursorProperty, new Cursor(StandardCursorType.Arrow))));
 
             // ---- listes et arbres : la ligne active en accent-tint
             styles.Add(Style(x => x.OfType<ListBox>(),

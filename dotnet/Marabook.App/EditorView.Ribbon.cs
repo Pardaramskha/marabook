@@ -854,7 +854,6 @@ namespace Marabook.App
         private Grid _pageGrid;                        // Marges et Taille — grisés pour un écrit de livre (29/10)
         private TabItem _decorTab;                     // Gabarit — grisé pour un écrit de livre (29/10)
         private Control _trackingRule, _trackingPanel; // l'approche (Formatage depuis le 29/10), masquable par le profil (27/10)
-        private Control _looseRule;                    // le filet devant « Lignes lâches » (Formatage)
         private Control _formatTab;                    // le panneau de l'onglet Formatage (sonde)
         private ToggleButton _marksBtn;
         private bool _syncingPage;
@@ -1064,7 +1063,6 @@ namespace Marabook.App
         {
             var loose = Profiles.Enabled(Profiles.LooseLines); // « Options d'espacement » : lignes lâches ET approche
             if (_looseBtn != null) _looseBtn.IsVisible = loose;
-            if (_looseRule != null) _looseRule.IsVisible = loose;
             if (_trackingRule != null) _trackingRule.IsVisible = loose;
             if (_trackingPanel != null) _trackingPanel.IsVisible = loose;
             if (_widowsBtn != null) _widowsBtn.IsVisible = Profiles.Enabled(Profiles.Widows); // le bouton Veuves/Orphelines (29/10)

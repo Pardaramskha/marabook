@@ -1330,6 +1330,7 @@ namespace Marabook.App
         public sealed class PresenceMatrix : Control
         {
             private const double Cell = 22, RowHead = 170, ColHead = 96, Top = 8, Left = 16;
+            private const double TotalWidth = 56; // la colonne « Total » en bout de ligne (29/10, Rémi)
             private readonly GraphView _owner;
             private readonly List<GraphNode> _rows = new List<GraphNode>();
             private readonly List<GraphNode> _cols = new List<GraphNode>();
@@ -1412,7 +1413,7 @@ namespace Marabook.App
 
             protected override Size MeasureOverride(Size availableSize)
             {
-                return new Size(Left + RowHead + _cols.Count * Cell + 48, Top + ColHead + _rows.Count * Cell + 48);
+                return new Size(Left + RowHead + _cols.Count * Cell + TotalWidth + 48, Top + ColHead + _rows.Count * Cell + 48);
             }
 
             private int RowAt(double y) { return (int)Math.Floor((y - Top - ColHead) / Cell); }
@@ -1457,7 +1458,7 @@ namespace Marabook.App
                 if (_hoverCol >= 0)
                     context.FillRectangle(Chrome.AccentTint, new Rect(Left + RowHead + _hoverCol * Cell, Top, Cell, ColHead + gridHeight));
                 if (_hoverRow >= 0)
-                    context.FillRectangle(Chrome.AccentTint, new Rect(Left, Top + ColHead + _hoverRow * Cell, RowHead + _cols.Count * Cell, Cell));
+                    context.FillRectangle(Chrome.AccentTint, new Rect(Left, Top + ColHead + _hoverRow * Cell, RowHead + _cols.Count * Cell + TotalWidth, Cell));
                 // Les en-têtes de colonnes, inclinés.
                 for (var c = 0; c < _cols.Count; c++)
                 {
@@ -1467,15 +1468,21 @@ namespace Marabook.App
                     using (context.PushTransform(m))
                         context.DrawText(text, new Point(0, -text.Height / 2));
                 }
+                // L'en-tête de la colonne des totaux, à plat.
+                var totalsX = Left + RowHead + _cols.Count * Cell + 8;
+                var totalHead = new FormattedText("Total", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 11, Chrome.SoftText);
+                context.DrawText(totalHead, new Point(totalsX, Top + ColHead - totalHead.Height - 4));
                 for (var r = 0; r < _rows.Count; r++)
                 {
                     var y = Top + ColHead + r * Cell;
                     var head = new FormattedText(Shorten(_rows[r].Title, 26), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 12, Chrome.Ink);
                     context.DrawText(head, new Point(Left, y + (Cell - head.Height) / 2));
+                    var total = 0;
                     for (var c = 0; c < _cols.Count; c++)
                     {
                         var x = Left + RowHead + c * Cell;
                         var count = graph.PresenceCount(_cols[c].Id, _rows[r].Id);
+                        total += count;
                         var cell = new Rect(x + 2, y + 2, Cell - 4, Cell - 4);
                         if (count == 0)
                             context.DrawRectangle(null, new Pen(Chrome.Border, 1), cell, 3, 3);
@@ -1485,6 +1492,9 @@ namespace Marabook.App
                             context.DrawRectangle(new SolidColorBrush(Color.FromArgb(alpha, accent.R, accent.G, accent.B)), null, cell, 3, 3);
                         }
                     }
+                    // Le nombre d'occurrences total, en bout de ligne (29/10, Rémi).
+                    var sum = new FormattedText(total.ToString("N0", CultureInfo.CurrentCulture), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 12, r == _hoverRow ? Chrome.Ink : Chrome.SoftText);
+                    context.DrawText(sum, new Point(totalsX, y + (Cell - sum.Height) / 2));
                 }
                 // La bulle, posée près de la souris et retenue dans la zone.
                 if (!string.IsNullOrEmpty(_hint))

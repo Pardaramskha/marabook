@@ -2,10 +2,8 @@ using System;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
-using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Marabook.Model;
@@ -13,22 +11,24 @@ using Marabook.Model;
 namespace Marabook.App
 {
     /// <summary>La palette « Ouvrir par le nom » (1.1.0, 29/10, Rémi) :
-    /// Ctrl+, pose une barre de recherche au milieu de la fenêtre, qui
-    /// cherche les éléments de la Pile PAR LEUR NOM seulement (même règle que
-    /// la recherche de la Pile : sans casse ni accents, corbeille exclue).
-    /// Flèches et Entrée choisissent ; un clic sur un résultat ouvre et
-    /// referme ; un clic ailleurs ou Échap referme sans rien faire.</summary>
+    /// Ctrl+, pose un VOILE sombre sur toute la fenêtre et, dessus, une
+    /// barre de recherche qui cherche les éléments de la Pile PAR LEUR NOM
+    /// seulement (même règle que la recherche de la Pile : sans casse ni
+    /// accents, corbeille exclue). Flèches et Entrée choisissent ; un clic
+    /// sur un résultat ouvre et referme ; un clic sur le voile ou Échap
+    /// referme sans rien faire. Le voile vit dans la grille de la coquille,
+    /// au-dessus de tout — un Popup ne pouvait pas assombrir le reste.</summary>
     public sealed class QuickOpenPalette
     {
         private const int Cap = 60;
-        private readonly Popup _popup;
+        private readonly Grid _overlay;
         private readonly TextBox _box;
         private readonly ListBox _list;
         private readonly TextBlock _hint;
         private Project _project;
         private Action<string> _open;
 
-        public QuickOpenPalette(Control host)
+        public QuickOpenPalette(Panel host)
         {
             _box = new TextBox
             {
@@ -48,7 +48,7 @@ namespace Marabook.App
                 Foreground = Chrome.SoftText,
                 FontSize = 11,
                 Margin = new Thickness(2, 4, 0, 0),
-                Text = "Tapez un nom — ↑ ↓ pour choisir, Entrée pour ouvrir, Échap pour fermer."
+                Text = IdleHint
             };
             var stack = new StackPanel { Width = 520 };
             stack.Children.Add(_box);
@@ -62,16 +62,18 @@ namespace Marabook.App
                 CornerRadius = new CornerRadius(10),
                 Padding = new Thickness(12),
                 Child = stack,
-                BoxShadow = new BoxShadows(new BoxShadow { OffsetY = 8, Blur = 28, Color = Color.FromArgb(0x48, 0, 0, 0) })
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 120, 0, 0), // au milieu en largeur, dans le tiers haut : la liste grandit sans faire sauter la barre
+                BoxShadow = new BoxShadows(new BoxShadow { OffsetY = 10, Blur = 32, Color = Color.FromArgb(0x60, 0, 0, 0) })
             };
-            _popup = new Popup
-            {
-                PlacementTarget = host,
-                Placement = PlacementMode.Center,
-                IsLightDismissEnabled = true, // un clic ailleurs referme
-                Child = frame
-            };
-            ((ISetLogicalParent)_popup).SetParent(host);
+            // Le voile : tout le reste s'assombrit, un clic dessus referme.
+            var backdrop = new Border { Background = new SolidColorBrush(Color.FromArgb(0x6A, 0x10, 0x14, 0x1C)) };
+            backdrop.PointerPressed += delegate(object sender, PointerPressedEventArgs e) { Close(); e.Handled = true; };
+            _overlay = new Grid { IsVisible = false, Tag = "quick-open-overlay" };
+            _overlay.Children.Add(backdrop);
+            _overlay.Children.Add(frame);
+            host.Children.Add(_overlay);
 
             _box.TextChanged += delegate { Refresh(); };
             _box.KeyDown += delegate(object sender, KeyEventArgs e)
@@ -87,10 +89,11 @@ namespace Marabook.App
             {
                 if (_list.SelectedItem != null) { ChooseSelected(); e.Handled = true; }
             };
-            _popup.Closed += delegate { _box.Text = ""; };
         }
 
-        public bool IsOpen { get { return _popup.IsOpen; } }
+        private const string IdleHint = "Tapez un nom — ↑ ↓ pour choisir, Entrée pour ouvrir, Échap ou un clic à côté pour fermer.";
+
+        public bool IsOpen { get { return _overlay.IsVisible; } }
 
         /// <summary>Montre la palette (vide) sur ce projet ; open reçoit l'id choisi.</summary>
         public void Show(Project project, Action<string> open)
@@ -100,23 +103,25 @@ namespace Marabook.App
             if (_project == null) return;
             _box.Text = "";
             Refresh();
-            _popup.IsOpen = true;
+            _overlay.IsVisible = true;
             Dispatcher.UIThread.Post(delegate { _box.Focus(); _box.SelectAll(); }, DispatcherPriority.Input);
         }
 
         public void Close()
         {
-            if (_popup.IsOpen) _popup.IsOpen = false;
+            if (!_overlay.IsVisible) return;
+            _overlay.IsVisible = false;
+            _box.Text = "";
         }
 
         private void Refresh()
         {
             var query = (_box.Text ?? "").Trim();
             _list.Items.Clear();
-            if (query.Length == 0)
+            if (query.Length == 0 || _project == null)
             {
                 _list.IsVisible = false;
-                _hint.Text = "Tapez un nom — ↑ ↓ pour choisir, Entrée pour ouvrir, Échap pour fermer.";
+                _hint.Text = IdleHint;
                 return;
             }
             var matches = BinderView.NameMatches(_project, query, SearchKind.All, Cap);
@@ -181,5 +186,6 @@ namespace Marabook.App
         internal int ResultCountForProbe { get { return _list.Items.Count; } }
         internal string FirstResultIdForProbe { get { var entry = _list.Items.Count > 0 ? _list.Items[0] as ListBoxItem : null; return entry == null ? null : entry.Tag as string; } }
         internal void ChooseForProbe() { ChooseSelected(); }
+        internal bool BackdropShownForProbe { get { return _overlay.IsVisible && _overlay.Children.Count > 1 && _overlay.Children[0].IsVisible; } }
     }
 }

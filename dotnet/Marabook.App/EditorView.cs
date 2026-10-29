@@ -675,7 +675,7 @@ namespace Marabook.App
                 + "ligatures, ordinaux…) — comparatif avant/après, puis application");
             typography.Click += delegate { RunTypography(); };
             panel.Children.Add(typography);
-            panel.Children.Add(VerticalRuleTall());
+            // Typographie et Dialogues dans la même section (29/10, Rémi).
             var dialogues = BigSquare("quotes", "Dialogues",
                 "Repère les dialogues qui ne suivent pas la norme d'ouverture et de fermeture "
                 + "des Options (guillemets « » ou tirets) et propose de les y ramener — "
@@ -694,13 +694,20 @@ namespace Marabook.App
             _trackingRule = VerticalRuleTall();
             _trackingRule.IsVisible = spacing;
             panel.Children.Add(_trackingRule);
-            _trackingPanel = BuildTrackingPanel();
+            // Une seule section « espacement » : l'approche au-dessus, les
+            // lignes lâches dessous (29/10, Rémi).
+            var tracking = BuildTrackingPanel();
+            tracking.Margin = new Thickness(0, 0, 4, 4);
+            tracking.HorizontalAlignment = HorizontalAlignment.Left;
+            var loose = BuildLooseLinesButton();
+            loose.VerticalAlignment = VerticalAlignment.Top;
+            loose.Margin = new Thickness(0, 0, 4, 0);
+            var group = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
+            group.Children.Add(tracking);
+            group.Children.Add(loose);
+            _trackingPanel = group;
             _trackingPanel.IsVisible = spacing;
             panel.Children.Add(_trackingPanel);
-            _looseRule = VerticalRuleTall();
-            _looseRule.IsVisible = spacing;
-            panel.Children.Add(_looseRule);
-            panel.Children.Add(BuildLooseLinesButton());
             _formatTab = panel;
             return panel;
         }

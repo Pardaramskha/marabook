@@ -231,6 +231,7 @@ namespace Marabook.App
                 Margin = new Thickness(0, 0, 24, 44)
             };
             var shell = new Grid();
+            _shellGrid = shell; // la palette « Ouvrir par le nom » y pose son voile (29/10)
             shell.Children.Add(root);
             shell.Children.Add(_toastHost);
             // Le voile de l'accueil (13/09) : à l'ouverture SANS projet, la
@@ -2498,6 +2499,11 @@ namespace Marabook.App
             _shellRoot.IsEnabled = true;
         }
 
+        /// <summary>Sonde (29/10) : la coquille réactivée (le voile de l'accueil
+        /// de la démo désactive tout dessous — les états « grisé » du ruban ne
+        /// se lisent qu'une coquille active).</summary>
+        internal void HideVeilForProbe() { HideVeil(); }
+
         public void ShowWelcome()
         {
             if (_welcome != null) return;
@@ -3564,11 +3570,12 @@ namespace Marabook.App
         // premier appel, posée au centre de la fenêtre, refermée au clic
         // ailleurs ou sur un résultat (qui sélectionne l'élément dans la Pile).
         private QuickOpenPalette _quickOpen;
+        private Grid _shellGrid; // la grille au-dessus de tout (coquille, toasts, voile de l'accueil)
 
         private void ShowQuickOpen()
         {
             if (_project == null) return;
-            if (_quickOpen == null) _quickOpen = new QuickOpenPalette(this);
+            if (_quickOpen == null) _quickOpen = new QuickOpenPalette(_shellGrid);
             _quickOpen.Show(_project, delegate(string id) { _binder.SelectItem(id); });
         }
 

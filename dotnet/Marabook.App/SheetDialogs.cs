@@ -304,7 +304,8 @@ namespace Marabook.App
             var relationsStack = new StackPanel();
             relationsStack.Children.Add(_relationsCheck);
             relationsStack.Children.Add(Note("La section des liens entre fiches (frère, mentor, rivale…), avec la généalogie quand les fiches s'y prêtent. Une fiche qui porte déjà des relations les garde, section désactivée ou non.", 0));
-            extras.Items.Add(new TabItem { Header = "Relations", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = relationsStack } });
+            extras.Items.Insert(0, new TabItem { Header = "Relations", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = relationsStack } }); // premier sous-onglet (29/10, Rémi)
+            extras.SelectedIndex = 0;
             if (!_single) tabs.Items.Add(new TabItem { Header = "Sections extras", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = extras } });
 
             // — Champs : nom, nature, section.

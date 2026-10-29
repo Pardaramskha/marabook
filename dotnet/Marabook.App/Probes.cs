@@ -3146,6 +3146,8 @@ namespace Marabook.App
         {
             var project = shell.Project;
             var editor = shell.Editor;
+            shell.HideVeilForProbe(); // la démo garde le voile de l'accueil : coquille désactivée, états « grisé » illisibles
+            await Settle();
             // — Le ruban.
             var heads = editor.RibbonTabHeadersForProbe;
             Check(heads.EndsWith("|Prépresse") && !heads.Contains("Composition"), "le ruban : Composition est devenu Prépresse, en dernier (" + heads + ")");
@@ -3168,6 +3170,18 @@ namespace Marabook.App
                 shell.Binder.SelectItem(inBook.Id, true);
                 await Settle();
                 Check(!editor.DecorTabEnabledForProbe && !editor.PageGridEnabledForProbe, "un écrit de livre (« " + inBook.Title + " ») : l'onglet Gabarit, les marges et la taille sont grisés");
+                // Le libellé de l'onglet grisé se distingue (29/10, Rémi) : encre pâle, opacité réduite ; Texte reste tel quel.
+                var tabs = shell.GetVisualDescendants().OfType<TabItem>().ToList();
+                var decor = tabs.FirstOrDefault(t => (t.Header as string) == "Gabarit");
+                var texte = tabs.FirstOrDefault(t => (t.Header as string) == "Texte");
+                var decorBg = decor == null ? null : decor.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => b.Name == "Bg");
+                var texteBg = texte == null ? null : texte.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => b.Name == "Bg");
+                Check(decorBg != null && ReferenceEquals(Avalonia.Controls.Documents.TextElement.GetForeground(decorBg), Chrome.FaintText) && decorBg.Opacity < 1,
+                    "…le libellé « Gabarit » passe en gris clair (encre pâle, opacité " + (decorBg == null ? "?" : decorBg.Opacity.ToString("0.00")) + ")");
+                Check(texteBg != null && texte.IsEffectivelyEnabled && texteBg.Opacity >= 1 && !ReferenceEquals(Avalonia.Controls.Documents.TextElement.GetForeground(texteBg), Chrome.FaintText),
+                    "…« Texte » garde son encre (actif : " + (texte == null ? "?" : texte.IsEffectivelyEnabled.ToString()) + ", opacité " + (texteBg == null ? "?" : texteBg.Opacity.ToString("0.00")) + ")");
+                var typographyBtn = FindButton(shell, "Typographie");
+                Check(typographyBtn != null && typographyBtn.IsEffectivelyEnabled, "…les boutons du ruban restent actifs (Typographie : " + (typographyBtn == null ? "absent" : typographyBtn.IsEffectivelyEnabled.ToString()) + ")");
             }
             else Console.WriteLine("  (aucun écrit de livre dans la démo : grisage non vérifié)");
             if (outside != null)
@@ -3229,11 +3243,13 @@ namespace Marabook.App
             // — La palette « Ouvrir par le nom » (Ctrl+,).
             var palette = shell.QuickOpenForProbe;
             await Settle();
-            Check(palette != null && palette.IsOpen, "Ctrl+, ouvre la palette « Ouvrir par le nom » au centre de la fenêtre");
+            Check(palette != null && palette.IsOpen && palette.BackdropShownForProbe, "Ctrl+, ouvre la palette « Ouvrir par le nom » au milieu de la fenêtre, sur un voile qui couvre le reste");
             if (sample != null && palette != null)
             {
                 palette.TypeForProbe(sample.Title.Substring(0, Math.Min(5, sample.Title.Length)));
                 await Settle();
+                var paletteCapture = Environment.GetEnvironmentVariable("MARABOOK_PALETTE_CAPTURE");
+                if (!string.IsNullOrEmpty(paletteCapture)) shell.CaptureForProbe(paletteCapture);
                 var firstId = palette.FirstResultIdForProbe;
                 Check(palette.ResultCountForProbe >= 1 && firstId != null, "…taper un début de nom liste les éléments (" + palette.ResultCountForProbe + ")");
                 palette.ChooseForProbe();
