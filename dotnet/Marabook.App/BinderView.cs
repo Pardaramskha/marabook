@@ -322,19 +322,21 @@ namespace Marabook.App
             DockPanel.SetDock(bar, Dock.Top);
             var row = new DockPanel();
 
+            // La recherche de la Pile ne cherche que les NOMS (29/10, Rémi) :
+            // titres des écrits, fiches, plans, médias — le contenu, c'est
+            // Rechercher dans le projet (Ctrl+Maj+F).
             _searchFilter = new ComboBox { Width = 74, Margin = new Thickness(4, 0, 0, 0) };
             _searchFilter.Items.Add("Tout");
             _searchFilter.Items.Add("Écrits");
             _searchFilter.Items.Add("Fiches");
             _searchFilter.Items.Add("Plans");
-            _searchFilter.Items.Add("Dictionnaire");
             _searchFilter.Items.Add("Médias");
             _searchFilter.SelectedIndex = 0;
             _searchFilter.SelectionChanged += delegate { RunSearch(); };
             DockPanel.SetDock(_searchFilter, Dock.Right);
             row.Children.Add(_searchFilter);
 
-            _searchBox = new TextBox { [ToolTip.TipProperty] = "Recherche dans tout le projet (titres, textes, fiches, plans, dictionnaire — sans casse ni accents)" };
+            _searchBox = new TextBox { [ToolTip.TipProperty] = "Recherche par NOM dans la Pile (écrits, fiches, plans, médias — sans casse ni accents) ; le contenu des textes se cherche par Édition › Rechercher dans le projet" };
             _searchBox.TextChanged += delegate { ScheduleSearch(); };
             _searchBox.KeyDown += delegate(object sender, KeyEventArgs e)
             {
@@ -1774,9 +1776,12 @@ namespace Marabook.App
             if (parent.RootCategory().CategoryKey != Project.KeyWritings
                 || parent.EnclosingBook() != null)
                 parent = _project.Category(Project.KeyWritings);
-            var title = await InputDialog.Ask(Ui.OwnerOf(this), "Nouveau livre", "Titre du livre :", "Nouveau livre");
-            if (title == null) return;
-            var item = new BinderItem { Kind = ItemKind.Book, Title = title, Book = new BookInfo() };
+            // Titre, format (A5) et marges miroir (29/10, Rémi) ; sans
+            // « Gabarits et format » au profil, le titre seul et un livre A4
+            // à marges uniformes.
+            var asked = await NewBookDialog.Ask(Ui.OwnerOf(this), Profiles.Enabled(Profiles.BookFormat));
+            if (asked == null) return;
+            var item = new BinderItem { Kind = ItemKind.Book, Title = asked.Title, Book = new BookInfo { Template = asked.Template } };
             Defaults.Seed(item.Book); // éditeur et collection par défaut (Préférences › Auteur, 22/09)
             RunAndSelect(new AddItemAction(parent, item, -1), item.Id, parent.Id);
         }
@@ -2380,7 +2385,6 @@ namespace Marabook.App
         // pipeline différé b29).
         private DispatcherTimer _searchDebounce;
         private System.Threading.CancellationTokenSource _searchCancel;
-        private int _searchGeneration;
 
         private void ScheduleSearch()
         {
@@ -2403,12 +2407,15 @@ namespace Marabook.App
                 case 1: return SearchKind.Texts;
                 case 2: return SearchKind.Sheets;
                 case 3: return SearchKind.Plans;
-                case 4: return SearchKind.Dictionary;
-                case 5: return SearchKind.Media;
+                case 4: return SearchKind.Media;
                 default: return SearchKind.All;
             }
         }
 
+        /// <summary>La recherche PAR NOM (29/10, Rémi) : les éléments de la
+        /// Pile dont le titre contient la frappe, dans l'ordre de la Pile —
+        /// synchrone, les titres ne coûtent rien. Le moteur de contenu
+        /// (ProjectSearch) reste au panneau Rechercher dans le projet.</summary>
         private void RunSearch()
         {
             if (_project == null || _results == null) return;
@@ -2422,42 +2429,33 @@ namespace Marabook.App
             }
             _tree.IsVisible = false;
             _results.IsVisible = true;
-
-            var targets = ProjectSearch.Collect(_project, SearchScope.Project, SelectedItem,
-                KindOfFilter(_searchFilter.SelectedIndex), false);
-            var compiled = SearchQuery.Create(query, false, false, true, false);
-            var cancel = new System.Threading.CancellationTokenSource();
-            _searchCancel = cancel;
-            var generation = ++_searchGeneration;
-            var dispatcher = Dispatcher.UIThread;
-            System.Threading.Tasks.Task.Factory.StartNew<SearchResult>(delegate
-            {
-                return ProjectSearch.Run(targets, compiled, ProjectSearch.DefaultCap, ProjectSearch.DefaultBudget, cancel.Token);
-            }, cancel.Token).ContinueWith(delegate(System.Threading.Tasks.Task<SearchResult> done)
-            {
-                var ignored = done.Exception; // observée : une recherche en faute se tait
-                if (done.Status != System.Threading.Tasks.TaskStatus.RanToCompletion || done.Result.Cancelled) return;
-                dispatcher.Post(new Action(delegate
-                {
-                    if (generation != _searchGeneration) return; // périmé
-                    ShowSearchResult(done.Result);
-                }));
-            });
+            ShowNameMatches(NameMatches(_project, query, KindOfFilter(_searchFilter.SelectedIndex), 200));
         }
 
-        private void ShowSearchResult(SearchResult result)
+        /// <summary>Les éléments dont le nom contient la frappe (sans casse
+        /// ni accents), dans l'ordre de la Pile, corbeille et catégories
+        /// exclues — partagé avec la palette « Ouvrir par le nom ».</summary>
+        public static List<BinderItem> NameMatches(Project project, string query, SearchKind kind, int cap)
+        {
+            var matches = new List<BinderItem>();
+            if (project == null || string.IsNullOrEmpty(query)) return matches;
+            foreach (var item in ProjectSearch.PileOrder(project))
+            {
+                if (item.IsCategory || !ProjectSearch.Matches(kind, item)) continue;
+                if (item.RootCategory().CategoryKey == Project.KeyTrash) continue;
+                if (!ContainsLoose(item.Title ?? "", query)) continue;
+                matches.Add(item);
+                if (matches.Count >= cap) break;
+            }
+            return matches;
+        }
+
+        private void ShowNameMatches(List<BinderItem> matches)
         {
             _results.Items.Clear();
-            var counts = new Dictionary<string, int>();
-            var order = new List<BinderItem>();
-            foreach (var hit in result.Hits)
-            {
-                if (!counts.ContainsKey(hit.Item.Id)) { counts[hit.Item.Id] = 0; order.Add(hit.Item); }
-                counts[hit.Item.Id]++;
-            }
-            foreach (var item in order) _results.Items.Add(BuildResultRow(item, counts[item.Id]));
-            var summary = result.Total == 0 ? "Aucun résultat" : result.Summary();
-            if (!string.IsNullOrEmpty(result.Message)) summary += "\n" + result.Message;
+            foreach (var item in matches) _results.Items.Add(BuildResultRow(item));
+            var summary = matches.Count == 0 ? "Aucun nom ne correspond"
+                : matches.Count == 1 ? "1 élément" : matches.Count + " éléments";
             _results.Items.Add(new ListBoxItem
             {
                 Content = new TextBlock { Text = summary, Foreground = Chrome.SoftText, FontSize = 11, TextWrapping = TextWrapping.Wrap },
@@ -2465,7 +2463,20 @@ namespace Marabook.App
             });
         }
 
-        private ListBoxItem BuildResultRow(BinderItem item, int count)
+        /// <summary>Le chemin d'un élément dans la Pile : « Écrits › Livre › Partie ».</summary>
+        public static string PathOf(BinderItem item)
+        {
+            var path = "";
+            var parent = item == null ? null : item.Parent;
+            while (parent != null)
+            {
+                path = parent.Title + (path.Length > 0 ? " › " + path : "");
+                parent = parent.Parent;
+            }
+            return path;
+        }
+
+        private ListBoxItem BuildResultRow(BinderItem item)
         {
             var panel = new StackPanel();
             var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
@@ -2477,22 +2488,15 @@ namespace Marabook.App
                 TextTrimming = TextTrimming.CharacterEllipsis
             });
             panel.Children.Add(titleRow);
-
-            var path = "";
-            var parent = item.Parent;
-            while (parent != null)
-            {
-                path = parent.Title + (path.Length > 0 ? " › " + path : "");
-                parent = parent.Parent;
-            }
-            var occurrences = count == 1 ? "1 occurrence" : count + " occurrences";
-            panel.Children.Add(new TextBlock
-            {
-                Text = path.Length > 0 ? path + " · " + occurrences : occurrences,
-                Foreground = Chrome.SoftText,
-                FontSize = 10,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            });
+            var path = PathOf(item);
+            if (path.Length > 0)
+                panel.Children.Add(new TextBlock
+                {
+                    Text = path,
+                    Foreground = Chrome.SoftText,
+                    FontSize = 10,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
             return new ListBoxItem { Content = panel, Tag = item.Id };
         }
 

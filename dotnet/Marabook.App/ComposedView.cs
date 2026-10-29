@@ -3663,6 +3663,13 @@ namespace Marabook.App
         public void SetLooseLines(bool visible)
         {
             ComposedRenderer.ShowLooseLines = visible;
+            RedrawPages();
+        }
+
+        /// <summary>Redessine les pages sans recomposer (les marqueurs de
+        /// veuves et d'orphelines montrés ou cachés, 29/10).</summary>
+        public void RedrawPages()
+        {
             for (var k = 0; k < _pages.Children.Count; k++) PageAt(k).InvalidateVisual();
         }
 

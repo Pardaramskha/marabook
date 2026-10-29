@@ -38,6 +38,16 @@ namespace Marabook.Tests
             t.Check(!names.Contains("Sam"), "Sam : toujours en tête de phrase ou après un tiret de dialogue — écarté");
             t.Check(!names.Contains("Bonjour"), "Bonjour : mot ordinaire");
 
+            // La particule élidée (29/10, Rémi) : « d'Almor » → « Almor » pour
+            // le dictionnaire et les clés des fiches ; les autres apostrophes restent.
+            t.Equal("Almor", NameExtractor.StripElision("d'Almor"), "d'Almor → Almor");
+            t.Equal("Ettrups", NameExtractor.StripElision("d’Ettrups"), "apostrophe typographique aussi");
+            t.Equal("Orléans", NameExtractor.StripElision("jusqu'Orléans"), "jusqu'Orléans → Orléans");
+            t.Equal("Aujourd'hui", NameExtractor.StripElision("Aujourd'hui"), "« Aujourd'hui » n'a pas de particule : intact");
+            t.Equal("Valjean", NameExtractor.StripElision("Valjean"), "sans apostrophe : intact");
+            var withParticle = NameExtractor.Extract("Almor vint. Puis Almor rit, et Almor partit.", new[] { "Jean d'Almor" });
+            t.Equal(0, withParticle.Count, "une fiche « Jean d'Almor » connue couvre « Almor » dans le texte");
+
             foreach (var candidate in found)
                 if (candidate.Name == "Gandalf")
                 {

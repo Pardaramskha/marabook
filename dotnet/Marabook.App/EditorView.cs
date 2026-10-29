@@ -404,6 +404,22 @@ namespace Marabook.App
                 _guidesBtn.IsChecked = page.ShowMarginGuides;
                 _lineNumbersBtn.IsChecked = page.LineNumbers;
                 _folioBtn.IsChecked = page.FooterPageNumbers;
+                // Un écrit DE LIVRE (29/10, Rémi) : marges, taille et folio
+                // se règlent au niveau du livre (Gabarits & Format), l'onglet
+                // Gabarit aussi — grisés ici. Le Hors-livre garde la main.
+                var inBook = _item != null && _item.Kind == ItemKind.Text && !_item.IsInsideOutOfBook() && _item.EnclosingBook() != null;
+                if (_pageGrid != null)
+                {
+                    _pageGrid.IsEnabled = !inBook;
+                    _pageGrid.Opacity = inBook ? 0.55 : 1;
+                    ToolTip.SetTip(_pageGrid, inBook ? "Réglés au niveau du livre (Gabarits & Format)" : null);
+                }
+                _folioBtn.IsEnabled = !inBook;
+                if (_decorTab != null)
+                {
+                    _decorTab.IsEnabled = !inBook;
+                    if (inBook && _ribbonTabs != null && ReferenceEquals(_ribbonTabs.SelectedItem, _decorTab)) _ribbonTabs.SelectedIndex = 0;
+                }
             }
             finally
             {
@@ -456,7 +472,16 @@ namespace Marabook.App
                 IsVisible = false
             };
             SetDock(_searchBar, Dock.Top);
+            // La croix de fermeture à droite (29/10, Rémi) : Échap y mène aussi.
+            var dock = new DockPanel();
+            var close = Buttons.Icon("x-bold", "Fermer la recherche (Échap)", Buttons.Compact, Buttons.Look.Calm);
+            close.VerticalAlignment = VerticalAlignment.Center;
+            close.Margin = new Thickness(8, 0, 0, 0);
+            close.Click += delegate { HideSearch(); };
+            DockPanel.SetDock(close, Dock.Right);
+            dock.Children.Add(close);
             var panel = new StackPanel { Orientation = Orientation.Horizontal };
+            dock.Children.Add(panel);
 
             panel.Children.Add(Label("Rechercher :"));
             _searchBox = new TextBox { Width = 160, Margin = new Thickness(4, 0, 10, 0) };
@@ -522,7 +547,7 @@ namespace Marabook.App
             };
             panel.Children.Add(_searchInfo);
 
-            _searchBar.Child = panel;
+            _searchBar.Child = dock;
             _searchBar.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key == Key.Escape) { HideSearch(); e.Handled = true; }
@@ -662,6 +687,21 @@ namespace Marabook.App
                 "Préréglage (Imprimerie nationale, souple, minimal) et règles de la passe typographique");
             options.Click += delegate { TypographyOptionsDialog.Ask(Ui.OwnerOf(this)); };
             panel.Children.Add(options);
+            // L'approche et les lignes lâches (29/10, Rémi) : déplacées ici
+            // depuis Texte et Mise en page ; masquables par le profil
+            // (« Options d'espacement »), filets compris.
+            var spacing = Profiles.Enabled(Profiles.LooseLines);
+            _trackingRule = VerticalRuleTall();
+            _trackingRule.IsVisible = spacing;
+            panel.Children.Add(_trackingRule);
+            _trackingPanel = BuildTrackingPanel();
+            _trackingPanel.IsVisible = spacing;
+            panel.Children.Add(_trackingPanel);
+            _looseRule = VerticalRuleTall();
+            _looseRule.IsVisible = spacing;
+            panel.Children.Add(_looseRule);
+            panel.Children.Add(BuildLooseLinesButton());
+            _formatTab = panel;
             return panel;
         }
 
@@ -2382,6 +2422,27 @@ namespace Marabook.App
             SelectMatch(matches, 0, null);
             if (!_searchBox.IsFocused) _searchBox.Focus();
         }
+
+        /// <summary>Sonde (29/10) : la barre Ctrl+F est montrée ; les entrées du
+        /// combo des styles qui portent leur vignette de portée.</summary>
+        internal bool SearchBarShownForProbe { get { return _searchBar != null && _searchBar.IsVisible; } }
+        internal int StyleComboScopeIconsForProbe
+        {
+            get
+            {
+                var count = 0;
+                if (_styleCombo == null) return 0;
+                foreach (var item in _styleCombo.Items)
+                {
+                    var entry = item as ComboBoxItem;
+                    var row = entry == null ? null : entry.Content as StackPanel;
+                    var icon = row == null || row.Children.Count == 0 ? null : row.Children[0] as Control;
+                    if (icon != null && (icon.Tag as string ?? "").StartsWith("scope-")) count++;
+                }
+                return count;
+            }
+        }
+        internal int StyleComboEntriesForProbe { get { return _styleCombo == null ? 0 : _styleCombo.Items.Count; } }
 
         /// <summary>Sonde (09/10) : tape dans la barre et attend le saut.</summary>
         internal void TypeSearchForProbe(string needle)

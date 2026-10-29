@@ -156,6 +156,22 @@ namespace Marabook.App
         private TextBlock _statusWarmup; // préchauffage de l'ouverture (b30)
         private DispatcherTimer _statsTimer, _autosaveTimer, _binderRebuildTimer;
 
+        /// <summary>Un seul Rebuild de la Pile, 300 ms après la dernière
+        /// demande (marges à la molette, 01/10 ; enregistrement et
+        /// navigation, 29/10 : les pastilles d'enchaînement des chapitres
+        /// suivent les comptes de pages).</summary>
+        private void ScheduleBinderRebuild()
+        {
+            if (_binder == null || _project == null) return;
+            if (_binderRebuildTimer == null)
+            {
+                _binderRebuildTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+                _binderRebuildTimer.Tick += delegate { _binderRebuildTimer.Stop(); if (_project != null) _binder.Rebuild(); };
+            }
+            _binderRebuildTimer.Stop();
+            _binderRebuildTimer.Start();
+        }
+
         private MenuItem _undoMenu, _redoMenu, _darkMenu, _binderMenu, _inspectorMenu, _recentMenu, _rulersMenu;
         // La feuille de styles telle qu'elle était AVANT le changement en
         // cours (28/09) : les panneaux de styles éditent la feuille en place
@@ -400,6 +416,7 @@ namespace Marabook.App
             _searchMenu = Entry("project-search", "Rechercher dans le projet…", OpenSearchPanel);
             _searchMenu.ToggleType = MenuItemToggleType.CheckBox;
             edit.Items.Add(_searchMenu);
+            edit.Items.Add(Entry("quick-open", "Ouvrir par le nom…", ShowQuickOpen)); // la palette Ctrl+, (29/10)
             // Occurrence suivante / précédente ont quitté le menu (22/09) :
             // F3 / Maj+F3 restent des gestes de la fenêtre, au service du
             // panneau de recherche.
@@ -788,13 +805,7 @@ namespace Marabook.App
                 // Les pastilles d'alerte des livres suivent les marges — mais la
                 // Pile entière ne se rebâtit pas à chaque cran de la molette
                 // (01/10, performance) : un seul Rebuild, 300 ms après le dernier.
-                if (_binderRebuildTimer == null)
-                {
-                    _binderRebuildTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-                    _binderRebuildTimer.Tick += delegate { _binderRebuildTimer.Stop(); _binder.Rebuild(); };
-                }
-                _binderRebuildTimer.Stop();
-                _binderRebuildTimer.Start();
+                ScheduleBinderRebuild();
             };
             _editor.PageInfoChanged += delegate(int page, int pages)
             {
@@ -2930,6 +2941,10 @@ namespace Marabook.App
             }
             try { _lastSavedBytes = new FileInfo(path).Length; } catch (IOException) { }
             if (path == _path) RememberDisk(path, savedId); // la nouvelle référence du disque (1.0.3)
+            // La Pile se rafraîchit à l'enregistrement (29/10, Rémi) : les
+            // pastilles d'enchaînement des chapitres suivent les comptes de
+            // pages mis à jour par l'écriture.
+            ScheduleBinderRebuild();
             // Le toast « enregistré » (0.50.0) : à la demande explicite
             // seulement — l'automatique reste muet.
             if (!silent) ShowSavedToast();
@@ -3272,6 +3287,7 @@ namespace Marabook.App
             HideCenterViews();
             DropStyleReportIfStale(item); // le bilan de style ne suit pas un autre écrit (09/10)
             SlideJournalOut(); // la feuille du journal redescend sur la vue qui arrive (03/10)
+            ScheduleBinderRebuild(); // la Pile se rafraîchit à la navigation (29/10, Rémi)
             if (item == null || item.Kind != ItemKind.Text) { _statusPages.Text = ""; _statusBook.Text = ""; _docPages = 0; }
 
             if (item != null && item.Kind == ItemKind.Text)
@@ -3543,6 +3559,20 @@ namespace Marabook.App
             if (_sheetView.IsVisible) _sheetView.ShowSearch();
             else _editor.ShowSearch();
         }
+
+        // La palette « Ouvrir par le nom » (Ctrl+, — 29/10, Rémi) : bâtie au
+        // premier appel, posée au centre de la fenêtre, refermée au clic
+        // ailleurs ou sur un résultat (qui sélectionne l'élément dans la Pile).
+        private QuickOpenPalette _quickOpen;
+
+        private void ShowQuickOpen()
+        {
+            if (_project == null) return;
+            if (_quickOpen == null) _quickOpen = new QuickOpenPalette(this);
+            _quickOpen.Show(_project, delegate(string id) { _binder.SelectItem(id); });
+        }
+
+        internal QuickOpenPalette QuickOpenForProbe { get { ShowQuickOpen(); return _quickOpen; } }
 
         private void InsertFootnoteInActive()
         {
@@ -4663,7 +4693,7 @@ namespace Marabook.App
 
         private async void ExportPageTemplate(BinderItem gabarit)
         {
-            var dialogPath = await Ui.PickSaveFile(this, "", Persistence.GabaritFile.Filter, SafeFileName(gabarit.Title) + ".usgab");
+            var dialogPath = await Ui.PickSaveFile(this, "", Persistence.GabaritFile.Filter, SafeFileName(gabarit.Title) + Persistence.GabaritFile.Extension);
             if (dialogPath == null) return;
             try
             {

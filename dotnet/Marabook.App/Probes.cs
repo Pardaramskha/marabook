@@ -270,6 +270,21 @@ namespace Marabook.App
                             Marabook.Model.BookFlow.Texts(flowBook, ordered);
                             Check(publication.StatsRowsForProbe() == ordered.Count, "Tailles › Statistiques : une ligne par texte (" + publication.StatsRowsForProbe() + ")");
                             Check(publication.HoverStatsRowForProbe(0, true) && publication.HoverStatsRowForProbe(0, false), "…la ligne entière se surligne au survol, et s'éteint");
+                            // L'ordre des lignes (29/10) : apparition d'office, puis mots décroissants.
+                            var byPages = new List<string>();
+                            foreach (var t in ordered) byPages.Add(t.Title);
+                            Check(string.Join("|", publication.StatsTitlesForProbe().ToArray()) == string.Join("|", byPages.ToArray()), "…dans l'ordre d'apparition d'office");
+                            publication.SetStatsOrderForProbe(2); // Mots, décroissant
+                            await Settle();
+                            var byWords = new List<BinderItem>(ordered);
+                            var wordCounts = new Dictionary<string, int>();
+                            foreach (var t in ordered) wordCounts[t.Id] = Marabook.Correction.TextStats.Compute(t.Document.ToPlainText()).Words;
+                            byWords.Sort(delegate(BinderItem a, BinderItem b) { var by = wordCounts[b.Id].CompareTo(wordCounts[a.Id]); return by != 0 ? by : ordered.IndexOf(a).CompareTo(ordered.IndexOf(b)); });
+                            var expected = new List<string>();
+                            foreach (var t in byWords) expected.Add(t.Title);
+                            Check(string.Join("|", publication.StatsTitlesForProbe().ToArray()) == string.Join("|", expected.ToArray()), "…« Mots, décroissant » réordonne les lignes (" + string.Join(", ", expected.ToArray()) + ")");
+                            publication.SetStatsOrderForProbe(0);
+                            await Settle();
                             bookView.FlowWarningsBoxForProbe.IsChecked = false;
                             await Settle();
                             Check(!flowBook.Book.FlowWarnings && publication.RowIsRedForProbe("flow-row") == null, "décocher la case débraye l'avertissement : la ligne quitte la check-list");
@@ -2294,6 +2309,8 @@ namespace Marabook.App
                 await ProbeGraph(shell);
                 // ================================================== 1.1.0 : la passe des dialogues (29/10)
                 await ProbeDialogues(shell);
+                // ================================================== 1.1.0 : le lot de correctifs du 29/10
+                await ProbeFixes2910(shell);
             }
             catch (Exception error)
             {
@@ -2579,12 +2596,14 @@ namespace Marabook.App
                 Check(bookView.StylesFacetCountForProbe == 2, "…les styles n'ont que Caractère et Paragraphe (" + bookView.StylesFacetCountForProbe + " facettes)");
                 Check(!BookFlow.Enabled(book), "…les enchaînements de pages se taisent (le réglage du livre reste " + (book.Book == null || book.Book.FlowWarnings) + ")");
                 Check(!ComposedRenderer.ShowWidowMarks, "…les marqueurs de veuves et d'orphelines se taisent");
+                Check(!shell.Editor.WidowMarksButtonVisibleForProbe, "…et le bouton Veuves/Orphelines du ruban se cache (29/10)");
 
                 Profiles.Choose(Profiles.Custom);
                 Profiles.SetHidden(Profiles.Sprints, true);
                 await Settle();
                 Check(bookView.FormatTabShownForProbe && !shell.SprintMenuShownForProbe && shell.NewSheetMenuShownForProbe && ComposedRenderer.ShowWidowMarks,
                     "profil Moi-même : décocher Sprints cache le sprint seul, le livre retrouve ses onglets, les marqueurs reviennent");
+                Check(shell.Editor.WidowMarksButtonVisibleForProbe, "…et le bouton Veuves/Orphelines aussi");
                 var chooser = new ProfileChooser(true);
                 Check(chooser.Selected == Profiles.Custom && chooser.FeaturesButtonShownForProbe, "le sélecteur reprend le profil et propose « Choisir les fonctionnalités… » pour Moi-même");
                 chooser.Select(Profiles.Everything, false);
@@ -2964,6 +2983,25 @@ namespace Marabook.App
                 Check(view.FacetForProbe == "Présences" && matrix.ColumnCountForProbe == graph.Writings.Count && matrix.RowCountForProbe >= 1,
                     "la matrice : une colonne par écrit du récit (" + matrix.ColumnCountForProbe + "), une ligne par fiche présente (" + matrix.RowCountForProbe + ")");
                 Check(matrix.HasRowForProbe(keira.Id), "…Keira a sa ligne");
+                // L'ordre des lignes (29/10) : apparition d'office, fréquence sur demande.
+                var rowsByFirst = matrix.RowIdsForProbe();
+                view.OrderByFrequency = true;
+                await Settle();
+                var rowsByFrequency = matrix.RowIdsForProbe();
+                var columns = matrix.ColumnIdsForProbe();
+                var nonIncreasing = rowsByFrequency.Count == rowsByFirst.Count;
+                var previous = int.MaxValue;
+                foreach (var rowId in rowsByFrequency)
+                {
+                    var total = 0;
+                    foreach (var colId in columns) total += graph.PresenceCount(colId, rowId);
+                    if (total > previous) nonIncreasing = false;
+                    previous = total;
+                }
+                Check(view.OrderByFrequency && nonIncreasing, "Ordre › Fréquence : les fiches les plus présentes d'abord (" + rowsByFrequency.Count + " lignes)");
+                view.OrderByFrequency = false;
+                await Settle();
+                Check(string.Join("|", matrix.RowIdsForProbe().ToArray()) == string.Join("|", rowsByFirst.ToArray()), "…Ordre d'apparition : l'ordre initial revient");
                 Check(view.ScopeChoicesForProbe >= 3 && view.TypeLabelForProbe.StartsWith("Personnage"), "les filtres (28/10) : l'amplitude (" + view.ScopeChoicesForProbe + " choix) et la nature des fiches, Personnages d'office (" + view.TypeLabelForProbe + ")");
                 var matrixCapture = Environment.GetEnvironmentVariable("MARABOOK_MATRIX_CAPTURE");
                 if (!string.IsNullOrEmpty(matrixCapture)) shell.CaptureForProbe(matrixCapture);
@@ -3096,6 +3134,144 @@ namespace Marabook.App
             var compare = new TypographyCompareWindowProbe(shell, Marabook.Correction.DialoguePass.Run(document, new Marabook.Correction.TypographyOptions()));
             Check(compare.Title.StartsWith("Dialogues — "), "la fenêtre comparative porte le nom de la passe (" + compare.Title + ")");
             compare.Close();
+        }
+
+        /// <summary>Le lot de correctifs du 29/10 (Rémi) : ruban (Prépresse en
+        /// dernier, approche et lignes lâches dans Formatage, Gabarit et
+        /// marges grisés pour un écrit de livre, Veuves/Orphelines), croix de
+        /// la barre Ctrl+F, vignettes de portée des styles, recherche de la
+        /// Pile par nom, palette « Ouvrir par le nom », dialogue Nouveau
+        /// livre, gabarits .marag.</summary>
+        private static async Task ProbeFixes2910(MainWindow shell)
+        {
+            var project = shell.Project;
+            var editor = shell.Editor;
+            // — Le ruban.
+            var heads = editor.RibbonTabHeadersForProbe;
+            Check(heads.EndsWith("|Prépresse") && !heads.Contains("Composition"), "le ruban : Composition est devenu Prépresse, en dernier (" + heads + ")");
+            Check(editor.TrackingInFormatTabForProbe, "l'approche et les lignes lâches vivent dans Formatage");
+            editor.SelectRibbonTabForProbe("Formatage");
+            await Settle();
+            Check(FindButton(shell, "Lignes lâches") != null, "…le bouton Lignes lâches s'y voit");
+            var formatCapture = Environment.GetEnvironmentVariable("MARABOOK_FORMAT_CAPTURE");
+            if (!string.IsNullOrEmpty(formatCapture)) shell.CaptureForProbe(formatCapture);
+            // — Un écrit de livre : Gabarit, marges, taille et folio grisés ; hors livre, tout est actif.
+            BinderItem inBook = null, outside = null;
+            foreach (var item in project.AllItems())
+            {
+                if (item.Kind != ItemKind.Text || item.Document == null || item.RootCategory().CategoryKey != Project.KeyWritings) continue;
+                if (inBook == null && !item.IsInsideOutOfBook() && item.EnclosingBook() != null) inBook = item;
+                if (outside == null && item.EnclosingBook() == null) outside = item;
+            }
+            if (inBook != null)
+            {
+                shell.Binder.SelectItem(inBook.Id, true);
+                await Settle();
+                Check(!editor.DecorTabEnabledForProbe && !editor.PageGridEnabledForProbe, "un écrit de livre (« " + inBook.Title + " ») : l'onglet Gabarit, les marges et la taille sont grisés");
+            }
+            else Console.WriteLine("  (aucun écrit de livre dans la démo : grisage non vérifié)");
+            if (outside != null)
+            {
+                shell.Binder.SelectItem(outside.Id, true);
+                await Settle();
+                Check(editor.DecorTabEnabledForProbe && editor.PageGridEnabledForProbe, "un écrit hors livre (« " + outside.Title + " ») : Gabarit, marges et taille restent actifs");
+            }
+            else Console.WriteLine("  (aucun écrit hors livre dans la démo : l'inverse n'est pas vérifié)");
+            // — Veuves/Orphelines.
+            editor.SelectRibbonTabForProbe("Mise en page");
+            await Settle();
+            Check(editor.WidowMarksButtonVisibleForProbe && editor.WidowMarksShownForProbe, "Mise en page › Veuves/Orphelines : visible et actif d'office");
+            editor.ToggleWidowMarksForProbe();
+            Check(!ComposedRenderer.ShowWidowMarks && !AppSettings.ShowWidowMarks, "…décoché : les marqueurs se taisent (la composition ne bouge pas)");
+            editor.ToggleWidowMarksForProbe();
+            Check(ComposedRenderer.ShowWidowMarks && AppSettings.ShowWidowMarks, "…recoché : ils reviennent");
+            editor.SelectRibbonTabForProbe("Texte");
+            await Settle();
+            // — Les vignettes de portée des styles, dans le combo du ruban.
+            Check(editor.StyleComboEntriesForProbe > 0 && editor.StyleComboScopeIconsForProbe == editor.StyleComboEntriesForProbe,
+                "chaque style du ruban porte sa vignette de portée (" + editor.StyleComboScopeIconsForProbe + "/" + editor.StyleComboEntriesForProbe + ")");
+            var stylesCapture = Environment.GetEnvironmentVariable("MARABOOK_STYLES_CAPTURE"); // les lignes de la liste des styles, rendues à part
+            if (!string.IsNullOrEmpty(stylesCapture))
+            {
+                var rows = new StackPanel { Margin = new Thickness(8) };
+                var sheet = project.Styles;
+                var bookStyle = new ParagraphStyle { Id = "sonde-livre", Name = "Style du livre (sonde)", Scope = ParagraphStyle.ScopeBook };
+                var docStyle = new ParagraphStyle { Id = "sonde-ecrit", Name = "Style de l'écrit (sonde)", Scope = ParagraphStyle.ScopeDocument };
+                foreach (var style in sheet.Styles) rows.Children.Add(StylesPanel.RowContent(style));
+                rows.Children.Add(StylesPanel.RowContent(bookStyle));
+                rows.Children.Add(StylesPanel.RowContent(docStyle));
+                var frame = new Border { Background = Chrome.RaisedBg, Child = rows, Width = 260 };
+                frame.Measure(new Size(260, 400));
+                frame.Arrange(new Rect(0, 0, 260, frame.DesiredSize.Height));
+                using (var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize(260, Math.Max(1, (int)frame.DesiredSize.Height)), new Vector(96, 96)))
+                {
+                    bitmap.Render(frame);
+                    bitmap.Save(stylesCapture);
+                }
+            }
+            // — La croix de la barre Ctrl+F.
+            editor.ShowSearch();
+            await Settle();
+            var close = shell.GetVisualDescendants().OfType<Button>().FirstOrDefault(b => (ToolTip.GetTip(b) as string ?? "").StartsWith("Fermer la recherche"));
+            Check(editor.SearchBarShownForProbe && close != null, "la barre Ctrl+F a sa croix de fermeture");
+            if (close != null) close.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            await Settle();
+            Check(!editor.SearchBarShownForProbe, "…qui la referme");
+            // — La recherche de la Pile par nom.
+            var sample = FirstTitled(project, "Chapitre") ?? FirstOfKind(project, ItemKind.Text);
+            if (sample != null)
+            {
+                var byName = BinderView.NameMatches(project, sample.Title, SearchKind.All, 50);
+                Check(byName.Count >= 1 && byName.Contains(sample), "la recherche de la Pile trouve « " + sample.Title + " » par son nom (" + byName.Count + ")");
+                var bodyWord = "xyzzyquux"; // un mot qui n'est dans aucun titre
+                Check(BinderView.NameMatches(project, bodyWord, SearchKind.All, 50).Count == 0, "…et ne cherche que les noms (un mot absent des titres ne rend rien)");
+            }
+            // — La palette « Ouvrir par le nom » (Ctrl+,).
+            var palette = shell.QuickOpenForProbe;
+            await Settle();
+            Check(palette != null && palette.IsOpen, "Ctrl+, ouvre la palette « Ouvrir par le nom » au centre de la fenêtre");
+            if (sample != null && palette != null)
+            {
+                palette.TypeForProbe(sample.Title.Substring(0, Math.Min(5, sample.Title.Length)));
+                await Settle();
+                var firstId = palette.FirstResultIdForProbe;
+                Check(palette.ResultCountForProbe >= 1 && firstId != null, "…taper un début de nom liste les éléments (" + palette.ResultCountForProbe + ")");
+                palette.ChooseForProbe();
+                await Settle();
+                Check(!palette.IsOpen && shell.Binder.SelectedItem != null && shell.Binder.SelectedItem.Id == firstId, "…choisir un résultat le sélectionne dans la Pile et referme la palette");
+            }
+            else if (palette != null) palette.Close();
+            Check(AppSettings.DisplayGesture("Ctrl+OemComma") == "Ctrl+,", "le raccourci s'affiche « Ctrl+, » (" + AppSettings.DisplayGesture("Ctrl+OemComma") + ")");
+            // — Le dialogue Nouveau livre (bâti sans être montré).
+            var withFormat = NewBookDialog.BuildForProbe(true);
+            var template = withFormat.TemplateForProbe;
+            Check(withFormat.HasFormatForProbe && (withFormat.FormatForProbe ?? "").StartsWith("A5") && withFormat.MirrorForProbe,
+                "Nouveau livre : format A5 et marges miroir d'office (" + withFormat.FormatForProbe + ")");
+            Check(Math.Abs(template.PageWidthMm - 148) < 0.1 && Math.Abs(template.MarginLeftMm - 30) < 0.1 && Math.Abs(template.MarginRightMm - 20) < 0.1,
+                "…le gabarit qui en sort : 148 mm de large, petit fond 30, grand fond 20");
+            var writer = NewBookDialog.BuildForProbe(false);
+            var plain = writer.TemplateForProbe;
+            Check(!writer.HasFormatForProbe && Math.Abs(plain.PageWidthMm - 210) < 0.1 && Math.Abs(plain.MarginLeftMm - 25) < 0.1 && Math.Abs(plain.MarginRightMm - 25) < 0.1,
+                "…sans « Gabarits et format » au profil : le titre seul, A4, marges uniformes de 25 mm");
+            withFormat.Close();
+            writer.Close();
+            // — Les gabarits .marag (l'ancien .usgab encore lu).
+            var gabarit = FirstOfKind(project, ItemKind.PageTemplate);
+            if (gabarit != null)
+            {
+                var folder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-marag");
+                System.IO.Directory.CreateDirectory(folder);
+                var path = System.IO.Path.Combine(folder, "sonde" + Marabook.Persistence.GabaritFile.Extension);
+                Marabook.Persistence.GabaritFile.Export(gabarit, path);
+                var back = Marabook.Persistence.GabaritFile.Import(path);
+                Check(path.EndsWith(".marag") && back != null && back.Title == gabarit.Title, "un gabarit s'exporte en .marag et se relit (« " + back.Title + " »)");
+                var legacy = System.IO.Path.Combine(folder, "ancien.usgab");
+                System.IO.File.WriteAllText(legacy, System.IO.File.ReadAllText(path).Replace("\"marag\"", "\"usgab\""), new System.Text.UTF8Encoding(false));
+                var old = Marabook.Persistence.GabaritFile.Import(legacy);
+                Check(old != null && old.Title == gabarit.Title, "…et un .usgab d'avant se lit encore");
+                Check(Marabook.Persistence.GabaritFile.Filter.Contains("*.marag;*.usgab"), "le filtre de fichiers propose les deux extensions");
+            }
+            else Console.WriteLine("  (aucun gabarit dans la démo : export .marag non vérifié)");
         }
 
         /// <summary>La fenêtre comparative bâtie sans être montrée (son titre).</summary>

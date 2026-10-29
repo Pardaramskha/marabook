@@ -739,17 +739,23 @@ namespace Marabook.App
             return row;
         }
 
+        /// <summary>La vignette de la portée d'un style (29/10, Rémi : une par
+        /// amplitude) : générale (tous les projets), du livre, de l'écrit
+        /// (importée avec lui ou propre à lui).</summary>
         public static Control ScopeIcon(ParagraphStyle style, double size)
         {
-            string name = null;
-            if (style.Scope == ParagraphStyle.ScopeBook) name = "book-bold";
-            else if (style.Scope == ParagraphStyle.ScopeDocument) name = "document";
-            if (name == null) return null;
+            string name, tip;
+            if (style.Scope == ParagraphStyle.ScopeBook) { name = "book-bold"; tip = "Style du livre"; }
+            else if (style.Scope == ParagraphStyle.ScopeDocument) { name = "document"; tip = "Style de l'écrit (importé avec lui, ou propre à lui)"; }
+            else { name = "all"; tip = "Style général (tous les projets)"; }
             var icon = Icons.Make(name, size, Chrome.SoftText) as Control;
             if (icon == null) return null;
+            icon.Width = size;
+            icon.Height = size;
             icon.VerticalAlignment = VerticalAlignment.Center;
             icon.Margin = new Thickness(0, 0, 5, 0);
-            ToolTip.SetTip(icon, style.Scope == ParagraphStyle.ScopeBook ? "Style du livre" : "Style du document");
+            icon.Tag = "scope-" + (style.Scope ?? ParagraphStyle.ScopeGlobal); // sonde
+            ToolTip.SetTip(icon, tip);
             return icon;
         }
 

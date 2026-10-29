@@ -33,6 +33,12 @@ namespace Marabook.App
         private readonly StackPanel _checklist;
         private readonly Grid _sizes;
         private readonly StackPanel _stats; // Statistiques : un texte par ligne (18/10), surlignée au survol (24/10)
+        private readonly ComboBox _statsOrder; // l'ordre des lignes (29/10)
+        private static readonly string[] StatsOrders =
+        {
+            "Ordre d'apparition", "Mots, croissant", "Mots, décroissant",
+            "Signes, croissant", "Signes, décroissant", "Pages, croissant", "Pages, décroissant"
+        };
         private readonly Expander _statsBox;
 
         public event Action<BinderItem> PublishRequested;
@@ -78,10 +84,22 @@ namespace Marabook.App
             // L'accordéon « Statistiques » (18/10, 1.0.6) : mots, signes et
             // pages de CHAQUE texte du livre, dans l'ordre des pages.
             _stats = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+            // L'ordre des lignes (29/10, Rémi) : ordre d'apparition (défaut),
+            // ou mots / signes / pages croissants ou décroissants.
+            var orderRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 0, 0, 6) };
+            orderRow.Children.Add(new TextBlock { Text = "Ordre", Foreground = Chrome.SoftText, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
+            _statsOrder = new ComboBox { Width = 190, Tag = "stats-order" };
+            foreach (var label in StatsOrders) _statsOrder.Items.Add(label);
+            _statsOrder.SelectedIndex = 0;
+            _statsOrder.SelectionChanged += delegate { if (_item != null && _project != null) RefreshStats(); };
+            orderRow.Children.Add(_statsOrder);
+            var statsBody = new StackPanel();
+            statsBody.Children.Add(orderRow);
+            statsBody.Children.Add(_stats);
             _statsBox = new Expander
             {
                 Header = new TextBlock { Text = "Statistiques", Foreground = Chrome.SoftText, FontSize = 12 },
-                Content = _stats,
+                Content = statsBody,
                 IsExpanded = false,
                 Margin = new Thickness(0, 10, 0, 0),
                 HorizontalAlignment = HorizontalAlignment.Left,
@@ -163,12 +181,70 @@ namespace Marabook.App
             SizeRow("Liminaires, pages de fin, annexes", extras);
             SizeRow("Livre entier", all);
 
-            // — Statistiques : un texte par ligne, dans l'ordre des pages.
+            // — Statistiques : un texte par ligne, dans l'ordre choisi.
+            RefreshStats();
+        }
+
+        /// <summary>Les lignes de l'accordéon Statistiques, dans l'ordre du
+        /// sélecteur (29/10) : apparition (l'ordre des pages), ou mots,
+        /// signes, pages — croissant ou décroissant, à égalité l'ordre des pages.</summary>
+        private void RefreshStats()
+        {
+            _stats.Children.Clear();
             StatsHeader();
             var ordered = new List<BinderItem>();
             BookFlow.Texts(_item, ordered);
-            foreach (var text in ordered) StatsRow(text);
+            var rows = new List<StatsEntry>();
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                var text = ordered[i];
+                rows.Add(new StatsEntry
+                {
+                    Text = text,
+                    Order = i,
+                    Stats = TextStats.Compute(text.Document.ToPlainText()),
+                    Pages = _pageCounter == null ? -1 : _pageCounter(text)
+                });
+            }
+            var mode = _statsOrder == null ? 0 : Math.Max(0, _statsOrder.SelectedIndex);
+            if (mode > 0)
+                rows.Sort(delegate(StatsEntry a, StatsEntry b)
+                {
+                    var ka = StatsKey(a, mode);
+                    var kb = StatsKey(b, mode);
+                    var by = mode % 2 == 1 ? ka.CompareTo(kb) : kb.CompareTo(ka);
+                    return by != 0 ? by : a.Order.CompareTo(b.Order);
+                });
+            foreach (var row in rows) StatsRow(row.Text, row.Stats, row.Pages);
             _statsBox.IsVisible = ordered.Count > 0;
+        }
+
+        private sealed class StatsEntry { public BinderItem Text; public int Order; public TextStats Stats; public int Pages; }
+
+        private static long StatsKey(StatsEntry entry, int mode)
+        {
+            switch ((mode + 1) / 2)
+            {
+                case 1: return entry.Stats.Words;
+                case 2: return entry.Stats.Sec;
+                default: return entry.Pages;
+            }
+        }
+
+        /// <summary>Sonde (29/10) : l'ordre choisi, et les titres dans l'ordre affiché.</summary>
+        internal void SetStatsOrderForProbe(int index) { _statsOrder.SelectedIndex = index; }
+        internal List<string> StatsTitlesForProbe()
+        {
+            var titles = new List<string>();
+            foreach (var child in _stats.Children)
+            {
+                var row = child as Border;
+                if (row == null || (row.Tag as string) != "stats-row") continue;
+                var line = row.Child as Grid;
+                var title = line == null || line.Children.Count == 0 ? null : line.Children[0] as TextBlock;
+                if (title != null) titles.Add(title.Text);
+            }
+            return titles;
         }
 
         /// <summary>Les lignes d'édition de la check-list : gabarits, format,
@@ -237,15 +313,14 @@ namespace Marabook.App
             _stats.Children.Add(new Border { Child = line, Padding = new Thickness(6, 0, 6, 0) });
         }
 
-        private void StatsRow(BinderItem text)
+        private void StatsRow(BinderItem text, TextStats stats, int pages)
         {
-            var stats = TextStats.Compute(text.Document.ToPlainText());
             var culture = CultureInfo.CurrentCulture;
             var line = StatsLine();
             StatsCell(line, 0, new TextBlock { Text = text.Title, Foreground = Chrome.Ink, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 8, 2) });
             StatsCell(line, 1, Number(stats.Words.ToString("N0", culture)));
             StatsCell(line, 2, Number(stats.Sec.ToString("N0", culture)));
-            StatsCell(line, 3, Number(_pageCounter == null ? "—" : _pageCounter(text).ToString("N0", culture)));
+            StatsCell(line, 3, Number(pages < 0 ? "—" : pages.ToString("N0", culture)));
             var row = new Border
             {
                 Child = line,

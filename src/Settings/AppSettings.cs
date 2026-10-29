@@ -63,6 +63,10 @@ namespace Marabook.Settings
             new ActionDefinition("empty-trash", "Pile", "Vider la corbeille", null),
             new ActionDefinition("find", "Édition", "Rechercher dans l'écrit", "Ctrl+F"),
             new ActionDefinition("project-search", "Édition", "Rechercher dans le projet", "Ctrl+Shift+F"),
+            // La palette « Ouvrir par le nom » (1.1.0, 29/10, Rémi) : une barre
+            // au milieu de l'écran qui cherche les éléments de la Pile par
+            // leur nom seul, et s'efface au clic ailleurs ou sur un résultat.
+            new ActionDefinition("quick-open", "Édition", "Ouvrir par le nom", "Ctrl+OemComma"),
             new ActionDefinition("search-next", "Édition", "Occurrence suivante", "F3"),
             new ActionDefinition("search-previous", "Édition", "Occurrence précédente", "Shift+F3"),
             new ActionDefinition("versions-panel", "Édition", "Versions de l'écrit", "Ctrl+Shift+H"),
@@ -82,7 +86,7 @@ namespace Marabook.Settings
             new ActionDefinition("insert-separator", "Format", "Séparateur de scène", null),
             new ActionDefinition("page-break", "Mise en page", "Saut de page", "Ctrl+Return"),
             new ActionDefinition("preferences", "Fichier", "Préférences de l'application", null),
-            new ActionDefinition("print-preview", "Composition", "Aperçu des pages", "Ctrl+Alt+P"), // le ruban, plus le menu (22/09)
+            new ActionDefinition("print-preview", "Prépresse", "Aperçu des pages", "Ctrl+Alt+P"), // le ruban (onglet Prépresse, ex-Composition, 29/10), plus le menu (22/09)
             new ActionDefinition("print", "Fichier", "Imprimer", "Ctrl+P"),
             new ActionDefinition("export-epub", "Fichier", "Créer un EPUB", null),
             new ActionDefinition("session-goal", "Écriture", "Lancer un sprint", null),
@@ -207,6 +211,7 @@ namespace Marabook.Settings
         public static bool StatsExpanded;    // « Statistiques » accordion of the inspector
         public static bool ShowAnnotations = true; // teintes + bulles de révision
         public static bool ShowLooseLines;         // lignes lâches signalées à l'écran (09/10) — CACHÉES par défaut, opt-in (13/10) : clé « looseLinesVisible », l'ancienne « showLooseLines » (vraie d'office) est ignorée
+        public static bool ShowWidowMarks = true;  // les marqueurs de veuves et d'orphelines (Mise en page › Veuves/Orphelines, 29/10) — visibles par défaut ; l'affichage seul, jamais la composition
         public static bool ImageGrid;               // grille de placement des images (0.50.0)
         // Les [[liens]] du texte (18/09) : marques visibles et texte du lien
         // en évidence, ou marques masquées (défaut). Jamais persisté : chaque
@@ -563,6 +568,7 @@ namespace Marabook.Settings
                 StatsExpanded = Json.AsBool(Json.Field(root, "statsExpanded"), false);
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
                 ShowLooseLines = Json.AsBool(Json.Field(root, "looseLinesVisible"), false);
+                ShowWidowMarks = Json.AsBool(Json.Field(root, "widowMarksVisible"), true);
                 Animations = Json.AsBool(Json.Field(root, "animations"), true);
                 ImageGrid = Json.AsBool(Json.Field(root, "imageGrid"), false);
                 LexiconPinned = Json.AsBool(Json.Field(root, "lexiconPinned"), true);
@@ -718,6 +724,7 @@ namespace Marabook.Settings
                 root["statsExpanded"] = StatsExpanded;
                 root["showAnnotations"] = ShowAnnotations;
                 root["looseLinesVisible"] = ShowLooseLines;
+                root["widowMarksVisible"] = ShowWidowMarks;
                 root["animations"] = Animations;
                 root["imageGrid"] = ImageGrid;
                 root["lexiconPinned"] = LexiconPinned;
@@ -815,6 +822,8 @@ namespace Marabook.Settings
                 else if (p == "Subtract") parts[i] = "- (pavé)";
                 else if (p == "OemPlus") parts[i] = "=";
                 else if (p == "OemMinus") parts[i] = "-";
+                else if (p == "OemComma") parts[i] = ",";
+                else if (p == "OemPeriod") parts[i] = ".";
                 else if (p.Length == 2 && p[0] == 'D' && char.IsDigit(p[1])) parts[i] = p[1].ToString();
             }
             return string.Join("+", parts);
@@ -838,6 +847,8 @@ namespace Marabook.Settings
                 else if (p == "Subtract") key = "- (pavé)";
                 else if (p == "OemPlus") key = "=";
                 else if (p == "OemMinus") key = "-";
+                else if (p == "OemComma") key = ",";
+                else if (p == "OemPeriod") key = ".";
                 else if (p.Length == 2 && p[0] == 'D' && char.IsDigit(p[1])) key = p[1].ToString();
                 else if (p.Length > 0) key = p;
             }

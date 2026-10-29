@@ -66,6 +66,14 @@ namespace Marabook.App
         private readonly WrapPanel _matrixTools = new WrapPanel { Orientation = Orientation.Horizontal, IsVisible = false };
         private readonly ComboBox _scopeBox = new ComboBox { Width = 260, Tag = "graph-scope" };
         private readonly ComboBox _typeBox = new ComboBox { Width = 180, Tag = "graph-type" };
+        // L'ordre des lignes de la matrice (29/10, Rémi) : par ordre
+        // d'apparition dans les écrits retenus (défaut), ou par fréquence.
+        private readonly ComboBox _orderBox = new ComboBox { Width = 160, Tag = "graph-order" };
+        public bool OrderByFrequency
+        {
+            get { return _orderBox.SelectedIndex == 1; }
+            set { _orderBox.SelectedIndex = value ? 1 : 0; }
+        }
         private readonly List<Func<GraphNode, bool>> _scopeFilters = new List<Func<GraphNode, bool>>();
         private readonly List<Func<GraphNode, bool>> _typeFilters = new List<Func<GraphNode, bool>>();
         private bool _buildingFilters;
@@ -175,6 +183,15 @@ namespace Marabook.App
             _matrixTools.Children.Add(typeLabel);
             _typeBox.Margin = new Thickness(0, 0, 4, 4);
             _matrixTools.Children.Add(_typeBox);
+            var orderLabel = new TextBlock { Text = "Ordre", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 6, 4) };
+            _matrixTools.Children.Add(orderLabel);
+            _orderBox.Items.Add("Ordre d'apparition");
+            _orderBox.Items.Add("Fréquence");
+            _orderBox.SelectedIndex = 0;
+            _orderBox.Margin = new Thickness(0, 0, 4, 4);
+            ToolTip.SetTip(_orderBox, "L'ordre des fiches : leur première apparition dans les écrits retenus, ou leur nombre d'occurrences (les plus présentes d'abord)");
+            _orderBox.SelectionChanged += delegate { if (_buildingFilters) return; _matrix.Reload(); };
+            _matrixTools.Children.Add(_orderBox);
             header.Children.Add(_matrixTools);
             DockPanel.SetDock(header, Dock.Top);
             Children.Add(header);
@@ -1344,6 +1361,8 @@ namespace Marabook.App
             public int RowCountForProbe { get { return _rows.Count; } }
             public int ColumnCountForProbe { get { return _cols.Count; } }
             public bool HasRowForProbe(string sheetId) { foreach (var row in _rows) if (row.Id == sheetId) return true; return false; }
+            public List<string> RowIdsForProbe() { var ids = new List<string>(); foreach (var row in _rows) ids.Add(row.Id); return ids; }
+            public List<string> ColumnIdsForProbe() { var ids = new List<string>(); foreach (var col in _cols) ids.Add(col.Id); return ids; }
 
             /// <summary>Colonnes : les écrits du récit dans l'amplitude choisie ;
             /// lignes : les fiches de la nature choisie qui paraissent dans au
@@ -1364,8 +1383,25 @@ namespace Marabook.App
                     }
                 foreach (var node in graph.Nodes)
                     if (node.IsSheet && first.ContainsKey(node.Id) && _owner.SheetOfType(node)) _rows.Add(node);
+                // Par fréquence (29/10, Rémi) : le total des occurrences dans
+                // les colonnes retenues, les plus présentes d'abord ; sinon
+                // l'ordre de première apparition.
+                var byFrequency = _owner.OrderByFrequency;
+                var totals = new Dictionary<string, int>();
+                if (byFrequency)
+                    foreach (var row in _rows)
+                    {
+                        var total = 0;
+                        foreach (var col in _cols) total += graph.PresenceCount(col.Id, row.Id);
+                        totals[row.Id] = total;
+                    }
                 _rows.Sort(delegate(GraphNode a, GraphNode b)
                 {
+                    if (byFrequency)
+                    {
+                        var byTotal = totals[b.Id].CompareTo(totals[a.Id]);
+                        if (byTotal != 0) return byTotal;
+                    }
                     var byFirst = first[a.Id].CompareTo(first[b.Id]);
                     return byFirst != 0 ? byFirst : string.Compare(a.Title, b.Title, StringComparison.CurrentCultureIgnoreCase);
                 });

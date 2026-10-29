@@ -1369,7 +1369,7 @@ namespace Marabook.App
             button.Click += delegate
             {
                 var menu = new ContextMenu { PlacementTarget = button };
-                var export = new MenuItem { Header = "Exporter (.usgab)…" };
+                var export = new MenuItem { Header = "Exporter (.marag)…" };
                 export.Click += delegate
                 { var h = ExportTemplateRequested; if (h != null) h(gabaritRef); };
                 menu.Items.Add(export);
@@ -1408,7 +1408,7 @@ namespace Marabook.App
             create.Click += delegate
             { var h = NewTemplateRequested; if (h != null && _folder != null) h(_folder); };
             panel.Children.Add(create);
-            var import = Buttons.IconText("file-arrow-down-bold", "Importer…", "Ajouter un gabarit .usgab à ce livre", Buttons.Bar, Buttons.Look.Outline);
+            var import = Buttons.IconText("file-arrow-down-bold", "Importer…", "Ajouter un gabarit .marag (ou .usgab) à ce livre", Buttons.Bar, Buttons.Look.Outline);
             import.Click += delegate
             { var h = ImportTemplateRequested; if (h != null && _folder != null) h(_folder); };
             panel.Children.Add(import);

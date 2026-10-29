@@ -1340,7 +1340,9 @@ namespace Marabook.App
                 if (string.IsNullOrEmpty(text)) return;
                 foreach (var raw in text.Split(new[] { ' ', ' ', ',', ';', '/', '(', ')', '«', '»', '"', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries))
                 {
-                    var word = raw.Trim('.', '…', '!', '?', ':', '\'', '’');
+                    // « d'Almor », « l'Ettrups » : seul le nom après la
+                    // particule élidée va au dictionnaire (29/10, Rémi).
+                    var word = NameExtractor.StripElision(raw.Trim('.', '…', '!', '?', ':', '\'', '’'));
                     if (word.Length < 2 || !seen.Add(word)) continue;
                     words.Add(word);
                 }

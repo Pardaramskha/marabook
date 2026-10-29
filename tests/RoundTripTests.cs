@@ -62,6 +62,41 @@ namespace Marabook.Tests
             t.Equal(0, BookProgress.Of(null).Present, "livre nul : vide");
         }
 
+        /// <summary>29/10 (1.1.0) : les gabarits de pages s'exportent en
+        /// .marag (type « marag ») ; un .usgab d'avant (type « usgab ») se lit
+        /// encore ; autre chose est refusé.</summary>
+        private static void GabaritFileRoundTrip(Harness t, string dir)
+        {
+            var gabarit = new BinderItem
+            {
+                Kind = ItemKind.PageTemplate,
+                Title = "Gabarit romain",
+                TemplateColor = "#336699",
+                HeaderRecto = new HeaderFooter { Text = "{titre}", SizePt = 9, Align = "center" },
+                FooterVerso = new HeaderFooter { Text = "{folio}", Bold = true },
+                HeaderGapMm = 7.5,
+                FooterHideFirst = true
+            };
+            var path = Path.Combine(dir, "romain" + GabaritFile.Extension);
+            GabaritFile.Export(gabarit, path);
+            t.Check(path.EndsWith(".marag") && File.ReadAllText(path).Contains("\"marag\""), "l'export écrit un .marag de type « marag »");
+            var back = GabaritFile.Import(path);
+            t.Check(back.Kind == ItemKind.PageTemplate && back.Title == "Gabarit romain" && back.TemplateColor == "#336699"
+                && back.HeaderRecto != null && back.HeaderRecto.Text == "{titre}" && back.FooterVerso != null && back.FooterVerso.Bold
+                && Math.Abs(back.HeaderGapMm - 7.5) < 0.001 && back.FooterHideFirst, "…et se relit entier");
+            t.Check(back.Id != gabarit.Id, "…sous un id neuf");
+            var legacy = Path.Combine(dir, "ancien" + GabaritFile.LegacyExtension);
+            File.WriteAllText(legacy, File.ReadAllText(path).Replace("\"marag\"", "\"usgab\""), new UTF8Encoding(false));
+            var old = GabaritFile.Import(legacy);
+            t.Check(old.Title == "Gabarit romain", "un .usgab d'avant (type « usgab ») se lit encore");
+            var other = Path.Combine(dir, "autre.marag");
+            File.WriteAllText(other, "{\"type\":\"plot\"}", new UTF8Encoding(false));
+            var refused = false;
+            try { GabaritFile.Import(other); } catch (InvalidDataException) { refused = true; }
+            t.Check(refused, "un autre type de fichier est refusé");
+            t.Check(GabaritFile.Filter.Contains("*.marag;*.usgab"), "le filtre de fichiers propose les deux extensions");
+        }
+
         public static void Run(Harness t)
         {
             t.Suite("C1 — aller-retour .plot");
@@ -76,6 +111,7 @@ namespace Marabook.Tests
             DuplicateIdsReassigned(t, dir);
             DuplicateIdsRefusedAtSave(t, dir);
             DeepJsonRejected(t);
+            GabaritFileRoundTrip(t, dir);
 
             try { Directory.Delete(dir, true); } catch (IOException) { }
         }

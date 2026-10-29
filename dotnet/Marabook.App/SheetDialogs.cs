@@ -241,14 +241,14 @@ namespace Marabook.App
             addSection.HorizontalAlignment = HorizontalAlignment.Left;
             addSection.Click += delegate { AddSection(); };
             sectionsFoot.Children.Add(addSection);
+            // La case Relations vit dans « Sections extras » (29/10, Rémi).
             _relationsCheck = new CheckBox
             {
-                Content = "Relations — la section des liens entre fiches (frère, mentor, rivale…)",
-                Margin = new Thickness(0, 12, 0, 0)
+                Content = "Activer les relations",
+                Margin = new Thickness(0, 0, 0, 4)
             };
             _relationsCheck.Checked += delegate { if (_current != null && !_syncing) { _current.Relations = true; Record("+relations"); } };
             _relationsCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Relations = false; Record("+relations"); } };
-            if (!_single) sectionsFoot.Children.Add(_relationsCheck);
             DockPanel.SetDock(sectionsFoot, Dock.Bottom);
             sectionsDock.Children.Add(sectionsFoot);
             _sectionsPanel = new StackPanel();
@@ -299,6 +299,12 @@ namespace Marabook.App
             evolutionStack.Children.Add(_evolutionCheck);
             evolutionStack.Children.Add(Note("La section des étapes de la fiche, écrit par écrit ou en étapes libres nommées (« perd son bras », « apprend la vérité »…). Une fiche qui porte déjà des étapes les garde, section désactivée ou non.", 0));
             extras.Items.Add(new TabItem { Header = "Évolution", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = evolutionStack } });
+            // — Relations (29/10, Rémi) : la section des liens entre fiches,
+            //   troisième sous-onglet des Sections extras.
+            var relationsStack = new StackPanel();
+            relationsStack.Children.Add(_relationsCheck);
+            relationsStack.Children.Add(Note("La section des liens entre fiches (frère, mentor, rivale…), avec la généalogie quand les fiches s'y prêtent. Une fiche qui porte déjà des relations les garde, section désactivée ou non.", 0));
+            extras.Items.Add(new TabItem { Header = "Relations", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = relationsStack } });
             if (!_single) tabs.Items.Add(new TabItem { Header = "Sections extras", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = extras } });
 
             // — Champs : nom, nature, section.
