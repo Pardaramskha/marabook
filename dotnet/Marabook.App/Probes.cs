@@ -2457,6 +2457,20 @@ namespace Marabook.App
                 shell.Sheet.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F1, Source = shell.Sheet });
                 await Settle();
                 Check(!shell.Sheet.PreviewOnForProbe, "…et F1 en sort");
+                // Le clavier dans la Pile (29/10, Rémi) : F1 et F2 atteignent
+                // quand même la fiche à l'écran, et F2 ne renomme plus rien.
+                shell.Binder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F1, Source = shell.Binder });
+                await Settle();
+                Check(shell.Sheet.PreviewOnForProbe, "F1 frappé dans la Pile bascule quand même le mode wiki de la fiche à l'écran");
+                shell.Binder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F1, Source = shell.Binder });
+                await Settle();
+                shell.Binder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F2, Source = shell.Binder });
+                await Settle();
+                Check(shell.Sheet.GenealogyOnForProbe, "F2 frappé dans la Pile ouvre la généalogie (" + shell.Sheet.GenealogyStateForProbe + ")");
+                shell.Binder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F2, Source = shell.Binder });
+                await Settle();
+                Check(!shell.Sheet.GenealogyOnForProbe, "…et la referme");
+                Check(string.IsNullOrEmpty(AppSettings.Gesture("rename")), "« Renommer » n'a plus de raccourci d'office (" + (AppSettings.Gesture("rename") ?? "aucun") + ")");
             }
             else Check(false, "une fiche à relations existe dans le projet d'exemple");
             if (other != null)

@@ -627,17 +627,29 @@ namespace Marabook.App
         /// fiche en a une (1.1.0).</summary>
         private void OnFunctionKey(object sender, KeyEventArgs e)
         {
-            if (_item == null || e.KeyModifiers != KeyModifiers.None) return;
+            HandleFunctionKey(e);
+        }
+
+        /// <summary>F1 / F2 de la fiche, aussi quand le clavier est AILLEURS
+        /// (la Pile, après un clic sur la fiche — 29/10, Rémi : « F1 ne bascule
+        /// pas, F2 renomme ») : la fenêtre les lui passe en tunnel tant que la
+        /// fiche est à l'écran. Vrai si la touche a servi.</summary>
+        public bool HandleFunctionKey(KeyEventArgs e)
+        {
+            if (_item == null || !IsVisible || e.Handled || e.KeyModifiers != KeyModifiers.None) return false;
             if (e.Key == Key.F1)
             {
                 _previewToggle.IsChecked = _previewToggle.IsChecked != true;
                 e.Handled = true;
+                return true;
             }
-            else if (e.Key == Key.F2 && _showRelations)
+            if (e.Key == Key.F2 && _showRelations)
             {
                 _genealogyButton.IsChecked = _genealogyButton.IsChecked != true;
                 e.Handled = true;
+                return true;
             }
+            return false;
         }
 
         /// <summary>Sonde (1.1.0) : le bouton Généalogie est-il posé ?</summary>

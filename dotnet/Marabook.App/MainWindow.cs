@@ -305,6 +305,15 @@ namespace Marabook.App
             Ui.OnVisibilityChanged(_editor, delegate { RefreshMenuAvailability(); });
             Ui.OnVisibilityChanged(_sheetView, delegate { RefreshMenuAvailability(); });
             _binder.SelectionChanged += delegate { Ui.Post(DispatcherPriority.Background, new Action(RefreshMenuAvailability)); };
+            // F1 / F2 d'une fiche à l'écran (29/10, Rémi) : le clavier reste
+            // souvent dans la Pile après le clic qui a ouvert la fiche — la
+            // frappe ne traversait jamais la vue de la fiche (F1 muet, F2
+            // happé par « Renommer »). En tunnel depuis la fenêtre, avant
+            // tout raccourci.
+            AddHandler(KeyDownEvent, new EventHandler<KeyEventArgs>(delegate(object sender, KeyEventArgs e)
+            {
+                if ((e.Key == Key.F1 || e.Key == Key.F2) && _sheetView != null && _sheetView.IsVisible) _sheetView.HandleFunctionKey(e);
+            }), RoutingStrategies.Tunnel);
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 // Échap quitte le mode calme — en bulle, pour laisser la barre

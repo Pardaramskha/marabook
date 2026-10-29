@@ -58,7 +58,9 @@ namespace Marabook.Settings
             new ActionDefinition("previous-tab", "Onglets", "Onglet précédent", "Ctrl+PageUp"),
             new ActionDefinition("new-folder", "Pile", "Nouveau dossier", "Ctrl+Shift+T"),
             new ActionDefinition("new-book", "Pile", "Nouveau livre", null),
-            new ActionDefinition("rename", "Pile", "Renommer", "F2"),
+            // Plus de F2 d'office (29/10, Rémi) : la touche est aux fiches
+            // (Généalogie), F1 au mode wiki — un geste personnalisé reste possible.
+            new ActionDefinition("rename", "Pile", "Renommer", null),
             new ActionDefinition("delete", "Pile", "Supprimer vers la corbeille", "Delete"),
             new ActionDefinition("empty-trash", "Pile", "Vider la corbeille", null),
             new ActionDefinition("find", "Édition", "Rechercher dans l'écrit", "Ctrl+F"),
