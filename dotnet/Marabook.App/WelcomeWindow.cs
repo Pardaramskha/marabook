@@ -388,6 +388,28 @@ namespace Marabook.App
             };
             _openButton = open;
             titleRow.Children.Add(open);
+            // Le tutoriel (1.1.0, 29/10, Rémi) : au-dessus des projets, un
+            // projet d'exemple temporaire et la visite guidée.
+            var tutorialRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 0, 0, 14) };
+            var tutorial = Buttons.IconText("play-fill", "Démarrer le tutoriel",
+                "Ouvre un projet d'exemple temporaire et vous guide à travers les grandes fonctionnalités de Marabook (le succès « Tour du proprio » à la clé)",
+                Buttons.Bar, Buttons.Look.Primary);
+            tutorial.Tag = "welcome-tutorial"; // sonde
+            tutorial.Click += delegate
+            {
+                if (_opening) return;
+                if (_shell.StartTutorial()) Release();
+            };
+            tutorialRow.Children.Add(tutorial);
+            tutorialRow.Children.Add(new TextBlock
+            {
+                Text = "Dix minutes pour faire le tour du propriétaire, sur un projet d'exemple.",
+                FontSize = 12,
+                Foreground = Chrome.SoftText,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(12, 0, 0, 0)
+            });
+            center.Children.Add(tutorialRow);
             center.Children.Add(titleRow);
             var tiles = new UniformGrid { Rows = 1, Columns = 6, Height = 150 };
             var shown = 0;

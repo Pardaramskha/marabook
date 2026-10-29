@@ -32,6 +32,8 @@ namespace Marabook.App
         private readonly List<Control> _extraPageActions = new List<Control>(); // les trois boutons de pages extra, masquables par le profil (1.1.0)
         private readonly List<Control> _extraFilter = new List<Control>();      // le filtre « Extras : » du tableau, idem
         internal bool ExtraPageButtonsShownForProbe { get { return _extraPageActions.Count > 0 && _extraPageActions[0].IsVisible; } }
+        /// <summary>Tutoriel (29/10) : la rangée des boutons d'un livre (liminaires, pages de fin, annexes…).</summary>
+        internal Control BookActionsForTutorial { get { return _bookActions; } }
         private StackPanel _folderActions; // dossier d'Écrits : Nouvel écrit / Nouveau sous-dossier (14/09)
         private StackPanel _writingsActions; // racine Écrits : Nouvel écrit / dossier / livre (12/09)
         private StackPanel _researchActions; // racine Recherche : Importer des fichiers (12/09)

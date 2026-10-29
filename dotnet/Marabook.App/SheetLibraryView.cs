@@ -276,7 +276,7 @@ namespace Marabook.App
             newCategory.Margin = new Thickness(8, 0, 0, 0);
             newCategory.Click += delegate { NewCategory(); };
             left.Children.Add(newCategory);
-            var templates = Buttons.IconText("pencil-simple-line", "Éditeur de modèles",
+            var templates = _templatesButton = Buttons.IconText("pencil-simple-line", "Éditeur de modèles",
                 "Sections, champs, natures et radar des modèles de fiches", Buttons.Bar, Buttons.Look.Outline);
             templates.Margin = new Thickness(8, 0, 0, 0);
             templates.Click += delegate { EditTemplates(); };
@@ -1088,6 +1088,9 @@ namespace Marabook.App
                 Margin = new Thickness(0, 16, 0, 0)
             });
         }
+
+        private Button _templatesButton; // le tutoriel le met en valeur (29/10)
+        internal Control TemplatesButtonForTutorial { get { return _templatesButton; } }
 
         /// <summary>L'éditeur de modèles (sections, champs, natures) ; les
         /// modèles édités remplacent ceux du projet, la bibliothèque se redessine.</summary>

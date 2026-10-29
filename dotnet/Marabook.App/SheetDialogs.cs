@@ -29,6 +29,40 @@ namespace Marabook.App
 
         private readonly List<SheetTemplate> _templates;
         private readonly ListBox _list;
+        private TabControl _mainTabs; // Sections / Sections extras / Champs / Graph statistique — le tutoriel y navigue (29/10)
+
+        /// <summary>Tutoriel (29/10) : l'éditeur ouvert SANS attendre (pas de
+        /// ShowDialog — la fenêtre du tuto doit rester vivante), à refermer
+        /// par Close() ; les modèles ne sont pas réécrits.</summary>
+        internal static TemplatesDialog OpenForTutorial(Window owner, List<SheetTemplate> source, Project project)
+        {
+            var dialog = new TemplatesDialog(owner, source, project);
+            Dialogs.FitToScreen(dialog, owner);
+            dialog.Show(owner);
+            return dialog;
+        }
+
+        internal bool SelectTabForTutorial(string header)
+        {
+            if (_mainTabs == null) return false;
+            foreach (var item in _mainTabs.Items)
+            {
+                var tab = item as TabItem;
+                if (tab != null && (tab.Header as string) == header) { _mainTabs.SelectedItem = tab; return true; }
+            }
+            return false;
+        }
+
+        internal bool SelectTemplateForTutorial(string namePrefix)
+        {
+            foreach (var item in _list.Items)
+            {
+                var entry = item as ListBoxItem;
+                var name = entry == null ? null : entry.Content as string;
+                if (name != null && TutorialParser.Fold(name).StartsWith(TutorialParser.Fold(namePrefix))) { _list.SelectedItem = entry; return true; }
+            }
+            return false;
+        }
         private readonly TextBox _nameBox;
         private readonly TextBlock _usedBy; // les catégories du modèle (1.1.0)
         private readonly StackPanel _sectionsPanel, _fieldsPanel;
@@ -232,7 +266,7 @@ namespace Marabook.App
                 right.Children.Add(hint);
             }
 
-            var tabs = new TabControl();
+            var tabs = _mainTabs = new TabControl();
 
             // — Sections : Informations (fixe), les sections nommées, Relations.
             var sectionsDock = new DockPanel();

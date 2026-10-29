@@ -40,6 +40,11 @@ namespace Marabook.App
         private Border _progressTrack, _progressFill, _goalChip;
         private TextBlock _tile7, _tile30, _tileStreak, _tileTotal;
         private Canvas _chart;
+        private TabControl _tabs; // Général / Succès — le tutoriel y navigue (29/10)
+
+        /// <summary>Tutoriel (29/10) : l'onglet Général (0) ou Succès (1).</summary>
+        internal void SelectTabForTutorial(int index) { if (_tabs != null && index >= 0 && index < _tabs.Items.Count) _tabs.SelectedIndex = index; }
+        internal int SelectedTabForProbe { get { return _tabs == null ? -1 : _tabs.SelectedIndex; } }
         private int _chartDays = 14;             // 14, 30 ou 90 (b48)
         private readonly List<ToggleButton> _rangeChips = new List<ToggleButton>();
         private StackPanel _sprintsPanel;        // les derniers sprints (b48)
@@ -100,7 +105,7 @@ namespace Marabook.App
             // Le TabControl prend le reste ; sa barre d'onglets (le style
             // chip du ruban, posé par Theme sur tout TabItem) est alignée
             // sur la colonne de lecture, chaque page défile pour elle-même.
-            var tabs = new TabControl
+            var tabs = _tabs = new TabControl
             {
                 Background = Brushes.Transparent,
                 BorderThickness = new Thickness(0),

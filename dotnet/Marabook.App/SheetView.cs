@@ -660,6 +660,27 @@ namespace Marabook.App
         internal GenealogyView GenealogyForProbe { get { return _genealogy; } }
         internal bool PreviewOnForProbe { get { return _previewToggle.IsChecked == true; } }
 
+        // — Tutoriel (29/10) : les onglets, les modes et les cibles à mettre en valeur.
+        internal bool SelectTabForTutorial(string header)
+        {
+            foreach (var item in _tabs.Items)
+            {
+                var tab = item as TabItem;
+                if (tab != null && (tab.Header as string) == header) { _tabs.SelectedItem = tab; return true; }
+            }
+            return false;
+        }
+        internal void SetWikiForTutorial(bool on) { if ((_previewToggle.IsChecked == true) != on) _previewToggle.IsChecked = on; }
+        internal void SetMirrorForTutorial(bool on)
+        {
+            if (on) { if (_mirrorToggle.IsChecked != true) _mirrorToggle.IsChecked = true; }
+            else if (_editToggle.IsChecked != true) _editToggle.IsChecked = true;
+        }
+        internal void SetGenealogyForTutorial(bool on) { if (_showRelations && (_genealogyButton.IsChecked == true) != on) _genealogyButton.IsChecked = on; }
+        internal Control RelationsPaperForTutorial { get { return _relationsPaper; } }
+        internal Control RelationsEditorButtonForTutorial { get { return _relationsEditorButton; } }
+        internal bool MirrorOnForProbe { get { return _mirrorToggle.IsChecked == true; } }
+
         /// <summary>Une fiche peut-elle recevoir une relation GÉNÉALOGIQUE
         /// (une nature livrée : père, sœur, épouse…) ? Seulement si son modèle
         /// active les relations (1.1.0, Rémi : « empêche la création de

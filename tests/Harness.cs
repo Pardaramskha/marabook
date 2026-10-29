@@ -143,7 +143,8 @@ namespace Marabook.Tests
                 Patch110Tests.Run,       // C53 — 1.1.0 : date de décès, tags, objectif et limite, icône de catégorie (26/10)
                 WorkTabsTests.Run,       // C54 — 1.1.0 : onglets (rangée, plafond, fermeture, reprise, .plot v42) (28/10)
                 GraphTests.Run,          // C55 — 1.1.0 : graphe relationnel (arêtes, lectures, disposition, .plot v43) (28/10)
-                DialogueTests.Run        // C56 — 1.1.0 : passe des dialogues (blocs, norme guillemets / tirets) (29/10)
+                DialogueTests.Run,       // C56 — 1.1.0 : passe des dialogues (blocs, norme guillemets / tirets) (29/10)
+                TutorialTests.Run        // C57 — 1.1.0 : le tutoriel (script Markdown, consignes, script embarqué) (29/10)
             };
             foreach (var suite in suites)
             {

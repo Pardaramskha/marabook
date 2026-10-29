@@ -160,7 +160,8 @@ namespace Marabook.App
             var item = new TabItem
             {
                 Header = Icons.Label(icon, label, 13, Chrome.Ink),
-                Content = content
+                Content = content,
+                Tag = label // le tutoriel choisit un onglet par son libellé (29/10)
             };
             Action sync = delegate
             {
@@ -357,6 +358,20 @@ namespace Marabook.App
         }
 
         /// <summary>L'onglet courant (les sondes) : 0 Textes … 4 Publication.</summary>
+        /// <summary>Tutoriel (29/10) : l'onglet par son libellé (« Textes »,
+        /// « Édition », « Gabarits & Format », « Styles », « Publication »).</summary>
+        internal bool SelectTabForTutorial(string label)
+        {
+            foreach (var item in _tabs.Items)
+            {
+                var tab = item as TabItem;
+                if (tab != null && (tab.Tag as string) == label) { _tabs.SelectedItem = tab; return true; }
+            }
+            return false;
+        }
+
+        internal Control TextsActionsForTutorial { get { return _texts.BookActionsForTutorial; } }
+
         public int SelectedTab
         {
             get { return _tabs.SelectedIndex; }

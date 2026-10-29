@@ -33,6 +33,9 @@ namespace Marabook.App
         private readonly StackPanel _columns;
         private readonly ScrollViewer _scroll;
         private readonly PlanChart _chart;           // la vue « Intensité » (30/09)
+        /// <summary>Tutoriel (29/10) : la bascule Intensité, à montrer ou à enclencher.</summary>
+        internal ToggleButton ChartToggleForTutorial { get { return _chartToggle; } }
+        internal void SetChartForTutorial(bool on) { if (_chartToggle != null && (_chartToggle.IsChecked == true) != on) _chartToggle.IsChecked = on; }
         private readonly ToggleButton _chartToggle;
 
         private BinderItem _item;

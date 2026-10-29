@@ -5125,6 +5125,7 @@ namespace Marabook.App
         /// ce qui vient d'être gagné, un toast par succès.</summary>
         private void CheckAchievements()
         {
+            if (TutorialActive) return; // le tutoriel ne débloque rien (29/10) — hors « Tour du proprio », au retour à l'accueil
             var now = DateTime.Now;
             var facts = Achievements.Gather(_project, CachedPageCount, CachedBookPages, AppSettings.BlankSince, now);
             facts.PermanentlyDeleted = AppSettings.PermanentlyDeleted;
@@ -5178,6 +5179,7 @@ namespace Marabook.App
         {
             var achievement = Achievements.Find(id);
             if (achievement == null || AppSettings.Achievements.ContainsKey(id)) return;
+            if (TutorialActive && id != Achievements.Tutorial) return; // rien pendant le tutoriel (29/10)
             AppSettings.Achievements[id] = DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
             AppSettings.Save();
             ShowAchievementToast(achievement);

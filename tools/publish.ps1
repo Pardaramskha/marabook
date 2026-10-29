@@ -115,7 +115,7 @@ $fichiers = @('VERSION', 'marabook.stargazer.json', 'LICENSE', 'APPROVISIONNEMEN
               (Join-Path 'assets' 'background.jpg'), (Join-Path 'assets' 'plot.ico'),
               (Join-Path 'assets' 'plot-file.png'), (Join-Path 'assets' 'marabook.png'))
 foreach ($f in $fichiers) { Copier $f $payload }
-$dossiers = @((Join-Path 'assets' 'achievements'), 'dict', 'grammalecte')
+$dossiers = @((Join-Path 'assets' 'achievements'), (Join-Path 'assets' 'tutoriel'), 'dict', 'grammalecte')
 if ($ridWindows) { $dossiers += 'python' }
 foreach ($d in $dossiers) { CopierDossier $d $payload }
 if (-not $ridWindows -and -not $ridMac) {

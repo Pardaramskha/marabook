@@ -82,6 +82,7 @@ namespace Marabook.Model
         public const string Cretin = "cretin-des-alpes";
         public const string About = "enfin-quelqu-un";
         public const string OldSchool = "a-l-ancienne";
+        public const string Tutorial = "tour-du-proprio"; // le tutoriel terminé (1.1.0, 29/10) — débloqué au retour à l'accueil
 
         /// <summary>Les succès de Marabook, puis ceux des modules installés
         /// (DLC, 22/09) intercalés AVANT les paliers de fin (« Obtenez cinq
@@ -141,6 +142,7 @@ namespace Marabook.Model
         public static readonly Achievement[] Builtin =
         {
             new Achievement(FirstProject, "Le début d'une belle aventure", "Créez votre premier projet."),
+            new Achievement(Tutorial, "Tour du proprio", "Terminez le tutoriel."),
 
             new Achievement("ne-quelque-part", "Être né quelque part", "Écrivez votre premier mot."),
             new Achievement("clavier-chaud", "Faites chauffer le clavier", "Écrivez 5 000 mots."),

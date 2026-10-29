@@ -49,7 +49,7 @@ namespace Marabook.App
             _searchBox = new TextBox { [ToolTip.TipProperty] = "Filtrer les entrées (mot ou forme acceptée)" };
             _searchBox.TextChanged += delegate { ResetPages(); Rebuild(); };
             var left = new StackPanel { Orientation = Orientation.Horizontal };
-            var newEntry = Buttons.IconText("plus-bold", "Nouvelle entrée",
+            var newEntry = _newEntryButton = Buttons.IconText("plus-bold", "Nouvelle entrée",
                 "Ajouter un mot au dictionnaire personnel avec sa nature grammaticale",
                 Buttons.Bar, Buttons.Look.Primary);
             newEntry.Click += delegate { NewEntry(true); };
@@ -64,7 +64,7 @@ namespace Marabook.App
             left.Children.Add(options);
             // Les mots inconnus du projet (1.0.5, Rémi) : tout ce que
             // l'orthographe rougit, en une liste à cocher — apprendre en lot.
-            var unknown = Buttons.IconText("magnifying-glass-bold", "Mots inconnus…",
+            var unknown = _unknownButton = Buttons.IconText("magnifying-glass-bold", "Mots inconnus…",
                 "Relever tous les mots que le correcteur ne connaît pas dans les écrits et les fiches, et en apprendre plusieurs d'un coup",
                 Buttons.Bar, Buttons.Look.Outline);
             unknown.Margin = new Thickness(8, 0, 0, 0);
@@ -132,6 +132,10 @@ namespace Marabook.App
 
         /// <summary>Le relevé des mots inconnus (1.0.5) ; les mots cochés
         /// deviennent des entrées « autre » à revoir du dictionnaire choisi.</summary>
+        private Button _newEntryButton, _unknownButton; // le tutoriel les met en valeur (29/10)
+        internal Control NewEntryButtonForTutorial { get { return _newEntryButton; } }
+        internal Control UnknownButtonForTutorial { get { return _unknownButton; } }
+
         public async void ShowUnknownWords()
         {
             if (_project == null) return;

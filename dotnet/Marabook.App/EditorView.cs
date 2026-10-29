@@ -2433,6 +2433,8 @@ namespace Marabook.App
         /// <summary>Sonde (29/10) : la barre Ctrl+F est montrée ; les entrées du
         /// combo des styles qui portent leur vignette de portée.</summary>
         internal bool SearchBarShownForProbe { get { return _searchBar != null && _searchBar.IsVisible; } }
+        /// <summary>Tutoriel (29/10) : le ruban entier (onglets et contenu), à mettre en valeur.</summary>
+        internal Control RibbonBarForTutorial { get { return _ribbonBar; } }
         internal int StyleComboScopeIconsForProbe
         {
             get

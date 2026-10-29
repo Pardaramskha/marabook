@@ -2311,6 +2311,8 @@ namespace Marabook.App
                 await ProbeDialogues(shell);
                 // ================================================== 1.1.0 : le lot de correctifs du 29/10
                 await ProbeFixes2910(shell);
+                // ================================================== 1.1.0 : le tutoriel (29/10) — en dernier : il change de projet
+                await ProbeTutorial(shell);
             }
             catch (Exception error)
             {
@@ -3302,6 +3304,88 @@ namespace Marabook.App
                 Check(Marabook.Persistence.GabaritFile.Filter.Contains("*.marag;*.usgab"), "le filtre de fichiers propose les deux extensions");
             }
             else Console.WriteLine("  (aucun gabarit dans la démo : export .marag non vérifié)");
+        }
+
+        /// <summary>Le tutoriel (1.1.0, 29/10) : démarre sur le projet d'exemple
+        /// embarqué, parcourt toutes les étapes par « Suivant » (chaque consigne
+        /// s'exécute sans faute), vérifie les mises en valeur, qu'aucun succès
+        /// ne tombe en route, et qu'au « Terminer » l'accueil revient avec
+        /// « Tour du proprio ». Les consignes incomprises sont listées.</summary>
+        private static async Task ProbeTutorial(MainWindow shell)
+        {
+            var achievementsBefore = AppSettings.Achievements.Count;
+            Check(MainWindow.TutorialAsset("PROJET-TEST.plot") != null && MainWindow.TutorialAsset("Tutoriel.md") != null, "le projet d'exemple et le script du tutoriel sont trouvés (assets/tutoriel)");
+            Check(shell.StartTutorial() && shell.TutorialActive, "« Démarrer le tutoriel » ouvre le projet d'exemple et pose le tuto");
+            await Settle();
+            var window = shell.TutorialWindowForProbe;
+            var veil = shell.TutorialVeilForProbe;
+            Check(window != null && window.IsVisible && veil != null && veil.IsVisible, "la fenêtre du tuto est là, le voile posé sur la coquille");
+            Check(shell.Project != null && shell.Project.Name == "Tutoriel" && (shell.TutorialPathForProbe ?? "").Contains("tutoriel"), "le projet ouvert est la copie temporaire « Tutoriel » (" + shell.TutorialPathForProbe + ")");
+            Check(!AppSettings.RecentFiles.Contains(shell.TutorialPathForProbe), "…absente des projets récents");
+            var total = shell.TutorialStepCountForProbe;
+            Check(total >= 40 && window.ChapterForProbe.StartsWith("Bienvenue") && !window.PreviousEnabledForProbe, "l'accueil du script d'abord (" + total + " étapes, Précédent inerte)");
+            foreach (var gap in shell.TutorialGapsForProbe) Console.WriteLine("  [tutoriel] consigne incomprise : " + gap);
+            Check(shell.TutorialGapsForProbe.Count == 0, "aucune consigne incomprise dans le script embarqué (" + shell.TutorialGapsForProbe.Count + ")");
+
+            window.ClickNextForProbe();
+            await Settle();
+            Check(window.ChapterForProbe.StartsWith("1.") && shell.TutorialIndexForProbe == 1, "Suivant : le chapitre 1 (" + window.ChapterForProbe + ")");
+            Check(veil.HoleCount == 1, "« highlight pile » : un trou dans le voile (" + veil.HoleCount + ")");
+            var capture = Environment.GetEnvironmentVariable("MARABOOK_TUTORIAL_CAPTURE");
+            if (!string.IsNullOrEmpty(capture)) shell.CaptureForProbe(capture);
+            var windowCapture = Environment.GetEnvironmentVariable("MARABOOK_TUTORIAL_WINDOW_CAPTURE"); // la fenêtre du tuto, à part
+            if (!string.IsNullOrEmpty(windowCapture)) window.CaptureForProbe(windowCapture);
+            window.ClickPreviousForProbe();
+            await Settle();
+            Check(shell.TutorialIndexForProbe == 0 && veil.HoleCount == 0, "Précédent : retour à l'accueil du script, plus de trou");
+            window.ClickNextChapterForProbe();
+            await Settle();
+            Check(window.ChapterForProbe.StartsWith("1."), "la flèche de chapitre depuis l'accueil : le chapitre 1");
+            window.ClickNextChapterForProbe();
+            await Settle();
+            Check(window.ChapterForProbe.StartsWith("2."), "…puis le chapitre 2 (les étapes internes sautées)");
+
+            // Tout le parcours : chaque étape s'exécute sans faute ; quelques
+            // jalons vérifiés au passage.
+            var faults = 0;
+            var seenRibbon = false; var seenSheetWiki = false; var seenTemplates = false; var seenJournal = false; var seenChart = false;
+            var guard = 0;
+            while (window.NextLabelForProbe != "Terminer" && guard++ < 200)
+            {
+                window.ClickNextForProbe();
+                await Settle();
+                var actions = shell.TutorialCurrentActionsForProbe;
+                if (actions.Contains("ribbon-tab:Prépresse") && shell.Editor.IsVisible && veil.HoleCount >= 1) seenRibbon = true;
+                if (actions.Contains("sheet:wiki") && shell.Sheet.IsVisible && shell.Sheet.PreviewOnForProbe) seenSheetWiki = true;
+                if (actions.Contains("templates-tab:Champs") && shell.TemplatesOpenForProbe) seenTemplates = true;
+                if (actions.Contains("plan:chart") && shell.PlanChartOnForProbe) seenChart = true;
+                if (actions.Contains("journal:achievements") && shell.JournalAchievementsShownForProbe) seenJournal = true;
+                if (shell.TutorialWindowForProbe == null) { faults++; break; }
+            }
+            Check(window.NextLabelForProbe == "Terminer" && shell.TutorialIndexForProbe == total - 1, "le parcours entier par Suivant mène au « Terminer » (" + shell.TutorialIndexForProbe + "/" + (total - 1) + ")");
+            Check(seenRibbon, "jalon : l'onglet Prépresse du ruban, mis en valeur");
+            Check(seenSheetWiki, "jalon : le mode wiki de la fiche");
+            Check(seenTemplates, "jalon : l'éditeur de modèles ouvert sur Champs");
+            Check(seenChart, "jalon : le graphique d'intensité du plan");
+            Check(seenJournal, "jalon : les succès du journal");
+            Check(AppSettings.Achievements.Count == achievementsBefore, "aucun succès débloqué pendant le tutoriel (" + AppSettings.Achievements.Count + ")");
+            window.ClickNextForProbe(); // Terminer
+            await Settle();
+            Check(!shell.TutorialActive && shell.TutorialWindowForProbe == null && !veil.IsVisible, "Terminer : le tuto se range, le voile se lève");
+            Check(shell.WelcomeShownForProbe, "…l'accueil revient");
+            Check(AppSettings.Achievements.ContainsKey(Achievements.Tutorial), "…et « Tour du proprio » est débloqué");
+            Check(!shell.TemplatesOpenForProbe, "l'éditeur de modèles ouvert par le tuto est refermé");
+            shell.CloseWelcomeForProbe();
+            await Settle();
+            // Fermer sans terminer : pas de succès de plus.
+            AppSettings.Achievements.Remove(Achievements.Tutorial);
+            Check(shell.StartTutorial(), "le tuto se relance");
+            await Settle();
+            shell.TutorialWindowForProbe.ClickCloseForProbe();
+            await Settle();
+            Check(!shell.TutorialActive && shell.WelcomeShownForProbe && !AppSettings.Achievements.ContainsKey(Achievements.Tutorial), "Fermer : fin du tuto, accueil, sans le succès");
+            shell.CloseWelcomeForProbe();
+            await Settle();
         }
 
         /// <summary>La fenêtre comparative bâtie sans être montrée (son titre).</summary>
