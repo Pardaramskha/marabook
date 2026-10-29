@@ -637,9 +637,11 @@ namespace Marabook.App
         // ============================================================= formatage
 
         /// <summary>Onglet « Formatage » (batch 34 ; 13/09 : deux grands
-        /// carrés) : la PASSE TYPOGRAPHIQUE — les règles de Typonanny sur
-        /// tout l'écrit ouvert, une fenêtre comparative avant/après en
-        /// miroir, puis « Appliquer » (annulable) ; et ses options.</summary>
+        /// carrés ; 29/10 : trois) : la PASSE TYPOGRAPHIQUE — les règles de
+        /// Typonanny sur tout l'écrit ouvert, une fenêtre comparative
+        /// avant/après en miroir, puis « Appliquer » (annulable) ; la passe
+        /// des DIALOGUES (ouverture et fermeture selon la norme) ; et leurs
+        /// options.</summary>
         private Control BuildFormatTab()
         {
             var panel = TabPanel();
@@ -648,6 +650,13 @@ namespace Marabook.App
                 + "ligatures, ordinaux…) — comparatif avant/après, puis application");
             typography.Click += delegate { RunTypography(); };
             panel.Children.Add(typography);
+            panel.Children.Add(VerticalRuleTall());
+            var dialogues = BigSquare("quotes", "Dialogues",
+                "Repère les dialogues qui ne suivent pas la norme d'ouverture et de fermeture "
+                + "des Options (guillemets « » ou tirets) et propose de les y ramener — "
+                + "comparatif avant/après, puis application");
+            dialogues.Click += delegate { RunDialogues(); };
+            panel.Children.Add(dialogues);
             panel.Children.Add(VerticalRuleTall());
             var options = BigSquare("gear-six-bold", "Options",
                 "Préréglage (Imprimerie nationale, souple, minimal) et règles de la passe typographique");
@@ -675,6 +684,42 @@ namespace Marabook.App
             // La ceinture (b38, lot C) : un instantané automatique AVANT de
             // réécrire le document entier — l'annulation est de session,
             // l'instantané survit à la fermeture.
+            if (_project != null && SnapshotStore.GuardBeforeTypography(_project, _item, Settings.AppSettings.SnapshotCap) != null)
+            {
+                var taken = SnapshotsChanged;
+                if (taken != null) taken();
+            }
+            _composed.ReplaceParagraphs(result.Paragraphs);
+            RunCheck();
+        }
+
+        /// <summary>La passe des dialogues (1.1.0, 29/10) : les blocs de
+        /// répliques qui ne suivent pas la norme d'ouverture et de fermeture
+        /// des options de formatage (un écrit tout au cadratin alors que la
+        /// norme est « guillemets ») — même comparatif, même instantané, même
+        /// cran d'annulation que la passe typographique.</summary>
+        public async void RunDialogues()
+        {
+            if (_item == null || !ComposedActive) return;
+            var options = Settings.AppSettings.Typography;
+            var result = Correction.DialoguePass.Run(_item.Document, options);
+            if (result.Changes.Count == 0)
+            {
+                var message = result.Blocks == 0
+                    ? "Aucun dialogue dans cet écrit (pas de réplique ouverte par un tiret ou un guillemet)."
+                    : (result.Blocks == 1 ? "Le dialogue de cet écrit (" : "Les " + result.Blocks + " dialogues de cet écrit (")
+                        + result.Lines + (result.Lines > 1 ? " répliques" : " réplique") + ") "
+                        + (result.Blocks == 1 ? "suit" : "suivent") + " déjà la norme : " + Correction.DialoguePass.NormLabel(options) + ".";
+                if (result.Summary.Warnings.Count > 0)
+                    message += "\n\nSignalements :\n• " + string.Join("\n• ", result.Summary.Warnings.ToArray());
+                MessageDialog.Show(Ui.OwnerOf(this), message, "Dialogues",
+                    MessageButtons.OK, MessageIcon.Information);
+                return;
+            }
+            result.Summary.Warnings.Insert(0, (result.Wrong == 1 ? "1 dialogue sur " : result.Wrong + " dialogues sur ")
+                + result.Blocks + " ne " + (result.Wrong == 1 ? "suit" : "suivent") + " pas la norme « "
+                + Correction.DialoguePass.NormLabel(options) + " » (Formatage › Options)");
+            if (!await TypographyCompareWindow.Ask(Ui.OwnerOf(this), result, _item.Title, "Dialogues")) return;
             if (_project != null && SnapshotStore.GuardBeforeTypography(_project, _item, Settings.AppSettings.SnapshotCap) != null)
             {
                 var taken = SnapshotsChanged;

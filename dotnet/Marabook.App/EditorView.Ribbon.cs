@@ -1019,6 +1019,22 @@ namespace Marabook.App
         public bool LooseLinesShownForProbe { get { return _looseBtn != null && _looseBtn.IsChecked == true && ComposedRenderer.ShowLooseLines; } }
         public void ToggleLooseLinesForProbe() { ApplyLooseLines(!Marabook.Settings.AppSettings.ShowLooseLines); }
 
+        /// <summary>Sonde (29/10) : montre l'onglet du ruban qui porte cet
+        /// en-tête (« Formatage »…), pour que ses boutons soient dans l'arbre
+        /// visuel ; vrai s'il existe.</summary>
+        public bool SelectRibbonTabForProbe(string header)
+        {
+            if (_ribbonTabs == null) return false;
+            foreach (var item in _ribbonTabs.Items)
+            {
+                var tab = item as TabItem;
+                if (tab == null || !Equals(tab.Header, header)) continue;
+                _ribbonTabs.SelectedItem = tab;
+                return true;
+            }
+            return false;
+        }
+
         private TextBlock PageLabel(string text)
         {
             return new TextBlock

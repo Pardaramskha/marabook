@@ -2292,6 +2292,8 @@ namespace Marabook.App
                 await ProbeTabs(shell);
                 // ================================================== 1.1.0 : le graphe relationnel (28/10)
                 await ProbeGraph(shell);
+                // ================================================== 1.1.0 : la passe des dialogues (29/10)
+                await ProbeDialogues(shell);
             }
             catch (Exception error)
             {
@@ -3051,6 +3053,62 @@ namespace Marabook.App
         {
             foreach (var item in project.AllItems()) if (item.Kind == kind) return item;
             return null;
+        }
+
+        /// <summary>La passe des dialogues (29/10) : le grand bouton
+        /// « Dialogues » du ruban Formatage, et la passe elle-même sur un
+        /// écrit tout au cadratin (le cas moonlight) selon la norme des
+        /// réglages — sans ouvrir la fenêtre comparative (modale).
+        /// MARABOOK_RIBBON_CAPTURE=<png> enregistre la fenêtre, onglet
+        /// Formatage ouvert.</summary>
+        private static async Task ProbeDialogues(MainWindow shell)
+        {
+            var project = shell.Project;
+            var text = FirstTitled(project, "Chapitre premier") ?? FirstOfKind(project, ItemKind.Text);
+            if (text != null) shell.Binder.SelectItem(text.Id, true);
+            await Settle();
+            var editor = shell.Editor;
+            Check(editor != null && editor.SelectRibbonTabForProbe("Formatage"), "le ruban de l'éditeur a un onglet Formatage");
+            await Settle();
+            Check(FindButton(shell, "Dialogues") != null, "…qui offre le grand bouton « Dialogues » (29/10)");
+            Check(FindButton(shell, "Typographie") != null && FindButton(shell, "Options") != null, "…à côté de Typographie et Options");
+            var capture = Environment.GetEnvironmentVariable("MARABOOK_RIBBON_CAPTURE"); // la fenêtre, onglet Formatage ouvert
+            if (!string.IsNullOrEmpty(capture)) shell.CaptureForProbe(capture);
+            editor.SelectRibbonTabForProbe("Texte");
+
+            // Le cas moonlight : des répliques au cadratin, aucun guillemet, norme « guillemets ».
+            var document = new TextDocument();
+            foreach (var line in new[] { "Elle demanda :", "— Moi, c’est Alicia et toi ?", "— A…nna.", "Son prénom tomba." })
+            {
+                var paragraph = new TextParagraph();
+                paragraph.Runs.Add(new TextRun { Text = line });
+                document.Paragraphs.Add(paragraph);
+            }
+            var options = new Marabook.Correction.TypographyOptions();
+            var result = Marabook.Correction.DialoguePass.Run(document, options);
+            Check(result.Blocks == 1 && result.Lines == 2 && result.Wrong == 1 && result.Changes.Count == 2,
+                "la passe voit un dialogue de deux répliques hors norme, deux paragraphes à reprendre (" + result.Blocks + "/" + result.Lines + "/" + result.Changes.Count + ")");
+            Check(PivotEdit.FlatText(result.Paragraphs[1]).StartsWith("« ") && PivotEdit.FlatText(result.Paragraphs[2]).EndsWith(" »"),
+                "…guillemet ouvrant sur la première, fermant sur la dernière");
+            options.DialogueOpen = "cadratin";
+            result = Marabook.Correction.DialoguePass.Run(document, options);
+            Check(result.Blocks == 1 && result.Changes.Count == 0, "norme cadratin : le même écrit est en règle");
+            var compare = new TypographyCompareWindowProbe(shell, Marabook.Correction.DialoguePass.Run(document, new Marabook.Correction.TypographyOptions()));
+            Check(compare.Title.StartsWith("Dialogues — "), "la fenêtre comparative porte le nom de la passe (" + compare.Title + ")");
+            compare.Close();
+        }
+
+        /// <summary>La fenêtre comparative bâtie sans être montrée (son titre).</summary>
+        private sealed class TypographyCompareWindowProbe
+        {
+            public readonly string Title;
+            private readonly Window _window;
+            public TypographyCompareWindowProbe(MainWindow shell, Marabook.Correction.TypographyPassResult result)
+            {
+                _window = TypographyCompareWindow.BuildForProbe(shell, result, "Sonde", "Dialogues");
+                Title = _window.Title;
+            }
+            public void Close() { _window.Close(); }
         }
     }
 }
