@@ -36,6 +36,15 @@ namespace Marabook.App
         /// <summary>Tutoriel (29/10) : la bascule Intensité, à montrer ou à enclencher.</summary>
         internal ToggleButton ChartToggleForTutorial { get { return _chartToggle; } }
         internal void SetChartForTutorial(bool on) { if (_chartToggle != null && (_chartToggle.IsChecked == true) != on) _chartToggle.IsChecked = on; }
+        /// <summary>Tutoriel (29/10) : la première brique (élément, pas note) du plan ouvert, ou null.</summary>
+        internal PlanEntry FirstElementForTutorial()
+        {
+            if (_item == null || _item.Plan == null) return null;
+            foreach (var column in _item.Plan.Columns)
+                foreach (var entry in column.Entries)
+                    if (entry.IsElement) return entry;
+            return null;
+        }
         private readonly ToggleButton _chartToggle;
 
         private BinderItem _item;
@@ -854,6 +863,16 @@ namespace Marabook.App
         private static TextBlock Label(string text)
         {
             return new TextBlock { Text = text, Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(0, 8, 0, 3) };
+        }
+
+        /// <summary>Tutoriel (29/10) : la fiche d'une brique existante, montrée
+        /// SANS bloquer, à regarder seulement — refermée par le tuto, rien n'est écrit.</summary>
+        internal static PlanEntryDialog OpenForTutorial(Window owner, PlanEntry entry)
+        {
+            var dialog = new PlanEntryDialog(owner, entry);
+            Dialogs.FitToScreen(dialog, owner);
+            dialog.Show(owner);
+            return dialog;
         }
 
         /// <summary>Vrai si validé : l'entrée est mise à jour en place.</summary>

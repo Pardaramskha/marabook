@@ -3331,6 +3331,8 @@ namespace Marabook.App
             await Settle();
             Check(window.ChapterForProbe.StartsWith("1.") && shell.TutorialIndexForProbe == 1, "Suivant : le chapitre 1 (" + window.ChapterForProbe + ")");
             Check(veil.HoleCount == 1, "« highlight pile » : un trou dans le voile (" + veil.HoleCount + ")");
+            Check(veil.HoleCount == 1 && shell.TutorialVeilCatchesForProbe(veil.Holes[0].Center), "…ce qui est mis en valeur se regarde sans se toucher : le voile attrape le clic dans le trou");
+            Check(shell.TutorialWindowTopmostForProbe, "la fenêtre du tuto est toujours au-dessus (Topmost)");
             var capture = Environment.GetEnvironmentVariable("MARABOOK_TUTORIAL_CAPTURE");
             if (!string.IsNullOrEmpty(capture)) shell.CaptureForProbe(capture);
             var windowCapture = Environment.GetEnvironmentVariable("MARABOOK_TUTORIAL_WINDOW_CAPTURE"); // la fenêtre du tuto, à part
@@ -3349,6 +3351,7 @@ namespace Marabook.App
             // jalons vérifiés au passage.
             var faults = 0;
             var seenRibbon = false; var seenSheetWiki = false; var seenTemplates = false; var seenJournal = false; var seenChart = false;
+            var seenEntryDialog = false; var seenUnknownDialog = false; var seenBrick = false;
             var guard = 0;
             while (window.NextLabelForProbe != "Terminer" && guard++ < 200)
             {
@@ -3360,8 +3363,15 @@ namespace Marabook.App
                 if (actions.Contains("templates-tab:Champs") && shell.TemplatesOpenForProbe) seenTemplates = true;
                 if (actions.Contains("plan:chart") && shell.PlanChartOnForProbe) seenChart = true;
                 if (actions.Contains("journal:achievements") && shell.JournalAchievementsShownForProbe) seenJournal = true;
+                if (actions.Contains("dictionary:new") && shell.TutorialOpenWindowsForProbe >= 1) seenEntryDialog = true;
+                if (actions.Contains("dictionary:unknown") && shell.TutorialOpenWindowsForProbe >= 1) seenUnknownDialog = true;
+                if (actions.Contains("plan:entry") && shell.TutorialOpenWindowsForProbe >= 1) seenBrick = true;
                 if (shell.TutorialWindowForProbe == null) { faults++; break; }
             }
+            Check(seenEntryDialog, "jalon : « Nouvelle entrée » ouverte sans bloquer, inerte");
+            Check(seenUnknownDialog, "jalon : « Mots inconnus » ouverte sans bloquer, inerte");
+            Check(seenBrick, "jalon : la fiche d'une brique existante du plan, ouverte sans bloquer, inerte");
+            Check(shell.TutorialOpenWindowsForProbe == 0, "au dernier pas, les fenêtres ouvertes par le tuto sont refermées (" + shell.TutorialOpenWindowsForProbe + ")");
             Check(window.NextLabelForProbe == "Terminer" && shell.TutorialIndexForProbe == total - 1, "le parcours entier par Suivant mène au « Terminer » (" + shell.TutorialIndexForProbe + "/" + (total - 1) + ")");
             Check(seenRibbon, "jalon : l'onglet Prépresse du ruban, mis en valeur");
             Check(seenSheetWiki, "jalon : le mode wiki de la fiche");

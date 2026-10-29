@@ -73,10 +73,11 @@ namespace Marabook.Tests
             Cue(t, "L'éditeur de modèles", "sections extras", "…", "templates:open templates-tab:Sections extras");
             Cue(t, "L'éditeur de modèles", "champs", "…", "templates:open templates-tab:Champs");
             Cue(t, "L'éditeur de modèles", "graph", "…", "templates:open templates-tab:Graph statistique");
-            Cue(t, "Le dictionnaire", "switch Mots Inconnus", "…", "nav:dictionary highlight:dictionary-unknown");
+            Cue(t, "Le dictionnaire", "switch nouvelle entrée", "…", "nav:dictionary dictionary:new highlight:dictionary-new");
+            Cue(t, "Le dictionnaire", "switch Mots Inconnus", "…", "nav:dictionary dictionary:unknown highlight:dictionary-unknown");
             Cue(t, "Les plans", "highlight bouton graph intensité", "…", "nav:plan highlight:plan-chart");
             Cue(t, "Les plans", "graph d'intensité ouvert", "…", "nav:plan plan:chart");
-            Cue(t, "Les plans", "nouvelle brique ouverte", "…", "nav:plan highlight:plan-add");
+            Cue(t, "Les plans", "nouvelle brique ouverte", "…", "nav:plan plan:entry");
             t.Check(TutorialCues.Resolve("Les plans", "faire la vaisselle", "…").Unresolved == "faire la vaisselle", "une consigne inconnue est rendue telle quelle (lacune)");
 
             // Le script embarqué : tout se résout.

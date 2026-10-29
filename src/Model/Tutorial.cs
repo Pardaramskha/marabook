@@ -201,12 +201,12 @@ namespace Marabook.Model
             else if (n == "champs" || n.StartsWith("champs")) { cue.Actions.Add("templates:open"); cue.Actions.Add("templates-tab:Champs"); }
             else if ((n == "graph" || n.StartsWith("graph ")) && chapter.Contains("modele")) { cue.Actions.Add("templates:open"); cue.Actions.Add("templates-tab:Graph statistique"); }
             else if (n.Contains("tableau dictionnaire")) cue.Actions.Add("nav:dictionary");
-            else if (n.Contains("nouvelle entree")) { cue.Actions.Add("nav:dictionary"); cue.Actions.Add("highlight:dictionary-new"); }
-            else if (n.Contains("mots inconnus")) { cue.Actions.Add("nav:dictionary"); cue.Actions.Add("highlight:dictionary-unknown"); }
+            else if (n.Contains("nouvelle entree")) { cue.Actions.Add("nav:dictionary"); cue.Actions.Add("dictionary:new"); cue.Actions.Add("highlight:dictionary-new"); }
+            else if (n.Contains("mots inconnus")) { cue.Actions.Add("nav:dictionary"); cue.Actions.Add("dictionary:unknown"); cue.Actions.Add("highlight:dictionary-unknown"); }
             else if (n.Contains("tableau plans")) cue.Actions.Add("nav:plans");
             else if (n.Contains("graph d'intensite ouvert") || n.Contains("graph d'intensite")) { cue.Actions.Add("nav:plan"); cue.Actions.Add("plan:chart"); }
             else if (n.Contains("bouton graph intensite") || n.Contains("graph intensite")) { cue.Actions.Add("nav:plan"); cue.Actions.Add("highlight:plan-chart"); }
-            else if (n.Contains("nouvelle brique")) { cue.Actions.Add("nav:plan"); cue.Actions.Add("highlight:plan-add"); }
+            else if (n.Contains("nouvelle brique") || n.Contains("brique ouverte")) { cue.Actions.Add("nav:plan"); cue.Actions.Add("plan:entry"); }
             else if (n.Contains("plan ouvert")) cue.Actions.Add("nav:plan");
             else if (n.Contains("vue succes") || n.Contains("succes")) { cue.Actions.Add("nav:journal"); cue.Actions.Add("journal:achievements"); }
             else if (n.Contains("journal")) cue.Actions.Add("nav:journal");

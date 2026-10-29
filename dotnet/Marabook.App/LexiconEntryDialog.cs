@@ -763,6 +763,16 @@ namespace Marabook.App
         /// Choice. Null si annulé.</summary>
         internal static LexiconEntryDialog ForProbe(Window owner) { return new LexiconEntryDialog(owner, null, false, true); }
 
+        /// <summary>Tutoriel (29/10) : le dialogue montré SANS bloquer, à
+        /// regarder seulement — refermé par le tuto.</summary>
+        internal static LexiconEntryDialog OpenForTutorial(Window owner, bool projectScope)
+        {
+            var dialog = new LexiconEntryDialog(owner, null, projectScope, true);
+            Dialogs.FitToScreen(dialog, owner);
+            dialog.Show(owner);
+            return dialog;
+        }
+
         public static async Task<Choice> Ask(Window owner, LexiconEntry initial, bool projectScope)
         {
             var dialog = new LexiconEntryDialog(owner, initial, projectScope, true);

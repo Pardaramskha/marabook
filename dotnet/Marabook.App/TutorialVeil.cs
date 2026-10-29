@@ -16,6 +16,7 @@ namespace Marabook.App
     public sealed class TutorialVeil : Control
     {
         private static readonly IBrush Shade = new SolidColorBrush(Color.FromArgb(0x8C, 0x0E, 0x12, 0x1A));
+        private static readonly IBrush Catch = new SolidColorBrush(Color.FromArgb(0x01, 0, 0, 0)); // attrape les clics, invisible
         private readonly List<Func<Control>> _targets = new List<Func<Control>>();
         private readonly Panel _host;
         private List<Rect> _holes = new List<Rect>();
@@ -66,6 +67,10 @@ namespace Marabook.App
             base.Render(context);
             var bounds = new Rect(Bounds.Size);
             if (bounds.Width <= 0 || bounds.Height <= 0) return;
+            // Un fond quasi invisible sur TOUT le voile, trous compris : ce qui
+            // est mis en valeur se regarde, ne se touche pas (29/10, Rémi) —
+            // sans lui, un clic passait par le trou.
+            context.FillRectangle(Catch, bounds);
             var group = new GeometryGroup { FillRule = FillRule.EvenOdd };
             group.Children.Add(new RectangleGeometry(bounds));
             foreach (var hole in _holes) group.Children.Add(new RectangleGeometry(hole.Intersect(bounds)));

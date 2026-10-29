@@ -38,6 +38,7 @@ namespace Marabook.App
             CanResize = false;
             ShowInTaskbar = false;
             ShowActivated = true;
+            Topmost = true; // TOUJOURS au-dessus des fenêtres que le tuto ouvre (29/10, Rémi)
             WindowStartupLocation = WindowStartupLocation.Manual;
 
             var frame = new Border

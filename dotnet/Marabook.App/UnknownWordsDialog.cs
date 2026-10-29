@@ -231,6 +231,16 @@ namespace Marabook.App
         internal List<UnknownWord> WordsForProbe { get { return _words; } }
 
         /// <summary>Les mots cochés et la portée, ou null si fermé sans apprendre.</summary>
+        /// <summary>Tutoriel (29/10) : la fenêtre montrée SANS bloquer, à
+        /// regarder seulement — refermée par le tuto.</summary>
+        internal static UnknownWordsDialog OpenForTutorial(Window owner, Project project, Correction.Hunspell.SpellEngine engine)
+        {
+            var dialog = new UnknownWordsDialog(owner, project, engine);
+            Dialogs.FitToScreen(dialog, owner);
+            dialog.Show(owner);
+            return dialog;
+        }
+
         public static async Task<Choice> Ask(Window owner, Project project, Correction.Hunspell.SpellEngine engine)
         {
             var dialog = new UnknownWordsDialog(owner, project, engine);

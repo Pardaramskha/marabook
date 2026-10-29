@@ -4,7 +4,9 @@ using System.IO;
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Marabook.Model;
 using Marabook.Persistence;
 using Marabook.Settings;
@@ -28,6 +30,29 @@ namespace Marabook.App
         private TutorialVeil _tutorialVeil;
         private TutorialWindow _tutorialWindow;
         private TemplatesDialog _tutorialTemplates; // l'éditeur de modèles ouvert par le tuto, à refermer
+        // Les fenêtres que le tuto ouvre pour les MONTRER (éditeur de modèles,
+        // entrée du dictionnaire, mots inconnus, brique du plan) : sans
+        // blocage, inertes (leur contenu ne répond pas), refermées à l'étape
+        // suivante ; la fenêtre du tuto se replace pour ne pas les couvrir.
+        private readonly List<Window> _tutorialWindows = new List<Window>();
+
+        private void TutorialOpen(Window window)
+        {
+            if (window == null) return;
+            var content = window.Content as Control;
+            if (content != null) content.IsHitTestVisible = false; // à regarder, pas à toucher (29/10, Rémi)
+            _tutorialWindows.Add(window);
+            window.Closed += delegate { _tutorialWindows.Remove(window); };
+            window.Opened += delegate { Ui.Post(DispatcherPriority.Background, new Action(PlaceTutorialWindow)); }; // posée : le tuto s'écarte
+            if (_tutorialWindow != null) _tutorialWindow.Activate(); // le tuto repasse devant
+        }
+
+        private void TutorialCloseWindows()
+        {
+            foreach (var window in _tutorialWindows.ToArray()) { try { window.Close(); } catch { } }
+            _tutorialWindows.Clear();
+            _tutorialTemplates = null;
+        }
         private string _tutorialPath;
         private readonly List<string> _tutorialGaps = new List<string>(); // les consignes incomprises (pour Rémi)
 
@@ -189,7 +214,7 @@ namespace Marabook.App
         /// plan, éditeur de modèles) — la consigne de l'étape les remet si elle le veut.</summary>
         private void TutorialResetModes()
         {
-            if (_tutorialTemplates != null) { try { _tutorialTemplates.Close(); } catch { } _tutorialTemplates = null; }
+            TutorialCloseWindows();
             if (_sheetView != null && _sheetView.IsVisible)
             {
                 _sheetView.SetGenealogyForTutorial(false);
@@ -291,7 +316,16 @@ namespace Marabook.App
                     {
                         _tutorialTemplates = TemplatesDialog.OpenForTutorial(this, _project.Templates, _project);
                         _tutorialTemplates.SelectTemplateForTutorial("Personnage");
-                        _tutorialTemplates.Closed += delegate { _tutorialTemplates = null; };
+                        TutorialOpen(_tutorialTemplates);
+                    }
+                    break;
+                case "dictionary":
+                    if (!_dictionaryView.IsVisible) TutorialSelect(_project.Category(Project.KeyDictionary));
+                    if (arg == "new") TutorialOpen(LexiconEntryDialog.OpenForTutorial(this, true));
+                    else if (arg == "unknown")
+                    {
+                        var engine = Correction.SpellDictionary.Default;
+                        if (engine != null) TutorialOpen(UnknownWordsDialog.OpenForTutorial(this, _project, engine));
                     }
                     break;
                 case "templates-tab":
@@ -301,6 +335,12 @@ namespace Marabook.App
                 case "plan":
                     if (!_planView.IsVisible) TutorialSelect(TutorialItem(ItemKind.Plan, null));
                     if (arg == "chart") _planView.SetChartForTutorial(true);
+                    else if (arg == "entry")
+                    {
+                        // La fiche d'une brique EXISTANTE (29/10, Rémi) : montrée, pas éditée.
+                        var entry = _planView.FirstElementForTutorial();
+                        if (entry != null) TutorialOpen(PlanEntryDialog.OpenForTutorial(this, entry));
+                    }
                     break;
                 case "journal":
                     if (!_journalView.IsVisible) ShowJournal();
@@ -356,6 +396,14 @@ namespace Marabook.App
                 var holeSize = PixelSize.FromSize(hole.Size, scale);
                 holes.Add(new PixelRect(at.X - pad, at.Y - pad, holeSize.Width + 2 * pad, holeSize.Height + 2 * pad));
             }
+            // Les fenêtres ouvertes par le tuto comptent comme des trous :
+            // on ne se pose pas dessus (éditeur de modèles, dialogues — 29/10).
+            foreach (var opened in _tutorialWindows)
+            {
+                if (opened == null || !opened.IsVisible || opened.Bounds.Width <= 0) continue;
+                var openedSize = PixelSize.FromSize(opened.Bounds.Size, scale);
+                holes.Add(new PixelRect(opened.Position.X - pad, opened.Position.Y - pad, openedSize.Width + 2 * pad, openedSize.Height + 2 * pad));
+            }
             Func<PixelRect, bool> clear = delegate(PixelRect candidate)
             {
                 foreach (var hole in holes) if (hole.Intersects(candidate)) return false;
@@ -369,12 +417,20 @@ namespace Marabook.App
             var margin = (int)(24 * scale);
             var centerY = shell.Y + (shell.Height - size.Height) / 2;
             var centerX = shell.X + (shell.Width - size.Width) / 2;
+            var right = shell.Right - size.Width - margin;
+            var left = shell.X + margin;
+            var bottom = shell.Bottom - size.Height - margin;
+            var top = shell.Y + margin;
             var candidates = new[]
             {
-                new PixelRect(new PixelPoint(shell.Right - size.Width - margin, centerY), size),
-                new PixelRect(new PixelPoint(shell.X + margin, centerY), size),
-                new PixelRect(new PixelPoint(centerX, shell.Bottom - size.Height - margin), size),
-                new PixelRect(new PixelPoint(centerX, shell.Y + margin), size),
+                new PixelRect(new PixelPoint(right, centerY), size),
+                new PixelRect(new PixelPoint(left, centerY), size),
+                new PixelRect(new PixelPoint(right, bottom), size),
+                new PixelRect(new PixelPoint(left, bottom), size),
+                new PixelRect(new PixelPoint(right, top), size),
+                new PixelRect(new PixelPoint(left, top), size),
+                new PixelRect(new PixelPoint(centerX, bottom), size),
+                new PixelRect(new PixelPoint(centerX, top), size),
                 new PixelRect(new PixelPoint(centerX, centerY), size)
             };
             foreach (var candidate in candidates)
@@ -410,6 +466,28 @@ namespace Marabook.App
         internal string TutorialPathForProbe { get { return _tutorialPath; } }
         internal bool WelcomeShownForProbe { get { return _welcome != null; } }
         internal bool TemplatesOpenForProbe { get { return _tutorialTemplates != null && _tutorialTemplates.IsVisible; } }
+        /// <summary>Les fenêtres ouvertes par le tuto, visibles et inertes.</summary>
+        internal int TutorialOpenWindowsForProbe
+        {
+            get
+            {
+                var count = 0;
+                foreach (var window in _tutorialWindows)
+                {
+                    var content = window.Content as Control;
+                    if (window.IsVisible && content != null && !content.IsHitTestVisible) count++;
+                }
+                return count;
+            }
+        }
+        internal bool TutorialWindowTopmostForProbe { get { return _tutorialWindow != null && _tutorialWindow.Topmost; } }
+        /// <summary>Ce point de la coquille tombe-t-il sur le voile (et non sur ce qu'il y a dessous) ?</summary>
+        internal bool TutorialVeilCatchesForProbe(Point shellPoint)
+        {
+            var hit = _shellGrid.InputHitTest(shellPoint) as Visual;
+            for (var v = hit; v != null; v = v.GetVisualParent()) if (ReferenceEquals(v, _tutorialVeil)) return true;
+            return false;
+        }
         internal bool PlanChartOnForProbe { get { return _planView != null && _planView.IsVisible && _planView.ChartToggleForTutorial != null && _planView.ChartToggleForTutorial.IsChecked == true; } }
         internal bool JournalAchievementsShownForProbe { get { return _journalView != null && _journalView.IsVisible && _journalView.SelectedTabForProbe == 1; } }
         internal void CloseWelcomeForProbe() { if (_welcome != null) _welcome.Release(); }
