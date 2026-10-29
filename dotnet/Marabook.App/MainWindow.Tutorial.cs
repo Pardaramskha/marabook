@@ -35,6 +35,31 @@ namespace Marabook.App
         // blocage, inertes (leur contenu ne répond pas), refermées à l'étape
         // suivante ; la fenêtre du tuto se replace pour ne pas les couvrir.
         private readonly List<Window> _tutorialWindows = new List<Window>();
+        private bool _tutorialCenterWindow; // « centrer la fenêtre du tuto » : au milieu, trous ou pas (dernier chapitre)
+
+        /// <summary>La vue qui occupe le centre en ce moment (tableau, page,
+        /// fiche, journal…) — « highlight tableau / page / contenu / fenêtre ».</summary>
+        private Control TutorialCenterView()
+        {
+            var views = new Control[] { _editor, _sheetView, _bookView, _corkboard, _sheetLibrary, _dictionaryView, _planView, _journalView, _mediaView, _homeView };
+            foreach (var view in views) if (view != null && view.IsVisible) return view;
+            return null;
+        }
+
+        /// <summary>Le panneau ouvert dans la colonne de droite (inspecteur,
+        /// correction, recherche, versions) : la colonne 4 de la grille de la
+        /// coquille, celle qui est visible.</summary>
+        private Control TutorialRailPanel()
+        {
+            var grid = _rail == null ? null : _rail.Parent as Grid;
+            if (grid == null) return null;
+            foreach (var child in grid.Children)
+            {
+                var control = child as Control;
+                if (control != null && Grid.GetColumn(control) == 4 && control.IsVisible && control.Bounds.Width > 1) return control;
+            }
+            return null;
+        }
 
         private void TutorialOpen(Window window)
         {
@@ -118,7 +143,7 @@ namespace Marabook.App
             _tutorialGaps.Clear();
             // L'accueil du script, comme une étape sans consigne.
             var welcome = new TutorialChapter { Number = 0, Title = "Bienvenue dans Marabook" };
-            var intro = new TutorialStep { Chapter = welcome, Text = string.Join("\n\n", parsed.Intro.ToArray()), Cue = new TutorialCue() };
+            var intro = new TutorialStep { Chapter = welcome, Text = string.Join("\n\n", parsed.Intro.ToArray()), Cue = parsed.IntroCue ?? new TutorialCue() };
             welcome.Steps.Add(intro);
             _tutorialSteps.Add(intro);
             foreach (var chapter in parsed.Playable)
@@ -189,6 +214,7 @@ namespace Marabook.App
             var inChapter = chapter.Steps.IndexOf(step);
             var playable = _tutorialScript.Playable;
             var chapterIndex = playable.IndexOf(chapter);
+            _tutorialCenterWindow = false;
             try
             {
                 TutorialResetModes();
@@ -204,7 +230,7 @@ namespace Marabook.App
             var progress = chapter.Number > 0
                 ? "Étape " + (inChapter + 1) + " sur " + chapter.Steps.Count + " — chapitre " + (chapterIndex + 1) + " sur " + playable.Count
                 : "Le tour du propriétaire, en " + playable.Count + " chapitres";
-            _tutorialWindow.Present(title, progress, step.Text, index == 0, index == _tutorialSteps.Count - 1,
+            _tutorialWindow.Present(title, progress, step.Text, step.Items, index == 0, index == _tutorialSteps.Count - 1,
                 chapter.Number == 0, chapterIndex >= playable.Count - 1);
             Ui.Post(DispatcherPriority.Background, new Action(PlaceTutorialWindow));
         }
@@ -287,7 +313,14 @@ namespace Marabook.App
                         case "plans": TutorialSelect(_project.Category(Project.KeyPlans)); break;
                         case "plan": TutorialSelect(TutorialItem(ItemKind.Plan, null)); break;
                         case "journal": ShowJournal(); break;
+                        case "home": TutorialSelect(_project.Category(Project.KeyHome)); break;
                     }
+                    break;
+                case "pile":
+                    if (arg == "open" && !AppSettings.BinderVisible) ToggleBinder();
+                    break;
+                case "window":
+                    if (arg == "center") _tutorialCenterWindow = true;
                     break;
                 case "book-tab":
                     if (!_bookView.IsVisible) TutorialSelect(TutorialBook());
@@ -308,6 +341,7 @@ namespace Marabook.App
                     else if (arg == "genealogy") _sheetView.SetGenealogyForTutorial(true);
                     break;
                 case "rail":
+                    if (arg == "open") { if (AppSettings.RightPanel == RightPanel.None) SetRightPanel(RightPanel.Inspector); break; }
                     if (!_editor.IsVisible) TutorialSelect(TutorialChapterText());
                     SetRightPanel(arg == "correction" ? RightPanel.Correction : arg == "versions" ? RightPanel.Versions : RightPanel.Inspector);
                     break;
@@ -335,10 +369,12 @@ namespace Marabook.App
                 case "plan":
                     if (!_planView.IsVisible) TutorialSelect(TutorialItem(ItemKind.Plan, null));
                     if (arg == "chart") _planView.SetChartForTutorial(true);
-                    else if (arg == "entry")
+                    else if (arg == "entry" || arg.StartsWith("entry:"))
                     {
-                        // La fiche d'une brique EXISTANTE (29/10, Rémi) : montrée, pas éditée.
-                        var entry = _planView.FirstElementForTutorial();
+                        // La fiche d'une brique EXISTANTE (29/10, Rémi) : montrée, pas
+                        // éditée — nommée dans la consigne (« Azi se réveille »), sinon la première.
+                        var title = arg.StartsWith("entry:") ? arg.Substring(6) : null;
+                        var entry = _planView.FirstElementForTutorial(title);
                         if (entry != null) TutorialOpen(PlanEntryDialog.OpenForTutorial(this, entry));
                     }
                     break;
@@ -372,6 +408,16 @@ namespace Marabook.App
                         case "dictionary-new": targets.Add(delegate { return _dictionaryView.NewEntryButtonForTutorial; }); break;
                         case "dictionary-unknown": targets.Add(delegate { return _dictionaryView.UnknownButtonForTutorial; }); break;
                         case "plan-chart": targets.Add(delegate { return _planView.ChartToggleForTutorial; }); break;
+                        case "plan-chart-view": targets.Add(delegate { return _planView.ChartForTutorial; }); break;
+                        case "plan-columns": targets.Add(delegate { return _planView.ColumnsForTutorial; }); break;
+                        case "center": targets.Add(TutorialCenterView); break;
+                        case "rail-panel": targets.Add(TutorialRailPanel); break;
+                        case "library-actions": targets.Add(delegate { return _sheetLibrary.ActionsRowForTutorial; }); break;
+                        case "sheet-modes": targets.Add(delegate { return _sheetView.ModesPanelForTutorial; }); break;
+                        case "sheet-wiki": targets.Add(delegate { return _sheetView.WikiToggleForTutorial; }); break;
+                        case "sheet-editor": targets.Add(delegate { return _sheetView.EditorPaperForTutorial; }); break;
+                        case "genealogy": targets.Add(delegate { return _sheetView.GenealogyViewForTutorial; }); break;
+                        case "journal-button": targets.Add(delegate { return _binder.JournalRowForTutorial; }); break;
                     }
                     break;
             }
@@ -421,6 +467,7 @@ namespace Marabook.App
             var left = shell.X + margin;
             var bottom = shell.Bottom - size.Height - margin;
             var top = shell.Y + margin;
+            if (_tutorialCenterWindow) { _tutorialWindow.Position = new PixelPoint(centerX, centerY); return; } // « centrer la fenêtre du tuto »
             var candidates = new[]
             {
                 new PixelRect(new PixelPoint(right, centerY), size),

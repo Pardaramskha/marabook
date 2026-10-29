@@ -58,8 +58,8 @@ namespace Marabook.Tests
             Cue(t, "L'éditeur de texte", "switch onglet - highlight onglets + ruban", "L'onglet **Prépresse**, c'est…", "nav:chapter ribbon-tab:Prépresse highlight:ribbon");
             Cue(t, "Les écrits", "switch onglet", "L'onglet **Gabarit et format** détermine… des **gabarits**", "nav:book book-tab:Gabarits & Format");
             Cue(t, "Les écrits", "highlight boutons", "Ajoutez…", "highlight:book-actions");
-            Cue(t, "L'éditeur de texte", "switch vers rail > détails de correction", "…", "rail:correction highlight:rail");
-            Cue(t, "L'éditeur de texte", "switch vers rail > versions", "…", "rail:versions highlight:rail");
+            Cue(t, "L'éditeur de texte", "switch vers rail > détails de correction", "…", "rail:correction highlight:rail highlight:rail-panel");
+            Cue(t, "L'éditeur de texte", "switch vers rail > versions", "…", "rail:versions highlight:rail highlight:rail-panel");
             Cue(t, "La recherche", "switch sur Le pigeon", "…", "nav:media");
             Cue(t, "Les fiches", "switch vers une fiche de personnage onglmet général", "…", "nav:sheet sheet-tab:Général");
             Cue(t, "Les fiches", "switch vers le texte libre", "…", "nav:sheet sheet-tab:Texte libre");
@@ -79,6 +79,31 @@ namespace Marabook.Tests
             Cue(t, "Les plans", "graph d'intensité ouvert", "…", "nav:plan plan:chart");
             Cue(t, "Les plans", "nouvelle brique ouverte", "…", "nav:plan plan:entry");
             t.Check(TutorialCues.Resolve("Les plans", "faire la vaisselle", "…").Unresolved == "faire la vaisselle", "une consigne inconnue est rendue telle quelle (lacune)");
+            // Les consignes composées du script du 29/10 (deuxième version).
+            Cue(t, "La pile et le rail", "highlight pile + ouvrir la pile", "…", "pile:open highlight:pile");
+            Cue(t, "La pile et le rail", "highlight rail + menu du rail + ouvrir le rail", "…", "rail:open highlight:rail");
+            Cue(t, "La pile et le rail", "switch vers le tableau écrits, highlight tableau", "…", "nav:writings highlight:center");
+            Cue(t, "Les écrits", "tableau écrits - highlight trois lignes Livre Dossiers Ecrits", "…", "nav:writings highlight:center");
+            Cue(t, "Les écrits", "switch onglet - highlight tableau", "L'onglet **Publication** permet…", "nav:book book-tab:Publication highlight:center");
+            Cue(t, "L'éditeur de texte", "Ouverture Chapitre 1 - highlight ruban + fenêtre", "…", "nav:chapter highlight:ribbon highlight:center");
+            Cue(t, "L'éditeur de texte", "switch vers rail > versions, highlight rail + menu Versions", "…", "rail:versions highlight:rail highlight:rail-panel");
+            Cue(t, "Les fiches", "highlight boutons", "…", "highlight:library-actions");
+            Cue(t, "Les fiches", "switch vers le texte libre - highlight éditeur de texte", "…", "nav:sheet sheet-tab:Texte libre highlight:sheet-editor");
+            Cue(t, "Les fiches", "switch vue miroir - highlight boutons mode", "…", "nav:sheet sheet-tab:Texte libre sheet:mirror highlight:sheet-modes");
+            Cue(t, "Les fiches", "switch mode wiki - highlight bouton vue wiki", "…", "nav:sheet sheet:wiki highlight:sheet-wiki");
+            Cue(t, "Les fiches", "switch généalogie - highlight arbre généalogique", "…", "nav:sheet sheet:genealogy highlight:genealogy");
+            Cue(t, "Les plans", "plan ouvert - highlight colonnes", "…", "nav:plan highlight:plan-columns");
+            Cue(t, "Les plans", "nouvelle brique ouverte - ouvrir brique \"Azi se réveille\" et highlight le contenu", "…", "nav:plan plan:entry:Azi se réveille highlight:center");
+            Cue(t, "Les plans", "highlight bouton graph intensité", "…", "nav:plan highlight:plan-chart");
+            Cue(t, "Les plans", "graph d'intensité ouvert - highlight graph", "…", "nav:plan plan:chart highlight:plan-chart-view");
+            Cue(t, "Le journal perso", "highlight le journal perso + le bouton en bas de la pile", "…", "nav:journal highlight:journal-button highlight:center");
+            Cue(t, "Quelques dernières notes...", "switch accueil - centrer la fenêtre du tuto", "…", "nav:home window:center");
+            // L'accueil à consigne, et les sous-puces d'une étape (les raccourcis).
+            var second = TutorialParser.Parse("(tableau Accueil)\nBonjour.\n\n12. Notes\n* (switch accueil) Retenez :\n(les points qui suivent sont des blocs)\n  * Ctrl+K : Lien\n  * F12 : Préférences\n* Merci !\n");
+            t.Check(second.IntroInstruction == "tableau Accueil" && second.IntroCue.Actions.Contains("nav:home") && second.Intro.Count == 1 && second.Intro[0] == "Bonjour.",
+                "« (tableau Accueil) » en tête est la consigne de l'accueil, pas un paragraphe");
+            t.Check(second.Chapters.Count == 1 && second.Chapters[0].Steps.Count == 2 && second.Chapters[0].Steps[0].Items.Count == 2 && second.Chapters[0].Steps[0].Items[1] == "F12 : Préférences",
+                "les sous-puces indentées sont les blocs de l'étape, la note de mise en forme est tue");
 
             // Le script embarqué : tout se résout.
             var path = FindAsset(Path.Combine("assets", Path.Combine("tutoriel", "Tutoriel.md")));

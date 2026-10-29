@@ -241,7 +241,7 @@ namespace Marabook.App
                 RebuildRows();
             };
 
-            var left = new StackPanel { Orientation = Orientation.Horizontal };
+            var left = _actionsRow = new StackPanel { Orientation = Orientation.Horizontal };
             _back = Buttons.Icon("arrow-left-bold", "Revenir à la bibliothèque", Buttons.Bar, Buttons.Look.Calm);
             _back.Margin = new Thickness(0, 0, 6, 0);
             _back.IsVisible = false;
@@ -1090,7 +1090,9 @@ namespace Marabook.App
         }
 
         private Button _templatesButton; // le tutoriel le met en valeur (29/10)
+        private StackPanel _actionsRow;  // Nouvelle fiche / Nouvelle catégorie / Éditeur de modèles / Fiches manquantes
         internal Control TemplatesButtonForTutorial { get { return _templatesButton; } }
+        internal Control ActionsRowForTutorial { get { return _actionsRow; } }
 
         /// <summary>L'éditeur de modèles (sections, champs, natures) ; les
         /// modèles édités remplacent ceux du projet, la bibliothèque se redessine.</summary>

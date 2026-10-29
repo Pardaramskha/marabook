@@ -3373,6 +3373,15 @@ namespace Marabook.App
             Check(seenBrick, "jalon : la fiche d'une brique existante du plan, ouverte sans bloquer, inerte");
             Check(shell.TutorialOpenWindowsForProbe == 0, "au dernier pas, les fenêtres ouvertes par le tuto sont refermées (" + shell.TutorialOpenWindowsForProbe + ")");
             Check(window.NextLabelForProbe == "Terminer" && shell.TutorialIndexForProbe == total - 1, "le parcours entier par Suivant mène au « Terminer » (" + shell.TutorialIndexForProbe + "/" + (total - 1) + ")");
+            var endCapture = Environment.GetEnvironmentVariable("MARABOOK_TUTORIAL_END_CAPTURE"); // la fenêtre du tuto à l'avant-dernière étape (les blocs de raccourcis)
+            if (!string.IsNullOrEmpty(endCapture))
+            {
+                window.ClickPreviousForProbe();
+                await Settle();
+                window.CaptureForProbe(endCapture);
+                window.ClickNextForProbe();
+                await Settle();
+            }
             Check(seenRibbon, "jalon : l'onglet Prépresse du ruban, mis en valeur");
             Check(seenSheetWiki, "jalon : le mode wiki de la fiche");
             Check(seenTemplates, "jalon : l'éditeur de modèles ouvert sur Champs");

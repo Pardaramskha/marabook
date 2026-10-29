@@ -384,7 +384,7 @@ namespace Marabook.App
             // À droite de la barre (14/09) : vue édition / vue miroir, les
             // icônes de Markdown We Go, sans texte.
             var toolRow = new DockPanel { Margin = new Thickness(0, 0, 10, 0) };
-            var modes = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(6, 8, 0, 0) };
+            var modes = _modesPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(6, 8, 0, 0) };
             _editToggle = ModeToggle("editeur", "Vue édition — le texte seul");
             _mirrorToggle = ModeToggle("miroir", "Vue miroir — le rendu wiki à côté du texte, mis à jour en écrivant");
             _editToggle.Checked += delegate { SetMirror(false); };
@@ -456,7 +456,7 @@ namespace Marabook.App
             var editorHost = new Grid();
             editorHost.Children.Add(editorShadow);
             editorHost.Children.Add(editorContent);
-            var editorPaper = new Border
+            var editorPaper = _editorPaper = new Border
             {
                 Margin = new Thickness(8, 12, 8, 14),
                 Child = editorHost,
@@ -680,6 +680,12 @@ namespace Marabook.App
         internal Control RelationsPaperForTutorial { get { return _relationsPaper; } }
         internal Control RelationsEditorButtonForTutorial { get { return _relationsEditorButton; } }
         internal bool MirrorOnForProbe { get { return _mirrorToggle.IsChecked == true; } }
+        private StackPanel _modesPanel; // édition / miroir (tutoriel, 29/10)
+        private Border _editorPaper;    // le papier du texte libre (tutoriel, 29/10)
+        internal Control ModesPanelForTutorial { get { return _modesPanel; } }
+        internal Control EditorPaperForTutorial { get { return _editorPaper; } }
+        internal Control WikiToggleForTutorial { get { return _previewToggle; } }
+        internal Control GenealogyViewForTutorial { get { return _genealogy; } }
 
         /// <summary>Une fiche peut-elle recevoir une relation GÉNÉALOGIQUE
         /// (une nature livrée : père, sœur, épouse…) ? Seulement si son modèle

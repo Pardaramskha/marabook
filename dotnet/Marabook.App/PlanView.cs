@@ -36,15 +36,24 @@ namespace Marabook.App
         /// <summary>Tutoriel (29/10) : la bascule Intensité, à montrer ou à enclencher.</summary>
         internal ToggleButton ChartToggleForTutorial { get { return _chartToggle; } }
         internal void SetChartForTutorial(bool on) { if (_chartToggle != null && (_chartToggle.IsChecked == true) != on) _chartToggle.IsChecked = on; }
-        /// <summary>Tutoriel (29/10) : la première brique (élément, pas note) du plan ouvert, ou null.</summary>
-        internal PlanEntry FirstElementForTutorial()
+        /// <summary>Tutoriel (29/10) : la brique (élément, pas note) du plan
+        /// ouvert dont le texte commence par titlePrefix — sans titre, la
+        /// première ; null s'il n'y en a pas.</summary>
+        internal PlanEntry FirstElementForTutorial(string titlePrefix = null)
         {
             if (_item == null || _item.Plan == null) return null;
+            PlanEntry first = null;
             foreach (var column in _item.Plan.Columns)
                 foreach (var entry in column.Entries)
-                    if (entry.IsElement) return entry;
-            return null;
+                {
+                    if (!entry.IsElement) continue;
+                    if (first == null) first = entry;
+                    if (titlePrefix != null && TutorialParser.Fold(entry.Text ?? "").StartsWith(TutorialParser.Fold(titlePrefix))) return entry;
+                }
+            return first;
         }
+        internal Control ColumnsForTutorial { get { return _columns; } }
+        internal Control ChartForTutorial { get { return _chart; } }
         private readonly ToggleButton _chartToggle;
 
         private BinderItem _item;

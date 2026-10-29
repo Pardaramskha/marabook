@@ -70,6 +70,8 @@ namespace Marabook.App
         private Control _searchBar;
         /// <summary>La barre de recherche : la rangée d'onglets s'aligne sur sa hauteur.</summary>
         public Control SearchBarForTabs { get { return _searchBar; } }
+        private Control _journalRow; // « Journal perso », en pied de Pile — le tutoriel le met en valeur (29/10)
+        internal Control JournalRowForTutorial { get { return _journalRow; } }
         public Func<BinderItem, bool> IsSidePinned;
 
         // Fourni par MainWindow (cache de composition) : total de pages d'un
@@ -196,7 +198,8 @@ namespace Marabook.App
             var layout = new DockPanel();
             _searchBar = BuildSearchBar();
             layout.Children.Add(_searchBar);
-            layout.Children.Add(BuildJournalRow());
+            _journalRow = BuildJournalRow();
+            layout.Children.Add(_journalRow);
 
             _results = new ListBox
             {

@@ -87,7 +87,7 @@ namespace Marabook.Settings
             new ActionDefinition("insert-rule", "Format", "Ligne horizontale", null),
             new ActionDefinition("insert-separator", "Format", "Séparateur de scène", null),
             new ActionDefinition("page-break", "Mise en page", "Saut de page", "Ctrl+Return"),
-            new ActionDefinition("preferences", "Fichier", "Préférences de l'application", null),
+            new ActionDefinition("preferences", "Fichier", "Préférences de l'application", "F12"), // F12 d'office (29/10, Rémi)
             new ActionDefinition("print-preview", "Prépresse", "Aperçu des pages", "Ctrl+Alt+P"), // le ruban (onglet Prépresse, ex-Composition, 29/10), plus le menu (22/09)
             new ActionDefinition("print", "Fichier", "Imprimer", "Ctrl+P"),
             new ActionDefinition("export-epub", "Fichier", "Créer un EPUB", null),

@@ -24,6 +24,7 @@ namespace Marabook.App
         public event Action NextRequested, PreviousRequested, NextChapterRequested, PreviousChapterRequested, CloseRequested;
 
         private readonly TextBlock _chapter, _progress, _body;
+        private readonly StackPanel _items;
         private readonly Button _previous, _next, _previousChapter, _nextChapter;
         private bool _userMoved;
 
@@ -108,7 +109,9 @@ namespace Marabook.App
             DockPanel.SetDock(foot, Dock.Bottom);
             column.Children.Add(foot);
 
-            // — Le corps : le texte de l'étape, qui défile s'il est long.
+            // — Le corps : le texte de l'étape, puis ses sous-puces en petits
+            // blocs (le raccourci en gras, le texte dessous en encre légère) ;
+            // le tout défile s'il est long.
             _body = new TextBlock
             {
                 Foreground = Chrome.Ink,
@@ -116,10 +119,14 @@ namespace Marabook.App
                 LineHeight = 21,
                 TextWrapping = TextWrapping.Wrap
             };
+            _items = new StackPanel { Margin = new Thickness(0, 10, 0, 0), Spacing = 6 };
+            var bodyStack = new StackPanel();
+            bodyStack.Children.Add(_body);
+            bodyStack.Children.Add(_items);
             column.Children.Add(new ScrollViewer
             {
-                Content = new Border { Child = _body, Padding = new Thickness(16, 14, 16, 4) },
-                MaxHeight = 380,
+                Content = new Border { Child = bodyStack, Padding = new Thickness(16, 14, 16, 4) },
+                MaxHeight = 420,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             });
             frame.Child = column;
@@ -140,9 +147,36 @@ namespace Marabook.App
         /// Markdown, et l'état des boutons (première, dernière étape).</summary>
         public void Present(string chapterTitle, string progress, string markdown, bool first, bool last, bool firstChapter, bool lastChapter)
         {
+            Present(chapterTitle, progress, markdown, null, first, last, firstChapter, lastChapter);
+        }
+
+        public void Present(string chapterTitle, string progress, string markdown, IList<string> items, bool first, bool last, bool firstChapter, bool lastChapter)
+        {
             _chapter.Text = chapterTitle ?? "";
             _progress.Text = progress ?? "";
             _body.Inlines = Inlines(markdown ?? "");
+            _items.Children.Clear();
+            _items.IsVisible = items != null && items.Count > 0;
+            if (items != null)
+                foreach (var item in items)
+                {
+                    // « Ctrl+K : Insérer un lien » → le raccourci en gras, le texte dessous.
+                    var cut = item.IndexOf(" : ", StringComparison.Ordinal);
+                    var key = cut > 0 ? item.Substring(0, cut).Trim() : item.Trim();
+                    var rest = cut > 0 ? item.Substring(cut + 3).Trim() : "";
+                    var block = new StackPanel();
+                    block.Children.Add(new TextBlock { Text = key, FontWeight = FontWeight.Bold, Foreground = Chrome.Ink, FontSize = 13 });
+                    if (rest.Length > 0) block.Children.Add(new TextBlock { Text = rest, Foreground = Chrome.SoftText, FontSize = 12.5, TextWrapping = TextWrapping.Wrap });
+                    _items.Children.Add(new Border
+                    {
+                        Background = Chrome.BarBg,
+                        BorderBrush = Chrome.Border,
+                        BorderThickness = new Thickness(1),
+                        CornerRadius = new CornerRadius(8),
+                        Padding = new Thickness(10, 6, 10, 6),
+                        Child = block
+                    });
+                }
             _previous.IsEnabled = !first;
             _previousChapter.IsEnabled = !firstChapter;
             _nextChapter.IsEnabled = !lastChapter;
