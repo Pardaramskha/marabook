@@ -391,6 +391,7 @@ namespace Marabook.App
             file.Items.Add(new Separator());
             file.Items.Add(Entry("save", "Enregistrer", DoSave));
             file.Items.Add(Entry("save-as", "Enregistrer sous…", DoSaveAs));
+            file.Items.Add(Entry(null, "Ouvrir le dossier des sauvegardes", OpenBackupFolder, delegate { return HasProjectPath; })); // les copies horodatées (1.1.0, 30/10)
             file.Items.Add(new Separator());
             file.Items.Add(Entry("preferences", "Préférences…", OpenPreferences));
             file.Items.Add(new Separator());
@@ -2382,6 +2383,24 @@ namespace Marabook.App
         /// relâché, le .tmp orphelin nettoyé, les réserves montrées.</summary>
         private void InstallOpened(Project project, string path, List<string> warnings)
         {
+            // Une COPIE HORODATÉE ouverte directement (1.1.0, 30/10) : elle
+            // n'est pas modifiée sur place — le projet repris n'a pas de
+            // chemin, Enregistrer demandera où, et le nom est celui du projet
+            // d'origine, sans la date.
+            if (Backups.IsBackupName(path))
+            {
+                project.Name = Backups.ProjectNameOf(path) ?? project.Name;
+                project.DiskIndex = null;
+                LoadProject(project, null);
+                if (_welcome != null) _welcome.Release();
+                _dirty = true;
+                UpdateTitle();
+                var date = Backups.DateOf(path);
+                warnings.Insert(0, "Vous ouvrez une copie de sauvegarde" + (date == null ? "" : " du " + date.Value.ToString("dd/MM/yyyy HH:mm"))
+                    + ". Elle n'est pas modifiée sur place : Fichier › Enregistrer demandera où enregistrer le projet repris.");
+                MessageDialog.Show(this, string.Join("\n\n— ", warnings.ToArray()), AppName, MessageButtons.OK, MessageIcon.Information);
+                return;
+            }
             AdoptFileName(project, path);
             LoadProject(project, path);
             // Un projet est ouvert : l'accueil (13/09) se retire — quel
@@ -2412,46 +2431,87 @@ namespace Marabook.App
         }
 
         /// <summary>The .plot itself is unreadable: offer the rolling .bak
-        /// (written at every successful save) before giving up.</summary>
+        /// (written at every successful save), then the timestamped copies
+        /// from the newest down (1.1.0, 30/10), before giving up.</summary>
         private async void TryRecoverFromBackup(string path, Exception error)
         {
             var bak = path + ".bak";
-            if (!File.Exists(bak))
+            var candidates = new List<string>();
+            if (File.Exists(bak)) candidates.Add(bak);
+            foreach (var copy in Backups.List(path, AppSettings.BackupPolicy())) candidates.Add(copy.Path);
+            if (candidates.Count == 0)
             {
                 MessageDialog.Show(this,
                     "Impossible d'ouvrir le projet :\n" + error.Message,
                     AppName, MessageButtons.OK, MessageIcon.Error);
                 return;
             }
-            var stamp = File.GetLastWriteTime(bak).ToString("dd/MM/yyyy HH:mm");
+            var first = candidates[0];
             var answer = MessageDialog.Show(this,
                 "Impossible d'ouvrir le projet :\n" + error.Message + "\n\n"
-                + "Une copie de secours existe (dernier enregistrement réussi, "
-                + "du " + stamp + ").\nL'ouvrir à la place ?",
+                + "Une copie de secours existe (" + DescribeCopy(first, bak) + ")"
+                + (candidates.Count > 1 ? ", et " + (candidates.Count - 1) + " copie" + (candidates.Count > 2 ? "s" : "") + " horodatée" + (candidates.Count > 2 ? "s" : "") + " plus ancienne" + (candidates.Count > 2 ? "s" : "") : "")
+                + ".\nL'ouvrir à la place ?",
                 AppName, MessageButtons.YesNo, MessageIcon.Warning);
             if (await answer != MessageResult.Yes) return;
-            try
+            Exception last = null;
+            foreach (var candidate in candidates)
             {
-                var warnings = new List<string>();
-                var project = PlotFile.Load(bak, warnings);
-                AdoptFileName(project, path);
-                // Le projet vit sous son chemin normal : le prochain Ctrl+S
-                // remplacera le .plot corrompu. Marqué modifié pour que la
-                // fermeture propose cet enregistrement.
-                LoadProject(project, path);
-                _dirty = true;
-                UpdateTitle();
-                if (warnings.Count > 0)
-                    MessageDialog.Show(this,
-                        "La copie de secours s'est ouverte, avec des réserves :\n\n— "
-                        + string.Join("\n— ", warnings.ToArray()),
-                        AppName, MessageButtons.OK, MessageIcon.Warning);
+                try
+                {
+                    var warnings = new List<string>();
+                    var project = PlotFile.Load(candidate, warnings);
+                    AdoptFileName(project, path);
+                    // Le projet vit sous son chemin normal : le prochain Ctrl+S
+                    // remplacera le .plot corrompu. Marqué modifié pour que la
+                    // fermeture propose cet enregistrement.
+                    LoadProject(project, path);
+                    _dirty = true;
+                    UpdateTitle();
+                    if (candidate != first)
+                        warnings.Insert(0, "La copie la plus récente était illisible elle aussi ; c'est une copie plus ancienne qui s'est ouverte ("
+                            + DescribeCopy(candidate, bak) + ").");
+                    if (warnings.Count > 0)
+                        MessageDialog.Show(this,
+                            "La copie de secours s'est ouverte, avec des réserves :\n\n— "
+                            + string.Join("\n— ", warnings.ToArray()),
+                            AppName, MessageButtons.OK, MessageIcon.Warning);
+                    return;
+                }
+                catch (Exception bakError) { last = bakError; }
             }
-            catch (Exception bakError)
+            MessageDialog.Show(this,
+                (candidates.Count > 1 ? "Les copies de secours sont illisibles elles aussi :\n" : "La copie de secours est illisible elle aussi :\n") + (last == null ? "" : last.Message),
+                AppName, MessageButtons.OK, MessageIcon.Error);
+        }
+
+        private static string DescribeCopy(string candidate, string bak)
+        {
+            if (candidate == bak)
+                return "dernier enregistrement réussi, du " + File.GetLastWriteTime(bak).ToString("dd/MM/yyyy HH:mm");
+            var date = Backups.DateOf(candidate) ?? File.GetLastWriteTime(candidate);
+            return "copie horodatée du " + date.ToString("dd/MM/yyyy HH:mm");
+        }
+
+        /// <summary>« Ouvrir le dossier des sauvegardes » (Fichier, 1.1.0,
+        /// 30/10) : les copies horodatées du projet ouvert, dans l'explorateur.</summary>
+        private void OpenBackupFolder()
+        {
+            if (_path == null) return;
+            var folder = Backups.FolderFor(_path, AppSettings.BackupPolicy());
+            if (!Directory.Exists(folder))
             {
                 MessageDialog.Show(this,
-                    "La copie de secours est illisible elle aussi :\n" + bakError.Message,
-                    AppName, MessageButtons.OK, MessageIcon.Error);
+                    "Aucune copie horodatée pour l'instant : la première viendra au prochain enregistrement"
+                    + (AppSettings.BackupsEnabled ? "." : " — les copies sont désactivées (Préférences › Général › Sauvegardes)."),
+                    "Sauvegardes", MessageButtons.OK, MessageIcon.Information);
+                return;
+            }
+            try { AppPlatform.OpenWithShell(folder); }
+            catch (Exception ex)
+            {
+                MessageDialog.Show(this, "Le dossier des sauvegardes n'a pas pu être ouvert :\n" + ex.Message,
+                    "Sauvegardes", MessageButtons.OK, MessageIcon.Warning);
             }
         }
 
@@ -2912,24 +2972,48 @@ namespace Marabook.App
             _busy.Begin();
             var written = plan.SaveId;
             _queuedSaveId = written;
+            // L'ÉCRITURE DIFFÉRENTIELLE (1.1.0, 30/10) : l'index du .plot tel
+            // qu'il a été lu ou écrit en dernier, lu ici sur le fil de
+            // l'interface ; les entrées inchangées seront recopiées telles
+            // quelles. Puis la COPIE HORODATÉE, selon les Préférences — jamais
+            // pour le projet du tutoriel.
+            var project = _project;
+            var previousIndex = project.DiskIndex;
+            var policy = TutorialActive ? null : AppSettings.BackupPolicy();
             var task = Task.Run(delegate
             {
                 try { previous.Wait(); } catch (Exception) { }
-                PlotFile.Write(plan, path, false, expectedSaveId); // revérifie l'empreinte juste avant l'échange (1.0.3)
+                var outcome = new SaveOutcome();
+                outcome.Result = PlotFile.Write(plan, path, false, expectedSaveId, previousIndex); // revérifie l'empreinte juste avant l'échange (1.0.3)
+                outcome.BackupPath = Backups.Record(path, policy, DateTime.Now, out outcome.BackupError);
+                return outcome;
             });
             _saveTask = task;
-            task.ContinueWith(delegate(Task finished)
+            task.ContinueWith(delegate(Task<SaveOutcome> finished)
             {
                 Dispatcher.UIThread.Post(delegate
                 {
-                    try { OnSaveWritten(finished, path, silent, written); }
+                    try { OnSaveWritten(finished, project, path, silent, written); }
                     finally { done.TrySetResult(true); }
                 });
             });
         }
 
+        /// <summary>Ce qu'une écriture de fond rapporte (1.1.0, 30/10).</summary>
+        private sealed class SaveOutcome
+        {
+            public PlotFile.WriteResult Result;
+            public string BackupPath;   // la copie horodatée faite, ou null
+            public string BackupError;  // pourquoi elle a manqué, ou null
+        }
+
         private Task _saveTask;                      // l'écriture en cours, ou null
         private TaskCompletionSource<bool> _saveDone; // levé quand son verdict est traité
+        private bool _backupWarned;                  // une copie manquée se dit une fois par session
+        /// <summary>Pour la sonde : entrées recopiées / recompressées par la dernière écriture.</summary>
+        public int LastSaveCopied { get; private set; }
+        public int LastSavePacked { get; private set; }
+        public string LastBackupPath { get; private set; }
 
         /// <summary>Attend que la dernière écriture lancée soit terminée ET
         /// jugée (fermeture de la fenêtre, sondes, « Enregistrer puis… »).</summary>
@@ -2941,7 +3025,7 @@ namespace Marabook.App
         /// <summary>Le verdict d'une écriture de fond : réussie, la taille du
         /// fichier et le toast ; échouée, le projet redevient modifié et
         /// l'erreur se dit comme avant.</summary>
-        private void OnSaveWritten(Task task, string path, bool silent, string savedId)
+        private void OnSaveWritten(Task<SaveOutcome> task, Project project, string path, bool silent, string savedId)
         {
             _busy.End();
             if (task.IsFaulted)
@@ -2953,6 +3037,19 @@ namespace Marabook.App
                 UpdateTitle();
                 ReportSaveError(error, silent);
                 return;
+            }
+            var outcome = task.Result;
+            // L'index du fichier écrit : la prochaine écriture recopiera ce
+            // qui n'aura pas bougé (1.1.0, 30/10).
+            project.DiskIndex = outcome.Result.Index;
+            LastSaveCopied = outcome.Result.Copied;
+            LastSavePacked = outcome.Result.Packed;
+            LastBackupPath = outcome.BackupPath;
+            if (outcome.BackupError != null && !_backupWarned)
+            {
+                _backupWarned = true;
+                ShowToast(null, "Copie de sauvegarde impossible", project.Name,
+                    outcome.BackupError + "\nLe projet est enregistré ; vérifiez le dossier des sauvegardes (Préférences › Général).", 8);
             }
             try { _lastSavedBytes = new FileInfo(path).Length; } catch (IOException) { }
             if (path == _path) RememberDisk(path, savedId); // la nouvelle référence du disque (1.0.3)

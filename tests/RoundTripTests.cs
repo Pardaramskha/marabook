@@ -19,6 +19,7 @@ namespace Marabook.Tests
         {
             "BinderItem.Parent",            // cycle, reconstruit par RelinkParents
             "Project.LoadedFormatVersion",  // 0 avant écriture, 6 après lecture
+            "Project.DiskIndex",            // l'index du fichier lu (1.1.0, 30/10), jamais dans le .plot
             "TextParagraph.StartOnRecto",   // posés par le compilateur, jamais
             "TextParagraph.Decor"           //   dans le .plot
         };

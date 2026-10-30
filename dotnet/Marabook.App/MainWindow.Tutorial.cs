@@ -125,6 +125,10 @@ namespace Marabook.App
                 path = Path.Combine(folder, "Tutoriel.plot");
                 foreach (var stale in new[] { path, path + ".bak", path + ".tmp", path + ".lock" })
                     if (File.Exists(stale)) { try { File.Delete(stale); } catch (IOException) { } }
+                // Les copies horodatées ne se font pas pendant le tuto ; un
+                // dossier laissé par une version d'avant est balayé.
+                var staleCopies = Backups.FolderFor(path, null);
+                if (Directory.Exists(staleCopies)) { try { Directory.Delete(staleCopies, true); } catch (IOException) { } }
                 File.Copy(plot, path, true);
                 var warnings = new List<string>();
                 var project = PlotFile.Load(path, warnings);

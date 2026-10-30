@@ -73,6 +73,11 @@ namespace Marabook.Model
         // le .plot a été modifié en dehors de Marabook (synchronisation,
         // autre machine) et rien n'est écrasé sans demander.
         public string SaveId = "";
+        /// <summary>Ce que le disque porte pour ce projet (1.1.0, 30/10) :
+        /// l'index du .plot lu ou écrit en dernier, pour que l'écriture
+        /// suivante recopie sans les recompresser les entrées inchangées.
+        /// Null pour un projet neuf ou de secours. Jamais dans le .plot.</summary>
+        public Persistence.ArchiveIndex DiskIndex;
         public WritingJournal Journal = new WritingJournal();
         public StyleSheet Styles = StyleSheet.CreateDefault();
         // Modèles et catégories de fiches (batch 31) : un projet NEUF est

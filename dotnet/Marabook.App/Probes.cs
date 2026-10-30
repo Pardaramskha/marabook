@@ -1923,6 +1923,22 @@ namespace Marabook.App
                     await Settle();
                     Check(shell.LastSaveError == null && System.IO.File.GetLastWriteTimeUtc(plotPath) > stampBefore,
                         "Fichier › Enregistrer réécrit le projet rouvert" + (shell.LastSaveError == null ? "" : " : " + shell.LastSaveError.Split('\n')[0]));
+                    // — L'écriture DIFFÉRENTIELLE et la COPIE HORODATÉE (1.1.0,
+                    //   30/10) : le projet rouvert porte l'index du fichier lu,
+                    //   l'enregistrement recopie les entrées inchangées (seul
+                    //   le manifeste change) et pose une première copie datée
+                    //   dans « nom.sauvegardes » à côté du projet.
+                    await shell.SaveCompletion();
+                    Check(shell.LastSaveCopied > 0 && shell.LastSavePacked == 1,
+                        "l'enregistrement recopie les entrées inchangées sans les recompresser (" + shell.LastSaveCopied + " recopiées, " + shell.LastSavePacked + " compressée)");
+                    var copies = Persistence.Backups.List(plotPath, AppSettings.BackupPolicy());
+                    Check(shell.LastBackupPath != null && copies.Count == 1 && Persistence.Backups.IsBackupName(copies[0].Path)
+                        && System.IO.Path.GetDirectoryName(copies[0].Path) == System.IO.Path.Combine(System.IO.Path.GetTempPath().TrimEnd(System.IO.Path.DirectorySeparatorChar), "marabook-sonde-p3" + Persistence.Backups.FolderSuffix),
+                        "une copie horodatée est posée dans « marabook-sonde-p3.sauvegardes » (" + (shell.LastBackupPath == null ? "aucune" : System.IO.Path.GetFileName(shell.LastBackupPath)) + ")");
+                    shell.MarkDirtyPublic();
+                    doSave.Invoke(shell, null);
+                    await shell.SaveCompletion();
+                    Check(Persistence.Backups.List(plotPath, AppSettings.BackupPolicy()).Count == 1, "un second enregistrement dans la foulée n'en fait pas une autre (intervalle)");
                     // — La garde du .plot (1.0.3) : le verrou est posé à côté
                     //   du projet ouvert ; le fichier tel qu'écrit est « à
                     //   jour » ; remplacé par sa version d'avant (.bak = une
@@ -1947,7 +1963,11 @@ namespace Marabook.App
                     }
                 }
                 catch (Exception error) { Check(false, "aller-retour .plot : " + error.Message); }
-                finally { try { System.IO.File.Delete(plotPath); } catch { } }
+                finally
+                {
+                    try { System.IO.File.Delete(plotPath); } catch { }
+                    try { System.IO.Directory.Delete(plotPath.Substring(0, plotPath.Length - Persistence.PlotFile.Extension.Length) + Persistence.Backups.FolderSuffix, true); } catch { }
+                }
                 book = null;
                 foreach (var item in shell.Project.AllItems()) if (item.Kind == ItemKind.Book) { book = item; break; }
                 chapter = book == null ? null : book.Children[0];
