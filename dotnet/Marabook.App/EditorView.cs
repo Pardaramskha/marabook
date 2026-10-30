@@ -163,6 +163,10 @@ namespace Marabook.App
         // replie au clic sur son titre, « Tout développer » / « Tout fermer »
         // en tête. Session seulement.
         private readonly HashSet<Correction.FindingCategory> _corrCollapsed = new HashSet<Correction.FindingCategory>();
+        // Le relevé SURVOLÉ (30/10) : sa clé survit à la reconstruction de
+        // la liste (arrivée des suggestions, état du pont…) — la fiche
+        // refaite naît déjà éclairée, au lieu de clignoter sous la souris.
+        private string _corrHoverKey;
 
         public event Action Edited; // any content or footnote change
         public event Action<string> LinkClicked; // Ctrl+click on a [[wiki link]]
@@ -1350,7 +1354,9 @@ namespace Marabook.App
             var changed = FindingsChanged;
             if (changed != null) changed();
             if (_corrList == null) return;
+            var hovered = _corrHoverKey; // vider la liste peut lever PointerExited sur la fiche survolée
             _corrList.Children.Clear();
+            _corrHoverKey = hovered;
             var status = BuildGrammarStatusLine();
             if (status != null) _corrList.Children.Add(status);
             // Plus de filtre d'affichage (30/10) : ce que le correcteur ne
@@ -1652,8 +1658,14 @@ namespace Marabook.App
                 Tag = "corr-finding"
             };
             var hover = FindingHoverBrush();
-            card.PointerEntered += delegate { card.Background = hover; };
-            card.PointerExited += delegate { card.Background = Brushes.Transparent; };
+            var hoverKey = finding.RuleId + "|" + finding.ParagraphIndex + "|" + finding.Start + "|" + finding.Word;
+            if (_corrHoverKey == hoverKey) card.Background = hover; // reconstruite sous la souris : déjà éclairée
+            card.PointerEntered += delegate { _corrHoverKey = hoverKey; card.Background = hover; };
+            card.PointerExited += delegate
+            {
+                if (_corrHoverKey == hoverKey) _corrHoverKey = null;
+                card.Background = Brushes.Transparent;
+            };
             var goRef = finding;
             card.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
             {
