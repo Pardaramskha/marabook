@@ -96,6 +96,28 @@ namespace Marabook.App
                     if (_launch.Demo && !_launch.Probe) { await Task.Delay(200); if (_launch.OpenTitle != null) OpenByTitle(_launch.OpenTitle); else SelectFirstText(); }
                     if (_launch.Demo && !_launch.Probe && _launch.SheetText && _sheetView != null) { await Task.Delay(100); _sheetView.ShowTextTabPublic(); }
                     if (_launch.Demo && !_launch.Probe && _launch.PlanChart && _planView != null) { await Task.Delay(100); _planView.ProbeShowChart(true); }
+                    if (_launch.Demo && !_launch.Probe && _launch.Correction)
+                    {
+                        // Des relevés de chaque sorte dans l'écrit ouvert, pour voir le panneau garni (capture, 30/10).
+                        BinderItem seeded = null;
+                        foreach (var item in _project.AllItems()) if (item.Kind == ItemKind.Text && item.Title.StartsWith("Chapitre premier")) { seeded = item; break; }
+                        if (seeded == null) foreach (var item in _project.AllItems()) if (item.Kind == ItemKind.Text && item.Document.Paragraphs.Count > 1) { seeded = item; break; }
+                        if (seeded != null)
+                        {
+                            foreach (var text in new[] { "Le vent portait l'odeur des pins, et le vent portait aussi la pluie vers le village .",
+                                "Un tezte avec une fôte, où Keira Varenh marchait vraiment lentement vers la citadelle ; y'a du vent, dit-il.",
+                                "Le vent, encore le vent, et une gouverneuse qui attendait vraiment au bord du quai." })
+                            {
+                                var paragraph = new TextParagraph();
+                                paragraph.Runs.Add(new TextRun { Text = text });
+                                seeded.Document.Paragraphs.Add(paragraph);
+                            }
+                            _editor.Reload();
+                        }
+                        await Task.Delay(2200);
+                        SetRightPanel(RightPanel.Correction);
+                        await Task.Delay(600);
+                    }
                     if (_launch.Demo && !_launch.Probe && _launch.PinTitle != null) { await Task.Delay(100); PinByTitle(_launch.PinTitle); }
                     if (_launch.Demo && !_launch.Probe && _launch.SelectTitle != null) { await Task.Delay(300); SelectTileByTitle(_launch.SelectTitle, _launch.Tint, _launch.TintAfter); }
                 }

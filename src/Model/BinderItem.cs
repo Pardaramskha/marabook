@@ -98,6 +98,12 @@ namespace Marabook.Model
         // les puces du Général du rail. Vide = aucun.
         public List<string> Tags = new List<string>();
 
+        // « IGNORER PARTOUT » dans CET écrit (1.1.0, .plot v44, 30/10, Rémi) :
+        // des mots (tels qu'affichés, pliés à la comparaison) et des règles
+        // (« règle:<id> ») que le correcteur ne relève plus dans ce document
+        // seul — ni dans le projet, ni globalement. Vide = rien.
+        public List<string> ProofIgnored = new List<string>();
+
         // L'OBJECTIF et la LIMITE d'un écrit (1.1.0, v41) : un nombre et son
         // unité (TextGoal.Words, Chars, Pages). 0 = aucun. L'objectif se
         // remplit à mesure qu'on écrit (Général du rail) ; la limite dépassée

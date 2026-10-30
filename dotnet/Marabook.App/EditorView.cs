@@ -159,8 +159,10 @@ namespace Marabook.App
         private Correction.Hunspell.SpellEngine _spellEngine; // null sans dico
         private Border _corrBar;
         private StackPanel _corrList;
-        private readonly Dictionary<Correction.FindingCategory, ToggleButton> _corrFilters
-            = new Dictionary<Correction.FindingCategory, ToggleButton>();
+        // Les catégories REPLIÉES du panneau (30/10, Rémi) : chaque papier se
+        // replie au clic sur son titre, « Tout développer » / « Tout fermer »
+        // en tête. Session seulement.
+        private readonly HashSet<Correction.FindingCategory> _corrCollapsed = new HashSet<Correction.FindingCategory>();
 
         public event Action Edited; // any content or footnote change
         public event Action<string> LinkClicked; // Ctrl+click on a [[wiki link]]
@@ -264,29 +266,9 @@ namespace Marabook.App
                     _synonyms.Reset();
                 Ui.Post(DispatcherPriority.Background, new Action(UpdateGrammarStatus));
             };
-            _composed.FindingLearn += async delegate(Correction.Finding finding, bool projectScope)
+            _composed.FindingLearn += delegate(Correction.Finding finding, bool projectScope)
             {
-                if (_spellChecker == null || finding.Word.Length == 0) return;
-                // Batch 33 : le mot entre avec sa NATURE (dialogue à la manière
-                // d'Antidote) — le correcteur acceptera ses formes.
-                var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), finding.Word, projectScope);
-                if (entry == null) return;
-                var list = projectScope
-                    ? _spellChecker.ProjectWords : _spellChecker.GlobalWords;
-                var existing = Model.LexiconEntry.Find(list, entry.Word);
-                if (existing != null) list.Remove(existing);
-                list.Add(entry);
-                if (projectScope) NotifyEdited(); // la liste vit dans le .plot
-                else Settings.AppSettings.Save();
-                var lexiconHandler = LexiconChanged;
-                if (lexiconHandler != null) lexiconHandler(projectScope);
-                // La connaissance a changé, pas le texte : le cache des
-                // vérificateurs locaux doit oublier ses verdicts — et les
-                // clés pliées des appris aussi (batch 29, 0.3).
-                _spellChecker.InvalidateLearned();
-                PushLexiconToGrammar();
-                _checkHost.InvalidateCache();
-                RunCheck();
+                var _ = LearnFinding(finding, projectScope);
             };
             _composed.SuggestionProvider = delegate(Correction.Finding finding)
             {
@@ -926,6 +908,10 @@ namespace Marabook.App
                 Padding = new Thickness(12, 10, 12, 10)
             };
             var panel = new DockPanel();
+            // L'en-tête (30/10, Rémi) : le titre, UN bouton « Options des
+            // relevés » (la fenêtre des options du correcteur, où les
+            // catégories se cochent) et un filet qui le sépare des relevés —
+            // plus de bascules de catégorie en tête de colonne.
             var head = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
             DockPanel.SetDock(head, Dock.Top);
             head.Children.Add(new TextBlock
@@ -934,11 +920,19 @@ namespace Marabook.App
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 FontWeight = FontWeight.SemiBold,
-                Margin = new Thickness(0, 0, 0, 4)
+                Margin = new Thickness(0, 0, 0, 6)
             });
-            var filters = new WrapPanel();
-            foreach (var category in CategoryOrder) AddCorrectionFilter(filters, category);
-            head.Children.Add(filters);
+            var options = Buttons.IconText("gear-six-bold", "Options des relevés",
+                "Ce que le correcteur relève : orthographe, néologismes, familier, grammaire, typographie, style",
+                Buttons.Compact, Buttons.Look.Outline);
+            options.Tag = "corr-options";
+            options.HorizontalAlignment = HorizontalAlignment.Left;
+            options.Click += async delegate
+            {
+                if (await ProofOptionsDialog.Ask(Ui.OwnerOf(this))) RefreshProofing();
+            };
+            head.Children.Add(options);
+            head.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 10, 0, 0) });
             panel.Children.Add(head);
             _corrList = new StackPanel();
             panel.Children.Add(new ScrollViewer
@@ -957,24 +951,6 @@ namespace Marabook.App
             Correction.FindingCategory.Spelling, Correction.FindingCategory.Neologism, Correction.FindingCategory.Familiar,
             Correction.FindingCategory.Grammar, Correction.FindingCategory.Typography, Correction.FindingCategory.Style
         };
-
-        private void AddCorrectionFilter(Panel host, Correction.FindingCategory category)
-        {
-            var chip = new ToggleButton
-            {
-                Classes = { Marabook.App.Theme.Owned },
-                Content = ComposedRenderer.CategoryLabel(category),
-                IsChecked = true,
-                Margin = new Thickness(6, 0, 0, 0),
-                Padding = new Thickness(7, 1, 7, 1),
-                FontSize = 11,
-                Focusable = false,
-                [ToolTip.TipProperty] = "Afficher/masquer cette catégorie dans la liste"
-            };
-            chip.Click += delegate { RebuildCorrectionPanel(); };
-            _corrFilters[category] = chip;
-            host.Children.Add(chip);
-        }
 
         /// <summary>La connaissance des vérificateurs a changé hors édition
         /// (dictionnaire personnel retouché dans les Préférences) : cache
@@ -1030,6 +1006,56 @@ namespace Marabook.App
         /// - Synonyms : le mémo du thésaurus, une demande si le pont est en
         ///   service (requestMissing) — la rangée se remplit à l'arrivée ;
         /// - Inline : ce que le vérificateur a posé (grammaire, typographie).</summary>
+        /// <summary>« Ajouter au dictionnaire » (batch 27, lot D) — depuis le
+        /// menu contextuel ou le panneau des relevés (30/10) : le mot entre
+        /// avec sa NATURE (dialogue à la manière d'Antidote, batch 33), au
+        /// projet (true) ou partout ; le correcteur acceptera ses formes.</summary>
+        private async Task LearnFinding(Correction.Finding finding, bool projectScope)
+        {
+            if (_spellChecker == null || finding.Word.Length == 0) return;
+            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), finding.Word, projectScope);
+            if (entry == null) return;
+            var list = projectScope
+                ? _spellChecker.ProjectWords : _spellChecker.GlobalWords;
+            var existing = Model.LexiconEntry.Find(list, entry.Word);
+            if (existing != null) list.Remove(existing);
+            list.Add(entry);
+            if (projectScope) NotifyEdited(); // la liste vit dans le .plot
+            else Settings.AppSettings.Save();
+            var lexiconHandler = LexiconChanged;
+            if (lexiconHandler != null) lexiconHandler(projectScope);
+            // La connaissance a changé, pas le texte : le cache des
+            // vérificateurs locaux doit oublier ses verdicts — et les
+            // clés pliées des appris aussi (batch 29, 0.3).
+            _spellChecker.InvalidateLearned();
+            PushLexiconToGrammar();
+            _checkHost.InvalidateCache();
+            RunCheck();
+        }
+
+        /// <summary>Le mot d'un signalement a l'air d'un NOM PROPRE (30/10) :
+        /// une majuscule initiale suivie de minuscules, ailleurs qu'en tête
+        /// de phrase — le panneau propose alors « Ajouter au dictionnaire ».</summary>
+        private bool LooksLikeProperNoun(Correction.Finding finding)
+        {
+            if (finding.Category != Correction.FindingCategory.Spelling
+                && finding.Category != Correction.FindingCategory.Neologism) return false;
+            var word = finding.Word;
+            if (word.Length < 2 || !char.IsUpper(word[0])) return false;
+            var lower = false;
+            for (var i = 1; i < word.Length; i++)
+                if (char.IsLower(word[i])) { lower = true; break; }
+            if (!lower) return false; // un sigle, pas un nom
+            if (_item == null || finding.ParagraphIndex < 0
+                || finding.ParagraphIndex >= _item.Document.Paragraphs.Count) return true;
+            var text = PivotEdit.FlatText(_item.Document.Paragraphs[finding.ParagraphIndex]);
+            var at = Math.Min(finding.Start, text.Length) - 1;
+            while (at >= 0 && (char.IsWhiteSpace(text[at]) || text[at] == '«' || text[at] == '"' || text[at] == '—' || text[at] == '-')) at--;
+            if (at < 0) return false; // en tête de paragraphe : la majuscule ne dit rien
+            var before = text[at];
+            return before != '.' && before != '!' && before != '?' && before != '…' && before != ':';
+        }
+
         private List<string> SuggestionsFor(Correction.Finding finding, int cap, bool requestMissing)
         {
             switch (finding.Suggests)
@@ -1327,14 +1353,9 @@ namespace Marabook.App
             _corrList.Children.Clear();
             var status = BuildGrammarStatusLine();
             if (status != null) _corrList.Children.Add(status);
-            var visible = new List<Correction.Finding>();
-            foreach (var finding in _findings)
-            {
-                ToggleButton chip;
-                if (_corrFilters.TryGetValue(finding.Category, out chip)
-                    && chip.IsChecked != true) continue;
-                visible.Add(finding);
-            }
+            // Plus de filtre d'affichage (30/10) : ce que le correcteur ne
+            // relève pas se règle aux options, et n'arrive jamais ici.
+            var visible = new List<Correction.Finding>(_findings);
             // La VISIBILITÉ du panneau appartient à la coquille (batch 28) ;
             // ici on ne gère que son CONTENU — vide inclus.
             if (visible.Count == 0)
@@ -1357,6 +1378,22 @@ namespace Marabook.App
             // annoncée.
             const int cap = 150;
             var shown = 0;
+            // « Tout développer » / « Tout fermer » (30/10) au-dessus du
+            // premier papier.
+            var quick = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 4) };
+            var expandAll = SmallButton("Tout développer", delegate { _corrCollapsed.Clear(); RebuildCorrectionPanel(); });
+            expandAll.Tag = "corr-expand-all";
+            TightenButton(expandAll);
+            var collapseAll = SmallButton("Tout fermer", delegate
+            {
+                foreach (var category in CategoryOrder) _corrCollapsed.Add(category);
+                RebuildCorrectionPanel();
+            });
+            collapseAll.Tag = "corr-collapse-all";
+            TightenButton(collapseAll);
+            quick.Children.Add(expandAll);
+            quick.Children.Add(collapseAll);
+            _corrList.Children.Add(quick);
             foreach (var category in CategoryOrder)
             {
                 var group = new List<Correction.Finding>();
@@ -1368,12 +1405,28 @@ namespace Marabook.App
                 // entière au-delà dit qu'elle est là sans être montrée —
                 // jamais de relevés invisibles sans en-tête.
                 var room = Math.Max(0, Math.Min(group.Count, cap - shown));
-                _corrList.Children.Add(CategoryHeader(category, room, group.Count));
+                // Chaque catégorie dans un PAPIER à bords arrondis (30/10,
+                // Rémi), replié au clic sur son titre.
+                var body = new StackPanel { IsVisible = !_corrCollapsed.Contains(category), Margin = new Thickness(0, 2, 0, 0) };
                 for (var i = 0; i < room; i++)
                 {
-                    _corrList.Children.Add(BuildFindingRow(group[i]));
+                    body.Children.Add(BuildFindingRow(group[i]));
                     shown++;
                 }
+                var paper = new StackPanel();
+                paper.Children.Add(CategoryHeader(category, room, group.Count, body));
+                paper.Children.Add(body);
+                _corrList.Children.Add(new Border
+                {
+                    Background = Chrome.CardBg,
+                    BorderBrush = Chrome.Border,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(4, 3, 4, 3),
+                    Margin = new Thickness(0, 0, 0, 6),
+                    Child = paper,
+                    Tag = "corr-paper"
+                });
             }
             if (visible.Count > cap)
                 _corrList.Children.Add(new TextBlock
@@ -1390,14 +1443,20 @@ namespace Marabook.App
         /// la catégorie, libellé, compte — « (n) », « (n sur N) » si le
         /// plafond a coupé, « (N, au-delà des fiches affichées) » si rien
         /// du groupe n'est montré.</summary>
-        private static Control CategoryHeader(Correction.FindingCategory category, int shown, int count)
+        private Control CategoryHeader(Correction.FindingCategory category, int shown, int count, StackPanel body)
         {
             var label = ComposedRenderer.CategoryLabel(category);
-            var row = new StackPanel
+            var row = new DockPanel { Margin = new Thickness(4, 3, 4, 3), Cursor = new Cursor(StandardCursorType.Hand), Background = Brushes.Transparent, Tag = "corr-head" };
+            var chevron = new TextBlock
             {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, 8, 0, 2)
+                Text = _corrCollapsed.Contains(category) ? "▸" : "▾",
+                Foreground = Chrome.FaintText,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 0, 0)
             };
+            DockPanel.SetDock(chevron, Dock.Right);
+            row.Children.Add(chevron);
             row.Children.Add(ComposedRenderer.FindingDot(ComposedRenderer.FindingPen(category), 8));
             row.Children.Add(new TextBlock
             {
@@ -1409,7 +1468,36 @@ namespace Marabook.App
                 FontWeight = FontWeight.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center
             });
+            ToolTip.SetTip(row, "Replier ou déplier cette catégorie");
+            row.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+            {
+                if (!e.GetCurrentPoint(row).Properties.IsLeftButtonPressed) return;
+                if (_corrCollapsed.Contains(category)) _corrCollapsed.Remove(category);
+                else _corrCollapsed.Add(category);
+                body.IsVisible = !_corrCollapsed.Contains(category);
+                chevron.Text = body.IsVisible ? "▾" : "▸";
+                e.Handled = true;
+            };
             return row;
+        }
+
+        /// <summary>Un bouton du panneau resserré en hauteur (30/10, Rémi) :
+        /// les suggestions et les actions tiennent sur une ligne basse.</summary>
+        private static void TightenButton(Button button)
+        {
+            button.Height = 22;
+            button.MinHeight = 22;
+            button.Padding = new Thickness(7, 0, 7, 0);
+            button.FontSize = 11;
+            button.Margin = new Thickness(0, 0, 4, 3);
+        }
+
+        /// <summary>Le fond d'un relevé survolé (30/10) : pas l'accent, la
+        /// teinte du papier foncée en clair, éclaircie en sombre.</summary>
+        private static IBrush FindingHoverBrush()
+        {
+            var card = Chrome.CardBg.Color;
+            return new SolidColorBrush(Chrome.Blend(card, Chrome.Dark ? Colors.White : Colors.Black, 0.07));
         }
 
         /// <summary>Le passage couvert par un signalement SANS Word (la
@@ -1433,38 +1521,59 @@ namespace Marabook.App
         /// « Ignorer » — la colonne est étroite, tout s'empile.</summary>
         private Control BuildFindingRow(Correction.Finding finding)
         {
-            var row = new StackPanel { Margin = new Thickness(0, 3, 0, 6) };
-            var title = new StackPanel { Orientation = Orientation.Horizontal };
-            title.Children.Add(ComposedRenderer.FindingDot(ComposedRenderer.FindingPen(finding), 8));
-            var excerpt = new TextBlock
+            // La fiche (30/10, Rémi) : une zone arrondie qui s'éclaire au
+            // survol et mène au passage d'un clic n'importe où (les boutons
+            // exceptés) ; à gauche, la puce et un trait vertical de sa couleur
+            // sur toute la hauteur ; à droite, le mot, le message, les
+            // suggestions tout de suite dessous, puis les actions.
+            var pen = ComposedRenderer.FindingPen(finding);
+            var grid = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("Auto,*"),
+                Margin = new Thickness(0)
+            };
+            var gutter = new Grid { RowDefinitions = new RowDefinitions("Auto,*"), Margin = new Thickness(0, 2, 8, 0) };
+            var dot = ComposedRenderer.FindingDot(pen, 8);
+            dot.Margin = new Thickness(0);
+            dot.VerticalAlignment = VerticalAlignment.Top;
+            gutter.Children.Add(dot);
+            var line = new Border
+            {
+                Width = 2,
+                Background = pen.Brush,
+                CornerRadius = new CornerRadius(1),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Margin = new Thickness(0, 3, 0, 1),
+                Opacity = 0.75
+            };
+            Grid.SetRow(line, 1);
+            gutter.Children.Add(line);
+            grid.Children.Add(gutter);
+
+            var content = new StackPanel();
+            Grid.SetColumn(content, 1);
+            content.Children.Add(new TextBlock
             {
                 Text = "« " + (finding.Word.Length > 0
                     ? finding.Word : ExcerptOf(finding)) + " »",
                 Foreground = Chrome.Ink,
                 FontSize = 12,
                 FontWeight = FontWeight.SemiBold,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                Cursor = new Cursor(StandardCursorType.Hand),
-                [ToolTip.TipProperty] = "Aller au passage signalé"
-            };
-            var goRef = finding;
-            excerpt.PointerPressed += delegate { _composed.GoToFinding(goRef); };
-            title.Children.Add(excerpt);
-            row.Children.Add(title);
-
-            row.Children.Add(new TextBlock
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            content.Children.Add(new TextBlock
             {
                 Text = finding.Message,
                 Foreground = Chrome.SoftText,
                 FontSize = 11,
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(14, 1, 0, 2),
+                Margin = new Thickness(0, 1, 0, 3),
                 // Le détail long du signalement (Finding.Detail) se lit au
                 // survol — le panneau reste court.
                 [ToolTip.TipProperty] = string.IsNullOrEmpty(finding.Detail) ? null : finding.Detail
             });
 
-            var buttons = new WrapPanel { Margin = new Thickness(14, 0, 0, 0) };
             // Suggestions PRÊTES seulement (batch 30) : le calcul se fait en
             // fond, la rangée se remplit à la repeinture coalescée. Les
             // synonymes prennent la casse du mot remplacé ; les autres
@@ -1472,43 +1581,88 @@ namespace Marabook.App
             // « d'Artagnan » garde sa casse — revue du 13/09).
             var suggestions = SuggestionsFor(finding, 3, true);
             var synonyms = finding.Suggests == Correction.SuggestionSource.Synonyms;
-            for (var i = 0; i < suggestions.Count && i < 3; i++)
+            if (suggestions.Count > 0)
             {
-                var findingRef = finding;
-                var replacement = synonyms
-                    ? Correction.Typography.KeepCase(finding.Word, suggestions[i]) : suggestions[i];
-                var apply = SmallButton(replacement,
-                    delegate { _composed.ApplySuggestion(findingRef, replacement); });
-                apply.FontSize = 11;
-                apply.Margin = new Thickness(0, 0, 4, 2);
-                ToolTip.SetTip(apply, "Remplacer par « " + replacement + " »");
-                buttons.Children.Add(apply);
+                var row = new WrapPanel();
+                for (var i = 0; i < suggestions.Count && i < 3; i++)
+                {
+                    var findingRef = finding;
+                    var replacement = synonyms
+                        ? Correction.Typography.KeepCase(finding.Word, suggestions[i]) : suggestions[i];
+                    var apply = SmallButton(replacement,
+                        delegate { _composed.ApplySuggestion(findingRef, replacement); });
+                    TightenButton(apply);
+                    ToolTip.SetTip(apply, "Remplacer par « " + replacement + " »");
+                    row.Children.Add(apply);
+                }
+                content.Children.Add(row);
             }
-            // « Ignorer » : un MOT (orthographe, répétition) se tait dans tout
-            // le projet ; un indice de style morphologique (adverbe, verbe
-            // terne) se tait ICI seulement — faire taire « vraiment » partout
-            // éteindrait aussi son orthographe et ses répétitions (revue du
-            // 13/09) ; sans mot, ici aussi.
-            var ignoreRef = finding;
-            var projectWide = finding.Word.Length > 0 && finding.CheckerId != "style";
+
+            // Les actions (30/10, Rémi) : « Ajouter au dictionnaire » quand le
+            // mot a l'air d'un nom propre, « Ignorer » = cette occurrence
+            // seulement (session), « Ignorer partout » = le mot (ou la règle)
+            // dans tout CET écrit, inscrit au .plot — ni le projet, ni
+            // l'application.
+            var actions = new WrapPanel();
+            var actionRef = finding;
+            if (LooksLikeProperNoun(finding))
+            {
+                var learn = SmallButton("Ajouter au dictionnaire", delegate { var _ = LearnFinding(actionRef, true); });
+                TightenButton(learn);
+                learn.Tag = "corr-learn";
+                ToolTip.SetTip(learn, "« " + finding.Word + " » a l'air d'un nom propre : l'apprendre au dictionnaire du projet, avec sa nature");
+                actions.Children.Add(learn);
+            }
             var ignore = SmallButton("Ignorer", Chrome.Warn, delegate
             {
-                if (projectWide)
-                {
-                    _checkHost.IgnoreInProject(ignoreRef.Word);
-                    NotifyEdited(); // la liste du projet est persistée
-                }
-                else _checkHost.IgnoreHere(ignoreRef);
+                _checkHost.IgnoreHere(actionRef);
                 RunCheck();
             });
-            ignore.FontSize = 11;
-            ignore.Margin = new Thickness(0, 0, 4, 2);
-            ToolTip.SetTip(ignore, projectWide
-                ? "Ne plus signaler « " + finding.Word + " » dans ce projet"
-                : "Taire ce signalement (session)");
-            buttons.Children.Add(ignore);
-            row.Children.Add(buttons);
-            return row;
+            TightenButton(ignore);
+            ignore.Tag = "corr-ignore";
+            ToolTip.SetTip(ignore, "Taire ce signalement, ici seulement");
+            actions.Children.Add(ignore);
+            var itemKey = Correction.CheckerHost.ItemKey(finding);
+            if (itemKey != null)
+            {
+                var everywhere = SmallButton("Ignorer partout", Chrome.Warn, delegate
+                {
+                    _checkHost.IgnoreInItem(actionRef);
+                    NotifyEdited(); // la liste de l'écrit vit dans le .plot (v44)
+                    RunCheck();
+                });
+                TightenButton(everywhere);
+                everywhere.Tag = "corr-ignore-item";
+                ToolTip.SetTip(everywhere, itemKey.StartsWith(Correction.CheckerHost.RulePrefix, StringComparison.Ordinal)
+                    ? "Ne plus relever cette règle dans cet écrit (pas dans les autres)"
+                    : "Ne plus relever « " + finding.Word + " » dans cet écrit (pas dans les autres)");
+                actions.Children.Add(everywhere);
+            }
+            content.Children.Add(actions);
+            grid.Children.Add(content);
+
+            var card = new Border
+            {
+                Child = grid,
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(6, 4, 4, 2),
+                Margin = new Thickness(0, 0, 0, 2),
+                Background = Brushes.Transparent,
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Tag = "corr-finding"
+            };
+            var hover = FindingHoverBrush();
+            card.PointerEntered += delegate { card.Background = hover; };
+            card.PointerExited += delegate { card.Background = Brushes.Transparent; };
+            var goRef = finding;
+            card.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+            {
+                // Un bouton a déjà pris le clic (e.Handled) : on n'arrive pas ici.
+                if (!e.GetCurrentPoint(card).Properties.IsLeftButtonPressed) return;
+                _composed.GoToFinding(goRef);
+                e.Handled = true;
+            };
+            return card;
         }
 
         /// <summary>Signalement suivant/précédent depuis le caret composé —
@@ -2128,6 +2282,8 @@ namespace Marabook.App
             // paragraphes de l'ancien document n'ont plus de sens (lot A).
             _checkHost.CancelDeferred();
             _item = item;
+            // « Ignorer partout » vit avec CET écrit (v44, 30/10).
+            _checkHost.ItemIgnored = item != null ? item.ProofIgnored : new List<string>();
             RefreshStyleCombo(); // les styles de CET écrit (portées, 22/09)
             SyncPageTab();
             HideSearch();
@@ -2152,6 +2308,7 @@ namespace Marabook.App
         public void Clear()
         {
             _item = null;
+            _checkHost.ItemIgnored = new List<string>();
             if (_composed != null)
             {
                 _composed.Detach();

@@ -145,7 +145,8 @@ namespace Marabook.Tests
                 GraphTests.Run,          // C55 — 1.1.0 : graphe relationnel (arêtes, lectures, disposition, .plot v43) (28/10)
                 DialogueTests.Run,       // C56 — 1.1.0 : passe des dialogues (blocs, norme guillemets / tirets) (29/10)
                 TutorialTests.Run,        // C57 — 1.1.0 : le tutoriel (script Markdown, consignes, script embarqué) (29/10)
-                BackupTests.Run          // C58 — 1.1.0 : enregistrement différentiel et copies horodatées (30/10)
+                BackupTests.Run,          // C58 — 1.1.0 : enregistrement différentiel et copies horodatées (30/10)
+                ItemIgnoreTests.Run      // C59 — 1.1.0 : « Ignorer partout » par écrit, .plot v44 (30/10)
             };
             foreach (var suite in suites)
             {

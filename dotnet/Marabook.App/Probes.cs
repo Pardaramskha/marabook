@@ -169,6 +169,56 @@ namespace Marabook.App
                 shell.OpenByTitle(chapter.Title);
                 await Settle();
                 await Settle();
+                // — Le PANNEAU DES RELEVÉS refait (30/10, Rémi) : un bouton
+                //   « Options des relevés » en tête, un papier replié par
+                //   catégorie, « Ignorer » = l'occurrence, « Ignorer partout »
+                //   = le mot dans cet écrit seul (BinderItem.ProofIgnored),
+                //   « Ajouter au dictionnaire » sur un nom propre.
+                {
+                    var seeded = new TextParagraph();
+                    seeded.Runs.Add(new TextRun { Text = "Un tezte avec une fôte, où Keira Varenh marchait vers la citadelle." });
+                    chapter.Document.Paragraphs.Add(seeded);
+                    editor.Reload();
+                    editor.RefreshProofing(); // la passe tout de suite (Reload recompose sans vérifier)
+                    await Task.Delay(1500);
+                    await Settle();
+                    shell.SetRightPanelPublic(RightPanel.Correction);
+                    await Settle();
+                    var panel = editor.CorrectionPanel;
+                    var tagged = panel.GetVisualDescendants().OfType<Control>().Where(delegate(Control c) { return c.Tag is string; }).ToList();
+                    Check(editor.FindingCount >= 3, "l'écrit garni relève tezte, fôte et Varenh (" + editor.FindingCount + ")");
+                    Check(tagged.Exists(delegate(Control c) { return (string)c.Tag == "corr-options"; }), "un bouton « Options des relevés » en tête du panneau");
+                    Check(!panel.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().Any(delegate(Avalonia.Controls.Primitives.ToggleButton b) { return (b.Content as string) == "Orthographe"; }), "…plus de bascules de catégorie");
+                    var papers = tagged.Count(delegate(Control c) { return (string)c.Tag == "corr-paper"; });
+                    Check(papers >= 1, "chaque catégorie relevée a son papier (" + papers + ")");
+                    Check(tagged.Exists(delegate(Control c) { return (string)c.Tag == "corr-expand-all"; }) && tagged.Exists(delegate(Control c) { return (string)c.Tag == "corr-collapse-all"; }), "« Tout développer » et « Tout fermer » au-dessus");
+                    var learn = tagged.OfType<Button>().FirstOrDefault(delegate(Button b) { return (string)b.Tag == "corr-learn"; });
+                    Check(learn != null, "« Ajouter au dictionnaire » proposé pour « Varenh » (nom propre), pas pour « tezte »");
+                    var learnCount = tagged.Count(delegate(Control c) { return (string)c.Tag == "corr-learn"; });
+                    Check(learnCount == 1, "…une seule fois (" + learnCount + ")");
+                    var collapse = tagged.OfType<Button>().First(delegate(Button b) { return (string)b.Tag == "corr-collapse-all"; });
+                    collapse.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                    await Settle();
+                    var findingsVisible = editor.CorrectionPanel.GetVisualDescendants().OfType<Control>().Count(delegate(Control c) { return (c.Tag as string) == "corr-finding" && c.IsEffectivelyVisible; });
+                    Check(findingsVisible == 0, "« Tout fermer » replie tous les papiers (" + findingsVisible + " fiche(s) visible(s))");
+                    var expand = editor.CorrectionPanel.GetVisualDescendants().OfType<Button>().First(delegate(Button b) { return (b.Tag as string) == "corr-expand-all"; });
+                    expand.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                    await Settle();
+                    findingsVisible = editor.CorrectionPanel.GetVisualDescendants().OfType<Control>().Count(delegate(Control c) { return (c.Tag as string) == "corr-finding" && c.IsEffectivelyVisible; });
+                    Check(findingsVisible >= 3, "« Tout développer » les rouvre (" + findingsVisible + ")");
+                    var countBefore = editor.FindingCount;
+                    var everywhere = editor.CorrectionPanel.GetVisualDescendants().OfType<Button>().First(delegate(Button b) { return (b.Tag as string) == "corr-ignore-item"; });
+                    everywhere.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                    await Task.Delay(400);
+                    await Settle();
+                    Check(chapter.ProofIgnored.Count == 1 && chapter.ProofIgnored[0] == "tezte", "« Ignorer partout » inscrit « tezte » dans la liste de CET écrit (" + string.Join(", ", chapter.ProofIgnored) + ")");
+                    Check(shell.Project.ProofIgnored.Count == 0 && !AppSettings.ProofIgnored.Contains("tezte"), "…ni dans le projet, ni dans l'application");
+                    Check(editor.FindingCount == countBefore - 1, "…et le relevé disparaît (" + countBefore + " → " + editor.FindingCount + ")");
+                    chapter.ProofIgnored.Clear();
+                    chapter.Document.Paragraphs.Remove(seeded);
+                    editor.Reload();
+                    await Settle();
+                }
                 shell.SetRightPanelForProbe(railBefore);
                 await Settle();
                 // — Le choix d'un gabarit a sa propre fenêtre (09/10), plus celle du lien.

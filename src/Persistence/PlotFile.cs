@@ -219,7 +219,12 @@ namespace Marabook.Persistence
         //      (la position de chaque nœud : [{id, x, y, pin}], omis si vide ;
         //      "pin" présent et vrai = tiré par l'auteur, fixé). Un id disparu
         //      est ignoré ; un vieux Marabook ignore le tout.
-        private const int FormatVersion = 43;
+        // v44: 1.1.0 (30/10) — « IGNORER PARTOUT » par écrit : "proofIgnored"
+        //      sur un écrit ou une fiche (les mots, et les règles « règle:id »,
+        //      que le correcteur tait dans ce document seul ; omis si vide).
+        //      Un vieux Marabook l'ignore : les relevés reviennent, rien ne
+        //      se perd.
+        private const int FormatVersion = 44;
 
         // La voie d'une nature de relation dans le .plot (1.1.0, schéma des relations).
         private static string LaneName(RelationLane lane)
@@ -932,6 +937,7 @@ namespace Marabook.Persistence
             if (item.Limit > 0) node["limit"] = item.Limit;
             if (!string.IsNullOrEmpty(item.LimitUnit) && item.LimitUnit != TextGoal.Words) node["limitUnit"] = item.LimitUnit;
             if (item.Tags.Count > 0) node["tags"] = new List<object>(item.Tags.ToArray()); // v41 — les fiches, mais rien ne se perd ailleurs
+            if (item.ProofIgnored.Count > 0) node["proofIgnored"] = new List<object>(item.ProofIgnored.ToArray()); // v44
             if (item.Kind == ItemKind.Sheet)
             {
                 if (item.TemplateId != null) node["template"] = item.TemplateId;
@@ -1855,6 +1861,11 @@ namespace Marabook.Persistence
             if (tags != null)
                 foreach (var tagNode in tags)
                     SheetTags.Add(item, tagNode as string);
+            var proofIgnored = Json.AsList(Json.Field(obj, "proofIgnored")); // v44
+            if (proofIgnored != null)
+                foreach (var entry in proofIgnored)
+                    if (entry is string && ((string)entry).Length > 0 && !item.ProofIgnored.Contains((string)entry))
+                        item.ProofIgnored.Add((string)entry);
             if (item.Kind == ItemKind.Sheet)
             {
                 item.TemplateId = Json.AsString(Json.Field(obj, "template"));

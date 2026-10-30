@@ -95,6 +95,7 @@ namespace Marabook.App
         public string PinTitle;     // --pin <titre> : l'élément épinglé sur le côté avant la capture (hotfix 1.0.3-a)
         public bool PlanChart;      // --intensite : le plan ouvert montre son graphique d'intensité (hotfix 1.0.3-a)
         public bool SheetText;      // --texte-libre : la fiche ouverte montre son onglet Texte libre (hotfix 1.0.3-a)
+        public bool Correction;     // --correction : le panneau des relevés ouvert sur le premier écrit (capture, 30/10)
         public string SelectTitle;  // --select <titre> : la tuile choisie dans le tableau ou la bibliothèque affichés (diagnostic de la sélection, 1.0.3)
         public string Tint;         // --tint #hex : la couleur posée sur cette tuile avant de la choisir
         public bool TintAfter;      // --tint-apres : …ou APRÈS l'avoir choisie (le tableau se rebâtit avec la carte sélectionnée)
@@ -132,6 +133,7 @@ namespace Marabook.App
                 if (arg == "--pin" && i + 1 < args.Length) { launch.PinTitle = args[++i]; continue; }
                 if (arg == "--texte-libre") { launch.SheetText = true; continue; }
                 if (arg == "--intensite") { launch.PlanChart = true; continue; }
+                if (arg == "--correction") { launch.Correction = true; continue; }
                 if (arg == "--tint" && i + 1 < args.Length) { launch.Tint = args[++i]; continue; }
                 if (arg == "--tint-apres") { launch.TintAfter = true; continue; }
                 if (arg == "--tab" && i + 1 < args.Length) { int.TryParse(args[++i], out launch.PrefsTab); launch.Prefs = true; continue; }
