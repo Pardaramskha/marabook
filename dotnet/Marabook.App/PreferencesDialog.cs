@@ -688,13 +688,13 @@ namespace Marabook.App
             tabsRow.Children.Add(new TextBlock { Text = "Onglets maximum", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) });
             panel.Children.Add(tabsRow);
 
-            // Les COPIES HORODATÉES (1.1.0, 30/10) : la bascule, le nombre
-            // gardé, l'intervalle minimal, le dossier (à côté du projet ou
-            // commun). Le « .plot.bak » de la version d'avant ne se règle pas :
-            // il est toujours écrit.
+            // Les COPIES HORODATÉES (1.1.0, 30/10) : la bascule et l'intervalle
+            // minimal, sans infobulle (Rémi). Cinq copies, dans le dossier de
+            // données de Marabook — ni nombre ni dossier à régler. Le
+            // « .plot.bak » de la version d'avant est toujours écrit (caché),
+            // et retiré à la fermeture propre.
             panel.Children.Add(Caption("Sauvegardes", 18));
             var backupsOn = new CheckBox { Content = "Copies horodatées du projet", IsChecked = AppSettings.BackupsEnabled, Margin = new Thickness(0, 6, 0, 0), Tag = "backups-enabled" };
-            ToolTip.SetTip(backupsOn, "À chaque enregistrement, si la dernière copie est plus vieille que l'intervalle,\nune copie datée du projet (un .plot complet) est rangée dans le dossier des sauvegardes.\nLa version d'avant reste écrite en « .plot.bak » quoi qu'il en soit.");
             backupsOn.IsCheckedChanged += delegate
             {
                 if (AppSettings.BackupsEnabled == (backupsOn.IsChecked == true)) return;
@@ -703,71 +703,26 @@ namespace Marabook.App
             };
             panel.Children.Add(backupsOn);
             var backupRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
-            var keepBox = new TextBox { Width = 56, Text = AppSettings.BackupKeep.ToString(), Tag = "backup-keep" };
-            ToolTip.SetTip(keepBox, "Entre " + BackupPolicy.MinKeep + " et " + BackupPolicy.MaxKeep + " ; les plus anciennes sont retirées au-delà");
             var intervalBox = new TextBox { Width = 56, Text = AppSettings.BackupIntervalMinutes.ToString(), Tag = "backup-interval" };
-            ToolTip.SetTip(intervalBox, "Entre " + BackupPolicy.MinIntervalMinutes + " (à chaque enregistrement) et " + BackupPolicy.MaxIntervalMinutes + " minutes");
             Action commitBackups = delegate
             {
-                int keep, interval;
-                if (!int.TryParse((keepBox.Text ?? "").Trim(), out keep)) keep = AppSettings.BackupKeep;
+                int interval;
                 if (!int.TryParse((intervalBox.Text ?? "").Trim(), out interval)) interval = AppSettings.BackupIntervalMinutes;
-                keep = BackupPolicy.ClampKeep(keep);
                 interval = BackupPolicy.ClampInterval(interval);
-                keepBox.Text = keep.ToString();
                 intervalBox.Text = interval.ToString();
-                if (keep == AppSettings.BackupKeep && interval == AppSettings.BackupIntervalMinutes) return;
-                AppSettings.BackupKeep = keep;
+                if (interval == AppSettings.BackupIntervalMinutes) return;
                 AppSettings.BackupIntervalMinutes = interval;
                 AppSettings.Save();
             };
-            foreach (var box in new[] { keepBox, intervalBox })
+            intervalBox.LostFocus += delegate { commitBackups(); };
+            intervalBox.KeyDown += delegate(object sender, KeyEventArgs e)
             {
-                box.LostFocus += delegate { commitBackups(); };
-                box.KeyDown += delegate(object sender, KeyEventArgs e)
-                {
-                    if (e.Key == Key.Return || e.Key == Key.Enter) { commitBackups(); e.Handled = true; }
-                };
-            }
-            backupRow.Children.Add(keepBox);
-            backupRow.Children.Add(new TextBlock { Text = "copies gardées", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 20, 0) });
+                if (e.Key == Key.Return || e.Key == Key.Enter) { commitBackups(); e.Handled = true; }
+            };
             backupRow.Children.Add(intervalBox);
             backupRow.Children.Add(new TextBlock { Text = "minutes au moins entre deux copies", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) });
             panel.Children.Add(backupRow);
-            var folderRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
-            var folderLabel = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0), TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 420, Tag = "backup-folder" };
-            Action showFolder = delegate
-            {
-                var custom = !string.IsNullOrEmpty(AppSettings.BackupFolder);
-                folderLabel.Text = custom ? AppSettings.BackupFolder : "À côté du projet (dossier « nom" + Backups.FolderSuffix + " »)";
-                ToolTip.SetTip(folderLabel, custom ? AppSettings.BackupFolder + "\n(un sous-dossier par projet)" : "Chaque projet a son dossier de copies à côté de lui");
-            };
-            showFolder();
-            var chooseFolder = Buttons.Text("Choisir un dossier…", "Un dossier commun à tous les projets (un sous-dossier par projet)", Buttons.Compact, Buttons.Look.Outline);
-            var besideFolder = Buttons.Text("À côté du projet", "Revenir au dossier « nom" + Backups.FolderSuffix + " » à côté de chaque projet", Buttons.Compact, Buttons.Look.Outline);
-            chooseFolder.Click += async delegate
-            {
-                var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Dossier des sauvegardes", AllowMultiple = false });
-                if (folders == null || folders.Count == 0) return;
-                var chosen = folders[0].TryGetLocalPath();
-                if (string.IsNullOrEmpty(chosen)) return;
-                AppSettings.BackupFolder = chosen;
-                AppSettings.Save();
-                showFolder();
-            };
-            besideFolder.Click += delegate
-            {
-                if (string.IsNullOrEmpty(AppSettings.BackupFolder)) return;
-                AppSettings.BackupFolder = null;
-                AppSettings.Save();
-                showFolder();
-            };
-            folderRow.Children.Add(folderLabel);
-            folderRow.Children.Add(chooseFolder);
-            besideFolder.Margin = new Thickness(8, 0, 0, 0);
-            folderRow.Children.Add(besideFolder);
-            panel.Children.Add(folderRow);
-            panel.Children.Add(Note("Chaque copie est un .plot complet qui s'ouvre comme un autre ; Fichier › Ouvrir le dossier des sauvegardes y mène. Si le projet est illisible, Marabook propose d'abord la version d'avant, puis ces copies.", 6, 0));
+            panel.Children.Add(Note("Les " + Backups.Keep + " dernières copies de chaque projet sont gardées dans le dossier de Marabook, jamais à côté de vos fichiers ; Fichier › Ouvrir le dossier des sauvegardes y mène. Chaque copie est un .plot complet qui s'ouvre comme un autre. Si le projet est illisible, Marabook propose d'abord la version d'avant, puis ces copies.", 6, 0));
 
             panel.Children.Add(Caption("Mode sombre", 18));
             _darkCheck = new CheckBox { Content = "Mode sombre", IsChecked = AppSettings.DarkTheme, Margin = new Thickness(0, 6, 0, 0) };

@@ -230,12 +230,9 @@ namespace Marabook.Settings
         public static int MaxTabs = Model.WorkTabs.DefaultLimit;
         // Les COPIES HORODATÉES du projet (1.1.0, 30/10) — Préférences › Général ›
         // Sauvegardes : à chaque enregistrement, une copie datée si la
-        // dernière est plus vieille que l'intervalle, au plus Keep gardées,
-        // à côté du projet (« nom.sauvegardes ») ou dans un dossier commun.
-        // Clés « backupsEnabled », « backupFolder », « backupKeep », « backupInterval ».
+        // dernière est plus vieille que l'intervalle ; cinq gardées, dans le
+        // dossier de données de Marabook. Clés « backupsEnabled », « backupInterval ».
         public static bool BackupsEnabled = true;
-        public static string BackupFolder;          // null ou vide : à côté du projet
-        public static int BackupKeep = Persistence.BackupPolicy.DefaultKeep;
         public static int BackupIntervalMinutes = Persistence.BackupPolicy.DefaultIntervalMinutes;
 
         /// <summary>La politique des copies, telle que réglée.</summary>
@@ -244,8 +241,6 @@ namespace Marabook.Settings
             return new Persistence.BackupPolicy
             {
                 Enabled = BackupsEnabled,
-                Folder = string.IsNullOrEmpty(BackupFolder) ? null : BackupFolder,
-                Keep = Persistence.BackupPolicy.ClampKeep(BackupKeep),
                 IntervalMinutes = Persistence.BackupPolicy.ClampInterval(BackupIntervalMinutes)
             };
         }
@@ -603,8 +598,6 @@ namespace Marabook.Settings
                 TabsEnabled = Json.AsBool(Json.Field(root, "tabsEnabled"), true);
                 MaxTabs = Model.WorkTabs.Clamp((int)Json.AsDouble(Json.Field(root, "maxTabs"), Model.WorkTabs.DefaultLimit));
                 BackupsEnabled = Json.AsBool(Json.Field(root, "backupsEnabled"), true);
-                BackupFolder = Json.AsString(Json.Field(root, "backupFolder"));
-                BackupKeep = Persistence.BackupPolicy.ClampKeep((int)Json.AsDouble(Json.Field(root, "backupKeep"), Persistence.BackupPolicy.DefaultKeep));
                 BackupIntervalMinutes = Persistence.BackupPolicy.ClampInterval((int)Json.AsDouble(Json.Field(root, "backupInterval"), Persistence.BackupPolicy.DefaultIntervalMinutes));
                 DailySnapshot = Json.AsBool(Json.Field(root, "dailySnapshot"), true);
                 AutoSelectWord = Json.AsBool(Json.Field(root, "autoSelectWord"), true);
@@ -760,8 +753,6 @@ namespace Marabook.Settings
                 root["tabsEnabled"] = TabsEnabled;
                 root["maxTabs"] = MaxTabs;
                 root["backupsEnabled"] = BackupsEnabled;
-                if (!string.IsNullOrEmpty(BackupFolder)) root["backupFolder"] = BackupFolder;
-                root["backupKeep"] = BackupKeep;
                 root["backupInterval"] = BackupIntervalMinutes;
                 root["dailySnapshot"] = DailySnapshot;
                 root["autoSelectWord"] = AutoSelectWord;

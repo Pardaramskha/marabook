@@ -495,6 +495,7 @@ namespace Marabook.Persistence
                     }
                 }
                 File.Replace(tempPath, path, textsOnly ? null : path + ".bak"); // pas de .bak pour le secours
+                if (!textsOnly) Backups.HideRollingBak(path); // caché, non indexé (30/10)
             }
             else
                 File.Move(tempPath, path);

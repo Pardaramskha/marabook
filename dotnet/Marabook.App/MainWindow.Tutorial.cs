@@ -127,7 +127,7 @@ namespace Marabook.App
                     if (File.Exists(stale)) { try { File.Delete(stale); } catch (IOException) { } }
                 // Les copies horodatées ne se font pas pendant le tuto ; un
                 // dossier laissé par une version d'avant est balayé.
-                var staleCopies = Backups.FolderFor(path, null);
+                var staleCopies = Backups.FolderFor(path);
                 if (Directory.Exists(staleCopies)) { try { Directory.Delete(staleCopies, true); } catch (IOException) { } }
                 File.Copy(plot, path, true);
                 var warnings = new List<string>();

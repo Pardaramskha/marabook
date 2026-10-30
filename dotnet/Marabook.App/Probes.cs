@@ -1931,14 +1931,21 @@ namespace Marabook.App
                     await shell.SaveCompletion();
                     Check(shell.LastSaveCopied > 0 && shell.LastSavePacked == 1,
                         "l'enregistrement recopie les entrées inchangées sans les recompresser (" + shell.LastSaveCopied + " recopiées, " + shell.LastSavePacked + " compressée)");
-                    var copies = Persistence.Backups.List(plotPath, AppSettings.BackupPolicy());
+                    var copies = Persistence.Backups.List(plotPath);
+                    var copyFolder = Persistence.Backups.FolderFor(plotPath);
                     Check(shell.LastBackupPath != null && copies.Count == 1 && Persistence.Backups.IsBackupName(copies[0].Path)
-                        && System.IO.Path.GetDirectoryName(copies[0].Path) == System.IO.Path.Combine(System.IO.Path.GetTempPath().TrimEnd(System.IO.Path.DirectorySeparatorChar), "marabook-sonde-p3" + Persistence.Backups.FolderSuffix),
-                        "une copie horodatée est posée dans « marabook-sonde-p3.sauvegardes » (" + (shell.LastBackupPath == null ? "aucune" : System.IO.Path.GetFileName(shell.LastBackupPath)) + ")");
+                        && System.IO.Path.GetDirectoryName(copies[0].Path) == copyFolder
+                        && copyFolder.StartsWith(Persistence.Backups.RootFolder(), StringComparison.OrdinalIgnoreCase)
+                        && !copyFolder.StartsWith(System.IO.Path.GetDirectoryName(plotPath), StringComparison.OrdinalIgnoreCase),
+                        "une copie horodatée est posée dans le dossier de données de Marabook, pas à côté du projet (" + (shell.LastBackupPath == null ? "aucune" : copyFolder) + ")");
                     shell.MarkDirtyPublic();
                     doSave.Invoke(shell, null);
                     await shell.SaveCompletion();
-                    Check(Persistence.Backups.List(plotPath, AppSettings.BackupPolicy()).Count == 1, "un second enregistrement dans la foulée n'en fait pas une autre (intervalle)");
+                    Check(Persistence.Backups.List(plotPath).Count == 1, "un second enregistrement dans la foulée n'en fait pas une autre (intervalle)");
+                    // — Le .bak roulant est CACHÉ et non indexé (30/10, Rémi).
+                    var bakAttributes = System.IO.File.Exists(plotPath + ".bak") ? System.IO.File.GetAttributes(plotPath + ".bak") : 0;
+                    Check(!OperatingSystem.IsWindows() || ((bakAttributes & System.IO.FileAttributes.Hidden) != 0 && (bakAttributes & System.IO.FileAttributes.NotContentIndexed) != 0),
+                        "le .plot.bak est caché et hors indexation (" + bakAttributes + ")");
                     // — La garde du .plot (1.0.3) : le verrou est posé à côté
                     //   du projet ouvert ; le fichier tel qu'écrit est « à
                     //   jour » ; remplacé par sa version d'avant (.bak = une
@@ -1950,6 +1957,7 @@ namespace Marabook.App
                     if (System.IO.File.Exists(plotPath + ".bak"))
                     {
                         System.IO.File.Copy(plotPath + ".bak", plotPath, true);
+                        System.IO.File.SetAttributes(plotPath, System.IO.FileAttributes.Normal); // la copie hérite du « caché » du .bak
                         Check(shell.DiskStatePublic == "Changed", "remplacé par une autre version : vu comme modifié en dehors de Marabook (" + shell.DiskStatePublic + ")");
                         var bytesBefore = new System.IO.FileInfo(plotPath).Length;
                         var foreignId = Persistence.PlotFile.ReadSaveId(plotPath);
@@ -1966,7 +1974,8 @@ namespace Marabook.App
                 finally
                 {
                     try { System.IO.File.Delete(plotPath); } catch { }
-                    try { System.IO.Directory.Delete(plotPath.Substring(0, plotPath.Length - Persistence.PlotFile.Extension.Length) + Persistence.Backups.FolderSuffix, true); } catch { }
+                    try { System.IO.Directory.Delete(Persistence.Backups.FolderFor(plotPath), true); } catch { }
+                    try { if (System.IO.File.Exists(plotPath + ".bak")) { System.IO.File.SetAttributes(plotPath + ".bak", System.IO.FileAttributes.Normal); System.IO.File.Delete(plotPath + ".bak"); } } catch { }
                 }
                 book = null;
                 foreach (var item in shell.Project.AllItems()) if (item.Kind == ItemKind.Book) { book = item; break; }

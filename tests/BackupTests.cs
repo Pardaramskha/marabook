@@ -23,6 +23,7 @@ namespace Marabook.Tests
             var dir = Path.Combine(Path.GetTempPath(), "marabook-tests-backups");
             if (Directory.Exists(dir)) Directory.Delete(dir, true);
             Directory.CreateDirectory(dir);
+            Backups.Root = Path.Combine(dir, "appdata", "sauvegardes"); // la racine de Marabook, remplacée pour le test
             try
             {
                 Digests(t);
@@ -31,11 +32,13 @@ namespace Marabook.Tests
                 ForeignFile(t, dir);
                 RecoveryUntouched(t, dir);
                 Timestamped(t, dir);
-                SharedFolder(t, dir);
+                SameName(t, dir);
+                RollingBak(t, dir);
                 Timing(t, dir);
             }
             finally
             {
+                Backups.Root = null;
                 try { Directory.Delete(dir, true); } catch { }
             }
         }
@@ -220,55 +223,89 @@ namespace Marabook.Tests
             var path = Path.Combine(dir, "roman.plot");
             var project = BuildProject(2);
             PlotFile.Save(project, path);
-            var policy = new BackupPolicy { Keep = 3, IntervalMinutes = 30 };
-            t.Equal(Path.Combine(dir, "roman" + Backups.FolderSuffix), Backups.FolderFor(path, policy), "le dossier des copies est « roman.sauvegardes » à côté du projet");
+            var policy = new BackupPolicy { IntervalMinutes = 30 };
+            var folder = Backups.FolderFor(path);
+            t.Check(folder.StartsWith(Backups.RootFolder(), StringComparison.OrdinalIgnoreCase) && !folder.StartsWith(dir + Path.DirectorySeparatorChar + "roman", StringComparison.OrdinalIgnoreCase),
+                "le dossier des copies est sous la racine de Marabook, pas à côté du projet (" + folder + ")");
+            t.Check(Path.GetFileName(folder).StartsWith("roman-") && Path.GetFileName(folder).Length == "roman-".Length + 12, "…nommé « roman-<hash du chemin> »");
             string error;
             var t0 = new DateTime(2026, 10, 30, 14, 12, 5);
             var made = Backups.Record(path, policy, t0, out error);
             t.Check(made != null && error == null && File.Exists(made), "une première copie est faite (" + (error ?? Path.GetFileName(made ?? "")) + ")");
             t.Equal("roman-2026-10-30-14h12m05.plot", Path.GetFileName(made ?? ""), "…nommée par la date");
             t.Check(Backups.IsBackupName(made) && !Backups.IsBackupName(path), "le nom d'une copie se reconnaît, celui du projet non");
+            t.Equal("roman", Backups.ProjectNameOf(made), "…et rend le nom du projet");
             t.Equal(t0, Backups.DateOf(made), "la date se relit du nom");
             t.Check(Book(PlotFile.Load(made)).Children.Count == 2, "la copie est un .plot complet qui s'ouvre");
             t.Equal(null, Backups.Record(path, policy, t0.AddMinutes(10), out error), "dix minutes plus tard : pas de nouvelle copie (intervalle de 30)");
             t.Check(Backups.Record(path, policy, t0.AddMinutes(30), out error) != null, "trente minutes plus tard : une copie");
-            Backups.Record(path, policy, t0.AddMinutes(61), out error);
-            Backups.Record(path, policy, t0.AddMinutes(92), out error);
-            var list = Backups.List(path, policy);
-            t.Equal(3, list.Count, "au-delà de Keep (3), les plus anciennes sont retirées");
-            t.Check(list[0].Date == t0.AddMinutes(92) && list[2].Date == t0.AddMinutes(30), "…la liste va de la plus récente à la plus ancienne, la première copie est partie");
+            for (var i = 2; i <= 6; i++) Backups.Record(path, policy, t0.AddMinutes(30 * i), out error);
+            var list = Backups.List(path);
+            t.Equal(Backups.Keep, list.Count, "au-delà de " + Backups.Keep + " (fixe), les plus anciennes sont retirées");
+            t.Check(list[0].Date == t0.AddMinutes(180) && list[Backups.Keep - 1].Date == t0.AddMinutes(60), "…la liste va de la plus récente à la plus ancienne, les deux premières copies sont parties");
             t.Check(!File.Exists(made), "…sur le disque aussi");
             policy.Enabled = false;
             t.Equal(null, Backups.Record(path, policy, t0.AddHours(5), out error), "désactivé : rien");
             t.Equal(null, Backups.Record(path, null, t0.AddHours(5), out error), "sans politique : rien, sans erreur");
             policy.Enabled = true;
             policy.IntervalMinutes = 0;
-            t.Check(Backups.Record(path, policy, t0.AddMinutes(93), out error) != null, "intervalle 0 : une copie à chaque enregistrement");
-            t.Equal(3, Backups.List(path, policy).Count, "…toujours plafonné");
-            t.Equal(BackupPolicy.MaxKeep, BackupPolicy.ClampKeep(10_000), "Keep se borne");
-            t.Equal(BackupPolicy.MinIntervalMinutes, BackupPolicy.ClampInterval(-5), "l'intervalle aussi");
+            t.Check(Backups.Record(path, policy, t0.AddMinutes(181), out error) != null, "intervalle 0 : une copie à chaque enregistrement");
+            t.Equal(Backups.Keep, Backups.List(path).Count, "…toujours plafonné");
+            t.Equal(BackupPolicy.MinIntervalMinutes, BackupPolicy.ClampInterval(-5), "l'intervalle se borne");
             // Un projet sans copie : la liste est vide, sans dossier créé.
-            t.Equal(0, Backups.List(Path.Combine(dir, "vierge.plot"), policy).Count, "projet sans copies : liste vide");
-            t.Check(!Directory.Exists(Backups.FolderFor(Path.Combine(dir, "vierge.plot"), policy)), "…sans dossier créé");
+            t.Equal(0, Backups.List(Path.Combine(dir, "vierge.plot")).Count, "projet sans copies : liste vide");
+            t.Check(!Directory.Exists(Backups.FolderFor(Path.Combine(dir, "vierge.plot"))), "…sans dossier créé");
         }
 
-        private static void SharedFolder(Harness t, string dir)
+        private static void SameName(Harness t, string dir)
         {
-            var shared = Path.Combine(dir, "toutes-mes-sauvegardes");
-            var policy = new BackupPolicy { Folder = shared, Keep = 5, IntervalMinutes = 0 };
-            var a = Path.Combine(dir, "alpha.plot");
-            var b = Path.Combine(dir, "beta.plot");
+            var a = Path.Combine(dir, "a", "projet.plot");
+            var b = Path.Combine(dir, "b", "projet.plot");
+            Directory.CreateDirectory(Path.GetDirectoryName(a));
+            Directory.CreateDirectory(Path.GetDirectoryName(b));
             PlotFile.Save(BuildProject(1), a);
             PlotFile.Save(BuildProject(1), b);
-            t.Equal(Path.Combine(shared, "alpha"), Backups.FolderFor(a, policy), "dossier commun : un sous-dossier au nom du projet");
+            t.Check(Backups.FolderFor(a) != Backups.FolderFor(b), "deux projets de même nom ont chacun leur dossier (hash du chemin)");
+            var policy = new BackupPolicy { IntervalMinutes = 0 };
             string error;
             var now = new DateTime(2026, 10, 30, 9, 0, 0);
             Backups.Record(a, policy, now, out error);
             Backups.Record(a, policy, now.AddMinutes(1), out error);
             Backups.Record(b, policy, now, out error);
-            t.Equal(2, Backups.List(a, policy).Count, "alpha a ses deux copies");
-            t.Equal(1, Backups.List(b, policy).Count, "beta la sienne, à part");
-            t.Check(File.Exists(Path.Combine(shared, "beta", "beta-2026-10-30-09h00m00.plot")), "…au bon endroit");
+            t.Equal(2, Backups.List(a).Count, "le premier a ses deux copies");
+            t.Equal(1, Backups.List(b).Count, "le second la sienne, à part");
+        }
+
+        /// <summary>Le .bak roulant (30/10, Rémi) : caché et non indexé sous
+        /// Windows ; retiré à la fermeture propre seulement si le .plot porte
+        /// l'empreinte du dernier enregistrement et n'est pas plus vieux que
+        /// lui — un plantage, un fichier étranger ou abîmé le laissent.</summary>
+        private static void RollingBak(Harness t, string dir)
+        {
+            var path = Path.Combine(dir, "roulant.plot");
+            var project = BuildProject(2);
+            PlotFile.Save(project, path);
+            PlotFile.Save(project, path);
+            var bak = path + ".bak";
+            t.Check(File.Exists(bak), "le deuxième enregistrement pose le .bak");
+            var attributes = File.GetAttributes(bak);
+            t.Check(!OperatingSystem.IsWindows() || ((attributes & FileAttributes.Hidden) != 0 && (attributes & FileAttributes.NotContentIndexed) != 0), "…caché et hors indexation (" + attributes + ")");
+            PlotFile.Save(project, path);
+            t.Check(File.Exists(bak) && (!OperatingSystem.IsWindows() || (File.GetAttributes(bak) & FileAttributes.Hidden) != 0), "un troisième enregistrement remplace le .bak caché sans broncher");
+            t.Check(!Backups.DropRollingBak(path, "autre-empreinte") && File.Exists(bak), "fermeture avec une autre empreinte attendue (fichier étranger) : le .bak reste");
+            t.Check(!Backups.DropRollingBak(path, null) && File.Exists(bak), "sans empreinte connue : le .bak reste");
+            File.SetLastWriteTimeUtc(bak, File.GetLastWriteTimeUtc(path).AddMinutes(1));
+            t.Check(!Backups.DropRollingBak(path, project.SaveId) && File.Exists(bak), "un .bak plus récent que le .plot (plantage en plein échange) : il reste");
+            File.SetLastWriteTimeUtc(bak, File.GetLastWriteTimeUtc(path).AddMinutes(-1));
+            File.WriteAllText(path + ".x", "x");
+            var saved = File.ReadAllBytes(path);
+            File.WriteAllText(path, "abîmé");
+            t.Check(!Backups.DropRollingBak(path, project.SaveId) && File.Exists(bak), "un .plot illisible : le .bak reste pour le secours");
+            File.WriteAllBytes(path, saved);
+            File.SetLastWriteTimeUtc(bak, File.GetLastWriteTimeUtc(path).AddMinutes(-1));
+            t.Check(Backups.DropRollingBak(path, project.SaveId) && !File.Exists(bak), "fermeture propre, .plot à jour : le .bak est retiré");
+            t.Check(!Backups.DropRollingBak(path, project.SaveId), "…et une seconde fois, rien à faire");
+            t.Check(!Backups.DropRollingBak(Path.Combine(dir, "absent.plot"), "x"), "projet absent : rien, sans erreur");
         }
 
         /// <summary>Pas une assertion : la mesure, pour PLAN.md.</summary>

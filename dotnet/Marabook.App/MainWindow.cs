@@ -2438,7 +2438,7 @@ namespace Marabook.App
             var bak = path + ".bak";
             var candidates = new List<string>();
             if (File.Exists(bak)) candidates.Add(bak);
-            foreach (var copy in Backups.List(path, AppSettings.BackupPolicy())) candidates.Add(copy.Path);
+            foreach (var copy in Backups.List(path)) candidates.Add(copy.Path);
             if (candidates.Count == 0)
             {
                 MessageDialog.Show(this,
@@ -2498,7 +2498,7 @@ namespace Marabook.App
         private void OpenBackupFolder()
         {
             if (_path == null) return;
-            var folder = Backups.FolderFor(_path, AppSettings.BackupPolicy());
+            var folder = Backups.FolderFor(_path);
             if (!Directory.Exists(folder))
             {
                 MessageDialog.Show(this,
@@ -3171,6 +3171,10 @@ namespace Marabook.App
             _editor.ShutdownProofing();
             EndRecovery(); // fermeture propre : témoin et secours retirés (18/09)
             ReleaseLock(); // le verrou du .plot aussi (1.0.3)
+            // Le .bak roulant aussi (30/10, Rémi) — seulement si le .plot est
+            // bien notre dernière sauvegarde complète (empreinte + date) :
+            // après un plantage, rien ne passe ici et il reste pour le secours.
+            Backups.DropRollingBak(_path, _diskSaveId);
             AppSettings.BinderWidth = _binderCol.Width.Value > BinderStripWidth ? _binderCol.Width.Value : AppSettings.BinderWidth; // jamais la bande repliée (29/09)
             RememberRightWidth();
             AppSettings.Save();
