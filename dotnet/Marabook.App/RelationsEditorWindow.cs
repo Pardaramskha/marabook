@@ -116,11 +116,11 @@ namespace Marabook.App
             };
             DockPanel.SetDock(foot, Dock.Bottom);
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            var cancel = Buttons.Text("Annuler", "Fermer sans rien changer", Buttons.Bar, Buttons.Look.Outline);
+            var cancel = Buttons.Text("Annuler", null, Buttons.Bar, Buttons.Look.Outline);
             cancel.MinWidth = 100;
             cancel.IsCancel = true;
             cancel.Click += delegate { Close(false); };
-            var apply = Buttons.Text("Appliquer et fermer", "Remplacer les natures de relation du projet par celles-ci", Buttons.Bar, Buttons.Look.Primary);
+            var apply = Buttons.Text("Appliquer et fermer", null, Buttons.Bar, Buttons.Look.Primary);
             apply.MinWidth = 160;
             apply.Tag = "relations-apply"; // sonde
             apply.Click += async delegate { await Apply(); };
@@ -425,8 +425,7 @@ namespace Marabook.App
                 CornerRadius = new CornerRadius(12),
                 Child = column,
                 Tag = "self-tile", // sonde
-                [ToolTip.TipProperty] = "Le personnage de la fiche : tout s'ordonne autour de lui"
-            };
+                [ToolTip.TipProperty] = "Le personnage de la fiche"};
         }
 
         /// <summary>Le libellé d'une famille : ses formes, « · » entre elles.</summary>
@@ -724,7 +723,7 @@ namespace Marabook.App
                 _rail.Children.Add(Caption("Relation"));
                 _rail.Children.Add(NameField("Masculin", family, 'm', "« Père », « Frère »… — vide : pas de forme masculine"));
                 _rail.Children.Add(NameField("Féminin", family, 'f', "« Mère », « Sœur »… — vide : pas de forme féminine"));
-                _rail.Children.Add(NameField("Neutre", family, 'n', "« Parent », « Adelphe »… — la forme proposée quand le genre est inconnu"));
+                _rail.Children.Add(NameField("Neutre", family, 'n', "« Parent », « Adelphe »…"));
                 _rail.Children.Add(Note("Au moins une forme ; la fiche d'en face reçoit la forme qui va avec le genre du personnage."));
 
                 _rail.Children.Add(Divider());

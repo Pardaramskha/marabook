@@ -99,8 +99,7 @@ namespace Marabook.App
             {
                 Width = 150,
                 Margin = new Thickness(0, 0, 6, 0),
-                [ToolTip.TipProperty] = "Police — tapez un nom puis Entrée ; flèches haut/bas pour essayer les polices sur la sélection"
-            };
+                [ToolTip.TipProperty] = "Police"};
             _fontCombo.FontChosen += OnFontChosen;
             typeTop.Children.Add(_fontCombo);
 
@@ -114,8 +113,7 @@ namespace Marabook.App
                 Width = 52,
                 Margin = new Thickness(0, 0, 10, 0),
                 IsEditable = true,
-                [ToolTip.TipProperty] = "Taille — tapez une valeur puis Entrée ; flèches haut/bas pour l'essayer"
-            };
+                [ToolTip.TipProperty] = "Taille"};
             foreach (var size in new[] { 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 28, 32, 36, 48, 72 })
                 _sizeCombo.Items.Add(size);
             _sizeCombo.SelectionChanged += OnSizeComboChanged;
@@ -388,7 +386,7 @@ namespace Marabook.App
             panel.Children.Add(VerticalRuleTall());
             // Les caractères d'impression : un grand carré (13/09), puis
             // l'approche dans sa propre section, centrée verticalement.
-            _marksBtn = BigSquareToggle("paragraph", "Caractères d'impression", "Caractères d'impression");
+            _marksBtn = BigSquareToggle("paragraph", "Caractères d'impression", null);
             _marksBtn.Click += delegate
             {
                 var handler = MarksToggled;
@@ -528,13 +526,13 @@ namespace Marabook.App
                 if (plan != null && handler != null) handler(plan);
             };
             views.Children.Add(_planBtn);
-            _pagesViewBtn = ViewToggle("Pages", "Pages");
+            _pagesViewBtn = ViewToggle("Pages", null);
             _pagesViewBtn.Click += delegate { SetDraftView(false); };
             views.Children.Add(_pagesViewBtn);
-            _draftViewBtn = ViewToggle("Brouillon", "Brouillon");
+            _draftViewBtn = ViewToggle("Brouillon", null);
             _draftViewBtn.Click += delegate { SetDraftView(true); };
             views.Children.Add(_draftViewBtn);
-            _calmViewBtn = ViewToggle("Calme", "Calme");
+            _calmViewBtn = ViewToggle("Calme", null);
             _calmViewBtn.Click += delegate
             {
                 UpdateViewButtons(); // l'état réel suivra SetCalm
@@ -682,9 +680,9 @@ namespace Marabook.App
         private Control BuildDecorTab()
         {
             var panel = TabPanel();
-            var header = OneLine("sort-descending-bold", "Éditer l'en-tête…", "Éditer l'en-tête");
+            var header = OneLine("sort-descending-bold", "Éditer l'en-tête…", null);
             header.Click += delegate { EditHeaderFooter(true); };
-            var footer = OneLine("sort-ascending-bold", "Éditer le pied de page…", "Éditer le pied de page");
+            var footer = OneLine("sort-ascending-bold", "Éditer le pied de page…", null);
             footer.Click += delegate { EditHeaderFooter(false); };
             panel.Children.Add(Stacked(header, footer));
             // Plus de texte d'aide (29/10, Rémi) : pour un écrit de livre,
@@ -830,17 +828,17 @@ namespace Marabook.App
         private Control BuildCompositionTab()
         {
             var panel = TabPanel();
-            var preview = BigSquare("book-open-text-bold", "Aperçu des pages", "Aperçu des pages");
+            var preview = BigSquare("book-open-text-bold", "Aperçu des pages", null);
             preview.Click += delegate { var handler = PreviewRequested; if (handler != null) handler(); };
             panel.Children.Add(preview);
             panel.Children.Add(VerticalRuleTall());
-            var print = OneLine("printer-bold", "Imprimer", "Imprimer");
+            var print = OneLine("printer-bold", "Imprimer", null);
             print.Click += delegate { var handler = PrintRequested; if (handler != null) handler(); };
-            var pdf = OneLine("document-file", "PDF prêt à imprimer…", "PDF prêt à imprimer");
+            var pdf = OneLine("document-file", "PDF prêt à imprimer…", null);
             pdf.Click += delegate { var handler = PdfRequested; if (handler != null) handler(); };
             panel.Children.Add(Stacked(print, pdf));
             panel.Children.Add(VerticalRuleTall());
-            var export = OneLine("file-arrow-down-bold", "Exporter l'écrit…", "Exporter l'écrit");
+            var export = OneLine("file-arrow-down-bold", "Exporter l'écrit…", null);
             export.Click += delegate { var handler = ExportRequested; if (handler != null) handler(); };
             panel.Children.Add(export);
             return panel;
@@ -953,14 +951,14 @@ namespace Marabook.App
             setup.Children.Add(_columnsCombo);
 
             panel.Children.Add(VerticalRuleTall());
-            _guidesBtn = OneLineToggle("margins", "Marges", "Marges");
+            _guidesBtn = OneLineToggle("margins", "Marges", null);
             _guidesBtn.Click += delegate
             {
                 if (_project == null) return;
                 _pageSetup.ShowMarginGuides = _guidesBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
-            _lineNumbersBtn = OneLineToggle("list-numbers-bold", "Numéros de ligne", "Numéros de ligne");
+            _lineNumbersBtn = OneLineToggle("list-numbers-bold", "Numéros de ligne", null);
             _lineNumbersBtn.Click += delegate
             {
                 if (_project == null) return;
@@ -972,7 +970,7 @@ namespace Marabook.App
             panel.Children.Add(VerticalRuleTall());
             // Les lignes lâches vivent dans Formatage depuis le 29/10 (Rémi),
             // avec l'approche — BuildLooseLinesButton.
-            _folioBtn = OneLineToggle("numbered", "Folio", "Folio");
+            _folioBtn = OneLineToggle("numbered", "Folio", null);
             _folioBtn.Click += delegate
             {
                 if (_project == null) return;
@@ -984,7 +982,7 @@ namespace Marabook.App
             // bouge pas. Actif par défaut ; caché pour un profil sans
             // détecteur (Écrivain·e).
             _widowsBtn = OneLineToggle("warning-fill", "Veuves/Orphelines",
-                "Afficher ou masquer les marqueurs de veuves et d'orphelines (écran seulement : la mise en page ne change pas)");
+                "Afficher ou masquer les marqueurs de veuves et d'orphelines");
             _widowsBtn.IsChecked = Marabook.Settings.AppSettings.ShowWidowMarks;
             _widowsBtn.IsVisible = Profiles.Enabled(Profiles.Widows);
             _widowsBtn.Click += delegate { ApplyWidowMarks(_widowsBtn.IsChecked == true); };
@@ -1001,8 +999,7 @@ namespace Marabook.App
         {
             var looseGesture = Marabook.Settings.AppSettings.Gesture("loose-lines");
             _looseBtn = OneLineToggle("highlighter-line", "Lignes lâches",
-                "Afficher ou masquer les lignes lâches" + (string.IsNullOrEmpty(looseGesture) ? "" : " (" + Marabook.Settings.AppSettings.DisplayGesture(looseGesture) + ")")
-                + " : une bande jaune derrière chaque ligne justifiée dont les espaces ont dû au moins doubler (écran seulement) — là où une césure manque, où l'approche peut aider");
+                "Afficher ou masquer les lignes lâches" + (string.IsNullOrEmpty(looseGesture) ? "" : " (" + Marabook.Settings.AppSettings.DisplayGesture(looseGesture) + ")"));
             _looseBtn.IsChecked = Marabook.Settings.AppSettings.ShowLooseLines;
             ComposedRenderer.ShowLooseLines = Marabook.Settings.AppSettings.ShowLooseLines;
             _looseBtn.Click += delegate { ApplyLooseLines(_looseBtn.IsChecked == true); };

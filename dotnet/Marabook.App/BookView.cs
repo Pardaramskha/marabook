@@ -100,7 +100,7 @@ namespace Marabook.App
                 IsChecked = true,
                 Tag = "flow-warnings" // sonde
             };
-            ToolTip.SetTip(_flowWarnings, "Signale un chapitre, ou le livre entier, qui finit sur une page impaire (un verso blanc suivra) : pastille dans la Pile et sur la tuile, « Unifier » au clic droit, ligne critique de la check-list.");
+            ToolTip.SetTip(_flowWarnings, "Signale un chapitre, ou le livre entier, qui finit sur une page impaire (un verso blanc suivra) : pastille dans la Pile et sur la tuile, « Unifier » au clic droit.");
             _flowWarnings.IsCheckedChanged += delegate
             {
                 if (_syncingFlow || _item == null || _item.Book == null) return;

@@ -46,18 +46,18 @@ namespace Marabook.App
             // contre le bord droit.
             var toolbar = new DockPanel { Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0) };
             SetDock(toolbar, Dock.Top);
-            _searchBox = new TextBox { [ToolTip.TipProperty] = "Filtrer les entrées (mot ou forme acceptée)" };
+            _searchBox = new TextBox { [ToolTip.TipProperty] = "Filtrer les entrées"};
             _searchBox.TextChanged += delegate { ResetPages(); Rebuild(); };
             var left = new StackPanel { Orientation = Orientation.Horizontal };
             var newEntry = _newEntryButton = Buttons.IconText("plus-bold", "Nouvelle entrée",
-                "Ajouter un mot au dictionnaire personnel avec sa nature grammaticale",
+                null,
                 Buttons.Bar, Buttons.Look.Primary);
             newEntry.Click += delegate { NewEntry(true); };
             left.Children.Add(newEntry);
             // Le menu options (18/09) : l'épingle du Lexique au rail, et
             // l'import/export de dictionnaires (fichiers d'autres apps).
             var options = Buttons.Icon("dots-three-vertical-bold",
-                "Options : Lexique au rail, importer ou exporter un dictionnaire",
+                "Options",
                 Buttons.Bar, Buttons.Look.Calm);
             options.Margin = new Thickness(6, 0, 0, 0);
             options.Click += delegate { OpenOptionsMenu(options); };
@@ -72,14 +72,14 @@ namespace Marabook.App
             left.Children.Add(unknown);
             // Le filtre par nature (29/09) : toutes, ou une seule (nom propre,
             // nom commun, adjectif…) ; et la taille de page — 25 par défaut.
-            _classFilter = new ComboBox { Margin = new Thickness(14, 0, 0, 0), MinWidth = 150, VerticalAlignment = VerticalAlignment.Center, [ToolTip.TipProperty] = "N'afficher qu'une nature grammaticale" };
+            _classFilter = new ComboBox { Margin = new Thickness(14, 0, 0, 0), MinWidth = 150, VerticalAlignment = VerticalAlignment.Center };
             _classFilter.Items.Add("Toutes natures");
             foreach (var key in LexiconEntry.Classes) _classFilter.Items.Add(LexiconEntry.ClassLabel(key));
             _classFilter.Items.Add("À revoir — migration nécessaire"); // les entrées de l'ancien format (30/09)
             _classFilter.SelectedIndex = 0;
             _classFilter.SelectionChanged += delegate { ResetPages(); Rebuild(); };
             left.Children.Add(_classFilter);
-            _pageSize = new ComboBox { Margin = new Thickness(8, 0, 0, 0), MinWidth = 110, VerticalAlignment = VerticalAlignment.Center, [ToolTip.TipProperty] = "Entrées par page" };
+            _pageSize = new ComboBox { Margin = new Thickness(8, 0, 0, 0), MinWidth = 110, VerticalAlignment = VerticalAlignment.Center };
             foreach (var size in PageSizes) _pageSize.Items.Add(size + " par page");
             _pageSize.SelectedIndex = 0;
             _pageSize.SelectionChanged += delegate { ResetPages(); Rebuild(); };
@@ -276,7 +276,7 @@ namespace Marabook.App
         private Control BuildPager(int slot, int page, int pageCount, int total)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 2, 0, 8) };
-            var previous = Buttons.Text("‹ Précédente", "Page précédente", Buttons.Compact, Buttons.Look.Calm);
+            var previous = Buttons.Text("‹ Précédente", null, Buttons.Compact, Buttons.Look.Calm);
             previous.IsEnabled = page > 0;
             previous.Click += delegate { _pages[slot] = Math.Max(0, _pages[slot] - 1); Rebuild(); };
             row.Children.Add(previous);
@@ -288,7 +288,7 @@ namespace Marabook.App
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(8, 0, 8, 0)
             });
-            var next = Buttons.Text("Suivante ›", "Page suivante", Buttons.Compact, Buttons.Look.Calm);
+            var next = Buttons.Text("Suivante ›", null, Buttons.Compact, Buttons.Look.Calm);
             next.IsEnabled = page < pageCount - 1;
             next.Click += delegate { _pages[slot] = Math.Min(pageCount - 1, _pages[slot] + 1); Rebuild(); };
             row.Children.Add(next);
@@ -479,9 +479,7 @@ namespace Marabook.App
             {
                 Header = "Épingler le Lexique au rail",
                 ToggleType = MenuItemToggleType.CheckBox,
-                IsChecked = AppSettings.LexiconPinned,
-                [ToolTip.TipProperty] = "Un onglet permanent dans la colonne de droite : la définition "
-                    + "du mot choisi par clic droit › « Afficher la définition »"
+                IsChecked = AppSettings.LexiconPinned
             };
             pin.Click += delegate
             {
@@ -492,9 +490,7 @@ namespace Marabook.App
             menu.Items.Add(new Separator());
             var import = new MenuItem
             {
-                Header = "Importer un dictionnaire…",
-                [ToolTip.TipProperty] = "Un fichier Marabook (.json) ou une liste de mots (.txt, .dic de Word, "
-                    + "LibreOffice, Hunspell, Scrivener…) — les mots déjà présents sont gardés"
+                Header = "Importer un dictionnaire…"
             };
             var importProject = new MenuItem { Header = "Dans le dictionnaire du projet" };
             importProject.Click += delegate { ImportInto(true); };
@@ -505,9 +501,7 @@ namespace Marabook.App
             menu.Items.Add(import);
             var export = new MenuItem
             {
-                Header = "Exporter un dictionnaire…",
-                [ToolTip.TipProperty] = "Fichier Marabook (.json, natures et définitions), liste de mots (.txt) "
-                    + "ou dictionnaire personnel Word (.dic)"
+                Header = "Exporter un dictionnaire…"
             };
             var exportProject = new MenuItem { Header = "Le dictionnaire du projet" };
             exportProject.Click += delegate { ExportFrom(true); };

@@ -211,7 +211,7 @@ namespace Marabook.App
             // puis catégorie et modèles), la recherche contre le bord droit.
             var toolbar = new DockPanel { Margin = new Thickness(24, TopGap, 24, 0) };
             SetDock(toolbar, Dock.Top);
-            _searchBox = new TextBox { [ToolTip.TipProperty] = "Rechercher une fiche par nom, toutes catégories confondues" };
+            _searchBox = new TextBox();
             _searchBox.TextChanged += delegate
             {
                 RebuildRows();
@@ -229,8 +229,7 @@ namespace Marabook.App
                 FontSize = 12,
                 MinWidth = 150,
                 Margin = new Thickness(14, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                [ToolTip.TipProperty] = "L'ordre des cartes dans chaque catégorie"
+                VerticalAlignment = VerticalAlignment.Center
             };
             foreach (var label in SortLabels) _sortBox.Items.Add(label);
             _sortBox.SelectedIndex = _sortIndex;
@@ -242,7 +241,7 @@ namespace Marabook.App
             };
 
             var left = _actionsRow = new StackPanel { Orientation = Orientation.Horizontal };
-            _back = Buttons.Icon("arrow-left-bold", "Revenir à la bibliothèque", Buttons.Bar, Buttons.Look.Calm);
+            _back = Buttons.Icon("arrow-left-bold", "Retour", Buttons.Bar, Buttons.Look.Calm);
             _back.Margin = new Thickness(0, 0, 6, 0);
             _back.IsVisible = false;
             _back.Click += delegate
@@ -267,24 +266,24 @@ namespace Marabook.App
             // « Nouvelle fiche » : UN bouton principal (pack du 12/09/2026) —
             // la catégorie se choisit dans le dialogue avec le nom.
             var newSheet = Buttons.IconText("plus-bold", "Nouvelle fiche",
-                "Créer une fiche — le nom et la catégorie se choisissent ensemble",
+                null,
                 Buttons.Bar, Buttons.Look.Primary);
             newSheet.Click += delegate { NewSheet(); };
             left.Children.Add(newSheet);
             var newCategory = Buttons.IconText("plus-bold", "Nouvelle catégorie",
-                "Une catégorie de fiches, avec son modèle", Buttons.Bar, Buttons.Look.Outline);
+                null, Buttons.Bar, Buttons.Look.Outline);
             newCategory.Margin = new Thickness(8, 0, 0, 0);
             newCategory.Click += delegate { NewCategory(); };
             left.Children.Add(newCategory);
             var templates = _templatesButton = Buttons.IconText("pencil-simple-line", "Éditeur de modèles",
-                "Sections, champs, natures et radar des modèles de fiches", Buttons.Bar, Buttons.Look.Outline);
+                null, Buttons.Bar, Buttons.Look.Outline);
             templates.Margin = new Thickness(8, 0, 0, 0);
             templates.Click += delegate { EditTemplates(); };
             left.Children.Add(templates);
             // Les fiches manquantes (1.0.5-a, Rémi) : les noms propres récurrents
             // des écrits sans fiche, à créer en lot — le pendant des mots inconnus.
             var missing = Buttons.IconText("magnifying-glass-bold", "Fiches manquantes…",
-                "Relever les noms propres récurrents des écrits qui n'ont pas de fiche, et en créer plusieurs d'un coup",
+                null,
                 Buttons.Bar, Buttons.Look.Outline);
             missing.Margin = new Thickness(8, 0, 0, 0);
             missing.Click += delegate { ShowMissingSheets(); };
@@ -303,8 +302,7 @@ namespace Marabook.App
                 FontSize = 12,
                 MinWidth = 150,
                 Margin = new Thickness(14, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                [ToolTip.TipProperty] = "Ne montrer que les fiches qui portent ce tag (les tags se posent dans le Général du rail)"
+                VerticalAlignment = VerticalAlignment.Center
             };
             _tagBox.SelectionChanged += delegate
             {

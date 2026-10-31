@@ -351,7 +351,7 @@ namespace Marabook.App
 
             // Le même sélecteur que le ruban (0.50.0) : récentes, aperçu,
             // frappe + Entrée, flèches — un choix commet la feuille.
-            _fontCombo = new FontPicker { [ToolTip.TipProperty] = "Police du style — tapez un nom puis Entrée, ou parcourez aux flèches" };
+            _fontCombo = new FontPicker { [ToolTip.TipProperty] = "Police du style"};
             form.Children.Add(FormRow("Police", _fontCombo));
 
             // La variante de police (01/10) : les graisses réellement
@@ -366,8 +366,7 @@ namespace Marabook.App
             {
                 MinWidth = 190,
                 VerticalAlignment = VerticalAlignment.Center,
-                [ToolTip.TipProperty] = "La graisse installée à employer — une variante posée remplace la case Gras"
-            };
+                [ToolTip.TipProperty] = "La graisse installée à employer"};
             DockPanel.SetDock(_weightCombo, Dock.Left);
             weightRow.Children.Add(_weightCombo);
             _weightHint = new TextBlock
@@ -436,8 +435,7 @@ namespace Marabook.App
             {
                 Width = 60,
                 HorizontalAlignment = HorizontalAlignment.Left,
-                [ToolTip.TipProperty] = "Appliqué à l'impression (compositeur 4b)"
-            }));
+                [ToolTip.TipProperty] = "Appliqué à l'impression"}));
             form.Children.Add(FormRow("Espace avant (mm)", _beforeBox = Small()));
             form.Children.Add(FormRow("Espace après (mm)", _afterBox = Small()));
             return form;

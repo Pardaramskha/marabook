@@ -57,7 +57,7 @@ namespace Marabook.App
             var head = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
             DockPanel.SetDock(head, Dock.Top);
             var titleRow = new DockPanel();
-            var close = Buttons.Close("Fermer le panneau des versions"); // le même « Fermer » sur tout le rail (27/10, Rémi)
+            var close = Buttons.Close("Fermer"); // le même « Fermer » sur tout le rail (27/10, Rémi)
             close.Click += delegate { OnCloseRequested(); };
             DockPanel.SetDock(close, Dock.Right);
             titleRow.Children.Add(close);
@@ -93,8 +93,7 @@ namespace Marabook.App
                 Padding = new Thickness(8, 2, 8, 2),
                 Margin = new Thickness(0, 0, 4, 3),
                 Focusable = false,
-                [ToolTip.TipProperty] = "Retirer des instantanés — jamais automatiquement"
-            };
+                [ToolTip.TipProperty] = "Retirer des instantanés"};
             _purge.Click += delegate { ShowPurgeMenu(); };
             actions.Children.Add(_purge);
             head.Children.Add(actions);
@@ -287,7 +286,7 @@ namespace Marabook.App
                 Rename(snapshot, label.Trim());
             };
             actions.Children.Add(rename);
-            var delete = Small("Supprimer", "Retirer cette version (définitif)");
+            var delete = Small("Supprimer", "Yeet cette version (définitif)");
             delete.Click += async delegate
             {
                 var answer = MessageDialog.Show(Ui.OwnerOf(this), "Supprimer la version « " + snapshot.DisplayLabel + " » ?",

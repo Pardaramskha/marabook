@@ -460,7 +460,7 @@ namespace Marabook.App
             SetDock(_searchBar, Dock.Top);
             // La croix de fermeture à droite (29/10, Rémi) : Échap y mène aussi.
             var dock = new DockPanel();
-            var close = Buttons.Icon("x-bold", "Fermer la recherche (Échap)", Buttons.Compact, Buttons.Look.Calm);
+            var close = Buttons.Icon("x-bold", "Fermer (Échap)", Buttons.Compact, Buttons.Look.Calm);
             close.VerticalAlignment = VerticalAlignment.Center;
             close.Margin = new Thickness(8, 0, 0, 0);
             close.Click += delegate { HideSearch(); };
@@ -514,11 +514,11 @@ namespace Marabook.App
             };
             panel.Children.Add(_wholeWordCheck);
 
-            var findPrevious = Buttons.Icon("previous", "Occurrence précédente (Maj+Entrée)", Buttons.Compact, Buttons.Look.Outline);
+            var findPrevious = Buttons.Icon("previous", "Occurrence précédente", Buttons.Compact, Buttons.Look.Outline);
             findPrevious.Margin = new Thickness(0, 0, 2, 0);
             findPrevious.Click += delegate { FindPrevious(); };
             panel.Children.Add(findPrevious);
-            var findNext = Buttons.Icon("next", "Occurrence suivante (Entrée)", Buttons.Compact, Buttons.Look.Outline);
+            var findNext = Buttons.Icon("next", "Occurrence suivante", Buttons.Compact, Buttons.Look.Outline);
             findNext.Margin = new Thickness(0, 0, 6, 0);
             findNext.Click += delegate { FindNext(); };
             panel.Children.Add(findNext);
@@ -927,7 +927,7 @@ namespace Marabook.App
                 Margin = new Thickness(0, 0, 0, 6)
             });
             var options = Buttons.IconText("gear-six-bold", "Options des relevés",
-                "Ce que le correcteur relève : orthographe, néologismes, familier, grammaire, typographie, style",
+                null,
                 Buttons.Compact, Buttons.Look.Outline);
             options.Tag = "corr-options";
             options.HorizontalAlignment = HorizontalAlignment.Left;
@@ -1474,7 +1474,6 @@ namespace Marabook.App
                 FontWeight = FontWeight.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center
             });
-            ToolTip.SetTip(row, "Replier ou déplier cette catégorie");
             row.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
             {
                 if (!e.GetCurrentPoint(row).Properties.IsLeftButtonPressed) return;
@@ -1980,14 +1979,12 @@ namespace Marabook.App
                 var resolve = SmallButton(annotation.Resolved ? "Rouvrir" : "Résoudre",
                     delegate { ToggleAnnotationResolved(annotation); });
                 resolve.FontSize = 10;
-                ToolTip.SetTip(resolve, annotation.Resolved
-                    ? "Réactiver l'annotation (la teinte revient)"
-                    : "Marquer comme traitée (la teinte s'éteint, le commentaire reste)");
+                ToolTip.SetTip(resolve, annotation.Resolved ? "Réactiver l'annotation" : "Marquer comme traitée");
                 buttons.Children.Add(resolve);
                 var remove = SmallButton("Supprimer",
                     delegate { DeleteAnnotation(annotation); });
                 remove.FontSize = 10;
-                ToolTip.SetTip(remove, "Supprimer le commentaire et son ancre");
+                ToolTip.SetTip(remove, "Supprimer le commentaire");
                 buttons.Children.Add(remove);
                 panel.Children.Add(buttons);
             }

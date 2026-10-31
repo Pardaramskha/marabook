@@ -85,9 +85,7 @@ namespace Marabook.App
             _panel.Children.Add(_plus);
             var gesture = AppSettings.DisplayGesture(AppSettings.Gesture("new-tab") ?? "");
             _plus.IsEnabled = _model.CanOpen;
-            ToolTip.SetTip(_plus, _model.CanOpen
-                ? "Nouvel onglet" + (gesture.Length > 0 ? " (" + gesture + ")" : "")
-                : "Onglets maximum atteint (" + _model.Limit + ") — Préférences › Général › Onglets");
+            ToolTip.SetTip(_plus, _model.CanOpen ? "Nouvel onglet" + (gesture.Length > 0 ? " (" + gesture + ")" : "") : "Eh, ça va les onglets ? (" + _model.Limit + ")");
         }
 
         /// <summary>Le libellé d'un onglet : le titre de l'élément, ou un repère

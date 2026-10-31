@@ -283,7 +283,7 @@ namespace Marabook.App
             _modulesPanel = new StackPanel();
             panel.Children.Add(_modulesPanel);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0) };
-            var fromFile = Buttons.Text("Installer depuis un fichier .mdlc…", "Un paquet de module obtenu autrement que par GitHub", Buttons.Bar, Buttons.Look.Outline);
+            var fromFile = Buttons.Text("Installer depuis un fichier .mdlc…", null, Buttons.Bar, Buttons.Look.Outline);
             fromFile.Click += async delegate { await InstallModuleFromFile(); };
             actions.Children.Add(fromFile);
             panel.Children.Add(actions);
@@ -600,7 +600,7 @@ namespace Marabook.App
                 e.Handled = true;
             };
             custom.Children.Add(hexBox);
-            var reset = Buttons.Text("Réinitialiser", "Revenir à l'indigo par défaut", Buttons.Bar, Buttons.Look.Outline);
+            var reset = Buttons.Text("Réinitialiser", null, Buttons.Bar, Buttons.Look.Outline);
             reset.Margin = new Thickness(8, 0, 0, 0);
             reset.Click += delegate { SetAccent(null); hexBox.Text = Chrome.DefaultAccent; };
             custom.Children.Add(reset);
@@ -726,7 +726,7 @@ namespace Marabook.App
 
             panel.Children.Add(Caption("Mode sombre", 18));
             _darkCheck = new CheckBox { Content = "Mode sombre", IsChecked = AppSettings.DarkTheme, Margin = new Thickness(0, 6, 0, 0) };
-            ToolTip.SetTip(_darkCheck, "Aussi : Affichage › Thème sombre (" + AppSettings.DisplayGesture(AppSettings.Gesture("dark-theme") ?? "") + ")");
+            ToolTip.SetTip(_darkCheck, "(" + AppSettings.DisplayGesture(AppSettings.Gesture("dark-theme") ?? "") + ")");
             _darkCheck.IsCheckedChanged += delegate
             {
                 if (AppSettings.DarkTheme == (_darkCheck.IsChecked == true)) return;

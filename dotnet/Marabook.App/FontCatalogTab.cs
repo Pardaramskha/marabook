@@ -131,9 +131,7 @@ namespace Marabook.App
             var sampleBox = new TextBox
             {
                 Text = DefaultSample,
-                [ToolTip.TipProperty] = "Remplace la phrase d'exemple sous chaque police — tel quel, sans mise en forme automatique "
-                    + "(collez vos glyphes) ; vide = la phrase par défaut"
-            };
+                [ToolTip.TipProperty] = "Remplace la phrase d'exemple sous chaque police"};
             sampleBox.TextChanged += delegate
             {
                 _sample = (sampleBox.Text ?? "").Length > 0 ? sampleBox.Text : DefaultSample;

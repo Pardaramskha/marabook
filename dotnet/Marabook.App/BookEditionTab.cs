@@ -109,7 +109,7 @@ namespace Marabook.App
             var choose = Buttons.IconText("image-square-bold", "Choisir une image…", "PNG, JPEG, GIF ou BMP — 20 Mo au plus", Buttons.Bar, Buttons.Look.Outline);
             choose.Click += delegate { var h = CoverRequested; if (h != null && _item != null) h(_item, false); };
             coverButtons.Children.Add(choose);
-            _removeCover = Buttons.Text("Retirer", "Retirer l'image du livre", Buttons.Bar, Buttons.Look.Calm);
+            _removeCover = Buttons.Text("Retirer", null, Buttons.Bar, Buttons.Look.Calm);
             _removeCover.Margin = new Thickness(8, 0, 0, 0);
             _removeCover.Click += delegate { var h = CoverRequested; if (h != null && _item != null) h(_item, true); };
             coverButtons.Children.Add(_removeCover);
@@ -218,8 +218,7 @@ namespace Marabook.App
             {
                 Content = "Ce livre fait partie d'une série",
                 VerticalAlignment = VerticalAlignment.Center,
-                [DockPanel.DockProperty] = Dock.Left,
-                [ToolTip.TipProperty] = "Informatif : le rang du livre dans sa série ou son cycle"
+                [DockPanel.DockProperty] = Dock.Left
             };
             _series.IsCheckedChanged += delegate
             {
@@ -368,8 +367,7 @@ namespace Marabook.App
                     Margin = new Thickness(5, 0, 2, 0),
                     VerticalAlignment = VerticalAlignment.Center,
                     Cursor = new Cursor(StandardCursorType.Hand),
-                    [ToolTip.TipProperty] = "Retirer cette thématique"
-                };
+                    [ToolTip.TipProperty] = "Retirer"};
                 remove.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
                     if (_item == null) return;
                     _item.Book.Themes.Remove(name);

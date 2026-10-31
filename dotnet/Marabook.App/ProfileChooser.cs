@@ -72,7 +72,7 @@ namespace Marabook.App
 
             // « Moi-même » : le bouton vers la fenêtre des fonctionnalités.
             _featuresButton = Buttons.IconText("personnalise", "Choisir les fonctionnalités…",
-                "Cocher et décocher, une à une, ce que Marabook vous montre", Buttons.Bar, Buttons.Look.Outline);
+                "Choisissez ce que vous voulez voir de Marabook.", Buttons.Bar, Buttons.Look.Outline);
             _featuresButton.HorizontalAlignment = HorizontalAlignment.Left;
             _featuresButton.Margin = new Thickness(0, 14, 0, 0);
             _featuresButton.IsVisible = false;
@@ -102,7 +102,7 @@ namespace Marabook.App
                     HorizontalAlignment = HorizontalAlignment.Left,
                     Tag = "pen-name" // sonde
                 };
-                ToolTip.SetTip(_penName, "Préremplit le nom d'auteur·ice : compilation d'écrits, pages liminaires, commentaires exportés. Chaque livre peut nommer le sien.");
+                ToolTip.SetTip(_penName, "Préremplit le nom d'auteur·ice : Le nom par défaut qui sera inscrit comme auteur·ice dans les pages liminaires ou les fichiers. Modifiable par écrit ou livre.");
                 _penName.LostFocus += delegate { CommitPenName(); };
                 penRow.Children.Add(_penName);
                 Children.Add(penRow);

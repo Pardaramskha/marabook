@@ -392,7 +392,7 @@ namespace Marabook.App
             // projet d'exemple temporaire et la visite guidée.
             var tutorialRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 0, 0, 14) };
             var tutorial = Buttons.IconText("play-fill", "Démarrer le tutoriel",
-                "Ouvre un projet d'exemple temporaire et vous guide à travers les grandes fonctionnalités de Marabook (le succès « Tour du proprio » à la clé)",
+                "Ouvre un projet d'exemple temporaire et vous guide à travers les grandes fonctionnalités de Marabook",
                 Buttons.Bar, Buttons.Look.Primary);
             tutorial.Tag = "welcome-tutorial"; // sonde
             tutorial.Click += delegate
@@ -639,7 +639,7 @@ namespace Marabook.App
                 TextAlignment = TextAlignment.Center
             });
             grid.Children.Add(column);
-            ToolTip.SetTip(grid, "Créer un projet — il est enregistré tout de suite, là où vous le dites");
+            ToolTip.SetTip(grid, "Démarrer une nouvelle aventure");
             grid.PointerEntered += delegate { dashes.Stroke = Chrome.Accent; };
             grid.PointerExited += delegate { dashes.Stroke = Chrome.BorderStrong; };
             grid.PointerReleased += async delegate

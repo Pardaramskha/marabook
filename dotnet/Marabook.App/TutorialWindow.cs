@@ -91,7 +91,7 @@ namespace Marabook.App
 
             // — Le pied : Fermer à gauche, Précédent et Suivant à droite.
             var foot = new DockPanel { Margin = new Thickness(16, 10, 16, 14) };
-            var close = Buttons.Text("Fermer", "Mettre fin au tutoriel (sans le succès)", Buttons.Bar, Buttons.Look.Outline);
+            var close = Buttons.Text("Fermer", "Mettre fin au tutoriel (sans le succès - lâcheur)", Buttons.Bar, Buttons.Look.Outline);
             close.Click += delegate { var h = CloseRequested; if (h != null) h(); };
             DockPanel.SetDock(close, Dock.Left);
             foot.Children.Add(close);

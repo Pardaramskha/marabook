@@ -102,8 +102,7 @@ namespace Marabook.App
             _profile.Items.Add("RVB — lecture à l'écran");
             _profile.Items.Add("CMJN — Coated FOGRA39 (imprimerie)");
             _profile.SelectedIndex = bookDefaults ? 1 : 0;
-            ToolTip.SetTip(_profile, "RVB pour un PDF de relecture ; CMJN FOGRA39 pour le "
-                + "fichier remis à l'imprimeur (noir du texte porté par le seul canal N).");
+            ToolTip.SetTip(_profile, "RVB pour un PDF de relecture ; CMJN FOGRA39 pour le fichier remis à l'imprimeur");
             profileRow.Children.Add(_profile);
             panel.Children.Add(profileRow);
 

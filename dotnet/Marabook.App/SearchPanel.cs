@@ -121,7 +121,7 @@ namespace Marabook.App
             _wordButton = Option("Mot", "Mot entier (sans objet en expression régulière)");
             _accentButton = Option("é=e", "Insensible aux accents (« eleve » trouve « élève »)");
             _accentButton.IsChecked = true;
-            _regexButton = Option(".*", "Expression régulière (.NET) — casse et accents s'appliquent aussi");
+            _regexButton = Option(".*", "Expression régulière (.NET) — casse et accents s'appliquent aussi. Bon courage.");
             _regexButton.Checked += delegate { _wordButton.IsEnabled = false; };
             _regexButton.Unchecked += delegate { _wordButton.IsEnabled = true; };
             options.Children.Add(_caseButton);
@@ -138,12 +138,12 @@ namespace Marabook.App
             _scopeCombo.SelectedIndex = 2;
             _scopeCombo.SelectionChanged += delegate { Schedule(); };
             scopeRow.Children.Add(_scopeCombo);
-            _kindCombo = new ComboBox { FontSize = 11, MinWidth = 96, Margin = new Thickness(0, 0, 4, 3), [ToolTip.TipProperty] = "La nature des items fouillés" };
+            _kindCombo = new ComboBox { FontSize = 11, MinWidth = 96, Margin = new Thickness(0, 0, 4, 3), [ToolTip.TipProperty] = "La nature des éléments fouillés"};
             foreach (var label in new[] { "Tout", "Écrits", "Fiches", "Plans", "Dictionnaire", "Médias" }) _kindCombo.Items.Add(label);
             _kindCombo.SelectedIndex = 0;
             _kindCombo.SelectionChanged += delegate { Schedule(); };
             scopeRow.Children.Add(_kindCombo);
-            _trashCheck = new CheckBox { Content = "Corbeille", FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 0, 3), [ToolTip.TipProperty] = "Chercher aussi dans la corbeille (exclue par défaut)" };
+            _trashCheck = new CheckBox { Content = "Corbeille", FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 0, 3), [ToolTip.TipProperty] = "Chercher aussi dans la corbeille"};
             _trashCheck.Checked += delegate { Schedule(); };
             _trashCheck.Unchecked += delegate { Schedule(); };
             scopeRow.Children.Add(_trashCheck);
@@ -154,7 +154,7 @@ namespace Marabook.App
             var replaceLabel = new TextBlock { Text = "Remplacer par", Foreground = Chrome.SoftText, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
             DockPanel.SetDock(replaceLabel, Dock.Left);
             replaceRow.Children.Add(replaceLabel);
-            _replaceBox = new TextBox { [ToolTip.TipProperty] = "Le texte de remplacement — en expression régulière, $1 ou ${nom} insèrent les groupes capturés" };
+            _replaceBox = new TextBox { [ToolTip.TipProperty] = "Le texte de remplacement"};
             replaceRow.Children.Add(_replaceBox);
             head.Children.Add(replaceRow);
             var replaceButtons = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
@@ -178,7 +178,7 @@ namespace Marabook.App
                 Content = new TextBlock { Text = "Tout remplacer…", FontSize = 11 },
                 Padding = new Thickness(8, 1, 8, 1),
                 Margin = new Thickness(0, 0, 4, 3),
-                [ToolTip.TipProperty] = "Prévisualiser puis remplacer toutes les occurrences de la portée — annulable en un " + Ui.Keys("Ctrl+Z"),
+                [ToolTip.TipProperty] = "Prévisualiser puis remplacer toutes les occurrences de la portée",
                 Focusable = false
             };
             _replaceAll.Click += delegate
@@ -449,8 +449,7 @@ namespace Marabook.App
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center,
                 Cursor = new Cursor(StandardCursorType.Hand),
-                [ToolTip.TipProperty] = "Aller à la première occurrence de cet item"
-            };
+                [ToolTip.TipProperty] = "Aller à la première occurrence de cet élément"};
             var itemRef = item;
             title.PointerPressed += delegate(object sender, PointerPressedEventArgs e) {
                 for (var i = 0; i < _result.Hits.Count; i++)

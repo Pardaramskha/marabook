@@ -298,7 +298,7 @@ namespace Marabook.App
             var sprints = new StackPanel();
             var sprintsHead = new DockPanel();
             var startSprint = Buttons.IconText("play-fill", "Démarrer un sprint",
-                "Une durée, un objectif de mots — la pastille suit, le journal consigne", Buttons.Compact, Buttons.Look.Primary);
+                "Une durée, un objectif de mots", Buttons.Compact, Buttons.Look.Primary);
             startSprint.Click += delegate { var h = SprintRequested; if (h != null) h(); };
             DockPanel.SetDock(startSprint, Dock.Right);
             sprintsHead.Children.Add(startSprint);

@@ -133,8 +133,7 @@ namespace Marabook.App
                 Content = "📈  Intensité",
                 FontWeight = FontWeight.SemiBold,
                 Padding = new Thickness(10, 4, 10, 4),
-                Margin = new Thickness(12, 0, 0, 0),
-                [ToolTip.TipProperty] = "Voir l'intensité du plan entier, colonne par colonne — un clic de plus ramène les colonnes"
+                Margin = new Thickness(12, 0, 0, 0)
             };
             _chartToggle.IsCheckedChanged += delegate { ApplyChartMode(); };
             left.Children.Add(_chartToggle);
@@ -961,7 +960,7 @@ namespace Marabook.App
             var zoomIn = Buttons.Text("+", "Écarter les colonnes (Ctrl+molette)", Buttons.Compact, Buttons.Look.Outline);
             zoomIn.Width = Buttons.Compact; zoomIn.Padding = new Thickness(0); zoomIn.Margin = new Thickness(4, 0, 0, 0);
             zoomIn.Click += delegate { ZoomStep(1); };
-            var fit = Buttons.Text("Tout", "Faire tenir tout le plan dans la fenêtre", Buttons.Compact, Buttons.Look.Outline);
+            var fit = Buttons.Text("Tout", null, Buttons.Compact, Buttons.Look.Outline);
             fit.Margin = new Thickness(4, 0, 0, 0);
             fit.Click += delegate { FitAll(); };
             _zoomLabel = new TextBlock { FontSize = 11, Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };

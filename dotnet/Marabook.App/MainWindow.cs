@@ -1667,9 +1667,7 @@ namespace Marabook.App
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 Margin = new Thickness(0, 8, 0, 4),
-                [ToolTip.TipProperty] = "Teinte de la barre de titre de la carte au tableau "
-                    + "— et de la boîte pour un dossier de livre"
-            };
+                [ToolTip.TipProperty] = "Teinte de la barre de titre de la carte au tableau"};
             _statusSection.Children.Add(_colorLabel);
             // La pastille dans un bouton ; le clic ouvre le menu des couleurs
             // (nuancier + couleurs personnalisées du projet) — batch 43.
@@ -1708,7 +1706,7 @@ namespace Marabook.App
             // carte de rouge au tableau.
             _goalSection = new StackPanel { Margin = new Thickness(0, 0, 0, 10), IsVisible = false };
             _goalSection.Children.Add(InspectorLabel("Objectif du texte",
-                "Le but à atteindre — en mots, en signes (espaces comprises) ou en pages ; 0 = aucun", 0));
+                "Le but à atteindre — en mots, en signes (espaces comprises) ou en pages", 0));
             _goalBox = GoalNumberBox();
             _goalUnit = GoalUnitBox();
             _goalSection.Children.Add(GoalRow(_goalBox, _goalUnit));
@@ -1727,7 +1725,7 @@ namespace Marabook.App
             _goalLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap, Tag = "goal-label" };
             _goalSection.Children.Add(_goalLabel);
             _goalSection.Children.Add(InspectorLabel("Limite du texte",
-                "Le plafond à ne pas dépasser — dépassé, la carte se cercle de rouge au tableau ; 0 = aucune", 8));
+                "Le plafond à ne pas dépasser sinon on vous engueule", 8));
             _limitBox = GoalNumberBox();
             _limitUnit = GoalUnitBox();
             _goalSection.Children.Add(GoalRow(_limitBox, _limitUnit));
@@ -1744,7 +1742,7 @@ namespace Marabook.App
             // de la bibliothèque les reprend.
             _tagsSection = new StackPanel { Margin = new Thickness(0, 0, 0, 10), IsVisible = false };
             _tagsSection.Children.Add(InspectorLabel("Tags",
-                "Des mots libres pour retrouver la fiche — le filtre par tag de la bibliothèque et la recherche de la Pile les lisent", 0));
+                "Des mots libres pour retrouver la fiche (y'a un filtre en haut du tableau Fiches)", 0));
             _tagChips = new WrapPanel();
             _tagsSection.Children.Add(_tagChips);
             // Un sélecteur éditable (27/10, Rémi) : taper propose les tags déjà
@@ -1771,8 +1769,7 @@ namespace Marabook.App
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 Margin = new Thickness(0, 0, 0, 4),
-                [ToolTip.TipProperty] = "Le mot des nouvelles colonnes : « chapitre » donne « chapitre 1 », « chapitre 2 »…"
-            });
+                [ToolTip.TipProperty] = "Comment vos colonnes sont nommées par défaut (\"chapitre\" rend \"chapitre 1\", etc...)"});
             _planColumnWord = new TextBox();
             _planColumnWord.TextChanged += delegate
             {
@@ -1794,8 +1791,7 @@ namespace Marabook.App
                 Foreground = Chrome.SoftText,
                 FontSize = 12,
                 Margin = new Thickness(0, 0, 0, 4),
-                [ToolTip.TipProperty] = "Les fiches Personnage nommées dans cet écrit (titre, nom, prénom, alias), et leur étape d'évolution ici"
-            });
+                [ToolTip.TipProperty] = "Quels personnages sont nommés dans cet écrit"});
             _presencePanel = new StackPanel();
             _presenceSection.Children.Add(_presencePanel);
             panel.Children.Add(_presenceSection);
@@ -1999,7 +1995,7 @@ namespace Marabook.App
                 Width = 120,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(6, 0, 4, 0),
-                [ToolTip.TipProperty] = "Zoom de la page (" + Ui.CommandKey + "+molette aussi)",
+                [ToolTip.TipProperty] = "Zoom de la page (" + Ui.CommandKey + "+molette)",
                 Focusable = false
             };
             _zoomSlider.ValueChanged += delegate
@@ -5772,9 +5768,7 @@ namespace Marabook.App
             _railLock.Child = Icons.Make(locked ? "lock" : "lock-open", 16, locked ? Chrome.Accent : Chrome.Ink);
             ((Control)_railLock.Child).HorizontalAlignment = HorizontalAlignment.Center;
             ((Control)_railLock.Child).VerticalAlignment = VerticalAlignment.Center;
-            ToolTip.SetTip(_railLock, locked
-                ? "Rail verrouillé : la colonne de droite ne s'ouvre ni ne se replie plus d'elle-même (cliquer pour déverrouiller)"
-                : "Verrouiller le rail : la colonne de droite restera comme elle est, ouverte ou repliée, jusqu'à un clic sur un onglet");
+            ToolTip.SetTip(_railLock, locked ? "Rail verrouillé" : "Verrouiller le rail pour pas qu'il vous emmerde");
         }
 
         /// <summary>Les onglets suivent la nature de l'élément courant
@@ -6236,7 +6230,7 @@ namespace Marabook.App
 
         private static TextBox GoalNumberBox()
         {
-            var box = new TextBox { Width = 76, HorizontalContentAlignment = HorizontalAlignment.Right, [ToolTip.TipProperty] = "Un nombre ; 0 ou vide = aucun" };
+            var box = new TextBox { Width = 76, HorizontalContentAlignment = HorizontalAlignment.Right, [ToolTip.TipProperty] = "Un nombre"};
             box.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key != Key.Return && e.Key != Key.Enter) return;

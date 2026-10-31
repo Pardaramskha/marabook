@@ -193,19 +193,19 @@ namespace Marabook.App
             // Les trois sections de pages extra (b49) : liminaires avant le
             // corps, pages de fin après, annexes tout à la fin.
             var bookExtra = Buttons.IconText("file-dashed-bold", "Nouvelle liminaire",
-                "Avant le corps : pages de titre, dédicace, épigraphe, préface, avertissement, table des matières…", Buttons.Bar, Buttons.Look.Outline);
+                null, Buttons.Bar, Buttons.Look.Outline);
             bookExtra.Margin = new Thickness(8, 0, 0, 6);
             bookExtra.Click += delegate { OpenExtraMenu(bookExtra, ExtraPages.SectionFront); };
             _bookActions.Children.Add(bookExtra);
             _extraPageActions.Add(bookExtra);
             var bookBack = Buttons.IconText("file-dashed-bold", "Nouvelle page de fin",
-                "Après le corps : postface, remerciements, à propos de l'auteur, achevé d'imprimer…", Buttons.Bar, Buttons.Look.Outline);
+                null, Buttons.Bar, Buttons.Look.Outline);
             bookBack.Margin = new Thickness(8, 0, 0, 6);
             bookBack.Click += delegate { OpenExtraMenu(bookBack, ExtraPages.SectionBack); };
             _bookActions.Children.Add(bookBack);
             _extraPageActions.Add(bookBack);
             var bookAnnex = Buttons.IconText("file-dashed-bold", "Nouvelle annexe",
-                "Tout à la fin : glossaire, index, chronologie, bibliographie, notes, cartes…", Buttons.Bar, Buttons.Look.Outline);
+                null, Buttons.Bar, Buttons.Look.Outline);
             bookAnnex.Margin = new Thickness(8, 0, 0, 6);
             bookAnnex.Click += delegate { OpenExtraMenu(bookAnnex, ExtraPages.SectionAnnex); };
             _bookActions.Children.Add(bookAnnex);
@@ -218,11 +218,11 @@ namespace Marabook.App
                 IsVisible = false
             };
             var folderText = Buttons.IconText("plus-bold", "Nouvel écrit",
-                "Un écrit dans ce dossier", Buttons.Bar, Buttons.Look.Primary);
+                null, Buttons.Bar, Buttons.Look.Primary);
             folderText.Click += delegate { RequestNewDocument("root-text"); };
             _folderActions.Children.Add(folderText);
             var subFolder = Buttons.IconText("folder-bold", "Nouveau sous-dossier",
-                "Un dossier dans ce dossier", Buttons.Bar, Buttons.Look.Outline);
+                null, Buttons.Bar, Buttons.Look.Outline);
             subFolder.Margin = new Thickness(8, 0, 0, 0);
             subFolder.Click += delegate { RequestNewDocument("root-folder"); };
             _folderActions.Children.Add(subFolder);
@@ -233,7 +233,7 @@ namespace Marabook.App
                 IsVisible = false
             };
             var newPlan = Buttons.IconText("plus-bold", "Nouveau plan",
-                "Un plan : colonnes, briques d'intensité, notes", Buttons.Bar, Buttons.Look.Primary); // principal (14/09)
+                null, Buttons.Bar, Buttons.Look.Primary); // principal (14/09)
             newPlan.Click += delegate { RequestNewDocument("plan"); };
             _planActions.Children.Add(newPlan);
             // Racine Cartes mentales (22/09) : une carte neuve, un .tea importé.
@@ -244,11 +244,11 @@ namespace Marabook.App
                 IsVisible = false
             };
             var newMap = Buttons.IconText("plus-bold", "Nouvelle carte mentale",
-                "Une carte Mental-o : boîtes, liens, groupes — vit dans le projet", Buttons.Bar, Buttons.Look.Primary);
+                null, Buttons.Bar, Buttons.Look.Primary);
             newMap.Click += delegate { RequestNewDocument("mindmap"); };
             _mindMapActions.Children.Add(newMap);
             var importMap = Buttons.IconText("file-arrow-down-bold", "Importer un .tea…",
-                "Une carte faite dans Mental-o entre telle quelle dans le projet", Buttons.Bar, Buttons.Look.Outline);
+                null, Buttons.Bar, Buttons.Look.Outline);
             importMap.Margin = new Thickness(8, 0, 0, 0);
             importMap.Click += delegate { RequestNewDocument("mindmap-import"); };
             _mindMapActions.Children.Add(importMap);
@@ -260,16 +260,16 @@ namespace Marabook.App
                 IsVisible = false
             };
             var newText = Buttons.IconText("plus-bold", "Nouvel écrit",
-                "Un nouvel écrit, hors livre", Buttons.Bar, Buttons.Look.Primary);
+                null, Buttons.Bar, Buttons.Look.Primary);
             newText.Click += delegate { RequestNewDocument("root-text"); };
             _writingsActions.Children.Add(newText);
             var newFolder = Buttons.IconText("folder-bold", "Nouveau dossier",
-                "Un dossier pour ranger des écrits", Buttons.Bar, Buttons.Look.Outline);
+                null, Buttons.Bar, Buttons.Look.Outline);
             newFolder.Margin = new Thickness(8, 0, 0, 0);
             newFolder.Click += delegate { RequestNewDocument("root-folder"); };
             _writingsActions.Children.Add(newFolder);
             var newBook = Buttons.IconText("book-bold", "Nouveau livre",
-                "Un livre : gabarit, chapitres, compilation", Buttons.Bar, Buttons.Look.Outline);
+                null, Buttons.Bar, Buttons.Look.Outline);
             newBook.Margin = new Thickness(8, 0, 0, 0);
             newBook.Click += delegate { RequestNewDocument("root-book"); };
             _writingsActions.Children.Add(newBook);
@@ -281,7 +281,7 @@ namespace Marabook.App
                 IsVisible = false
             };
             var import = Buttons.IconText("file-arrow-down-bold", "Importer des fichiers",
-                "Ajouter des fichiers (images, PDF, documents…) dans Recherche", Buttons.Bar, Buttons.Look.Primary);
+                null, Buttons.Bar, Buttons.Look.Primary);
             import.Click += delegate { RequestNewDocument("import"); };
             _researchActions.Children.Add(import);
             _trashActions = new StackPanel
@@ -291,7 +291,7 @@ namespace Marabook.App
                 IsVisible = false
             };
             var empty = Buttons.IconText("trash-bold", "Vider la corbeille",
-                "Supprimer définitivement tout ce que contient la corbeille — annulable par " + Ui.Keys("Ctrl+Z"), Buttons.Bar, Buttons.Look.Primary);
+                null, Buttons.Bar, Buttons.Look.Primary);
             empty.Click += delegate { RequestNewDocument("empty-trash"); };
             _trashActions.Children.Add(empty);
             _cards = new WrapPanel { Margin = new Thickness(16, 8, 16, 16) };
@@ -402,8 +402,7 @@ namespace Marabook.App
         {
             // Icône + libellé (batch 40) : le tri seul ne dit pas « filtrer ».
             _filterToggle = Buttons.IconTextToggle("sort-descending-bold", "Filtres",
-                "Trier et filtrer les textes de ce tableau "
-                    + "(affichage seulement — l'ordre réel ne bouge pas)", Buttons.Bar);
+                null, Buttons.Bar);
             _filterToggle.HorizontalAlignment = HorizontalAlignment.Right;
             _filterToggle.Margin = new Thickness(24, 8, 24, 0);
             _filterToggle.IsVisible = false;
@@ -1230,7 +1229,7 @@ namespace Marabook.App
                 VerticalAlignment = VerticalAlignment.Top,
                 Margin = new Thickness(24, 0, 0, 0),
                 Cursor = new Cursor(StandardCursorType.Hand),
-                [ToolTip.TipProperty] = "Partie « " + folder.Title + " » — double-clic pour l'ouvrir",
+                [ToolTip.TipProperty] = "Partie « " + folder.Title + " »",
                 Child = new TextBlock
                 {
                     Text = folder.Title,
@@ -1404,13 +1403,12 @@ namespace Marabook.App
             // « Nouveau gabarit » est le bouton principal de l'onglet
             // Gabarits & Format (22/09).
             var create = Buttons.IconText("plus-bold", "Nouveau gabarit…",
-                "Deux pages en vis-à-vis aux marges du livre — en-têtes et "
-                    + "pieds recto/verso marqués aux outils texte", Buttons.Bar, Buttons.Look.Primary);
+                null, Buttons.Bar, Buttons.Look.Primary);
             create.Margin = new Thickness(0, 0, 8, 0);
             create.Click += delegate
             { var h = NewTemplateRequested; if (h != null && _folder != null) h(_folder); };
             panel.Children.Add(create);
-            var import = Buttons.IconText("file-arrow-down-bold", "Importer…", "Ajouter un gabarit .marag (ou .usgab) à ce livre", Buttons.Bar, Buttons.Look.Outline);
+            var import = Buttons.IconText("file-arrow-down-bold", "Importer…", "(.marag ou .usgab)", Buttons.Bar, Buttons.Look.Outline);
             import.Click += delegate
             { var h = ImportTemplateRequested; if (h != null && _folder != null) h(_folder); };
             panel.Children.Add(import);
@@ -1454,72 +1452,69 @@ namespace Marabook.App
                 // Partie : un dossier purement indicatif — la compilation et
                 // les folios l'ignorent, le corkboard l'affiche en boîte.
                 AddExtraEntry(menu, "Dossier (partie)", "folder",
-                    "Regroupe des documents dans une boîte du tableau — sans "
-                    + "effet sur la compilation ni les folios");
+                    "Sans effet sur la compilation ni les folios");
                 menu.Items.Add(new Separator());
             }
             if (section == null || section == ExtraPages.SectionFront)
             {
                 if (section == null) menu.Items.Add(new MenuItem { Header = "Liminaires", IsEnabled = false });
                 AddExtraEntry(menu, "Page vierge", ExtraPages.KindBlank,
-                    "Page vierge au gabarit intérieur du livre");
+                    null);
                 AddExtraEntry(menu, "Pages de titre", ExtraPages.KindTitle,
-                    "Deux gardes vierges, faux-titre, page de titre et copyright");
+                    null);
                 AddExtraEntry(menu, "Dédicace", ExtraPages.KindDedication,
-                    "Une ligne au tiers de la page, verso vierge");
+                    null);
                 AddExtraEntry(menu, "Épigraphe", ExtraPages.KindEpigraph,
-                    "La citation qui ouvre le livre, avec sa source, verso vierge");
+                    null);
                 AddExtraEntry(menu, "Préface ou avant-propos", ExtraPages.KindPreface,
-                    "Un texte d'ouverture signé (par un tiers ou par vous)");
+                    null);
                 AddExtraEntry(menu, "Note de l'auteur", ExtraPages.KindAuthorNote,
-                    "Quelques mots sur la genèse et les partis pris du livre");
+                    null);
                 AddExtraEntry(menu, "Page de direction d'anthologie", ExtraPages.KindDirection,
-                    "Direction du recueil et auteurs participants, verso vierge");
+                    null);
                 AddExtraEntry(menu, "Page d'avertissement", ExtraPages.KindWarning,
-                    "Avertissement de contenu, verso vierge");
+                    null);
                 AddExtraEntry(menu, "Table des matières", ExtraPages.KindToc,
-                    "Collecte les écrits du récit avec leurs folios — mise à jour dynamique ; "
-                    + "liminaires, pages de fin et annexes n'y figurent pas");
+                    null);
                 AddExtraEntry(menu, "Page éditeur", ExtraPages.KindPublisher,
-                    "Présentation de la maison d'édition");
+                    null);
                 AddExtraEntry(menu, "Page soutien", ExtraPages.KindSupport,
-                    "Mention des soutiens du livre");
+                    null);
             }
             if (section == null || section == ExtraPages.SectionBack)
             {
                 if (section == null) { menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = "Pages de fin", IsEnabled = false }); }
                 AddExtraEntry(menu, "Page vierge", ExtraPages.KindBlankBack,
-                    "Page vierge après le corps du livre");
+                    null);
                 AddExtraEntry(menu, "Postface", ExtraPages.KindPostface,
-                    "Un texte de clôture signé, le livre refermé");
+                    null);
                 AddExtraEntry(menu, "Remerciements", ExtraPages.KindThanks,
-                    "Merci à celles et ceux qui ont accompagné le livre");
+                    null);
                 AddExtraEntry(menu, "À propos de l'auteur", ExtraPages.KindAboutAuthor,
-                    "Présentation de l'auteur·ice et de ses autres ouvrages");
+                    null);
                 AddExtraEntry(menu, "Table des matières", ExtraPages.KindTocBack,
-                    "La table des matières en fin d'ouvrage, à la française — mise à jour dynamique");
+                    null);
                 AddExtraEntry(menu, "Achevé d'imprimer", ExtraPages.KindColophon,
-                    "Le colophon : imprimeur, dépôt légal, pays d'impression");
+                    null);
             }
             if (section == null || section == ExtraPages.SectionAnnex)
             {
                 if (section == null) { menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = "Annexes", IsEnabled = false }); }
                 AddExtraEntry(menu, "Annexe vierge", ExtraPages.KindBlankAnnex,
-                    "Page vierge tout à la fin du livre");
+                    null);
                 AddExtraEntry(menu, "Glossaire", ExtraPages.KindGlossary,
-                    "Les mots du Dictionnaire du projet qui ont une définition — mise à jour dynamique");
+                    null);
                 if (Profiles.Enabled(Profiles.Sheets)) // l'index vient des fiches (1.1.0)
                     AddExtraEntry(menu, "Index des personnages et des lieux", ExtraPages.KindIndex,
-                        "Les fiches Personnage et Lieu nommées dans le livre, avec les folios — mise à jour dynamique");
+                        null);
                 AddExtraEntry(menu, "Chronologie", ExtraPages.KindChronology,
-                    "Les dates du récit, une par ligne");
+                    null);
                 AddExtraEntry(menu, "Bibliographie", ExtraPages.KindBibliography,
-                    "Les ouvrages cités ou consultés");
+                    null);
                 AddExtraEntry(menu, "Notes de fin", ExtraPages.KindEndnotes,
-                    "Les notes de bas de page des écrits, rassemblées par écrit — mise à jour dynamique "
-                    + "(elles restent aussi en bas de page)");
+                    null);
                 AddExtraEntry(menu, "Cartes et illustrations", ExtraPages.KindIllustrations,
-                    "Une page d'accueil pour vos cartes et images");
+                    null);
             }
             Ui.ShowMenu(menu, anchor); // une cible, sinon Avalonia lève (28/09)
         }
@@ -1583,7 +1578,7 @@ namespace Marabook.App
                 Tag = item,
                 [DragDrop.AllowDropProperty] = true
             };
-            if (over) ToolTip.SetTip(card, "La limite du texte est dépassée (Général du rail › Limite du texte)");
+            if (over) ToolTip.SetTip(card, "La limite du texte est dépassée");
 
             var layout = new DockPanel();
 
@@ -1648,7 +1643,7 @@ namespace Marabook.App
                 {
                     warning.VerticalAlignment = VerticalAlignment.Center;
                     warning.Margin = new Thickness(0, 0, 5, 0);
-                    ToolTip.SetTip(warning, "Ce document ne suit pas la mise en page du livre (clic droit : appliquer le gabarit du livre).");
+                    ToolTip.SetTip(warning, "Ce document ne suit pas la mise en page du livre (clic droit > appliquer le gabarit du livre).");
                     titleLeft.Children.Add(warning);
                 }
             }

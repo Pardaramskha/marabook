@@ -76,9 +76,9 @@ namespace Marabook.App
             _where.SelectedIndex = Scopes.DefaultIndex(_scopes);
             _where.SelectionChanged += delegate { Collect(); };
             left.Children.Add(_where);
-            var all = Buttons.Text("Tout cocher", "Cocher tous les mots affichés", Buttons.Compact, Buttons.Look.Outline);
+            var all = Buttons.Text("Tout cocher", null, Buttons.Compact, Buttons.Look.Outline);
             all.Click += delegate { SetAll(true); };
-            var none = Buttons.Text("Tout décocher", "Décocher tous les mots affichés", Buttons.Compact, Buttons.Look.Outline);
+            var none = Buttons.Text("Tout décocher", null, Buttons.Compact, Buttons.Look.Outline);
             none.Margin = new Thickness(6, 0, 0, 0);
             none.Click += delegate { SetAll(false); };
             left.Children.Add(all);

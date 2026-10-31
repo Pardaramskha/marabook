@@ -50,11 +50,11 @@ namespace Marabook.App
 
             var head = new DockPanel { Margin = new Thickness(12, 10, 12, 8) };
             SetDock(head, Dock.Top);
-            var close = Buttons.Close("Fermer le Lexique"); // le même « Fermer » sur tout le rail (27/10, Rémi)
+            var close = Buttons.Close("Fermer"); // le même « Fermer » sur tout le rail (27/10, Rémi)
             close.Click += delegate { var h = CloseRequested; if (h != null) h(); };
             DockPanel.SetDock(close, Dock.Right);
             head.Children.Add(close);
-            _pin = Buttons.IconToggle("push-pin-bold", "Épingler le Lexique au rail (un onglet permanent)", Buttons.Compact, Buttons.Look.Calm);
+            _pin = Buttons.IconToggle("push-pin-bold", "Épingler", Buttons.Compact, Buttons.Look.Calm);
             _pin.Margin = new Thickness(0, 0, 4, 0);
             _pin.Click += delegate
             {
@@ -92,9 +92,9 @@ namespace Marabook.App
             Children.Add(head);
 
             var searchHost = new StackPanel { Margin = new Thickness(12, 0, 12, 6) };
-            _search = new TextBox { Watermark = "Rechercher une entrée…", [ToolTip.TipProperty] = "Un mot ou une forme des dictionnaires du projet et de tous les projets" };
+            _search = new TextBox { Watermark = "Rechercher une entrée…" };
             _search.TextChanged += delegate { RebuildResults(); };
-            searchHost.Children.Add(Ui.WithClear(_search, "Effacer la recherche"));
+            searchHost.Children.Add(Ui.WithClear(_search, null));
             _results = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
             searchHost.Children.Add(_results);
             SetDock(searchHost, Dock.Top);
@@ -196,9 +196,7 @@ namespace Marabook.App
 
         private void RefreshPinTip()
         {
-            ToolTip.SetTip(_pin, _pin.IsChecked == true
-                ? "Retirer le Lexique du rail (il se referme avec la croix)"
-                : "Épingler le Lexique au rail (un onglet permanent)");
+            ToolTip.SetTip(_pin, _pin.IsChecked == true ? "Yeet le Lexique du rail" : "Épingler le Lexique au rail");
         }
 
         /// <summary>Affiche une entrée (null = l'état vide).</summary>

@@ -140,8 +140,7 @@ namespace Marabook.App
                             FontSize = 12,
                             Foreground = Chrome.Ink
                         },
-                        [ToolTip.TipProperty] = "Décocher pour épargner cet item"
-                    };
+                        [ToolTip.TipProperty] = "Décocher pour épargner cet élément"};
                     check.Checked += delegate { UpdateSummary(); };
                     check.Unchecked += delegate { UpdateSummary(); };
                     _checks.Add(check);

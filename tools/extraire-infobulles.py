@@ -7,6 +7,12 @@ d'écriture. Lancer depuis la racine du dépôt :
 
 Sans argument, le fichier va dans le dossier Téléchargements de l'utilisateur.
 
+Depuis la relecture de Rémi (31/10), les infobulles déjà relues sont listées
+dans tools/infobulles-relues.txt (fichier TAB texte) ; celles qui n'y sont pas
+sont NOUVELLES et vont dans la catégorie à part « Nouvelles infobulles (pas
+encore relues) », tout en bas du document. Une fois relues (et reportées dans
+le code), les y ajouter : ... extraire-infobulles.py <sortie> --marquer-relues
+
 Ce qui est relevé :
   - ToolTip.SetTip(cible, texte) et [ToolTip.TipProperty] = texte ;
   - tout appel d'une méthode dont la déclaration porte un paramètre nommé
@@ -16,7 +22,7 @@ Le texte est recomposé depuis l'expression C# : les littéraux recollés,
 Ui.Keys("Ctrl+S") rendu « Ctrl+S », les autres morceaux de code en ⟨…⟩, un
 texte conditionnel (a ? b : c) donné sous ses deux formes.
 """
-import io, os, re, sys
+import datetime, io, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(ROOT, 'dotnet', 'Marabook.App')
@@ -424,7 +430,8 @@ def collect(path, shared_helpers):
 
 
 def main():
-    out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.expanduser('~'), 'Downloads', 'marabook-infobulles.md')
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    out = args[0] if args else os.path.join(os.path.expanduser('~'), 'Downloads', 'marabook-infobulles.md')
     shared = {}
     for shared_file in ('Buttons.cs', 'Ui.cs'):
         p = os.path.join(APP, shared_file)
@@ -438,13 +445,31 @@ def main():
         items = collect(os.path.join(APP, name), shared)
         if items:
             pages[name] = items
+    # Les infobulles déjà relues par Rémi (31/10) : tout ce qui n'y est pas
+    # est NOUVEAU et va dans la catégorie à part, tout en bas du document.
+    reviewed = load_reviewed()
+    fresh = {}
+    for name in list(pages):
+        kept = []
+        for line, label, text in pages[name]:
+            if (name, shown_of(text)) in reviewed:
+                kept.append((line, label, text))
+            else:
+                fresh.setdefault(name, []).append((line, label, text))
+        if kept:
+            pages[name] = kept
+        else:
+            del pages[name]
     ordered = [n for n in PAGE_ORDER if n in pages] + sorted(n for n in pages if n not in PAGE_OF)
+    fresh_ordered = [n for n in PAGE_ORDER if n in fresh] + sorted(n for n in fresh if n not in PAGE_OF)
     total = sum(len(v) for v in pages.values())
+    fresh_total = sum(len(v) for v in fresh.values())
     lines = []
     lines.append('# Marabook — toutes les infobulles, par page')
     lines.append('')
-    lines.append('> Relevé automatique du 30/10/2026 (tools/extraire-infobulles.py) sur feat/1.1.0 : ' + str(total)
-                 + ' infobulles dans ' + str(len(pages)) + ' fichiers de vue. Chaque puce = une infobulle ; « **libellé** » = le bouton qui la porte quand il a un texte ; '
+    lines.append('> Relevé automatique du ' + datetime.date.today().strftime('%d/%m/%Y') + ' (tools/extraire-infobulles.py) : ' + str(total)
+                 + ' infobulles relues dans ' + str(len(pages)) + ' fichiers de vue, et ' + str(fresh_total)
+                 + ' nouvelle(s) tout en bas, dans la catégorie « ' + FRESH_TITLE + ' ». Chaque puce = une infobulle ; « **libellé** » = le bouton qui la porte quand il a un texte ; '
                  + '(l. n) = la ligne du fichier. Les morceaux calculés sont en ⟨code⟩ ; un texte conditionnel est donné sous ses deux formes {si … | sinon …}. '
                  + 'Les retours à la ligne de l’infobulle sont rendus par ⏎.')
     lines.append('')
@@ -452,6 +477,7 @@ def main():
     lines.append('')
     for name in ordered:
         lines.append('- ' + PAGE_OF.get(name, name) + ' — ' + str(len(pages[name])) + ' (' + name + ')')
+    lines.append('- ' + FRESH_TITLE + ' — ' + str(fresh_total))
     lines.append('')
     for name in ordered:
         lines.append('## ' + PAGE_OF.get(name, name))
@@ -459,14 +485,61 @@ def main():
         lines.append('_' + name + ' — ' + str(len(pages[name])) + ' infobulle(s)_')
         lines.append('')
         for line, label, text in pages[name]:
-            shown = text.replace('\r', '').replace('\n', ' ⏎ ').replace(' ', ' ').replace(' ', ' ').replace(' ', ' ')
-            shown = re.sub(r'\s+', ' ', shown).strip()
-            prefix = ('**« ' + re.sub(r'\s+', ' ', label).strip() + ' »** : ') if label and not label.startswith('⟨') else ''
-            lines.append('- ' + prefix + shown + ' _(l. ' + str(line) + ')_')
+            lines.append(bullet(line, label, text))
+        lines.append('')
+    # La catégorie à part : les infobulles ajoutées depuis la relecture,
+    # groupées par page, à relire puis à marquer relues (--marquer-relues).
+    lines.append('## ' + FRESH_TITLE)
+    lines.append('')
+    if fresh_total == 0:
+        lines.append('_Aucune pour le moment._')
+        lines.append('')
+    for name in fresh_ordered:
+        lines.append('### ' + PAGE_OF.get(name, name))
+        lines.append('')
+        lines.append('_' + name + ' — ' + str(len(fresh[name])) + ' nouvelle(s)_')
+        lines.append('')
+        for line, label, text in fresh[name]:
+            lines.append(bullet(line, label, text))
         lines.append('')
     with io.open(out, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
-    print(str(total) + ' infobulles, ' + str(len(pages)) + ' fichiers -> ' + out)
+    print(str(total) + ' infobulles relues, ' + str(fresh_total) + ' nouvelle(s), ' + str(len(pages)) + ' fichiers -> ' + out)
+    if '--marquer-relues' in sys.argv:
+        with io.open(REVIEWED, 'a', encoding='utf-8') as f:
+            for name in fresh_ordered:
+                for line, label, text in fresh[name]:
+                    f.write(name + '\t' + shown_of(text) + '\n')
+        print(str(fresh_total) + ' infobulle(s) ajoutée(s) à ' + REVIEWED)
+
+
+FRESH_TITLE = 'Nouvelles infobulles (pas encore relues)'
+REVIEWED = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'infobulles-relues.txt')
+
+
+def shown_of(text):
+    shown = text.replace('\r', '').replace('\n', ' ⏎ ').replace(' ', ' ').replace(' ', ' ').replace(' ', ' ')
+    return re.sub(r'\s+', ' ', shown).strip()
+
+
+def bullet(line, label, text):
+    prefix = ('**« ' + re.sub(r'\s+', ' ', label).strip() + ' »** : ') if label and not label.startswith('⟨') else ''
+    return '- ' + prefix + shown_of(text) + ' _(l. ' + str(line) + ')_'
+
+
+def load_reviewed():
+    """{(fichier, texte)} des infobulles déjà relues (tools/infobulles-relues.txt,
+    une par ligne : fichier TAB texte)."""
+    found = set()
+    if not os.path.exists(REVIEWED):
+        return found
+    with io.open(REVIEWED, encoding='utf-8') as f:
+        for raw in f:
+            raw = raw.rstrip('\r\n')
+            if '\t' in raw:
+                name, text = raw.split('\t', 1)
+                found.add((name, text))
+    return found
 
 
 if __name__ == '__main__':

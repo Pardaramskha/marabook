@@ -339,7 +339,7 @@ namespace Marabook.App
             DockPanel.SetDock(_searchFilter, Dock.Right);
             row.Children.Add(_searchFilter);
 
-            _searchBox = new TextBox { [ToolTip.TipProperty] = "Recherche par NOM dans la Pile (écrits, fiches, plans, médias — sans casse ni accents) ; le contenu des textes se cherche par Édition › Rechercher dans le projet" };
+            _searchBox = new TextBox { [ToolTip.TipProperty] = "Rechercher dans la Pile"};
             _searchBox.TextChanged += delegate { ScheduleSearch(); };
             _searchBox.KeyDown += delegate(object sender, KeyEventArgs e)
             {
@@ -882,7 +882,7 @@ namespace Marabook.App
                     Fill = Chrome.Ok,
                     Margin = new Thickness(5, 0, 5, 0),
                     VerticalAlignment = VerticalAlignment.Center,
-                    [ToolTip.TipProperty] = "Projet actif : le spectre par défaut des relevés (mots inconnus, fiches manquantes)",
+                    [ToolTip.TipProperty] = "Projet actif",
                     Tag = "active-scope" // sonde
                 });
 
@@ -1481,7 +1481,7 @@ namespace Marabook.App
                 if (item.Kind == ItemKind.Text && ChapterOddEnd != null && ChapterOddEnd(item) > 0)
                 {
                     var unify = new MenuItem { Header = "Unifier", Icon = FlowIcon(12), Tag = "unify" };
-                    ToolTip.SetTip(unify, "Ajoute une page blanche à la fin de ce chapitre, au gabarit du document — comme un saut de page après sa dernière ligne.");
+                    ToolTip.SetTip(unify, "Ajoute une page blanche à la fin de ce chapitre, au gabarit du document — comme un saut de page après sa dernière ligne. Don't thank me.");
                     unify.Click += delegate
                     {
                         var handler = UnifyRequested;

@@ -138,7 +138,6 @@ namespace Marabook.App
             {
                 Content = Icons.Label("arrow-left-bold", "Retour", 12, Chrome.Ink),
                 Padding = new Thickness(10, 4, 12, 4),
-                [ToolTip.TipProperty] = "Revenir au tableau de la fiche",
                 VerticalAlignment = VerticalAlignment.Center
             };
             back.Click += delegate { var h = BackRequested; if (h != null) h(); };
@@ -154,8 +153,7 @@ namespace Marabook.App
                 Content = Icons.Label("apercu-wiki", "Mode wiki (F1)", 13, Chrome.Ink), // une icône du jeu : l'emoji 📖 sortait en « ??? » sur macOS (07/10)
                 FontWeight = FontWeight.SemiBold,
                 Padding = new Thickness(12, 4, 12, 4),
-                [ToolTip.TipProperty] = "Voir la fiche en lecture, comme une page de wiki — F1"
-            };
+                [ToolTip.TipProperty] = "Votre fiche, mais en plus stylé"};
             _previewToggle.Checked += delegate { ShowPreview(); };
             _previewToggle.Unchecked += delegate { HidePreview(); };
             rightTools.Children.Add(_previewToggle);
@@ -165,8 +163,7 @@ namespace Marabook.App
                 Content = Icons.Label("tree-bold", "Généalogie (F2)", 13, Chrome.Ink),
                 FontWeight = FontWeight.SemiBold,
                 Padding = new Thickness(12, 4, 12, 4),
-                Margin = new Thickness(8, 0, 0, 0),
-                [ToolTip.TipProperty] = "L'arbre généalogique de la fiche, d'après ses relations, à la place des papers — F2"
+                Margin = new Thickness(8, 0, 0, 0)
             };
             _genealogyButton.Checked += delegate { ShowGenealogy(); };
             _genealogyButton.Unchecked += delegate { HideGenealogy(); };
@@ -194,7 +191,7 @@ namespace Marabook.App
             // Le crayon pour renommer la fiche sans passer par la Pile (b43).
             var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
             titleRow.Children.Add(_titleLabel);
-            var renameButton = Buttons.Icon("pencil-simple-line", "Renommer la fiche", Buttons.Compact, Buttons.Look.Calm);
+            var renameButton = Buttons.Icon("pencil-simple-line", "Renommer", Buttons.Compact, Buttons.Look.Calm);
             renameButton.Margin = new Thickness(6, 0, 0, 0);
             renameButton.Click += delegate { var h = RenameRequested; if (h != null) h(); };
             titleRow.Children.Add(renameButton);
@@ -269,7 +266,7 @@ namespace Marabook.App
             // du projet, à droite de « Ajouter une relation ».
             var relationActions = new StackPanel { Orientation = Orientation.Horizontal };
             relationActions.Children.Add(addRelation);
-            var editor = Buttons.Icon("family-tree", "Diagramme relationnel : les natures de relation du projet et leur place dans l'arbre (Édition › Fiches)", Buttons.Compact, Buttons.Look.Outline);
+            var editor = Buttons.Icon("family-tree", "Modifier le diagramme relationnel", Buttons.Compact, Buttons.Look.Outline);
             editor.Margin = new Thickness(6, 0, 0, 0);
             editor.Tag = "relations-editor"; // sonde
             editor.Click += delegate { var h = RelationsEditorRequested; if (h != null) h(); };
@@ -285,8 +282,7 @@ namespace Marabook.App
                 MinWidth = 150,
                 MaxWidth = 220,
                 FontSize = 12,
-                [ToolTip.TipProperty] = "Filtrer le suivi : toute l'amplitude, ou un livre, un groupe, un écrit"
-            };
+                [ToolTip.TipProperty] = "Filtrer le suivi"};
             _presenceFilter.SelectionChanged += delegate
             {
                 if (_syncingFilter || _item == null) return;
@@ -368,7 +364,7 @@ namespace Marabook.App
                 if (e.Key == Key.Enter) { FindNext(); e.Handled = true; }
                 else if (e.Key == Key.Escape) { HideSearch(); e.Handled = true; }
             };
-            var findNext = Buttons.Icon("next", "Occurrence suivante (Entrée)", Buttons.Compact, Buttons.Look.Outline);
+            var findNext = Buttons.Icon("next", "Occurrence suivante", Buttons.Compact, Buttons.Look.Outline);
             findNext.Margin = new Thickness(6, 0, 0, 0);
             findNext.Click += delegate { FindNext(); };
             var findClose = new Button { Content = "✕", Width = 24, Margin = new Thickness(6, 0, 0, 0) };
@@ -385,8 +381,8 @@ namespace Marabook.App
             // icônes de Markdown We Go, sans texte.
             var toolRow = new DockPanel { Margin = new Thickness(0, 0, 10, 0) };
             var modes = _modesPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(6, 8, 0, 0) };
-            _editToggle = ModeToggle("editeur", "Vue édition — le texte seul");
-            _mirrorToggle = ModeToggle("miroir", "Vue miroir — le rendu wiki à côté du texte, mis à jour en écrivant");
+            _editToggle = ModeToggle("editeur", "Vue édition");
+            _mirrorToggle = ModeToggle("miroir", "Vue miroir");
             _editToggle.Checked += delegate { SetMirror(false); };
             _mirrorToggle.Checked += delegate { SetMirror(true); };
             modes.Children.Add(_editToggle);
@@ -887,7 +883,7 @@ namespace Marabook.App
             DockPanel.SetDock(remove, Dock.Right);
             head.Children.Add(remove);
             var free = step.TextId == null;
-            var combo = new ComboBox { [ToolTip.TipProperty] = "L'écrit où cette étape se joue, ou une étape libre à nommer" };
+            var combo = new ComboBox {  };
             if (free)
             {
                 // Étape libre : le sélecteur se resserre, le nom prend la place.
@@ -931,8 +927,7 @@ namespace Marabook.App
                 var title = new TextBox
                 {
                     Text = step.Title ?? "",
-                    Margin = new Thickness(6, 0, 0, 0),
-                    [ToolTip.TipProperty] = "Le nom de cette étape libre : « Enfance », « Après la guerre »…"
+                    Margin = new Thickness(6, 0, 0, 0)
                 };
                 _fieldBoxes["evolution-title:" + step.Id] = title;
                 title.TextChanged += delegate
@@ -1179,8 +1174,7 @@ namespace Marabook.App
                 FontSize = 11,
                 Margin = new Thickness(8, 0, 0, 0),
                 MinWidth = 96,
-                [ToolTip.TipProperty] = "La nature de ce champ : texte, nombre, date, note, liste, choix, fiche liée"
-            };
+                [ToolTip.TipProperty] = "Nature du champ"};
             foreach (var kind in FieldKinds.All) kindCombo.Items.Add(FieldKinds.Label(kind));
             kindCombo.SelectedIndex = Array.IndexOf(FieldKinds.All, FieldKinds.Normalize(entry.Kind));
             var optionsButton = new Button
@@ -1360,9 +1354,7 @@ namespace Marabook.App
             _dictDot.Background = present ? Chrome.Ok : Chrome.Warn;
             _dictState.Text = present ? "Présent dans le dictionnaire"
                 : partial ? "Partiellement présent dans le dictionnaire" : "Absent du dictionnaire";
-            ToolTip.SetTip(_dictState, present
-                ? "Chaque mot du nom, du prénom et de l'alias est connu du dictionnaire"
-                : "Manque : " + string.Join(", ", missing.ToArray()));
+            ToolTip.SetTip(_dictState, present ? "Chaque mot du nom, du prénom et de l'alias est connu du dictionnaire. GG !" : "Manque : " + string.Join(", ", missing.ToArray()));
             _dictAdd.IsVisible = present ? false : true;
         }
 
@@ -1457,7 +1449,7 @@ namespace Marabook.App
         private Control RelationRow(SheetRelation relation, List<BinderItem> sheets)
         {
             var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
-            var remove = new Button { Content = "✕", Width = 26, Margin = new Thickness(6, 0, 0, 0), [ToolTip.TipProperty] = "Supprimer cette relation (et son reflet sur la fiche liée)" };
+            var remove = new Button { Content = "✕", Width = 26, Margin = new Thickness(6, 0, 0, 0), [ToolTip.TipProperty] = "Supprimer cette relation (réciproque)"};
             remove.Click += delegate
             {
                 RelationSync.Unmirror(_project, _item, relation.TargetId, relation.Kind);
@@ -1473,8 +1465,7 @@ namespace Marabook.App
                 IsEditable = true,
                 Width = 124,
                 Margin = new Thickness(0, 0, 6, 0),
-                [ToolTip.TipProperty] = "Nature de la relation — une nature livrée, une nature du projet, ou « Nouvelle nature… » pour en créer une"
-            };
+                [ToolTip.TipProperty] = "Nature de la relation"};
             if (_project != null) foreach (var kind in _project.AllRelationKinds()) kindBox.Items.Add(kind);
             else foreach (var kind in RelationKinds.Defaults) kindBox.Items.Add(kind);
             kindBox.Items.Add(NewKindEntry);
@@ -1516,8 +1507,7 @@ namespace Marabook.App
                 Padding = new Thickness(6, 2, 6, 2),
                 Margin = new Thickness(6, 0, 0, 0),
                 IsVisible = target != null ? true : false,
-                [ToolTip.TipProperty] = "Ouvrir la fiche liée"
-            };
+                [ToolTip.TipProperty] = "Ouvrir la fiche"};
             open.Click += delegate
             {
                 var linked = _project == null || relation.TargetId == null ? null : _project.FindById(relation.TargetId);
@@ -2112,8 +2102,7 @@ namespace Marabook.App
                     Content = Icons.Label("plus-bold", module.Button, 13, Chrome.Ink),
                     Padding = new Thickness(12, 4, 12, 4),
                     Margin = new Thickness(0, 0, 8, 0),
-                    [ToolTip.TipProperty] = module.Title + " — la fiche avancée du module " + module.Name + ", dans un nouvel onglet"
-                };
+                    [ToolTip.TipProperty] = module.Title + " — parce que vous avez vraiment du temps à perdre"};
                 create.Click += delegate { CreateModuleSheet(moduleRef); };
                 _moduleButtons.Children.Add(create);
             }
@@ -2686,7 +2675,7 @@ namespace Marabook.App
                 if (h != null) h();
             };
             menu.Items.Add(editLink);
-            var remove = new MenuItem { Header = "Retirer le lien", [ToolTip.TipProperty] = "Les mots restent, le renvoi tombe" };
+            var remove = new MenuItem { Header = "Retirer le lien" };
             remove.Click += delegate { _activeBox = box; Ui.Select(box, index, 0); RemoveLinkAtCaret(); };
             menu.Items.Add(remove);
         }
@@ -2788,14 +2777,13 @@ namespace Marabook.App
             }
             if (shown == 0) menu.Items.Add(new MenuItem { Header = "Aucune suggestion", IsEnabled = false });
             menu.Items.Add(new Separator());
-            var here = new MenuItem { Header = "Ignorer ici", [ToolTip.TipProperty] = "Tait ce mot sur cette fiche, pour cette session" };
+            var here = new MenuItem { Header = "Ignorer ici" };
             here.Click += delegate { _spellIgnoredHere.Add(Correction.FrenchTokenizer.Fold(finding.Word)); RunSpell(); };
             menu.Items.Add(here);
             var inProject = new MenuItem
             {
                 Header = "Ignorer « " + finding.Word + " » dans ce projet",
-                [ToolTip.TipProperty] = "Le mot ne sera plus signalé dans ce projet (liste enregistrée avec lui)"
-            };
+                [ToolTip.TipProperty] = "Le mot ne sera plus signalé dans ce projet"};
             inProject.Click += delegate
             {
                 if (_project != null && !IgnoredIn(_project.ProofIgnored, Correction.FrenchTokenizer.Fold(finding.Word)))
@@ -2805,10 +2793,10 @@ namespace Marabook.App
             };
             menu.Items.Add(inProject);
             var learn = new MenuItem { Header = "Ajouter « " + finding.Word + " » au dictionnaire" };
-            var ofProject = new MenuItem { Header = "De ce projet", [ToolTip.TipProperty] = "Le mot est enseigné pour CE roman (enregistré dans le .plot)" };
+            var ofProject = new MenuItem { Header = "De ce projet", [ToolTip.TipProperty] = "Le mot est enseigné pour CE roman"};
             ofProject.Click += delegate { var _ = LearnWord(finding.Word, true); };
             learn.Items.Add(ofProject);
-            var everywhere = new MenuItem { Header = "De tous les projets", [ToolTip.TipProperty] = "Le mot est enseigné partout (réglages de l'application)" };
+            var everywhere = new MenuItem { Header = "De tous les projets", [ToolTip.TipProperty] = "Le mot est enseigné partout"};
             everywhere.Click += delegate { var _ = LearnWord(finding.Word, false); };
             learn.Items.Add(everywhere);
             menu.Items.Add(learn);
