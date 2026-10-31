@@ -1051,6 +1051,7 @@ namespace Marabook.App
             _journalView = new JournalView { IsVisible = false, Background = Brushes.Transparent }; // le fond est celui de la feuille (coins ronds)
             _journalView.Changed += delegate { MarkDirty(); CheckDailyGoal(); };
             _journalView.SprintRequested += StartSprint; // « Démarrer un sprint » de la carte Sprints (14/09)
+            _journalView.SecretAchievementClicked += OnSecretAchievementClicked; // les succès secrets (31/10)
             _journalSlide = new TranslateTransform(0, 0);
             _journalSheet = new Border
             {
@@ -5292,6 +5293,23 @@ namespace Marabook.App
             }
             return total;
         }
+
+        /// <summary>Un succès secret cliqué (31/10, Rémi) : « Il suffit d'être
+        /// curieux » se GAGNE ou se PERD au clic — on alterne.</summary>
+        private void OnSecretAchievementClicked(string id)
+        {
+            if (id != Achievements.Curious) return;
+            if (AppSettings.Achievements.ContainsKey(id))
+            {
+                AppSettings.Achievements.Remove(id);
+                AppSettings.Save();
+                if (_journalView.IsVisible) _journalView.RefreshAchievements();
+                return;
+            }
+            UnlockAchievement(id);
+        }
+
+        internal void ClickSecretAchievementForProbe(string id) { OnSecretAchievementClicked(id); }
 
         private void UnlockAchievement(string id)
         {

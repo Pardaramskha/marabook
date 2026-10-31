@@ -55,6 +55,7 @@ namespace Marabook.App
         public event Action Changed;
         /// <summary>« Démarrer un sprint » depuis la carte Sprints (14/09).</summary>
         public event Action SprintRequested;
+        public event Action<string> SecretAchievementClicked; // la ligne d'un succès secret cliquée (31/10)
 
         public JournalView()
         {
@@ -467,6 +468,51 @@ namespace Marabook.App
                     });
                 row.Children.Add(text);
                 _achievementsPanel.Children.Add(row);
+            }
+            // Les SUCCÈS SECRETS (31/10, Rémi) : sous les autres, le nom se voit,
+            // la description reste cachée tant qu'ils ne sont pas obtenus ; la
+            // ligne se clique (la fenêtre décide de ce qu'un clic fait).
+            if (Achievements.Secrets.Length > 0)
+            {
+                _achievementsPanel.Children.Add(new TextBlock
+                {
+                    Text = "Succès secrets",
+                    Foreground = Chrome.Ink,
+                    FontWeight = FontWeight.SemiBold,
+                    Margin = new Thickness(0, 12, 0, 8)
+                });
+                foreach (var secret in Achievements.Secrets)
+                {
+                    string date;
+                    var earned = unlocked.TryGetValue(secret.Id, out date);
+                    var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8), Background = Brushes.Transparent, Cursor = new Cursor(StandardCursorType.Hand), Tag = "secret:" + secret.Id };
+                    var badge = AchievementBadge.Build(secret, earned, 44);
+                    badge.Margin = new Thickness(0, 0, 12, 0);
+                    badge.VerticalAlignment = VerticalAlignment.Top;
+                    DockPanel.SetDock(badge, Dock.Left);
+                    row.Children.Add(badge);
+                    var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                    text.Children.Add(new TextBlock { Text = secret.Name, Foreground = earned ? Chrome.Ink : Chrome.SoftText, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap });
+                    text.Children.Add(new TextBlock
+                    {
+                        Text = earned ? secret.Description : "Secret…",
+                        Foreground = earned ? Chrome.SoftText : Chrome.FaintText,
+                        FontStyle = earned ? FontStyle.Normal : FontStyle.Italic,
+                        FontSize = 11,
+                        TextWrapping = TextWrapping.Wrap
+                    });
+                    if (earned)
+                        text.Children.Add(new TextBlock { Text = "Obtenu le " + Dates.Display(date), Foreground = Chrome.Accent, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) });
+                    row.Children.Add(text);
+                    var idRef = secret.Id;
+                    row.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+                    {
+                        if (e.InitialPressMouseButton != MouseButton.Left) return;
+                        var handler = SecretAchievementClicked;
+                        if (handler != null) handler(idRef);
+                    };
+                    _achievementsPanel.Children.Add(row);
+                }
             }
         }
 

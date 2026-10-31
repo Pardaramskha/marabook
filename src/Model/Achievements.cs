@@ -12,6 +12,7 @@ namespace Marabook.Model
     {
         public string Id, Name, Description;
         public string ModuleId; // succès apporté par un module (DLC) : son image vit dans son dossier
+        public bool Secret;     // un succès SECRET (31/10) : le nom se voit, la description seulement une fois obtenu
 
         public Achievement(string id, string name, string description)
         {
@@ -83,6 +84,14 @@ namespace Marabook.Model
         public const string About = "enfin-quelqu-un";
         public const string OldSchool = "a-l-ancienne";
         public const string Tutorial = "tour-du-proprio"; // le tutoriel terminé (1.1.0, 29/10) — débloqué au retour à l'accueil
+        // Les succès SECRETS (31/10, Rémi) : à part, sous les autres, le nom
+        // affiché mais pas la description tant qu'ils ne sont pas obtenus ;
+        // hors du compte et des paliers (All ne les contient pas).
+        public const string Curious = "il-suffit-d-etre-curieux"; // se gagne OU se perd au clic sur sa ligne
+        public static readonly Achievement[] Secrets =
+        {
+            new Achievement(Curious, "Il suffit d'être curieux", "Cliquez sur ce succès. C'est pas si difficile, hein ?") { Secret = true }
+        };
 
         /// <summary>Les succès de Marabook, puis ceux des modules installés
         /// (DLC, 22/09) intercalés AVANT les paliers de fin (« Obtenez cinq
@@ -242,6 +251,8 @@ namespace Marabook.Model
         public static Achievement Find(string id)
         {
             foreach (var achievement in All)
+                if (achievement.Id == id) return achievement;
+            foreach (var achievement in Secrets)
                 if (achievement.Id == id) return achievement;
             return null;
         }

@@ -2464,6 +2464,17 @@ namespace Marabook.App
             Check(created.Tags.Count == 2 && created.Tags[0] == "héros" && created.Tags[1] == "mage noir", "les tags s'ajoutent un par un, sans doublon (" + string.Join(", ", created.Tags.ToArray()) + ")");
             Check(shell.TagChipsForProbe().Count == 2 && shell.TagChipsForProbe()[1] == "tag:mage noir", "…en puces dans le Général");
             Check(shell.TagInputForProbe.ItemCount == 2, "la flèche du champ des tags liste les tags du projet (" + shell.TagInputForProbe.ItemCount + ", 31/10)");
+            // Le succès secret (31/10) : un clic le gagne, un autre le perd.
+            {
+                var hadCurious = AppSettings.Achievements.ContainsKey(Achievements.Curious);
+                shell.ClickSecretAchievementForProbe(Achievements.Curious);
+                await Settle();
+                var afterFirst = AppSettings.Achievements.ContainsKey(Achievements.Curious);
+                shell.ClickSecretAchievementForProbe(Achievements.Curious);
+                await Settle();
+                var afterSecond = AppSettings.Achievements.ContainsKey(Achievements.Curious);
+                Check(afterFirst != hadCurious && afterSecond == hadCurious, "« Il suffit d'être curieux » se gagne puis se perd au clic (" + hadCurious + " → " + afterFirst + " → " + afterSecond + ")");
+            }
             // Le champ des tags propose les tags du projet (31/10, Rémi : « ne propose pas les tags déjà présents »).
             var tagBox = shell.TagInputForProbe;
             {

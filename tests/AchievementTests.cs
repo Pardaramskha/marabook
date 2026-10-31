@@ -95,6 +95,9 @@ namespace Marabook.Tests
             t.Equal(69, Achievements.All.Length, "soixante-neuf succès, paliers compris (« Tour du proprio » du tutoriel, 29/10)");
             t.Equal(0, duplicates, "ids uniques, noms et descriptions remplis");
             t.Check(Achievements.Find(Achievements.Emperor) != null && Achievements.Find("inconnu") == null, "Find retrouve un id, ignore l'inconnu");
+            var curious = Achievements.Find(Achievements.Curious);
+            t.Check(curious != null && curious.Secret && Array.IndexOf(Achievements.All, curious) < 0 && Achievements.Secrets.Length >= 1 && !string.IsNullOrEmpty(curious.Description),
+                "le succès secret « Il suffit d'être curieux » (31/10) se retrouve par Find, hors de All (ni compte ni paliers)");
             t.Check(Achievements.IsTier("petit-nerd") && Achievements.IsTier(Achievements.Emperor) && !Achievements.IsTier("yolo"), "les paliers se reconnaissent");
             string renamed;
             t.Check(Achievements.RenamedIds.TryGetValue("roi-des-nerds", out renamed) && renamed == Achievements.Emperor, "l'ancien Roi devient l'Empereur");
