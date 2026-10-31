@@ -1084,9 +1084,19 @@ namespace Marabook.App
                 var title = columns[i].Title.Length == 0 ? "(sans titre)" : columns[i].Title;
                 var nearest = PlanIntensity.Clamp((int)Math.Round(value));
                 _plot.Children.Add(new Line { StartPoint = new Point(x, bottom), EndPoint = new Point(x, bottom + 6), Stroke = Chrome.BorderStrong, StrokeThickness = 1 });
-                // Le trait vertical du socle au point (31/10, Rémi : « repérer
-                // rapidement là où on regarde »), en pointillé discret.
-                _plot.Children.Add(new Line { StartPoint = new Point(x, bottom), EndPoint = new Point(x, y), Stroke = Chrome.AccentSoft, StrokeThickness = 1, StrokeDashArray = new Avalonia.Collections.AvaloniaList<double> { 3, 3 } });
+                // Le trait vertical du socle au point AU SURVOL (31/10, Rémi :
+                // « repérer rapidement là où on regarde ») : la colonne entière
+                // réagit (une zone transparente sous les points), le trait
+                // pointillé d'accent paraît, et s'efface quand la souris s'en va.
+                var guide = new Line { StartPoint = new Point(x, bottom), EndPoint = new Point(x, y), Stroke = Chrome.Accent, StrokeThickness = 1.5, StrokeDashArray = new Avalonia.Collections.AvaloniaList<double> { 3, 3 }, IsVisible = false, IsHitTestVisible = false };
+                var zone = new Rectangle { Width = step, Height = Math.Max(0, bottom - Top), Fill = Brushes.Transparent };
+                Canvas.SetLeft(zone, x - step / 2);
+                Canvas.SetTop(zone, Top);
+                var guideRef = guide;
+                zone.PointerEntered += delegate { guideRef.IsVisible = true; };
+                zone.PointerExited += delegate { guideRef.IsVisible = false; };
+                _plot.Children.Add(zone);
+                _plot.Children.Add(guide);
                 var size = dense ? 8 : 12;
                 var dot = new Ellipse
                 {
@@ -1099,6 +1109,8 @@ namespace Marabook.App
                 };
                 Canvas.SetLeft(dot, x - size / 2.0);
                 Canvas.SetTop(dot, y - size / 2.0);
+                dot.PointerEntered += delegate { guideRef.IsVisible = true; };
+                dot.PointerExited += delegate { guideRef.IsVisible = false; };
                 _plot.Children.Add(dot);
                 if (value > 0 && !dense)
                 {

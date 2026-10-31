@@ -112,6 +112,18 @@ namespace Marabook.App
             box.AddHandler(InputElement.KeyDownEvent, delegate(object sender, KeyEventArgs e) { lastKey = DateTime.UtcNow; }, RoutingStrategies.Tunnel, true);
             box.AddHandler(InputElement.TextInputEvent, delegate(object sender, TextInputEventArgs e) { lastKey = DateTime.UtcNow; }, RoutingStrategies.Tunnel, true);
             Func<bool> typing = delegate { return box.IsKeyboardFocusWithin || AssumeFocusForProbe || (DateTime.UtcNow - lastKey).TotalMilliseconds < 400; };
+            // La liste NATIVE du ComboBox ne compte que si elle a des lignes
+            // (31/10, Rémi : le champ des tags, sans élément, « ouvrait » au clic
+            // une liste vide, invisible, devant laquelle le menu s'effaçait).
+            Func<bool> nativeListOpen = delegate
+            {
+                if (box.ItemCount > 0) return box.IsDropDownOpen;
+                // Refermée APRÈS coup (le fermer dans DropDownOpened boucle
+                // avec la liaison du gabarit) : elle n'a rien à montrer.
+                if (box.IsDropDownOpen)
+                    Avalonia.Threading.Dispatcher.UIThread.Post(delegate { if (box.ItemCount == 0 && box.IsDropDownOpen) box.IsDropDownOpen = false; });
+                return false;
+            };
             Action close = delegate
             {
                 if (!popup.IsOpen) return;
@@ -135,7 +147,7 @@ namespace Marabook.App
                 // La liste déroulante du ComboBox ouverte : c'est elle qui
                 // répond — le menu de suggestions couvrait ses premières
                 // lignes (les polices favorites, injoignables — 29/09).
-                if (box.IsDropDownOpen) { close(); return; }
+                if (nativeListOpen()) { close(); return; }
                 if (syncing || !typing()) { return; }
                 var typed = (box.Text ?? "").Trim();
                 if (typed.Length == 0) { close(); return; }
@@ -183,7 +195,7 @@ namespace Marabook.App
                     else close();
                 }
             }, RoutingStrategies.Tunnel);
-            box.DropDownOpened += delegate { close(); }; // la liste du ComboBox prend la place
+            box.DropDownOpened += delegate { if (nativeListOpen()) close(); }; // la liste du ComboBox prend la place (quand elle a des lignes)
             box.LostFocus += delegate
             {
                 // Le focus part vers la liste (clic) : on la laisse répondre.

@@ -2464,8 +2464,23 @@ namespace Marabook.App
             Check(created.Tags.Count == 2 && created.Tags[0] == "héros" && created.Tags[1] == "mage noir", "les tags s'ajoutent un par un, sans doublon (" + string.Join(", ", created.Tags.ToArray()) + ")");
             Check(shell.TagChipsForProbe().Count == 2 && shell.TagChipsForProbe()[1] == "tag:mage noir", "…en puces dans le Général");
             // Le champ des tags propose les tags du projet (31/10, Rémi : « ne propose pas les tags déjà présents »).
-            Suggestions.AssumeFocusForProbe = true;
             var tagBox = shell.TagInputForProbe;
+            {
+                // Une frappe réelle dans le champ interne, la liste native « ouverte »
+                // comme après un clic dans un ComboBox vide (31/10) : le menu paraît quand même.
+                var inner = tagBox.GetVisualDescendants().OfType<TextBox>().FirstOrDefault();
+                if (inner != null)
+                {
+                    tagBox.IsDropDownOpen = true;
+                    inner.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.M, Source = inner });
+                    inner.RaiseEvent(new TextInputEventArgs { RoutedEvent = InputElement.TextInputEvent, Text = "ma", Source = inner });
+                    await Settle();
+                    Check(tagBox.Text == "ma" && Suggestions.IsOpenFor(tagBox) && !tagBox.IsDropDownOpen, "une frappe dans le champ des tags, sans élément natif, propose les tags même si la liste vide s'était « ouverte » au clic (31/10)");
+                    inner.Text = "";
+                    await Settle();
+                }
+            }
+            Suggestions.AssumeFocusForProbe = true;
             tagBox.Text = "mag";
             await Settle();
             Check(Suggestions.IsOpenFor(tagBox), "taper « mag » dans le champ des tags propose « mage noir » (autocomplète, 31/10)");
