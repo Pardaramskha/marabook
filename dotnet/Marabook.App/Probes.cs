@@ -2479,6 +2479,20 @@ namespace Marabook.App
                 }
                 else Check(false, "l'amplitude du suivi offre des écrits à choisir (" + choices + ")");
             }
+            // L'Encyclopédie (31/10) : l'export HTML de toutes les fiches de la démo.
+            {
+                var keep = Environment.GetEnvironmentVariable("MARABOOK_ENCYCLOPEDIA_FOLDER"); // un dossier à garder, pour regarder le résultat
+                var folder = string.IsNullOrEmpty(keep) ? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-encyclopedie-" + Guid.NewGuid().ToString("N")) : keep;
+                try
+                {
+                    var files = shell.ExportEncyclopediaForProbe(folder);
+                    var index = System.IO.Path.Combine(folder, "index.html");
+                    var home = System.IO.File.Exists(index) ? System.IO.File.ReadAllText(index) : "";
+                    Check(files >= 4 && home.Contains("<title>Encyclopédie de ") && home.Contains("Keira Varenh") && System.IO.Directory.Exists(System.IO.Path.Combine(folder, "fiches")) && System.IO.File.Exists(System.IO.Path.Combine(folder, "encyclopedie.css")),
+                        "l'Encyclopédie HTML de la démo s'écrit : accueil, feuille de styles, pages des fiches (" + files + " fichiers)");
+                }
+                finally { if (string.IsNullOrEmpty(keep)) { try { System.IO.Directory.Delete(folder, true); } catch (System.IO.IOException) { } } }
+            }
             // Le succès secret (31/10) : un clic le gagne, un autre le perd.
             {
                 var hadCurious = AppSettings.Achievements.ContainsKey(Achievements.Curious);

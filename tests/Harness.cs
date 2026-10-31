@@ -146,7 +146,8 @@ namespace Marabook.Tests
                 DialogueTests.Run,       // C56 — 1.1.0 : passe des dialogues (blocs, norme guillemets / tirets) (29/10)
                 TutorialTests.Run,        // C57 — 1.1.0 : le tutoriel (script Markdown, consignes, script embarqué) (29/10)
                 BackupTests.Run,          // C58 — 1.1.0 : enregistrement différentiel et copies horodatées (30/10)
-                ItemIgnoreTests.Run      // C59 — 1.1.0 : « Ignorer partout » par écrit, .plot v44 (30/10)
+                ItemIgnoreTests.Run,     // C59 — 1.1.0 : « Ignorer partout » par écrit, .plot v44 (30/10)
+                EncyclopediaTests.Run    // C60 — 1.1.0 : l'Encyclopédie — export des fiches (pivot, HTML, .plot v45) (31/10)
             };
             foreach (var suite in suites)
             {

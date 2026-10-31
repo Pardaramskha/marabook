@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using Avalonia.Media.Imaging;
+using Marabook.Exchange;
 using Marabook.Model;
 
 namespace Marabook.App
@@ -43,7 +44,23 @@ namespace Marabook.App
             Platform.Init();
             Platform.Current = new AppPlatform();
             Platform.Images = new AvaloniaImageCodec();
+            Encyclopedia.ShrinkImage = ShrinkToPng; // les images de l'Encyclopédie HTML, réduites (31/10)
             Settings.AppSettings.MacKeys = IsMac; // les raccourcis s'écrivent « ⇧⌘S » (02/10)
+        }
+
+        /// <summary>Une image plus large que maxWidth est réduite et rendue en
+        /// PNG ; null = garder l'original (déjà assez petite, ou illisible).</summary>
+        private static byte[] ShrinkToPng(byte[] bytes, int maxWidth)
+        {
+            int width, height;
+            if (bytes == null || !Platform.Images.TryGetSize(bytes, out width, out height) || width <= maxWidth) return null;
+            using (var input = new MemoryStream(bytes))
+            using (var bitmap = Bitmap.DecodeToWidth(input, maxWidth))
+            using (var output = new MemoryStream())
+            {
+                bitmap.Save(output);
+                return output.ToArray();
+            }
         }
 
         /// <summary>« Windows », « Linux » ou « macOS » — pour la barre d'état.</summary>

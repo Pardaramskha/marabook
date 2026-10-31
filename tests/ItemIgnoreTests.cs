@@ -100,7 +100,7 @@ namespace Marabook.Tests
                 var path = Path.Combine(dir, "ignores.plot");
                 PlotFile.Save(project, path);
                 var loaded = PlotFile.Load(path);
-                t.Equal(44, loaded.LoadedFormatVersion, "écrit en v44");
+                t.Equal(45, loaded.LoadedFormatVersion, "écrit en v45 (v44 ignorés par écrit, v45 encyclopédie)");
                 var back = loaded.FindById(item.Id);
                 t.Check(back != null && back.ProofIgnored.Count == 2 && back.ProofIgnored[0] == "marabout" && back.ProofIgnored[1] == "règle:virg_fin_dialogue",
                     "la liste de l'écrit fait l'aller-retour, dans l'ordre");

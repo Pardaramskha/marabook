@@ -219,6 +219,15 @@ namespace Marabook.App
             return picked == null ? null : picked.TryGetLocalPath();
         }
 
+        /// <summary>Un dossier, ou null (31/10 : l'Encyclopédie s'écrit dans un dossier).</summary>
+        public static async Task<string> PickFolder(Visual visual, string title)
+        {
+            var top = visual == null ? null : TopLevel.GetTopLevel(visual);
+            if (top == null) return null;
+            var picked = await top.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = title, AllowMultiple = false });
+            return picked == null || picked.Count == 0 ? null : picked[0].TryGetLocalPath();
+        }
+
         /// <summary>Plusieurs fichiers à l'ouverture, ou null.</summary>
         public static async Task<string[]> PickOpenFiles(Visual visual, string title, string wpfFilter)
         {

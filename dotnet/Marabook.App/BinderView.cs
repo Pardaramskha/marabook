@@ -61,6 +61,8 @@ namespace Marabook.App
         public event Action CollapseRequested; // le caret de repli sur la ligne Accueil (29/09)
         public event Action JournalRequested; // clic sur « Journal perso » (pied de Pile)
         public event Action GraphRequested;   // clic sur « Graphe relationnel » (section Encyclopédie, 1.1.0)
+        public event Action<BinderItem> ExportSheetRequested; // « Exporter la fiche… » (Encyclopédie, 31/10)
+        public event Action ExportEncyclopediaRequested;      // « Exporter l'Encyclopédie… » sur la racine Fiches (31/10)
         /// <summary>La page du graphe (28/10) : un item synthétique de la
         /// coquille, montré comme une racine d'Encyclopédie — sélectionnable,
         /// jamais déplacé ni cible de dépôt, sans menu.</summary>
@@ -1388,6 +1390,9 @@ namespace Marabook.App
                     if (handler != null) handler(item);
                 });
 
+            // L'Encyclopédie (31/10, Rémi) : la racine Fiches exporte tout.
+            if (item.IsCategory && item.CategoryKey == Project.KeySheets)
+                AddMenu(menu, "Exporter l'Encyclopédie…", delegate { var handler = ExportEncyclopediaRequested; if (handler != null) handler(); });
             if (inTrash)
             {
                 if (!item.IsCategory)
@@ -1553,6 +1558,8 @@ namespace Marabook.App
                 // après l'original, annulable.
                 if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet || item.Kind == ItemKind.PageTemplate)
                     AddMenu(menu, "Dupliquer", delegate { Duplicate(item); });
+                if (item.Kind == ItemKind.Sheet)
+                    AddMenu(menu, "Exporter la fiche…", delegate { var handler = ExportSheetRequested; if (handler != null) handler(item); }); // l'Encyclopédie (31/10)
                 // Suppression DOUCE (29/09) : vers la corbeille, en orange —
                 // elle se restaure ; la sèche (vider la corbeille) est rouge.
                 AddMenu(menu, "Envoyer à la corbeille", SoftDeleteInk, async delegate

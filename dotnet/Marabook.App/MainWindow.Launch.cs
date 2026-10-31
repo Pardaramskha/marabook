@@ -57,6 +57,13 @@ namespace Marabook.App
                     QuitNow();
                     return;
                 }
+                if (_launch.EncyclopediaProbe != null)
+                {
+                    try { EncyclopediaDiagnostic(_launch.EncyclopediaProbe, _launch.EncyclopediaFolder); }
+                    catch (Exception error) { Console.WriteLine("ENCYCLOPÉDIE ÉCHEC : " + error); Environment.ExitCode = 1; }
+                    QuitNow();
+                    return;
+                }
                 if (_launch.PlotPath != null)
                 {
                     PendingOpen = null;

@@ -123,6 +123,11 @@ namespace Marabook.Model
         // tirée (épinglée) — le graphe ne se réorganise pas à chaque ouverture.
         public Dictionary<string, GraphPosition> GraphLayout = new Dictionary<string, GraphPosition>();
 
+        // L'ENCYCLOPÉDIE (1.1.0, v45, 31/10) : les options de l'export des
+        // fiches (format, titre, polices, couleurs, encarts, lexique) — un
+        // réglage de l'œuvre, retenu avec elle. Null = jamais réglées.
+        public EncyclopediaOptions Encyclopedia;
+
         /// <summary>L'item du projet actif, s'il existe encore, hors corbeille
         /// et dans Écrits ; null sinon.</summary>
         public BinderItem ActiveScope()

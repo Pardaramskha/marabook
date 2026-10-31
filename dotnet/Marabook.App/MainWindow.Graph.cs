@@ -107,6 +107,18 @@ namespace Marabook.App
             Console.WriteLine("  ORPHELINS (" + orphans.Count + ") : " + string.Join(", ", orphans.ConvertAll(delegate(GraphNode n) { return n.Title; }).ToArray()));
         }
 
+        /// <summary>« --encyclopedie fichier.plot dossier » (31/10) : l'Encyclopédie
+        /// HTML de toutes les fiches du projet, options du projet (ou d'office),
+        /// écrite dans le dossier — pour regarder le rendu sans la fenêtre. Le
+        /// projet n'est pas modifié.</summary>
+        private static void EncyclopediaDiagnostic(string path, string folder)
+        {
+            var project = Marabook.Persistence.PlotFile.Load(path);
+            var document = Exchange.Encyclopedia.Build(project, Exchange.EncyclopediaSelection.All(), Exchange.Encyclopedia.DefaultOptions(project), Settings.AppSettings.Lexicon);
+            var written = Exchange.HtmlEncyclopedia.Write(folder, document, project);
+            Console.WriteLine("ENCYCLOPÉDIE " + System.IO.Path.GetFileName(path) + " : " + document.SheetCount + " fiches, " + document.Sections.Count + " sections, " + document.Lexicon.Count + " mots, " + document.Images.Count + " images -> " + written.Count + " fichiers dans " + folder);
+        }
+
         // ---------------------------------------------------------------- sonde
 
         internal GraphView GraphViewForProbe { get { return _graphView; } }

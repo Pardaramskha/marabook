@@ -224,7 +224,12 @@ namespace Marabook.Persistence
         //      que le correcteur tait dans ce document seul ; omis si vide).
         //      Un vieux Marabook l'ignore : les relevés reviennent, rien ne
         //      se perd.
-        private const int FormatVersion = 44;
+        // v45: 1.1.0 (31/10) — ENCYCLOPÉDIE : manifeste "encyclopedia" (les
+        //      options de l'export des fiches : format, titre, sous-titre,
+        //      auteur, polices, taille, accent, sombre, portrait, encarts,
+        //      lexique, fiches vides, couverture ; omis tant que jamais
+        //      réglées). Un vieux Marabook ignore la clé.
+        private const int FormatVersion = 45;
 
         // La voie d'une nature de relation dans le .plot (1.1.0, schéma des relations).
         private static string LaneName(RelationLane lane)
@@ -762,6 +767,33 @@ namespace Marabook.Persistence
                     layout.Add(g);
                 }
                 manifest["graphLayout"] = layout;
+            }
+            if (project.Encyclopedia != null) // v45 — les options de l'Encyclopédie
+            {
+                var e = project.Encyclopedia;
+                var o = new Dictionary<string, object>();
+                o["format"] = e.Format ?? EncyclopediaOptions.FormatHtml;
+                o["title"] = e.Title ?? "";
+                o["subtitle"] = e.Subtitle ?? "";
+                o["author"] = e.Author ?? "";
+                o["bodyFont"] = e.BodyFont ?? "";
+                o["headingFont"] = e.HeadingFont ?? "";
+                o["baseSize"] = e.BaseSize;
+                o["accent"] = e.Accent ?? "";
+                o["dark"] = e.Dark;
+                o["portraitSide"] = e.PortraitSide ?? "right";
+                o["showInfobox"] = e.ShowInfobox;
+                o["showRelations"] = e.ShowRelations;
+                o["showPresence"] = e.ShowPresence;
+                o["showRadar"] = e.ShowRadar;
+                o["showTags"] = e.ShowTags;
+                o["showDates"] = e.ShowDates;
+                o["includeLexicon"] = e.IncludeLexicon;
+                o["lexiconOnlyDefined"] = e.LexiconOnlyDefined;
+                o["lexiconAllProjects"] = e.LexiconAllProjects;
+                o["includeEmptySheets"] = e.IncludeEmptySheets;
+                if (!string.IsNullOrEmpty(e.CoverImageId)) o["coverImageId"] = e.CoverImageId;
+                manifest["encyclopedia"] = o;
             }
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
@@ -1336,6 +1368,37 @@ namespace Marabook.Persistence
                             Pinned = Json.AsBool(Json.Field(g, "pin"), false)
                         };
                     }
+                var encyclopedia = Json.AsObject(Json.Field(manifest, "encyclopedia")); // v45
+                if (encyclopedia != null)
+                {
+                    var d = new EncyclopediaOptions();
+                    var e = new EncyclopediaOptions
+                    {
+                        Format = Json.AsString(Json.Field(encyclopedia, "format")) ?? d.Format,
+                        Title = Json.AsString(Json.Field(encyclopedia, "title")) ?? "",
+                        Subtitle = Json.AsString(Json.Field(encyclopedia, "subtitle")) ?? "",
+                        Author = Json.AsString(Json.Field(encyclopedia, "author")) ?? "",
+                        BodyFont = Json.AsString(Json.Field(encyclopedia, "bodyFont")) ?? "",
+                        HeadingFont = Json.AsString(Json.Field(encyclopedia, "headingFont")) ?? "",
+                        BaseSize = Json.AsDouble(Json.Field(encyclopedia, "baseSize"), d.BaseSize),
+                        Accent = EncyclopediaOptions.SafeColor(Json.AsString(Json.Field(encyclopedia, "accent")), d.Accent),
+                        Dark = Json.AsBool(Json.Field(encyclopedia, "dark"), false),
+                        PortraitSide = Json.AsString(Json.Field(encyclopedia, "portraitSide")) ?? d.PortraitSide,
+                        ShowInfobox = Json.AsBool(Json.Field(encyclopedia, "showInfobox"), true),
+                        ShowRelations = Json.AsBool(Json.Field(encyclopedia, "showRelations"), true),
+                        ShowPresence = Json.AsBool(Json.Field(encyclopedia, "showPresence"), true),
+                        ShowRadar = Json.AsBool(Json.Field(encyclopedia, "showRadar"), true),
+                        ShowTags = Json.AsBool(Json.Field(encyclopedia, "showTags"), true),
+                        ShowDates = Json.AsBool(Json.Field(encyclopedia, "showDates"), true),
+                        IncludeLexicon = Json.AsBool(Json.Field(encyclopedia, "includeLexicon"), true),
+                        LexiconOnlyDefined = Json.AsBool(Json.Field(encyclopedia, "lexiconOnlyDefined"), true),
+                        LexiconAllProjects = Json.AsBool(Json.Field(encyclopedia, "lexiconAllProjects"), true),
+                        IncludeEmptySheets = Json.AsBool(Json.Field(encyclopedia, "includeEmptySheets"), true),
+                        CoverImageId = Json.AsString(Json.Field(encyclopedia, "coverImageId"))
+                    };
+                    if (e.BaseSize < 10 || e.BaseSize > 32) e.BaseSize = d.BaseSize;
+                    project.Encyclopedia = e;
+                }
                 var ignoredRules = Json.AsList(Json.Field(manifest, "ignoredRules"));
                 if (ignoredRules != null)
                     foreach (var entry in ignoredRules)

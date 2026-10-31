@@ -412,6 +412,7 @@ namespace Marabook.App
             exportMenu.Items.Add(Entry("compile", "Compiler les écrits…", CompileManuscript));
             exportMenu.Items.Add(Entry("export-pdf", "PDF prêt à imprimer…", ExportPdf, TextOrSheetActive));
             exportMenu.Items.Add(Entry("export-epub", "EPUB du livre ou de l'écrit…", ExportEpubCurrent, TextOrBookActive)); // 22/09
+            exportMenu.Items.Add(Entry(null, "Encyclopédie des fiches…", ExportEncyclopediaAll, delegate { return _project != null; })); // l'Encyclopédie HTML (31/10)
             file.Items.Add(exportMenu);
             file.Items.Add(new Separator());
             file.Items.Add(Entry(null, "Quitter", Close));
@@ -700,6 +701,8 @@ namespace Marabook.App
             _binder.BatchMenuProvider = BuildBatchMenu;
             _binder.JournalRequested += ShowJournal;
             _binder.GraphRequested += ShowGraph; // le graphe relationnel (1.1.0)
+            _binder.ExportSheetRequested += delegate(BinderItem item) { ExportEncyclopedia(Exchange.EncyclopediaSelection.Sheet(item.Id)); }; // l'Encyclopédie (31/10)
+            _binder.ExportEncyclopediaRequested += ExportEncyclopediaAll;
             _binder.NewTabRequested += OpenInNewTab; // « Ouvrir dans un nouvel onglet » (1.1.0)
             _binder.CanOpenTab = delegate { return TabsOn() && _tabs.CanOpen; };
             _binder.FilesDropped += ImportDroppedFiles; // fichiers du système sur la Pile (29/09)
@@ -904,6 +907,8 @@ namespace Marabook.App
             _sheetLibrary = new SheetLibraryView { IsVisible = false };
             _sheetLibrary.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _sheetLibrary.CardSelected += InspectCard; // clic simple sur une tuile de fiche : le Général la montre (29/09)
+            _sheetLibrary.ExportCategoryRequested += delegate(SheetCategory category) { ExportEncyclopedia(Exchange.EncyclopediaSelection.Category(category.Id)); }; // l'Encyclopédie (31/10)
+            _sheetLibrary.ExportSheetRequested += delegate(BinderItem item) { ExportEncyclopedia(Exchange.EncyclopediaSelection.Sheet(item.Id)); };
             _sheetLibrary.SelectionChanged += InspectGroup; // la sélection multiple (1.0.3)
             _sheetLibrary.BatchMenuProvider = BuildBatchMenu;
             _sheetLibrary.DeleteManyRequested += TrashMany;
@@ -4329,6 +4334,63 @@ namespace Marabook.App
         private void ExportEpubCurrent()
         {
             if (TextOrBookActive()) ExportEpub(_current);
+        }
+
+        // ---------------------------------------------------------------- l'Encyclopédie (31/10)
+
+        private void ExportEncyclopediaAll()
+        {
+            ExportEncyclopedia(Exchange.EncyclopediaSelection.All());
+        }
+
+        /// <summary>L'EXPORT DES FICHES (1.1.0, 31/10, Rémi) : le dialogue
+        /// (fiches cochées, options), un dossier choisi, le dossier
+        /// « <Titre> » écrit dedans (HTML), les options retenues dans le
+        /// projet, l'accueil ouvert dans le navigateur.</summary>
+        private async void ExportEncyclopedia(Exchange.EncyclopediaSelection preset)
+        {
+            if (_project == null) return;
+            CommitActive();
+            var answer = await EncyclopediaExportDialog.Ask(this, _project, preset, Exchange.Encyclopedia.DefaultOptions(_project));
+            if (answer == null) return;
+            var parent = await Ui.PickFolder(this, "Où poser le dossier de l'Encyclopédie ?");
+            if (parent == null) return;
+            try
+            {
+                var document = Exchange.Encyclopedia.Build(_project, answer.Selection, answer.Options, AppSettings.Lexicon);
+                var folder = System.IO.Path.Combine(parent, SafeFileName(document.Title));
+                var written = Exchange.HtmlEncyclopedia.Write(folder, document, _project);
+                RememberEncyclopediaOptions(answer.Options);
+                ShowToast(null, "Encyclopédie exportée", document.Title,
+                    document.SheetCount + (document.SheetCount > 1 ? " fiches" : " fiche") + (document.Lexicon.Count > 0 ? ", le Lexique" : "") + " — " + written.Count + " fichiers dans " + folder, 6);
+                if (answer.OpenAfter)
+                {
+                    try { AppPlatform.OpenWithShell(System.IO.Path.Combine(folder, Exchange.HtmlEncyclopedia.IndexFile)); }
+                    catch { }
+                }
+            }
+            catch (Exception error)
+            {
+                MessageDialog.Show(this, "L'export de l'Encyclopédie a échoué : " + error.Message, "Encyclopédie", MessageButtons.OK, MessageIcon.Warning);
+            }
+        }
+
+        /// <summary>Les options de l'Encyclopédie appartiennent à l'œuvre : le
+        /// projet les retient (et se salit) quand elles changent.</summary>
+        private void RememberEncyclopediaOptions(EncyclopediaOptions options)
+        {
+            if (_project == null || options == null) return;
+            var before = _project.Encyclopedia == null ? null : _project.Encyclopedia.Signature();
+            if (before == options.Signature()) return;
+            _project.Encyclopedia = options.Clone();
+            MarkDirty();
+        }
+
+        /// <summary>Sonde : toutes les fiches, options d'office, dans ce dossier ; rend le nombre de fichiers écrits.</summary>
+        internal int ExportEncyclopediaForProbe(string folder)
+        {
+            var document = Exchange.Encyclopedia.Build(_project, Exchange.EncyclopediaSelection.All(), Exchange.Encyclopedia.DefaultOptions(_project), AppSettings.Lexicon);
+            return Exchange.HtmlEncyclopedia.Write(folder, document, _project).Count;
         }
 
         /// <summary>« Créer un EPUB » : le plan (écrits, pages dynamiques

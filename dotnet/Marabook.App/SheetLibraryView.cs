@@ -76,6 +76,8 @@ namespace Marabook.App
         public event Action<List<BinderItem>> DeleteManyRequested;
 
         public event Action<BinderItem> Navigate; // ouvrir une fiche
+        public event Action<SheetCategory> ExportCategoryRequested; // « Exporter la catégorie… » (Encyclopédie, 31/10)
+        public event Action<BinderItem> ExportSheetRequested;       // « Exporter la fiche… » (Encyclopédie, 31/10)
         public event Action Changed;              // structure/projet modifiés
         public event Action<string> AchievementEvent; // succès à événement (12/09)
 
@@ -1603,6 +1605,9 @@ namespace Marabook.App
                 if (handler != null) handler(sheet);
             };
             menu.Items.Add(open);
+            var export = new MenuItem { Header = "Exporter la fiche…" }; // l'Encyclopédie (31/10)
+            export.Click += delegate { var handler = ExportSheetRequested; if (handler != null) handler(sheet); };
+            menu.Items.Add(export);
 
             var move = new MenuItem { Header = "Changer de catégorie" };
             foreach (var category in _project.OrderedCategories()) // catégories puis leurs sous-catégories (1.0.5)
@@ -1666,6 +1671,10 @@ namespace Marabook.App
             var sub = category.IsSub && _project.ParentOf(category) != null;
             var kindLabel = sub ? "la sous-catégorie" : "la catégorie";
 
+            var export = new MenuItem { Header = "Exporter " + kindLabel + "…" }; // l'Encyclopédie (31/10)
+            export.Click += delegate { var handler = ExportCategoryRequested; if (handler != null) handler(category); };
+            menu.Items.Add(export);
+            menu.Items.Add(new Separator());
             var rename = new MenuItem { Header = "Renommer…" };
             rename.Click += async delegate
             {
