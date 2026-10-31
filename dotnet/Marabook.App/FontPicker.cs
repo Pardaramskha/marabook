@@ -68,7 +68,7 @@ namespace Marabook.App
             Rebuild(null);
             // L'autocomplétion (29/09) : les polices dont le nom contient la
             // frappe, dans un menu sous le champ ; un choix applique.
-            Suggestions.Attach(this, FontNames, delegate(string name) { Select(name); Announce(name, false); });
+            Suggestions.Attach(this, FontNames, delegate(string name) { Select(name); Announce(name, false); }, true); // strict (31/10) : pas de police inventée — rouge, Entrée prend la première
 
             SelectionChanged += OnSelectionChangedInternal;
             AddHandler(KeyDownEvent, OnPreviewKeyDownInternal, RoutingStrategies.Tunnel);
@@ -282,8 +282,7 @@ namespace Marabook.App
             // Le menu de suggestions ouvert prend les flèches, et Entrée
             // quand une ligne y est choisie (29/09).
             if (Suggestions.IsOpenFor(this)
-                && (e.Key == Key.Up || e.Key == Key.Down
-                    || ((e.Key == Key.Enter || e.Key == Key.Return) && Suggestions.HasChoice(this))))
+                && (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Enter || e.Key == Key.Return)) // Entrée : le menu strict prend la ligne choisie, sinon la première (31/10)
                 return;
             if (e.Key == Key.Enter || e.Key == Key.Return)
             {

@@ -72,7 +72,7 @@ namespace Marabook.App
         // le projet actif, un livre, un dossier, un écrit) et la nature des
         // fiches (une catégorie, ou toutes).
         private readonly WrapPanel _matrixTools = new WrapPanel { Orientation = Orientation.Horizontal, IsVisible = false };
-        private readonly ComboBox _scopeBox = new ComboBox { Width = 260, Tag = "graph-scope" };
+        private readonly ComboBox _scopeBox = new ComboBox { Width = 260, Tag = "graph-scope", IsEditable = true }; // un autocomplète strict (31/10, Rémi) : taper un livre, un dossier, un écrit
         private readonly ComboBox _typeBox = new ComboBox { Width = 180, Tag = "graph-type" };
         // L'ordre des lignes de la matrice (29/10, Rémi) : par ordre
         // d'apparition dans les écrits retenus (défaut), ou par fréquence.
@@ -195,6 +195,28 @@ namespace Marabook.App
             ToolTip.SetTip(_scopeBox, "L'amplitude : tout le récit, le projet actif, un livre, un dossier ou un écrit");
             ToolTip.SetTip(_typeBox, "Quelles fiches : une catégorie, ou toutes");
             _scopeBox.SelectionChanged += delegate { if (_buildingFilters) return; _scopeMemory = KeyAt(_scopeKeys, _scopeBox.SelectedIndex); _matrix.Reload(); };
+            // L'AMPLITUDE EN AUTOCOMPLÈTE (31/10, Rémi) : la frappe propose les
+            // choix qui la contiennent (sans le retrait des sous-niveaux), un
+            // choix sélectionne ; rien de libre — rouge si rien ne répond,
+            // Entrée prend la première proposition, quitter le champ sans
+            // choisir rend le libellé du choix en place.
+            Suggestions.Attach(_scopeBox,
+                delegate { var labels = new List<string>(); foreach (var item in _scopeBox.Items) { var label = item as string; if (label != null) labels.Add(label.Trim()); } return labels; },
+                delegate(string chosen)
+                {
+                    for (var i = 0; i < _scopeBox.Items.Count; i++)
+                        if (string.Equals((_scopeBox.Items[i] as string ?? "").Trim(), chosen, StringComparison.CurrentCultureIgnoreCase)) { _scopeBox.SelectedIndex = i; break; }
+                    _scopeBox.Text = _scopeBox.SelectedItem as string ?? "";
+                }, true);
+            _scopeBox.LostFocus += delegate
+            {
+                Dispatcher.UIThread.Post(delegate
+                {
+                    if (_scopeBox.IsKeyboardFocusWithin) return;
+                    var current = _scopeBox.SelectedItem as string ?? "";
+                    if ((_scopeBox.Text ?? "") != current) _scopeBox.Text = current;
+                }, DispatcherPriority.Background);
+            };
             _typeBox.SelectionChanged += delegate { if (_buildingFilters) return; _typeMemory = KeyAt(_typeKeys, _typeBox.SelectedIndex); _matrix.Reload(); };
             var scopeLabel = new TextBlock { Text = "Amplitude", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 4) };
             var typeLabel = new TextBlock { Text = "Fiches", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 6, 4) };
@@ -998,6 +1020,7 @@ namespace Marabook.App
         }
 
         public void ScopeForProbe(int index) { _scopeBox.SelectedIndex = index; }
+        public ComboBox ScopeBoxForProbe { get { return _scopeBox; } }
         public void TypeForProbe(int index) { _typeBox.SelectedIndex = index; }
         public int ScopeChoicesForProbe { get { return _scopeBox.Items.Count; } }
         public string ScopeLabelForProbe { get { return _scopeBox.SelectedItem as string ?? ""; } }

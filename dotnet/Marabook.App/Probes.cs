@@ -3125,6 +3125,24 @@ namespace Marabook.App
                 Check(view.ScopeChoicesForProbe >= 3 && view.TypeLabelForProbe.StartsWith("Personnage"), "les filtres (28/10) : l'amplitude (" + view.ScopeChoicesForProbe + " choix) et la nature des fiches, Personnages d'office (" + view.TypeLabelForProbe + ")");
                 var matrixCapture = Environment.GetEnvironmentVariable("MARABOOK_MATRIX_CAPTURE");
                 if (!string.IsNullOrEmpty(matrixCapture)) shell.CaptureForProbe(matrixCapture);
+                // L'amplitude en autocomplète strict (31/10, Rémi) : une frappe
+                // sans réponse passe en rouge ; Entrée prend la première proposition.
+                var scopeBox = view.ScopeBoxForProbe;
+                Suggestions.AssumeFocusForProbe = true; // Focus() ne prend pas ici (fenêtre sans activation réelle)
+                scopeBox.Text = "zzz-rien-de-tel";
+                await Settle();
+                Check(scopeBox.IsEditable && ReferenceEquals(scopeBox.Foreground, Chrome.Danger), "Amplitude : une frappe qui ne répond à aucun choix passe en rouge");
+                var lastLabel = (scopeBox.Items[scopeBox.Items.Count - 1] as string ?? "").Trim();
+                scopeBox.Text = lastLabel.Length > 6 ? lastLabel.Substring(2, 5) : lastLabel;
+                await Settle();
+                Check(!ReferenceEquals(scopeBox.Foreground, Chrome.Danger) && Suggestions.IsOpenFor(scopeBox), "…une frappe qui répond redevient noire et ouvre les propositions");
+                scopeBox.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter, Source = scopeBox });
+                await Settle();
+                Check(scopeBox.SelectedIndex >= 0 && !Suggestions.IsOpenFor(scopeBox) && (scopeBox.Text ?? "").Trim() == (scopeBox.SelectedItem as string ?? "").Trim() && scopeBox.Text.Trim().Contains(lastLabel.Length > 6 ? lastLabel.Substring(2, 5) : lastLabel),
+                    "…Entrée prend la première proposition et la sélectionne (« " + scopeBox.Text + " »)");
+                Suggestions.AssumeFocusForProbe = false;
+                view.ScopeForProbe(0);
+                await Settle();
                 var columnsBefore = matrix.ColumnCountForProbe;
                 view.ScopeForProbe(view.ScopeChoicesForProbe - 1); // le dernier écrit du récit
                 await Settle();
