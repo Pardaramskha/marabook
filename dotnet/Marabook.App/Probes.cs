@@ -2464,6 +2464,21 @@ namespace Marabook.App
             Check(created.Tags.Count == 2 && created.Tags[0] == "héros" && created.Tags[1] == "mage noir", "les tags s'ajoutent un par un, sans doublon (" + string.Join(", ", created.Tags.ToArray()) + ")");
             Check(shell.TagChipsForProbe().Count == 2 && shell.TagChipsForProbe()[1] == "tag:mage noir", "…en puces dans le Général");
             Check(shell.TagInputForProbe.ItemCount == 2, "la flèche du champ des tags liste les tags du projet (" + shell.TagInputForProbe.ItemCount + ", 31/10)");
+            // L'amplitude du suivi (31/10, Rémi : plantage) : choisir une entrée
+            // ne vide plus la liste pendant la validation de la sélection.
+            {
+                var filter = shell.Sheet.PresenceFilterForProbe;
+                var choices = filter.ItemCount;
+                if (choices > 1)
+                {
+                    filter.SelectedIndex = 1;
+                    await Settle();
+                    Check(filter.SelectedIndex == 1 && filter.ItemCount == choices, "changer l'amplitude du suivi d'une fiche ne plante plus et garde ses " + choices + " choix (31/10)");
+                    filter.SelectedIndex = 0;
+                    await Settle();
+                }
+                else Check(false, "l'amplitude du suivi offre des écrits à choisir (" + choices + ")");
+            }
             // Le succès secret (31/10) : un clic le gagne, un autre le perd.
             {
                 var hadCurious = AppSettings.Achievements.ContainsKey(Achievements.Curious);

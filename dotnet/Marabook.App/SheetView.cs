@@ -288,7 +288,12 @@ namespace Marabook.App
                 if (_syncingFilter || _item == null) return;
                 var entry = _presenceFilter.SelectedItem as ComboBoxItem;
                 _presenceFilterId = entry == null ? null : entry.Tag as string;
-                RebuildPresence();
+                // Les LIGNES seulement (31/10, Rémi : plantage) : vider et remplir
+                // la liste du filtre pendant que le ComboBox valide encore sa
+                // sélection faisait énumérer une sélection sur une source vide
+                // (ArgumentOutOfRange dans SelectionModel) — la liste n'a pas
+                // changé, inutile de la refaire.
+                RebuildPresence(false);
             };
             _presencePaper = Paper("Suivi", _presencePanel, _presenceFilter);
             // Évolution (b47) : les étapes du personnage, chacune liée à un
@@ -747,11 +752,16 @@ namespace Marabook.App
         /// <summary>Une ligne par écrit où un nom de la fiche apparaît, dans
         /// l'ordre du récit : le titre (cliquable), le livre, le compte et
         /// une barre à l'échelle du plus présent.</summary>
-        private void RebuildPresence()
+        private void RebuildPresence() { RebuildPresence(true); }
+
+        /// <summary>refillFilter : la liste des amplitudes se refait aussi (une
+        /// autre fiche, un autre projet) ; false quand seule l'amplitude
+        /// choisie a changé.</summary>
+        private void RebuildPresence(bool refillFilter)
         {
             _presencePanel.Children.Clear();
             if (_item == null) return;
-            FillPresenceFilter();
+            if (refillFilter) FillPresenceFilter();
             var rows = Presence.Of(_item, _template, _project);
             var chosen = _presenceFilterId == null || _project == null ? null : _project.FindById(_presenceFilterId);
             if (chosen != null)
@@ -802,6 +812,9 @@ namespace Marabook.App
         /// écrits suivis — les livres et groupes qui en contiennent, les
         /// écrits — indentés par profondeur. Le choix tient d'une fiche à
         /// l'autre tant que l'élément existe encore.</summary>
+        public ComboBox PresenceFilterForProbe { get { return _presenceFilter; } }
+        public int PresenceRowCountForProbe { get { var n = 0; foreach (var child in _presencePanel.Children) if (child is DockPanel || child is Grid || child is StackPanel) n++; return n; } }
+
         private void FillPresenceFilter()
         {
             _syncingFilter = true;
