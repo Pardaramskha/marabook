@@ -49,7 +49,11 @@ namespace Marabook.App
                 box.Focus();
             };
             box.TextChanged += delegate { cross.IsVisible = !string.IsNullOrEmpty(box.Text); };
-            box.Padding = new Thickness(box.Padding.Left, box.Padding.Top, Math.Max(box.Padding.Right, 22), box.Padding.Bottom);
+            // L'espace intérieur du THÈME, pas celui lu ici (31/10, Rémi) : à la
+            // construction, le style n'est pas encore posé et Padding vaut 0 —
+            // le texte collait au bord gauche et le champ perdait sa hauteur.
+            var basis = Theme.FieldPadding;
+            box.Padding = new Thickness(basis.Left, basis.Top, Math.Max(basis.Right, 22), basis.Bottom);
             host.Children.Add(cross);
             return host;
         }

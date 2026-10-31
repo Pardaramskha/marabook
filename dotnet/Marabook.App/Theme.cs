@@ -27,6 +27,8 @@ namespace Marabook.App
     public static class Theme
     {
         public const double Radius = 6;
+        /// <summary>L'espace intérieur d'un champ de texte (5 × 2) — le thème le pose, Ui.WithClear le reprend (31/10).</summary>
+        public static readonly Thickness FieldPadding = new Thickness(5, 2);
 
         /// <summary>L'épaisseur des barres de défilement (le pouce y laisse
         /// 2 px de marge de chaque côté).</summary>
@@ -218,7 +220,7 @@ namespace Marabook.App
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius)),
-                new Setter(TemplatedControl.PaddingProperty, new Thickness(5, 2)),
+                new Setter(TemplatedControl.PaddingProperty, FieldPadding),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TextBox.CaretBrushProperty, Chrome.Ink),
                 new Setter(TextBox.SelectionBrushProperty, Chrome.Accent),
