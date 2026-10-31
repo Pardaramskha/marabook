@@ -184,7 +184,66 @@ namespace Marabook.App
                     if (!box.IsKeyboardFocusWithin && !list.IsKeyboardFocusWithin) close();
                 }, Avalonia.Threading.DispatcherPriority.Background);
             };
-            box.DetachedFromVisualTree += delegate { close(); };
+            // CLIC AILLEURS (31/10, Rémi) : un clic sur une surface qui ne prend
+            // pas le clavier (fond de l'app, marge, étiquette) laissait le caret
+            // dans le champ. La fenêtre écoute les pressions en tunnel : hors du
+            // champ et de son menu, le clavier est rendu (LostFocus commet).
+            EventHandler<PointerPressedEventArgs> clickOut = delegate(object sender, PointerPressedEventArgs e)
+            {
+                if (!box.IsKeyboardFocusWithin) return;
+                var source = e.Source as Visual;
+                if (source != null && (IsWithin(source, box) || IsWithin(source, list))) return;
+                var top = TopLevel.GetTopLevel(box);
+                if (top != null && top.FocusManager != null) top.FocusManager.ClearFocus();
+            };
+            TopLevel listening = null;
+            box.AttachedToVisualTree += delegate
+            {
+                listening = TopLevel.GetTopLevel(box);
+                if (listening != null) listening.AddHandler(InputElement.PointerPressedEvent, clickOut, RoutingStrategies.Tunnel, true);
+            };
+            box.DetachedFromVisualTree += delegate
+            {
+                close();
+                if (listening != null) { listening.RemoveHandler(InputElement.PointerPressedEvent, clickOut); listening = null; }
+            };
+            // PREMIER CLIC (31/10, Rémi) : le clavier entre dans le champ, tout
+            // le texte est choisi — on tape une valeur sans Ctrl+A. Posé après
+            // la pression, qui aurait posé le caret au point cliqué.
+            TextBox selectOnRelease = null;
+            Action<TextBox> selectAll = delegate(TextBox inner)
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(delegate
+                {
+                    if (inner.IsKeyboardFocusWithin && !string.IsNullOrEmpty(inner.Text)) inner.SelectAll();
+                }, Avalonia.Threading.DispatcherPriority.Input);
+            };
+            box.GotFocus += delegate(object sender, GotFocusEventArgs e)
+            {
+                var inner = e.Source as TextBox;
+                if (inner == null || !IsWithin(inner, box)) return;
+                // Par la souris : au relâchement (le glisser de la pression
+                // reposerait la sélection) ; au clavier (Tab) : tout de suite.
+                if (e.NavigationMethod == NavigationMethod.Pointer) selectOnRelease = inner;
+                else selectAll(inner);
+            };
+            box.AddHandler(InputElement.PointerReleasedEvent, delegate(object sender, PointerReleasedEventArgs e)
+            {
+                var inner = selectOnRelease;
+                selectOnRelease = null;
+                if (inner != null) selectAll(inner);
+            }, RoutingStrategies.Bubble, true);
+        }
+
+        /// <summary>Le visuel est-il l'ancêtre, ou l'un de ses descendants ?</summary>
+        private static bool IsWithin(Visual visual, Visual ancestor)
+        {
+            while (visual != null)
+            {
+                if (ReferenceEquals(visual, ancestor)) return true;
+                visual = visual.GetVisualParent();
+            }
+            return false;
         }
     }
 }
