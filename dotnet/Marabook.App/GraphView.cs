@@ -173,6 +173,7 @@ namespace Marabook.App
             ToolTip.SetTip(_depth, "Le voisinage du nœud sélectionné : lui seul avec ses voisins directs, ou à deux sauts");
             _depth.SelectionChanged += delegate { _focusDepth = Math.Max(0, _depth.SelectedIndex); RefreshFocus(); };
             ToolsPanel.Children.Add(_depth);
+            _depth.SizeChanged += delegate { if (_depth.Bounds.Height > 0) _search.MinHeight = _depth.Bounds.Height; }; // même hauteur que le sélecteur (31/10, Rémi)
             // Les natures de liens, en deux groupes (31/10, Rémi) : la
             // Structure (cochée d'office) et l'Écriture (décochée).
             ToolsPanel.Children.Add(ToolsLabel("Structure", 8));
@@ -189,7 +190,7 @@ namespace Marabook.App
             AddKindToggle(GraphEdgeKind.Plan, "Plans", "Un plan et les écrits reliés à ses colonnes");
             // Le filtre par type de fiche (31/10, Rémi) : une case par
             // catégorie et sous-catégorie, remplies à chaque calcul.
-            ToolsPanel.Children.Add(ToolsLabel("Filtre par type de fiche", 8));
+            ToolsPanel.Children.Add(new TextBlock { Text = "Filtre par type de fiche", Foreground = Chrome.Ink, FontSize = 12.5, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 12, 0, 4) }); // plus gras : un autre genre de filtre (31/10, Rémi)
             ToolsPanel.Children.Add(_typeFilterList);
             ToolTip.SetTip(_scopeBox, "L'amplitude : tout le récit, le projet actif, un livre, un dossier ou un écrit");
             ToolTip.SetTip(_typeBox, "Quelles fiches : une catégorie, ou toutes");
@@ -666,12 +667,13 @@ namespace Marabook.App
         {
             _selectedId = id;
             RefreshFocus();
-            BinderItem item;
-            if (id != null && _items.TryGetValue(id, out item))
-            {
-                var handler = NodeSelected;
-                if (handler != null) handler(item);
-            }
+            BinderItem item = null;
+            if (id != null) _items.TryGetValue(id, out item);
+            // Un nœud choisi : le Général montre la fiche À LA PLACE des outils
+            // de la carte ; rien de choisi (clic dans le vide, Échap) : les
+            // outils reviennent (31/10, Rémi : « autrement on a une superposition »).
+            var handler = NodeSelected;
+            if (handler != null && (item != null || id == null)) handler(item);
         }
 
         internal void Open(string id, bool newTab)

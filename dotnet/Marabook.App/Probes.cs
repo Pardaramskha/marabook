@@ -3072,6 +3072,12 @@ namespace Marabook.App
                 view.SelectForProbe(keira.Id);
                 await Settle();
                 Check(view.SelectedForProbe == keira.Id && shell.InspectorTitle == keira.Title, "cliquer un nœud le sélectionne et le Général le montre (" + shell.InspectorTitle + ")");
+                Check(!shell.GraphToolsInInspectorForProbe, "…à la place des outils de la carte, pas par-dessus (31/10)");
+                view.SelectForProbe(null);
+                await Settle();
+                Check(shell.GraphToolsInInspectorForProbe && shell.InspectorTitle == "Gros Graph", "…désélectionner rend les outils de la carte (" + shell.InspectorTitle + ")");
+                view.SelectForProbe(keira.Id);
+                await Settle();
                 var all = view.ShownNodeCountForProbe;
                 view.DepthForProbe(1);
                 await Settle();
@@ -3140,6 +3146,7 @@ namespace Marabook.App
                 Check(matrix.ColumnCountForProbe == columnsBefore && matrix.RowCountForProbe >= 2, "tout le récit et toutes les fiches : la matrice entière revient");
                 Check(!shell.GraphToolsInInspectorForProbe, "devant les Présences, le Général ne montre pas les outils de la Carte");
                 view.ShowFacetForProbe("Carte");
+                view.SelectForProbe(null); // Keira était encore choisie : sa fiche tenait le Général
                 await Settle();
                 Check(shell.GraphToolsInInspectorForProbe && view.FacetButtonCountForProbe == 2, "…de retour à la Carte, ils reviennent ; deux facettes seulement (l'Hygiène est retirée, 31/10)");
                 var svg = view.Svg();

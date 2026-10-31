@@ -6620,7 +6620,7 @@ namespace Marabook.App
         private void RefreshGraphSection()
         {
             if (_graphSection == null || _graphView == null) return;
-            var shown = _graphView.IsVisible && _graphView.MapShown && _current == _graphItem;
+            var shown = _graphView.IsVisible && _graphView.MapShown && _current == _graphItem && _inspected == null; // un nœud cliqué : sa fiche seule (31/10)
             var tools = shown ? _graphView.ToolsPanel : null;
             if (!ReferenceEquals(_graphSection.Content, tools)) _graphSection.Content = tools;
             _graphSection.IsVisible = shown;
