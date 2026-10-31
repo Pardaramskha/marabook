@@ -3036,13 +3036,31 @@ namespace Marabook.App
                     && shell.TabStripForProbe.TitlesForProbe()[shell.TabsForProbe.ActiveIndex] == "Gros Graph",
                     "le graphe est une page (28/10) : élément courant, sélection de la Pile, onglet actif à son nom (« Gros Graph »)");
 
+                // Les défauts (31/10, Rémi) : la Structure seule (relations,
+                // liens, tags) entre fiches ; l'Écriture (écrits, présences…) se coche.
+                Check(shell.GraphToolsInInspectorForProbe && view.TypeFilterCountForProbe == project.SheetCategories.Count,
+                    "les outils de la Carte sont dans le Général du rail, avec une case de filtre par catégorie de fiche (" + view.TypeFilterCountForProbe + ")");
+                var sheetsOnly = view.ShownNodeCountForProbe;
+                var shownStructure = view.ShownEdgeCountForProbe;
+                view.ToggleTextsForProbe(true);
+                view.ToggleKindForProbe(GraphEdgeKind.Presence, true);
+                await Settle();
                 var shownAll = view.ShownEdgeCountForProbe;
+                Check(view.ShownNodeCountForProbe > sheetsOnly && shownAll > shownStructure, "cocher Écrits et Présences ajoute les écrits et leurs liens de présence (" + shownAll + " > " + shownStructure + ")");
                 view.ToggleKindForProbe(GraphEdgeKind.Presence, false);
                 await Settle();
                 Check(view.ShownEdgeCountForProbe < shownAll, "décocher Présences retire ses liens de la carte (" + view.ShownEdgeCountForProbe + " < " + shownAll + ")");
                 view.ToggleKindForProbe(GraphEdgeKind.Presence, true);
                 await Settle();
                 Check(view.ShownEdgeCountForProbe == shownAll, "…recocher les rend");
+                // Le filtre par type de fiche (31/10) : décocher la catégorie de Keira la cache.
+                var withKeira = view.ShownNodeCountForProbe;
+                view.ShowCategoryForProbe(keira.CategoryId, false);
+                await Settle();
+                Check(view.ShownNodeCountForProbe < withKeira && !view.NodeShownForProbe(keira.Id), "décocher une catégorie dans « Filtre par type de fiche » cache ses fiches (" + view.ShownNodeCountForProbe + " < " + withKeira + ")");
+                view.ShowCategoryForProbe(keira.CategoryId, true);
+                await Settle();
+                Check(view.ShownNodeCountForProbe == withKeira && view.NodeShownForProbe(keira.Id), "…la recocher les rend");
 
                 view.SearchForProbe("Keira");
                 await Settle();
@@ -3119,11 +3137,10 @@ namespace Marabook.App
                 view.TypeForProbe(0);
                 await Settle();
                 Check(matrix.ColumnCountForProbe == columnsBefore && matrix.RowCountForProbe >= 2, "tout le récit et toutes les fiches : la matrice entière revient");
-                view.ShowFacetForProbe("Hygiène");
-                await Settle();
-                Check(view.FacetForProbe == "Hygiène" && view.HygieneCountForProbe("Fiches et écrits orphelins") >= 0 && view.HygieneCountForProbe("Fiches jamais présentes dans un écrit") >= 0 && view.HygieneCountForProbe("Absences longues") >= 0,
-                    "l'hygiène compte orphelins (" + view.HygieneCountForProbe("Fiches et écrits orphelins") + "), jamais présentes (" + view.HygieneCountForProbe("Fiches jamais présentes dans un écrit") + "), absences longues (" + view.HygieneCountForProbe("Absences longues") + ")");
+                Check(!shell.GraphToolsInInspectorForProbe, "devant les Présences, le Général ne montre pas les outils de la Carte");
                 view.ShowFacetForProbe("Carte");
+                await Settle();
+                Check(shell.GraphToolsInInspectorForProbe && view.FacetButtonCountForProbe == 2, "…de retour à la Carte, ils reviennent ; deux facettes seulement (l'Hygiène est retirée, 31/10)");
                 var svg = view.Svg();
                 Check(svg.StartsWith("<svg") && svg.Contains("<circle") && svg.Contains("Keira"), "l'export SVG dessine les nœuds et leurs titres");
                 var png = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-graphe-" + Guid.NewGuid().ToString("N") + ".png");
@@ -3321,7 +3338,7 @@ namespace Marabook.App
             // — La croix de la barre Ctrl+F.
             editor.ShowSearch();
             await Settle();
-            var close = shell.GetVisualDescendants().OfType<Button>().FirstOrDefault(b => (ToolTip.GetTip(b) as string ?? "").StartsWith("Fermer la recherche"));
+            var close = shell.GetVisualDescendants().OfType<Button>().FirstOrDefault(b => (ToolTip.GetTip(b) as string ?? "") == "Fermer (Échap)");
             Check(editor.SearchBarShownForProbe && close != null, "la barre Ctrl+F a sa croix de fermeture");
             if (close != null) close.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             await Settle();

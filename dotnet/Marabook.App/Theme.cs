@@ -295,6 +295,15 @@ namespace Marabook.App
                 new Setter(Border.BackgroundProperty, Chrome.FieldBg),
                 new Setter(Border.BorderBrushProperty, Chrome.Border),
                 new Setter(Border.BorderThicknessProperty, new Thickness(1))));
+            // LA LARGEUR DE LA LISTE (31/10, Rémi) : la liste déroulante garde
+            // la largeur du champ qui l'ouvre — un choix au texte trop long
+            // ne l'élargit plus (il se coupe d'une ellipse), dans toute l'app.
+            styles.Add(Style(x => x.OfType<ComboBox>().Template().OfType<Popup>().Child().OfType<Border>(),
+                new Setter(Layoutable.MaxWidthProperty, new Binding("Bounds.Width") { RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent) })));
+            styles.Add(Style(x => x.OfType<ComboBoxItem>().Descendant().OfType<TextBlock>(),
+                new Setter(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis)));
+            styles.Add(Style(x => x.OfType<ComboBox>().Descendant().OfType<TextBlock>(),
+                new Setter(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis)));
             styles.Add(Style(x => x.OfType<ComboBoxItem>(),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(8, 4)),

@@ -12,7 +12,8 @@ namespace Marabook.Model
     /// voisins déjà placés, sinon sur un cercle.</summary>
     public static class GraphLayout
     {
-        public const double Spacing = 90; // la distance « naturelle » entre deux nœuds reliés
+        public const double Spacing = 110; // la distance « naturelle » entre deux nœuds reliés (90 → 110 le 31/10 : plus d'air)
+        public const double MinGap = 64;   // jamais deux nœuds plus près que ça après l'écartement final (31/10)
 
         public static Dictionary<string, GraphPosition> Arrange(RelationGraph graph, Dictionary<string, GraphPosition> known, int iterations, int seed)
         {
@@ -77,6 +78,13 @@ namespace Marabook.Model
 
             var k = Spacing;
             var k2 = k * k;
+            // Le POIDS de répulsion d'un nœud (31/10, Rémi : « un empilement
+            // massif » sur le Serment) : les nœuds très reliés — les écrits
+            // où tout le monde paraît, les personnages centraux — repoussent
+            // plus fort, comme dans ForceAtlas2, au lieu d'attirer tout le
+            // graphe en un tas au centre.
+            var mass = new double[n];
+            for (var i = 0; i < n; i++) mass[i] = 1 + Math.Sqrt(neighbours[i].Count) * 0.6;
             // Départ chaud (presque tout est déjà posé) : ce qui est posé ne
             // bouge pas, seuls les nœuds neufs cherchent leur place — le
             // graphe retrouvé est celui qu'on a quitté.
@@ -91,7 +99,7 @@ namespace Marabook.Model
             {
                 Array.Clear(dx, 0, n);
                 Array.Clear(dy, 0, n);
-                // Répulsion entre toutes les paires.
+                // Répulsion entre toutes les paires, pondérée par les masses.
                 for (var i = 0; i < n; i++)
                     for (var j = i + 1; j < n; j++)
                     {
@@ -99,7 +107,7 @@ namespace Marabook.Model
                         var ddy = y[i] - y[j];
                         var dist2 = ddx * ddx + ddy * ddy;
                         if (dist2 < 0.01) { ddx = (random.NextDouble() - 0.5); ddy = (random.NextDouble() - 0.5); dist2 = ddx * ddx + ddy * ddy + 0.01; }
-                        var force = k2 / dist2; // k² / d, appliqué au vecteur unitaire → k² / d² sur le vecteur
+                        var force = k2 / dist2 * mass[i] * mass[j]; // k² / d, appliqué au vecteur unitaire → k² / d² sur le vecteur
                         dx[i] += ddx * force; dy[i] += ddy * force;
                         dx[j] -= ddx * force; dy[j] -= ddy * force;
                     }
@@ -114,8 +122,9 @@ namespace Marabook.Model
                         var force = dist / k * pair.Value; // d² / k sur le vecteur unitaire
                         dx[i] -= ddx * force; dy[i] -= ddy * force;
                     }
-                // Gravité douce vers le centre : les îlots ne dérivent pas à l'infini.
-                for (var i = 0; i < n; i++) { dx[i] -= x[i] * 0.02; dy[i] -= y[i] * 0.02; }
+                // Gravité douce vers le centre : les îlots ne dérivent pas à
+                // l'infini — plus douce qu'avant (31/10), le cadre suffit.
+                for (var i = 0; i < n; i++) { dx[i] -= x[i] * 0.008; dy[i] -= y[i] * 0.008; }
                 // Déplacement borné par la température.
                 for (var i = 0; i < n; i++)
                 {
@@ -128,12 +137,37 @@ namespace Marabook.Model
                     // Le CADRE (Fruchterman-Reingold) : rien ne sort d'un disque
                     // proportionné au nombre de nœuds — les orphelins, que seule
                     // la répulsion pousse, s'arrêtent au bord au lieu de fuir.
-                    var frame = radius * 1.7;
+                    var frame = radius * 2.4;
                     var fromCenter = Math.Sqrt(x[i] * x[i] + y[i] * y[i]);
                     if (fromCenter > frame) { x[i] *= frame / fromCenter; y[i] *= frame / fromCenter; }
                 }
                 temperature = Math.Max(1, temperature - cooling);
             }
+            // L'ÉCARTEMENT final (31/10) : deux nœuds plus proches que MinGap
+            // (une pastille et son titre) sont écartés l'un de l'autre, en
+            // quelques passes — les tenus (épinglés, départ chaud) ne bougent
+            // pas, l'autre recule pour deux.
+            if (iterations > 0)
+                for (var pass = 0; pass < 24; pass++)
+                {
+                    var moved = false;
+                    for (var i = 0; i < n; i++)
+                        for (var j = i + 1; j < n; j++)
+                        {
+                            if (hold[i] && hold[j]) continue;
+                            var ddx = x[i] - x[j];
+                            var ddy = y[i] - y[j];
+                            var dist = Math.Sqrt(ddx * ddx + ddy * ddy);
+                            if (dist >= MinGap) continue;
+                            if (dist < 0.01) { ddx = (random.NextDouble() - 0.5); ddy = (random.NextDouble() - 0.5); dist = Math.Sqrt(ddx * ddx + ddy * ddy); }
+                            var push = (MinGap - dist) / dist;
+                            var shareI = hold[i] ? 0 : hold[j] ? 1 : 0.5;
+                            x[i] += ddx * push * shareI; y[i] += ddy * push * shareI;
+                            x[j] -= ddx * push * (1 - shareI); y[j] -= ddy * push * (1 - shareI);
+                            moved = true;
+                        }
+                    if (!moved) break;
+                }
 
             // Recentré sur l'origine (les épinglés ne sont pas déplacés :
             // on ne recentre que si rien n'est épinglé).

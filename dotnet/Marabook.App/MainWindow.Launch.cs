@@ -184,6 +184,7 @@ namespace Marabook.App
         /// <summary>Lancement isolé (sonde, capture, démo…) : pas de page du profil à l'accueil.</summary>
         public bool IsolatedLaunch { get { return _launch.Isolated; } }
         public string InspectorTitle { get { return _inspTitle == null ? "" : _inspTitle.Text ?? ""; } }
+        public bool GraphToolsInInspectorForProbe { get { return _graphSection != null && _graphSection.IsVisible && _graphSection.Content != null; } }
         public string InspectorKind { get { return _inspKind == null ? "" : _inspKind.Text ?? ""; } }
         public string InspectorDetail { get { return _inspStats == null ? "" : _inspStats.Text ?? ""; } }
         public string StatusText { get { return _statusRight == null ? "" : _statusRight.Text ?? ""; } } // mots · signes EC (07/10)

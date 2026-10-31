@@ -57,6 +57,7 @@ namespace Marabook.App
         private Grid _mindMapHost;                   // une carte mentale : l'éditeur du module Mental-o (22/09)
         private IMindMapEditor _mindMapEditor;
         private ContentControl _moduleSection; // l'inspecteur d'une carte mentale dans le Général (26/10 soir)
+        private ContentControl _graphSection;  // les outils de la Carte du Gros Graph dans le Général (31/10)
         private BinderItem _mindMapItem;             // la carte chargée dans l'éditeur
         private TextBlock _inspPlanLink;             // « Plan : … » d'un livre/dossier (b35)
         private StackPanel _planSection;             // options d'un plan (b35)
@@ -1616,6 +1617,12 @@ namespace Marabook.App
                 Margin = new Thickness(0, 2, 0, 12)
             };
             panel.Children.Add(_inspKind);
+            // Le Gros Graph (31/10, Rémi) : les outils de la Carte — disposer,
+            // chercher, natures de liens, filtre par type de fiche — vivent ici,
+            // en colonne, tant que la carte est devant (un nœud cliqué s'affiche
+            // dessous, comme toute fiche).
+            _graphSection = new ContentControl { IsVisible = false, Margin = new Thickness(0, 0, 0, 14) };
+            panel.Children.Add(_graphSection);
             panel.Children.Add(BuildBatchSection()); // le Général en mode lot (1.0.3)
             // Une carte mentale (26/10 soir) : l'inspecteur du module — les réglages
             // de la boîte, du texte, du lien ou du groupe sélectionné — à la place
@@ -6114,7 +6121,8 @@ namespace Marabook.App
                 _inspTitle.Text = item.Title;
                 var template = item.Kind == ItemKind.Sheet
                     ? _project.TemplateOf(item) : null;
-                _inspKind.Text = item.IsCategory ? "Catégorie"
+                _inspKind.Text = IsGraphItem(item) ? "Graphe relationnel"
+                               : item.IsCategory ? "Catégorie"
                                : item.Kind == ItemKind.Folder ? "Dossier"
                                : item.Kind == ItemKind.Sheet
                                     ? "Fiche" + (template != null ? " — " + template.Name : "")
@@ -6207,6 +6215,7 @@ namespace Marabook.App
 
             UpdateLinksPanel();
             UpdatePresenceSection();
+            RefreshGraphSection(); // les outils de la Carte du Gros Graph (31/10)
 
             _inspDates.Text = string.IsNullOrEmpty(_project.CreatedAt) ? ""
                 : "Créé le " + Dates.Display(_project.CreatedAt) + "\nModifié le " + Dates.Display(_project.ModifiedAt);
@@ -6600,6 +6609,18 @@ namespace Marabook.App
                 && _mindMapItem != null && ReferenceEquals(_mindMapItem, item) ? _mindMapEditor.Inspector : null;
             if (!ReferenceEquals(_moduleSection.Content, inspector)) _moduleSection.Content = inspector;
             _moduleSection.IsVisible = inspector != null;
+        }
+
+        /// <summary>Les outils de la Carte du Gros Graph dans le Général (31/10,
+        /// Rémi) : posés quand la page du graphe est devant avec sa Carte,
+        /// retirés sinon (la matrice des Présences garde ses filtres en tête).</summary>
+        private void RefreshGraphSection()
+        {
+            if (_graphSection == null || _graphView == null) return;
+            var shown = _graphView.IsVisible && _graphView.MapShown && _current == _graphItem;
+            var tools = shown ? _graphView.ToolsPanel : null;
+            if (!ReferenceEquals(_graphSection.Content, tools)) _graphSection.Content = tools;
+            _graphSection.IsVisible = shown;
         }
 
         private void SetInspectorFieldVisibility(bool synopsis, bool notes)

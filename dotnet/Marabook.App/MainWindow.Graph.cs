@@ -51,6 +51,7 @@ namespace Marabook.App
             _graphView.NavigateRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id, true); };
             _graphView.NewTabRequested += OpenInNewTab;
             _graphView.LayoutChanged += MarkDirty; // un nœud tiré : sa place est au projet
+            _graphView.FacetChanged += RefreshGraphSection; // Carte devant : ses outils dans le Général ; Présences : retirés (31/10)
             return _graphView;
         }
 
@@ -75,6 +76,7 @@ namespace Marabook.App
             _sheetView.Clear();
             _graphView.IsVisible = true;
             _graphView.Open(_project);
+            RefreshGraphSection();
         }
 
         /// <summary>« --graphe fichier.plot » (28/10) : le graphe du projet en

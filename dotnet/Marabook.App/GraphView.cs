@@ -20,17 +20,18 @@ namespace Marabook.App
     /// [[…]], présences des fiches dans les écrits, livres et leurs chapitres,
     /// plans et leurs écrits, tags partagés. INFORMATIF : on y regarde, on y
     /// navigue (clic = le Général, double-clic = ouvrir), on n'y modifie
-    /// rien des fiches. Trois facettes : la Carte (force dirigée, filtres par
-    /// nature, recherche, voisinage d'un nœud), les Présences (la matrice
-    /// fiches × écrits, les silences) et l'Hygiène (orphelins, îlots, jamais
-    /// présents, absences longues). Tout se calcule À L'OUVERTURE, sous un
-    /// indicateur — rien ne tourne en fond quand la vue est fermée.</summary>
+    /// rien des fiches. Deux facettes (31/10, Rémi : l'Hygiène est retirée) :
+    /// la Carte (force dirigée ; ses outils vivent dans le Général du rail,
+    /// en colonne — ToolsPanel) et les Présences (la matrice fiches × écrits,
+    /// les silences). Tout se calcule À L'OUVERTURE, sous un indicateur —
+    /// rien ne tourne en fond quand la vue est fermée.</summary>
     public class GraphView : DockPanel
     {
         public event Action<BinderItem> NavigateRequested; // double-clic, « Ouvrir »
         public event Action<BinderItem> NewTabRequested;
         public event Action<BinderItem> NodeSelected;      // le Général montre le nœud
         public event Action LayoutChanged;                 // un nœud tiré : le projet retient sa place
+        public event Action FacetChanged;                  // Carte ↔ Présences : le Général montre ou cache les outils de la carte
 
         private const double MinZoom = 0.2, MaxZoom = 3.0, LabelZoom = 0.55;
         private const int Seed = 1234;
@@ -45,9 +46,17 @@ namespace Marabook.App
         /// <summary>Le projet a changé depuis le dernier calcul (frappe, structure) :
         /// la prochaine ouverture recalcule ; sinon le graphe en place suffit.</summary>
         public bool Stale = true;
-        private bool _showTexts = true;
+        // Ce que la carte montre (31/10, Rémi) : d'office la STRUCTURE
+        // (relations, liens, tags) entre fiches seules ; l'ÉCRITURE (livres,
+        // écrits, présences, plans) se coche. Les fiches se filtrent aussi
+        // par catégorie et sous-catégorie (_hiddenCategories).
+        private bool _showTexts = false;
         private readonly Dictionary<GraphEdgeKind, bool> _kinds = new Dictionary<GraphEdgeKind, bool>();
         private readonly Dictionary<GraphEdgeKind, ToggleButton> _kindToggles = new Dictionary<GraphEdgeKind, ToggleButton>();
+        private readonly HashSet<string> _hiddenCategories = new HashSet<string>();
+        private readonly StackPanel _typeFilterList = new StackPanel { Spacing = 2 };
+        private readonly List<CheckBox> _typeFilterBoxes = new List<CheckBox>();
+        private bool _buildingTypeFilters;
 
         // Le chrome
         private readonly Border _loader;
@@ -55,10 +64,9 @@ namespace Marabook.App
         private readonly BusyIndicator _busy;
         private readonly StackPanel _facetButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         private readonly List<KeyValuePair<string, Button>> _facets = new List<KeyValuePair<string, Button>>();
+        private static readonly Dictionary<string, string> FacetIcons = new Dictionary<string, string> { { "Carte", "gg" }, { "Présences", "flying-flag" } }; // le dessin du Gros Graph, le drapeau (31/10, Rémi)
         private readonly Grid _mapHost = new Grid();
         private readonly ScrollViewer _matrixHost;
-        private readonly ScrollViewer _hygieneHost;
-        private readonly StackPanel _hygiene = new StackPanel { Margin = new Thickness(24, 12, 24, 24), Spacing = 6 };
         private readonly PresenceMatrix _matrix;
         // Les filtres de la matrice (28/10, Rémi) : l'amplitude (tout le récit,
         // le projet actif, un livre, un dossier, un écrit) et la nature des
@@ -90,7 +98,12 @@ namespace Marabook.App
         /// 200 % — à 96 px, les portraits pixellisaient dès qu'on zoomait
         /// (Rémi, 28/10) ; ~400 Ko par portrait en mémoire.</summary>
         internal const int PortraitWidth = 320;
-        private readonly WrapPanel _mapTools = new WrapPanel { Orientation = Orientation.Horizontal }; // à la ligne quand la fenêtre est étroite
+        /// <summary>LES OUTILS DE LA CARTE (31/10, Rémi) : une colonne pour le
+        /// Général du rail — disposer, tout voir, exporter en tête ; la
+        /// recherche et le voisinage ; les natures de liens en deux groupes
+        /// (Structure, Écriture) ; le filtre par type de fiche. La fenêtre
+        /// l'y pose (ContentControl) quand la Carte est devant.</summary>
+        public readonly StackPanel ToolsPanel = new StackPanel { Spacing = 6, Tag = "graph-tools" };
         private bool _fitPending;
         private readonly TextBox _search;
         private readonly ComboBox _depth;
@@ -115,62 +128,69 @@ namespace Marabook.App
         public GraphView()
         {
             Background = Chrome.WindowBg;
-            foreach (GraphEdgeKind kind in Enum.GetValues(typeof(GraphEdgeKind))) _kinds[kind] = kind != GraphEdgeKind.Tag;
+            foreach (GraphEdgeKind kind in Enum.GetValues(typeof(GraphEdgeKind)))
+                _kinds[kind] = kind == GraphEdgeKind.Relation || kind == GraphEdgeKind.Wiki || kind == GraphEdgeKind.Tag;
 
-            // L'en-tête : titre, facettes, outils de la facette.
+            // L'en-tête : le titre à gauche, les facettes calées tout à droite
+            // (31/10, Rémi), les filtres de la matrice dessous.
             var header = new StackPanel { Margin = new Thickness(24, 18, 24, 8), Spacing = 8 };
             var titleRow = new DockPanel();
-            var title = new StackPanel();
-            title.Children.Add(new TextBlock { Text = "Graphe relationnel", Foreground = Chrome.Ink, FontSize = 20, FontWeight = FontWeight.SemiBold });
-            title.Children.Add(_summary);
-            titleRow.Children.Add(title);
             DockPanel.SetDock(_facetButtons, Dock.Right);
             _facetButtons.VerticalAlignment = VerticalAlignment.Center;
             titleRow.Children.Add(_facetButtons);
+            var title = new StackPanel();
+            title.Children.Add(new TextBlock { Text = "Graphe relationnel", Foreground = Chrome.Ink, FontSize = 20, FontWeight = FontWeight.SemiBold });
+            title.Children.Add(_summary);
+            titleRow.Children.Add(title); // le dernier enfant prend le reste : le titre, pas les boutons
             header.Children.Add(titleRow);
             AddFacet("Carte", "La carte des liens : relations, liens, présences, structure");
             AddFacet("Présences", "Qui paraît dans quel écrit — et depuis quand on ne l'a plus vu");
-            AddFacet("Hygiène", "Fiches orphelines, îlots, jamais présentes, absences longues");
 
-            // Les outils de la carte : les natures d'arêtes, les écrits, la
-            // recherche, le voisinage, disposer à nouveau, exporter.
-            AddKindToggle(GraphEdgeKind.Relation, "Relations", "Les relations typées entre fiches (diagramme relationnel)");
-            AddKindToggle(GraphEdgeKind.Wiki, "Liens", "Les liens [[…]] posés dans les fiches et les écrits");
-            AddKindToggle(GraphEdgeKind.Presence, "Présences", "Les fiches dont un nom apparaît dans un écrit (trait d'autant plus fort qu'elles y sont souvent)");
-            AddKindToggle(GraphEdgeKind.Structure, "Livres", "Un livre et ses chapitres");
-            AddKindToggle(GraphEdgeKind.Plan, "Plans", "Un plan et les écrits reliés à ses colonnes");
-            AddKindToggle(GraphEdgeKind.Tag, "Tags", "Deux fiches qui partagent un tag");
-            var texts = Buttons.TextToggle("Écrits", "Montrer les écrits, livres et plans — décoché : les fiches seules", Buttons.Compact);
-            texts.IsChecked = true;
-            texts.IsCheckedChanged += delegate { _showTexts = texts.IsChecked == true; RefreshVisibility(); };
-            texts.Tag = "graph-texts";
-            Tool(new Border { Width = 1, Height = 18, Background = Chrome.Border, Margin = new Thickness(4, 0, 4, 0) });
-            Tool(texts);
-            _search = new TextBox { Width = 160, Watermark = "Chercher un nœud…", Tag = "graph-search" };
+            // Les outils de la carte, en colonne pour le Général du rail (31/10).
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+            var relayout = Buttons.Icon("arrow-counter-clockwise", "Disposer à nouveau (les nœuds épinglés ne bougent pas)", Buttons.Compact, Buttons.Look.Calm);
+            relayout.Tag = "graph-relayout";
+            relayout.Click += delegate { Relayout(); };
+            actions.Children.Add(relayout);
+            var fit = Buttons.Icon("grid", "Tout voir", Buttons.Compact, Buttons.Look.Calm);
+            fit.Click += delegate { FitToView(); };
+            actions.Children.Add(fit);
+            var export = Buttons.Icon("file-arrow-down-bold", "Exporter la carte en PNG (ce qui est affiché) ou en SVG (tout le graphe)…", Buttons.Compact, Buttons.Look.Calm);
+            export.Tag = "graph-export";
+            export.Click += async delegate { await Export(); };
+            actions.Children.Add(export);
+            ToolsPanel.Children.Add(actions);
+            _search = new TextBox { Watermark = "Chercher un nœud…", Tag = "graph-search", HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 4, 0, 0) };
             ToolTip.SetTip(_search, "Les nœuds dont le titre contient ce texte restent en lumière, les autres s'estompent (Échap efface)");
             _search.TextChanged += delegate { ApplySearch(); };
             _search.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.Key == Key.Escape) { _search.Text = ""; e.Handled = true; } };
-            Tool(Ui.WithClear(_search, "Effacer la recherche"));
-            _depth = new ComboBox { Width = 110, Tag = "graph-depth" };
+            ToolsPanel.Children.Add(Ui.WithClear(_search, "Effacer la recherche"));
+            _depth = new ComboBox { Tag = "graph-depth", HorizontalAlignment = HorizontalAlignment.Stretch };
             _depth.Items.Add("Tout");
             _depth.Items.Add("1 saut");
             _depth.Items.Add("2 sauts");
             _depth.SelectedIndex = 0;
             ToolTip.SetTip(_depth, "Le voisinage du nœud sélectionné : lui seul avec ses voisins directs, ou à deux sauts");
             _depth.SelectionChanged += delegate { _focusDepth = Math.Max(0, _depth.SelectedIndex); RefreshFocus(); };
-            Tool(_depth);
-            var relayout = Buttons.Icon("arrow-counter-clockwise", "Disposer à nouveau (les nœuds épinglés ne bougent pas)", Buttons.Compact, Buttons.Look.Calm);
-            relayout.Tag = "graph-relayout";
-            relayout.Click += delegate { Relayout(); };
-            Tool(relayout);
-            var fit = Buttons.Icon("grid", "Tout voir", Buttons.Compact, Buttons.Look.Calm);
-            fit.Click += delegate { FitToView(); };
-            Tool(fit);
-            var export = Buttons.Icon("file-arrow-down-bold", "Exporter la carte en PNG (ce qui est affiché) ou en SVG (tout le graphe)…", Buttons.Compact, Buttons.Look.Calm);
-            export.Tag = "graph-export";
-            export.Click += async delegate { await Export(); };
-            Tool(export);
-            header.Children.Add(_mapTools);
+            ToolsPanel.Children.Add(_depth);
+            // Les natures de liens, en deux groupes (31/10, Rémi) : la
+            // Structure (cochée d'office) et l'Écriture (décochée).
+            ToolsPanel.Children.Add(ToolsLabel("Structure", 8));
+            AddKindToggle(GraphEdgeKind.Relation, "Relations", "Les relations typées entre fiches (diagramme relationnel)");
+            AddKindToggle(GraphEdgeKind.Wiki, "Liens", "Les liens [[…]] posés dans les fiches et les écrits");
+            AddKindToggle(GraphEdgeKind.Tag, "Tags", "Deux fiches qui partagent un tag (pointillé)");
+            ToolsPanel.Children.Add(ToolsLabel("Écriture", 8));
+            AddKindToggle(GraphEdgeKind.Structure, "Livres", "Un livre et ses chapitres");
+            var texts = new CheckBox { Content = "Écrits", IsChecked = _showTexts, Tag = "graph-texts" };
+            ToolTip.SetTip(texts, "Montrer les écrits, livres et plans — décoché : les fiches seules");
+            texts.IsCheckedChanged += delegate { _showTexts = texts.IsChecked == true; RefreshVisibility(); };
+            ToolsPanel.Children.Add(texts);
+            AddKindToggle(GraphEdgeKind.Presence, "Présences", "Les fiches dont un nom apparaît dans un écrit (trait d'autant plus fort qu'elles y sont souvent)");
+            AddKindToggle(GraphEdgeKind.Plan, "Plans", "Un plan et les écrits reliés à ses colonnes");
+            // Le filtre par type de fiche (31/10, Rémi) : une case par
+            // catégorie et sous-catégorie, remplies à chaque calcul.
+            ToolsPanel.Children.Add(ToolsLabel("Filtre par type de fiche", 8));
+            ToolsPanel.Children.Add(_typeFilterList);
             ToolTip.SetTip(_scopeBox, "L'amplitude : tout le récit, le projet actif, un livre, un dossier ou un écrit");
             ToolTip.SetTip(_typeBox, "Quelles fiches : une catégorie, ou toutes");
             _scopeBox.SelectionChanged += delegate { if (_buildingFilters) return; _scopeMemory = KeyAt(_scopeKeys, _scopeBox.SelectedIndex); _matrix.Reload(); };
@@ -196,7 +216,7 @@ namespace Marabook.App
             DockPanel.SetDock(header, Dock.Top);
             Children.Add(header);
 
-            // Le corps : la carte, la matrice, l'hygiène — une à la fois — et le voile de chargement.
+            // Le corps : la carte, la matrice — une à la fois — et le voile de chargement.
             var body = new Grid();
             _edges = new EdgeLayer(this);
             _world.Children.Add(_edges);
@@ -225,8 +245,6 @@ namespace Marabook.App
             _matrix = new PresenceMatrix(this);
             _matrixHost = new ScrollViewer { Content = _matrix, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, IsVisible = false };
             body.Children.Add(_matrixHost);
-            _hygieneHost = new ScrollViewer { Content = _hygiene, IsVisible = false };
-            body.Children.Add(_hygieneHost);
             _busy = new BusyIndicator(26);
             _loaderText = new TextBlock { Foreground = Chrome.SoftText, FontSize = 13, Margin = new Thickness(0, 10, 0, 0), HorizontalAlignment = HorizontalAlignment.Center };
             var loaderStack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
@@ -237,56 +255,147 @@ namespace Marabook.App
             Children.Add(body);
         }
 
-        /// <summary>Un outil de la rangée de la carte, espacé des autres.</summary>
-        private void Tool(Control control)
+        /// <summary>Un sous-titre de la colonne des outils.</summary>
+        private static TextBlock ToolsLabel(string text, double top)
         {
-            control.Margin = new Thickness(0, 0, 4, 4);
-            control.VerticalAlignment = VerticalAlignment.Center;
-            _mapTools.Children.Add(control);
+            return new TextBlock { Text = text, Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(0, top, 0, 2) };
+        }
+
+        /// <summary>Un bouton de facette : l'icône et le nom (31/10, Rémi).</summary>
+        private Button FacetButton(string name, string tip)
+        {
+            string icon;
+            FacetIcons.TryGetValue(name, out icon);
+            var button = icon != null && Icons.Has(icon)
+                ? Buttons.IconText(icon, name, tip, Buttons.Compact, name == _facet ? Buttons.Look.Primary : Buttons.Look.Calm)
+                : Buttons.Text(name, tip, Buttons.Compact, name == _facet ? Buttons.Look.Primary : Buttons.Look.Calm);
+            button.Tag = "graph-facet:" + name;
+            var nameRef = name;
+            button.Click += delegate { ShowFacet(nameRef); };
+            return button;
         }
 
         private void AddFacet(string name, string tip)
         {
-            var button = Buttons.Text(name, tip, Buttons.Compact, name == _facet ? Buttons.Look.Primary : Buttons.Look.Calm);
-            button.Tag = "graph-facet:" + name;
-            var nameRef = name;
-            button.Click += delegate { ShowFacet(nameRef); };
+            var button = FacetButton(name, tip);
             _facets.Add(new KeyValuePair<string, Button>(name, button));
             _facetButtons.Children.Add(button);
         }
 
         private void AddKindToggle(GraphEdgeKind kind, string label, string tip)
         {
-            var toggle = Buttons.TextToggle(label, tip, Buttons.Compact);
-            toggle.IsChecked = _kinds[kind];
-            toggle.Tag = "graph-kind:" + kind;
+            var toggle = new CheckBox { Content = label, IsChecked = _kinds[kind], Tag = "graph-kind:" + kind };
+            ToolTip.SetTip(toggle, tip);
             var kindRef = kind;
             toggle.IsCheckedChanged += delegate { _kinds[kindRef] = toggle.IsChecked == true; RefreshVisibility(); };
             _kindToggles[kind] = toggle;
-            Tool(toggle);
+            ToolsPanel.Children.Add(toggle);
         }
 
-        /// <summary>Bascule de facette : les boutons se recolorent, un corps se montre.</summary>
+        /// <summary>Bascule de facette : les boutons se recolorent, un corps se
+        /// montre, le Général apprend laquelle (ses outils ne valent que pour la Carte).</summary>
         private void ShowFacet(string name)
         {
             _facet = name;
             for (var i = 0; i < _facets.Count; i++)
             {
                 var pair = _facets[i];
-                var fresh = Buttons.Text(pair.Key, ToolTip.GetTip(pair.Value) as string, Buttons.Compact, pair.Key == name ? Buttons.Look.Primary : Buttons.Look.Calm);
-                fresh.Tag = pair.Value.Tag;
-                var nameRef = pair.Key;
-                fresh.Click += delegate { ShowFacet(nameRef); };
+                var fresh = FacetButton(pair.Key, ToolTip.GetTip(pair.Value) as string);
                 _facetButtons.Children[i] = fresh;
                 _facets[i] = new KeyValuePair<string, Button>(pair.Key, fresh);
             }
             _mapHost.IsVisible = name == "Carte";
-            _mapTools.IsVisible = name == "Carte";
             _matrixTools.IsVisible = name == "Présences";
             _matrixHost.IsVisible = name == "Présences";
-            _hygieneHost.IsVisible = name == "Hygiène";
             if (name == "Présences") _matrix.InvalidateMeasure();
+            var handler = FacetChanged;
+            if (handler != null) handler();
         }
+
+        /// <summary>La Carte est-elle devant ? Ses outils ont alors leur place dans le Général.</summary>
+        public bool MapShown { get { return _facet == "Carte"; } }
+
+        // ================================================================ le filtre par type de fiche
+
+        /// <summary>Une case par catégorie, ses sous-catégories en retrait
+        /// dessous (31/10, Rémi). Décocher une catégorie décoche ses
+        /// sous-catégories ; la cocher les recoche. La mémoire des cases
+        /// cachées survit au recalcul (par id de catégorie).</summary>
+        private void BuildTypeFilters()
+        {
+            _buildingTypeFilters = true;
+            try
+            {
+                _typeFilterList.Children.Clear();
+                _typeFilterBoxes.Clear();
+                if (_project == null) return;
+                var alive = new HashSet<string>();
+                foreach (var category in _project.SheetCategories) alive.Add(category.Id);
+                _hiddenCategories.RemoveWhere(delegate(string id) { return !alive.Contains(id); });
+                foreach (var category in _project.SheetCategories)
+                {
+                    if (category.IsSub) continue;
+                    AddTypeFilter(category, 0);
+                    foreach (var sub in _project.SheetCategories)
+                        if (sub.ParentId == category.Id) AddTypeFilter(sub, 1);
+                }
+                if (_typeFilterBoxes.Count == 0)
+                    _typeFilterList.Children.Add(new TextBlock { Text = "Aucune catégorie de fiches.", Foreground = Chrome.FaintText, FontSize = 12, FontStyle = FontStyle.Italic });
+            }
+            finally { _buildingTypeFilters = false; }
+        }
+
+        private void AddTypeFilter(SheetCategory category, int depth)
+        {
+            var box = new CheckBox
+            {
+                Content = category.Name,
+                IsChecked = !_hiddenCategories.Contains(category.Id),
+                Margin = new Thickness(depth * 18, 0, 0, 0),
+                Tag = "graph-type-filter:" + category.Id
+            };
+            ToolTip.SetTip(box, depth == 0 ? "Montrer ou cacher les fiches de cette catégorie (et de ses sous-catégories)" : "Montrer ou cacher les fiches de cette sous-catégorie");
+            var categoryRef = category;
+            box.IsCheckedChanged += delegate
+            {
+                if (_buildingTypeFilters) return;
+                var shown = box.IsChecked == true;
+                SetCategoryShown(categoryRef.Id, shown);
+                if (!categoryRef.IsSub && _project != null)
+                {
+                    _buildingTypeFilters = true;
+                    try
+                    {
+                        foreach (var other in _typeFilterBoxes)
+                        {
+                            var sub = other.Tag as string;
+                            if (sub == null) continue;
+                            var subId = sub.Substring("graph-type-filter:".Length);
+                            var subCategory = _project.FindSheetCategory(subId);
+                            if (subCategory == null || subCategory.ParentId != categoryRef.Id) continue;
+                            other.IsChecked = shown;
+                            SetCategoryShown(subId, shown);
+                        }
+                    }
+                    finally { _buildingTypeFilters = false; }
+                }
+                RefreshVisibility();
+            };
+            _typeFilterBoxes.Add(box);
+            _typeFilterList.Children.Add(box);
+        }
+
+        private void SetCategoryShown(string categoryId, bool shown)
+        {
+            if (shown) _hiddenCategories.Remove(categoryId); else _hiddenCategories.Add(categoryId);
+        }
+
+        public void ShowCategoryForProbe(string categoryId, bool shown)
+        {
+            foreach (var box in _typeFilterBoxes)
+                if (Equals(box.Tag, "graph-type-filter:" + categoryId)) { box.IsChecked = shown; return; }
+        }
+        public int TypeFilterCountForProbe { get { return _typeFilterBoxes.Count; } }
 
         // ================================================================ chargement
 
@@ -380,7 +489,7 @@ namespace Marabook.App
             RefreshVisibility();
             _fitPending = true;
             FitToView();
-            BuildHygiene();
+            BuildTypeFilters();
             BuildMatrixFilters();
             _matrix.Reload();
             _busy.End();
@@ -484,6 +593,7 @@ namespace Marabook.App
             var node = _graph == null ? null : _graph.Node(id);
             if (node == null) return false;
             if (!_showTexts && !node.IsSheet) return false;
+            if (node.IsSheet && node.CategoryId != null && _hiddenCategories.Contains(node.CategoryId)) return false; // le filtre par type de fiche (31/10)
             if (_focus != null && !_focus.Contains(id)) return false;
             return true;
         }
@@ -907,101 +1017,6 @@ namespace Marabook.App
             _pan.Y = _viewport.Bounds.Height / 2 - at.Y * zoom;
         }
 
-        // ================================================================ l'hygiène
-
-        private void BuildHygiene()
-        {
-            _hygiene.Children.Clear();
-            if (_graph == null) return;
-            var self = this;
-            Func<GraphEdge, bool> shown = delegate(GraphEdge e) { return self._kinds[e.Kind]; };
-            var orphans = _graph.Orphans(shown);
-            HygieneSection("Fiches et écrits orphelins", orphans.Count,
-                "Aucun lien d'aucune nature : ni relation, ni lien [[…]], ni présence dans un écrit. Souvent des fiches en friche — ou des noms mal orthographiés dans le texte.",
-                orphans, null);
-            var components = _graph.Components(shown);
-            if (components.Count > 1)
-            {
-                var islands = new List<GraphNode>();
-                var notes = new Dictionary<string, string>();
-                for (var i = 1; i < components.Count; i++)
-                    foreach (var node in components[i]) { islands.Add(node); notes[node.Id] = "îlot " + i + " (" + components[i].Count + " nœuds)"; }
-                HygieneSection("Îlots à l'écart", islands.Count,
-                    "Des groupes reliés entre eux mais coupés du reste : " + (components.Count - 1) + " îlot(s) à côté du grand ensemble de " + components[0].Count + " nœuds.",
-                    islands, notes);
-            }
-            else HygieneSection("Îlots à l'écart", 0, "Tout ce qui est relié ne forme qu'un seul ensemble.", new List<GraphNode>(), null);
-            var never = _graph.NeverPresent();
-            HygieneSection("Fiches jamais présentes dans un écrit", never.Count,
-                "Aucun de leurs noms (titre, Nom, Prénom, Alias) n'apparaît dans les écrits du récit.",
-                never, null);
-            var absences = _graph.Absences();
-            var longOnes = new List<GraphNode>();
-            var since = new Dictionary<string, string>();
-            foreach (var absence in absences)
-            {
-                if (absence.Since < 2) continue;
-                longOnes.Add(absence.Sheet);
-                since[absence.Sheet.Id] = "absente depuis " + absence.Since + " écrits (vue dans " + absence.Appearances + ")";
-            }
-            HygieneSection("Absences longues", longOnes.Count,
-                "Des fiches qui ont paru, puis plus rien depuis au moins deux écrits — dans l'ordre du récit.",
-                longOnes, since);
-        }
-
-        private void HygieneSection(string caption, int count, string help, List<GraphNode> nodes, Dictionary<string, string> notes)
-        {
-            var head = new TextBlock { Text = caption + "  (" + count + ")", Foreground = Chrome.Ink, FontSize = 14, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 12, 0, 0), Tag = "graph-hygiene:" + caption };
-            _hygiene.Children.Add(head);
-            _hygiene.Children.Add(new TextBlock { Text = help, Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4) });
-            if (nodes.Count == 0)
-            {
-                _hygiene.Children.Add(new TextBlock { Text = "Rien à signaler.", Foreground = Chrome.FaintText, FontSize = 12, FontStyle = FontStyle.Italic });
-                return;
-            }
-            var wrap = new WrapPanel();
-            foreach (var node in nodes)
-            {
-                BinderItem item;
-                _items.TryGetValue(node.Id, out item);
-                var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-                var icon = item == null ? null : ItemIcons.Render(item, 13, Chrome.SoftText);
-                if (icon != null) { icon.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(icon); }
-                row.Children.Add(new TextBlock { Text = node.Title.Length == 0 ? "Sans titre" : node.Title, Foreground = Chrome.Ink, FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
-                string note;
-                if (notes != null && notes.TryGetValue(node.Id, out note))
-                    row.Children.Add(new TextBlock { Text = note, Foreground = Chrome.FaintText, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
-                var chip = new Border
-                {
-                    Background = Chrome.BarBgLight,
-                    BorderBrush = Chrome.Border,
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(12),
-                    Padding = new Thickness(10, 4, 10, 4),
-                    Margin = new Thickness(0, 0, 6, 6),
-                    Cursor = new Cursor(StandardCursorType.Hand),
-                    Child = row
-                };
-                ToolTip.SetTip(chip, "Voir sur la carte (double-clic : ouvrir)");
-                var idRef = node.Id;
-                chip.PointerEntered += delegate { chip.Background = Chrome.AccentTint; };
-                chip.PointerExited += delegate { chip.Background = Chrome.BarBgLight; };
-                chip.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
-                {
-                    if (e.ClickCount >= 2) { Open(idRef, false); e.Handled = true; return; }
-                };
-                chip.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
-                {
-                    if (e.InitialPressMouseButton != MouseButton.Left) return;
-                    ShowFacet("Carte");
-                    Select(idRef);
-                    CenterOn(idRef);
-                };
-                wrap.Children.Add(chip);
-            }
-            _hygiene.Children.Add(wrap);
-        }
-
         // ================================================================ export
 
         private async Task Export()
@@ -1057,10 +1072,10 @@ namespace Marabook.App
                 var a = _positions[edge.From]; var b = _positions[edge.To];
                 var brush = EdgeBrush(edge.Kind) as SolidColorBrush;
                 var color = brush == null ? "#888888" : Chrome.Hex(brush.Color);
-                var widthPx = edge.Kind == GraphEdgeKind.Presence ? Math.Min(4, 1 + Math.Log(edge.Weight)) : edge.Kind == GraphEdgeKind.Relation ? 1.8 : 1.0;
+                var widthPx = edge.Kind == GraphEdgeKind.Presence ? Math.Min(4, 1 + Math.Log(edge.Weight)) : edge.Kind == GraphEdgeKind.Relation || edge.Kind == GraphEdgeKind.Tag ? 1.8 : 1.0;
                 sb.Append("<line x1=\"").Append(a.X.ToString("0.#", ci)).Append("\" y1=\"").Append(a.Y.ToString("0.#", ci)).Append("\" x2=\"").Append(b.X.ToString("0.#", ci)).Append("\" y2=\"").Append(b.Y.ToString("0.#", ci))
                   .Append("\" stroke=\"").Append(color).Append("\" stroke-width=\"").Append(widthPx.ToString("0.#", ci)).Append("\" stroke-opacity=\"0.7\"")
-                  .Append(edge.Kind == GraphEdgeKind.Wiki || edge.Kind == GraphEdgeKind.Tag ? " stroke-dasharray=\"4 3\"" : "").Append("/>\n");
+                  .Append(edge.Kind == GraphEdgeKind.Wiki ? " stroke-dasharray=\"4 3\"" : edge.Kind == GraphEdgeKind.Tag ? " stroke-dasharray=\"0.1 3\" stroke-linecap=\"round\"" : "").Append("/>\n");
                 if (edge.Kind == GraphEdgeKind.Relation && edge.Label.Length > 0)
                     sb.Append("<text x=\"").Append(((a.X + b.X) / 2).ToString("0.#", ci)).Append("\" y=\"").Append(((a.Y + b.Y) / 2 - 3).ToString("0.#", ci)).Append("\" font-size=\"9\" fill=\"").Append(color).Append("\" text-anchor=\"middle\">").Append(Escape(edge.Label)).Append("</text>\n");
             }
@@ -1109,23 +1124,11 @@ namespace Marabook.App
         public void SearchForProbe(string text) { _search.Text = text; }
         public void DepthForProbe(int depth) { _depth.SelectedIndex = depth; }
         public void ToggleKindForProbe(GraphEdgeKind kind, bool on) { _kindToggles[kind].IsChecked = on; }
+        public void ToggleTextsForProbe(bool on) { foreach (var child in ToolsPanel.Children) { var box = child as CheckBox; if (box != null && Equals(box.Tag, "graph-texts")) box.IsChecked = on; } }
+        public bool NodeShownForProbe(string id) { NodeView view; return _nodes.TryGetValue(id, out view) && view.IsVisible; }
+        public int FacetButtonCountForProbe { get { return _facets.Count; } }
         public void DragForProbe(string id, double x, double y) { NodeView view; if (_nodes.TryGetValue(id, out view)) Moved(view, x, y, true); }
         public string SelectedForProbe { get { return _selectedId; } }
-        public int HygieneCountForProbe(string caption)
-        {
-            foreach (var child in _hygiene.Children)
-            {
-                var block = child as TextBlock;
-                if (block != null && Equals(block.Tag, "graph-hygiene:" + caption))
-                {
-                    var text = block.Text ?? "";
-                    var open = text.LastIndexOf('(');
-                    int n;
-                    if (open >= 0 && int.TryParse(text.Substring(open + 1).TrimEnd(')'), out n)) return n;
-                }
-            }
-            return -1;
-        }
         public PresenceMatrix MatrixForProbe { get { return _matrix; } }
 
         // ================================================================ un nœud
@@ -1189,8 +1192,17 @@ namespace Marabook.App
                 }
                 else
                 {
+                    // Une fiche sans symbole à elle montre l'icône de sa
+                    // CATÉGORIE ou sous-catégorie (31/10, Rémi : « pour se
+                    // repérer bien plus vite »), pas l'icône générique des fiches.
                     Control icon = null;
-                    try { icon = item == null ? null : ItemIcons.Render(item, Math.Max(8, _radius * 0.95), Chrome.PaperBg); }
+                    try
+                    {
+                        var categoryIcon = item != null && item.Kind == ItemKind.Sheet && string.IsNullOrEmpty(item.Icon) && owner._project != null
+                            ? SheetLibraryView.CategoryIcon(owner._project.FindSheetCategory(node.CategoryId), owner._project) : null;
+                        icon = categoryIcon != null ? Icons.Make(categoryIcon, Math.Max(8, _radius * 0.95), Chrome.PaperBg)
+                             : item == null ? null : ItemIcons.Render(item, Math.Max(8, _radius * 0.95), Chrome.PaperBg);
+                    }
                     catch (Exception) { icon = null; }
                     if (icon != null) { icon.Margin = new Thickness(0); icon.HorizontalAlignment = HorizontalAlignment.Center; icon.VerticalAlignment = VerticalAlignment.Center; icon.IsHitTestVisible = false; Child = icon; } // Render pose une marge droite (rangées de la Pile) : retirée, sinon l'icône penche (28/10)
                 }
@@ -1274,6 +1286,8 @@ namespace Marabook.App
         internal sealed class EdgeLayer : Control
         {
             private readonly GraphView _owner;
+            internal static readonly DashStyle WikiDashes = new DashStyle(new double[] { 4, 3 }, 0);
+            internal static readonly DashStyle TagDashes = new DashStyle(new double[] { 0.1, 2.4 }, 0); // des points ronds (bout arrondi), espacés
 
             public EdgeLayer(GraphView owner)
             {
@@ -1307,7 +1321,11 @@ namespace Marabook.App
                         var brush = EdgeBrush(edge.Kind) as SolidColorBrush;
                         var color = brush == null ? Chrome.Border.Color : brush.Color;
                         var faded = new SolidColorBrush(Color.FromArgb((byte)(lit ? 0xB4 : 0x28), color.R, color.G, color.B));
-                        pen = new Pen(faded, thickness, edge.Kind == GraphEdgeKind.Wiki || edge.Kind == GraphEdgeKind.Tag ? new DashStyle(new double[] { 4, 3 }, 0) : null);
+                        // Un lien [[…]] en tirets, un tag en POINTILLÉ (31/10,
+                        // Rémi : « une vraie différence visuelle des Liens »).
+                        pen = edge.Kind == GraphEdgeKind.Tag
+                            ? new Pen(faded, Math.Max(1.6, thickness), TagDashes, PenLineCap.Round)
+                            : new Pen(faded, thickness, edge.Kind == GraphEdgeKind.Wiki ? WikiDashes : null);
                         pens[key] = pen;
                     }
                     context.DrawLine(pen, new Point(a.X, a.Y), new Point(b.X, b.Y));
