@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -168,6 +169,56 @@ namespace Marabook.App
                 shell.OpenByTitle(chapter.Title);
                 await Settle();
                 await Settle();
+                // — Le PANNEAU DES RELEVÉS refait (30/10, Rémi) : un bouton
+                //   « Options des relevés » en tête, un papier replié par
+                //   catégorie, « Ignorer » = l'occurrence, « Ignorer partout »
+                //   = le mot dans cet écrit seul (BinderItem.ProofIgnored),
+                //   « Ajouter au dictionnaire » sur un nom propre.
+                {
+                    var seeded = new TextParagraph();
+                    seeded.Runs.Add(new TextRun { Text = "Un tezte avec une fôte, où Keira Varenh marchait vers la citadelle." });
+                    chapter.Document.Paragraphs.Add(seeded);
+                    editor.Reload();
+                    editor.RefreshProofing(); // la passe tout de suite (Reload recompose sans vérifier)
+                    await Task.Delay(1500);
+                    await Settle();
+                    shell.SetRightPanelPublic(RightPanel.Correction);
+                    await Settle();
+                    var panel = editor.CorrectionPanel;
+                    var tagged = panel.GetVisualDescendants().OfType<Control>().Where(delegate(Control c) { return c.Tag is string; }).ToList();
+                    Check(editor.FindingCount >= 3, "l'écrit garni relève tezte, fôte et Varenh (" + editor.FindingCount + ")");
+                    Check(tagged.Exists(delegate(Control c) { return (string)c.Tag == "corr-options"; }), "un bouton « Options des relevés » en tête du panneau");
+                    Check(!panel.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().Any(delegate(Avalonia.Controls.Primitives.ToggleButton b) { return (b.Content as string) == "Orthographe"; }), "…plus de bascules de catégorie");
+                    var papers = tagged.Count(delegate(Control c) { return (string)c.Tag == "corr-paper"; });
+                    Check(papers >= 1, "chaque catégorie relevée a son papier (" + papers + ")");
+                    Check(tagged.Exists(delegate(Control c) { return (string)c.Tag == "corr-expand-all"; }) && tagged.Exists(delegate(Control c) { return (string)c.Tag == "corr-collapse-all"; }), "« Tout développer » et « Tout fermer » au-dessus");
+                    var learn = tagged.OfType<Button>().FirstOrDefault(delegate(Button b) { return (string)b.Tag == "corr-learn"; });
+                    Check(learn != null, "« Ajouter au dictionnaire » proposé pour « Varenh » (nom propre), pas pour « tezte »");
+                    var learnCount = tagged.Count(delegate(Control c) { return (string)c.Tag == "corr-learn"; });
+                    Check(learnCount == 1, "…une seule fois (" + learnCount + ")");
+                    var collapse = tagged.OfType<Button>().First(delegate(Button b) { return (string)b.Tag == "corr-collapse-all"; });
+                    collapse.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                    await Settle();
+                    var findingsVisible = editor.CorrectionPanel.GetVisualDescendants().OfType<Control>().Count(delegate(Control c) { return (c.Tag as string) == "corr-finding" && c.IsEffectivelyVisible; });
+                    Check(findingsVisible == 0, "« Tout fermer » replie tous les papiers (" + findingsVisible + " fiche(s) visible(s))");
+                    var expand = editor.CorrectionPanel.GetVisualDescendants().OfType<Button>().First(delegate(Button b) { return (b.Tag as string) == "corr-expand-all"; });
+                    expand.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                    await Settle();
+                    findingsVisible = editor.CorrectionPanel.GetVisualDescendants().OfType<Control>().Count(delegate(Control c) { return (c.Tag as string) == "corr-finding" && c.IsEffectivelyVisible; });
+                    Check(findingsVisible >= 3, "« Tout développer » les rouvre (" + findingsVisible + ")");
+                    var countBefore = editor.FindingCount;
+                    var everywhere = editor.CorrectionPanel.GetVisualDescendants().OfType<Button>().First(delegate(Button b) { return (b.Tag as string) == "corr-ignore-item"; });
+                    everywhere.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                    await Task.Delay(400);
+                    await Settle();
+                    Check(chapter.ProofIgnored.Count == 1 && chapter.ProofIgnored[0] == "tezte", "« Ignorer partout » inscrit « tezte » dans la liste de CET écrit (" + string.Join(", ", chapter.ProofIgnored) + ")");
+                    Check(shell.Project.ProofIgnored.Count == 0 && !AppSettings.ProofIgnored.Contains("tezte"), "…ni dans le projet, ni dans l'application");
+                    Check(editor.FindingCount == countBefore - 1, "…et le relevé disparaît (" + countBefore + " → " + editor.FindingCount + ")");
+                    chapter.ProofIgnored.Clear();
+                    chapter.Document.Paragraphs.Remove(seeded);
+                    editor.Reload();
+                    await Settle();
+                }
                 shell.SetRightPanelForProbe(railBefore);
                 await Settle();
                 // — Le choix d'un gabarit a sa propre fenêtre (09/10), plus celle du lien.
@@ -269,6 +320,21 @@ namespace Marabook.App
                             Marabook.Model.BookFlow.Texts(flowBook, ordered);
                             Check(publication.StatsRowsForProbe() == ordered.Count, "Tailles › Statistiques : une ligne par texte (" + publication.StatsRowsForProbe() + ")");
                             Check(publication.HoverStatsRowForProbe(0, true) && publication.HoverStatsRowForProbe(0, false), "…la ligne entière se surligne au survol, et s'éteint");
+                            // L'ordre des lignes (29/10) : apparition d'office, puis mots décroissants.
+                            var byPages = new List<string>();
+                            foreach (var t in ordered) byPages.Add(t.Title);
+                            Check(string.Join("|", publication.StatsTitlesForProbe().ToArray()) == string.Join("|", byPages.ToArray()), "…dans l'ordre d'apparition d'office");
+                            publication.SetStatsOrderForProbe(2); // Mots, décroissant
+                            await Settle();
+                            var byWords = new List<BinderItem>(ordered);
+                            var wordCounts = new Dictionary<string, int>();
+                            foreach (var t in ordered) wordCounts[t.Id] = Marabook.Correction.TextStats.Compute(t.Document.ToPlainText()).Words;
+                            byWords.Sort(delegate(BinderItem a, BinderItem b) { var by = wordCounts[b.Id].CompareTo(wordCounts[a.Id]); return by != 0 ? by : ordered.IndexOf(a).CompareTo(ordered.IndexOf(b)); });
+                            var expected = new List<string>();
+                            foreach (var t in byWords) expected.Add(t.Title);
+                            Check(string.Join("|", publication.StatsTitlesForProbe().ToArray()) == string.Join("|", expected.ToArray()), "…« Mots, décroissant » réordonne les lignes (" + string.Join(", ", expected.ToArray()) + ")");
+                            publication.SetStatsOrderForProbe(0);
+                            await Settle();
                             bookView.FlowWarningsBoxForProbe.IsChecked = false;
                             await Settle();
                             Check(!flowBook.Book.FlowWarnings && publication.RowIsRedForProbe("flow-row") == null, "décocher la case débraye l'avertissement : la ligne quitte la check-list");
@@ -1907,6 +1973,29 @@ namespace Marabook.App
                     await Settle();
                     Check(shell.LastSaveError == null && System.IO.File.GetLastWriteTimeUtc(plotPath) > stampBefore,
                         "Fichier › Enregistrer réécrit le projet rouvert" + (shell.LastSaveError == null ? "" : " : " + shell.LastSaveError.Split('\n')[0]));
+                    // — L'écriture DIFFÉRENTIELLE et la COPIE HORODATÉE (1.1.0,
+                    //   30/10) : le projet rouvert porte l'index du fichier lu,
+                    //   l'enregistrement recopie les entrées inchangées (seul
+                    //   le manifeste change) et pose une première copie datée
+                    //   dans « nom.sauvegardes » à côté du projet.
+                    await shell.SaveCompletion();
+                    Check(shell.LastSaveCopied > 0 && shell.LastSavePacked == 1,
+                        "l'enregistrement recopie les entrées inchangées sans les recompresser (" + shell.LastSaveCopied + " recopiées, " + shell.LastSavePacked + " compressée)");
+                    var copies = Persistence.Backups.List(plotPath);
+                    var copyFolder = Persistence.Backups.FolderFor(plotPath);
+                    Check(shell.LastBackupPath != null && copies.Count == 1 && Persistence.Backups.IsBackupName(copies[0].Path)
+                        && System.IO.Path.GetDirectoryName(copies[0].Path) == copyFolder
+                        && copyFolder.StartsWith(Persistence.Backups.RootFolder(), StringComparison.OrdinalIgnoreCase)
+                        && !copyFolder.StartsWith(System.IO.Path.GetDirectoryName(plotPath), StringComparison.OrdinalIgnoreCase),
+                        "une copie horodatée est posée dans le dossier de données de Marabook, pas à côté du projet (" + (shell.LastBackupPath == null ? "aucune" : copyFolder) + ")");
+                    shell.MarkDirtyPublic();
+                    doSave.Invoke(shell, null);
+                    await shell.SaveCompletion();
+                    Check(Persistence.Backups.List(plotPath).Count == 1, "un second enregistrement dans la foulée n'en fait pas une autre (intervalle)");
+                    // — Le .bak roulant est CACHÉ et non indexé (30/10, Rémi).
+                    var bakAttributes = System.IO.File.Exists(plotPath + ".bak") ? System.IO.File.GetAttributes(plotPath + ".bak") : 0;
+                    Check(!OperatingSystem.IsWindows() || ((bakAttributes & System.IO.FileAttributes.Hidden) != 0 && (bakAttributes & System.IO.FileAttributes.NotContentIndexed) != 0),
+                        "le .plot.bak est caché et hors indexation (" + bakAttributes + ")");
                     // — La garde du .plot (1.0.3) : le verrou est posé à côté
                     //   du projet ouvert ; le fichier tel qu'écrit est « à
                     //   jour » ; remplacé par sa version d'avant (.bak = une
@@ -1918,6 +2007,7 @@ namespace Marabook.App
                     if (System.IO.File.Exists(plotPath + ".bak"))
                     {
                         System.IO.File.Copy(plotPath + ".bak", plotPath, true);
+                        System.IO.File.SetAttributes(plotPath, System.IO.FileAttributes.Normal); // la copie hérite du « caché » du .bak
                         Check(shell.DiskStatePublic == "Changed", "remplacé par une autre version : vu comme modifié en dehors de Marabook (" + shell.DiskStatePublic + ")");
                         var bytesBefore = new System.IO.FileInfo(plotPath).Length;
                         var foreignId = Persistence.PlotFile.ReadSaveId(plotPath);
@@ -1931,7 +2021,12 @@ namespace Marabook.App
                     }
                 }
                 catch (Exception error) { Check(false, "aller-retour .plot : " + error.Message); }
-                finally { try { System.IO.File.Delete(plotPath); } catch { } }
+                finally
+                {
+                    try { System.IO.File.Delete(plotPath); } catch { }
+                    try { System.IO.Directory.Delete(Persistence.Backups.FolderFor(plotPath), true); } catch { }
+                    try { if (System.IO.File.Exists(plotPath + ".bak")) { System.IO.File.SetAttributes(plotPath + ".bak", System.IO.FileAttributes.Normal); System.IO.File.Delete(plotPath + ".bak"); } } catch { }
+                }
                 book = null;
                 foreach (var item in shell.Project.AllItems()) if (item.Kind == ItemKind.Book) { book = item; break; }
                 chapter = book == null ? null : book.Children[0];
@@ -1946,7 +2041,7 @@ namespace Marabook.App
                 {
                     shell.Binder.SelectItem(sheetsRoot.Id, true);
                     await Settle();
-                    Check(shell.RightColumnWidth < 1, "racine Fiches sans sélection : la colonne de droite est repliée (" + shell.RightColumnWidth.ToString("0") + ")");
+                    Check(shell.RightColumnWidth < 1, "racine Fiches sans sélection : la colonne de droite est repliée (" + shell.RightColumnWidth.ToString("0") + " ; " + shell.RightStateForProbe + ")");
                     shell.Binder.SelectItem(chapter.Id, true);
                     await Settle();
                     Check(shell.RightColumnWidth > 1, "…et revient sur un écrit (" + shell.RightColumnWidth.ToString("0") + ")");
@@ -2017,11 +2112,12 @@ namespace Marabook.App
                 await Settle();
                 Check(Chrome.Ink.Color == before, "…et revient");
 
-                // — Les Préférences : huit onglets, chacun un contenu.
+                // — Les Préférences : neuf onglets (Profil depuis la 1.1.0), chacun un contenu.
                 var prefs = new PreferencesDialog(shell, shell.Project);
                 prefs.Show(shell);
                 await Settle();
-                Check(prefs.Tabs.Items.Count == 8, "les Préférences ont huit onglets (" + prefs.Tabs.Items.Count + ")");
+                // …plus ceux des modules chargés (le filet « DLC » et l'onglet de chaque DLC, 26/10 soir).
+                Check(prefs.Tabs.Items.Count == 9 + prefs.ModuleTabCount, "les Préférences ont neuf onglets (" + prefs.Tabs.Items.Count + ", dont " + prefs.ModuleTabCount + " des modules)");
                 Check(prefs.Tabs.TabStripPlacement == Dock.Left && prefs.Tabs.Classes.Contains("column"), "…en colonne à gauche (24/10)");
                 Check(prefs.Height >= 420 && Math.Abs(prefs.Height - Math.Max(420, Dialogs.AvailableHeight(shell))) < 1 && prefs.Bounds.Height <= Dialogs.AvailableHeight(shell) + 1, "…et la fenêtre prend toute la hauteur disponible de l'écran sans en sortir (" + prefs.Bounds.Height.ToString("0") + " px sur " + Dialogs.AvailableHeight(shell).ToString("0") + ")");
                 var titles = new List<string>();
@@ -2279,6 +2375,23 @@ namespace Marabook.App
                     Dialogs.FitToScreen(lexiconDialog, shell);
                     Check(lexiconDialog.MaxHeight > 200 && !double.IsInfinity(lexiconDialog.MaxHeight) && lexiconDialog.Content is ScrollViewer, "le dialogue d'entrée du dictionnaire est plafonné à l'écran (" + lexiconDialog.MaxHeight.ToString("0") + " px) et défile");
                 }
+
+                // ================================================== 1.1.0 (26/10)
+                await Probe110(shell);
+                // ================================================== 1.1.0 : les profils (27/10)
+                await ProbeProfiles(shell);
+                // ================================================== 1.1.0 : le diagramme relationnel (27/10)
+                await ProbeRelations(shell);
+                // ================================================== 1.1.0 : les onglets (28/10)
+                await ProbeTabs(shell);
+                // ================================================== 1.1.0 : le graphe relationnel (28/10)
+                await ProbeGraph(shell);
+                // ================================================== 1.1.0 : la passe des dialogues (29/10)
+                await ProbeDialogues(shell);
+                // ================================================== 1.1.0 : le lot de correctifs du 29/10
+                await ProbeFixes2910(shell);
+                // ================================================== 1.1.0 : le tutoriel (29/10) — en dernier : il change de projet
+                await ProbeTutorial(shell);
             }
             catch (Exception error)
             {
@@ -2286,6 +2399,1231 @@ namespace Marabook.App
                 Console.WriteLine("  ÉCHEC  exception : " + error);
             }
             Console.WriteLine(Failures == 0 ? "SONDE OK (" + _checks + " vérifications)" : "*** SONDE : " + Failures + " échec(s) sur " + _checks + " ***");
+        }
+
+        /// <summary>Les correctifs de la 1.1.0 (26/10) : la Pile en sections,
+        /// les pastilles en icônes, le « + » des catégories, les tags, le
+        /// filtre par tag, le dépôt sur une catégorie, la suppression d'une
+        /// catégorie avec son modèle, F1/F2 et le bouton Généalogie, l'objectif
+        /// et la limite d'un écrit (liseré rouge), le catalogue de polices
+        /// (comptes de styles sans plantage, exclues en bas), les filets des
+        /// Préférences et les facettes du panneau des styles.</summary>
+        private static async Task Probe110(MainWindow shell)
+        {
+            var project = shell.Project;
+
+            // — La Pile en sections.
+            var rows = shell.Binder.TopRowsForProbe();
+            var joined = string.Join(" | ", rows.ToArray());
+            Check(rows.IndexOf("Écriture") >= 0 && rows.IndexOf("Encyclopédie") > rows.IndexOf("Écriture")
+                && rows.IndexOf("Structure") > rows.IndexOf("Encyclopédie") && rows.IndexOf("Outils") > rows.IndexOf("Structure"),
+                "Pile : les sections Écriture, Encyclopédie, Structure, Outils dans l'ordre (" + joined + ")");
+            Check(rows.IndexOf("Écrits") == rows.IndexOf("Écriture") + 1 && rows.IndexOf("Recherche") == rows.IndexOf("Écrits") + 1, "…Écrits puis Recherche sous Écriture");
+            Check(rows.IndexOf("Fiches") == rows.IndexOf("Encyclopédie") + 1 && rows.IndexOf("Dictionnaire") == rows.IndexOf("Fiches") + 1, "…Fiches puis Dictionnaire sous Encyclopédie");
+            Check(rows.IndexOf("Plans") == rows.IndexOf("Structure") + 1 && rows.IndexOf(BinderView.UnderConstruction) == rows.IndexOf("Outils") + 1, "…Plans sous Structure, « En construction » sous Outils");
+            Check(rows.Count >= 2 && rows[rows.Count - 1] == "Corbeille" && rows[rows.Count - 2] == "—", "…la Corbeille en dernier, derrière un simple filet");
+            shell.Binder.ToggleSectionForProbe("Encyclopédie");
+            await Settle();
+            rows = shell.Binder.TopRowsForProbe();
+            Check(!rows.Contains("Fiches") && !rows.Contains("Dictionnaire") && rows.Contains("Encyclopédie  (2)"), "section repliée : ses racines disparaissent, son compte s'affiche (" + string.Join(" | ", rows.ToArray()) + ")");
+            shell.Binder.SelectItem(project.Category(Project.KeySheets).Id);
+            await Settle();
+            rows = shell.Binder.TopRowsForProbe();
+            Check(rows.Contains("Fiches") && !BinderView.CollapsedSections.Contains("Encyclopédie") && shell.SheetLibraryForProbe.IsVisible, "sélectionner une racine d'une section repliée la déplie et ouvre la vue");
+
+            // — La bibliothèque : pastilles en icônes, « + », icône choisie.
+            var library = shell.SheetLibraryForProbe;
+            var chips = library.ChipsForProbe();
+            Check(chips.Count > 1 && chips[0].StartsWith("chip:Toutes#") && Icons.Has("all"), "bibliothèque : « Toutes » porte l'icône « all » et son compte (" + string.Join(" ", chips.ToArray()) + ")");
+            var plainChips = 0;
+            foreach (var chip in chips) if (!chip.Contains("#") && !chip.EndsWith("*") || chip.EndsWith("#+")) plainChips++;
+            Check(plainChips == chips.Count - 1, "…les autres pastilles sont des icônes seules, sans compte ni nom (« + » sur les vides)");
+            var top = project.TopCategories()[0];
+            var second = project.TopCategories()[1];
+            library.SetCategoryIcon(top, "fiche-objet");
+            await Settle();
+            chips = shell.SheetLibraryForProbe.ChipsForProbe();
+            Check(chips.Contains("chip:" + top.Name + "*") && SheetLibraryView.CategoryIcon(top, project) == "fiche-objet", "une icône choisie marque la pastille d'une astérisque (" + string.Join(" ", chips.ToArray()) + ")");
+            Check(shell.UndoPublic() && top.Icon == null, "…annulable");
+            await Settle();
+            library = shell.SheetLibraryForProbe;
+            var plusCount = 0;
+            foreach (var button in library.GetVisualDescendants().OfType<Button>())
+                if ((button.Tag as string ?? "").StartsWith("plus:")) plusCount++;
+            Check(plusCount > 0, "chaque rangée de catégorie et chaque boîte de sous-catégorie ont leur « + » (" + plusCount + ")");
+            var created = library.CreateSheetIn(top, "Fiche du plus (sonde)");
+            await Settle();
+            Check(created.CategoryId == top.Id && created.TemplateId == top.TemplateId && shell.Sheet.HasItem, "le « + » crée la fiche dans la catégorie, sur son modèle de base, et l'ouvre");
+
+            // — Les tags, dans le Général du rail, puis le filtre de la bibliothèque.
+            Check(shell.TagsSectionVisibleForProbe, "fiche ouverte : la section Tags du Général est là");
+            shell.AddTagForProbe("héros");
+            shell.AddTagForProbe("  Héros ");
+            shell.AddTagForProbe("mage noir");
+            await Settle();
+            Check(created.Tags.Count == 2 && created.Tags[0] == "héros" && created.Tags[1] == "mage noir", "les tags s'ajoutent un par un, sans doublon (" + string.Join(", ", created.Tags.ToArray()) + ")");
+            Check(shell.TagChipsForProbe().Count == 2 && shell.TagChipsForProbe()[1] == "tag:mage noir", "…en puces dans le Général");
+            Check(shell.TagInputForProbe.ItemCount == 2, "la flèche du champ des tags liste les tags du projet (" + shell.TagInputForProbe.ItemCount + ", 31/10)");
+            // L'amplitude du suivi (31/10, Rémi : plantage) : choisir une entrée
+            // ne vide plus la liste pendant la validation de la sélection.
+            {
+                var filter = shell.Sheet.PresenceFilterForProbe;
+                var choices = filter.ItemCount;
+                if (choices > 1)
+                {
+                    filter.SelectedIndex = 1;
+                    await Settle();
+                    Check(filter.SelectedIndex == 1 && filter.ItemCount == choices, "changer l'amplitude du suivi d'une fiche ne plante plus et garde ses " + choices + " choix (31/10)");
+                    filter.SelectedIndex = 0;
+                    await Settle();
+                }
+                else Check(false, "l'amplitude du suivi offre des écrits à choisir (" + choices + ")");
+            }
+            // L'Encyclopédie (31/10) : l'export HTML de toutes les fiches de la démo.
+            {
+                var keep = Environment.GetEnvironmentVariable("MARABOOK_ENCYCLOPEDIA_FOLDER"); // un dossier à garder, pour regarder le résultat
+                var folder = string.IsNullOrEmpty(keep) ? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-encyclopedie-" + Guid.NewGuid().ToString("N")) : keep;
+                try
+                {
+                    var files = shell.ExportEncyclopediaForProbe(folder);
+                    var index = System.IO.Path.Combine(folder, "index.html");
+                    var home = System.IO.File.Exists(index) ? System.IO.File.ReadAllText(index) : "";
+                    Check(files >= 4 && home.Contains("<title>Encyclopédie de ") && home.Contains("Keira Varenh") && System.IO.Directory.Exists(System.IO.Path.Combine(folder, "fiches")) && System.IO.File.Exists(System.IO.Path.Combine(folder, "encyclopedie.css")),
+                        "l'Encyclopédie HTML de la démo s'écrit : accueil, feuille de styles, pages des fiches (" + files + " fichiers)");
+                }
+                finally { if (string.IsNullOrEmpty(keep)) { try { System.IO.Directory.Delete(folder, true); } catch (System.IO.IOException) { } } }
+            }
+            // Le succès secret (31/10) : un clic le gagne, un autre le perd.
+            {
+                var hadCurious = AppSettings.Achievements.ContainsKey(Achievements.Curious);
+                shell.ClickSecretAchievementForProbe(Achievements.Curious);
+                await Settle();
+                var afterFirst = AppSettings.Achievements.ContainsKey(Achievements.Curious);
+                shell.ClickSecretAchievementForProbe(Achievements.Curious);
+                await Settle();
+                var afterSecond = AppSettings.Achievements.ContainsKey(Achievements.Curious);
+                Check(afterFirst != hadCurious && afterSecond == hadCurious, "« Il suffit d'être curieux » se gagne puis se perd au clic (" + hadCurious + " → " + afterFirst + " → " + afterSecond + ")");
+            }
+            // Le champ des tags propose les tags du projet (31/10, Rémi : « ne propose pas les tags déjà présents »).
+            var tagBox = shell.TagInputForProbe;
+            {
+                // Une frappe réelle dans le champ interne, la liste native « ouverte »
+                // comme après un clic dans un ComboBox vide (31/10) : le menu paraît quand même.
+                var inner = tagBox.GetVisualDescendants().OfType<TextBox>().FirstOrDefault();
+                if (inner != null)
+                {
+                    tagBox.IsDropDownOpen = true;
+                    inner.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.M, Source = inner });
+                    inner.RaiseEvent(new TextInputEventArgs { RoutedEvent = InputElement.TextInputEvent, Text = "ma", Source = inner });
+                    await Settle();
+                    Check(tagBox.Text == "ma" && Suggestions.IsOpenFor(tagBox) && !tagBox.IsDropDownOpen, "une frappe dans le champ des tags, sans élément natif, propose les tags même si la liste vide s'était « ouverte » au clic (31/10)");
+                    inner.Text = "";
+                    await Settle();
+                }
+            }
+            Suggestions.AssumeFocusForProbe = true;
+            tagBox.Text = "mag";
+            await Settle();
+            Check(Suggestions.IsOpenFor(tagBox), "taper « mag » dans le champ des tags propose « mage noir » (autocomplète, 31/10)");
+            tagBox.Text = "";
+            await Settle();
+            Suggestions.AssumeFocusForProbe = false;
+            Check(shell.UndoPublic() && created.Tags.Count == 1, "…annulable");
+            await Settle();
+            shell.Binder.SelectItem(project.Category(Project.KeySheets).Id);
+            await Settle();
+            library = shell.SheetLibraryForProbe;
+            Check(library.TagChoicesForProbe == 2, "le filtre par tag propose « Tous les tags » puis « héros » (" + library.TagChoicesForProbe + ")");
+            library.FilterByTagForProbe("héros");
+            await Settle();
+            Check(library.CardsCountForProbe == 1, "filtré par tag : la seule fiche taguée reste (" + library.CardsCountForProbe + ")");
+            library.FilterByTagForProbe(null);
+            await Settle();
+            Check(library.CardsCountForProbe > 1, "sans filtre : toutes reviennent");
+
+            // — Le dépôt d'une tuile sur une catégorie.
+            library.DropOnCategoryForProbe(new[] { created.Id }, second.Id);
+            await Settle();
+            Check(created.CategoryId == second.Id, "une tuile lâchée sur une catégorie en change (" + second.Name + ")");
+            Check(shell.UndoPublic() && created.CategoryId == top.Id, "…annulable");
+            await Settle();
+
+            // — Supprimer une catégorie avec son modèle, en un cran.
+            var probeTemplate = new SheetTemplate { Name = "Modèle sonde" };
+            var probeCategory = new SheetCategory { Name = "Catégorie sonde", TemplateId = probeTemplate.Id };
+            project.Templates.Add(probeTemplate);
+            project.SheetCategories.Add(probeCategory);
+            shell.SheetLibraryForProbe.DeleteCategoryNow(probeCategory, probeTemplate);
+            await Settle();
+            Check(!project.SheetCategories.Contains(probeCategory) && !project.Templates.Contains(probeTemplate), "supprimer la catégorie avec son modèle retire les deux");
+            Check(shell.UndoPublic() && project.SheetCategories.Contains(probeCategory) && project.Templates.Contains(probeTemplate), "…et Ctrl+Z rend les deux");
+            project.SheetCategories.Remove(probeCategory);
+            project.Templates.Remove(probeTemplate);
+            created.Parent.Children.Remove(created);
+            shell.Binder.Rebuild();
+            await Settle();
+
+            // — F1 / F2 et le bouton Généalogie. Le projet d'exemple n'a que
+            //   des personnages : un lieu de passage sert de fiche sans relations.
+            BinderItem character = null, other = null;
+            foreach (var item in project.AllItems())
+            {
+                if (item.Kind != ItemKind.Sheet || item.RootCategory().CategoryKey == Project.KeyTrash) continue;
+                var template = project.TemplateOf(item);
+                if (template == null) continue;
+                if (template.Relations && character == null) character = item;
+                if (!template.Relations && item.Relations.Count == 0 && other == null) other = item;
+            }
+            BinderItem placeOfPassage = null;
+            if (other == null)
+            {
+                SheetCategory placeCategory = null;
+                foreach (var category in project.TopCategories())
+                {
+                    var template = project.FindTemplate(category.TemplateId);
+                    if (template != null && !template.Relations) { placeCategory = category; break; }
+                }
+                if (placeCategory != null)
+                {
+                    placeOfPassage = new BinderItem { Kind = ItemKind.Sheet, Title = "Lieu de passage (sonde)", CategoryId = placeCategory.Id, TemplateId = placeCategory.TemplateId, Parent = project.Category(Project.KeySheets) };
+                    project.Category(Project.KeySheets).Children.Add(placeOfPassage);
+                    shell.Binder.Rebuild();
+                    await Settle();
+                    other = placeOfPassage;
+                }
+            }
+            if (character != null)
+            {
+                shell.Binder.SelectItem(character.Id);
+                await Settle();
+                Check(shell.Sheet.GenealogyButtonVisibleForProbe, "fiche à relations : le bouton « Généalogie (F2) » est là");
+                shell.Sheet.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F1, Source = shell.Sheet });
+                await Settle();
+                Check(shell.Sheet.PreviewOnForProbe, "F1 passe en mode wiki");
+                shell.Sheet.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F1, Source = shell.Sheet });
+                await Settle();
+                Check(!shell.Sheet.PreviewOnForProbe, "…et F1 en sort");
+                // Le clavier dans la Pile (29/10, Rémi) : F1 et F2 atteignent
+                // quand même la fiche à l'écran, et F2 ne renomme plus rien.
+                shell.Binder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F1, Source = shell.Binder });
+                await Settle();
+                Check(shell.Sheet.PreviewOnForProbe, "F1 frappé dans la Pile bascule quand même le mode wiki de la fiche à l'écran");
+                shell.Binder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F1, Source = shell.Binder });
+                await Settle();
+                shell.Binder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F2, Source = shell.Binder });
+                await Settle();
+                Check(shell.Sheet.GenealogyOnForProbe, "F2 frappé dans la Pile ouvre la généalogie (" + shell.Sheet.GenealogyStateForProbe + ")");
+                shell.Binder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F2, Source = shell.Binder });
+                await Settle();
+                Check(!shell.Sheet.GenealogyOnForProbe, "…et la referme");
+                Check(string.IsNullOrEmpty(AppSettings.Gesture("rename")), "« Renommer » n'a plus de raccourci d'office (" + (AppSettings.Gesture("rename") ?? "aucun") + ")");
+            }
+            else Check(false, "une fiche à relations existe dans le projet d'exemple");
+            if (other != null)
+            {
+                shell.Binder.SelectItem(other.Id);
+                await Settle();
+                Check(!shell.Sheet.GenealogyButtonVisibleForProbe, "fiche sans relations : pas de bouton Généalogie");
+                Check(!SheetView.GenealogyAllowed(project, other) && SheetView.GenealogyAllowed(project, character), "une relation généalogique ne peut viser qu'une fiche à relations");
+            }
+            else Check(false, "une fiche sans relations existe dans le projet d'exemple");
+            if (placeOfPassage != null)
+            {
+                shell.Binder.SelectItem(project.Category(Project.KeyWritings).Id);
+                await Settle();
+                project.Category(Project.KeySheets).Children.Remove(placeOfPassage);
+                shell.Binder.Rebuild();
+                await Settle();
+            }
+
+            // — L'objectif et la limite d'un écrit, le liseré rouge au tableau.
+            var writings = project.Category(Project.KeyWritings);
+            BinderItem loose = null;
+            foreach (var child in writings.Children) if (child.Kind == ItemKind.Text && loose == null) loose = child;
+            if (loose != null)
+            {
+                shell.Binder.SelectItem(loose.Id);
+                await Settle();
+                Check(shell.GoalSectionVisibleForProbe, "écrit ouvert : l'objectif et la limite sont dans le Général");
+                var words = Marabook.Correction.TextStats.Compute(loose.Document.ToPlainText()).Words;
+                shell.SetGoalForProbe(words + 10, TextGoal.Words, Math.Max(1, words - 1), TextGoal.Words);
+                await Settle();
+                Check(loose.Goal == words + 10 && loose.Limit == Math.Max(1, words - 1), "objectif et limite posés depuis le Général");
+                Check(shell.GoalLabelForProbe.Contains("/ " + (words + 10).ToString("N0", CultureInfo.CurrentCulture)) && shell.GoalLabelForProbe.Contains("%"), "l'objectif se dit en part atteinte (" + shell.GoalLabelForProbe + ")");
+                Check(words > 1 == shell.LimitLabelForProbe.Contains("dépassée"), "la limite dépassée se dit (" + shell.LimitLabelForProbe + ")");
+                shell.Binder.SelectItem(writings.Id);
+                await Settle();
+                Border looseCard = null;
+                foreach (var border in shell.Corkboard.GetVisualDescendants().OfType<Border>())
+                    if (ReferenceEquals(border.Tag, loose)) { looseCard = border; break; }
+                Check(looseCard != null && (words > 1) == ReferenceEquals(looseCard.BorderBrush, Chrome.Danger), "au tableau, la carte d'un écrit à limite dépassée est cerclée de rouge");
+                loose.Goal = 0; loose.Limit = 0;
+                shell.Corkboard.Refresh();
+                await Settle();
+                looseCard = null;
+                foreach (var border in shell.Corkboard.GetVisualDescendants().OfType<Border>())
+                    if (ReferenceEquals(border.Tag, loose)) { looseCard = border; break; }
+                Check(looseCard != null && !ReferenceEquals(looseCard.BorderBrush, Chrome.Danger), "…sans limite, le liseré rouge disparaît");
+            }
+            else Check(false, "un écrit libre existe dans Écrits");
+
+            // — Le catalogue de polices : les comptes de styles sans plantage, les exclues en bas.
+            var crashed = false;
+            var styled = 0;
+            try { foreach (var entry in FontCatalog.Entries) if (FontCatalog.StyleCount(entry.Family) > 0) styled++; }
+            catch (Exception) { crashed = true; }
+            Check(!crashed && styled > 0, "les styles de chaque police se comptent sans faire tomber Skia (" + styled + " familles à styles)");
+            var arial = FontCatalog.Find("Arial");
+            Check(arial == null || FontCatalog.StyleCount(arial.Family) >= 2, "Arial compte au moins deux styles (" + (arial == null ? "absente" : FontCatalog.StyleCount(arial.Family).ToString()) + ")");
+            var catalog = new FontCatalogTab();
+            var victim = FontCatalog.Entries[0].Name;
+            var wasExcluded = AppSettings.IsExcludedFont(victim);
+            catalog.ToggleExcludeForProbe(victim);
+            var names = catalog.RowNamesForProbe();
+            var lastIndex = names.LastIndexOf(victim);
+            Check(!wasExcluded ? lastIndex == names.Count - 1 || AppSettings.IsExcludedFont(names[names.Count - 1]) : lastIndex < names.Count - 1,
+                "une police exclue passe en bas de la liste (" + victim + " en " + lastIndex + " sur " + names.Count + ")");
+            catalog.ToggleExcludeForProbe(victim);
+            Check(AppSettings.IsExcludedFont(victim) == wasExcluded, "…et revient à sa place une fois réintégrée");
+
+            // — Les Préférences : un filet contrasté entre les sous-sections ; les facettes des styles.
+            var prefs = new PreferencesDialog(shell, project);
+            prefs.Show(shell);
+            await Settle();
+            prefs.Tabs.SelectedIndex = 0;
+            await Settle();
+            var dividers = 0;
+            foreach (var border in prefs.GetVisualDescendants().OfType<Border>())
+                if ("caption-divider".Equals(border.Tag)) dividers++;
+            Check(dividers >= 2, "Préférences › Général : un fin filet sépare les sous-sections (" + dividers + ")");
+            StylesPanel panel = null;
+            for (var i = 0; i < prefs.Tabs.Items.Count && panel == null; i++)
+            {
+                prefs.Tabs.SelectedIndex = i;
+                await Settle();
+                panel = prefs.GetVisualDescendants().OfType<StylesPanel>().FirstOrDefault();
+            }
+            Check(panel != null && panel.FacetButtonsForProbe == 5 && panel.FacetForProbe == "Caractère", "styles globaux : cinq facettes en boutons, Caractère d'abord (" + (panel == null ? "panneau absent" : panel.FacetForProbe) + ")");
+            if (panel != null)
+            {
+                panel.ShowFacetForProbe("Paragraphe");
+                await Settle();
+                Check(panel.FacetForProbe == "Paragraphe", "…un bouton montre sa facette");
+                var scroller = panel.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault(delegate(ScrollViewer s) { return s.Content is Border; });
+                Check(scroller != null, "…dans une zone qui défile (rien ne passe sous le bord)");
+            }
+            prefs.Close();
+            await Settle();
+        }
+
+        /// <summary>Les profils (1.1.0, 27/10) : sans profil tout est actif ;
+        /// Éditeur·ice cache Fiches, Plans et sprints ; Écrivain·e cache l'onglet
+        /// Gabarits & Format, les détails d'édition, les pages éditeur et les
+        /// facettes PAO des styles ; Moi-même coche au détail. Le profil est
+        /// remis tel qu'il était en sortant.</summary>
+        private static async Task ProbeProfiles(MainWindow shell)
+        {
+            var before = AppSettings.Profile;
+            var hiddenBefore = new List<string>(AppSettings.HiddenFeatures);
+            try
+            {
+                Check(!Profiles.Chosen && Profiles.Enabled(Profiles.Sheets) && Profiles.Enabled(Profiles.BookFormat), "sans profil choisi, tout est actif");
+                Check(Profiles.HiddenBy(Profiles.Writer).Length == 9 && Profiles.HiddenBy(Profiles.Publisher).Length == 4 && Profiles.HiddenBy(Profiles.Everything).Length == 0,
+                    "les profils prédéfinis cachent 9, 4 et 0 fonctionnalités");
+
+                Profiles.Choose(Profiles.Publisher);
+                await Settle();
+                var rows = shell.Binder.TopRowsForProbe();
+                var joined = string.Join(" | ", rows.ToArray());
+                Check(!rows.Contains("Fiches") && !rows.Contains("Plans") && rows.Contains("Dictionnaire") && rows.Contains("Encyclopédie") && rows.Contains("Structure"),
+                    "profil Éditeur·ice : la Pile cache Fiches et Plans, garde Dictionnaire et ses sections (" + joined + ")");
+                Check(!shell.SprintMenuShownForProbe && !shell.NewSheetMenuShownForProbe, "…Lancer un sprint et Nouvelle fiche sortent des menus");
+                var sheet = FirstOfKind(shell.Project, ItemKind.Sheet);
+                Check(sheet != null && !ItemTiles.IsLinkable(sheet), "…une fiche n'est plus liable (modules, tuiles de l'Accueil)");
+
+                Profiles.Choose(Profiles.Writer);
+                await Settle();
+                rows = shell.Binder.TopRowsForProbe();
+                Check(rows.Contains("Fiches") && rows.Contains("Plans") && shell.SprintMenuShownForProbe, "profil Écrivain·e : Fiches, Plans et sprint reviennent");
+                var writings = shell.Project.Category(Project.KeyWritings);
+                var book = writings.Children.Count > 1 ? writings.Children[1] : null;
+                if (book != null) shell.Binder.SelectItem(book.Id, true);
+                await Settle();
+                var bookView = shell.BookViewPublic;
+                Check(bookView.IsVisible && !bookView.FormatTabShownForProbe, "…l'onglet Gabarits & Format est caché");
+                Check(!bookView.EditionDetailsShownForProbe, "…les détails de publication, de destination et commerciaux sont repliés");
+                Check(!bookView.ExtraPageButtonsShownForProbe, "…plus de Nouvelle liminaire / page de fin / annexe");
+                Check(bookView.StylesFacetCountForProbe == 2, "…les styles n'ont que Caractère et Paragraphe (" + bookView.StylesFacetCountForProbe + " facettes)");
+                Check(!BookFlow.Enabled(book), "…les enchaînements de pages se taisent (le réglage du livre reste " + (book.Book == null || book.Book.FlowWarnings) + ")");
+                Check(!ComposedRenderer.ShowWidowMarks, "…les marqueurs de veuves et d'orphelines se taisent");
+                Check(!shell.Editor.WidowMarksButtonVisibleForProbe, "…et le bouton Veuves/Orphelines du ruban se cache (29/10)");
+
+                Profiles.Choose(Profiles.Custom);
+                Profiles.SetHidden(Profiles.Sprints, true);
+                await Settle();
+                Check(bookView.FormatTabShownForProbe && !shell.SprintMenuShownForProbe && shell.NewSheetMenuShownForProbe && ComposedRenderer.ShowWidowMarks,
+                    "profil Moi-même : décocher Sprints cache le sprint seul, le livre retrouve ses onglets, les marqueurs reviennent");
+                Check(shell.Editor.WidowMarksButtonVisibleForProbe, "…et le bouton Veuves/Orphelines aussi");
+                var chooser = new ProfileChooser(true);
+                Check(chooser.Selected == Profiles.Custom && chooser.FeaturesButtonShownForProbe, "le sélecteur reprend le profil et propose « Choisir les fonctionnalités… » pour Moi-même");
+                chooser.Select(Profiles.Everything, false);
+                Check(!chooser.FeaturesButtonShownForProbe, "…le bouton se cache pour les autres profils");
+                var features = new FeaturesWindow();
+                features.Show();
+                await Settle();
+                var boxes = 0;
+                foreach (var box in features.GetVisualDescendants().OfType<CheckBox>()) if (box.Tag is string && ((string)box.Tag).StartsWith("feature:")) boxes++;
+                Check(boxes == Profiles.Features.Length, "la fenêtre des fonctionnalités liste une case par fonctionnalité (" + boxes + ")");
+                features.Close();
+                await Settle();
+
+                // L'accueil du premier lancement : « Qui êtes-vous ? » à la place des projets, « Commencer » éteint tant que rien n'est choisi.
+                var welcome = new WelcomeWindow(shell, true);
+                welcome.Show();
+                await Settle();
+                var start = welcome.GetVisualDescendants().OfType<Button>().FirstOrDefault(b => Equals(b.Tag, "profile-start"));
+                var tiles = welcome.GetVisualDescendants().OfType<Border>().Count(b => b.Tag is string && ((string)b.Tag).StartsWith("profile:"));
+                Check(welcome.ShowsProfileChoice && start != null && !start.IsEnabled && tiles == 4, "l'accueil du premier lancement montre les quatre profils et « Commencer » éteint");
+                welcome.Release();
+                await Settle();
+            }
+            finally
+            {
+                AppSettings.Profile = before;
+                Profiles.LoadHidden(hiddenBefore);
+                Profiles.Notify();
+                await Settle();
+            }
+        }
+
+        /// <summary>Le diagramme relationnel (1.1.0, 27/10) : le menu Édition › Fiches,
+        /// le bouton de la fiche, la fenêtre et ses tuiles, déplacer une famille,
+        /// créer une relation, fixer une réciproque, appliquer — le projet suit
+        /// (génération de Mère, nature neuve au sélecteur), le livré revient.
+        /// MARABOOK_RELATIONS_PNG : une photo de la fenêtre.</summary>
+        private static async Task ProbeRelations(MainWindow shell)
+        {
+            var project = shell.Project;
+            Check(shell.SheetsMenuShownForProbe, "le menu Édition › Fiches est là");
+            BinderItem sheet = null;
+            foreach (var item in project.AllItems())
+                if (item.Kind == ItemKind.Sheet && SheetView.GenealogyAllowed(project, item)) { sheet = item; break; }
+            if (sheet != null) shell.Binder.SelectItem(sheet.Id);
+            await Settle();
+            Check(sheet != null && shell.Sheet.RelationsEditorButtonVisibleForProbe, "la fiche montre le bouton du diagramme relationnel à côté de « Ajouter une relation »");
+
+            var editor = new RelationsEditorWindow(project);
+            editor.Show();
+            await Settle();
+            Check(editor.TileCountForProbe == 15, "le diagramme montre une tuile par famille (" + editor.TileCountForProbe + ")");
+            var self = editor.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => Equals(b.Tag, "self-tile"));
+            Check(self != null && self.IsVisible, "…et le Personnage au centre");
+            editor.MoveFamily("parent", RelationLane.Direct, 1, -2);
+            Check(editor.SchemaForProbe.Find("Mère").Generation == -2 && editor.SchemaForProbe.Find("Père").Slot == 1, "déplacer la famille parent : Père et Mère changent de génération et de case");
+            editor.MoveFamily("uncle", RelationLane.Direct, 1, -2);
+            Check(editor.SchemaForProbe.Find("Oncle").Generation == -2 && editor.SchemaForProbe.Find("Père").Lane == RelationLane.Side && editor.SchemaForProbe.Find("Père").Generation == -1,
+                "poser une famille sur une case occupée : les deux s'échangent");
+            var family = editor.CreateFamily(RelationLane.Other, 0, 1);
+            Check(editor.SchemaForProbe.OfFamily(family).Count == 1 && editor.SelectedForProbe == family && editor.TileCountForProbe == 16, "une relation neuve : une tuile de plus, choisie");
+            editor.SetReciprocal(family, "cousin");
+            Check(editor.SchemaForProbe.OfFamily(family)[0].Reciprocal == "cousin" && editor.SchemaForProbe.Find("Cousin").Reciprocal == family, "la réciproque se fixe dans les deux sens");
+            editor.SetReciprocal(family, family);
+            Check(editor.SchemaForProbe.Find("Cousin").Reciprocal == "cousin", "…et se défait : Cousin se répond de nouveau à lui-même");
+            var png = Environment.GetEnvironmentVariable("MARABOOK_RELATIONS_PNG");
+            if (!string.IsNullOrEmpty(png))
+            {
+                await Settle(); // les tuiles redessinées veulent une passe de mise en page avant la photo
+                try
+                {
+                    var size = new PixelSize((int)editor.Bounds.Width, (int)editor.Bounds.Height);
+                    using (var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(size, new Vector(96, 96)))
+                    {
+                        bitmap.Render(editor);
+                        bitmap.Save(png);
+                    }
+                }
+                catch (Exception error) { Console.WriteLine("  (photo du diagramme : " + error.Message + ")"); }
+            }
+            var applied = await editor.ApplyForProbe();
+            await Settle();
+            Check(applied && project.RelationSchema.Find("Oncle") != null && project.RelationSchema.Find("Oncle").Generation == -2
+                && project.RelationSchema.Find("Mère").Lane == RelationLane.Side, "appliquer : le schéma du projet suit (Oncle en -2, Mère collatérale)");
+            shell.AdoptRelationSchemaForProbe();
+            Check(RelationKinds.GenerationOf("Tante") == -2 && RelationKinds.LaneOf("Père") == RelationLane.Side, "…et les statiques du projet ouvert répondent avec lui");
+            Check(new List<string>(project.AllRelationKinds()).Contains("Nouvelle relation"), "la relation neuve se propose au sélecteur des fiches");
+            project.RelationSchema = RelationSchema.Defaults();
+            shell.AdoptRelationSchemaForProbe();
+            Check(RelationKinds.GenerationOf("Mère") == -1, "le schéma livré remis : Mère en -1");
+            if (!editor.IsVisible) { } else editor.Close();
+            await Settle();
+
+            // — Les bandes extensibles (27/10 soir) : une colonne de plus, puis de moins.
+            var editor2 = new RelationsEditorWindow(project);
+            editor2.Show();
+            await Settle();
+            var sideBefore = editor2.BandSizeForProbe(RelationLane.Side);
+            editor2.AddColumn(RelationLane.Side);
+            Check(editor2.BandSizeForProbe(RelationLane.Side) == sideBefore + 1, "« + » sur une bande : une colonne de plus (" + editor2.BandSizeForProbe(RelationLane.Side) + ")");
+            editor2.MoveFamily("double", RelationLane.Side, sideBefore, 0);
+            editor2.RemoveColumn(RelationLane.Side);
+            Check(editor2.BandSizeForProbe(RelationLane.Side) == sideBefore + 1, "…occupée, la colonne ne se retire pas");
+            editor2.MoveFamily("double", RelationLane.Side, 0, 2);
+            editor2.RemoveColumn(RelationLane.Side);
+            Check(editor2.BandSizeForProbe(RelationLane.Side) == sideBefore, "…vide, elle se retire");
+            editor2.Close();
+            await Settle();
+
+            // — La généalogie en vue (27/10 soir) : F2 remplace les papers, les
+            // parents joints par un trait, les enfants pendus à un bus.
+            if (sheet != null)
+            {
+                var added = new List<SheetRelation>
+                {
+                    new SheetRelation { Kind = "Père", Name = "Lirin (sonde)" },
+                    new SheetRelation { Kind = "Mère", Name = "Hesina (sonde)" },
+                    new SheetRelation { Kind = "Frère", Name = "Tien (sonde)" },
+                    new SheetRelation { Kind = "Partenaire", Name = "Syl (sonde)" },
+                    new SheetRelation { Kind = "Fils", Name = "Oroden (sonde)" },
+                    new SheetRelation { Kind = "Fille", Name = "Rock (sonde)" },
+                    new SheetRelation { Kind = "Mentor", Name = "Dalinar (sonde)" }
+                };
+                sheet.Relations.AddRange(added);
+                shell.Binder.SelectItem(sheet.Id);
+                await Settle();
+                shell.Sheet.ToggleGenealogyForProbe();
+                await Settle();
+                Check(shell.Sheet.GenealogyOnForProbe, "F2 : la généalogie prend la place des papers de la fiche (" + shell.Sheet.GenealogyStateForProbe + ")");
+                var view = shell.Sheet.GenealogyForProbe;
+                var tiles = view.GetVisualDescendants().OfType<Border>().Count(b => Equals(b.Tag, "genealogy-node"));
+                var lines = view.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Line>().Count();
+                Check(tiles == sheet.Relations.Count && view.GetVisualDescendants().OfType<Border>().Any(b => Equals(b.Tag, "genealogy-self")), "…une tuile par relation et le personnage (" + tiles + ")");
+                // Père–Mère : union, branche, bus, deux pieds (le personnage, Frère) = 5 ; personnage–partenaire : union double, branche, bus, deux pieds (Fils, Fille) = 6.
+                Check(lines >= 11, "…les traits d'union, branches, bus et pieds sont dessinés (" + lines + " traits)");
+                var genealogyPng = Environment.GetEnvironmentVariable("MARABOOK_GENEALOGY_PNG");
+                if (!string.IsNullOrEmpty(genealogyPng))
+                {
+                    try
+                    {
+                        var size = new PixelSize((int)view.Bounds.Width, (int)view.Bounds.Height);
+                        using (var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(size, new Vector(96, 96)))
+                        {
+                            bitmap.Render(view);
+                            bitmap.Save(genealogyPng);
+                        }
+                    }
+                    catch (Exception error) { Console.WriteLine("  (photo de la généalogie : " + error.Message + ")"); }
+                }
+                shell.Sheet.ToggleGenealogyForProbe();
+                await Settle();
+                Check(!shell.Sheet.GenealogyOnForProbe, "F2 encore : les papers reviennent");
+                foreach (var relation in added) sheet.Relations.Remove(relation);
+                shell.Binder.SelectItem(sheet.Id);
+                await Settle();
+            }
+        }
+
+        /// <summary>Les ONGLETS de la 1.1.0 (28/10) : la rangée visible à la
+        /// hauteur de la barre de recherche de la Pile, l'onglet actif qui
+        /// suit la Pile, Ctrl+T (Accueil dans un onglet neuf), activer,
+        /// « Ouvrir dans un nouvel onglet », suivant/précédent cycliques,
+        /// Ctrl+W, le plafond (le « + » s'éteint, Ctrl+T se tait, la Pile ne
+        /// propose plus), la rangée retenue par le projet, la bascule du
+        /// réglage. MARABOOK_TABS_CAPTURE=<png> enregistre la fenêtre pleine
+        /// d'onglets.</summary>
+        private static async Task ProbeTabs(MainWindow shell)
+        {
+            var enabledBefore = AppSettings.TabsEnabled;
+            var maxBefore = AppSettings.MaxTabs;
+            try
+            {
+                AppSettings.TabsEnabled = true;
+                AppSettings.MaxTabs = 10;
+                shell.ApplyTabsSettingsForProbe();
+                await Settle();
+                var strip = shell.TabStripForProbe;
+                var tabs = shell.TabsForProbe;
+                var project = shell.Project;
+                Check(strip != null && strip.IsVisible, "la rangée d'onglets est visible quand le réglage est actif");
+                var bar = shell.Binder.SearchBarForTabs;
+                Check(bar != null && Math.Abs(strip.Bounds.Height - bar.Bounds.Height) < 1.5,
+                    "…à la hauteur de la barre de recherche de la Pile (" + strip.Bounds.Height.ToString("0") + " / " + (bar == null ? 0 : bar.Bounds.Height).ToString("0") + " px)");
+                var text = FirstTitled(project, "Chapitre premier") ?? FirstOfKind(project, ItemKind.Text); // un écrit à deux paragraphes (la position gardée)
+                shell.Binder.SelectItem(text.Id, true);
+                await Settle();
+                Check(tabs.Count >= 1 && tabs.ActiveItemId == text.Id, "l'onglet actif suit ce que la Pile ouvre (" + tabs.Count + " onglet(s))");
+                Check(strip.TitlesForProbe().Count == tabs.Count && strip.ActiveIndexForProbe == tabs.ActiveIndex && strip.TitlesForProbe()[tabs.ActiveIndex] == text.Title,
+                    "la rangée reflète le modèle, titre compris (" + string.Join(" | ", strip.TitlesForProbe().ToArray()) + ")");
+                var baseline = tabs.Count;
+                var home = project.Category(Project.KeyHome);
+                shell.OpenNewTabForProbe();
+                await Settle();
+                Check(tabs.Count == baseline + 1 && tabs.ActiveIndex == tabs.Count - 1 && tabs.ActiveItemId == home.Id && shell.CurrentForProbe == home,
+                    "Ctrl+T ouvre l'Accueil dans un onglet neuf, en bout de rangée, actif, et la vue le montre");
+                shell.ActivateTabForProbe(0);
+                await Settle();
+                Check(tabs.ActiveIndex == 0 && shell.CurrentForProbe == text && strip.ActiveIndexForProbe == 0, "activer un onglet rouvre son élément dans la vue, la Pile suit");
+                // La position gardée par onglet (28/10, Rémi) : le caret posé
+                // loin du début revient au même endroit après un aller-retour.
+                var composed = shell.Composed;
+                composed.PlaceCaret(0, 5, false);
+                await Settle();
+                shell.ActivateTabForProbe(1);
+                await Settle();
+                Check(tabs[0].HasPosition && tabs[0].Paragraph == 0 && tabs[0].Offset == 5, "quitter un onglet retient le caret de son écrit (" + tabs[0].Paragraph + ":" + tabs[0].Offset + ")");
+                shell.ActivateTabForProbe(0);
+                await Settle();
+                await Settle();
+                int backParagraph, backOffset;
+                composed.GetCaret(out backParagraph, out backOffset);
+                Check(shell.CurrentForProbe == text && backParagraph == 0 && backOffset == 5, "…et le retrouve au retour (" + backParagraph + ":" + backOffset + ")");
+                shell.Binder.SelectItem(home.Id, true);
+                await Settle();
+                Check(!tabs[0].HasPosition, "la Pile ouvre autre chose dans l'onglet : la position retenue tombe");
+                shell.Binder.SelectItem(text.Id, true);
+                await Settle();
+                var sheet = FirstOfKind(project, ItemKind.Sheet);
+                shell.OpenInNewTabForProbe(sheet);
+                await Settle();
+                Check(tabs.Count == baseline + 2 && tabs.ActiveIndex == tabs.Count - 1 && shell.CurrentForProbe == sheet,
+                    "« Ouvrir dans un nouvel onglet » ajoute en bout de rangée et montre l'élément");
+                shell.NextTabForProbe();
+                await Settle();
+                Check(tabs.ActiveIndex == 0 && shell.CurrentForProbe == text, "Onglet suivant depuis le dernier revient au premier et le montre");
+                shell.PreviousTabForProbe();
+                await Settle();
+                Check(tabs.ActiveIndex == tabs.Count - 1 && shell.CurrentForProbe == sheet, "Onglet précédent depuis le premier va au dernier");
+                // Ctrl+Maj+Droite / Gauche (31/10, Rémi) : l'onglet voisin, en tunnel sur la fenêtre.
+                shell.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Right, KeyModifiers = Avalonia.Input.KeyModifiers.Control | Avalonia.Input.KeyModifiers.Shift, Source = shell });
+                await Settle();
+                Check(tabs.ActiveIndex == 0 && shell.CurrentForProbe == text, "Ctrl+Maj+Droite passe à l'onglet suivant (31/10)");
+                shell.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Left, KeyModifiers = Avalonia.Input.KeyModifiers.Control | Avalonia.Input.KeyModifiers.Shift, Source = shell });
+                await Settle();
+                Check(tabs.ActiveIndex == tabs.Count - 1 && shell.CurrentForProbe == sheet, "…Ctrl+Maj+Gauche à l'onglet précédent");
+                // Le glisser-déposer (31/10) : le premier onglet déposé en fin de rangée.
+                var rowStrip = shell.TabStripForProbe;
+                var titlesBefore = rowStrip.TitlesForProbe();
+                var activeBefore = tabs.ActiveItemId;
+                rowStrip.MoveForProbe(0, titlesBefore.Count);
+                await Settle();
+                var titlesAfter = rowStrip.TitlesForProbe();
+                Check(titlesAfter.Count == titlesBefore.Count && titlesAfter[titlesAfter.Count - 1] == titlesBefore[0] && tabs.ActiveItemId == activeBefore && shell.CurrentForProbe == sheet && project.OpenTabs[project.OpenTabs.Count - 1] == tabs[tabs.Count - 1].ItemId,
+                    "déposer le premier onglet en fin de rangée le déplace, l'actif reste l'actif, le projet retient l'ordre (" + string.Join(" | ", titlesAfter.ToArray()) + ")");
+                rowStrip.MoveForProbe(titlesAfter.Count - 1, 0);
+                await Settle();
+                Check(string.Join("|", rowStrip.TitlesForProbe().ToArray()) == string.Join("|", titlesBefore.ToArray()), "…et le ramener devant rend l'ordre initial");
+                shell.CloseActiveTabForProbe();
+                await Settle();
+                Check(tabs.Count == baseline + 1 && tabs.ActiveItemId == home.Id && shell.CurrentForProbe == home, "Ctrl+W ferme l'actif ; son voisin de gauche prend la vue (l'Accueil)");
+                Check(project.OpenTabs.Count == tabs.Count && project.ActiveTab == tabs.ActiveIndex && project.OpenTabs[project.ActiveTab] == home.Id,
+                    "le projet retient la rangée et l'actif, sans attendre (.plot v42)");
+
+                AppSettings.MaxTabs = 5;
+                shell.ApplyTabsSettingsForProbe();
+                await Settle();
+                Check(tabs.Limit == 5 && strip.PlusEnabledForProbe, "le plafond suit le réglage (5), le « + » reste allumé sous le plafond");
+                var guard = 0;
+                while (tabs.CanOpen && guard++ < 10) shell.OpenInNewTabForProbe(text);
+                await Settle();
+                Check(tabs.Count == 5 && !strip.PlusEnabledForProbe, "au plafond : cinq onglets, le « + » s'éteint");
+                shell.OpenNewTabForProbe();
+                await Settle();
+                Check(tabs.Count == 5, "…Ctrl+T n'ouvre plus rien (un mot le dit)");
+                Check(shell.Binder.CanOpenTab != null && !shell.Binder.CanOpenTab(), "…et la Pile ne propose plus « Ouvrir dans un nouvel onglet »");
+                Check(strip.TabWidthForProbe >= TabStrip.TabMinWidth && strip.TabWidthForProbe <= TabStrip.TabMaxWidth, "les onglets se partagent la place entre 48 et 220 px (" + strip.TabWidthForProbe.ToString("0") + " px)");
+                var capture = Environment.GetEnvironmentVariable("MARABOOK_TABS_CAPTURE");
+                if (!string.IsNullOrEmpty(capture)) shell.CaptureForProbe(capture);
+                AppSettings.MaxTabs = 30;
+                shell.ApplyTabsSettingsForProbe();
+                await Settle();
+                Check(tabs.Count == 5 && strip.PlusEnabledForProbe, "relever le plafond rallume le « + » sans toucher à la rangée");
+                shell.ActivateTabForProbe(4);
+                AppSettings.MaxTabs = 5; // 30 → 5 : rien à fermer (5 ouverts) ; puis une rangée serrée
+                shell.ApplyTabsSettingsForProbe();
+                shell.OpenInNewTabForProbe(sheet); // refusé : plein
+                AppSettings.MaxTabs = 30;
+                shell.ApplyTabsSettingsForProbe();
+                shell.OpenInNewTabForProbe(sheet); // 6 onglets, l'actif est le dernier
+                await Settle();
+                AppSettings.MaxTabs = 5;
+                shell.ApplyTabsSettingsForProbe();
+                await Settle();
+                Check(tabs.Count == 5 && tabs.ActiveItemId == sheet.Id && shell.CurrentForProbe == sheet, "abaisser le plafond sous la rangée ferme par la droite en épargnant l'actif");
+
+                AppSettings.TabsEnabled = false;
+                shell.ApplyTabsSettingsForProbe();
+                await Settle();
+                Check(!strip.IsVisible && tabs.Count == 0 && project.OpenTabs.Count == 0, "réglage éteint : la rangée se retire, plus d'onglet, rien d'écrit dans le projet");
+                shell.OpenNewTabForProbe();
+                await Settle();
+                Check(tabs.Count == 0 && shell.CurrentForProbe == sheet, "…et Ctrl+T se tait");
+                shell.Binder.SelectItem(text.Id, true);
+                await Settle();
+                Check(tabs.Count == 0 && shell.CurrentForProbe == text, "…la Pile ouvre toujours, sans onglet");
+                AppSettings.TabsEnabled = true;
+                shell.ApplyTabsSettingsForProbe();
+                await Settle();
+                Check(strip.IsVisible && tabs.Count == 1 && tabs.ActiveItemId == text.Id, "rallumé : un onglet, celui de l'élément ouvert");
+            }
+            finally
+            {
+                AppSettings.TabsEnabled = enabledBefore;
+                AppSettings.MaxTabs = maxBefore;
+                shell.ApplyTabsSettingsForProbe();
+            }
+        }
+
+        /// <summary>Le GRAPHE RELATIONNEL (1.1.0, 28/10) : l'entrée de la Pile
+        /// et du menu, l'ouverture sous le voile puis le calcul (nœuds, liens),
+        /// les filtres par nature, la recherche, la sélection (le Général
+        /// suit) et le voisinage, un nœud tiré (position épinglée, projet
+        /// sale), la matrice des présences et l'hygiène, l'export SVG, la Pile
+        /// qui reprend la main, le profil Éditeur·ice qui cache tout.
+        /// MARABOOK_GRAPH_CAPTURE=<png> enregistre la fenêtre sur la carte.</summary>
+        private static async Task ProbeGraph(MainWindow shell)
+        {
+            var before = AppSettings.Profile;
+            var hiddenBefore = new List<string>(AppSettings.HiddenFeatures);
+            try
+            {
+                AppSettings.Profile = null;
+                Profiles.Notify();
+                await Settle();
+                var project = shell.Project;
+                Check(shell.Binder.GraphRowShownForProbe, "la Pile offre « Gros Graph » dans Encyclopédie");
+                Check(shell.GraphMenuShownForProbe, "…et le menu Édition › Fiches aussi");
+                var view = shell.GraphViewForProbe;
+                // La démo ne nomme pas ses personnages dans ses chapitres : un
+                // paragraphe de plus dans un écrit fermé, pour avoir des présences.
+                var chapterTwo = FirstTitled(project, "Chapitre deux");
+                if (chapterTwo != null)
+                {
+                    var paragraph = new TextParagraph();
+                    paragraph.Runs.Add(new TextRun { Text = "Keira Varenh croisa Le marabout sur la grève. Keira ne dit rien." });
+                    chapterTwo.Document.Paragraphs.Add(paragraph);
+                }
+                // Un portrait sur Keira : sa pastille doit le montrer (28/10).
+                var keiraSheet = FirstTitled(project, "Keira");
+                if (keiraSheet != null && keiraSheet.ImageId == null) keiraSheet.ImageId = project.AddImage(ProbePng(), ".png");
+                shell.ShowGraphForProbe();
+                Check(view.IsVisible && view.LoaderShownForProbe, "ouvrir le graphe montre la vue et son voile de chargement");
+                await view.LoadingForProbe;
+                await Settle();
+                Check(!view.LoaderShownForProbe && view.NodeCountForProbe > 0 && view.EdgeCountForProbe > 0,
+                    "le calcul finit, le voile tombe : " + view.NodeCountForProbe + " nœuds, " + view.EdgeCountForProbe + " liens");
+                var keira = FirstTitled(project, "Keira");
+                var graph = view.GraphForProbe;
+                Check(keira != null && graph.Node(keira.Id) != null && graph.Node(keira.Id).Presence > 0, "Keira est un nœud, présente dans au moins un écrit");
+                Check(keira != null && view.NodeShowsPortraitForProbe(keira.Id), "la pastille d'une fiche à image montre son portrait (28/10)");
+                var marabout = FirstTitled(project, "Le marabout");
+                Check(marabout != null && !view.NodeShowsPortraitForProbe(marabout.Id), "…une fiche sans image garde son symbole ou l'icône d'office");
+                Check(shell.CurrentForProbe != null && shell.CurrentForProbe.Id == MainWindow.GraphItemId && shell.TabsForProbe.ActiveItemId == MainWindow.GraphItemId
+                    && shell.TabStripForProbe.TitlesForProbe()[shell.TabsForProbe.ActiveIndex] == "Gros Graph",
+                    "le graphe est une page (28/10) : élément courant, sélection de la Pile, onglet actif à son nom (« Gros Graph »)");
+
+                // Les défauts (31/10, Rémi) : la Structure seule (relations,
+                // liens, tags) entre fiches ; l'Écriture (écrits, présences…) se coche.
+                Check(shell.InspectorAvailableForProbe, "sur la page du graphe, l'onglet Général du rail est disponible (31/10, Rémi : il restait grisé comme une racine)");
+                Check(shell.GraphToolsInInspectorForProbe && view.TypeFilterCountForProbe == project.SheetCategories.Count,
+                    "les outils de la Carte sont dans le Général du rail, avec une case de filtre par catégorie de fiche (" + view.TypeFilterCountForProbe + ")");
+                var sheetsOnly = view.ShownNodeCountForProbe;
+                var shownStructure = view.ShownEdgeCountForProbe;
+                view.ToggleTextsForProbe(true);
+                view.ToggleKindForProbe(GraphEdgeKind.Presence, true);
+                await Settle();
+                var shownAll = view.ShownEdgeCountForProbe;
+                Check(view.ShownNodeCountForProbe > sheetsOnly && shownAll > shownStructure, "cocher Écrits et Présences ajoute les écrits et leurs liens de présence (" + shownAll + " > " + shownStructure + ")");
+                view.ToggleKindForProbe(GraphEdgeKind.Presence, false);
+                await Settle();
+                Check(view.ShownEdgeCountForProbe < shownAll, "décocher Présences retire ses liens de la carte (" + view.ShownEdgeCountForProbe + " < " + shownAll + ")");
+                view.ToggleKindForProbe(GraphEdgeKind.Presence, true);
+                await Settle();
+                Check(view.ShownEdgeCountForProbe == shownAll, "…recocher les rend");
+                // Le filtre par type de fiche (31/10) : décocher la catégorie de Keira la cache.
+                var withKeira = view.ShownNodeCountForProbe;
+                view.ShowCategoryForProbe(keira.CategoryId, false);
+                await Settle();
+                Check(view.ShownNodeCountForProbe < withKeira && !view.NodeShownForProbe(keira.Id), "décocher une catégorie dans « Filtre par type de fiche » cache ses fiches (" + view.ShownNodeCountForProbe + " < " + withKeira + ")");
+                view.ShowCategoryForProbe(keira.CategoryId, true);
+                await Settle();
+                Check(view.ShownNodeCountForProbe == withKeira && view.NodeShownForProbe(keira.Id), "…la recocher les rend");
+
+                view.SearchForProbe("Keira");
+                await Settle();
+                Check(view.LitNodeCountForProbe >= 1 && view.LitNodeCountForProbe < view.ShownNodeCountForProbe, "la recherche garde en lumière les nœuds qui répondent (" + view.LitNodeCountForProbe + " sur " + view.ShownNodeCountForProbe + ")");
+                view.SearchForProbe("");
+                await Settle();
+
+                view.SelectForProbe(keira.Id);
+                await Settle();
+                Check(view.SelectedForProbe == keira.Id && shell.InspectorTitle == keira.Title, "cliquer un nœud le sélectionne et le Général le montre (" + shell.InspectorTitle + ")");
+                Check(!shell.GraphToolsInInspectorForProbe, "…à la place des outils de la carte, pas par-dessus (31/10)");
+                view.SelectForProbe(null);
+                await Settle();
+                Check(shell.GraphToolsInInspectorForProbe && shell.InspectorTitle == "Gros Graph", "…désélectionner rend les outils de la carte (" + shell.InspectorTitle + ")");
+                view.SelectForProbe(keira.Id);
+                await Settle();
+                var all = view.ShownNodeCountForProbe;
+                view.DepthForProbe(1);
+                await Settle();
+                var hop = view.ShownNodeCountForProbe;
+                Check(hop >= 2 && hop < all, "le voisinage à un saut ne montre que le nœud et ses voisins (" + hop + " sur " + all + ")");
+                view.DepthForProbe(0);
+                await Settle();
+                Check(view.ShownNodeCountForProbe == all, "« Tout » rend le graphe entier");
+
+                var dirtyBefore = shell.DirtyForProbe;
+                view.DragForProbe(keira.Id, 123, -45);
+                await Settle();
+                GraphPosition at;
+                Check(project.GraphLayout.TryGetValue(keira.Id, out at) && at.Pinned && Math.Abs(at.X - 123) < 0.01 && shell.DirtyForProbe,
+                    "un nœud tiré : sa position est épinglée dans le projet (.plot v43) et le projet est sale (avant : " + dirtyBefore + ")");
+                var capture = Environment.GetEnvironmentVariable("MARABOOK_GRAPH_CAPTURE");
+                Console.WriteLine("  [graphe] " + view.DebugForProbe);
+                if (!string.IsNullOrEmpty(capture)) shell.CaptureForProbe(capture);
+
+                view.ShowFacetForProbe("Présences");
+                await Settle();
+                var matrix = view.MatrixForProbe;
+                Check(view.FacetForProbe == "Présences" && matrix.ColumnCountForProbe == graph.Writings.Count && matrix.RowCountForProbe >= 1,
+                    "la matrice : une colonne par écrit du récit (" + matrix.ColumnCountForProbe + "), une ligne par fiche présente (" + matrix.RowCountForProbe + ")");
+                Check(matrix.HasRowForProbe(keira.Id), "…Keira a sa ligne");
+                // L'ordre des lignes (29/10) : apparition d'office, fréquence sur demande.
+                var rowsByFirst = matrix.RowIdsForProbe();
+                view.OrderByFrequency = true;
+                await Settle();
+                var rowsByFrequency = matrix.RowIdsForProbe();
+                var columns = matrix.ColumnIdsForProbe();
+                var nonIncreasing = rowsByFrequency.Count == rowsByFirst.Count;
+                var previous = int.MaxValue;
+                foreach (var rowId in rowsByFrequency)
+                {
+                    var total = 0;
+                    foreach (var colId in columns) total += graph.PresenceCount(colId, rowId);
+                    if (total > previous) nonIncreasing = false;
+                    previous = total;
+                }
+                Check(view.OrderByFrequency && nonIncreasing, "Ordre › Fréquence : les fiches les plus présentes d'abord (" + rowsByFrequency.Count + " lignes)");
+                view.OrderByFrequency = false;
+                await Settle();
+                Check(string.Join("|", matrix.RowIdsForProbe().ToArray()) == string.Join("|", rowsByFirst.ToArray()), "…Ordre d'apparition : l'ordre initial revient");
+                Check(view.ScopeChoicesForProbe >= 3 && view.TypeLabelForProbe.StartsWith("Personnage"), "les filtres (28/10) : l'amplitude (" + view.ScopeChoicesForProbe + " choix) et la nature des fiches, Personnages d'office (" + view.TypeLabelForProbe + ")");
+                var matrixCapture = Environment.GetEnvironmentVariable("MARABOOK_MATRIX_CAPTURE");
+                if (!string.IsNullOrEmpty(matrixCapture)) shell.CaptureForProbe(matrixCapture);
+                // L'amplitude en autocomplète strict (31/10, Rémi) : une frappe
+                // sans réponse passe en rouge ; Entrée prend la première proposition.
+                var scopeBox = view.ScopeBoxForProbe;
+                Suggestions.AssumeFocusForProbe = true; // Focus() ne prend pas ici (fenêtre sans activation réelle)
+                scopeBox.Text = "zzz-rien-de-tel";
+                await Settle();
+                Check(scopeBox.IsEditable && ReferenceEquals(scopeBox.Foreground, Chrome.Danger), "Amplitude : une frappe qui ne répond à aucun choix passe en rouge");
+                var lastLabel = (scopeBox.Items[scopeBox.Items.Count - 1] as string ?? "").Trim();
+                scopeBox.Text = lastLabel.Length > 6 ? lastLabel.Substring(2, 5) : lastLabel;
+                await Settle();
+                Check(!ReferenceEquals(scopeBox.Foreground, Chrome.Danger) && Suggestions.IsOpenFor(scopeBox), "…une frappe qui répond redevient noire et ouvre les propositions");
+                scopeBox.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter, Source = scopeBox });
+                await Settle();
+                Check(scopeBox.SelectedIndex >= 0 && !Suggestions.IsOpenFor(scopeBox) && (scopeBox.Text ?? "").Trim() == (scopeBox.SelectedItem as string ?? "").Trim() && scopeBox.Text.Trim().Contains(lastLabel.Length > 6 ? lastLabel.Substring(2, 5) : lastLabel),
+                    "…Entrée prend la première proposition et la sélectionne (« " + scopeBox.Text + " »)");
+                Suggestions.AssumeFocusForProbe = false;
+                view.ScopeForProbe(0);
+                await Settle();
+                var columnsBefore = matrix.ColumnCountForProbe;
+                view.ScopeForProbe(view.ScopeChoicesForProbe - 1); // le dernier écrit du récit
+                await Settle();
+                Check(matrix.ColumnCountForProbe == 1 && matrix.ColumnCountForProbe < columnsBefore, "limiter l'amplitude à un écrit ne garde que sa colonne");
+                // Les filtres survivent au recalcul (28/10) : le projet change,
+                // on revient au graphe — même amplitude, même nature, même facette.
+                view.TypeForProbe(0);
+                await Settle();
+                var scopeChosen = view.ScopeLabelForProbe;
+                view.Stale = true;
+                view.Open(project);
+                await view.LoadingForProbe;
+                await Settle();
+                Check(view.FacetForProbe == "Présences" && view.ScopeLabelForProbe == scopeChosen && view.TypeLabelForProbe == "Toutes les fiches" && matrix.ColumnCountForProbe == 1,
+                    "après un recalcul, les filtres de la matrice reviennent tels quels (« " + view.ScopeLabelForProbe + " », " + view.TypeLabelForProbe + ")");
+                view.ScopeForProbe(0);
+                view.TypeForProbe(0);
+                await Settle();
+                Check(matrix.ColumnCountForProbe == columnsBefore && matrix.RowCountForProbe >= 2, "tout le récit et toutes les fiches : la matrice entière revient");
+                Check(!shell.GraphToolsInInspectorForProbe, "devant les Présences, le Général ne montre pas les outils de la Carte");
+                view.ShowFacetForProbe("Carte");
+                view.SelectForProbe(null); // Keira était encore choisie : sa fiche tenait le Général
+                await Settle();
+                Check(shell.GraphToolsInInspectorForProbe && view.FacetButtonCountForProbe == 2, "…de retour à la Carte, ils reviennent ; deux facettes seulement (l'Hygiène est retirée, 31/10)");
+                var svg = view.Svg();
+                Check(svg.StartsWith("<svg") && svg.Contains("<circle") && svg.Contains("Keira"), "l'export SVG dessine les nœuds et leurs titres");
+                var png = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-graphe-" + Guid.NewGuid().ToString("N") + ".png");
+                try
+                {
+                    view.ExportPng(png);
+                    Check(System.IO.File.Exists(png) && new System.IO.FileInfo(png).Length > 1000, "l'export PNG écrit une image");
+                }
+                finally { try { System.IO.File.Delete(png); } catch (System.IO.IOException) { } }
+
+                shell.Binder.SelectItem(keira.Id, true);
+                await Settle();
+                Check(!view.IsVisible && shell.CurrentForProbe == keira, "un clic dans la Pile reprend la main : le graphe se range, la fiche s'ouvre");
+                shell.GoBackForProbe();
+                await Settle();
+                Check(view.IsVisible && shell.CurrentForProbe != null && shell.CurrentForProbe.Id == MainWindow.GraphItemId && !view.LoaderShownForProbe, "« Précédent » rouvre le graphe — sans recalcul, rien n'a changé");
+                shell.Binder.SelectItem(keira.Id, true);
+                await Settle();
+
+                AppSettings.Profile = Profiles.Publisher;
+                Profiles.Notify();
+                await Settle();
+                Check(!shell.Binder.GraphRowShownForProbe && !shell.GraphMenuShownForProbe, "profil Éditeur·ice : plus de ligne dans la Pile ni d'entrée de menu");
+                shell.ShowGraphForProbe();
+                await Settle();
+                Check(!view.IsVisible, "…et la vue ne s'ouvre pas");
+            }
+            finally
+            {
+                AppSettings.Profile = before;
+                Profiles.LoadHidden(hiddenBefore);
+                Profiles.Notify();
+                await Settle();
+            }
+        }
+
+        /// <summary>Le premier item dont le titre commence ainsi, où qu'il soit dans la Pile ; null sinon.</summary>
+        private static BinderItem FirstTitled(Project project, string prefix)
+        {
+            foreach (var root in project.Roots)
+            {
+                var found = FirstTitledUnder(root, prefix);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private static BinderItem FirstTitledUnder(BinderItem item, string prefix)
+        {
+            if (item.Title != null && item.Title.StartsWith(prefix, StringComparison.Ordinal)) return item;
+            foreach (var child in item.Children)
+            {
+                var found = FirstTitledUnder(child, prefix);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private static BinderItem FirstOfKind(Project project, ItemKind kind)
+        {
+            foreach (var item in project.AllItems()) if (item.Kind == kind) return item;
+            return null;
+        }
+
+        /// <summary>La passe des dialogues (29/10) : le grand bouton
+        /// « Dialogues » du ruban Formatage, et la passe elle-même sur un
+        /// écrit tout au cadratin (le cas moonlight) selon la norme des
+        /// réglages — sans ouvrir la fenêtre comparative (modale).
+        /// MARABOOK_RIBBON_CAPTURE=<png> enregistre la fenêtre, onglet
+        /// Formatage ouvert.</summary>
+        private static async Task ProbeDialogues(MainWindow shell)
+        {
+            var project = shell.Project;
+            var text = FirstTitled(project, "Chapitre premier") ?? FirstOfKind(project, ItemKind.Text);
+            if (text != null) shell.Binder.SelectItem(text.Id, true);
+            await Settle();
+            var editor = shell.Editor;
+            Check(editor != null && editor.SelectRibbonTabForProbe("Formatage"), "le ruban de l'éditeur a un onglet Formatage");
+            await Settle();
+            Check(FindButton(shell, "Dialogues") != null, "…qui offre le grand bouton « Dialogues » (29/10)");
+            Check(FindButton(shell, "Typographie") != null && FindButton(shell, "Options") != null, "…à côté de Typographie et Options");
+            var capture = Environment.GetEnvironmentVariable("MARABOOK_RIBBON_CAPTURE"); // la fenêtre, onglet Formatage ouvert
+            if (!string.IsNullOrEmpty(capture)) shell.CaptureForProbe(capture);
+            editor.SelectRibbonTabForProbe("Texte");
+
+            // Le cas moonlight : des répliques au cadratin, aucun guillemet, norme « guillemets ».
+            var document = new TextDocument();
+            foreach (var line in new[] { "Elle demanda :", "— Moi, c’est Alicia et toi ?", "— A…nna.", "Son prénom tomba." })
+            {
+                var paragraph = new TextParagraph();
+                paragraph.Runs.Add(new TextRun { Text = line });
+                document.Paragraphs.Add(paragraph);
+            }
+            var options = new Marabook.Correction.TypographyOptions();
+            var result = Marabook.Correction.DialoguePass.Run(document, options);
+            Check(result.Blocks == 1 && result.Lines == 2 && result.Wrong == 1 && result.Changes.Count == 2,
+                "la passe voit un dialogue de deux répliques hors norme, deux paragraphes à reprendre (" + result.Blocks + "/" + result.Lines + "/" + result.Changes.Count + ")");
+            Check(PivotEdit.FlatText(result.Paragraphs[1]).StartsWith("« ") && PivotEdit.FlatText(result.Paragraphs[2]).EndsWith(" »"),
+                "…guillemet ouvrant sur la première, fermant sur la dernière");
+            options.DialogueOpen = "cadratin";
+            result = Marabook.Correction.DialoguePass.Run(document, options);
+            Check(result.Blocks == 1 && result.Changes.Count == 0, "norme cadratin : le même écrit est en règle");
+            var compare = new TypographyCompareWindowProbe(shell, Marabook.Correction.DialoguePass.Run(document, new Marabook.Correction.TypographyOptions()));
+            Check(compare.Title.StartsWith("Dialogues — "), "la fenêtre comparative porte le nom de la passe (" + compare.Title + ")");
+            compare.Close();
+        }
+
+        /// <summary>Le lot de correctifs du 29/10 (Rémi) : ruban (Prépresse en
+        /// dernier, approche et lignes lâches dans Formatage, Gabarit et
+        /// marges grisés pour un écrit de livre, Veuves/Orphelines), croix de
+        /// la barre Ctrl+F, vignettes de portée des styles, recherche de la
+        /// Pile par nom, palette « Ouvrir par le nom », dialogue Nouveau
+        /// livre, gabarits .marag.</summary>
+        private static async Task ProbeFixes2910(MainWindow shell)
+        {
+            var project = shell.Project;
+            var editor = shell.Editor;
+            shell.HideVeilForProbe(); // la démo garde le voile de l'accueil : coquille désactivée, états « grisé » illisibles
+            await Settle();
+            // — Le ruban.
+            var heads = editor.RibbonTabHeadersForProbe;
+            Check(heads.EndsWith("|Prépresse") && !heads.Contains("Composition"), "le ruban : Composition est devenu Prépresse, en dernier (" + heads + ")");
+            Check(editor.TrackingInFormatTabForProbe, "l'approche et les lignes lâches vivent dans Formatage");
+            editor.SelectRibbonTabForProbe("Formatage");
+            await Settle();
+            Check(FindButton(shell, "Lignes lâches") != null, "…le bouton Lignes lâches s'y voit");
+            var formatCapture = Environment.GetEnvironmentVariable("MARABOOK_FORMAT_CAPTURE");
+            if (!string.IsNullOrEmpty(formatCapture)) shell.CaptureForProbe(formatCapture);
+            // — Un écrit de livre : Gabarit, marges, taille et folio grisés ; hors livre, tout est actif.
+            BinderItem inBook = null, outside = null;
+            foreach (var item in project.AllItems())
+            {
+                if (item.Kind != ItemKind.Text || item.Document == null || item.RootCategory().CategoryKey != Project.KeyWritings) continue;
+                if (inBook == null && !item.IsInsideOutOfBook() && item.EnclosingBook() != null) inBook = item;
+                if (outside == null && item.EnclosingBook() == null) outside = item;
+            }
+            if (inBook != null)
+            {
+                shell.Binder.SelectItem(inBook.Id, true);
+                await Settle();
+                Check(!editor.DecorTabEnabledForProbe && !editor.PageGridEnabledForProbe, "un écrit de livre (« " + inBook.Title + " ») : l'onglet Gabarit, les marges et la taille sont grisés");
+                // Le libellé de l'onglet grisé se distingue (29/10, Rémi) : encre pâle, opacité réduite ; Texte reste tel quel.
+                var tabs = shell.GetVisualDescendants().OfType<TabItem>().ToList();
+                var decor = tabs.FirstOrDefault(t => (t.Header as string) == "Gabarit");
+                var texte = tabs.FirstOrDefault(t => (t.Header as string) == "Texte");
+                var decorBg = decor == null ? null : decor.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => b.Name == "Bg");
+                var texteBg = texte == null ? null : texte.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => b.Name == "Bg");
+                Check(decorBg != null && ReferenceEquals(Avalonia.Controls.Documents.TextElement.GetForeground(decorBg), Chrome.FaintText) && decorBg.Opacity < 1,
+                    "…le libellé « Gabarit » passe en gris clair (encre pâle, opacité " + (decorBg == null ? "?" : decorBg.Opacity.ToString("0.00")) + ")");
+                Check(texteBg != null && texte.IsEffectivelyEnabled && texteBg.Opacity >= 1 && !ReferenceEquals(Avalonia.Controls.Documents.TextElement.GetForeground(texteBg), Chrome.FaintText),
+                    "…« Texte » garde son encre (actif : " + (texte == null ? "?" : texte.IsEffectivelyEnabled.ToString()) + ", opacité " + (texteBg == null ? "?" : texteBg.Opacity.ToString("0.00")) + ")");
+                var typographyBtn = FindButton(shell, "Typographie");
+                Check(typographyBtn != null && typographyBtn.IsEffectivelyEnabled, "…les boutons du ruban restent actifs (Typographie : " + (typographyBtn == null ? "absent" : typographyBtn.IsEffectivelyEnabled.ToString()) + ")");
+            }
+            else Console.WriteLine("  (aucun écrit de livre dans la démo : grisage non vérifié)");
+            if (outside != null)
+            {
+                shell.Binder.SelectItem(outside.Id, true);
+                await Settle();
+                Check(editor.DecorTabEnabledForProbe && editor.PageGridEnabledForProbe, "un écrit hors livre (« " + outside.Title + " ») : Gabarit, marges et taille restent actifs");
+            }
+            else Console.WriteLine("  (aucun écrit hors livre dans la démo : l'inverse n'est pas vérifié)");
+            // — Veuves/Orphelines.
+            editor.SelectRibbonTabForProbe("Mise en page");
+            await Settle();
+            Check(editor.WidowMarksButtonVisibleForProbe && editor.WidowMarksShownForProbe, "Mise en page › Veuves/Orphelines : visible et actif d'office");
+            editor.ToggleWidowMarksForProbe();
+            Check(!ComposedRenderer.ShowWidowMarks && !AppSettings.ShowWidowMarks, "…décoché : les marqueurs se taisent (la composition ne bouge pas)");
+            editor.ToggleWidowMarksForProbe();
+            Check(ComposedRenderer.ShowWidowMarks && AppSettings.ShowWidowMarks, "…recoché : ils reviennent");
+            editor.SelectRibbonTabForProbe("Texte");
+            await Settle();
+            // — Les vignettes de portée des styles, dans le combo du ruban.
+            Check(editor.StyleComboEntriesForProbe > 0 && editor.StyleComboScopeIconsForProbe == editor.StyleComboEntriesForProbe,
+                "chaque style du ruban porte sa vignette de portée (" + editor.StyleComboScopeIconsForProbe + "/" + editor.StyleComboEntriesForProbe + ")");
+            var stylesCapture = Environment.GetEnvironmentVariable("MARABOOK_STYLES_CAPTURE"); // les lignes de la liste des styles, rendues à part
+            if (!string.IsNullOrEmpty(stylesCapture))
+            {
+                var rows = new StackPanel { Margin = new Thickness(8) };
+                var sheet = project.Styles;
+                var bookStyle = new ParagraphStyle { Id = "sonde-livre", Name = "Style du livre (sonde)", Scope = ParagraphStyle.ScopeBook };
+                var docStyle = new ParagraphStyle { Id = "sonde-ecrit", Name = "Style de l'écrit (sonde)", Scope = ParagraphStyle.ScopeDocument };
+                foreach (var style in sheet.Styles) rows.Children.Add(StylesPanel.RowContent(style));
+                rows.Children.Add(StylesPanel.RowContent(bookStyle));
+                rows.Children.Add(StylesPanel.RowContent(docStyle));
+                var frame = new Border { Background = Chrome.RaisedBg, Child = rows, Width = 260 };
+                frame.Measure(new Size(260, 400));
+                frame.Arrange(new Rect(0, 0, 260, frame.DesiredSize.Height));
+                using (var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize(260, Math.Max(1, (int)frame.DesiredSize.Height)), new Vector(96, 96)))
+                {
+                    bitmap.Render(frame);
+                    bitmap.Save(stylesCapture);
+                }
+            }
+            // — La croix de la barre Ctrl+F.
+            editor.ShowSearch();
+            await Settle();
+            var close = shell.GetVisualDescendants().OfType<Button>().FirstOrDefault(b => (ToolTip.GetTip(b) as string ?? "") == "Fermer (Échap)");
+            Check(editor.SearchBarShownForProbe && close != null, "la barre Ctrl+F a sa croix de fermeture");
+            if (close != null) close.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            await Settle();
+            Check(!editor.SearchBarShownForProbe, "…qui la referme");
+            // — La recherche de la Pile par nom.
+            var sample = FirstTitled(project, "Chapitre") ?? FirstOfKind(project, ItemKind.Text);
+            if (sample != null)
+            {
+                var byName = BinderView.NameMatches(project, sample.Title, SearchKind.All, 50);
+                Check(byName.Count >= 1 && byName.Contains(sample), "la recherche de la Pile trouve « " + sample.Title + " » par son nom (" + byName.Count + ")");
+                var bodyWord = "xyzzyquux"; // un mot qui n'est dans aucun titre
+                Check(BinderView.NameMatches(project, bodyWord, SearchKind.All, 50).Count == 0, "…et ne cherche que les noms (un mot absent des titres ne rend rien)");
+            }
+            // — La palette « Ouvrir par le nom » (Ctrl+,).
+            var palette = shell.QuickOpenForProbe;
+            await Settle();
+            Check(palette != null && palette.IsOpen && palette.BackdropShownForProbe, "Ctrl+, ouvre la palette « Ouvrir par le nom » au milieu de la fenêtre, sur un voile qui couvre le reste");
+            if (sample != null && palette != null)
+            {
+                palette.TypeForProbe(sample.Title.Substring(0, Math.Min(5, sample.Title.Length)));
+                await Settle();
+                var paletteCapture = Environment.GetEnvironmentVariable("MARABOOK_PALETTE_CAPTURE");
+                if (!string.IsNullOrEmpty(paletteCapture)) shell.CaptureForProbe(paletteCapture);
+                var firstId = palette.FirstResultIdForProbe;
+                Check(palette.ResultCountForProbe >= 1 && firstId != null, "…taper un début de nom liste les éléments (" + palette.ResultCountForProbe + ")");
+                palette.ChooseForProbe();
+                await Settle();
+                Check(!palette.IsOpen && shell.Binder.SelectedItem != null && shell.Binder.SelectedItem.Id == firstId, "…choisir un résultat le sélectionne dans la Pile et referme la palette");
+            }
+            else if (palette != null) palette.Close();
+            Check(AppSettings.DisplayGesture("Ctrl+OemComma") == "Ctrl+,", "le raccourci s'affiche « Ctrl+, » (" + AppSettings.DisplayGesture("Ctrl+OemComma") + ")");
+            // — Le dialogue Nouveau livre (bâti sans être montré).
+            var withFormat = NewBookDialog.BuildForProbe(true);
+            var template = withFormat.TemplateForProbe;
+            Check(withFormat.HasFormatForProbe && (withFormat.FormatForProbe ?? "").StartsWith("A5") && withFormat.MirrorForProbe,
+                "Nouveau livre : format A5 et marges miroir d'office (" + withFormat.FormatForProbe + ")");
+            Check(Math.Abs(template.PageWidthMm - 148) < 0.1 && Math.Abs(template.MarginLeftMm - 30) < 0.1 && Math.Abs(template.MarginRightMm - 20) < 0.1,
+                "…le gabarit qui en sort : 148 mm de large, petit fond 30, grand fond 20");
+            var writer = NewBookDialog.BuildForProbe(false);
+            var plain = writer.TemplateForProbe;
+            Check(!writer.HasFormatForProbe && Math.Abs(plain.PageWidthMm - 210) < 0.1 && Math.Abs(plain.MarginLeftMm - 25) < 0.1 && Math.Abs(plain.MarginRightMm - 25) < 0.1,
+                "…sans « Gabarits et format » au profil : le titre seul, A4, marges uniformes de 25 mm");
+            withFormat.Close();
+            writer.Close();
+            // — Les gabarits .marag (l'ancien .usgab encore lu).
+            var gabarit = FirstOfKind(project, ItemKind.PageTemplate);
+            if (gabarit != null)
+            {
+                var folder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-marag");
+                System.IO.Directory.CreateDirectory(folder);
+                var path = System.IO.Path.Combine(folder, "sonde" + Marabook.Persistence.GabaritFile.Extension);
+                Marabook.Persistence.GabaritFile.Export(gabarit, path);
+                var back = Marabook.Persistence.GabaritFile.Import(path);
+                Check(path.EndsWith(".marag") && back != null && back.Title == gabarit.Title, "un gabarit s'exporte en .marag et se relit (« " + back.Title + " »)");
+                var legacy = System.IO.Path.Combine(folder, "ancien.usgab");
+                System.IO.File.WriteAllText(legacy, System.IO.File.ReadAllText(path).Replace("\"marag\"", "\"usgab\""), new System.Text.UTF8Encoding(false));
+                var old = Marabook.Persistence.GabaritFile.Import(legacy);
+                Check(old != null && old.Title == gabarit.Title, "…et un .usgab d'avant se lit encore");
+                Check(Marabook.Persistence.GabaritFile.Filter.Contains("*.marag;*.usgab"), "le filtre de fichiers propose les deux extensions");
+            }
+            else Console.WriteLine("  (aucun gabarit dans la démo : export .marag non vérifié)");
+        }
+
+        /// <summary>Le tutoriel (1.1.0, 29/10) : démarre sur le projet d'exemple
+        /// embarqué, parcourt toutes les étapes par « Suivant » (chaque consigne
+        /// s'exécute sans faute), vérifie les mises en valeur, qu'aucun succès
+        /// ne tombe en route, et qu'au « Terminer » l'accueil revient avec
+        /// « Tour du proprio ». Les consignes incomprises sont listées.</summary>
+        private static async Task ProbeTutorial(MainWindow shell)
+        {
+            var achievementsBefore = AppSettings.Achievements.Count;
+            Check(MainWindow.TutorialAsset("PROJET-TEST.plot") != null && MainWindow.TutorialAsset("Tutoriel.md") != null, "le projet d'exemple et le script du tutoriel sont trouvés (assets/tutoriel)");
+            Check(shell.StartTutorial() && shell.TutorialActive, "« Démarrer le tutoriel » ouvre le projet d'exemple et pose le tuto");
+            await Settle();
+            var window = shell.TutorialWindowForProbe;
+            var veil = shell.TutorialVeilForProbe;
+            Check(window != null && window.IsVisible && veil != null && veil.IsVisible, "la fenêtre du tuto est là, le voile posé sur la coquille");
+            Check(shell.Project != null && shell.Project.Name == "Tutoriel" && (shell.TutorialPathForProbe ?? "").Contains("tutoriel"), "le projet ouvert est la copie temporaire « Tutoriel » (" + shell.TutorialPathForProbe + ")");
+            Check(!AppSettings.RecentFiles.Contains(shell.TutorialPathForProbe), "…absente des projets récents");
+            var total = shell.TutorialStepCountForProbe;
+            Check(total >= 40 && window.ChapterForProbe.StartsWith("Bienvenue") && !window.PreviousEnabledForProbe, "l'accueil du script d'abord (" + total + " étapes, Précédent inerte)");
+            foreach (var gap in shell.TutorialGapsForProbe) Console.WriteLine("  [tutoriel] consigne incomprise : " + gap);
+            Check(shell.TutorialGapsForProbe.Count == 0, "aucune consigne incomprise dans le script embarqué (" + shell.TutorialGapsForProbe.Count + ")");
+
+            window.ClickNextForProbe();
+            await Settle();
+            Check(window.ChapterForProbe.StartsWith("1.") && shell.TutorialIndexForProbe == 1, "Suivant : le chapitre 1 (" + window.ChapterForProbe + ")");
+            Check(veil.HoleCount == 1, "« highlight pile » : un trou dans le voile (" + veil.HoleCount + ")");
+            Check(veil.HoleCount == 1 && shell.TutorialVeilCatchesForProbe(veil.Holes[0].Center), "…ce qui est mis en valeur se regarde sans se toucher : le voile attrape le clic dans le trou");
+            Check(shell.TutorialWindowTopmostForProbe, "la fenêtre du tuto est toujours au-dessus (Topmost)");
+            var capture = Environment.GetEnvironmentVariable("MARABOOK_TUTORIAL_CAPTURE");
+            if (!string.IsNullOrEmpty(capture)) shell.CaptureForProbe(capture);
+            var windowCapture = Environment.GetEnvironmentVariable("MARABOOK_TUTORIAL_WINDOW_CAPTURE"); // la fenêtre du tuto, à part
+            if (!string.IsNullOrEmpty(windowCapture)) window.CaptureForProbe(windowCapture);
+            window.ClickPreviousForProbe();
+            await Settle();
+            Check(shell.TutorialIndexForProbe == 0 && veil.HoleCount == 0, "Précédent : retour à l'accueil du script, plus de trou");
+            window.ClickNextChapterForProbe();
+            await Settle();
+            Check(window.ChapterForProbe.StartsWith("1."), "la flèche de chapitre depuis l'accueil : le chapitre 1");
+            window.ClickNextChapterForProbe();
+            await Settle();
+            Check(window.ChapterForProbe.StartsWith("2."), "…puis le chapitre 2 (les étapes internes sautées)");
+
+            // Tout le parcours : chaque étape s'exécute sans faute ; quelques
+            // jalons vérifiés au passage.
+            var faults = 0;
+            var seenRibbon = false; var seenSheetWiki = false; var seenTemplates = false; var seenJournal = false; var seenChart = false;
+            var seenEntryDialog = false; var seenUnknownDialog = false; var seenBrick = false;
+            var guard = 0;
+            while (window.NextLabelForProbe != "Terminer" && guard++ < 200)
+            {
+                window.ClickNextForProbe();
+                await Settle();
+                var actions = shell.TutorialCurrentActionsForProbe;
+                if (actions.Contains("ribbon-tab:Prépresse") && shell.Editor.IsVisible && veil.HoleCount >= 1) seenRibbon = true;
+                if (actions.Contains("sheet:wiki") && shell.Sheet.IsVisible && shell.Sheet.PreviewOnForProbe) seenSheetWiki = true;
+                if (actions.Contains("templates-tab:Champs") && shell.TemplatesOpenForProbe) seenTemplates = true;
+                if (actions.Contains("plan:chart") && shell.PlanChartOnForProbe) seenChart = true;
+                if (actions.Contains("journal:achievements") && shell.JournalAchievementsShownForProbe) seenJournal = true;
+                if (actions.Contains("dictionary:new") && shell.TutorialOpenWindowsForProbe >= 1) seenEntryDialog = true;
+                if (actions.Contains("dictionary:unknown") && shell.TutorialOpenWindowsForProbe >= 1) seenUnknownDialog = true;
+                if (actions.Contains("plan:entry") && shell.TutorialOpenWindowsForProbe >= 1) seenBrick = true;
+                if (shell.TutorialWindowForProbe == null) { faults++; break; }
+            }
+            Check(seenEntryDialog, "jalon : « Nouvelle entrée » ouverte sans bloquer, inerte");
+            Check(seenUnknownDialog, "jalon : « Mots inconnus » ouverte sans bloquer, inerte");
+            Check(seenBrick, "jalon : la fiche d'une brique existante du plan, ouverte sans bloquer, inerte");
+            Check(shell.TutorialOpenWindowsForProbe == 0, "au dernier pas, les fenêtres ouvertes par le tuto sont refermées (" + shell.TutorialOpenWindowsForProbe + ")");
+            Check(window.NextLabelForProbe == "Terminer" && shell.TutorialIndexForProbe == total - 1, "le parcours entier par Suivant mène au « Terminer » (" + shell.TutorialIndexForProbe + "/" + (total - 1) + ")");
+            var endCapture = Environment.GetEnvironmentVariable("MARABOOK_TUTORIAL_END_CAPTURE"); // la fenêtre du tuto à l'avant-dernière étape (les blocs de raccourcis)
+            if (!string.IsNullOrEmpty(endCapture))
+            {
+                window.ClickPreviousForProbe();
+                await Settle();
+                window.CaptureForProbe(endCapture);
+                window.ClickNextForProbe();
+                await Settle();
+            }
+            Check(seenRibbon, "jalon : l'onglet Prépresse du ruban, mis en valeur");
+            Check(seenSheetWiki, "jalon : le mode wiki de la fiche");
+            Check(seenTemplates, "jalon : l'éditeur de modèles ouvert sur Champs");
+            Check(seenChart, "jalon : le graphique d'intensité du plan");
+            Check(seenJournal, "jalon : les succès du journal");
+            Check(AppSettings.Achievements.Count == achievementsBefore, "aucun succès débloqué pendant le tutoriel (" + AppSettings.Achievements.Count + ")");
+            window.ClickNextForProbe(); // Terminer
+            await Settle();
+            Check(!shell.TutorialActive && shell.TutorialWindowForProbe == null && !veil.IsVisible, "Terminer : le tuto se range, le voile se lève");
+            Check(shell.WelcomeShownForProbe, "…l'accueil revient");
+            Check(AppSettings.Achievements.ContainsKey(Achievements.Tutorial), "…et « Tour du proprio » est débloqué");
+            Check(!shell.TemplatesOpenForProbe, "l'éditeur de modèles ouvert par le tuto est refermé");
+            shell.CloseWelcomeForProbe();
+            await Settle();
+            // Fermer sans terminer : pas de succès de plus.
+            AppSettings.Achievements.Remove(Achievements.Tutorial);
+            Check(shell.StartTutorial(), "le tuto se relance");
+            await Settle();
+            shell.TutorialWindowForProbe.ClickCloseForProbe();
+            await Settle();
+            Check(!shell.TutorialActive && shell.WelcomeShownForProbe && !AppSettings.Achievements.ContainsKey(Achievements.Tutorial), "Fermer : fin du tuto, accueil, sans le succès");
+            shell.CloseWelcomeForProbe();
+            await Settle();
+        }
+
+        /// <summary>La fenêtre comparative bâtie sans être montrée (son titre).</summary>
+        private sealed class TypographyCompareWindowProbe
+        {
+            public readonly string Title;
+            private readonly Window _window;
+            public TypographyCompareWindowProbe(MainWindow shell, Marabook.Correction.TypographyPassResult result)
+            {
+                _window = TypographyCompareWindow.BuildForProbe(shell, result, "Sonde", "Dialogues");
+                Title = _window.Title;
+            }
+            public void Close() { _window.Close(); }
         }
     }
 }

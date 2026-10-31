@@ -13,6 +13,7 @@ using Avalonia.VisualTree;
 
 using Marabook.History;
 using Marabook.Model;
+using Marabook.Settings;
 
 namespace Marabook.App
 {
@@ -34,7 +35,8 @@ namespace Marabook.App
         private readonly BookFormatPanel _format;
         private readonly BookPublicationTab _publication;
         private readonly StackPanel _stylesHost;
-        private readonly TabItem _stylesTab, _publicationTab;
+        private readonly TabItem _stylesTab, _publicationTab, _formatTab;
+        private StylesPanel _stylesPanel; // le panneau de l'onglet Styles (sonde du profil)
         private BinderItem _item;
         private Project _project;
         private HistoryManager _history;
@@ -98,7 +100,7 @@ namespace Marabook.App
                 IsChecked = true,
                 Tag = "flow-warnings" // sonde
             };
-            ToolTip.SetTip(_flowWarnings, "Signale un chapitre, ou le livre entier, qui finit sur une page impaire (un verso blanc suivra) : pastille dans la Pile et sur la tuile, « Unifier » au clic droit, ligne critique de la check-list.");
+            ToolTip.SetTip(_flowWarnings, "Signale un chapitre, ou le livre entier, qui finit sur une page impaire (un verso blanc suivra) : pastille dans la Pile et sur la tuile, « Unifier » au clic droit.");
             _flowWarnings.IsCheckedChanged += delegate
             {
                 if (_syncingFlow || _item == null || _item.Book == null) return;
@@ -125,7 +127,8 @@ namespace Marabook.App
             _templates = new CorkboardView { BookTexts = false };
             Wire(_templates);
             formatTab.Children.Add(_templates);
-            _tabs.Items.Add(Tab("blueprint-bold", "Gabarits & Format", formatTab));
+            _formatTab = Tab("blueprint-bold", "Gabarits & Format", formatTab);
+            _tabs.Items.Add(_formatTab);
 
             _stylesHost = new StackPanel { Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 24) };
             _stylesTab = Tab("text-a-underline-bold", "Styles", Scrolled(_stylesHost));
@@ -157,7 +160,8 @@ namespace Marabook.App
             var item = new TabItem
             {
                 Header = Icons.Label(icon, label, 13, Chrome.Ink),
-                Content = content
+                Content = content,
+                Tag = label // le tutoriel choisit un onglet par son libellé (29/10)
             };
             Action sync = delegate
             {
@@ -259,7 +263,31 @@ namespace Marabook.App
             BuildStylesTab();
             if (_tabs.SelectedIndex != _lastTab && _lastTab >= 0 && _lastTab < _tabs.Items.Count)
                 _tabs.SelectedIndex = _lastTab;
+            ApplyProfile();
             if (_tabs.SelectedItem == _publicationTab) _publication.Refresh();
+        }
+
+        // Sonde (1.1.0) : ce que le profil cache dans le livre.
+        internal bool FormatTabShownForProbe { get { return _formatTab.IsVisible; } }
+        internal bool EditionDetailsShownForProbe { get { return _edition.DetailsShownForProbe; } }
+        internal bool ExtraPageButtonsShownForProbe { get { return _texts.ExtraPageButtonsShownForProbe; } }
+        internal int StylesFacetCountForProbe { get { return _stylesPanel == null ? -1 : _stylesPanel.FacetCountForProbe; } }
+
+        /// <summary>Le profil (1.1.0) : « Gabarits & Format » se cache (l'onglet
+        /// reste dans la liste, les index des sondes et de _lastTab ne bougent
+        /// pas), l'onglet Édition replie ses détails, la check-list se refait.</summary>
+        public void ApplyProfile()
+        {
+            var format = Profiles.Enabled(Profiles.BookFormat);
+            _formatTab.IsVisible = format;
+            if (!format && _tabs.SelectedItem == _formatTab) _tabs.SelectedIndex = 0;
+            _edition.ApplyProfile();
+            if (_item != null)
+            {
+                _texts.Refresh(); // les boutons de pages extra, les alertes de gabarit
+                BuildStylesTab(); // les facettes PAO
+                if (_tabs.SelectedItem == _publicationTab) _publication.Refresh();
+            }
         }
 
         public void Clear()
@@ -301,6 +329,12 @@ namespace Marabook.App
             set { _texts.ChapterOddEnd = value; _templates.ChapterOddEnd = value; }
         }
 
+        /// <summary>La limite dépassée d'un écrit (1.1.0) : relais vers les tuiles.</summary>
+        public Func<BinderItem, bool> LimitExceeded
+        {
+            set { _texts.LimitExceeded = value; }
+        }
+
         /// <summary>Sonde : la case « Avertir des enchaînements de pages ».</summary>
         internal CheckBox FlowWarningsBoxForProbe { get { return _flowWarnings; } }
         internal BookPublicationTab PublicationForProbe { get { return _publication; } }
@@ -324,6 +358,20 @@ namespace Marabook.App
         }
 
         /// <summary>L'onglet courant (les sondes) : 0 Textes … 4 Publication.</summary>
+        /// <summary>Tutoriel (29/10) : l'onglet par son libellé (« Textes »,
+        /// « Édition », « Gabarits & Format », « Styles », « Publication »).</summary>
+        internal bool SelectTabForTutorial(string label)
+        {
+            foreach (var item in _tabs.Items)
+            {
+                var tab = item as TabItem;
+                if (tab != null && (tab.Tag as string) == label) { _tabs.SelectedItem = tab; return true; }
+            }
+            return false;
+        }
+
+        internal Control TextsActionsForTutorial { get { return _texts.BookActionsForTutorial; } }
+
         public int SelectedTab
         {
             get { return _tabs.SelectedIndex; }
@@ -362,6 +410,7 @@ namespace Marabook.App
             var panel = new StylesPanel(sheet, StyleScopeContext.ForBook(_project, _item)) { Height = 400 };
             panel.Changed += delegate { RaiseStylesChanged(); };
             _stylesHost.Children.Add(panel);
+            _stylesPanel = panel;
 
             _stylesHost.Children.Add(BookPanelParts.Caption("Séparateur de texte", 18));
             var separator = sheet.SeparatorFor(_item);

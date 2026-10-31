@@ -139,7 +139,15 @@ namespace Marabook.Tests
                 TextFragmentTests.Run,   // C45 - fragment du presse-papiers mis en forme (28/09)
                 PersonalLexiconTests.Run, // C46 - dictionnaire personnel vers Grammalecte, prénoms genrés (1.0.3)
                 FileGuardTests.Run,      // C47 - garde du .plot : empreinte, conflit, verrou (1.0.3)
-                FontAuditTests.Run       // C48 - polices employées et manquantes (1.0.4, 07/10)
+                FontAuditTests.Run,      // C48 - polices employées et manquantes (1.0.4, 07/10)
+                Patch110Tests.Run,       // C53 — 1.1.0 : date de décès, tags, objectif et limite, icône de catégorie (26/10)
+                WorkTabsTests.Run,       // C54 — 1.1.0 : onglets (rangée, plafond, fermeture, reprise, .plot v42) (28/10)
+                GraphTests.Run,          // C55 — 1.1.0 : graphe relationnel (arêtes, lectures, disposition, .plot v43) (28/10)
+                DialogueTests.Run,       // C56 — 1.1.0 : passe des dialogues (blocs, norme guillemets / tirets) (29/10)
+                TutorialTests.Run,        // C57 — 1.1.0 : le tutoriel (script Markdown, consignes, script embarqué) (29/10)
+                BackupTests.Run,          // C58 — 1.1.0 : enregistrement différentiel et copies horodatées (30/10)
+                ItemIgnoreTests.Run,     // C59 — 1.1.0 : « Ignorer partout » par écrit, .plot v44 (30/10)
+                EncyclopediaTests.Run    // C60 — 1.1.0 : l'Encyclopédie — export des fiches (pivot, HTML, .plot v45) (31/10)
             };
             foreach (var suite in suites)
             {

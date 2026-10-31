@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using Avalonia;
@@ -44,6 +45,18 @@ namespace Marabook.App
         private const string UncategorizedKey = "~sans-categorie";
         private static int _sortIndex;
         private static readonly string[] SortLabels = { "Nom A → Z", "Nom Z → A", "Couleur", "Portrait d'abord" };
+        // Le filtre par TAG (1.1.0) : « Tous les tags », puis chaque tag des
+        // fiches du projet ; null = tous.
+        private readonly ComboBox _tagBox;
+        private string _filterTag;
+        private bool _syncingTags;
+        // Le glisser des tuiles (1.1.0) : la tuile pressée, prête à partir dès
+        // que le pointeur bouge — vers une boîte de sous-catégorie, un en-tête
+        // de catégorie, une pastille, un dossier, ou la Pile (mêmes formats).
+        private BinderItem _dragCandidate;
+        private Point _dragStart;
+        /// <summary>L'icône d'une catégorie qui n'en a ni par son nom ni par choix.</summary>
+        public const string GenericCategoryIcon = "pile-fiches";
 
         /// <summary>Le menu contextuel d'une tuile : celui de la Pile pour le
         /// même item (BinderView.BuildContextMenu), posé par la coquille.</summary>
@@ -63,6 +76,8 @@ namespace Marabook.App
         public event Action<List<BinderItem>> DeleteManyRequested;
 
         public event Action<BinderItem> Navigate; // ouvrir une fiche
+        public event Action<SheetCategory> ExportCategoryRequested; // « Exporter la catégorie… » (Encyclopédie, 31/10)
+        public event Action<BinderItem> ExportSheetRequested;       // « Exporter la fiche… » (Encyclopédie, 31/10)
         public event Action Changed;              // structure/projet modifiés
         public event Action<string> AchievementEvent; // succès à événement (12/09)
 
@@ -198,7 +213,7 @@ namespace Marabook.App
             // puis catégorie et modèles), la recherche contre le bord droit.
             var toolbar = new DockPanel { Margin = new Thickness(24, TopGap, 24, 0) };
             SetDock(toolbar, Dock.Top);
-            _searchBox = new TextBox { [ToolTip.TipProperty] = "Rechercher une fiche par nom, toutes catégories confondues" };
+            _searchBox = new TextBox();
             _searchBox.TextChanged += delegate
             {
                 RebuildRows();
@@ -209,18 +224,14 @@ namespace Marabook.App
                     if (handler != null) handler(Achievements.Cretin);
                 }
             };
-            var search = SearchField(_searchBox);
-            DockPanel.SetDock(search, Dock.Right);
-            toolbar.Children.Add(search);
-            // Le tri (1.0.4), après les boutons — comme les sélecteurs du
-            // Dictionnaire : nom, couleur, portrait.
+            // Le tri (1.0.4) — comme les sélecteurs du Dictionnaire : nom,
+            // couleur, portrait. Depuis la 1.1.0 sur la ligne de la recherche.
             _sortBox = new ComboBox
             {
                 FontSize = 12,
                 MinWidth = 150,
                 Margin = new Thickness(14, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                [ToolTip.TipProperty] = "L'ordre des cartes dans chaque catégorie"
+                VerticalAlignment = VerticalAlignment.Center
             };
             foreach (var label in SortLabels) _sortBox.Items.Add(label);
             _sortBox.SelectedIndex = _sortIndex;
@@ -231,8 +242,8 @@ namespace Marabook.App
                 RebuildRows();
             };
 
-            var left = new StackPanel { Orientation = Orientation.Horizontal };
-            _back = Buttons.Icon("arrow-left-bold", "Revenir à la bibliothèque", Buttons.Bar, Buttons.Look.Calm);
+            var left = _actionsRow = new StackPanel { Orientation = Orientation.Horizontal };
+            _back = Buttons.Icon("arrow-left-bold", "Retour", Buttons.Bar, Buttons.Look.Calm);
             _back.Margin = new Thickness(0, 0, 6, 0);
             _back.IsVisible = false;
             _back.Click += delegate
@@ -257,24 +268,24 @@ namespace Marabook.App
             // « Nouvelle fiche » : UN bouton principal (pack du 12/09/2026) —
             // la catégorie se choisit dans le dialogue avec le nom.
             var newSheet = Buttons.IconText("plus-bold", "Nouvelle fiche",
-                "Créer une fiche — le nom et la catégorie se choisissent ensemble",
+                null,
                 Buttons.Bar, Buttons.Look.Primary);
             newSheet.Click += delegate { NewSheet(); };
             left.Children.Add(newSheet);
             var newCategory = Buttons.IconText("plus-bold", "Nouvelle catégorie",
-                "Une catégorie de fiches, avec son modèle", Buttons.Bar, Buttons.Look.Outline);
+                null, Buttons.Bar, Buttons.Look.Outline);
             newCategory.Margin = new Thickness(8, 0, 0, 0);
             newCategory.Click += delegate { NewCategory(); };
             left.Children.Add(newCategory);
-            var templates = Buttons.IconText("pencil-simple-line", "Éditeur de modèles",
-                "Sections, champs, natures et radar des modèles de fiches", Buttons.Bar, Buttons.Look.Outline);
+            var templates = _templatesButton = Buttons.IconText("pencil-simple-line", "Éditeur de modèles",
+                null, Buttons.Bar, Buttons.Look.Outline);
             templates.Margin = new Thickness(8, 0, 0, 0);
             templates.Click += delegate { EditTemplates(); };
             left.Children.Add(templates);
             // Les fiches manquantes (1.0.5-a, Rémi) : les noms propres récurrents
             // des écrits sans fiche, à créer en lot — le pendant des mots inconnus.
             var missing = Buttons.IconText("magnifying-glass-bold", "Fiches manquantes…",
-                "Relever les noms propres récurrents des écrits qui n'ont pas de fiche, et en créer plusieurs d'un coup",
+                null,
                 Buttons.Bar, Buttons.Look.Outline);
             missing.Margin = new Thickness(8, 0, 0, 0);
             missing.Click += delegate { ShowMissingSheets(); };
@@ -282,18 +293,46 @@ namespace Marabook.App
             toolbar.Children.Add(left);
             Children.Add(toolbar);
 
-            // La rangée des pastilles (1.0.4), sous la barre, fixe au-dessus
-            // du défilement : « Toutes », puis une pastille par catégorie.
-            var filters = new DockPanel { Margin = new Thickness(24, 10, 24, 0) };
-            SetDock(filters, Dock.Top);
-            // Le tri à droite des pastilles (il filtre et ordonne la même chose).
-            _sortBox.Margin = new Thickness(14, 0, 0, 6);
-            _sortBox.VerticalAlignment = VerticalAlignment.Top;
-            DockPanel.SetDock(_sortBox, Dock.Right);
-            filters.Children.Add(_sortBox);
-            _chips = new WrapPanel();
-            filters.Children.Add(_chips);
-            Children.Add(filters);
+            // La ligne de la RECHERCHE (1.1.0, Rémi) : sous les boutons, sur
+            // sa propre ligne — le champ, le filtre par tag, puis le tri (ils
+            // filtrent et ordonnent la même chose).
+            var searchRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(24, 10, 24, 0) };
+            SetDock(searchRow, Dock.Top);
+            searchRow.Children.Add(SearchField(_searchBox));
+            _tagBox = new ComboBox
+            {
+                FontSize = 12,
+                MinWidth = 150,
+                Margin = new Thickness(14, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            _tagBox.SelectionChanged += delegate
+            {
+                if (_syncingTags) return;
+                var chosen = _tagBox.SelectedItem as ComboBoxItem;
+                var tag = chosen == null ? null : chosen.Tag as string;
+                if (tag == _filterTag) return;
+                _filterTag = tag;
+                // Après le tour du ComboBox (27/10) : rebâtir ses choix PENDANT son
+                // changement de sélection faisait énumérer une liste déjà vidée.
+                Ui.Post(DispatcherPriority.Background, new Action(RebuildRows));
+            };
+            searchRow.Children.Add(_tagBox);
+            _sortBox.Margin = new Thickness(8, 0, 0, 0);
+            searchRow.Children.Add(_sortBox);
+            Children.Add(searchRow);
+
+            // Un filet entre les commandes et les pastilles de filtre (1.1.0).
+            var divider = new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(24, 12, 24, 0) };
+            SetDock(divider, Dock.Top);
+            Children.Add(divider);
+
+            // La rangée des pastilles (1.0.4), fixe au-dessus du défilement :
+            // « Toutes », puis une pastille par catégorie — des icônes seules
+            // depuis la 1.1.0, le compte sur la pastille choisie.
+            _chips = new WrapPanel { Margin = new Thickness(24, 10, 24, 0) };
+            SetDock(_chips, Dock.Top);
+            Children.Add(_chips);
 
             _rows = new StackPanel { Margin = new Thickness(16, 6, 16, 24) };
             _scroll = new ScrollViewer
@@ -328,7 +367,8 @@ namespace Marabook.App
         private bool _entranceOn;   // vrai le temps d'une reconstruction après Load
         private const double EntranceDurationMs = 170;
         private const int EntranceStepMs = 26;   // le décalage d'une tuile à la suivante dans un même passage
-        private const int EntranceMaxSteps = 22; // au-delà, ensemble : jamais d'attente
+        // Plus de plafond (1.1.0, Rémi) : toutes les tuiles à l'écran entrent
+        // l'une après l'autre, aucune ne se pose d'un coup.
         private const double EntranceRise = 12;  // la montée, en px
         private const double LeaveMargin = 48;   // sortie franche de l'écran avant de s'effacer (pas de clignotement au bord)
         public static bool EntranceAnimationsForProbe = true;
@@ -422,7 +462,7 @@ namespace Marabook.App
                         if (!visible) break;
                         if (settle) { Land(entry); break; }
                         entry.State = EntranceState.Entering;
-                        entry.Start = now + TimeSpan.FromMilliseconds(Math.Min(started++, EntranceMaxSteps) * EntranceStepMs);
+                        entry.Start = now + TimeSpan.FromMilliseconds(started++ * EntranceStepMs);
                         break;
                     case EntranceState.Entering:
                         if (gone) Hide(entry);
@@ -585,6 +625,7 @@ namespace Marabook.App
             if (_filterCategoryId != null && _filterCategoryId != UncategorizedKey
                 && _project.FindSheetCategory(_filterCategoryId) == null) _filterCategoryId = null;
             if (_filterCategoryId == UncategorizedKey && uncategorized.Count == 0) _filterCategoryId = null;
+            RebuildTagChoices();
             BuildChips(byCategory, uncategorized.Count, total);
 
             var first = true;
@@ -660,21 +701,63 @@ namespace Marabook.App
                 if (total == 0 && !searching) _rows.Children.Add(EmptyState());
                 else _rows.Children.Add(new TextBlock
                 {
-                    Text = searching ? "Aucune fiche ne porte ce nom." : "Aucune fiche dans cette catégorie.",
+                    Text = searching ? "Aucune fiche ne porte ce nom."
+                        : _filterTag != null ? "Aucune fiche ne porte le tag « " + _filterTag + " »" + (_filterCategoryId != null ? " dans cette catégorie." : ".")
+                        : "Aucune fiche dans cette catégorie.",
                     Foreground = Chrome.SoftText,
                     Margin = new Thickness(8, 16, 0, 0)
                 });
             }
         }
 
-        /// <summary>Les fiches dont le nom contient la recherche (accents et
-        /// casse pliés) ; toutes quand elle est vide.</summary>
-        private static List<BinderItem> Matching(List<BinderItem> sheets, string needle)
+        /// <summary>Le sélecteur des tags (1.1.0) : « Tous les tags », puis
+        /// chaque tag du projet ; un tag choisi qui a disparu retombe sur tous.</summary>
+        private void RebuildTagChoices()
         {
-            if (needle.Length == 0) return new List<BinderItem>(sheets);
+            var tags = SheetTags.All(_project);
+            if (_filterTag != null)
+            {
+                var still = false;
+                foreach (var tag in tags) if (SheetTags.Same(tag, _filterTag)) { still = true; break; }
+                if (!still) _filterTag = null;
+            }
+            _syncingTags = true;
+            try
+            {
+                _tagBox.SelectedIndex = -1; // vider la sélection AVANT les éléments : le modèle de sélection énumère pendant Clear() (plantage du 26/10)
+                _tagBox.Items.Clear();
+                var all = new ComboBoxItem { Content = tags.Count == 0 ? "Aucun tag" : "Tous les tags", Tag = null };
+                _tagBox.Items.Add(all);
+                ComboBoxItem chosen = null;
+                foreach (var tag in tags)
+                {
+                    var entry = new ComboBoxItem { Content = tag, Tag = tag };
+                    _tagBox.Items.Add(entry);
+                    if (_filterTag != null && SheetTags.Same(tag, _filterTag)) chosen = entry;
+                }
+                _tagBox.SelectedItem = chosen ?? all;
+                _tagBox.IsEnabled = tags.Count > 0;
+            }
+            finally { _syncingTags = false; }
+        }
+
+        /// <summary>Sonde (1.1.0) : poser le filtre par tag (null = tous).</summary>
+        internal void FilterByTagForProbe(string tag) { _filterTag = tag; RebuildRows(); }
+        internal int TagChoicesForProbe { get { return _tagBox.Items.Count; } }
+        internal int CardsCountForProbe { get { return _cardOrder.Count; } }
+
+        /// <summary>Les fiches dont le nom contient la recherche (accents et
+        /// casse pliés) et qui portent le tag choisi ; toutes sans l'un ni l'autre.</summary>
+        private List<BinderItem> Matching(List<BinderItem> sheets, string needle)
+        {
+            if (needle.Length == 0 && _filterTag == null) return new List<BinderItem>(sheets);
             var list = new List<BinderItem>();
             foreach (var sheet in sheets)
-                if (Correction.FrenchTokenizer.Fold(sheet.Title ?? "").Contains(needle)) list.Add(sheet);
+            {
+                if (needle.Length > 0 && !Correction.FrenchTokenizer.Fold(sheet.Title ?? "").Contains(needle)) continue;
+                if (_filterTag != null && !SheetTags.Has(sheet, _filterTag)) continue;
+                list.Add(sheet);
+            }
             return list;
         }
 
@@ -715,71 +798,88 @@ namespace Marabook.App
         private void BuildChips(Dictionary<string, List<BinderItem>> byCategory, int uncategorized, int total)
         {
             _chips.Children.Clear();
-            _chips.Children.Add(Chip(null, "Toutes", total, _filterCategoryId == null, false,
-                "Toutes les fiches, catégorie par catégorie",
+            _chips.Children.Add(Chip("all", "Toutes", total, _filterCategoryId == null, false, false,
+                "Toutes les fiches, catégorie par catégorie — " + Plural(total, "fiche", "fiches"),
                 delegate { if (_filterCategoryId != null) { _filterCategoryId = null; RebuildRows(); } }, null));
             foreach (var category in _project.TopCategories()) // une pastille par catégorie d'ensemble, sous-catégories comptées (1.0.5)
             {
                 var categoryRef = category;
                 var count = CountWithSubs(byCategory, category);
                 var selected = _filterCategoryId == category.Id;
-                _chips.Children.Add(Chip(CategoryIcon(category, _project), category.Name, count, selected, count == 0,
-                    count == 0 ? "Aucune fiche — cliquer pour en créer une dans « " + category.Name + " »"
-                        : selected ? "Revenir à toutes les catégories" : "Ne montrer que les fiches « " + category.Name + " »",
+                var chip = Chip(CategoryIcon(category, _project) ?? GenericCategoryIcon, category.Name, count, selected, count == 0,
+                    !string.IsNullOrEmpty(category.Icon),
+                    category.Name + " — " + (count == 0 ? "aucune fiche" : Plural(count, "fiche", "fiches")), // sans mode d'emploi (27/10, Rémi)
                     delegate
                     {
                         if (count == 0) { NewSheet(categoryRef.Id); return; }
                         _filterCategoryId = selected ? null : categoryRef.Id;
                         RebuildRows();
                     },
-                    delegate(Control anchor) { ShowCategoryMenu(anchor, categoryRef); }));
+                    delegate(Control anchor) { ShowCategoryMenu(anchor, categoryRef); });
+                MakeDropZone(chip, categoryRef, selected ? Chrome.Accent : (IBrush)Chrome.Border); // une tuile lâchée sur la pastille change de catégorie (1.1.0)
+                _chips.Children.Add(chip);
             }
             if (uncategorized > 0)
             {
                 var selected = _filterCategoryId == UncategorizedKey;
-                _chips.Children.Add(Chip(null, "Sans catégorie", uncategorized, selected, false,
-                    selected ? "Revenir à toutes les catégories" : "Ne montrer que les fiches sans catégorie",
+                _chips.Children.Add(Chip("file-dashed-bold", "Sans catégorie", uncategorized, selected, false, false,
+                    "Sans catégorie — " + Plural(uncategorized, "fiche", "fiches"),
                     delegate { _filterCategoryId = selected ? null : UncategorizedKey; RebuildRows(); }, null));
             }
         }
 
-        private static Control Chip(string icon, string name, int count, bool selected, bool empty, string tip,
+        private static string Plural(int count, string one, string many)
+        {
+            return count + " " + (count <= 1 ? one : many);
+        }
+
+        /// <summary>Une pastille de filtre (1.1.0) : l'ICÔNE seule — le nom
+        /// est dans l'infobulle —, le compte sur la pastille choisie (« + »
+        /// sur une catégorie vide, qui crée), une astérisque en haut à droite
+        /// quand l'icône est un choix de l'utilisateur.</summary>
+        private static Border Chip(string icon, string name, int count, bool selected, bool empty, bool custom, string tip,
             Action click, Action<Control> rightClick)
         {
             var ink = selected ? Brushes.White : (IBrush)Chrome.Ink;
             var soft = selected ? Brushes.White : (IBrush)Chrome.SoftText;
             var content = new StackPanel { Orientation = Orientation.Horizontal };
-            if (icon != null)
-            {
-                var made = Icons.Make(icon, 12, empty ? soft : ink) as Control;
-                if (made != null) { made.VerticalAlignment = VerticalAlignment.Center; made.Margin = new Thickness(0, 0, 6, 0); content.Children.Add(made); }
-            }
-            content.Children.Add(new TextBlock
-            {
-                Text = name,
-                FontSize = 12,
-                FontWeight = selected ? FontWeight.SemiBold : FontWeight.Normal,
-                Foreground = empty ? soft : ink,
-                VerticalAlignment = VerticalAlignment.Center
-            });
-            content.Children.Add(new TextBlock
-            {
-                Text = empty ? "+" : count.ToString(),
-                FontSize = 11,
-                Foreground = soft,
-                Margin = new Thickness(6, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center
-            });
+            var made = Icons.Make(icon, 15, empty ? soft : ink) as Control;
+            if (made != null) { made.VerticalAlignment = VerticalAlignment.Center; content.Children.Add(made); }
+            if (selected || empty)
+                content.Children.Add(new TextBlock
+                {
+                    Text = empty ? "+" : count.ToString(),
+                    FontSize = 11,
+                    FontWeight = FontWeight.SemiBold,
+                    Foreground = soft,
+                    Margin = new Thickness(6, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Tag = "count" // sonde
+                });
+            var host = new Grid { Children = { content } };
+            if (custom)
+                host.Children.Add(new TextBlock
+                {
+                    Text = "*",
+                    FontSize = 13,
+                    FontWeight = FontWeight.Bold,
+                    Foreground = selected ? Brushes.White : (IBrush)Chrome.Accent,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, -7, -6, 0),
+                    Tag = "custom-icon" // sonde
+                });
             var chip = new Border
             {
-                Child = content,
+                Child = host,
                 CornerRadius = new CornerRadius(12),
-                Padding = new Thickness(10, 3, 10, 3),
+                Padding = new Thickness(10, 4, 10, 4),
                 Margin = new Thickness(0, 0, 6, 6),
                 Background = selected ? Chrome.Accent : (IBrush)Chrome.BarBgLight,
                 BorderBrush = selected ? Chrome.Accent : (IBrush)Chrome.Border,
                 BorderThickness = new Thickness(1),
                 Cursor = new Cursor(StandardCursorType.Hand),
+                Tag = "chip:" + name, // sonde
                 [ToolTip.TipProperty] = tip
             };
             if (empty) chip.Opacity = 0.7;
@@ -791,6 +891,143 @@ namespace Marabook.App
             chip.PointerEntered += delegate { if (!selected) chip.BorderBrush = Chrome.Accent; };
             chip.PointerExited += delegate { if (!selected) chip.BorderBrush = Chrome.Border; };
             return chip;
+        }
+
+        /// <summary>Sonde (1.1.0) : les pastilles posées — « chip:Nom », et si
+        /// chacune montre un compte ou une astérisque.</summary>
+        internal List<string> ChipsForProbe()
+        {
+            var list = new List<string>();
+            foreach (var child in _chips.Children)
+            {
+                var chip = child as Border;
+                if (chip == null) continue;
+                var label = chip.Tag as string ?? "";
+                foreach (var block in chip.GetVisualDescendants().OfType<TextBlock>())
+                    if ((block.Tag as string) == "count") label += "#" + block.Text;
+                    else if ((block.Tag as string) == "custom-icon") label += "*";
+                list.Add(label);
+            }
+            return list;
+        }
+
+        // ---------------------------------------------- glisser-déposer (1.1.0)
+
+        /// <summary>Les fiches d'un glisser (les formats de la Pile : une ou
+        /// plusieurs), hors corbeille, qui ne sont pas déjà dans la catégorie
+        /// visée ; vide si rien à faire.</summary>
+        private List<BinderItem> DroppableSheets(DragEventArgs e, SheetCategory target)
+        {
+            var result = new List<BinderItem>();
+            if (_project == null) return result;
+            var ids = new List<string>();
+            if (e.Data.Contains("MarabookItems"))
+            {
+                var raw = e.Data.Get("MarabookItems") as string;
+                if (raw != null) ids.AddRange(raw.Split('\n'));
+            }
+            else if (e.Data.Contains("MarabookItem")) ids.Add(e.Data.Get("MarabookItem") as string);
+            foreach (var id in ids)
+            {
+                var item = _project.FindById(id);
+                if (item == null || item.Kind != ItemKind.Sheet) continue;
+                if (item.RootCategory() != null && item.RootCategory().CategoryKey == Project.KeyTrash) continue;
+                if (target != null && _project.SheetCategoryOf(item) == target) continue;
+                result.Add(item);
+            }
+            return result;
+        }
+
+        /// <summary>Une zone qui reçoit des tuiles de fiches : sa bordure
+        /// prend l'accent pendant le survol d'un glisser recevable, et le
+        /// dépôt fait passer les fiches dans la catégorie (annulable).</summary>
+        private void MakeDropZone(Border zone, SheetCategory target, IBrush rest)
+        {
+            zone[DragDrop.AllowDropProperty] = true;
+            zone.AddHandler(DragDrop.DragOverEvent, delegate(object sender, DragEventArgs e)
+            {
+                if (e.Data.Contains(DataFormats.Files)) return;
+                var sheets = DroppableSheets(e, target);
+                e.DragEffects = sheets.Count > 0 ? DragDropEffects.Move : DragDropEffects.None;
+                e.Handled = true;
+                zone.BorderBrush = sheets.Count > 0 ? Chrome.Accent : rest;
+            });
+            zone.AddHandler(DragDrop.DragLeaveEvent, delegate { zone.BorderBrush = rest; });
+            zone.AddHandler(DragDrop.DropEvent, delegate(object sender, DragEventArgs e)
+            {
+                zone.BorderBrush = rest;
+                if (e.Data.Contains(DataFormats.Files)) return;
+                var sheets = DroppableSheets(e, target);
+                if (sheets.Count == 0) return;
+                e.Handled = true;
+                MoveToCategory(sheets, target);
+            });
+        }
+
+        /// <summary>Les fiches passent dans la catégorie (ou sous-catégorie) :
+        /// la même action annulable que « Changer de catégorie », en un cran
+        /// pour un lot.</summary>
+        private void MoveToCategory(List<BinderItem> sheets, SheetCategory target)
+        {
+            if (_project == null || target == null) return;
+            var actions = new List<IUndoableAction>();
+            foreach (var sheet in sheets)
+            {
+                if (sheet.CategoryId == target.Id) continue;
+                var before = SheetSnapshot.Capture(_project, sheet);
+                sheet.CategoryId = target.Id;
+                actions.Add(new SheetEditAction(_project, sheet, before, SheetSnapshot.Capture(_project, sheet), "category"));
+            }
+            if (actions.Count == 0) return;
+            _history.Push(actions.Count == 1 ? actions[0] : new CompositeAction(actions));
+            NotifyChanged();
+            RebuildRows();
+        }
+
+        /// <summary>Sonde (1.1.0) : le dépôt de ces fiches sur cette catégorie.</summary>
+        internal void DropOnCategoryForProbe(IEnumerable<string> ids, string categoryId)
+        {
+            var sheets = new List<BinderItem>();
+            foreach (var id in ids) { var item = _project.FindById(id); if (item != null) sheets.Add(item); }
+            MoveToCategory(sheets, _project.FindSheetCategory(categoryId));
+        }
+
+        /// <summary>Les fiches lâchées sur une tuile de dossier y entrent (la
+        /// même action que la Pile, en un cran pour un lot).</summary>
+        private void MoveIntoFolder(List<BinderItem> sheets, BinderItem folder)
+        {
+            var actions = new List<IUndoableAction>();
+            foreach (var sheet in sheets)
+            {
+                if (sheet.Parent == folder || sheet == folder || folder.IsDescendantOf(sheet)) continue;
+                var move = new MoveItemAction(sheet, folder, -1);
+                move.Do();
+                actions.Add(move);
+            }
+            if (actions.Count == 0) return;
+            _history.Push(actions.Count == 1 ? actions[0] : new CompositeAction(actions));
+            NotifyChanged();
+            RebuildRows();
+        }
+
+        /// <summary>Le départ d'un glisser depuis une tuile : la tuile seule,
+        /// ou tout le lot si elle en fait partie — les formats de la Pile, qui
+        /// reçoit donc aussi ces tuiles.</summary>
+        private void OnCardMoved(object sender, PointerEventArgs e)
+        {
+            if (_dragCandidate == null || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+            var position = e.GetPosition(this);
+            if (Math.Abs(position.X - _dragStart.X) < 4.0 && Math.Abs(position.Y - _dragStart.Y) < 4.0) return;
+            var dragged = _dragCandidate;
+            _dragCandidate = null;
+            if (_selected.Count > 1 && _selected.Contains(dragged.Id))
+            {
+                var ids = new List<string>();
+                foreach (var item in SelectedItems()) ids.Add(item.Id);
+                DragDrop.DoDragDrop(e, Ui.DataOf("MarabookItems", string.Join("\n", ids.ToArray())), DragDropEffects.Move);
+                return;
+            }
+            DragDrop.DoDragDrop(e, Ui.DataOf("MarabookItem", dragged.Id), DragDropEffects.Move);
         }
 
         /// <summary>Sans aucune fiche (1.0.4) : une invite au lieu de onze
@@ -852,6 +1089,11 @@ namespace Marabook.App
             });
         }
 
+        private Button _templatesButton; // le tutoriel le met en valeur (29/10)
+        private StackPanel _actionsRow;  // Nouvelle fiche / Nouvelle catégorie / Éditeur de modèles / Fiches manquantes
+        internal Control TemplatesButtonForTutorial { get { return _templatesButton; } }
+        internal Control ActionsRowForTutorial { get { return _actionsRow; } }
+
         /// <summary>L'éditeur de modèles (sections, champs, natures) ; les
         /// modèles édités remplacent ceux du projet, la bibliothèque se redessine.</summary>
         private async void EditTemplates()
@@ -880,6 +1122,7 @@ namespace Marabook.App
                 var categoryRef = category;
                 var edit = Buttons.Icon("dots-three-vertical-bold", "Modifier la catégorie…", Buttons.Compact, Buttons.Look.Calm);
                 edit.Click += delegate { ShowCategoryMenu(edit, categoryRef); };
+                edit.Cursor = new Cursor(StandardCursorType.Arrow); // la flèche sur les trois points, la main sur la tuile (27/10, Rémi)
                 DockPanel.SetDock(edit, Dock.Right);
                 header.Children.Add(edit);
             }
@@ -902,6 +1145,7 @@ namespace Marabook.App
                 Margin = new Thickness(10, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center
             });
+            if (category != null) title.Children.Add(PlusButton(category)); // « + » à côté du compte (1.1.0)
             if (category != null)
             {
                 var template = _project.FindTemplate(category.TemplateId);
@@ -916,7 +1160,73 @@ namespace Marabook.App
                     });
             }
             header.Children.Add(title);
-            _rows.Children.Add(header);
+            if (category == null) { _rows.Children.Add(header); return; }
+            // L'en-tête reçoit les tuiles lâchées (1.1.0) : un cadre discret
+            // qui prend l'accent au survol d'un glisser.
+            var zone = new Border
+            {
+                Child = header,
+                BorderBrush = Brushes.Transparent,
+                BorderThickness = new Thickness(1.4),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(6, 0, 6, 0),
+                Margin = new Thickness(-6, 0, 0, 0)
+            };
+            MakeDropZone(zone, category, Brushes.Transparent);
+            _rows.Children.Add(zone);
+        }
+
+        /// <summary>Le « + » d'une catégorie ou d'une sous-catégorie (1.1.0,
+        /// Rémi) : une fiche neuve dedans, sur son modèle de base — le nom
+        /// seul est demandé.</summary>
+        private Button PlusButton(SheetCategory category)
+        {
+            var categoryRef = category;
+            // Petit (27/10, Rémi) : une croix de 11 px dans un carré de 20, calme, après le compte.
+            var plus = new Button
+            {
+                Content = Icons.Make("plus-bold", 11, Chrome.SoftText),
+                Width = 20,
+                Height = 20,
+                MinHeight = 20,
+                Padding = new Thickness(0),
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Focusable = false,
+                Classes = { Marabook.App.Theme.Owned, Marabook.App.Theme.Calm },
+                [ToolTip.TipProperty] = "Nouvelle fiche dans « " + _project.CategoryPath(category) + " », sur son modèle de base"
+            };
+            plus.Tag = "plus:" + category.Id; // sonde
+            plus.Click += delegate { NewSheetIn(categoryRef); };
+            return plus;
+        }
+
+        private async void NewSheetIn(SheetCategory category)
+        {
+            if (_project == null || category == null) return;
+            var name = await InputDialog.Ask(Ui.OwnerOf(this), "Nouvelle fiche",
+                "Nom de la fiche, dans « " + _project.CategoryPath(category) + " » :", "");
+            if (name == null || name.Trim().Length == 0) return;
+            CreateSheetIn(category, name.Trim());
+        }
+
+        /// <summary>La fiche naît dans la portée courante, dans la catégorie,
+        /// sur son modèle de base (hérité pour une sous-catégorie), puis s'ouvre.</summary>
+        internal BinderItem CreateSheetIn(SheetCategory category, string title)
+        {
+            var item = new BinderItem
+            {
+                Kind = ItemKind.Sheet,
+                Title = title,
+                TemplateId = _project.BaseTemplateIdOf(category),
+                CategoryId = category.Id
+            };
+            _history.Run(new AddItemAction(_scope ?? _project.Category(Project.KeySheets), item, -1));
+            NotifyChanged();
+            RebuildRows();
+            var handler = Navigate;
+            if (handler != null) handler(item);
+            return item;
         }
 
         // ------------------------------------------------------------ cartes
@@ -1016,6 +1326,28 @@ namespace Marabook.App
             };
             card.PointerEntered += delegate { card.BorderBrush = Chrome.Accent; };
             card.PointerExited += delegate { card.BorderBrush = Chrome.Border; };
+            // Des tuiles de fiches lâchées sur le dossier y entrent (1.1.0).
+            card[DragDrop.AllowDropProperty] = true;
+            card.AddHandler(DragDrop.DragOverEvent, delegate(object sender, DragEventArgs e)
+            {
+                if (e.Data.Contains(DataFormats.Files)) return;
+                var sheets = DroppableSheets(e, null);
+                var any = false;
+                foreach (var sheet in sheets) if (sheet.Parent != folderRef) { any = true; break; }
+                e.DragEffects = any ? DragDropEffects.Move : DragDropEffects.None;
+                e.Handled = true;
+                card.BorderBrush = any ? Chrome.Accent : Chrome.Border;
+            });
+            card.AddHandler(DragDrop.DragLeaveEvent, delegate { card.BorderBrush = Chrome.Border; });
+            card.AddHandler(DragDrop.DropEvent, delegate(object sender, DragEventArgs e)
+            {
+                card.BorderBrush = Chrome.Border;
+                if (e.Data.Contains(DataFormats.Files)) return;
+                var sheets = DroppableSheets(e, null);
+                if (sheets.Count == 0) return;
+                e.Handled = true;
+                MoveIntoFolder(sheets, folderRef);
+            });
             CardLift.Attach(card);
             return card;
         }
@@ -1158,13 +1490,21 @@ namespace Marabook.App
             // — comme les cartes des écrits. Le droit ne fait que le menu.
             card.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
             {
-                if (e.ClickCount != 2 || !e.GetCurrentPoint(card).Properties.IsLeftButtonPressed) return;
+                if (!e.GetCurrentPoint(card).Properties.IsLeftButtonPressed) return;
+                // La tuile pressée est prête à glisser (1.1.0) ; le double-clic ouvre.
+                _dragCandidate = sheetRef;
+                _dragStart = e.GetPosition(this);
+                if (e.ClickCount != 2) return;
+                _dragCandidate = null;
                 e.Handled = true;
                 var handler = Navigate;
                 if (handler != null) handler(sheetRef);
             };
+            card.PointerMoved += OnCardMoved;
             card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
                 if (e.InitialPressMouseButton != MouseButton.Left) return;
+                if (_dragCandidate != sheetRef) return; // un glisser est parti
+                _dragCandidate = null;
                 if ((e.KeyModifiers & KeyModifiers.Shift) == KeyModifiers.Shift && !Ui.HasCommand(e.KeyModifiers) && RangeSelect(sheetRef.Id)) { }
                 else if (Ui.HasCommand(e.KeyModifiers)) { if (!_selected.Remove(sheetRef.Id)) _selected.Add(sheetRef.Id); _anchorId = sheetRef.Id; }
                 else { _selected.Clear(); _selected.Add(sheetRef.Id); _anchorId = sheetRef.Id; }
@@ -1221,13 +1561,25 @@ namespace Marabook.App
             return Icons.Has(name) ? name : null;
         }
 
-        /// <summary>L'icône d'une catégorie, ou celle de sa catégorie
-        /// d'ensemble pour une sous-catégorie sans icône à elle (1.0.5).</summary>
+        /// <summary>L'icône d'une catégorie : celle CHOISIE (1.1.0, Icon),
+        /// sinon celle de son nom, sinon celle de sa catégorie d'ensemble
+        /// pour une sous-catégorie sans icône à elle (1.0.5).</summary>
         public static string CategoryIcon(SheetCategory category, Project project)
         {
+            if (category != null && !string.IsNullOrEmpty(category.Icon) && Icons.Has(category.Icon)) return category.Icon;
             var own = CategoryIcon(category);
             if (own != null || project == null) return own;
             return CategoryIcon(project.ParentOf(category));
+        }
+
+        /// <summary>Les icônes offertes au choix d'une catégorie (1.1.0) : les
+        /// « fiche-* » du jeu, dans l'ordre alphabétique.</summary>
+        public static List<string> ChoosableCategoryIcons()
+        {
+            var names = new List<string>();
+            foreach (var name in Icons.Names) if (name.StartsWith("fiche-", StringComparison.Ordinal)) names.Add(name);
+            names.Sort(StringComparer.Ordinal);
+            return names;
         }
 
         /// <summary>Un clip aux coins HAUTS arrondis : le rectangle déborde
@@ -1253,6 +1605,9 @@ namespace Marabook.App
                 if (handler != null) handler(sheet);
             };
             menu.Items.Add(open);
+            var export = new MenuItem { Header = "Exporter la fiche…" }; // l'Encyclopédie (31/10)
+            export.Click += delegate { var handler = ExportSheetRequested; if (handler != null) handler(sheet); };
+            menu.Items.Add(export);
 
             var move = new MenuItem { Header = "Changer de catégorie" };
             foreach (var category in _project.OrderedCategories()) // catégories puis leurs sous-catégories (1.0.5)
@@ -1263,16 +1618,8 @@ namespace Marabook.App
                     IsChecked = _project.SheetCategoryOf(sheet) == category
                 };
                 var categoryRef = category;
-                entry.Click += delegate
-                {
-                    if (sheet.CategoryId == categoryRef.Id) return;
-                    // Annulable (1.0.4) : la même action que les champs de la fiche.
-                    var before = SheetSnapshot.Capture(_project, sheet);
-                    sheet.CategoryId = categoryRef.Id;
-                    _history.Push(new SheetEditAction(_project, sheet, before, SheetSnapshot.Capture(_project, sheet), "category"));
-                    NotifyChanged();
-                    RebuildRows();
-                };
+                // Annulable (1.0.4) : la même action que les champs de la fiche.
+                entry.Click += delegate { MoveToCategory(new List<BinderItem> { sheet }, categoryRef); };
                 move.Items.Add(entry);
             }
             menu.Items.Add(move);
@@ -1324,6 +1671,10 @@ namespace Marabook.App
             var sub = category.IsSub && _project.ParentOf(category) != null;
             var kindLabel = sub ? "la sous-catégorie" : "la catégorie";
 
+            var export = new MenuItem { Header = "Exporter " + kindLabel + "…" }; // l'Encyclopédie (31/10)
+            export.Click += delegate { var handler = ExportCategoryRequested; if (handler != null) handler(category); };
+            menu.Items.Add(export);
+            menu.Items.Add(new Separator());
             var rename = new MenuItem { Header = "Renommer…" };
             rename.Click += async delegate
             {
@@ -1412,6 +1763,32 @@ namespace Marabook.App
             editTemplates.Click += delegate { EditTemplates(); };
             menu.Items.Add(editTemplates);
 
+            // L'icône de la pastille (1.1.0) : une des icônes du jeu « fiche-* »,
+            // marquée d'une astérisque ; « Selon le nom » rend celle d'origine.
+            var iconMenu = new MenuItem
+            {
+                Header = "Icône de la catégorie",
+                Icon = Icons.Make(CategoryIcon(category, _project) ?? GenericCategoryIcon, 14, Chrome.Ink),
+                [ToolTip.TipProperty] = "L'icône de la pastille de filtre et des fiches sans image — une astérisque signale un choix"
+            };
+            var byName = new MenuItem { Header = "Selon le nom (par défaut)", IsChecked = string.IsNullOrEmpty(category.Icon) };
+            byName.Click += delegate { SetCategoryIcon(category, null); };
+            iconMenu.Items.Add(byName);
+            iconMenu.Items.Add(new Separator());
+            foreach (var name in ChoosableCategoryIcons())
+            {
+                var nameRef = name;
+                var choice = new MenuItem
+                {
+                    Header = name.Substring("fiche-".Length),
+                    Icon = Icons.Make(name, 14, Chrome.Ink),
+                    IsChecked = category.Icon == name
+                };
+                choice.Click += delegate { SetCategoryIcon(category, nameRef); };
+                iconMenu.Items.Add(choice);
+            }
+            menu.Items.Add(iconMenu);
+
             menu.Items.Add(new Separator());
             var newSub = new MenuItem
             {
@@ -1428,6 +1805,17 @@ namespace Marabook.App
 
             menu.PlacementTarget = anchor;
             Ui.ShowMenu(menu, anchor);
+        }
+
+        /// <summary>L'icône choisie d'une catégorie (1.1.0), annulable.</summary>
+        internal void SetCategoryIcon(SheetCategory category, string icon)
+        {
+            if (category == null || category.Icon == icon) return;
+            var previous = category.Icon;
+            _history.Run(new SheetStructureAction("Icône de la catégorie",
+                delegate { category.Icon = icon; }, delegate { category.Icon = previous; }));
+            NotifyChanged();
+            RebuildRows();
         }
 
         private async void NewCategory()
@@ -1479,16 +1867,60 @@ namespace Marabook.App
                     "Marabook", MessageButtons.OK, MessageIcon.Information);
                 return;
             }
-            var answer = MessageDialog.Show(Ui.OwnerOf(this),
-                "Supprimer " + (sub ? "la sous-catégorie « " : "la catégorie « ") + category.Name + " » ?\n"
-                + (sub ? "Ses champs propres disparaissent avec elle." : "Son modèle reste dans l'éditeur de modèles."),
-                "Marabook", MessageButtons.YesNo, MessageIcon.Question);
-            if (await answer != MessageResult.Yes) return;
             var project = _project;
+            // Le modèle de la catégorie (1.1.0, Rémi) : une case propose de le
+            // supprimer avec elle — seulement s'il existe et qu'aucune autre
+            // catégorie ni aucune fiche ne l'emploie.
+            var template = sub ? null : project.FindTemplate(category.TemplateId);
+            if (template != null && TemplateUsedElsewhere(template, category)) template = null;
+            bool? withTemplate;
+            if (template != null)
+                withTemplate = await ConfirmCheckDialog.Ask(Ui.OwnerOf(this), "Supprimer la catégorie",
+                    "Supprimer la catégorie « " + category.Name + " » ?",
+                    "Supprimer aussi son modèle « " + template.Name + " » (aucune autre catégorie ni fiche ne l'utilise)", true);
+            else
+            {
+                var answer = await MessageDialog.Show(Ui.OwnerOf(this),
+                    "Supprimer " + (sub ? "la sous-catégorie « " : "la catégorie « ") + category.Name + " » ?\n"
+                    + (sub ? "Ses champs propres disparaissent avec elle." : "Son modèle reste dans l'éditeur de modèles."),
+                    "Marabook", MessageButtons.YesNo, MessageIcon.Question);
+                withTemplate = answer == MessageResult.Yes ? (bool?)false : null;
+            }
+            if (withTemplate == null) return;
+            DeleteCategoryNow(category, withTemplate == true ? template : null);
+        }
+
+        /// <summary>Le modèle est-il le modèle de base d'une autre catégorie,
+        /// ou celui d'une fiche (corbeille comprise) ?</summary>
+        private bool TemplateUsedElsewhere(SheetTemplate template, SheetCategory except)
+        {
+            foreach (var other in _project.SheetCategories)
+                if (other != except && other.TemplateId == template.Id) return true;
+            foreach (var item in _project.AllItems())
+                if (item.Kind == ItemKind.Sheet && item.TemplateId == template.Id) return true;
+            return false;
+        }
+
+        /// <summary>La suppression, annulable en un cran : la catégorie, et
+        /// son modèle si demandé, reprennent leur place au Ctrl+Z.</summary>
+        internal void DeleteCategoryNow(SheetCategory category, SheetTemplate template)
+        {
+            var project = _project;
+            var sub = category.IsSub && project.ParentOf(category) != null;
             var index = project.SheetCategories.IndexOf(category);
-            _history.Run(new SheetStructureAction(sub ? "Sous-catégorie supprimée" : "Catégorie supprimée",
-                delegate { project.SheetCategories.Remove(category); },
-                delegate { project.SheetCategories.Insert(Math.Min(index, project.SheetCategories.Count), category); }));
+            var templateIndex = template == null ? -1 : project.Templates.IndexOf(template);
+            _history.Run(new SheetStructureAction(sub ? "Sous-catégorie supprimée" : template != null ? "Catégorie et modèle supprimés" : "Catégorie supprimée",
+                delegate
+                {
+                    project.SheetCategories.Remove(category);
+                    if (template != null) project.Templates.Remove(template);
+                },
+                delegate
+                {
+                    project.SheetCategories.Insert(Math.Min(index, project.SheetCategories.Count), category);
+                    if (template != null && !project.Templates.Contains(template))
+                        project.Templates.Insert(Math.Max(0, Math.Min(templateIndex, project.Templates.Count)), template);
+                }));
             NotifyChanged();
             RebuildRows();
         }
@@ -1560,6 +1992,7 @@ namespace Marabook.App
             var collapsed = CollapsedCategories.Contains(sub.Id);
             var accent = sub.Color != null ? (Color?)Ink.Parse(sub.Color).ToColor() : null; // la couleur, comme un dossier (1.0.5-a)
             var edit = Buttons.Icon("dots-three-vertical-bold", "Modifier la sous-catégorie…", Buttons.Compact, Buttons.Look.Calm);
+            edit.Cursor = new Cursor(StandardCursorType.Arrow);
             edit.Click += delegate { ShowCategoryMenu(edit, subRef); };
             DockPanel.SetDock(edit, Dock.Right);
             head.Children.Add(edit);
@@ -1590,6 +2023,7 @@ namespace Marabook.App
                 Margin = new Thickness(10, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center
             });
+            title.Children.Add(PlusButton(sub)); // « + » juste après le compte (27/10, Rémi) — le bouton consomme son clic, le repli ne bouge pas
             if (sub.ExtraFields.Count > 0)
                 title.Children.Add(new TextBlock
                 {
@@ -1613,9 +2047,10 @@ namespace Marabook.App
                     Margin = new Thickness(6, 2, 0, 6)
                 });
             dock.Children.Add(wrap);
-            _rows.Children.Add(new Border
+            var rest = accent.HasValue ? (IBrush)new SolidColorBrush(accent.Value) : Chrome.Border;
+            var box = new Border
             {
-                BorderBrush = accent.HasValue ? (IBrush)new SolidColorBrush(accent.Value) : Chrome.Border,
+                BorderBrush = rest,
                 BorderThickness = new Thickness(1.4),
                 CornerRadius = new CornerRadius(10),
                 Background = accent.HasValue ? (IBrush)new SolidColorBrush(Chrome.Blend(accent.Value, Chrome.WindowBg.Color, 0.88)) : Brushes.Transparent,
@@ -1623,7 +2058,9 @@ namespace Marabook.App
                 Padding = new Thickness(6, collapsed ? 4 : 8, 6, collapsed ? 2 : 4),
                 Child = dock,
                 Tag = sub.Id // sonde
-            });
+            };
+            MakeDropZone(box, sub, rest); // une tuile lâchée dans la boîte bascule dans la sous-catégorie (1.1.0)
+            _rows.Children.Add(box);
         }
 
         /// <summary>Sonde (1.0.5-a) : la boîte de cette sous-catégorie est-elle repliée (cartes cachées) ?</summary>

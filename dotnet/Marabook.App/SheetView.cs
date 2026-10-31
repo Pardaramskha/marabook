@@ -28,7 +28,7 @@ namespace Marabook.App
     /// liée), la troisième vide pour l'instant ; « Texte libre » = l'éditeur
     /// markdown pleine largeur, dans la police du wiki, avec la barre de
     /// formatage de Markdown We Go. En bandeau : retour, nom, mode wiki,
-    /// généalogie (le paper flottant GenealogyWindow).</summary>
+    /// généalogie en vue (GenealogyView, F2 — à la place des papers, comme le wiki).</summary>
     public class SheetView : DockPanel
     {
         private const double BodyFontSize = 14.5; // Georgia, comme l'aperçu wiki
@@ -48,8 +48,8 @@ namespace Marabook.App
         private TextBlock _dictState;
         private Button _dictAdd;
         private string _focusFieldId;              // le champ libre qui vient d'être ajouté — lui seul prend le focus
-        private readonly Button _genealogyButton;
-        private GenealogyWindow _genealogy;        // le paper flottant (b36)
+        private readonly ToggleButton _genealogyButton;
+        private readonly GenealogyView _genealogy; // la généalogie en vue, à la place des papers (1.1.0 ; un paper flottant depuis le b36)
         private readonly ScrollViewer _preview;
         private readonly StackPanel _relationsPanel;
         // Les papers de l'onglet Général (batch 42) : l'image, une section
@@ -114,6 +114,9 @@ namespace Marabook.App
         public event Action<int> ZoomStepRequested;
         public event Action BackRequested;                 // ← retour (b34)
         public event Action<BinderItem> NavigateRequested; // ouvrir une fiche liée (b34)
+        public event Action RelationsEditorRequested;      // le diagramme relationnel (1.1.0)
+        private Button _relationsEditorButton;
+        internal bool RelationsEditorButtonVisibleForProbe { get { return _relationsEditorButton != null && _relationsEditorButton.IsEffectivelyVisible && _relationsPaper.IsVisible; } }
         public event Action RenameRequested;               // le crayon du bandeau (b43)
         public event Action LexiconChanged;                // le nom ajouté au dictionnaire du projet (12/09)
 
@@ -135,7 +138,6 @@ namespace Marabook.App
             {
                 Content = Icons.Label("arrow-left-bold", "Retour", 12, Chrome.Ink),
                 Padding = new Thickness(10, 4, 12, 4),
-                [ToolTip.TipProperty] = "Revenir au tableau de la fiche",
                 VerticalAlignment = VerticalAlignment.Center
             };
             back.Click += delegate { var h = BackRequested; if (h != null) h(); };
@@ -148,23 +150,33 @@ namespace Marabook.App
             _previewToggle = new ToggleButton
             {
                 Classes = { Marabook.App.Theme.Owned },
-                Content = Icons.Label("apercu-wiki", "Mode wiki", 13, Chrome.Ink), // une icône du jeu : l'emoji 📖 sortait en « ??? » sur macOS (07/10)
+                Content = Icons.Label("apercu-wiki", "Mode wiki (F1)", 13, Chrome.Ink), // une icône du jeu : l'emoji 📖 sortait en « ??? » sur macOS (07/10)
                 FontWeight = FontWeight.SemiBold,
                 Padding = new Thickness(12, 4, 12, 4),
-                [ToolTip.TipProperty] = "Voir la fiche en lecture, comme une page de wiki"
-            };
+                [ToolTip.TipProperty] = "Votre fiche, mais en plus stylé"};
             _previewToggle.Checked += delegate { ShowPreview(); };
             _previewToggle.Unchecked += delegate { HidePreview(); };
             rightTools.Children.Add(_previewToggle);
-            _genealogyButton = new Button
+            _genealogyButton = new ToggleButton
             {
-                Content = Icons.Label("tree-bold", "Généalogie", 13, Chrome.Ink),
+                Classes = { Marabook.App.Theme.Owned },
+                Content = Icons.Label("tree-bold", "Généalogie (F2)", 13, Chrome.Ink),
+                FontWeight = FontWeight.SemiBold,
                 Padding = new Thickness(12, 4, 12, 4),
-                Margin = new Thickness(8, 0, 0, 0),
-                [ToolTip.TipProperty] = "L'arbre généalogique de la fiche, d'après ses relations (section flottante)"
+                Margin = new Thickness(8, 0, 0, 0)
             };
-            _genealogyButton.Click += delegate { ShowGenealogy(); };
+            _genealogyButton.Checked += delegate { ShowGenealogy(); };
+            _genealogyButton.Unchecked += delegate { HideGenealogy(); };
             rightTools.Children.Add(_genealogyButton);
+            _genealogy = new GenealogyView { IsVisible = false };
+            _genealogy.NavigateRequested += delegate(BinderItem target)
+            {
+                var handler = NavigateRequested;
+                if (handler != null) handler(target);
+            };
+            // F1 = mode wiki, F2 = généalogie (1.1.0, Rémi) : captés en tunnel,
+            // avant les zones de texte de la fiche.
+            AddHandler(KeyDownEvent, new EventHandler<KeyEventArgs>(OnFunctionKey), RoutingStrategies.Tunnel);
             DockPanel.SetDock(rightTools, Dock.Right);
             bannerRow.Children.Add(rightTools);
 
@@ -179,7 +191,7 @@ namespace Marabook.App
             // Le crayon pour renommer la fiche sans passer par la Pile (b43).
             var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
             titleRow.Children.Add(_titleLabel);
-            var renameButton = Buttons.Icon("pencil-simple-line", "Renommer la fiche", Buttons.Compact, Buttons.Look.Calm);
+            var renameButton = Buttons.Icon("pencil-simple-line", "Renommer", Buttons.Compact, Buttons.Look.Calm);
             renameButton.Margin = new Thickness(6, 0, 0, 0);
             renameButton.Click += delegate { var h = RenameRequested; if (h != null) h(); };
             titleRow.Children.Add(renameButton);
@@ -250,7 +262,17 @@ namespace Marabook.App
             _relationsPanel = new StackPanel();
             var addRelation = AddButton("Ajouter une relation");
             addRelation.Click += delegate { AddRelation(); };
-            _relationsPaper = Paper("Relations", _relationsPanel, addRelation);
+            // Le diagramme relationnel (1.1.0) : l'éditeur des natures de relation
+            // du projet, à droite de « Ajouter une relation ».
+            var relationActions = new StackPanel { Orientation = Orientation.Horizontal };
+            relationActions.Children.Add(addRelation);
+            var editor = Buttons.Icon("family-tree", "Modifier le diagramme relationnel", Buttons.Compact, Buttons.Look.Outline);
+            editor.Margin = new Thickness(6, 0, 0, 0);
+            editor.Tag = "relations-editor"; // sonde
+            editor.Click += delegate { var h = RelationsEditorRequested; if (h != null) h(); };
+            relationActions.Children.Add(editor);
+            _relationsEditorButton = editor;
+            _relationsPaper = Paper("Relations", _relationsPanel, relationActions);
 
             // Présence dans les écrits (b47) : dérivée, jamais saisie — les
             // écrits où le titre, le nom, le prénom ou un alias apparaissent.
@@ -260,14 +282,18 @@ namespace Marabook.App
                 MinWidth = 150,
                 MaxWidth = 220,
                 FontSize = 12,
-                [ToolTip.TipProperty] = "Filtrer le suivi : toute l'amplitude, ou un livre, un groupe, un écrit"
-            };
+                [ToolTip.TipProperty] = "Filtrer le suivi"};
             _presenceFilter.SelectionChanged += delegate
             {
                 if (_syncingFilter || _item == null) return;
                 var entry = _presenceFilter.SelectedItem as ComboBoxItem;
                 _presenceFilterId = entry == null ? null : entry.Tag as string;
-                RebuildPresence();
+                // Les LIGNES seulement (31/10, Rémi : plantage) : vider et remplir
+                // la liste du filtre pendant que le ComboBox valide encore sa
+                // sélection faisait énumérer une sélection sur une source vide
+                // (ArgumentOutOfRange dans SelectionModel) — la liste n'a pas
+                // changé, inutile de la refaire.
+                RebuildPresence(false);
             };
             _presencePaper = Paper("Suivi", _presencePanel, _presenceFilter);
             // Évolution (b47) : les étapes du personnage, chacune liée à un
@@ -343,7 +369,7 @@ namespace Marabook.App
                 if (e.Key == Key.Enter) { FindNext(); e.Handled = true; }
                 else if (e.Key == Key.Escape) { HideSearch(); e.Handled = true; }
             };
-            var findNext = Buttons.Icon("next", "Occurrence suivante (Entrée)", Buttons.Compact, Buttons.Look.Outline);
+            var findNext = Buttons.Icon("next", "Occurrence suivante", Buttons.Compact, Buttons.Look.Outline);
             findNext.Margin = new Thickness(6, 0, 0, 0);
             findNext.Click += delegate { FindNext(); };
             var findClose = new Button { Content = "✕", Width = 24, Margin = new Thickness(6, 0, 0, 0) };
@@ -359,9 +385,9 @@ namespace Marabook.App
             // À droite de la barre (14/09) : vue édition / vue miroir, les
             // icônes de Markdown We Go, sans texte.
             var toolRow = new DockPanel { Margin = new Thickness(0, 0, 10, 0) };
-            var modes = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(6, 8, 0, 0) };
-            _editToggle = ModeToggle("editeur", "Vue édition — le texte seul");
-            _mirrorToggle = ModeToggle("miroir", "Vue miroir — le rendu wiki à côté du texte, mis à jour en écrivant");
+            var modes = _modesPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(6, 8, 0, 0) };
+            _editToggle = ModeToggle("pencil-simple-line", "Vue édition"); // le crayon, comme Renommer (31/10, Rémi : « editeur » montrait des livres)
+            _mirrorToggle = ModeToggle("miroir", "Vue miroir");
             _editToggle.Checked += delegate { SetMirror(false); };
             _mirrorToggle.Checked += delegate { SetMirror(true); };
             modes.Children.Add(_editToggle);
@@ -431,7 +457,7 @@ namespace Marabook.App
             var editorHost = new Grid();
             editorHost.Children.Add(editorShadow);
             editorHost.Children.Add(editorContent);
-            var editorPaper = new Border
+            var editorPaper = _editorPaper = new Border
             {
                 Margin = new Thickness(8, 12, 8, 14),
                 Child = editorHost,
@@ -464,6 +490,7 @@ namespace Marabook.App
             var center = new Grid();
             center.Children.Add(_body);
             center.Children.Add(_preview);
+            center.Children.Add(_genealogy);
             Children.Add(center);
         }
 
@@ -589,12 +616,96 @@ namespace Marabook.App
             _showTracking = _template != null && _template.Tracking;
             _showEvolution = (_template != null && _template.Evolution)
                 || (_item != null && _item.Evolution.Count > 0);
-            // Sans paper Relations, pas de généalogie (batch 43).
-            _genealogyButton.IsEnabled = _showRelations;
-            ToolTip.SetTip(_genealogyButton, _showRelations
-                ? "L'arbre généalogique de la fiche, d'après ses relations (section flottante)"
-                : "Généalogie indisponible : le modèle de cette fiche n'active pas les relations");
+            // Sans paper Relations, pas de généalogie (batch 43) — et plus de
+            // bouton du tout (1.1.0, Rémi : « retire le bouton des éléments
+            // non concernés »).
+            _genealogyButton.IsVisible = _showRelations;
+            if (!_showRelations && _genealogyButton.IsChecked == true) _genealogyButton.IsChecked = false;
             LayoutPapers(true);
+        }
+
+        /// <summary>F1 bascule le mode wiki, F2 ouvre la généalogie quand la
+        /// fiche en a une (1.1.0).</summary>
+        private void OnFunctionKey(object sender, KeyEventArgs e)
+        {
+            HandleFunctionKey(e);
+        }
+
+        /// <summary>F1 / F2 de la fiche, aussi quand le clavier est AILLEURS
+        /// (la Pile, après un clic sur la fiche — 29/10, Rémi : « F1 ne bascule
+        /// pas, F2 renomme ») : la fenêtre les lui passe en tunnel tant que la
+        /// fiche est à l'écran. Vrai si la touche a servi.</summary>
+        public bool HandleFunctionKey(KeyEventArgs e)
+        {
+            if (_item == null || !IsVisible || e.Handled || e.KeyModifiers != KeyModifiers.None) return false;
+            if (e.Key == Key.F1)
+            {
+                _previewToggle.IsChecked = _previewToggle.IsChecked != true;
+                e.Handled = true;
+                return true;
+            }
+            if (e.Key == Key.F2 && _showRelations)
+            {
+                _genealogyButton.IsChecked = _genealogyButton.IsChecked != true;
+                e.Handled = true;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Sonde (1.1.0) : le bouton Généalogie est-il posé ?</summary>
+        internal bool GenealogyButtonVisibleForProbe { get { return _genealogyButton.IsVisible; } }
+        internal bool GenealogyOnForProbe { get { return _genealogyButton.IsChecked == true && _genealogy.IsVisible && !_body.IsVisible; } }
+        internal string GenealogyStateForProbe { get { return "coche=" + _genealogyButton.IsChecked + " vue=" + _genealogy.IsVisible + " corps=" + _body.IsVisible + " fiche=" + (_item == null ? "-" : _item.Title) + " relations=" + _showRelations + " vueFiche=" + IsVisible; } }
+        internal void ToggleGenealogyForProbe() { _genealogyButton.IsChecked = _genealogyButton.IsChecked != true; }
+        internal GenealogyView GenealogyForProbe { get { return _genealogy; } }
+        internal bool PreviewOnForProbe { get { return _previewToggle.IsChecked == true; } }
+
+        // — Tutoriel (29/10) : les onglets, les modes et les cibles à mettre en valeur.
+        internal bool SelectTabForTutorial(string header)
+        {
+            foreach (var item in _tabs.Items)
+            {
+                var tab = item as TabItem;
+                if (tab != null && (tab.Header as string) == header) { _tabs.SelectedItem = tab; return true; }
+            }
+            return false;
+        }
+        internal void SetWikiForTutorial(bool on) { if ((_previewToggle.IsChecked == true) != on) _previewToggle.IsChecked = on; }
+        internal void SetMirrorForTutorial(bool on)
+        {
+            if (on) { if (_mirrorToggle.IsChecked != true) _mirrorToggle.IsChecked = true; }
+            else if (_editToggle.IsChecked != true) _editToggle.IsChecked = true;
+        }
+        internal void SetGenealogyForTutorial(bool on) { if (_showRelations && (_genealogyButton.IsChecked == true) != on) _genealogyButton.IsChecked = on; }
+        internal Control RelationsPaperForTutorial { get { return _relationsPaper; } }
+        internal Control RelationsEditorButtonForTutorial { get { return _relationsEditorButton; } }
+        internal bool MirrorOnForProbe { get { return _mirrorToggle.IsChecked == true; } }
+        private StackPanel _modesPanel; // édition / miroir (tutoriel, 29/10)
+        private Border _editorPaper;    // le papier du texte libre (tutoriel, 29/10)
+        internal Control ModesPanelForTutorial { get { return _modesPanel; } }
+        internal Control EditorPaperForTutorial { get { return _editorPaper; } }
+        internal Control WikiToggleForTutorial { get { return _previewToggle; } }
+        internal Control GenealogyViewForTutorial { get { return _genealogy; } }
+
+        /// <summary>Une fiche peut-elle recevoir une relation GÉNÉALOGIQUE
+        /// (une nature livrée : père, sœur, épouse…) ? Seulement si son modèle
+        /// active les relations (1.1.0, Rémi : « empêche la création de
+        /// relations généalogiques avec les éléments non concernés »).</summary>
+        internal static bool GenealogyAllowed(Project project, BinderItem target)
+        {
+            if (project == null || target == null) return false;
+            var template = project.TemplateOf(target);
+            return (template != null && template.Relations) || target.Relations.Count > 0;
+        }
+
+        private async void RefuseGenealogy(BinderItem target, string kind)
+        {
+            await MessageDialog.Show(Ui.OwnerOf(this),
+                "« " + target.Title + " » ne peut pas recevoir une relation généalogique (« " + RelationKinds.Canonical(kind) + " ») : "
+                + "le modèle de sa fiche n'active pas les relations.\n\nChoisissez une nature libre (« Mentor », « Rivale »…), "
+                + "ou activez les relations sur son modèle dans l'éditeur de modèles.",
+                "Relations", MessageButtons.OK, MessageIcon.Information);
         }
 
         /// <summary>Le nom de section déjà connu qui correspond (sans casse), ou null.</summary>
@@ -641,11 +752,16 @@ namespace Marabook.App
         /// <summary>Une ligne par écrit où un nom de la fiche apparaît, dans
         /// l'ordre du récit : le titre (cliquable), le livre, le compte et
         /// une barre à l'échelle du plus présent.</summary>
-        private void RebuildPresence()
+        private void RebuildPresence() { RebuildPresence(true); }
+
+        /// <summary>refillFilter : la liste des amplitudes se refait aussi (une
+        /// autre fiche, un autre projet) ; false quand seule l'amplitude
+        /// choisie a changé.</summary>
+        private void RebuildPresence(bool refillFilter)
         {
             _presencePanel.Children.Clear();
             if (_item == null) return;
-            FillPresenceFilter();
+            if (refillFilter) FillPresenceFilter();
             var rows = Presence.Of(_item, _template, _project);
             var chosen = _presenceFilterId == null || _project == null ? null : _project.FindById(_presenceFilterId);
             if (chosen != null)
@@ -696,6 +812,9 @@ namespace Marabook.App
         /// écrits suivis — les livres et groupes qui en contiennent, les
         /// écrits — indentés par profondeur. Le choix tient d'une fiche à
         /// l'autre tant que l'élément existe encore.</summary>
+        public ComboBox PresenceFilterForProbe { get { return _presenceFilter; } }
+        public int PresenceRowCountForProbe { get { var n = 0; foreach (var child in _presencePanel.Children) if (child is DockPanel || child is Grid || child is StackPanel) n++; return n; } }
+
         private void FillPresenceFilter()
         {
             _syncingFilter = true;
@@ -777,7 +896,7 @@ namespace Marabook.App
             DockPanel.SetDock(remove, Dock.Right);
             head.Children.Add(remove);
             var free = step.TextId == null;
-            var combo = new ComboBox { [ToolTip.TipProperty] = "L'écrit où cette étape se joue, ou une étape libre à nommer" };
+            var combo = new ComboBox {  };
             if (free)
             {
                 // Étape libre : le sélecteur se resserre, le nom prend la place.
@@ -821,8 +940,7 @@ namespace Marabook.App
                 var title = new TextBox
                 {
                     Text = step.Title ?? "",
-                    Margin = new Thickness(6, 0, 0, 0),
-                    [ToolTip.TipProperty] = "Le nom de cette étape libre : « Enfance », « Après la guerre »…"
+                    Margin = new Thickness(6, 0, 0, 0)
                 };
                 _fieldBoxes["evolution-title:" + step.Id] = title;
                 title.TextChanged += delegate
@@ -878,6 +996,7 @@ namespace Marabook.App
         {
             if (_item == null || field == null) return;
             if (_previewToggle.IsChecked == true) _previewToggle.IsChecked = false;
+            if (_genealogyButton.IsChecked == true) _genealogyButton.IsChecked = false; // la généalogie en vue aussi (1.1.0)
             if (field.IsParagraph)
             {
                 _tabs.SelectedIndex = 1;
@@ -1068,8 +1187,7 @@ namespace Marabook.App
                 FontSize = 11,
                 Margin = new Thickness(8, 0, 0, 0),
                 MinWidth = 96,
-                [ToolTip.TipProperty] = "La nature de ce champ : texte, nombre, date, note, liste, choix, fiche liée"
-            };
+                [ToolTip.TipProperty] = "Nature du champ"};
             foreach (var kind in FieldKinds.All) kindCombo.Items.Add(FieldKinds.Label(kind));
             kindCombo.SelectedIndex = Array.IndexOf(FieldKinds.All, FieldKinds.Normalize(entry.Kind));
             var optionsButton = new Button
@@ -1249,9 +1367,7 @@ namespace Marabook.App
             _dictDot.Background = present ? Chrome.Ok : Chrome.Warn;
             _dictState.Text = present ? "Présent dans le dictionnaire"
                 : partial ? "Partiellement présent dans le dictionnaire" : "Absent du dictionnaire";
-            ToolTip.SetTip(_dictState, present
-                ? "Chaque mot du nom, du prénom et de l'alias est connu du dictionnaire"
-                : "Manque : " + string.Join(", ", missing.ToArray()));
+            ToolTip.SetTip(_dictState, present ? "Chaque mot du nom, du prénom et de l'alias est connu du dictionnaire. GG !" : "Manque : " + string.Join(", ", missing.ToArray()));
             _dictAdd.IsVisible = present ? false : true;
         }
 
@@ -1268,7 +1384,9 @@ namespace Marabook.App
                 if (string.IsNullOrEmpty(text)) return;
                 foreach (var raw in text.Split(new[] { ' ', ' ', ',', ';', '/', '(', ')', '«', '»', '"', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries))
                 {
-                    var word = raw.Trim('.', '…', '!', '?', ':', '\'', '’');
+                    // « d'Almor », « l'Ettrups » : seul le nom après la
+                    // particule élidée va au dictionnaire (29/10, Rémi).
+                    var word = NameExtractor.StripElision(raw.Trim('.', '…', '!', '?', ':', '\'', '’'));
                     if (word.Length < 2 || !seen.Add(word)) continue;
                     words.Add(word);
                 }
@@ -1344,7 +1462,7 @@ namespace Marabook.App
         private Control RelationRow(SheetRelation relation, List<BinderItem> sheets)
         {
             var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
-            var remove = new Button { Content = "✕", Width = 26, Margin = new Thickness(6, 0, 0, 0), [ToolTip.TipProperty] = "Supprimer cette relation (et son reflet sur la fiche liée)" };
+            var remove = new Button { Content = "✕", Width = 26, Margin = new Thickness(6, 0, 0, 0), [ToolTip.TipProperty] = "Supprimer cette relation (réciproque)"};
             remove.Click += delegate
             {
                 RelationSync.Unmirror(_project, _item, relation.TargetId, relation.Kind);
@@ -1360,8 +1478,7 @@ namespace Marabook.App
                 IsEditable = true,
                 Width = 124,
                 Margin = new Thickness(0, 0, 6, 0),
-                [ToolTip.TipProperty] = "Nature de la relation — une nature livrée, une nature du projet, ou « Nouvelle nature… » pour en créer une"
-            };
+                [ToolTip.TipProperty] = "Nature de la relation"};
             if (_project != null) foreach (var kind in _project.AllRelationKinds()) kindBox.Items.Add(kind);
             else foreach (var kind in RelationKinds.Defaults) kindBox.Items.Add(kind);
             kindBox.Items.Add(NewKindEntry);
@@ -1403,8 +1520,7 @@ namespace Marabook.App
                 Padding = new Thickness(6, 2, 6, 2),
                 Margin = new Thickness(6, 0, 0, 0),
                 IsVisible = target != null ? true : false,
-                [ToolTip.TipProperty] = "Ouvrir la fiche liée"
-            };
+                [ToolTip.TipProperty] = "Ouvrir la fiche"};
             open.Click += delegate
             {
                 var linked = _project == null || relation.TargetId == null ? null : _project.FindById(relation.TargetId);
@@ -1439,6 +1555,14 @@ namespace Marabook.App
             var text = RelationKinds.Canonical(kindBox.Text ?? "");
             if (text == NewKindEntry) return;
             if (text == relation.Kind) return;
+            // Une nature généalogique vers une fiche sans relations : refusée (1.1.0).
+            var aimed = relation.TargetId == null ? null : _project.FindById(relation.TargetId);
+            if (aimed != null && RelationKinds.Find(text) != null && !GenealogyAllowed(_project, aimed))
+            {
+                kindBox.Text = relation.Kind;
+                RefuseGenealogy(aimed, text);
+                return;
+            }
             var previous = relation.Kind;
             relation.Kind = text;
             if (kindBox.Text != text) kindBox.Text = text;
@@ -1475,6 +1599,14 @@ namespace Marabook.App
             var newId = match != null ? match.Id : null;
             var newName = match != null ? "" : text;
             if (newId == relation.TargetId && newName == relation.Name) return;
+            // Une fiche sans relations ne reçoit pas de nature généalogique (1.1.0).
+            if (match != null && RelationKinds.Find(relation.Kind) != null && !GenealogyAllowed(_project, match))
+            {
+                var current = relation.TargetId == null ? null : _project.FindById(relation.TargetId);
+                combo.Text = current != null ? current.Title : relation.Name;
+                RefuseGenealogy(match, relation.Kind);
+                return;
+            }
             if (relation.TargetId != null && relation.TargetId != newId)
                 RelationSync.Unmirror(_project, _item, relation.TargetId, relation.Kind);
             relation.TargetId = newId;
@@ -1503,28 +1635,27 @@ namespace Marabook.App
             RefreshDictionaryBadge();
         }
 
+        /// <summary>La généalogie en vue (1.1.0) : à la place des papers (et du
+        /// mode wiki, qu'elle éteint), comme F1 pour le wiki.</summary>
         private void ShowGenealogy()
         {
-            if (_item == null) return;
-            if (_genealogy == null)
-            {
-                _genealogy = new GenealogyWindow(Ui.OwnerOf(this));
-                _genealogy.NavigateRequested += delegate(BinderItem target)
-                {
-                    var handler = NavigateRequested;
-                    if (handler != null) handler(target);
-                };
-                _genealogy.Closed += delegate { _genealogy = null; };
-            }
+            if (_item == null) { _genealogyButton.IsChecked = false; return; }
+            if (_previewToggle.IsChecked == true) _previewToggle.IsChecked = false;
             _genealogy.Load(_project, _item);
-            if (!_genealogy.IsVisible) _genealogy.Show();
-            else _genealogy.Activate();
+            _genealogy.IsVisible = true;
+            _body.IsVisible = false;
+        }
+
+        private void HideGenealogy()
+        {
+            _genealogy.IsVisible = false;
+            if (_previewToggle.IsChecked != true) _body.IsVisible = true;
         }
 
         private void SyncGenealogy()
         {
-            if (_genealogy == null) return;
-            if (_item == null) { _genealogy.Close(); return; }
+            if (_genealogyButton.IsChecked != true) return;
+            if (_item == null) { _genealogyButton.IsChecked = false; return; }
             if (_genealogy.Shows(_item)) _genealogy.Refresh();
             else _genealogy.Load(_project, _item);
         }
@@ -1843,6 +1974,7 @@ namespace Marabook.App
         private void LeavePreview()
         {
             if (_previewToggle.IsChecked == true) _previewToggle.IsChecked = false;
+            if (_genealogyButton.IsChecked == true) _genealogyButton.IsChecked = false; // la généalogie en vue aussi (1.1.0)
             ShowTextTab();
         }
 
@@ -1983,8 +2115,7 @@ namespace Marabook.App
                     Content = Icons.Label("plus-bold", module.Button, 13, Chrome.Ink),
                     Padding = new Thickness(12, 4, 12, 4),
                     Margin = new Thickness(0, 0, 8, 0),
-                    [ToolTip.TipProperty] = module.Title + " — la fiche avancée du module " + module.Name + ", dans un nouvel onglet"
-                };
+                    [ToolTip.TipProperty] = module.Title + " — parce que vous avez vraiment du temps à perdre"};
                 create.Click += delegate { CreateModuleSheet(moduleRef); };
                 _moduleButtons.Children.Add(create);
             }
@@ -2128,6 +2259,7 @@ namespace Marabook.App
         private void ShowPreview()
         {
             if (_item == null) return;
+            if (_genealogyButton.IsChecked == true) _genealogyButton.IsChecked = false; // un seul mode à la fois (1.1.0)
             _preview.Content = BuildPreviewContent();
             _preview.IsVisible = true;
             _body.IsVisible = false;
@@ -2137,7 +2269,7 @@ namespace Marabook.App
         {
             _preview.IsVisible = false;
             _preview.Content = null;
-            _body.IsVisible = true;
+            if (_genealogyButton.IsChecked != true) _body.IsVisible = true;
         }
 
         /// <summary>Rendu wiki (SheetWiki, partagé avec l'épinglé du rail — b47) :
@@ -2556,7 +2688,7 @@ namespace Marabook.App
                 if (h != null) h();
             };
             menu.Items.Add(editLink);
-            var remove = new MenuItem { Header = "Retirer le lien", [ToolTip.TipProperty] = "Les mots restent, le renvoi tombe" };
+            var remove = new MenuItem { Header = "Retirer le lien" };
             remove.Click += delegate { _activeBox = box; Ui.Select(box, index, 0); RemoveLinkAtCaret(); };
             menu.Items.Add(remove);
         }
@@ -2658,14 +2790,13 @@ namespace Marabook.App
             }
             if (shown == 0) menu.Items.Add(new MenuItem { Header = "Aucune suggestion", IsEnabled = false });
             menu.Items.Add(new Separator());
-            var here = new MenuItem { Header = "Ignorer ici", [ToolTip.TipProperty] = "Tait ce mot sur cette fiche, pour cette session" };
+            var here = new MenuItem { Header = "Ignorer ici" };
             here.Click += delegate { _spellIgnoredHere.Add(Correction.FrenchTokenizer.Fold(finding.Word)); RunSpell(); };
             menu.Items.Add(here);
             var inProject = new MenuItem
             {
                 Header = "Ignorer « " + finding.Word + " » dans ce projet",
-                [ToolTip.TipProperty] = "Le mot ne sera plus signalé dans ce projet (liste enregistrée avec lui)"
-            };
+                [ToolTip.TipProperty] = "Le mot ne sera plus signalé dans ce projet"};
             inProject.Click += delegate
             {
                 if (_project != null && !IgnoredIn(_project.ProofIgnored, Correction.FrenchTokenizer.Fold(finding.Word)))
@@ -2675,10 +2806,10 @@ namespace Marabook.App
             };
             menu.Items.Add(inProject);
             var learn = new MenuItem { Header = "Ajouter « " + finding.Word + " » au dictionnaire" };
-            var ofProject = new MenuItem { Header = "De ce projet", [ToolTip.TipProperty] = "Le mot est enseigné pour CE roman (enregistré dans le .plot)" };
+            var ofProject = new MenuItem { Header = "De ce projet", [ToolTip.TipProperty] = "Le mot est enseigné pour CE roman"};
             ofProject.Click += delegate { var _ = LearnWord(finding.Word, true); };
             learn.Items.Add(ofProject);
-            var everywhere = new MenuItem { Header = "De tous les projets", [ToolTip.TipProperty] = "Le mot est enseigné partout (réglages de l'application)" };
+            var everywhere = new MenuItem { Header = "De tous les projets", [ToolTip.TipProperty] = "Le mot est enseigné partout"};
             everywhere.Click += delegate { var _ = LearnWord(finding.Word, false); };
             learn.Items.Add(everywhere);
             menu.Items.Add(learn);
@@ -2729,7 +2860,7 @@ namespace Marabook.App
             RecordEdit();
             var handler = Edited;
             if (handler != null) handler();
-            if (_genealogy != null && _item != null && _genealogy.Shows(_item)) _genealogy.Refresh();
+            if (_genealogyButton.IsChecked == true && _item != null && _genealogy.Shows(_item)) _genealogy.Refresh();
         }
 
         /// <summary>L'édition qui vient d'avoir lieu, dans l'historique (1.0.4) :

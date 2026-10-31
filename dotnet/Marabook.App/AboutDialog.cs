@@ -61,9 +61,10 @@ namespace Marabook.App
             {
                 "• Dictionnaire orthographique français « toutes variantes » v7.7 par Olivier R. — licence MPL-2.0 (notice : dict/README_dict_fr.txt)",
                 "• Grammalecte 2.3.0, correcteur grammatical par Olivier R. — licence GPL-3.0+ (le source Python livré dans grammalecte/ est le source)",
-                "• Python " + Correction.Grammalecte.GrammalecteBridge.EmbeddedPythonVersion + " embeddable, runtime de Grammalecte — licence PSF",
+                "• Python 3.13, runtime de Grammalecte — licence PSF (" + Correction.Grammalecte.GrammalecteBridge.EmbeddedPythonVersion + " embeddable sur Windows ; python-build-standalone 3.13.18 sur macOS et Linux)",
                 "• Icônes Phosphor — licence MIT",
-                "• Icônes Flaticon — crédit exigé"
+                "• Icônes Flaticon — crédit exigé",
+                "• Sons Pixabay"
             })
                 panel.Children.Add(Paragraph(line, 11, Chrome.SoftText, 1));
             var links = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };

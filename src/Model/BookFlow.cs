@@ -36,7 +36,10 @@ namespace Marabook.Model
         /// (jamais ouvert dans sa page) suit le défaut.</summary>
         public static bool Enabled(BinderItem book)
         {
-            return book != null && book.Kind == ItemKind.Book && (book.Book == null || book.Book.FlowWarnings);
+            // Le profil Écrivain·e (1.1.0) cache « Gabarits & Format » et, avec
+            // lui, les avertissements d'enchaînement : le réglage du livre reste.
+            return book != null && book.Kind == ItemKind.Book && (book.Book == null || book.Book.FlowWarnings)
+                && Settings.Profiles.Enabled(Settings.Profiles.BookFormat);
         }
 
         /// <summary>Les textes du livre dans l'ordre des pages — le Hors-livre

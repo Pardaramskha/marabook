@@ -12,7 +12,10 @@ namespace Marabook.Persistence
     /// and one texts/&lt;id&gt;.json pivot document per text item.
     /// v1 stored plain .txt texts and no styles — still loads forever.
     /// Doctrine inherited from Mental-o's .tea: integer version field, perpetual
-    /// backward compatibility, atomic writes with a rolling .bak.</summary>
+    /// backward compatibility, atomic writes with a rolling .bak — and, since
+    /// 1.1.0 (30/10), timestamped copies (Backups) and a differential write
+    /// (PlotZip + ArchiveIndex: unchanged entries are copied verbatim from the
+    /// previous .plot, only what changed is deflated again).</summary>
     public static class PlotFile
     {
         public const string Extension = ".plot";
@@ -200,7 +203,56 @@ namespace Marabook.Persistence
         //      = 0. Un Marabook d'avant l'ignore : l'article reste une puce
         //      de premier niveau. "flowWarnings" sur un livre (18/10) : faux
         //      = avertissements d'enchaînement des pages débrayés, omis = vrai.
-        private const int FormatVersion = 40;
+        // v41: 1.1.0 (26/10) — "tags" sur une fiche (la liste de ses tags,
+        //      omise si vide) ; "goal" / "goalUnit" et "limit" / "limitUnit"
+        //      sur un écrit (l'objectif et la limite du texte, en mots,
+        //      signes ou pages — omis = aucun, unité « words » par défaut) ;
+        //      "icon" sur une catégorie de fiches (le nom de l'icône choisie,
+        //      omis = celle de son nom). Le modèle Personnage d'un projet
+        //      d'avant reçoit « Date de décès » sous le lieu de naissance
+        //      (UpgradeCharacterTemplate, une fois, gardé par la version lue).
+        // v42: 1.1.0 (28/10) — ONGLETS : manifeste "tabs" (les ids des éléments
+        //      ouverts dans la rangée d'onglets, dans l'ordre, omis si vide) et
+        //      "activeTab" (l'index de l'actif, 0 par défaut). Un id disparu
+        //      est écarté à la reprise ; un vieux Marabook ignore les deux.
+        // v43: 1.1.0 (28/10) — GRAPHE RELATIONNEL : manifeste "graphLayout"
+        //      (la position de chaque nœud : [{id, x, y, pin}], omis si vide ;
+        //      "pin" présent et vrai = tiré par l'auteur, fixé). Un id disparu
+        //      est ignoré ; un vieux Marabook ignore le tout.
+        // v44: 1.1.0 (30/10) — « IGNORER PARTOUT » par écrit : "proofIgnored"
+        //      sur un écrit ou une fiche (les mots, et les règles « règle:id »,
+        //      que le correcteur tait dans ce document seul ; omis si vide).
+        //      Un vieux Marabook l'ignore : les relevés reviennent, rien ne
+        //      se perd.
+        // v45: 1.1.0 (31/10) — ENCYCLOPÉDIE : manifeste "encyclopedia" (les
+        //      options de l'export des fiches : format, titre, sous-titre,
+        //      auteur, polices, taille, accent, sombre, portrait, encarts,
+        //      lexique, fiches vides, couverture ; omis tant que jamais
+        //      réglées). Un vieux Marabook ignore la clé.
+        private const int FormatVersion = 45;
+
+        // La voie d'une nature de relation dans le .plot (1.1.0, schéma des relations).
+        private static string LaneName(RelationLane lane)
+        {
+            switch (lane)
+            {
+                case RelationLane.Direct: return "direct";
+                case RelationLane.Side: return "side";
+                case RelationLane.Partner: return "partner";
+                default: return "other";
+            }
+        }
+
+        private static RelationLane LaneOf(string name)
+        {
+            switch (name)
+            {
+                case "direct": return RelationLane.Direct;
+                case "side": return RelationLane.Side;
+                case "partner": return RelationLane.Partner;
+                default: return RelationLane.Other;
+            }
+        }
 
         // Garde symétrique de Json.MaxDepth : l'arborescence de la Pile est
         // récursive à l'écriture (BuildNode) comme à la lecture.
@@ -253,6 +305,17 @@ namespace Marabook.Persistence
         }
 
         private static readonly UTF8Encoding Utf8 = new UTF8Encoding(false);
+
+        /// <summary>Le compte rendu d'une écriture (1.1.0, 30/10) : l'index du
+        /// fichier qui vient d'être écrit (à garder pour l'écriture suivante),
+        /// et le partage entre entrées recopiées telles quelles et entrées
+        /// recompressées.</summary>
+        public sealed class WriteResult
+        {
+            public ArchiveIndex Index;
+            public int Copied;
+            public int Packed;
+        }
 
         /// <summary>Sérialise le projet en entrées prêtes à écrire — sur le fil
         /// qui possède le modèle. Lève si deux items partagent un id.</summary>
@@ -340,9 +403,9 @@ namespace Marabook.Persistence
         /// n'importe quel fil. Écrit d'abord un fichier temporaire, puis
         /// l'échange atomiquement : un plantage en pleine écriture ne corrompt
         /// jamais le projet ; la version d'avant devient .bak.</summary>
-        public static void Write(SavePlan plan, string path, bool textsOnly = false)
+        public static WriteResult Write(SavePlan plan, string path, bool textsOnly = false)
         {
-            Write(plan, path, textsOnly, null);
+            return Write(plan, path, textsOnly, null, null);
         }
 
         /// <summary>Même écriture, GARDÉE (1.0.3) : <paramref name="expectedSaveId"/>
@@ -350,20 +413,85 @@ namespace Marabook.Persistence
         /// porter juste avant l'échange ; une autre (ou un fichier devenu
         /// illisible) → PlotConflictException, le .tmp retiré, le .plot intact.
         /// Un fichier sans empreinte (version d'avant) vaut « ».</summary>
-        public static void Write(SavePlan plan, string path, bool textsOnly, string expectedSaveId)
+        public static WriteResult Write(SavePlan plan, string path, bool textsOnly, string expectedSaveId)
+        {
+            return Write(plan, path, textsOnly, expectedSaveId, null);
+        }
+
+        /// <summary>Même écriture, DIFFÉRENTIELLE (1.1.0, 30/10) : avec
+        /// <paramref name="previous"/>, l'index du .plot tel qu'il a été lu ou
+        /// écrit la dernière fois, chaque entrée dont l'empreinte n'a pas bougé
+        /// est RECOPIÉE telle quelle de l'ancien fichier (octets deflate
+        /// compris), sans décompression ni recompression ; seules les entrées
+        /// changées (le manifeste, les chapitres touchés) passent par le
+        /// deflate. Le .tmp reste écrit en entier puis échangé atomiquement :
+        /// un plantage en pleine écriture ne touche jamais au projet. Un index
+        /// qui ne désigne plus le fichier présent (autre chemin, fichier bougé
+        /// par une synchronisation) est ignoré : tout est recompressé, rien
+        /// n'est périmé. Rend l'index du fichier écrit.</summary>
+        public static WriteResult Write(SavePlan plan, string path, bool textsOnly, string expectedSaveId, ArchiveIndex previous)
         {
             var tempPath = path + ".tmp";
-            using (var stream = new FileStream(tempPath, FileMode.Create))
-            using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
-                foreach (var entry in plan.Entries)
+            var index = new ArchiveIndex { Path = path, SaveId = plan.SaveId };
+            var result = new WriteResult { Index = index };
+            var digests = new EntryDigest[plan.Entries.Count];
+            for (var i = 0; i < digests.Length; i++)
+            {
+                var entry = plan.Entries[i];
+                digests[i] = Digest.Of(entry.Bytes, 0, entry.Bytes.Length, entry.Tail);
+                index.Entries[entry.Name] = digests[i];
+            }
+
+            // L'ancien fichier, s'il est bien celui que l'index décrit.
+            FileStream source = null;
+            Dictionary<string, PlotZip.Located> located = null;
+            try
+            {
+                if (previous != null && !textsOnly && previous.Describes(path))
                 {
-                    var zipEntry = archive.CreateEntry(entry.Name, entry.Level);
-                    using (var entryStream = zipEntry.Open())
+                    try
                     {
-                        entryStream.Write(entry.Bytes, 0, entry.Bytes.Length);
-                        if (entry.Tail != null) entryStream.Write(entry.Tail, 0, entry.Tail.Length);
+                        source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        located = PlotZip.ReadDirectory(source);
+                    }
+                    catch (IOException) { located = null; }
+                    catch (UnauthorizedAccessException) { located = null; }
+                }
+                try
+                {
+                    using (var stream = new FileStream(tempPath, FileMode.Create))
+                    {
+                        var writer = new PlotZip.Writer(stream);
+                        for (var i = 0; i < digests.Length; i++)
+                        {
+                            var entry = plan.Entries[i];
+                            var digest = digests[i];
+                            var copied = false;
+                            PlotZip.Located old;
+                            EntryDigest known;
+                            if (located != null && located.TryGetValue(entry.Name, out old)
+                                && previous.Entries.TryGetValue(entry.Name, out known)
+                                && known.Same(digest) && old.Crc == digest.Crc && old.Size == digest.Size)
+                                copied = writer.Copy(entry.Name, source, old);
+                            if (!copied) writer.Add(entry.Name, entry.Bytes, entry.Tail, entry.Level, digest.Crc, digest.Size);
+                        }
+                        writer.Finish();
+                        result.Copied = writer.Copied;
+                        result.Packed = writer.Packed;
                     }
                 }
+                catch (NotSupportedException)
+                {
+                    // Au-delà de 4 Go (zip64) : ZipArchive sait, le copieur non.
+                    WriteWithZipArchive(plan, tempPath);
+                    result.Copied = 0;
+                    result.Packed = plan.Entries.Count;
+                }
+            }
+            finally
+            {
+                if (source != null) source.Dispose();
+            }
 
             if (File.Exists(path))
             {
@@ -377,9 +505,29 @@ namespace Marabook.Persistence
                     }
                 }
                 File.Replace(tempPath, path, textsOnly ? null : path + ".bak"); // pas de .bak pour le secours
+                if (!textsOnly) Backups.HideRollingBak(path); // caché, non indexé (30/10)
             }
             else
                 File.Move(tempPath, path);
+            index.Stamp = Stamp(path);
+            return result;
+        }
+
+        /// <summary>L'écrivain d'avant le copieur : tout recompressé par
+        /// ZipArchive. Gardé pour les archives hors de portée du copieur.</summary>
+        private static void WriteWithZipArchive(SavePlan plan, string tempPath)
+        {
+            using (var stream = new FileStream(tempPath, FileMode.Create))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
+                foreach (var entry in plan.Entries)
+                {
+                    var zipEntry = archive.CreateEntry(entry.Name, entry.Level);
+                    using (var entryStream = zipEntry.Open())
+                    {
+                        entryStream.Write(entry.Bytes, 0, entry.Bytes.Length);
+                        if (entry.Tail != null) entryStream.Write(entry.Tail, 0, entry.Tail.Length);
+                    }
+                }
         }
 
         /// <summary>L'empreinte d'enregistrement d'un .plot sans le charger
@@ -499,7 +647,7 @@ namespace Marabook.Persistence
 
         /// <summary>Lit les entrées snapshots/ d'une archive (v17). Un
         /// instantané dont l'item n'existe pas dans le projet est abandonné.</summary>
-        private static void ReadSnapshots(ZipArchive archive, Project project, List<string> warnings)
+        private static void ReadSnapshots(ZipArchive archive, Project project, List<string> warnings, ArchiveIndex index)
         {
             var known = new HashSet<string>();
             foreach (var item in project.AllItems()) known.Add(item.Id);
@@ -509,13 +657,7 @@ namespace Marabook.Persistence
                 if (!entry.FullName.StartsWith("snapshots/", StringComparison.Ordinal)) continue;
                 try
                 {
-                    byte[] bytes;
-                    using (var stream = entry.Open())
-                    using (var buffer = new MemoryStream())
-                    {
-                        stream.CopyTo(buffer);
-                        bytes = buffer.ToArray();
-                    }
+                    var bytes = ReadBytes(entry, index);
                     var cut = Array.IndexOf(bytes, (byte)'\n');
                     if (cut < 0) continue;
                     var meta = Json.AsObject(Json.Parse(Encoding.UTF8.GetString(bytes, 0, cut)));
@@ -569,8 +711,30 @@ namespace Marabook.Persistence
                 manifest["lexicon"] = LexiconEntry.ToJsonList(project.Lexicon);
             if (project.IgnoredRules.Count > 0)
                 manifest["ignoredRules"] = new List<object>(project.IgnoredRules.ToArray());
-            if (project.RelationKinds.Count > 0)
-                manifest["relationKinds"] = new List<object>(project.RelationKinds.ToArray());
+            // Les natures libres pour les Marabook d'avant le schéma (1.1.0) : celles
+            // du schéma hors livrées, plus l'ancienne liste.
+            var legacyKinds = project.RelationSchema.FreeNames();
+            foreach (var kind in project.RelationKinds) if (!legacyKinds.Contains(kind)) legacyKinds.Add(kind);
+            if (legacyKinds.Count > 0)
+                manifest["relationKinds"] = new List<object>(legacyKinds.ToArray());
+            // Le schéma des relations (1.1.0) : écrit seulement s'il diffère du livré.
+            if (!project.RelationSchema.SameAs(RelationSchema.Defaults()))
+            {
+                var kinds = new List<object>();
+                foreach (var kind in project.RelationSchema.Kinds)
+                {
+                    var k = new Dictionary<string, object>();
+                    k["name"] = kind.Name ?? "";
+                    k["family"] = kind.Family ?? "";
+                    k["gender"] = kind.Gender.ToString();
+                    k["generation"] = kind.Generation;
+                    k["lane"] = LaneName(kind.Lane);
+                    k["slot"] = kind.Slot;
+                    if (!string.IsNullOrEmpty(kind.Reciprocal)) k["reciprocal"] = kind.Reciprocal;
+                    kinds.Add(k);
+                }
+                manifest["relationSchema"] = kinds;
+            }
             if (project.Recents.Count > 0) // v18 — tels quels, morts compris (purge au chargement)
             {
                 var recents = new List<object>();
@@ -585,6 +749,52 @@ namespace Marabook.Persistence
             }
             if (!string.IsNullOrEmpty(project.SidePinId)) manifest["sidePin"] = project.SidePinId; // v21
             if (!string.IsNullOrEmpty(project.ActiveScopeId)) manifest["activeProject"] = project.ActiveScopeId; // v39
+            if (project.OpenTabs.Count > 0) // v42 — la rangée d'onglets telle quelle
+            {
+                manifest["tabs"] = new List<object>(project.OpenTabs.ToArray());
+                if (project.ActiveTab > 0) manifest["activeTab"] = project.ActiveTab;
+            }
+            if (project.GraphLayout.Count > 0) // v43 — la disposition du graphe relationnel
+            {
+                var layout = new List<object>();
+                foreach (var pair in project.GraphLayout)
+                {
+                    var g = new Dictionary<string, object>();
+                    g["id"] = pair.Key;
+                    g["x"] = pair.Value.X;
+                    g["y"] = pair.Value.Y;
+                    if (pair.Value.Pinned) g["pin"] = true;
+                    layout.Add(g);
+                }
+                manifest["graphLayout"] = layout;
+            }
+            if (project.Encyclopedia != null) // v45 — les options de l'Encyclopédie
+            {
+                var e = project.Encyclopedia;
+                var o = new Dictionary<string, object>();
+                o["format"] = e.Format ?? EncyclopediaOptions.FormatHtml;
+                o["title"] = e.Title ?? "";
+                o["subtitle"] = e.Subtitle ?? "";
+                o["author"] = e.Author ?? "";
+                o["bodyFont"] = e.BodyFont ?? "";
+                o["headingFont"] = e.HeadingFont ?? "";
+                o["baseSize"] = e.BaseSize;
+                o["accent"] = e.Accent ?? "";
+                o["dark"] = e.Dark;
+                o["portraitSide"] = e.PortraitSide ?? "right";
+                o["showInfobox"] = e.ShowInfobox;
+                o["showRelations"] = e.ShowRelations;
+                o["showPresence"] = e.ShowPresence;
+                o["showRadar"] = e.ShowRadar;
+                o["showTags"] = e.ShowTags;
+                o["showDates"] = e.ShowDates;
+                o["includeLexicon"] = e.IncludeLexicon;
+                o["lexiconOnlyDefined"] = e.LexiconOnlyDefined;
+                o["lexiconAllProjects"] = e.LexiconAllProjects;
+                o["includeEmptySheets"] = e.IncludeEmptySheets;
+                if (!string.IsNullOrEmpty(e.CoverImageId)) o["coverImageId"] = e.CoverImageId;
+                manifest["encyclopedia"] = o;
+            }
             manifest["createdAt"] = project.CreatedAt;
             manifest["modifiedAt"] = project.ModifiedAt;
             if (!string.IsNullOrEmpty(project.SaveId)) manifest["saveId"] = project.SaveId; // l'empreinte (1.0.3, clé additive : les versions d'avant l'ignorent)
@@ -752,6 +962,14 @@ namespace Marabook.Persistence
             if (item.CardColor != null) node["cardColor"] = item.CardColor;
             if (item.Pinned) node["pinned"] = true; // v18 — omis au défaut
             if (item.ImageId != null) node["image"] = item.ImageId;
+            // L'objectif et la limite d'un écrit (v41) — omis sans valeur ; l'unité
+            // telle quelle (TextGoal.Normalize à la lecture d'usage), omise en mots.
+            if (item.Goal > 0) node["goal"] = item.Goal;
+            if (!string.IsNullOrEmpty(item.GoalUnit) && item.GoalUnit != TextGoal.Words) node["goalUnit"] = item.GoalUnit;
+            if (item.Limit > 0) node["limit"] = item.Limit;
+            if (!string.IsNullOrEmpty(item.LimitUnit) && item.LimitUnit != TextGoal.Words) node["limitUnit"] = item.LimitUnit;
+            if (item.Tags.Count > 0) node["tags"] = new List<object>(item.Tags.ToArray()); // v41 — les fiches, mais rien ne se perd ailleurs
+            if (item.ProofIgnored.Count > 0) node["proofIgnored"] = new List<object>(item.ProofIgnored.ToArray()); // v44
             if (item.Kind == ItemKind.Sheet)
             {
                 if (item.TemplateId != null) node["template"] = item.TemplateId;
@@ -942,6 +1160,7 @@ namespace Marabook.Persistence
                 if (category.IsSub) c["parent"] = category.ParentId; // v37
                 if (category.ExtraFields.Count > 0) c["fields"] = BuildFields(category.ExtraFields); // v37
                 if (!string.IsNullOrEmpty(category.Color)) c["color"] = category.Color; // v39
+                if (!string.IsNullOrEmpty(category.Icon)) c["icon"] = category.Icon; // v41
                 categories.Add(c);
             }
             root["categories"] = categories;
@@ -1066,7 +1285,11 @@ namespace Marabook.Persistence
                     throw new InvalidDataException(
                         "Le fichier ne contient pas de manifest.json : ce n'est pas un projet Marabook valide.");
 
-                var manifest = Json.AsObject(Json.Parse(ReadEntry(manifestEntry)));
+                // L'index du fichier lu (1.1.0, 30/10) : l'empreinte de chaque
+                // entrée, pour que le premier enregistrement de la session
+                // soit déjà différentiel.
+                var index = new ArchiveIndex { Path = path, Stamp = Stamp(path) };
+                var manifest = Json.AsObject(Json.Parse(ReadEntry(manifestEntry, index)));
                 if (manifest == null)
                     throw new InvalidDataException("Le manifeste du projet est illisible.");
 
@@ -1125,14 +1348,96 @@ namespace Marabook.Persistence
                     }
                 project.SidePinId = Json.AsString(Json.Field(manifest, "sidePin")); // v21
                 project.ActiveScopeId = Json.AsString(Json.Field(manifest, "activeProject")); // v39
+                var tabs = Json.AsList(Json.Field(manifest, "tabs")); // v42
+                if (tabs != null)
+                    foreach (var entry in tabs)
+                        if (entry is string && ((string)entry).Length > 0) project.OpenTabs.Add((string)entry);
+                project.ActiveTab = Math.Max(0, Json.AsInt(Json.Field(manifest, "activeTab"), 0));
+                var layout = Json.AsList(Json.Field(manifest, "graphLayout")); // v43
+                if (layout != null)
+                    foreach (var entry in layout)
+                    {
+                        var g = Json.AsObject(entry);
+                        if (g == null) continue;
+                        var id = Json.AsString(Json.Field(g, "id"));
+                        if (string.IsNullOrEmpty(id)) continue;
+                        project.GraphLayout[id] = new GraphPosition
+                        {
+                            X = Json.AsDouble(Json.Field(g, "x"), 0),
+                            Y = Json.AsDouble(Json.Field(g, "y"), 0),
+                            Pinned = Json.AsBool(Json.Field(g, "pin"), false)
+                        };
+                    }
+                var encyclopedia = Json.AsObject(Json.Field(manifest, "encyclopedia")); // v45
+                if (encyclopedia != null)
+                {
+                    var d = new EncyclopediaOptions();
+                    var e = new EncyclopediaOptions
+                    {
+                        Format = Json.AsString(Json.Field(encyclopedia, "format")) ?? d.Format,
+                        Title = Json.AsString(Json.Field(encyclopedia, "title")) ?? "",
+                        Subtitle = Json.AsString(Json.Field(encyclopedia, "subtitle")) ?? "",
+                        Author = Json.AsString(Json.Field(encyclopedia, "author")) ?? "",
+                        BodyFont = Json.AsString(Json.Field(encyclopedia, "bodyFont")) ?? "",
+                        HeadingFont = Json.AsString(Json.Field(encyclopedia, "headingFont")) ?? "",
+                        BaseSize = Json.AsDouble(Json.Field(encyclopedia, "baseSize"), d.BaseSize),
+                        Accent = EncyclopediaOptions.SafeColor(Json.AsString(Json.Field(encyclopedia, "accent")), d.Accent),
+                        Dark = Json.AsBool(Json.Field(encyclopedia, "dark"), false),
+                        PortraitSide = Json.AsString(Json.Field(encyclopedia, "portraitSide")) ?? d.PortraitSide,
+                        ShowInfobox = Json.AsBool(Json.Field(encyclopedia, "showInfobox"), true),
+                        ShowRelations = Json.AsBool(Json.Field(encyclopedia, "showRelations"), true),
+                        ShowPresence = Json.AsBool(Json.Field(encyclopedia, "showPresence"), true),
+                        ShowRadar = Json.AsBool(Json.Field(encyclopedia, "showRadar"), true),
+                        ShowTags = Json.AsBool(Json.Field(encyclopedia, "showTags"), true),
+                        ShowDates = Json.AsBool(Json.Field(encyclopedia, "showDates"), true),
+                        IncludeLexicon = Json.AsBool(Json.Field(encyclopedia, "includeLexicon"), true),
+                        LexiconOnlyDefined = Json.AsBool(Json.Field(encyclopedia, "lexiconOnlyDefined"), true),
+                        LexiconAllProjects = Json.AsBool(Json.Field(encyclopedia, "lexiconAllProjects"), true),
+                        IncludeEmptySheets = Json.AsBool(Json.Field(encyclopedia, "includeEmptySheets"), true),
+                        CoverImageId = Json.AsString(Json.Field(encyclopedia, "coverImageId"))
+                    };
+                    if (e.BaseSize < 10 || e.BaseSize > 32) e.BaseSize = d.BaseSize;
+                    project.Encyclopedia = e;
+                }
                 var ignoredRules = Json.AsList(Json.Field(manifest, "ignoredRules"));
                 if (ignoredRules != null)
                     foreach (var entry in ignoredRules)
                         if (entry is string) project.IgnoredRules.Add((string)entry);
+                // Le schéma des relations (1.1.0) d'abord, puis l'ancienne liste des
+                // natures libres (déjà dans le schéma : sans doublon).
+                var relationSchema = Json.AsList(Json.Field(manifest, "relationSchema"));
+                if (relationSchema != null && relationSchema.Count > 0)
+                {
+                    var schema = new RelationSchema();
+                    foreach (var entry in relationSchema)
+                    {
+                        var k = Json.AsObject(entry);
+                        if (k == null) continue;
+                        var name = Json.AsString(Json.Field(k, "name"));
+                        if (string.IsNullOrEmpty(name)) continue;
+                        var gender = Json.AsString(Json.Field(k, "gender")) ?? "n";
+                        schema.Kinds.Add(new RelationKindInfo
+                        {
+                            Name = name,
+                            Family = Json.AsString(Json.Field(k, "family")) ?? "",
+                            Gender = gender.Length > 0 ? gender[0] : 'n',
+                            Generation = (int)Json.AsDouble(Json.Field(k, "generation"), 0),
+                            Lane = LaneOf(Json.AsString(Json.Field(k, "lane"))),
+                            Slot = (int)Json.AsDouble(Json.Field(k, "slot"), 0),
+                            Reciprocal = Json.AsString(Json.Field(k, "reciprocal"))
+                        });
+                    }
+                    if (schema.Kinds.Count > 0) project.RelationSchema = schema;
+                }
                 var relationKinds = Json.AsList(Json.Field(manifest, "relationKinds"));
                 if (relationKinds != null)
                     foreach (var entry in relationKinds)
-                        if (entry is string) project.AddRelationKind((string)entry);
+                    {
+                        var kind = entry as string;
+                        if (string.IsNullOrEmpty(kind)) continue;
+                        if (project.RelationSchema.Find(kind) == null) project.AddRelationKind(kind);
+                        else if (!project.RelationKinds.Contains(kind)) project.RelationKinds.Add(kind); // déjà dans le schéma : l'ancienne liste telle quelle
+                    }
                 project.CreatedAt = Json.AsString(Json.Field(manifest, "createdAt")) ?? "";
                 project.ModifiedAt = Json.AsString(Json.Field(manifest, "modifiedAt")) ?? "";
 
@@ -1171,7 +1476,7 @@ namespace Marabook.Persistence
 
                 var stylesEntry = archive.GetEntry("styles.json");
                 if (stylesEntry != null)
-                    try { project.Styles = ReadStyles(ReadEntry(stylesEntry)); }
+                    try { project.Styles = ReadStyles(ReadEntry(stylesEntry, index)); }
                     catch (Exception error)
                     {
                         project.Styles = StyleSheet.CreateDefault();
@@ -1183,7 +1488,7 @@ namespace Marabook.Persistence
 
                 var templatesEntry = archive.GetEntry("sheets/templates.json");
                 if (templatesEntry != null)
-                    try { ReadTemplates(ReadEntry(templatesEntry), project); }
+                    try { ReadTemplates(ReadEntry(templatesEntry, index), project); }
                     catch (Exception error)
                     {
                         Warn(warnings, "Modèles de fiches illisibles ("
@@ -1203,16 +1508,11 @@ namespace Marabook.Persistence
                     if (id.Length == 0) continue;
                     try
                     {
-                        using (var imageStream = entry.Open())
-                        using (var buffer = new MemoryStream())
+                        project.Images[id] = new ProjectImage
                         {
-                            imageStream.CopyTo(buffer);
-                            project.Images[id] = new ProjectImage
-                            {
-                                Bytes = buffer.ToArray(),
-                                Extension = dot < 0 ? "" : file.Substring(dot)
-                            };
-                        }
+                            Bytes = ReadBytes(entry, index),
+                            Extension = dot < 0 ? "" : file.Substring(dot)
+                        };
                     }
                     catch (Exception error)
                     {
@@ -1225,7 +1525,7 @@ namespace Marabook.Persistence
                 if (roots != null)
                     foreach (var root in roots)
                     {
-                        var item = ReadNode(root, archive, warnings);
+                        var item = ReadNode(root, archive, warnings, index);
                         if (item != null) project.Roots.Add(item);
                     }
 
@@ -1258,7 +1558,9 @@ namespace Marabook.Persistence
                 // v18 : les récents dont l'item n'existe plus sont purgés ICI,
                 // au chargement — jamais à la sauvegarde (doctrine b38).
                 Recents.Purge(project);
-                ReadSnapshots(archive, project, warnings); // v17 ; rien dans un .plot d'avant
+                ReadSnapshots(archive, project, warnings, index); // v17 ; rien dans un .plot d'avant
+                index.SaveId = project.SaveId;
+                project.DiskIndex = index;
                 // Batch 31 : un projet d'avant les catégories de fiches est
                 // migré ici (défauts + adoption des modèles par nom), et les
                 // fiches orphelines rejoignent la catégorie de leur modèle.
@@ -1274,10 +1576,11 @@ namespace Marabook.Persistence
                 // 1.0.4 (v35) : la section Narration du Personnage (la même
                 // migration, idempotente) et les trois catégories ajoutées.
                 if (project.LoadedFormatVersion < 35)
-                {
-                    project.UpgradeCharacterTemplate();
                     project.AddCategoriesOfV35();
-                }
+                // 1.1.0 (v41) : « Date de décès » sous le lieu de naissance —
+                // la même migration, idempotente, rejouée une fois.
+                if (project.LoadedFormatVersion < 41)
+                    project.UpgradeCharacterTemplate();
                 return project;
             }
         }
@@ -1289,8 +1592,31 @@ namespace Marabook.Persistence
 
         private static string ReadEntry(ZipArchiveEntry entry)
         {
-            using (var reader = new StreamReader(entry.Open(), Encoding.UTF8))
-                return reader.ReadToEnd();
+            return ReadEntry(entry, null);
+        }
+
+        /// <summary>Le texte d'une entrée (UTF-8, BOM toléré), son empreinte
+        /// notée dans l'index quand il y en a un.</summary>
+        private static string ReadEntry(ZipArchiveEntry entry, ArchiveIndex index)
+        {
+            var bytes = ReadBytes(entry, index);
+            var skip = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0;
+            return Encoding.UTF8.GetString(bytes, skip, bytes.Length - skip);
+        }
+
+        /// <summary>Les octets d'une entrée, tels quels — et leur empreinte
+        /// dans l'index (1.1.0, 30/10).</summary>
+        private static byte[] ReadBytes(ZipArchiveEntry entry, ArchiveIndex index)
+        {
+            byte[] bytes;
+            using (var stream = entry.Open())
+            using (var buffer = new MemoryStream(entry.Length > 0 && entry.Length < int.MaxValue ? (int)entry.Length : 0))
+            {
+                stream.CopyTo(buffer);
+                bytes = buffer.ToArray();
+            }
+            if (index != null) index.Note(entry.FullName, bytes);
+            return bytes;
         }
 
         public static StyleSheet ReadStyles(string json)
@@ -1453,12 +1779,13 @@ namespace Marabook.Persistence
                     category.ParentId = Json.AsString(Json.Field(c, "parent")); // v37 — EnsureSheetCategories tranche les orphelines
                     ReadFields(Json.Field(c, "fields"), category.ExtraFields); // v37
                     category.Color = Json.AsString(Json.Field(c, "color")); // v39
+                    category.Icon = Json.AsString(Json.Field(c, "icon")); // v41
                     categories.Add(category);
                 }
             project.SheetCategories = categories;
         }
 
-        private static BinderItem ReadNode(object node, ZipArchive archive, List<string> warnings)
+        private static BinderItem ReadNode(object node, ZipArchive archive, List<string> warnings, ArchiveIndex index)
         {
             var obj = Json.AsObject(node);
             if (obj == null) return null;
@@ -1587,8 +1914,21 @@ namespace Marabook.Persistence
             }
 
             if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
-                item.Document = ReadDocument(item, archive, warnings);
+                item.Document = ReadDocument(item, archive, warnings, index);
 
+            item.Goal = Math.Max(0, Json.AsInt(Json.Field(obj, "goal"), 0)); // v41
+            item.GoalUnit = Json.AsString(Json.Field(obj, "goalUnit")) ?? TextGoal.Words;
+            item.Limit = Math.Max(0, Json.AsInt(Json.Field(obj, "limit"), 0));
+            item.LimitUnit = Json.AsString(Json.Field(obj, "limitUnit")) ?? TextGoal.Words;
+            var tags = Json.AsList(Json.Field(obj, "tags")); // v41
+            if (tags != null)
+                foreach (var tagNode in tags)
+                    SheetTags.Add(item, tagNode as string);
+            var proofIgnored = Json.AsList(Json.Field(obj, "proofIgnored")); // v44
+            if (proofIgnored != null)
+                foreach (var entry in proofIgnored)
+                    if (entry is string && ((string)entry).Length > 0 && !item.ProofIgnored.Contains((string)entry))
+                        item.ProofIgnored.Add((string)entry);
             if (item.Kind == ItemKind.Sheet)
             {
                 item.TemplateId = Json.AsString(Json.Field(obj, "template"));
@@ -1667,12 +2007,7 @@ namespace Marabook.Persistence
                 if (map != null)
                     try
                     {
-                        using (var mapStream = map.Open())
-                        using (var buffer = new MemoryStream())
-                        {
-                            mapStream.CopyTo(buffer);
-                            item.MapBytes = buffer.ToArray();
-                        }
+                        item.MapBytes = ReadBytes(map, index);
                     }
                     catch (Exception error)
                     {
@@ -1691,12 +2026,7 @@ namespace Marabook.Persistence
                 if (media != null)
                     try
                     {
-                        using (var mediaStream = media.Open())
-                        using (var buffer = new MemoryStream())
-                        {
-                            mediaStream.CopyTo(buffer);
-                            item.MediaBytes = buffer.ToArray();
-                        }
+                        item.MediaBytes = ReadBytes(media, index);
                     }
                     catch (Exception error)
                     {
@@ -1710,7 +2040,7 @@ namespace Marabook.Persistence
             if (children != null)
                 foreach (var child in children)
                 {
-                    var childItem = ReadNode(child, archive, warnings);
+                    var childItem = ReadNode(child, archive, warnings, index);
                     if (childItem != null) item.Children.Add(childItem);
                 }
             return item;
@@ -1720,18 +2050,18 @@ namespace Marabook.Persistence
         /// JSON, corrupt deflate…) must never fail the whole project: the item
         /// opens as an empty document, title preserved, flagged LoadDamaged.</summary>
         private static TextDocument ReadDocument(BinderItem item, ZipArchive archive,
-            List<string> warnings)
+            List<string> warnings, ArchiveIndex index)
         {
             try
             {
                 var jsonEntry = archive.GetEntry("texts/" + item.Id + ".json");
                 if (jsonEntry != null)
-                    return ParseDocument(ReadEntry(jsonEntry));
+                    return ParseDocument(ReadEntry(jsonEntry, index));
 
                 // v1 fallback: plain text entry.
                 var txtEntry = archive.GetEntry("texts/" + item.Id + ".txt");
                 if (txtEntry != null)
-                    return TextDocument.FromPlainText(ReadEntry(txtEntry));
+                    return TextDocument.FromPlainText(ReadEntry(txtEntry, index));
             }
             catch (Exception error)
             {

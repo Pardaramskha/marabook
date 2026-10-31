@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -28,6 +28,10 @@ namespace Marabook.App
         public MainWindow(Launch launch) : this()
         {
             _launch = launch ?? new Launch();
+            Sounds.Muted = _launch.Isolated; // la sonde et les captures en silence (31/10 : l'essai sonore est terminé)
+            // Sans projet à ouvrir (1.1.0) : le voile de l'accueil dès la première
+            // image — l'application vide ne « flashe » plus avant l'écran d'accueil.
+            if (!_launch.Isolated && _launch.PlotPath == null) ShowVeil();
             Opened += delegate { ScheduleUpdateCheck(); }; // la vérification silencieuse du lancement (01/10)
             Opened += delegate { _rightAnimationsOnAfterOpen = !_launch.Probe; }; // la colonne de droite glisse (1.0.3) — pas en sonde
             if (_launch.Isolated)
@@ -43,6 +47,20 @@ namespace Marabook.App
                 {
                     try { PagesDiagnostic(_launch.PagesProbe); }
                     catch (Exception error) { Console.WriteLine("PAGES ÉCHEC : " + error); Environment.ExitCode = 1; }
+                    QuitNow();
+                    return;
+                }
+                if (_launch.GraphProbe != null)
+                {
+                    try { GraphDiagnostic(_launch.GraphProbe); }
+                    catch (Exception error) { Console.WriteLine("GRAPHE ÉCHEC : " + error); Environment.ExitCode = 1; }
+                    QuitNow();
+                    return;
+                }
+                if (_launch.EncyclopediaProbe != null)
+                {
+                    try { EncyclopediaDiagnostic(_launch.EncyclopediaProbe, _launch.EncyclopediaFolder); }
+                    catch (Exception error) { Console.WriteLine("ENCYCLOPÉDIE ÉCHEC : " + error); Environment.ExitCode = 1; }
                     QuitNow();
                     return;
                 }
@@ -86,6 +104,28 @@ namespace Marabook.App
                     if (_launch.Demo && !_launch.Probe) { await Task.Delay(200); if (_launch.OpenTitle != null) OpenByTitle(_launch.OpenTitle); else SelectFirstText(); }
                     if (_launch.Demo && !_launch.Probe && _launch.SheetText && _sheetView != null) { await Task.Delay(100); _sheetView.ShowTextTabPublic(); }
                     if (_launch.Demo && !_launch.Probe && _launch.PlanChart && _planView != null) { await Task.Delay(100); _planView.ProbeShowChart(true); }
+                    if (_launch.Demo && !_launch.Probe && _launch.Correction)
+                    {
+                        // Des relevés de chaque sorte dans l'écrit ouvert, pour voir le panneau garni (capture, 30/10).
+                        BinderItem seeded = null;
+                        foreach (var item in _project.AllItems()) if (item.Kind == ItemKind.Text && item.Title.StartsWith("Chapitre premier")) { seeded = item; break; }
+                        if (seeded == null) foreach (var item in _project.AllItems()) if (item.Kind == ItemKind.Text && item.Document.Paragraphs.Count > 1) { seeded = item; break; }
+                        if (seeded != null)
+                        {
+                            foreach (var text in new[] { "Le vent portait l'odeur des pins, et le vent portait aussi la pluie vers le village .",
+                                "Un tezte avec une fôte, où Keira Varenh marchait vraiment lentement vers la citadelle ; y'a du vent, dit-il.",
+                                "Le vent, encore le vent, et une gouverneuse qui attendait vraiment au bord du quai." })
+                            {
+                                var paragraph = new TextParagraph();
+                                paragraph.Runs.Add(new TextRun { Text = text });
+                                seeded.Document.Paragraphs.Add(paragraph);
+                            }
+                            _editor.Reload();
+                        }
+                        await Task.Delay(2200);
+                        SetRightPanel(RightPanel.Correction);
+                        await Task.Delay(600);
+                    }
                     if (_launch.Demo && !_launch.Probe && _launch.PinTitle != null) { await Task.Delay(100); PinByTitle(_launch.PinTitle); }
                     if (_launch.Demo && !_launch.Probe && _launch.SelectTitle != null) { await Task.Delay(300); SelectTileByTitle(_launch.SelectTitle, _launch.Tint, _launch.TintAfter); }
                 }
@@ -112,7 +152,23 @@ namespace Marabook.App
                         "Mise à jour annulée", MessageButtons.OK, MessageIcon.Warning);
                 // --open vaut aussi pour la capture d'un vrai .plot (1.0.6) : « Fiches »
                 // ouvre la bibliothèque — le chrono MARABOOK_LIBRARY_TIMING=1 s'y mesure.
-                if (_launch.CapturePath != null && !_launch.Demo && _launch.OpenTitle != null && _project != null) { await Task.Delay(200); OpenByTitle(_launch.OpenTitle); await Task.Delay(200); }
+                if (_launch.CapturePath != null && !_launch.Demo && _launch.OpenTitle != null && _project != null)
+                {
+                    await Task.Delay(200); OpenByTitle(_launch.OpenTitle); await Task.Delay(200);
+                    // « --open graphe » : la photo attend le calcul ; MARABOOK_GRAPH_ZOOM=3
+                    // centre la carte, à ce zoom, sur la première fiche à portrait (28/10).
+                    if (_graphView != null && _graphView.IsVisible)
+                    {
+                        await _graphView.LoadingForProbe;
+                        await Task.Delay(300);
+                        double zoom;
+                        if (double.TryParse(Environment.GetEnvironmentVariable("MARABOOK_GRAPH_ZOOM"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out zoom))
+                        {
+                            _graphView.FocusPortraitForProbe(zoom);
+                            await Task.Delay(300);
+                        }
+                    }
+                }
                 if (_launch.CapturePath != null) await CaptureAndQuit(_launch.CapturePath);
                 else if (_launch.Lab) BuildLab().Show(this);
             };
@@ -133,7 +189,11 @@ namespace Marabook.App
         public double RightColumnWidth { get { return _inspectorCol.Width.Value; } }
         public void MarkDirtyPublic() { MarkDirty(); }
         public WelcomeWindow Welcome { get { return _welcome; } }
+        /// <summary>Lancement isolé (sonde, capture, démo…) : pas de page du profil à l'accueil.</summary>
+        public bool IsolatedLaunch { get { return _launch.Isolated; } }
         public string InspectorTitle { get { return _inspTitle == null ? "" : _inspTitle.Text ?? ""; } }
+        public bool GraphToolsInInspectorForProbe { get { return _graphSection != null && _graphSection.IsVisible && _graphSection.Content != null; } }
+        public bool InspectorAvailableForProbe { get { return IsPanelAvailable(RightPanel.Inspector); } }
         public string InspectorKind { get { return _inspKind == null ? "" : _inspKind.Text ?? ""; } }
         public string InspectorDetail { get { return _inspStats == null ? "" : _inspStats.Text ?? ""; } }
         public string StatusText { get { return _statusRight == null ? "" : _statusRight.Text ?? ""; } } // mots · signes EC (07/10)
@@ -367,6 +427,7 @@ namespace Marabook.App
         {
             if (_project == null || string.IsNullOrEmpty(title)) return;
             if (title == "journal") { ShowJournal(); return; }
+            if (title == "graphe") { ShowGraph(); return; } // la carte des liens (28/10)
             foreach (var item in _project.AllItems())
                 if (string.Equals(item.Title, title, StringComparison.OrdinalIgnoreCase)) { _binder.SelectItem(item.Id, true); return; }
             foreach (var root in _project.Roots)
@@ -618,6 +679,18 @@ public static Project SampleProject()
             AddPlanColumn(plan, "Acte III — La grande marée", "Le retour du marabout|5");
             AddPlanColumn(plan, "Épilogue", "La mer, au loin|2");
             plans.Children.Add(plan);
+            // Une carte mentale garnie (26/10) quand le module Mental-O est là
+            // (MARABOOK_DLC_ROOT pour une capture ou une sonde avec le DLC).
+            var mindMaps = MindMapModules.Provider;
+            if (mindMaps != null)
+            {
+                var maps = project.Category(Project.KeyMindMaps);
+                if (maps != null)
+                {
+                    try { maps.Children.Add(new BinderItem { Title = "Carte de démo", Kind = ItemKind.MindMap, Parent = maps, MapBytes = mindMaps.SampleMap("Carte de démo") }); }
+                    catch { }
+                }
+            }
             return project;
         }
 

@@ -16,6 +16,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 using Marabook.Model;
+using Marabook.Settings;
 
 namespace Marabook.App
 {
@@ -39,6 +40,11 @@ namespace Marabook.App
         private Border _progressTrack, _progressFill, _goalChip;
         private TextBlock _tile7, _tile30, _tileStreak, _tileTotal;
         private Canvas _chart;
+        private TabControl _tabs; // Général / Succès — le tutoriel y navigue (29/10)
+
+        /// <summary>Tutoriel (29/10) : l'onglet Général (0) ou Succès (1).</summary>
+        internal void SelectTabForTutorial(int index) { if (_tabs != null && index >= 0 && index < _tabs.Items.Count) _tabs.SelectedIndex = index; }
+        internal int SelectedTabForProbe { get { return _tabs == null ? -1 : _tabs.SelectedIndex; } }
         private int _chartDays = 14;             // 14, 30 ou 90 (b48)
         private readonly List<ToggleButton> _rangeChips = new List<ToggleButton>();
         private StackPanel _sprintsPanel;        // les derniers sprints (b48)
@@ -49,6 +55,7 @@ namespace Marabook.App
         public event Action Changed;
         /// <summary>« Démarrer un sprint » depuis la carte Sprints (14/09).</summary>
         public event Action SprintRequested;
+        public event Action<string> SecretAchievementClicked; // la ligne d'un succès secret cliquée (31/10)
 
         public JournalView()
         {
@@ -99,7 +106,7 @@ namespace Marabook.App
             // Le TabControl prend le reste ; sa barre d'onglets (le style
             // chip du ruban, posé par Theme sur tout TabItem) est alignée
             // sur la colonne de lecture, chaque page défile pour elle-même.
-            var tabs = new TabControl
+            var tabs = _tabs = new TabControl
             {
                 Background = Brushes.Transparent,
                 BorderThickness = new Thickness(0),
@@ -286,11 +293,13 @@ namespace Marabook.App
 
             // ---- sprints (b48) ----
             var sprintsCard = Card();
+            _sprintsCard = sprintsCard;
             sprintsCard.Margin = new Thickness(0, 10, 0, 0);
+            sprintsCard.IsVisible = Profiles.Enabled(Profiles.Sprints);
             var sprints = new StackPanel();
             var sprintsHead = new DockPanel();
             var startSprint = Buttons.IconText("play-fill", "Démarrer un sprint",
-                "Une durée, un objectif de mots — la pastille suit, le journal consigne", Buttons.Compact, Buttons.Look.Primary);
+                "Une durée, un objectif de mots", Buttons.Compact, Buttons.Look.Primary);
             startSprint.Click += delegate { var h = SprintRequested; if (h != null) h(); };
             DockPanel.SetDock(startSprint, Dock.Right);
             sprintsHead.Children.Add(startSprint);
@@ -460,6 +469,51 @@ namespace Marabook.App
                 row.Children.Add(text);
                 _achievementsPanel.Children.Add(row);
             }
+            // Les SUCCÈS SECRETS (31/10, Rémi) : sous les autres, le nom se voit,
+            // la description reste cachée tant qu'ils ne sont pas obtenus ; la
+            // ligne se clique (la fenêtre décide de ce qu'un clic fait).
+            if (Achievements.Secrets.Length > 0)
+            {
+                _achievementsPanel.Children.Add(new TextBlock
+                {
+                    Text = "Succès secrets",
+                    Foreground = Chrome.Ink,
+                    FontWeight = FontWeight.SemiBold,
+                    Margin = new Thickness(0, 12, 0, 8)
+                });
+                foreach (var secret in Achievements.Secrets)
+                {
+                    string date;
+                    var earned = unlocked.TryGetValue(secret.Id, out date);
+                    var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8), Background = Brushes.Transparent, Cursor = new Cursor(StandardCursorType.Hand), Tag = "secret:" + secret.Id };
+                    var badge = AchievementBadge.Build(secret, earned, 44);
+                    badge.Margin = new Thickness(0, 0, 12, 0);
+                    badge.VerticalAlignment = VerticalAlignment.Top;
+                    DockPanel.SetDock(badge, Dock.Left);
+                    row.Children.Add(badge);
+                    var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                    text.Children.Add(new TextBlock { Text = secret.Name, Foreground = earned ? Chrome.Ink : Chrome.SoftText, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap });
+                    text.Children.Add(new TextBlock
+                    {
+                        Text = earned ? secret.Description : "Secret…",
+                        Foreground = earned ? Chrome.SoftText : Chrome.FaintText,
+                        FontStyle = earned ? FontStyle.Normal : FontStyle.Italic,
+                        FontSize = 11,
+                        TextWrapping = TextWrapping.Wrap
+                    });
+                    if (earned)
+                        text.Children.Add(new TextBlock { Text = "Obtenu le " + Dates.Display(date), Foreground = Chrome.Accent, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) });
+                    row.Children.Add(text);
+                    var idRef = secret.Id;
+                    row.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+                    {
+                        if (e.InitialPressMouseButton != MouseButton.Left) return;
+                        var handler = SecretAchievementClicked;
+                        if (handler != null) handler(idRef);
+                    };
+                    _achievementsPanel.Children.Add(row);
+                }
+            }
         }
 
         private static Border Card()
@@ -558,6 +612,15 @@ namespace Marabook.App
             DrawChart();
             RebuildSprints();
             RefreshAchievements();
+            ApplyProfile();
+        }
+
+        private Border _sprintsCard;
+
+        /// <summary>Le profil (1.1.0) sans sprints : la carte Sprints se cache.</summary>
+        public void ApplyProfile()
+        {
+            if (_sprintsCard != null) _sprintsCard.IsVisible = Profiles.Enabled(Profiles.Sprints);
         }
 
         /// <summary>Les huit derniers sprints, le plus récent en tête (b48).</summary>

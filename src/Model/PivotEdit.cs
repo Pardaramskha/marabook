@@ -88,27 +88,51 @@ namespace Marabook.Model
         {
             anchorOut = anchor;
             caretOut = caret;
-            int wordStart, wordEnd;
-            if (!WordBounds(anchorText, anchor, out wordStart, out wordEnd))
-            {
-                wordStart = anchor;
-                wordEnd = anchor;
-            }
             var forward = caretParagraph > anchorParagraph
                 || (caretParagraph == anchorParagraph && caret > anchor);
             var backward = caretParagraph < anchorParagraph
                 || (caretParagraph == anchorParagraph && caret < anchor);
-            var insideStartWord = caretParagraph == anchorParagraph && caret >= wordStart && caret <= wordEnd;
-            if (insideStartWord && !wholeWords) return;
+            int wordStart, wordEnd;
             if (!forward && !backward)
             {
-                if (wholeWords) { anchorOut = wordStart; caretOut = wordEnd; }
+                if (wholeWords && WordBounds(anchorText, anchor, out wordStart, out wordEnd))
+                { anchorOut = wordStart; caretOut = wordEnd; }
                 return;
             }
-            anchorOut = forward ? wordStart : wordEnd;
+            // Le mot de départ est celui du CARACTÈRE qu'on quitte : devant
+            // l'ancre en avançant, derrière en reculant ; le mot d'arrivée,
+            // celui du caractère que le caret vient de couvrir. Un signe de
+            // ponctuation n'est pas un mot : partir de la virgule de
+            // « Idiot, » sélectionne la virgule seule, jamais « Idiot, »
+            // entier (29/10, Rémi) — sans mot de départ, l'ancre reste où
+            // elle est et le caret s'aligne quand même sur le mot qu'il
+            // touche. Mots entiers (double-clic puis glisser) : le mot sous
+            // l'ancre, comme avant.
+            var hasStartWord = wholeWords
+                ? WordBounds(anchorText, anchor, out wordStart, out wordEnd)
+                : WordAtChar(anchorText, forward ? anchor : anchor - 1, out wordStart, out wordEnd);
+            if (hasStartWord)
+            {
+                var insideStartWord = caretParagraph == anchorParagraph && caret >= wordStart && caret <= wordEnd;
+                if (insideStartWord && !wholeWords) return;
+                anchorOut = forward ? wordStart : wordEnd;
+            }
             int caretWordStart, caretWordEnd;
-            if (WordBounds(caretText, caret, out caretWordStart, out caretWordEnd))
+            if (WordAtChar(caretText, forward ? caret - 1 : caret, out caretWordStart, out caretWordEnd))
                 caretOut = forward ? caretWordEnd : caretWordStart;
+        }
+
+        /// <summary>Le mot qui contient le caractère d'index donné — sans
+        /// chercher à côté : un blanc ou un signe n'est dans aucun mot.</summary>
+        private static bool WordAtChar(string text, int index, out int start, out int end)
+        {
+            start = end = Math.Max(0, index);
+            if (string.IsNullOrEmpty(text) || index < 0 || index >= text.Length || !char.IsLetterOrDigit(text[index])) return false;
+            start = index;
+            end = index + 1;
+            while (start > 0 && char.IsLetterOrDigit(text[start - 1])) start--;
+            while (end < text.Length && char.IsLetterOrDigit(text[end])) end++;
+            return true;
         }
 
         /// <summary>Copies every FORMAT field of a run (not its content).

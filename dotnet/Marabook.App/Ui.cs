@@ -49,7 +49,11 @@ namespace Marabook.App
                 box.Focus();
             };
             box.TextChanged += delegate { cross.IsVisible = !string.IsNullOrEmpty(box.Text); };
-            box.Padding = new Thickness(box.Padding.Left, box.Padding.Top, Math.Max(box.Padding.Right, 22), box.Padding.Bottom);
+            // L'espace intérieur du THÈME, pas celui lu ici (31/10, Rémi) : à la
+            // construction, le style n'est pas encore posé et Padding vaut 0 —
+            // le texte collait au bord gauche et le champ perdait sa hauteur.
+            var basis = Theme.FieldPadding;
+            box.Padding = new Thickness(basis.Left, basis.Top, Math.Max(basis.Right, 22), basis.Bottom);
             host.Children.Add(cross);
             return host;
         }
@@ -213,6 +217,15 @@ namespace Marabook.App
                 FileTypeChoices = types
             });
             return picked == null ? null : picked.TryGetLocalPath();
+        }
+
+        /// <summary>Un dossier, ou null (31/10 : l'Encyclopédie s'écrit dans un dossier).</summary>
+        public static async Task<string> PickFolder(Visual visual, string title)
+        {
+            var top = visual == null ? null : TopLevel.GetTopLevel(visual);
+            if (top == null) return null;
+            var picked = await top.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = title, AllowMultiple = false });
+            return picked == null || picked.Count == 0 ? null : picked[0].TryGetLocalPath();
         }
 
         /// <summary>Plusieurs fichiers à l'ouverture, ou null.</summary>

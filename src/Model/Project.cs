@@ -73,6 +73,11 @@ namespace Marabook.Model
         // le .plot a été modifié en dehors de Marabook (synchronisation,
         // autre machine) et rien n'est écrasé sans demander.
         public string SaveId = "";
+        /// <summary>Ce que le disque porte pour ce projet (1.1.0, 30/10) :
+        /// l'index du .plot lu ou écrit en dernier, pour que l'écriture
+        /// suivante recopie sans les recompresser les entrées inchangées.
+        /// Null pour un projet neuf ou de secours. Jamais dans le .plot.</summary>
+        public Persistence.ArchiveIndex DiskIndex;
         public WritingJournal Journal = new WritingJournal();
         public StyleSheet Styles = StyleSheet.CreateDefault();
         // Modèles et catégories de fiches (batch 31) : un projet NEUF est
@@ -87,6 +92,11 @@ namespace Marabook.Model
         // proposées ensuite sur toutes les fiches. Les natures livrées
         // (RelationKinds.Defaults) ne sont pas stockées ici.
         public List<string> RelationKinds = new List<string>();
+        // Le schéma des relations (1.1.0, l'éditeur de relations) : les natures
+        // proposées, leur place dans l'arbre, leurs réciproques. Le schéma livré
+        // tant que l'éditeur ne l'a pas remanié ; les natures libres créées
+        // depuis une fiche s'y ajoutent en voie « autres ».
+        public RelationSchema RelationSchema = RelationSchema.Defaults();
         // Les récents (batch 41, v18) : au plus dix items OUVERTS, le plus
         // récent en tête — voir Recents. Purgés au chargement seulement.
         public List<RecentEntry> Recents = new List<RecentEntry>();
@@ -100,6 +110,23 @@ namespace Marabook.Model
         // d'Écrits, pastille verte dans la Pile — le spectre par défaut des
         // relevés (mots inconnus, fiches manquantes). Null = aucun.
         public string ActiveScopeId;
+
+        // Les ONGLETS ouverts (1.1.0, v42) : les ids des éléments montrés,
+        // dans l'ordre, et l'index de l'actif — la rangée telle qu'on l'a
+        // laissée, reprise à l'ouverture (ids disparus écartés, voir
+        // WorkTabs.Restore). Vide = l'onglet unique de l'élément rouvert.
+        public List<string> OpenTabs = new List<string>();
+        public int ActiveTab;
+
+        // La DISPOSITION DU GRAPHE relationnel (1.1.0, v43) : la position de
+        // chaque nœud telle que la disposition l'a posée ou que l'auteur l'a
+        // tirée (épinglée) — le graphe ne se réorganise pas à chaque ouverture.
+        public Dictionary<string, GraphPosition> GraphLayout = new Dictionary<string, GraphPosition>();
+
+        // L'ENCYCLOPÉDIE (1.1.0, v45, 31/10) : les options de l'export des
+        // fiches (format, titre, polices, couleurs, encarts, lexique) — un
+        // réglage de l'œuvre, retenu avec elle. Null = jamais réglées.
+        public EncyclopediaOptions Encyclopedia;
 
         /// <summary>L'item du projet actif, s'il existe encore, hors corbeille
         /// et dans Écrits ; null sinon.</summary>
@@ -138,18 +165,22 @@ namespace Marabook.Model
         /// puis les personnalisées du projet.</summary>
         public IEnumerable<string> AllRelationKinds()
         {
-            foreach (var kind in Model.RelationKinds.Defaults) yield return kind;
-            foreach (var kind in RelationKinds) yield return kind;
+            foreach (var kind in RelationSchema.Names) yield return kind;
+            foreach (var kind in RelationKinds)
+                if (RelationSchema.Find(kind) == null) yield return kind;
         }
 
         /// <summary>Enregistre une nature personnalisée (sans doublon avec les
-        /// livrées ni les existantes) ; rend la forme retenue.</summary>
+        /// livrées ni les existantes) : dans le schéma (voie « autres ») et dans
+        /// l'ancienne liste, pour les Marabook d'avant le schéma ; rend la forme
+        /// retenue.</summary>
         public string AddRelationKind(string kind)
         {
             var trimmed = (kind ?? "").Trim();
             if (trimmed.Length == 0) return "";
             foreach (var known in AllRelationKinds())
-                if (Model.RelationKinds.Same(known, trimmed)) return known;
+                if (Model.RelationKinds.Same(known, trimmed)) { RelationSchema.AddFree(known); return known; }
+            RelationSchema.AddFree(trimmed);
             RelationKinds.Add(trimmed);
             return trimmed;
         }

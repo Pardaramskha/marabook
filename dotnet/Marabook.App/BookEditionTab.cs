@@ -11,6 +11,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 using Marabook.Model;
+using Marabook.Settings;
 
 namespace Marabook.App
 {
@@ -61,11 +62,18 @@ namespace Marabook.App
             _title = LineField(left, "Titre (vide = le nom du livre dans la Pile)"); // le jeton {livre}, la page de titre, l'EPUB (01/10)
             _subtitle = LineField(left, "Sous-titre");
             _author = LineField(left, "Auteur·ice (vide = auteur·ice par défaut des Préférences)");
-            _publisher = LineField(left, "Éditeur");
-            _collection = LineField(right, "Collection");
-            _isbn = LineField(right, "ISBN");
-            _year = LineField(right, "Année");
-            BuildSeriesField(right); // « Série ou cycle » (01/10), informatif
+            // Les détails de publication (profil 1.1.0 : masquables) : éditeur à
+            // gauche, collection, ISBN, année et série à droite — chacun dans son
+            // groupe, pour se cacher d'un bloc ; les champs existent toujours.
+            _publicationLeft = new StackPanel();
+            left.Children.Add(_publicationLeft);
+            _publisher = LineField(_publicationLeft, "Éditeur");
+            _publicationRight = new StackPanel();
+            right.Children.Add(_publicationRight);
+            _collection = LineField(_publicationRight, "Collection");
+            _isbn = LineField(_publicationRight, "ISBN");
+            _year = LineField(_publicationRight, "Année");
+            BuildSeriesField(_publicationRight); // « Série ou cycle » (01/10), informatif
             BuildColorField(right); // la couleur de la tuile du livre (29/09)
             Children.Add(identity);
 
@@ -101,7 +109,7 @@ namespace Marabook.App
             var choose = Buttons.IconText("image-square-bold", "Choisir une image…", "PNG, JPEG, GIF ou BMP — 20 Mo au plus", Buttons.Bar, Buttons.Look.Outline);
             choose.Click += delegate { var h = CoverRequested; if (h != null && _item != null) h(_item, false); };
             coverButtons.Children.Add(choose);
-            _removeCover = Buttons.Text("Retirer", "Retirer l'image du livre", Buttons.Bar, Buttons.Look.Calm);
+            _removeCover = Buttons.Text("Retirer", null, Buttons.Bar, Buttons.Look.Calm);
             _removeCover.Margin = new Thickness(8, 0, 0, 0);
             _removeCover.Click += delegate { var h = CoverRequested; if (h != null && _item != null) h(_item, true); };
             coverButtons.Children.Add(_removeCover);
@@ -111,6 +119,10 @@ namespace Marabook.App
 
             // — Présentation.
             Children.Add(BookPanelParts.Caption("Présentation", 16));
+            // Les détails de destination (genre, public, thématiques) et les
+            // détails commerciaux (accroche, quatrième) : des groupes masquables (1.1.0).
+            _audienceGroup = new StackPanel();
+            Children.Add(_audienceGroup);
             var presentation = new Grid();
             presentation.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             presentation.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
@@ -123,12 +135,30 @@ namespace Marabook.App
             presentation.Children.Add(pRight);
             _genre = LineField(pLeft, "Genre");
             _audience = LineField(pRight, "Public cible");
-            Children.Add(presentation);
-            Children.Add(BookPanelParts.Label("Thématiques (une virgule ou Entrée pose une étiquette)"));
-            Children.Add(BuildThemes());
-            _synopsis = AreaField("Synopsis", 110);
-            _pitch = AreaField("Accroche — la manière dont vous présenteriez votre livre en salon", 72);
-            _backCover = AreaField("Quatrième de couverture", 150);
+            _audienceGroup.Children.Add(presentation);
+            _audienceGroup.Children.Add(BookPanelParts.Label("Thématiques (une virgule ou Entrée pose une étiquette)"));
+            _audienceGroup.Children.Add(BuildThemes());
+            _synopsis = AreaField(this, "Synopsis", 110);
+            _commercialGroup = new StackPanel();
+            Children.Add(_commercialGroup);
+            _pitch = AreaField(_commercialGroup, "Accroche — la manière dont vous présenteriez votre livre en salon", 72);
+            _backCover = AreaField(_commercialGroup, "Quatrième de couverture", 150);
+            ApplyProfile();
+        }
+
+        private StackPanel _publicationLeft, _publicationRight, _audienceGroup, _commercialGroup;
+
+        internal bool DetailsShownForProbe { get { return _publicationLeft.IsVisible || _audienceGroup.IsVisible || _commercialGroup.IsVisible; } }
+
+        /// <summary>Le profil (1.1.0) : les détails de publication, de destination
+        /// et commerciaux se cachent d'un bloc — les valeurs du livre restent.</summary>
+        public void ApplyProfile()
+        {
+            var publication = Profiles.Enabled(Profiles.BookPublicationDetails);
+            _publicationLeft.IsVisible = publication;
+            _publicationRight.IsVisible = publication;
+            _audienceGroup.IsVisible = Profiles.Enabled(Profiles.BookAudienceDetails);
+            _commercialGroup.IsVisible = Profiles.Enabled(Profiles.BookCommercialDetails);
         }
 
         // --------------------------------------------------------- champs
@@ -188,8 +218,7 @@ namespace Marabook.App
             {
                 Content = "Ce livre fait partie d'une série",
                 VerticalAlignment = VerticalAlignment.Center,
-                [DockPanel.DockProperty] = Dock.Left,
-                [ToolTip.TipProperty] = "Informatif : le rang du livre dans sa série ou son cycle"
+                [DockPanel.DockProperty] = Dock.Left
             };
             _series.IsCheckedChanged += delegate
             {
@@ -218,9 +247,9 @@ namespace Marabook.App
             return box;
         }
 
-        private TextBox AreaField(string label, double height)
+        private TextBox AreaField(Panel host, string label, double height)
         {
-            Children.Add(BookPanelParts.Label(label));
+            host.Children.Add(BookPanelParts.Label(label));
             var box = new TextBox
             {
                 AcceptsReturn = true,
@@ -231,7 +260,7 @@ namespace Marabook.App
                 Margin = new Thickness(0, 2, 0, 2)
             };
             box.TextChanged += delegate { OnFieldEdited(); };
-            Children.Add(box);
+            host.Children.Add(box);
             return box;
         }
 
@@ -338,8 +367,7 @@ namespace Marabook.App
                     Margin = new Thickness(5, 0, 2, 0),
                     VerticalAlignment = VerticalAlignment.Center,
                     Cursor = new Cursor(StandardCursorType.Hand),
-                    [ToolTip.TipProperty] = "Retirer cette thématique"
-                };
+                    [ToolTip.TipProperty] = "Retirer"};
                 remove.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
                     if (_item == null) return;
                     _item.Book.Themes.Remove(name);

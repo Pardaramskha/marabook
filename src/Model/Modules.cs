@@ -145,14 +145,28 @@ namespace Marabook.Model
                     "Une phénoménale perte de temps pour les plus pointilleux",
                     "De nouveaux succès"
                 }
+            },
+            // Mental-O en DLC (22/09, retiré le 27/09, DE RETOUR le 26/10/2026
+            // sur Avalonia) : un module À CODE — la DLL MentalO.Marabook (bâtie
+            // dans le dépôt mental-o, dotnet/) apporte les cartes mentales. Le
+            // paquet mental-o.mdlc est un asset à nom stable de chaque release
+            // de Mental-O : la même release sert l'application seule et le DLC.
+            new ModuleSource
+            {
+                Id = "mental-o",
+                Name = "Mental-O",
+                Title = "Cartes mentales",
+                Repository = "Pardaramskha/mental-o",
+                Asset = "mental-o.mdlc",
+                Features =
+                {
+                    "Une racine « Cartes mentales » dans la Pile (section Structure) : vos cartes vivent dans le projet, enregistrées avec lui",
+                    "La toile de Mental-O à la sauce Marabook : boîtes, liens, groupes, images, fichiers, notes, étiquettes, thèmes, présentation",
+                    "Chaque carte en tuile sur le tableau, avec son schéma",
+                    "Import et export des .tea de Mental-O, export PNG, SVG, Markdown, OPML et JSON Canvas",
+                    "Un onglet « Mental-O (dlc) » dans les Préférences, trois succès"
+                }
             }
-            // Mental-o en DLC (22/09) : un module À CODE — sa DLL WPF apporte
-            // les cartes mentales. RETIRÉ DU CATALOGUE le 27/09/2026 (décision
-            // de Rémi, portage Avalonia) : le module sera porté sur Avalonia
-            // après la V1, dans un chantier à part ; d'ici là il ne se propose
-            // plus. L'infrastructure des modules à code (ICodeModuleHost,
-            // manifeste « entry », ModuleRegistry) reste en place, et un
-            // .mdlc installé à la main se charge toujours.
         };
 
         /// <summary>Le dossier des modules installés : %APPDATA%\Marabook\dlc,
@@ -175,7 +189,7 @@ namespace Marabook.Model
         /// « Vérifier les versions » sont grisés. « Installer depuis un
         /// fichier .mdlc » et la désinstallation restent. À passer à true
         /// quand les dépôts des modules publient leurs paquets.</summary>
-        public static readonly bool DownloadsEnabled = false; // readonly, pas const : le code qui en dépend reste compilé sans avertissement
+        public static readonly bool DownloadsEnabled = true; // readonly, pas const : le code qui en dépend reste compilé sans avertissement — activé le 26/10/2026 (Mental-O en DLC : releases et mises à jour vérifiées en ligne)
 
         /// <summary>Après une installation ou un retrait : la fiche ouverte et
         /// les succès se rafraîchissent.</summary>

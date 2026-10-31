@@ -30,6 +30,10 @@ namespace Marabook.App
         {
             if (_installed) return;
             _installed = true;
+            // MAJ+MOLETTE (31/10, Rémi) : le défilement horizontal, partout, sur
+            // tout système — non réglable. Le ScrollViewer le plus profond qui
+            // peut encore avancer dans ce sens agit.
+            InputElement.PointerWheelChangedEvent.AddClassHandler<ScrollViewer>(OnPreviewShiftWheel, RoutingStrategies.Tunnel);
             // macOS (1.0.4) : le trackpad et la Magic Mouse livrent des dizaines
             // d'événements par seconde, à pas fractionnaires, avec leur propre
             // inertie — relancer une course de 180 ms à chacun rendait l'éditeur
@@ -67,6 +71,36 @@ namespace Marabook.App
             var wanted = Math.Max(0, Math.Min(ScrollableHeight(viewer), from - e.Delta.Y * StepPx()));
             motion.Start(wanted);
             e.Handled = true;
+        }
+
+        private static void OnPreviewShiftWheel(ScrollViewer viewer, PointerWheelEventArgs e)
+        {
+            if (e.Handled || (e.KeyModifiers & Avalonia.Input.KeyModifiers.Shift) == 0 || Ui.HasCommand(e.KeyModifiers)) return;
+            if (Math.Abs(e.Delta.Y) < 0.001) return; // déjà horizontal (trackpad) : le natif
+            var target = InnermostHorizontal(e.Source as Visual, e.Delta.Y);
+            if (target != viewer || IsLogical(viewer)) return;
+            var max = Math.Max(0, viewer.Extent.Width - viewer.Viewport.Width);
+            var wanted = Math.Max(0, Math.Min(max, viewer.Offset.X - e.Delta.Y * StepPx()));
+            viewer.Offset = new Vector(wanted, viewer.Offset.Y);
+            e.Handled = true;
+        }
+
+        /// <summary>Le ScrollViewer le plus proche de la source qui peut encore
+        /// défiler horizontalement dans ce sens (delta > 0 : vers la gauche).</summary>
+        private static ScrollViewer InnermostHorizontal(Visual source, double delta)
+        {
+            var node = source;
+            while (node != null)
+            {
+                var viewer = node as ScrollViewer;
+                if (viewer != null)
+                {
+                    var max = viewer.Extent.Width - viewer.Viewport.Width;
+                    if (max > 0.5 && (delta > 0 ? viewer.Offset.X > 0.5 : viewer.Offset.X < max - 0.5)) return viewer;
+                }
+                node = node.GetVisualParent();
+            }
+            return null;
         }
 
         private static double ScrollableHeight(ScrollViewer viewer)

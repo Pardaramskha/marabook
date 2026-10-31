@@ -11,8 +11,9 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-
+using Avalonia.LogicalTree;
 using Marabook.Model;
+using Profiles = Marabook.Settings.Profiles;
 
 namespace Marabook.App
 {
@@ -98,8 +99,7 @@ namespace Marabook.App
             {
                 Width = 150,
                 Margin = new Thickness(0, 0, 6, 0),
-                [ToolTip.TipProperty] = "Police — tapez un nom puis Entrée ; flèches haut/bas pour essayer les polices sur la sélection"
-            };
+                [ToolTip.TipProperty] = "Police"};
             _fontCombo.FontChosen += OnFontChosen;
             typeTop.Children.Add(_fontCombo);
 
@@ -113,8 +113,8 @@ namespace Marabook.App
                 Width = 52,
                 Margin = new Thickness(0, 0, 10, 0),
                 IsEditable = true,
-                [ToolTip.TipProperty] = "Taille — tapez une valeur puis Entrée ; flèches haut/bas pour l'essayer"
-            };
+                Classes = { "wide-list" }, // la liste déborde du champ étroit (31/10)
+                [ToolTip.TipProperty] = "Taille"};
             foreach (var size in new[] { 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 28, 32, 36, 48, 72 })
                 _sizeCombo.Items.Add(size);
             _sizeCombo.SelectionChanged += OnSizeComboChanged;
@@ -387,26 +387,31 @@ namespace Marabook.App
             panel.Children.Add(VerticalRuleTall());
             // Les caractères d'impression : un grand carré (13/09), puis
             // l'approche dans sa propre section, centrée verticalement.
-            _marksBtn = BigSquareToggle("paragraph", "Caractères d'impression", "Caractères d'impression");
+            _marksBtn = BigSquareToggle("paragraph", "Caractères d'impression", null);
             _marksBtn.Click += delegate
             {
                 var handler = MarksToggled;
                 if (handler != null) handler(_marksBtn.IsChecked == true);
             };
             panel.Children.Add(_marksBtn);
-            panel.Children.Add(VerticalRuleTall());
+            // L'approche vit dans Formatage depuis le 29/10 (Rémi), avec les
+            // lignes lâches — BuildTrackingPanel, appelé par BuildFormatTab.
+            FinishRibbon(bar, panel);
+        }
+
+        /// <summary>L'approche (tracking, millièmes de cadratin) — champ de
+        /// valeur à la Adobe : petits boutons ± verticaux à gauche, valeur
+        /// absolue lisible et retouchable. Rendue par le compositeur
+        /// (Prépresse, aperçu, PDF). Plus de libellé « Approche » (b43) :
+        /// l'icône et son infobulle suffisent. Dans Formatage (29/10, Rémi),
+        /// masquable par le profil (« Options d'espacement »).</summary>
+        private StackPanel BuildTrackingPanel()
+        {
             var rest = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            panel.Children.Add(rest);
-
-            // Approche (tracking, millièmes de cadratin) — champ de valeur à
-            // la Adobe : petits boutons ± verticaux à gauche, valeur absolue
-            // lisible et retouchable. Rendue par le compositeur (Composition,
-            // aperçu, PDF). Plus de libellé « Approche » (b43) : l'icône et
-            // son infobulle suffisent.
             var kerningIcon = Icons.Make("kerning", 13, Chrome.SoftText) as Control;
             if (kerningIcon != null)
             {
@@ -460,7 +465,13 @@ namespace Marabook.App
                     ApplyTrackingAbsolute(value);
             };
             rest.Children.Add(_trackingBox);
+            return rest;
+        }
 
+        /// <summary>La rangée d'onglets du ruban et l'axe d'affichage, posés
+        /// dans la barre.</summary>
+        private void FinishRibbon(Border bar, Control panel)
+        {
             // Ribbon: « Texte » (this panel) + « Mise en page » (page setup).
             // Gabarit RibbonTabs (17/09) : l'axe d'affichage vit dans la rangée
             // des chips (Tag), le contenu de l'onglet prend toute la largeur —
@@ -478,10 +489,13 @@ namespace Marabook.App
             tabs.Items.Add(new TabItem { Header = "Insertion", Content = BuildInsertTab() });
             tabs.Items.Add(new TabItem { Header = "Formatage", Content = BuildFormatTab() });
             tabs.Items.Add(new TabItem { Header = "Mise en page", Content = BuildPageSetupTab() });
-            tabs.Items.Add(new TabItem { Header = "Gabarit", Content = BuildDecorTab() });
-            tabs.Items.Add(new TabItem { Header = "Composition", Content = BuildCompositionTab() });
+            // Gabarit : grisé pour un écrit de livre (le gabarit du livre
+            // gouverne, 29/10). Prépresse (ex-Composition) ferme la rangée.
+            _decorTab = new TabItem { Header = "Gabarit", Content = BuildDecorTab() };
+            tabs.Items.Add(_decorTab);
             tabs.Items.Add(new TabItem { Header = "Révision", Content = BuildRevisionTab() });
             tabs.Items.Add(new TabItem { Header = "Correction", Content = BuildCorrectionTab() });
+            tabs.Items.Add(new TabItem { Header = "Prépresse", Content = BuildCompositionTab() });
 
             // L'AXE D'AFFICHAGE (batch 26), collé au bord droit des onglets :
             // comment on VOIT la page — Pages (marges, folios, gabarits),
@@ -513,13 +527,13 @@ namespace Marabook.App
                 if (plan != null && handler != null) handler(plan);
             };
             views.Children.Add(_planBtn);
-            _pagesViewBtn = ViewToggle("Pages", "Pages");
+            _pagesViewBtn = ViewToggle("Pages", null);
             _pagesViewBtn.Click += delegate { SetDraftView(false); };
             views.Children.Add(_pagesViewBtn);
-            _draftViewBtn = ViewToggle("Brouillon", "Brouillon");
+            _draftViewBtn = ViewToggle("Brouillon", null);
             _draftViewBtn.Click += delegate { SetDraftView(true); };
             views.Children.Add(_draftViewBtn);
-            _calmViewBtn = ViewToggle("Calme", "Calme");
+            _calmViewBtn = ViewToggle("Calme", null);
             _calmViewBtn.Click += delegate
             {
                 UpdateViewButtons(); // l'état réel suivra SetCalm
@@ -631,7 +645,7 @@ namespace Marabook.App
             // La feuille du calme (13/09) : A4 nue, ombre réelle, air en tête,
             // pas de marqueurs veuves/orphelines — et retour à l'axe choisi
             // (Pages ou Brouillon) en sortant. Même moteur, réglage dérivé.
-            ComposedRenderer.ShowWidowMarks = !calm;
+            ComposedRenderer.ShowWidowMarks = WidowMarksWanted(); // ni pour un profil qui s'en passe (27/10), ni bouton décoché (29/10)
             _composed.CalmLook = calm;
             AttachComposed();
             UpdateRulers();      // les règles s'effacent en calme
@@ -667,22 +681,13 @@ namespace Marabook.App
         private Control BuildDecorTab()
         {
             var panel = TabPanel();
-            var header = OneLine("sort-descending-bold", "Éditer l'en-tête…", "Éditer l'en-tête");
+            var header = OneLine("sort-descending-bold", "Éditer l'en-tête…", null);
             header.Click += delegate { EditHeaderFooter(true); };
-            var footer = OneLine("sort-ascending-bold", "Éditer le pied de page…", "Éditer le pied de page");
+            var footer = OneLine("sort-ascending-bold", "Éditer le pied de page…", null);
             footer.Click += delegate { EditHeaderFooter(false); };
             panel.Children.Add(Stacked(header, footer));
-            panel.Children.Add(VerticalRuleTall());
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Un gabarit de pages appliqué au document (livres) remplace ces réglages.",
-                Foreground = Chrome.SoftText,
-                FontSize = 11,
-                TextWrapping = TextWrapping.Wrap,
-                MaxWidth = 210,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(2, 3, 0, 0)
-            });
+            // Plus de texte d'aide (29/10, Rémi) : pour un écrit de livre,
+            // l'onglet entier est grisé — le gabarit du livre gouverne.
             return panel;
         }
 
@@ -810,7 +815,7 @@ namespace Marabook.App
             NotifyEdited();
         }
 
-        // ============================================================= « Composition » tab
+        // ============================================================= « Prépresse » tab (ex-Composition, 29/10)
 
         public event Action PreviewRequested;  // Aperçu des pages
         public event Action PrintRequested;    // Imprimer / PDF
@@ -824,17 +829,17 @@ namespace Marabook.App
         private Control BuildCompositionTab()
         {
             var panel = TabPanel();
-            var preview = BigSquare("book-open-text-bold", "Aperçu des pages", "Aperçu des pages");
+            var preview = BigSquare("book-open-text-bold", "Aperçu des pages", null);
             preview.Click += delegate { var handler = PreviewRequested; if (handler != null) handler(); };
             panel.Children.Add(preview);
             panel.Children.Add(VerticalRuleTall());
-            var print = OneLine("printer-bold", "Imprimer", "Imprimer");
+            var print = OneLine("printer-bold", "Imprimer", null);
             print.Click += delegate { var handler = PrintRequested; if (handler != null) handler(); };
-            var pdf = OneLine("document-file", "PDF prêt à imprimer…", "PDF prêt à imprimer");
+            var pdf = OneLine("document-file", "PDF prêt à imprimer…", null);
             pdf.Click += delegate { var handler = PdfRequested; if (handler != null) handler(); };
             panel.Children.Add(Stacked(print, pdf));
             panel.Children.Add(VerticalRuleTall());
-            var export = OneLine("file-arrow-down-bold", "Exporter l'écrit…", "Exporter l'écrit");
+            var export = OneLine("file-arrow-down-bold", "Exporter l'écrit…", null);
             export.Click += delegate { var handler = ExportRequested; if (handler != null) handler(); };
             panel.Children.Add(export);
             return panel;
@@ -844,6 +849,11 @@ namespace Marabook.App
 
         private ComboBox _marginsCombo, _sizeComboPage, _columnsCombo;
         private ToggleButton _guidesBtn, _lineNumbersBtn, _looseBtn, _folioBtn;
+        private ToggleButton _widowsBtn;              // Mise en page › Veuves/Orphelines : l'affichage des marqueurs (29/10)
+        private Grid _pageGrid;                        // Marges et Taille — grisés pour un écrit de livre (29/10)
+        private TabItem _decorTab;                     // Gabarit — grisé pour un écrit de livre (29/10)
+        private Control _trackingRule, _trackingPanel; // l'approche (Formatage depuis le 29/10), masquable par le profil (27/10)
+        private Control _formatTab;                    // le panneau de l'onglet Formatage (sonde)
         private ToggleButton _marksBtn;
         private bool _syncingPage;
         private ComboBox _leadingCombo; // l'interligne du document (22/09)
@@ -868,6 +878,7 @@ namespace Marabook.App
             // Marges et Taille superposés (13/09) : une grille de deux
             // rangées, libellés alignés, listes de même largeur.
             var pageGrid = new Grid { VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 0, 10, 0) };
+            _pageGrid = pageGrid; // grisé pour un écrit de livre (29/10)
             pageGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             pageGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             pageGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(Buttons.Compact) });
@@ -941,14 +952,14 @@ namespace Marabook.App
             setup.Children.Add(_columnsCombo);
 
             panel.Children.Add(VerticalRuleTall());
-            _guidesBtn = OneLineToggle("margins", "Marges", "Marges");
+            _guidesBtn = OneLineToggle("margins", "Marges", null);
             _guidesBtn.Click += delegate
             {
                 if (_project == null) return;
                 _pageSetup.ShowMarginGuides = _guidesBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
-            _lineNumbersBtn = OneLineToggle("list-numbers-bold", "Numéros de ligne", "Numéros de ligne");
+            _lineNumbersBtn = OneLineToggle("list-numbers-bold", "Numéros de ligne", null);
             _lineNumbersBtn.Click += delegate
             {
                 if (_project == null) return;
@@ -958,26 +969,105 @@ namespace Marabook.App
             panel.Children.Add(Stacked(_guidesBtn, _lineNumbersBtn));
 
             panel.Children.Add(VerticalRuleTall());
-            // Lignes lâches (09/10) : à la place du bouton « Césure » (retiré :
-            // la césure se règle par style). Une bande jaune derrière chaque
-            // ligne dont la justification a dû au moins doubler les espaces —
-            // écran seulement, réglage de la machine, pas du document.
-            var looseGesture = Marabook.Settings.AppSettings.Gesture("loose-lines");
-            _looseBtn = OneLineToggle("highlighter-line", "Lignes lâches",
-                "Afficher ou masquer les lignes lâches" + (string.IsNullOrEmpty(looseGesture) ? "" : " (" + Marabook.Settings.AppSettings.DisplayGesture(looseGesture) + ")")
-                + " : une bande jaune derrière chaque ligne justifiée dont les espaces ont dû au moins doubler (écran seulement) — là où une césure manque, où l'approche peut aider");
-            _looseBtn.IsChecked = Marabook.Settings.AppSettings.ShowLooseLines;
-            ComposedRenderer.ShowLooseLines = Marabook.Settings.AppSettings.ShowLooseLines;
-            _looseBtn.Click += delegate { ApplyLooseLines(_looseBtn.IsChecked == true); };
-            _folioBtn = OneLineToggle("numbered", "Folio", "Folio");
+            // Les lignes lâches vivent dans Formatage depuis le 29/10 (Rémi),
+            // avec l'approche — BuildLooseLinesButton.
+            _folioBtn = OneLineToggle("numbered", "Folio", null);
             _folioBtn.Click += delegate
             {
                 if (_project == null) return;
                 _pageSetup.FooterPageNumbers = _folioBtn.IsChecked == true;
                 AfterPageSetupEdit();
             };
-            panel.Children.Add(Stacked(_looseBtn, _folioBtn));
+            // Veuves/Orphelines (29/10, Rémi) : afficher ou cacher les
+            // MARQUEURS du détecteur — l'affichage seul, la composition ne
+            // bouge pas. Actif par défaut ; caché pour un profil sans
+            // détecteur (Écrivain·e).
+            _widowsBtn = OneLineToggle("warning-fill", "Veuves/Orphelines",
+                "Afficher ou masquer les marqueurs de veuves et d'orphelines");
+            _widowsBtn.IsChecked = Marabook.Settings.AppSettings.ShowWidowMarks;
+            _widowsBtn.IsVisible = Profiles.Enabled(Profiles.Widows);
+            _widowsBtn.Click += delegate { ApplyWidowMarks(_widowsBtn.IsChecked == true); };
+            panel.Children.Add(Stacked(_folioBtn, _widowsBtn));
             return panel;
+        }
+
+        /// <summary>Lignes lâches (09/10) : à la place du bouton « Césure »
+        /// (retiré : la césure se règle par style). Une bande jaune derrière
+        /// chaque ligne dont la justification a dû au moins doubler les
+        /// espaces — écran seulement, réglage de la machine, pas du document.
+        /// Dans Formatage depuis le 29/10.</summary>
+        private ToggleButton BuildLooseLinesButton()
+        {
+            var looseGesture = Marabook.Settings.AppSettings.Gesture("loose-lines");
+            _looseBtn = OneLineToggle("highlighter-line", "Lignes lâches",
+                "Afficher ou masquer les lignes lâches" + (string.IsNullOrEmpty(looseGesture) ? "" : " (" + Marabook.Settings.AppSettings.DisplayGesture(looseGesture) + ")"));
+            _looseBtn.IsChecked = Marabook.Settings.AppSettings.ShowLooseLines;
+            ComposedRenderer.ShowLooseLines = Marabook.Settings.AppSettings.ShowLooseLines;
+            _looseBtn.Click += delegate { ApplyLooseLines(_looseBtn.IsChecked == true); };
+            _looseBtn.IsVisible = Profiles.Enabled(Profiles.LooseLines);
+            _looseBtn.VerticalAlignment = VerticalAlignment.Center;
+            return _looseBtn;
+        }
+
+        /// <summary>Le réglage des marqueurs de veuves et d'orphelines posé
+        /// partout : réglages, dessinateur (qui tient aussi compte du mode
+        /// calme et du profil), pages redessinées.</summary>
+        private void ApplyWidowMarks(bool visible)
+        {
+            Marabook.Settings.AppSettings.ShowWidowMarks = visible;
+            Marabook.Settings.AppSettings.Save();
+            if (_widowsBtn != null) _widowsBtn.IsChecked = visible;
+            ComposedRenderer.ShowWidowMarks = WidowMarksWanted();
+            if (_composed != null) _composed.RedrawPages();
+        }
+
+        /// <summary>Les marqueurs se dessinent hors du mode calme, pour un
+        /// profil qui a le détecteur, et si le bouton les veut (29/10).</summary>
+        private bool WidowMarksWanted()
+        {
+            return !_calm && Profiles.Enabled(Profiles.Widows) && Marabook.Settings.AppSettings.ShowWidowMarks;
+        }
+
+        /// <summary>Sonde (29/10).</summary>
+        public bool WidowMarksShownForProbe { get { return _widowsBtn != null && _widowsBtn.IsChecked == true && ComposedRenderer.ShowWidowMarks; } }
+        public bool WidowMarksButtonVisibleForProbe { get { return _widowsBtn != null && _widowsBtn.IsVisible; } }
+        public void ToggleWidowMarksForProbe() { ApplyWidowMarks(!Marabook.Settings.AppSettings.ShowWidowMarks); }
+        public bool DecorTabEnabledForProbe { get { return _decorTab != null && _decorTab.IsEnabled; } }
+        public bool PageGridEnabledForProbe { get { return _pageGrid != null && _pageGrid.IsEnabled; } }
+        public bool TrackingInFormatTabForProbe { get { return _trackingPanel != null && _looseBtn != null && _formatTab != null && IsInside(_trackingPanel, _formatTab) && IsInside(_looseBtn, _formatTab); } }
+        public string RibbonTabHeadersForProbe
+        {
+            get
+            {
+                var heads = new System.Collections.Generic.List<string>();
+                if (_ribbonTabs != null)
+                    foreach (var item in _ribbonTabs.Items) { var tab = item as TabItem; if (tab != null) heads.Add(tab.Header as string); }
+                return string.Join("|", heads.ToArray());
+            }
+        }
+
+        private static bool IsInside(Control child, Control ancestor)
+        {
+            for (Visual v = child; v != null; v = v.GetVisualParent()) if (ReferenceEquals(v, ancestor)) return true;
+            // Pas encore dans l'arbre visuel (onglet jamais montré) : l'arbre logique.
+            for (ILogical l = child; l != null; l = l.LogicalParent) if (ReferenceEquals(l, ancestor)) return true;
+            return false;
+        }
+
+        /// <summary>Le profil (1.1.0) : « Lignes lâches » et « Lien vers une fiche »
+        /// se cachent ; les lignes lâches ne se dessinent plus tant qu'elles sont
+        /// cachées (le réglage reste), le bouton « Plan » suit les plans.</summary>
+        public void ApplyProfile()
+        {
+            var loose = Profiles.Enabled(Profiles.LooseLines); // « Options d'espacement » : lignes lâches ET approche
+            if (_looseBtn != null) _looseBtn.IsVisible = loose;
+            if (_trackingRule != null) _trackingRule.IsVisible = loose;
+            if (_trackingPanel != null) _trackingPanel.IsVisible = loose;
+            if (_widowsBtn != null) _widowsBtn.IsVisible = Profiles.Enabled(Profiles.Widows); // le bouton Veuves/Orphelines (29/10)
+            ComposedRenderer.ShowWidowMarks = WidowMarksWanted(); // le détecteur de veuves / orphelines
+            if (_composed != null) _composed.SetLooseLines(loose && Marabook.Settings.AppSettings.ShowLooseLines); // redessine les pages (marqueurs compris)
+            if (_linkBtn != null) _linkBtn.IsVisible = Profiles.Enabled(Profiles.Sheets);
+            RefreshPlanButton();
         }
 
         /// <summary>Le réglage des lignes lâches posé partout : réglages,
@@ -993,6 +1083,22 @@ namespace Marabook.App
         /// <summary>Sonde (09/10).</summary>
         public bool LooseLinesShownForProbe { get { return _looseBtn != null && _looseBtn.IsChecked == true && ComposedRenderer.ShowLooseLines; } }
         public void ToggleLooseLinesForProbe() { ApplyLooseLines(!Marabook.Settings.AppSettings.ShowLooseLines); }
+
+        /// <summary>Sonde (29/10) : montre l'onglet du ruban qui porte cet
+        /// en-tête (« Formatage »…), pour que ses boutons soient dans l'arbre
+        /// visuel ; vrai s'il existe.</summary>
+        public bool SelectRibbonTabForProbe(string header)
+        {
+            if (_ribbonTabs == null) return false;
+            foreach (var item in _ribbonTabs.Items)
+            {
+                var tab = item as TabItem;
+                if (tab == null || !Equals(tab.Header, header)) continue;
+                _ribbonTabs.SelectedItem = tab;
+                return true;
+            }
+            return false;
+        }
 
         private TextBlock PageLabel(string text)
         {

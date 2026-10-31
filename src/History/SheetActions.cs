@@ -18,6 +18,7 @@ namespace Marabook.History
         public List<InfoEntry> FreeInfo = new List<InfoEntry>();
         public List<SheetRelation> Relations = new List<SheetRelation>();
         public List<EvolutionEntry> Evolution = new List<EvolutionEntry>();
+        public List<string> Tags = new List<string>(); // 1.1.0
 
         public static SheetState Capture(BinderItem item)
         {
@@ -27,7 +28,8 @@ namespace Marabook.History
                 CategoryId = item.CategoryId,
                 TemplateId = item.TemplateId,
                 FieldValues = new Dictionary<string, string>(item.FieldValues),
-                RadarValues = new Dictionary<string, double>(item.RadarValues)
+                RadarValues = new Dictionary<string, double>(item.RadarValues),
+                Tags = new List<string>(item.Tags)
             };
             foreach (var entry in item.FreeInfo) state.FreeInfo.Add(Copy(entry));
             foreach (var relation in item.Relations) state.Relations.Add(Copy(relation));
@@ -53,6 +55,8 @@ namespace Marabook.History
             foreach (var relation in Relations) item.Relations.Add(Copy(relation));
             item.Evolution.Clear();
             foreach (var step in Evolution) item.Evolution.Add(Copy(step));
+            item.Tags.Clear();
+            item.Tags.AddRange(Tags);
         }
 
         public static InfoEntry Copy(InfoEntry entry)
@@ -83,6 +87,7 @@ namespace Marabook.History
             if (a.ImageId != b.ImageId) keys.Add("image");
             if (a.CategoryId != b.CategoryId) keys.Add("category");
             if (a.TemplateId != b.TemplateId) keys.Add("template");
+            if (string.Join("\n", a.Tags.ToArray()) != string.Join("\n", b.Tags.ToArray())) keys.Add("tags-set"); // jamais fondu
             foreach (var id in Union(a.FieldValues.Keys, b.FieldValues.Keys))
             {
                 string x, y;

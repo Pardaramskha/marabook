@@ -131,9 +131,7 @@ namespace Marabook.App
             var sampleBox = new TextBox
             {
                 Text = DefaultSample,
-                [ToolTip.TipProperty] = "Remplace la phrase d'exemple sous chaque police — tel quel, sans mise en forme automatique "
-                    + "(collez vos glyphes) ; vide = la phrase par défaut"
-            };
+                [ToolTip.TipProperty] = "Remplace la phrase d'exemple sous chaque police"};
             sampleBox.TextChanged += delegate
             {
                 _sample = (sampleBox.Text ?? "").Length > 0 ? sampleBox.Text : DefaultSample;
@@ -188,7 +186,9 @@ namespace Marabook.App
         }
 
         /// <summary>Les lignes : les doublons des favorites en tête (dans
-        /// l'ordre où elles ont été choisies), puis tout le catalogue.</summary>
+        /// l'ordre où elles ont été choisies), puis le catalogue, les polices
+        /// EXCLUES en bas (1.1.0, Rémi) — chaque groupe dans l'ordre
+        /// alphabétique du catalogue.</summary>
         private void RebuildRows()
         {
             _rows.Clear();
@@ -197,8 +197,19 @@ namespace Marabook.App
                 var entry = FontCatalog.Find(name);
                 if (entry != null) _rows.Add(new FontRow(this, entry, true));
             }
-            foreach (var entry in FontCatalog.Entries) _rows.Add(new FontRow(this, entry, false));
+            foreach (var entry in FontCatalog.Entries)
+                if (!AppSettings.IsExcludedFont(entry.Name)) _rows.Add(new FontRow(this, entry, false));
+            foreach (var entry in FontCatalog.Entries)
+                if (AppSettings.IsExcludedFont(entry.Name)) _rows.Add(new FontRow(this, entry, false));
             RefreshCounts();
+        }
+
+        /// <summary>Sonde (1.1.0) : les noms des lignes, dans l'ordre affiché.</summary>
+        public List<string> RowNamesForProbe()
+        {
+            var names = new List<string>();
+            foreach (var row in _rows) names.Add((row.IsCopy ? "★" : "") + row.Name);
+            return names;
         }
 
         private void RefreshCounts()
@@ -246,9 +257,16 @@ namespace Marabook.App
         private void ToggleExclude(FontRow row)
         {
             AppSettings.ToggleExcludedFont(row.Name);
-            foreach (var other in _rows)
-                if (string.Equals(other.Name, row.Name, StringComparison.OrdinalIgnoreCase)) other.Refresh();
-            RefreshCounts();
+            // La police change de groupe (1.1.0) : la liste se rebâtit, les
+            // exclues en bas ; le défilement reste où il est.
+            RebuildRows();
+        }
+
+        /// <summary>Sonde (1.1.0) : exclure ou réintégrer cette police.</summary>
+        public void ToggleExcludeForProbe(string name)
+        {
+            var entry = FontCatalog.Find(name);
+            if (entry != null) ToggleExclude(new FontRow(this, entry, false));
         }
 
         private static FontRow RowOf(object sender)

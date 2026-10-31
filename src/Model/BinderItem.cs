@@ -93,6 +93,25 @@ namespace Marabook.Model
         public List<SheetRelation> Relations = new List<SheetRelation>(); // fiches (batch 34)
         public List<EvolutionEntry> Evolution = new List<EvolutionEntry>(); // fiches : les étapes liées aux écrits (batch 47)
         public Dictionary<string, double> RadarValues = new Dictionary<string, double>(); // fiches : valeur par id d'axe du radar (b47 bis), par pas de 0,5
+        // LES TAGS d'une fiche (1.1.0, .plot v41) : des mots libres, rognés,
+        // sans doublon (casse ignorée) — le filtre par tag de la bibliothèque,
+        // les puces du Général du rail. Vide = aucun.
+        public List<string> Tags = new List<string>();
+
+        // « IGNORER PARTOUT » dans CET écrit (1.1.0, .plot v44, 30/10, Rémi) :
+        // des mots (tels qu'affichés, pliés à la comparaison) et des règles
+        // (« règle:<id> ») que le correcteur ne relève plus dans ce document
+        // seul — ni dans le projet, ni globalement. Vide = rien.
+        public List<string> ProofIgnored = new List<string>();
+
+        // L'OBJECTIF et la LIMITE d'un écrit (1.1.0, v41) : un nombre et son
+        // unité (TextGoal.Words, Chars, Pages). 0 = aucun. L'objectif se
+        // remplit à mesure qu'on écrit (Général du rail) ; la limite dépassée
+        // cercle la carte de rouge au tableau.
+        public int Goal;
+        public string GoalUnit = TextGoal.Words;
+        public int Limit;
+        public string LimitUnit = TextGoal.Words;
 
         // Media items only: raw bytes, written to the zip on save.
         public byte[] MediaBytes;
@@ -193,6 +212,11 @@ namespace Marabook.Model
                 CategoryId = CategoryId,
                 FieldValues = new Dictionary<string, string>(FieldValues),
                 RadarValues = new Dictionary<string, double>(RadarValues),
+                Tags = new List<string>(Tags),
+                Goal = Goal,
+                GoalUnit = GoalUnit,
+                Limit = Limit,
+                LimitUnit = LimitUnit,
                 MediaBytes = MediaBytes == null ? null : (byte[])MediaBytes.Clone(),
                 MediaExtension = MediaExtension,
                 MapBytes = MapBytes == null ? null : (byte[])MapBytes.Clone(),

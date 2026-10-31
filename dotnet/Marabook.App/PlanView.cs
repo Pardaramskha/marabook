@@ -33,6 +33,27 @@ namespace Marabook.App
         private readonly StackPanel _columns;
         private readonly ScrollViewer _scroll;
         private readonly PlanChart _chart;           // la vue « Intensité » (30/09)
+        /// <summary>Tutoriel (29/10) : la bascule Intensité, à montrer ou à enclencher.</summary>
+        internal ToggleButton ChartToggleForTutorial { get { return _chartToggle; } }
+        internal void SetChartForTutorial(bool on) { if (_chartToggle != null && (_chartToggle.IsChecked == true) != on) _chartToggle.IsChecked = on; }
+        /// <summary>Tutoriel (29/10) : la brique (élément, pas note) du plan
+        /// ouvert dont le texte commence par titlePrefix — sans titre, la
+        /// première ; null s'il n'y en a pas.</summary>
+        internal PlanEntry FirstElementForTutorial(string titlePrefix = null)
+        {
+            if (_item == null || _item.Plan == null) return null;
+            PlanEntry first = null;
+            foreach (var column in _item.Plan.Columns)
+                foreach (var entry in column.Entries)
+                {
+                    if (!entry.IsElement) continue;
+                    if (first == null) first = entry;
+                    if (titlePrefix != null && TutorialParser.Fold(entry.Text ?? "").StartsWith(TutorialParser.Fold(titlePrefix))) return entry;
+                }
+            return first;
+        }
+        internal Control ColumnsForTutorial { get { return _columns; } }
+        internal Control ChartForTutorial { get { return _chart; } }
         private readonly ToggleButton _chartToggle;
 
         private BinderItem _item;
@@ -112,8 +133,7 @@ namespace Marabook.App
                 Content = "📈  Intensité",
                 FontWeight = FontWeight.SemiBold,
                 Padding = new Thickness(10, 4, 10, 4),
-                Margin = new Thickness(12, 0, 0, 0),
-                [ToolTip.TipProperty] = "Voir l'intensité du plan entier, colonne par colonne — un clic de plus ramène les colonnes"
+                Margin = new Thickness(12, 0, 0, 0)
             };
             _chartToggle.IsCheckedChanged += delegate { ApplyChartMode(); };
             left.Children.Add(_chartToggle);
@@ -853,6 +873,16 @@ namespace Marabook.App
             return new TextBlock { Text = text, Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(0, 8, 0, 3) };
         }
 
+        /// <summary>Tutoriel (29/10) : la fiche d'une brique existante, montrée
+        /// SANS bloquer, à regarder seulement — refermée par le tuto, rien n'est écrit.</summary>
+        internal static PlanEntryDialog OpenForTutorial(Window owner, PlanEntry entry)
+        {
+            var dialog = new PlanEntryDialog(owner, entry);
+            Dialogs.FitToScreen(dialog, owner);
+            dialog.Show(owner);
+            return dialog;
+        }
+
         /// <summary>Vrai si validé : l'entrée est mise à jour en place.</summary>
         public static async Task<bool> Ask(Window owner, PlanEntry entry)
         {
@@ -930,7 +960,7 @@ namespace Marabook.App
             var zoomIn = Buttons.Text("+", "Écarter les colonnes (Ctrl+molette)", Buttons.Compact, Buttons.Look.Outline);
             zoomIn.Width = Buttons.Compact; zoomIn.Padding = new Thickness(0); zoomIn.Margin = new Thickness(4, 0, 0, 0);
             zoomIn.Click += delegate { ZoomStep(1); };
-            var fit = Buttons.Text("Tout", "Faire tenir tout le plan dans la fenêtre", Buttons.Compact, Buttons.Look.Outline);
+            var fit = Buttons.Text("Tout", null, Buttons.Compact, Buttons.Look.Outline);
             fit.Margin = new Thickness(4, 0, 0, 0);
             fit.Click += delegate { FitAll(); };
             _zoomLabel = new TextBlock { FontSize = 11, Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
@@ -1054,6 +1084,19 @@ namespace Marabook.App
                 var title = columns[i].Title.Length == 0 ? "(sans titre)" : columns[i].Title;
                 var nearest = PlanIntensity.Clamp((int)Math.Round(value));
                 _plot.Children.Add(new Line { StartPoint = new Point(x, bottom), EndPoint = new Point(x, bottom + 6), Stroke = Chrome.BorderStrong, StrokeThickness = 1 });
+                // Le trait vertical du socle au point AU SURVOL (31/10, Rémi :
+                // « repérer rapidement là où on regarde ») : la colonne entière
+                // réagit (une zone transparente sous les points), le trait
+                // pointillé d'accent paraît, et s'efface quand la souris s'en va.
+                var guide = new Line { StartPoint = new Point(x, bottom), EndPoint = new Point(x, y), Stroke = Chrome.Accent, StrokeThickness = 1.5, StrokeDashArray = new Avalonia.Collections.AvaloniaList<double> { 3, 3 }, IsVisible = false, IsHitTestVisible = false };
+                var zone = new Rectangle { Width = step, Height = Math.Max(0, bottom - Top), Fill = Brushes.Transparent };
+                Canvas.SetLeft(zone, x - step / 2);
+                Canvas.SetTop(zone, Top);
+                var guideRef = guide;
+                zone.PointerEntered += delegate { guideRef.IsVisible = true; };
+                zone.PointerExited += delegate { guideRef.IsVisible = false; };
+                _plot.Children.Add(zone);
+                _plot.Children.Add(guide);
                 var size = dense ? 8 : 12;
                 var dot = new Ellipse
                 {
@@ -1066,6 +1109,8 @@ namespace Marabook.App
                 };
                 Canvas.SetLeft(dot, x - size / 2.0);
                 Canvas.SetTop(dot, y - size / 2.0);
+                dot.PointerEntered += delegate { guideRef.IsVisible = true; };
+                dot.PointerExited += delegate { guideRef.IsVisible = false; };
                 _plot.Children.Add(dot);
                 if (value > 0 && !dense)
                 {

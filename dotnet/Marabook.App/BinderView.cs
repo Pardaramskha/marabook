@@ -15,6 +15,8 @@ using Avalonia.VisualTree;
 
 using Marabook.History;
 using Marabook.Model;
+using AppSettings = Marabook.Settings.AppSettings;
+using Profiles = Marabook.Settings.Profiles;
 
 namespace Marabook.App
 {
@@ -30,6 +32,10 @@ namespace Marabook.App
         private bool _subscribed;
         private readonly Dictionary<string, TreeViewItem> _nodesById = new Dictionary<string, TreeViewItem>();
         private readonly HashSet<string> _expandedIds = new HashSet<string>();
+        /// <summary>La clé (chemin du projet) sous laquelle l'état déplié se
+        /// retient entre les sessions (31/10) ; null = rien à retenir (projet
+        /// jamais enregistré, tutoriel).</summary>
+        public string ExpansionKey;
         private string _selectedId;
         private bool _rebuilding;
 
@@ -54,9 +60,25 @@ namespace Marabook.App
         public event Action<BinderItem, string[]> FilesDropped;
         public event Action CollapseRequested; // le caret de repli sur la ligne Accueil (29/09)
         public event Action JournalRequested; // clic sur « Journal perso » (pied de Pile)
+        public event Action GraphRequested;   // clic sur « Graphe relationnel » (section Encyclopédie, 1.1.0)
+        public event Action<BinderItem> ExportSheetRequested; // « Exporter la fiche… » (Encyclopédie, 31/10)
+        public event Action ExportEncyclopediaRequested;      // « Exporter l'Encyclopédie… » sur la racine Fiches (31/10)
+        /// <summary>La page du graphe (28/10) : un item synthétique de la
+        /// coquille, montré comme une racine d'Encyclopédie — sélectionnable,
+        /// jamais déplacé ni cible de dépôt, sans menu.</summary>
+        public BinderItem GraphItem;
         // Épingler sur le côté (b47) : la coquille tient l'épingle ; la Pile
         // demande, et sait si l'item est déjà épinglé pour libeller le menu.
         public event Action<BinderItem> SidePinRequested;
+        // Les onglets (1.1.0) : « Ouvrir dans un nouvel onglet » du menu de la
+        // Pile — offert quand la coquille dit que la rangée a de la place.
+        public event Action<BinderItem> NewTabRequested;
+        public Func<bool> CanOpenTab;
+        private Control _searchBar;
+        /// <summary>La barre de recherche : la rangée d'onglets s'aligne sur sa hauteur.</summary>
+        public Control SearchBarForTabs { get { return _searchBar; } }
+        private Control _journalRow; // « Journal perso », en pied de Pile — le tutoriel le met en valeur (29/10)
+        internal Control JournalRowForTutorial { get { return _journalRow; } }
         public Func<BinderItem, bool> IsSidePinned;
 
         // Fourni par MainWindow (cache de composition) : total de pages d'un
@@ -181,8 +203,10 @@ namespace Marabook.App
             };
 
             var layout = new DockPanel();
-            layout.Children.Add(BuildSearchBar());
-            layout.Children.Add(BuildJournalRow());
+            _searchBar = BuildSearchBar();
+            layout.Children.Add(_searchBar);
+            _journalRow = BuildJournalRow();
+            layout.Children.Add(_journalRow);
 
             _results = new ListBox
             {
@@ -308,19 +332,21 @@ namespace Marabook.App
             DockPanel.SetDock(bar, Dock.Top);
             var row = new DockPanel();
 
+            // La recherche de la Pile ne cherche que les NOMS (29/10, Rémi) :
+            // titres des écrits, fiches, plans, médias — le contenu, c'est
+            // Rechercher dans le projet (Ctrl+Maj+F).
             _searchFilter = new ComboBox { Width = 74, Margin = new Thickness(4, 0, 0, 0) };
             _searchFilter.Items.Add("Tout");
             _searchFilter.Items.Add("Écrits");
             _searchFilter.Items.Add("Fiches");
             _searchFilter.Items.Add("Plans");
-            _searchFilter.Items.Add("Dictionnaire");
             _searchFilter.Items.Add("Médias");
             _searchFilter.SelectedIndex = 0;
             _searchFilter.SelectionChanged += delegate { RunSearch(); };
             DockPanel.SetDock(_searchFilter, Dock.Right);
             row.Children.Add(_searchFilter);
 
-            _searchBox = new TextBox { [ToolTip.TipProperty] = "Recherche dans tout le projet (titres, textes, fiches, plans, dictionnaire — sans casse ni accents)" };
+            _searchBox = new TextBox { [ToolTip.TipProperty] = "Rechercher dans la Pile"};
             _searchBox.TextChanged += delegate { ScheduleSearch(); };
             _searchBox.KeyDown += delegate(object sender, KeyEventArgs e)
             {
@@ -357,7 +383,6 @@ namespace Marabook.App
                 Padding = new Thickness(12, 8, 12, 8),
                 Background = Brushes.Transparent,
                 Cursor = new Cursor(StandardCursorType.Hand),
-                [ToolTip.TipProperty] = "Statistiques d'écriture et objectif journalier",
                 Child = row
             };
             bar.PointerEntered += delegate { bar.Background = Chrome.BarBg; };
@@ -391,13 +416,120 @@ namespace Marabook.App
                 _subscribed = true;
             }
             _expandedIds.Clear();
-            foreach (var root in project.Roots) _expandedIds.Add(root.Id); // categories start open
+            List<string> remembered;
+            if (ExpansionKey != null && AppSettings.BinderExpanded.TryGetValue(ExpansionKey, out remembered))
+                foreach (var id in remembered) _expandedIds.Add(id); // ce que la session d'avant avait déplié (31/10, Rémi)
+            else
+                foreach (var root in project.Roots) _expandedIds.Add(root.Id); // categories start open
             _selectedId = null;
             if (_searchBox != null) _searchBox.Text = ""; // also restores the tree
             Rebuild();
         }
 
         // ------------------------------------------------------- tree construction
+
+        // Les SECTIONS de la Pile (1.1.0, Rémi) : les racines groupées sous
+        // un nom en ligne avec un filet, repliables — Écriture (Écrits,
+        // Recherche), Encyclopédie (Fiches, Dictionnaire), Structure (Plans,
+        // et les Cartes mentales quand elles paraissent), Outils (en
+        // construction : le chantier de la 1.1.0), puis la Corbeille derrière
+        // un simple filet. L'ordre d'affichage est celui-ci, pas celui du
+        // .plot (Project.Roots ne bouge pas). Le repli vaut pour la session.
+        private sealed class PileSection
+        {
+            public string Name;      // null = un simple filet
+            public string[] Keys;    // les CategoryKey des racines, dans l'ordre
+        }
+
+        private static readonly PileSection[] Sections =
+        {
+            new PileSection { Name = "Écriture", Keys = new[] { Project.KeyWritings, Project.KeyResearch } },
+            new PileSection { Name = "Encyclopédie", Keys = new[] { Project.KeySheets, Project.KeyDictionary } },
+            new PileSection { Name = "Structure", Keys = new[] { Project.KeyPlans, Project.KeyMindMaps } },
+            new PileSection { Name = "Outils", Keys = new string[0] },
+            new PileSection { Name = null, Keys = new[] { Project.KeyTrash } }
+        };
+
+        public const string UnderConstruction = "En construction";
+        internal static readonly HashSet<string> CollapsedSections = new HashSet<string>();
+
+        /// <summary>La section d'une racine, ou null (l'Accueil, une racine inconnue).</summary>
+        private static PileSection SectionOf(BinderItem root)
+        {
+            if (root == null || !root.IsCategory) return null;
+            foreach (var section in Sections)
+                foreach (var key in section.Keys)
+                    if (key == root.CategoryKey) return section;
+            return null;
+        }
+
+        /// <summary>Sonde (1.1.0) : les sections et leur état, dans l'ordre.</summary>
+        internal static List<string> SectionNames()
+        {
+            var names = new List<string>();
+            foreach (var section in Sections) if (section.Name != null) names.Add(section.Name);
+            return names;
+        }
+
+        internal void ToggleSectionForProbe(string name)
+        {
+            if (!CollapsedSections.Remove(name)) CollapsedSections.Add(name);
+            Rebuild();
+        }
+
+        /// <summary>Sonde : les titres des lignes de premier niveau, dans l'ordre
+        /// affiché (sections comprises, « — » pour un filet).</summary>
+        /// <summary>Sonde : la ligne « Graphe relationnel » est-elle dans la Pile ?</summary>
+        internal bool GraphRowShownForProbe { get { return _nodesById.ContainsKey(MainWindow.GraphItemId); } }
+
+        internal List<string> TopRowsForProbe()
+        {
+            var rows = new List<string>();
+            foreach (var entry in _tree.Items)
+            {
+                var row = entry as TreeViewItem;
+                if (row == null) continue;
+                var item = row.Tag as BinderItem;
+                if (item != null) { rows.Add(item.Title); continue; }
+                var label = row.Header as string;
+                var block = row.Header as TextBlock;
+                rows.Add(label ?? (block != null ? block.Text : row.Header is Border ? "—" : SectionLabelOf(row) ?? "?"));
+            }
+            return rows;
+        }
+
+        private static string SectionLabelOf(TreeViewItem row)
+        {
+            var panel = row.Header as Panel;
+            if (panel == null) return null;
+            foreach (var child in panel.Children)
+            {
+                var block = child as TextBlock;
+                if (block != null) return block.Text;
+            }
+            return null;
+        }
+
+        /// <summary>Une racine se montre-t-elle ? La racine Cartes mentales
+        /// n'apparaît qu'avec le module Mental-o (29/09) — ou si le projet
+        /// en contient déjà (elles restent atteignables, avec leur tuile
+        /// d'attente). Le projet la garde : rien ne change dans le .plot.</summary>
+        private static bool RootShown(BinderItem root)
+        {
+            // Le profil (1.1.0) cache les Fiches ou les Plans : la racine reste
+            // dans le projet, la Pile ne la montre plus.
+            if (root.CategoryKey == Project.KeySheets && !Profiles.Enabled(Profiles.Sheets)) return false;
+            if (root.CategoryKey == Project.KeyPlans && !Profiles.Enabled(Profiles.Plans)) return false;
+            return !(root.CategoryKey == Project.KeyMindMaps
+                && MindMapModules.Provider == null && root.Children.Count == 0);
+        }
+
+        private BinderItem RootByKey(string key)
+        {
+            foreach (var root in _project.Roots)
+                if (root.CategoryKey == key) return root;
+            return null;
+        }
 
         public void Rebuild()
         {
@@ -407,32 +539,49 @@ namespace Marabook.App
             {
                 _tree.Items.Clear();
                 _nodesById.Clear();
+                var placed = new HashSet<BinderItem>();
                 foreach (var root in _project.Roots)
                 {
-                    // La racine Cartes mentales n'apparaît qu'avec le module
-                    // Mental-o (29/09) — ou si le projet en contient déjà
-                    // (elles restent atteignables, avec leur tuile d'attente).
-                    // Le projet la garde : rien ne change dans le .plot.
-                    if (root.CategoryKey == Project.KeyMindMaps
-                        && MindMapModules.Provider == null && root.Children.Count == 0)
-                        continue;
+                    if (!root.IsHomeRoot) continue;
                     _tree.Items.Add(BuildNode(root));
+                    placed.Add(root);
                     // Un filet sous l'Accueil (b41) : un point d'entrée, pas
                     // un dossier de travail comme les racines qui suivent.
-                    if (root.IsHomeRoot)
-                        _tree.Items.Add(new TreeViewItem
-                        {
-                            Header = new Border
-                            {
-                                Height = 1,
-                                Background = Chrome.Border,
-                                Margin = new Thickness(0, 3, 8, 3),
-                                MinWidth = 120
-                            },
-                            IsEnabled = false,
-                            Focusable = false
-                        });
+                    _tree.Items.Add(DividerRow());
                 }
+                foreach (var section in Sections)
+                {
+                    var roots = new List<BinderItem>();
+                    foreach (var key in section.Keys)
+                    {
+                        var root = RootByKey(key);
+                        if (root != null && RootShown(root)) roots.Add(root);
+                    }
+                    if (section.Name == null)
+                    {
+                        if (roots.Count == 0) continue;
+                        _tree.Items.Add(DividerRow());
+                    }
+                    else
+                    {
+                        var collapsed = CollapsedSections.Contains(section.Name);
+                        _tree.Items.Add(SectionRow(section.Name, collapsed, roots.Count));
+                        if (collapsed) { foreach (var root in roots) placed.Add(root); continue; }
+                        if (roots.Count == 0) _tree.Items.Add(UnderConstructionRow());
+                    }
+                    foreach (var root in roots)
+                    {
+                        _tree.Items.Add(BuildNode(root));
+                        placed.Add(root);
+                    }
+                    // Le graphe relationnel (1.1.0, 28/10) : une entrée fixe
+                    // sous le Dictionnaire — pas un item du projet.
+                    if (section.Name == "Encyclopédie" && GraphItem != null && Profiles.Enabled(Profiles.Graph)) _tree.Items.Add(BuildNode(GraphItem)); // une racine comme les autres : sélectionnable, dans l'historique et les onglets
+                }
+                // Une racine qu'aucune section ne nomme (un .plot plus récent) :
+                // jamais perdue, posée à la suite.
+                foreach (var root in _project.Roots)
+                    if (!placed.Contains(root) && RootShown(root)) _tree.Items.Add(BuildNode(root));
 
                 TreeViewItem selected;
                 if (_selectedId != null && _nodesById.TryGetValue(_selectedId, out selected))
@@ -454,6 +603,82 @@ namespace Marabook.App
             {
                 _rebuilding = false;
             }
+        }
+
+        /// <summary>Un filet seul, inerte (sous l'Accueil, avant la Corbeille).</summary>
+        private static TreeViewItem DividerRow()
+        {
+            return new TreeViewItem
+            {
+                Header = new Border
+                {
+                    Height = 1,
+                    Background = Chrome.Border,
+                    Margin = new Thickness(0, 3, 8, 3),
+                    MinWidth = 120
+                },
+                IsEnabled = false,
+                Focusable = false
+            };
+        }
+
+        /// <summary>La ligne d'une section (1.1.0) : le caret, le nom en
+        /// petites capitales douces, un filet jusqu'au bord ; un clic la
+        /// replie ou la déplie (le compte de ses racines quand repliée).
+        /// Inerte pour la sélection et le dépôt, comme une ligne de catégorie.</summary>
+        private TreeViewItem SectionRow(string name, bool collapsed, int roots)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 7, 8, 2), MinWidth = 120, Background = Brushes.Transparent, Cursor = new Cursor(StandardCursorType.Hand) };
+            var caret = Icons.Make(collapsed ? "caret-right-bold" : "caret-down-bold", 9, Chrome.SoftText) as Control;
+            if (caret != null)
+            {
+                caret.VerticalAlignment = VerticalAlignment.Center;
+                caret.Margin = new Thickness(0, 0, 5, 0);
+                DockPanel.SetDock(caret, Dock.Left);
+                row.Children.Add(caret);
+            }
+            var label = new TextBlock
+            {
+                Text = name + (collapsed && roots > 0 ? "  (" + roots + ")" : ""),
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                FontWeight = FontWeight.Bold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+                Tag = "section:" + name // sonde
+            };
+            DockPanel.SetDock(label, Dock.Left);
+            row.Children.Add(label);
+            row.Children.Add(new Border { Height = 1, Background = Chrome.Border, VerticalAlignment = VerticalAlignment.Center });
+            ToolTip.SetTip(row, collapsed ? "Déplier « " + name + " »" : "Replier « " + name + " »");
+            row.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e) { e.Handled = true; }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            row.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            {
+                if (e.InitialPressMouseButton != MouseButton.Left) return;
+                e.Handled = true;
+                if (!CollapsedSections.Remove(name)) CollapsedSections.Add(name);
+                Rebuild();
+            };
+            return new TreeViewItem { Header = row, Focusable = false };
+        }
+
+        /// <summary>La section Outils n'a encore rien : « En construction ».</summary>
+        private static TreeViewItem UnderConstructionRow()
+        {
+            return new TreeViewItem
+            {
+                Header = new TextBlock
+                {
+                    Text = UnderConstruction,
+                    Foreground = Chrome.FaintText,
+                    FontSize = 12,
+                    FontStyle = FontStyle.Italic,
+                    Margin = new Thickness(18, 1, 0, 3),
+                    Tag = "under-construction" // sonde
+                },
+                IsEnabled = false,
+                Focusable = false
+            };
         }
 
         // L'en-tête surligné pendant un menu contextuel (batch 28).
@@ -667,7 +892,7 @@ namespace Marabook.App
                     Fill = Chrome.Ok,
                     Margin = new Thickness(5, 0, 5, 0),
                     VerticalAlignment = VerticalAlignment.Center,
-                    [ToolTip.TipProperty] = "Projet actif : le spectre par défaut des relevés (mots inconnus, fiches manquantes)",
+                    [ToolTip.TipProperty] = "Projet actif",
                     Tag = "active-scope" // sonde
                 });
 
@@ -738,7 +963,7 @@ namespace Marabook.App
             }
 
             // Books: alert chip when a document strays from the gabarit.
-            if (item.Kind == ItemKind.Book && BookHasDivergentDocs(item))
+            if (item.Kind == ItemKind.Book && Profiles.Enabled(Profiles.BookFormat) && BookHasDivergentDocs(item))
                 panel.Children.Add(new Ellipse
                 {
                     Width = 7,
@@ -833,7 +1058,15 @@ namespace Marabook.App
             if (item == null) return;
             if (node.IsExpanded) _expandedIds.Add(item.Id);
             else _expandedIds.Remove(item.Id);
+            RememberExpansion();
             e.Handled = true;
+        }
+
+        /// <summary>Retient l'état déplié pour la prochaine session (réglages,
+        /// par projet) — sans salir le projet.</summary>
+        public void RememberExpansion()
+        {
+            if (ExpansionKey != null) AppSettings.RememberBinderExpanded(ExpansionKey, _expandedIds);
         }
 
         private TreeViewItem _selectedNode; // TreeView.SelectedItem d'Avalonia ignore les nœuds imbriqués : suivi ici
@@ -1066,13 +1299,19 @@ namespace Marabook.App
         private bool UnfoldFor(string id)
         {
             var item = _project == null ? null : _project.FindById(id);
-            if (item == null || item.Kind != ItemKind.Sheet) return false;
+            if (item == null) return false;
             var changed = false;
-            var category = _project.SheetCategoryOf(item);
-            while (category != null)
+            // La section de sa racine repliée (1.1.0) : elle se déplie.
+            var section = SectionOf(item.RootCategory());
+            if (section != null && section.Name != null && CollapsedSections.Remove(section.Name)) changed = true;
+            if (item.Kind == ItemKind.Sheet)
             {
-                if (SheetLibraryView.CollapsedCategories.Remove(category.Id)) changed = true;
-                category = category.ParentId == null ? null : _project.FindSheetCategory(category.ParentId);
+                var category = _project.SheetCategoryOf(item);
+                while (category != null)
+                {
+                    if (SheetLibraryView.CollapsedCategories.Remove(category.Id)) changed = true;
+                    category = category.ParentId == null ? null : _project.FindSheetCategory(category.ParentId);
+                }
             }
             if (!changed) return false;
             Rebuild();
@@ -1139,9 +1378,21 @@ namespace Marabook.App
 
         private ContextMenu BuildContextMenu(BinderItem item, bool confirmDelete, bool fromPile)
         {
+            if (item.IsCategory && item.CategoryKey == MainWindow.GraphKey) return null; // la page du graphe : rien à créer, renommer ni supprimer (28/10)
             var menu = new ContextMenu();
             var inTrash = item.RootCategory().CategoryKey == Project.KeyTrash;
+            // Les onglets (1.1.0) : tout élément de la Pile peut s'ouvrir dans
+            // un onglet de plus — tant que la rangée a de la place.
+            if (CanOpenTab != null && CanOpenTab())
+                AddMenu(menu, "Ouvrir dans un nouvel onglet", delegate
+                {
+                    var handler = NewTabRequested;
+                    if (handler != null) handler(item);
+                });
 
+            // L'Encyclopédie (31/10, Rémi) : la racine Fiches exporte tout.
+            if (item.IsCategory && item.CategoryKey == Project.KeySheets)
+                AddMenu(menu, "Exporter l'Encyclopédie…", delegate { var handler = ExportEncyclopediaRequested; if (handler != null) handler(); });
             if (inTrash)
             {
                 if (!item.IsCategory)
@@ -1251,7 +1502,7 @@ namespace Marabook.App
                 if (item.Kind == ItemKind.Text && ChapterOddEnd != null && ChapterOddEnd(item) > 0)
                 {
                     var unify = new MenuItem { Header = "Unifier", Icon = FlowIcon(12), Tag = "unify" };
-                    ToolTip.SetTip(unify, "Ajoute une page blanche à la fin de ce chapitre, au gabarit du document — comme un saut de page après sa dernière ligne.");
+                    ToolTip.SetTip(unify, "Ajoute une page blanche à la fin de ce chapitre, au gabarit du document — comme un saut de page après sa dernière ligne. Don't thank me.");
                     unify.Click += delegate
                     {
                         var handler = UnifyRequested;
@@ -1307,6 +1558,8 @@ namespace Marabook.App
                 // après l'original, annulable.
                 if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet || item.Kind == ItemKind.PageTemplate)
                     AddMenu(menu, "Dupliquer", delegate { Duplicate(item); });
+                if (item.Kind == ItemKind.Sheet)
+                    AddMenu(menu, "Exporter la fiche…", delegate { var handler = ExportSheetRequested; if (handler != null) handler(item); }); // l'Encyclopédie (31/10)
                 // Suppression DOUCE (29/09) : vers la corbeille, en orange —
                 // elle se restaure ; la sèche (vider la corbeille) est rouge.
                 AddMenu(menu, "Envoyer à la corbeille", SoftDeleteInk, async delegate
@@ -1432,6 +1685,7 @@ namespace Marabook.App
         /// <summary>Un nouveau plan (batch 35), toujours dans la racine Plans.</summary>
         public async void NewPlan(BinderItem parent)
         {
+            if (!Profiles.Enabled(Profiles.Plans)) return; // profil sans plans (1.1.0)
             var root = _project.Category(Project.KeyPlans);
             if (root == null) return;
             var title = await InputDialog.Ask(Ui.OwnerOf(this), "Nouveau plan", "Nom du plan :", "Nouveau plan");
@@ -1548,9 +1802,12 @@ namespace Marabook.App
             if (parent.RootCategory().CategoryKey != Project.KeyWritings
                 || parent.EnclosingBook() != null)
                 parent = _project.Category(Project.KeyWritings);
-            var title = await InputDialog.Ask(Ui.OwnerOf(this), "Nouveau livre", "Titre du livre :", "Nouveau livre");
-            if (title == null) return;
-            var item = new BinderItem { Kind = ItemKind.Book, Title = title, Book = new BookInfo() };
+            // Titre, format (A5) et marges miroir (29/10, Rémi) ; sans
+            // « Gabarits et format » au profil, le titre seul et un livre A4
+            // à marges uniformes.
+            var asked = await NewBookDialog.Ask(Ui.OwnerOf(this), Profiles.Enabled(Profiles.BookFormat));
+            if (asked == null) return;
+            var item = new BinderItem { Kind = ItemKind.Book, Title = asked.Title, Book = new BookInfo { Template = asked.Template } };
             Defaults.Seed(item.Book); // éditeur et collection par défaut (Préférences › Auteur, 22/09)
             RunAndSelect(new AddItemAction(parent, item, -1), item.Id, parent.Id);
         }
@@ -2118,6 +2375,7 @@ namespace Marabook.App
         private static bool DropAllowed(BinderItem dragged, BinderItem target)
         {
             if (dragged == null || target == null || dragged == target) return false;
+            if (target.IsCategory && target.CategoryKey == MainWindow.GraphKey) return false; // la page du graphe n'est pas un conteneur (28/10)
             if (dragged.IsOutOfBook) return false; // le dossier Hors-livre ne bouge pas (29/09)
             if (target == dragged.Parent && target.CanHaveChildren) return false; // no-op move
             if (target.IsDescendantOf(dragged)) return false;
@@ -2153,7 +2411,6 @@ namespace Marabook.App
         // pipeline différé b29).
         private DispatcherTimer _searchDebounce;
         private System.Threading.CancellationTokenSource _searchCancel;
-        private int _searchGeneration;
 
         private void ScheduleSearch()
         {
@@ -2176,12 +2433,15 @@ namespace Marabook.App
                 case 1: return SearchKind.Texts;
                 case 2: return SearchKind.Sheets;
                 case 3: return SearchKind.Plans;
-                case 4: return SearchKind.Dictionary;
-                case 5: return SearchKind.Media;
+                case 4: return SearchKind.Media;
                 default: return SearchKind.All;
             }
         }
 
+        /// <summary>La recherche PAR NOM (29/10, Rémi) : les éléments de la
+        /// Pile dont le titre contient la frappe, dans l'ordre de la Pile —
+        /// synchrone, les titres ne coûtent rien. Le moteur de contenu
+        /// (ProjectSearch) reste au panneau Rechercher dans le projet.</summary>
         private void RunSearch()
         {
             if (_project == null || _results == null) return;
@@ -2195,42 +2455,33 @@ namespace Marabook.App
             }
             _tree.IsVisible = false;
             _results.IsVisible = true;
-
-            var targets = ProjectSearch.Collect(_project, SearchScope.Project, SelectedItem,
-                KindOfFilter(_searchFilter.SelectedIndex), false);
-            var compiled = SearchQuery.Create(query, false, false, true, false);
-            var cancel = new System.Threading.CancellationTokenSource();
-            _searchCancel = cancel;
-            var generation = ++_searchGeneration;
-            var dispatcher = Dispatcher.UIThread;
-            System.Threading.Tasks.Task.Factory.StartNew<SearchResult>(delegate
-            {
-                return ProjectSearch.Run(targets, compiled, ProjectSearch.DefaultCap, ProjectSearch.DefaultBudget, cancel.Token);
-            }, cancel.Token).ContinueWith(delegate(System.Threading.Tasks.Task<SearchResult> done)
-            {
-                var ignored = done.Exception; // observée : une recherche en faute se tait
-                if (done.Status != System.Threading.Tasks.TaskStatus.RanToCompletion || done.Result.Cancelled) return;
-                dispatcher.Post(new Action(delegate
-                {
-                    if (generation != _searchGeneration) return; // périmé
-                    ShowSearchResult(done.Result);
-                }));
-            });
+            ShowNameMatches(NameMatches(_project, query, KindOfFilter(_searchFilter.SelectedIndex), 200));
         }
 
-        private void ShowSearchResult(SearchResult result)
+        /// <summary>Les éléments dont le nom contient la frappe (sans casse
+        /// ni accents), dans l'ordre de la Pile, corbeille et catégories
+        /// exclues — partagé avec la palette « Ouvrir par le nom ».</summary>
+        public static List<BinderItem> NameMatches(Project project, string query, SearchKind kind, int cap)
+        {
+            var matches = new List<BinderItem>();
+            if (project == null || string.IsNullOrEmpty(query)) return matches;
+            foreach (var item in ProjectSearch.PileOrder(project))
+            {
+                if (item.IsCategory || !ProjectSearch.Matches(kind, item)) continue;
+                if (item.RootCategory().CategoryKey == Project.KeyTrash) continue;
+                if (!ContainsLoose(item.Title ?? "", query)) continue;
+                matches.Add(item);
+                if (matches.Count >= cap) break;
+            }
+            return matches;
+        }
+
+        private void ShowNameMatches(List<BinderItem> matches)
         {
             _results.Items.Clear();
-            var counts = new Dictionary<string, int>();
-            var order = new List<BinderItem>();
-            foreach (var hit in result.Hits)
-            {
-                if (!counts.ContainsKey(hit.Item.Id)) { counts[hit.Item.Id] = 0; order.Add(hit.Item); }
-                counts[hit.Item.Id]++;
-            }
-            foreach (var item in order) _results.Items.Add(BuildResultRow(item, counts[item.Id]));
-            var summary = result.Total == 0 ? "Aucun résultat" : result.Summary();
-            if (!string.IsNullOrEmpty(result.Message)) summary += "\n" + result.Message;
+            foreach (var item in matches) _results.Items.Add(BuildResultRow(item));
+            var summary = matches.Count == 0 ? "Aucun nom ne correspond"
+                : matches.Count == 1 ? "1 élément" : matches.Count + " éléments";
             _results.Items.Add(new ListBoxItem
             {
                 Content = new TextBlock { Text = summary, Foreground = Chrome.SoftText, FontSize = 11, TextWrapping = TextWrapping.Wrap },
@@ -2238,7 +2489,20 @@ namespace Marabook.App
             });
         }
 
-        private ListBoxItem BuildResultRow(BinderItem item, int count)
+        /// <summary>Le chemin d'un élément dans la Pile : « Écrits › Livre › Partie ».</summary>
+        public static string PathOf(BinderItem item)
+        {
+            var path = "";
+            var parent = item == null ? null : item.Parent;
+            while (parent != null)
+            {
+                path = parent.Title + (path.Length > 0 ? " › " + path : "");
+                parent = parent.Parent;
+            }
+            return path;
+        }
+
+        private ListBoxItem BuildResultRow(BinderItem item)
         {
             var panel = new StackPanel();
             var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
@@ -2250,22 +2514,15 @@ namespace Marabook.App
                 TextTrimming = TextTrimming.CharacterEllipsis
             });
             panel.Children.Add(titleRow);
-
-            var path = "";
-            var parent = item.Parent;
-            while (parent != null)
-            {
-                path = parent.Title + (path.Length > 0 ? " › " + path : "");
-                parent = parent.Parent;
-            }
-            var occurrences = count == 1 ? "1 occurrence" : count + " occurrences";
-            panel.Children.Add(new TextBlock
-            {
-                Text = path.Length > 0 ? path + " · " + occurrences : occurrences,
-                Foreground = Chrome.SoftText,
-                FontSize = 10,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            });
+            var path = PathOf(item);
+            if (path.Length > 0)
+                panel.Children.Add(new TextBlock
+                {
+                    Text = path,
+                    Foreground = Chrome.SoftText,
+                    FontSize = 10,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
             return new ListBoxItem { Content = panel, Tag = item.Id };
         }
 
@@ -2292,6 +2549,7 @@ namespace Marabook.App
 
         public async void NewSheet(BinderItem parent)
         {
+            if (!Profiles.Enabled(Profiles.Sheets)) return; // profil sans fiches (1.1.0) : le raccourci se tait
             if (parent == null)
             {
                 var selected = SelectedItem;

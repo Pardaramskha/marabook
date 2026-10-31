@@ -12,6 +12,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 using Marabook.Model;
+using Marabook.Settings;
 
 namespace Marabook.App
 {
@@ -203,11 +204,15 @@ namespace Marabook.App
                 return;
             }
             var now = DateTime.Now;
-            for (var i = 0; i < valid.Count && i < 6; i++)
+            var shown = 0;
+            for (var i = 0; i < valid.Count && shown < 6; i++)
             {
                 var item = _project.FindById(valid[i].ItemId);
+                if (item != null && !ItemTiles.ShownByProfile(item)) continue; // fiches ou plans cachés par le profil (1.1.0)
                 _resumeList.Children.Add(ItemRow(item, Recents.Elapsed(valid[i].Date, now)));
+                shown++;
             }
+            if (shown == 0) _resumeList.Children.Add(Prompt("Les écrits ouverts récemment apparaîtront ici."));
         }
 
         private void FillPinned()
@@ -216,7 +221,7 @@ namespace Marabook.App
             var any = false;
             foreach (var item in _project.AllItems())
             {
-                if (!item.Pinned || item.IsCategory || Recents.InTrash(item)) continue; // même filtre que Reprendre (A3)
+                if (!item.Pinned || item.IsCategory || Recents.InTrash(item) || !ItemTiles.ShownByProfile(item)) continue; // même filtre que Reprendre (A3) ; profil (1.1.0)
                 _pinnedList.Children.Add(ItemRow(item, null));
                 any = true;
             }

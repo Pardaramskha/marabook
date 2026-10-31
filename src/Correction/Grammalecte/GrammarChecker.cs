@@ -69,6 +69,22 @@ namespace Marabook.Correction.Grammalecte
             return findings;
         }
 
+        /// <summary>Les règles de Grammalecte que LA TYPOGRAPHIE MAISON
+        /// contredit (29/10, Rémi) : « virg_fin_dialogue » relève « , » »
+        /// (« Viens, » dit-il) comme une virgule mal placée et propose
+        /// « », » — or la norme du roman est ponctuation de fin de réplique,
+        /// insécable, guillemet fermant, puis l'incise. Jetées à la source,
+        /// quelle que soit l'option.</summary>
+        private static readonly string[] HouseTypographyRules = { "virg_fin_dialogue" };
+
+        public static bool IsHouseTypography(string ruleId)
+        {
+            if (string.IsNullOrEmpty(ruleId)) return false;
+            foreach (var rule in HouseTypographyRules)
+                if (ruleId.IndexOf(rule, System.StringComparison.Ordinal) >= 0) return true;
+            return false;
+        }
+
         /// <summary>Les erreurs du pont → des signalements aux offsets du
         /// PIVOT (via la carte). Statique et sans pont : c'est la moitié
         /// testable en console sur des réponses JSON en dur (suite C9).</summary>
@@ -78,6 +94,7 @@ namespace Marabook.Correction.Grammalecte
             var findings = new List<Finding>();
             foreach (var error in errors)
             {
+                if (IsHouseTypography(error.RuleId)) continue;
                 int start;
                 int length;
                 if (!mapper.MapRange(error.Start, error.End, out start, out length)

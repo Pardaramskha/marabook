@@ -13,6 +13,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 using Marabook.Model;
+using Profiles = Marabook.Settings.Profiles;
 
 namespace Marabook.App
 {
@@ -132,9 +133,14 @@ namespace Marabook.App
             Grid.SetColumn(left, 0);
             Children.Add(left);
 
-            // --- right: tabs, then the fixed Nom / Portée rows ---
+            // --- right (1.1.0, Rémi : « on ne comprend pas que Caractère ou
+            // Paragraphe sont des onglets, une partie de l'UI est cachée ») :
+            // le Nom, la Portée et le Raccourci EN HAUT, toujours visibles ;
+            // dessous, un SÉLECTEUR DE FACETTES explicite (des boutons à icône
+            // dans une barre segmentée, le choisi en accent) ; puis la facette
+            // dans une zone qui DÉFILE — plus rien ne passe sous le bord bas.
             var right = new DockPanel();
-            var fixedRows = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+            var fixedRows = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
             var nameRow = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
             nameRow.Children.Add(FixedLabel("Nom"));
             _nameBox = new TextBox();
@@ -172,6 +178,7 @@ namespace Marabook.App
                 Buttons.Compact, Buttons.Look.Outline);
             reset.Margin = new Thickness(8, 0, 0, 0);
             reset.VerticalAlignment = VerticalAlignment.Center;
+            reset.HorizontalAlignment = HorizontalAlignment.Left; // dernier de la rangée : pas étiré (27/10)
             reset.Click += async delegate
             {
                 var answer = await MessageDialog.Show(Ui.OwnerOf(this),
@@ -183,32 +190,149 @@ namespace Marabook.App
                 ResetToDefaults();
             };
             scopeRow.Children.Add(reset);
-            scopeRow.Children.Add(new TextBlock
+            fixedRows.Children.Add(scopeRow);
+            // La note sous la rangée (27/10) : à droite, elle débordait du cadre des Préférences.
+            fixedRows.Children.Add(new TextBlock
             {
                 Text = "Global : tous les projets · Livre : les écrits de ce livre · Document : cet écrit seul",
                 Foreground = Chrome.FaintText,
                 FontSize = 11,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(10, 0, 0, 0),
+                Margin = new Thickness(70, 2, 0, 0),
                 TextWrapping = TextWrapping.Wrap
             });
-            fixedRows.Children.Add(scopeRow);
             fixedRows.Children.Add(shortcutRow);
-            DockPanel.SetDock(fixedRows, Dock.Bottom);
+            fixedRows.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 10, 0, 0) });
+            DockPanel.SetDock(fixedRows, Dock.Top);
             right.Children.Add(fixedRows);
 
-            var tabs = new TabControl { Background = Brushes.Transparent };
-            tabs.Items.Add(new TabItem { Header = "Caractère", Content = BuildCharacterTab() });
-            tabs.Items.Add(new TabItem { Header = "Paragraphe", Content = BuildParagraphTab() });
-            tabs.Items.Add(new TabItem { Header = "Césure", Content = BuildHyphenationTab() });
-            tabs.Items.Add(new TabItem { Header = "Justification", Content = BuildJustificationTab() });
-            tabs.Items.Add(new TabItem { Header = "Enchaînements", Content = BuildKeepsTab() });
-            right.Children.Add(tabs);
+            _facets = new List<Facet>
+            {
+                new Facet { Name = "Caractère", Icon = "text-t-bold", Tip = "Police, variante, taille, gras, italique, interligne, ligatures, couleur", Content = BuildCharacterTab() },
+                new Facet { Name = "Paragraphe", Icon = "paragraph-bold", Tip = "Alignement, retraits, espaces avant et après", Content = BuildParagraphTab() },
+                new Facet { Name = "Césure", Icon = "kerning", Tip = "La coupure des mots en fin de ligne", Content = BuildHyphenationTab() },
+                new Facet { Name = "Justification", Icon = "text-align-justify-bold", Tip = "Les plages d'espacement du compositeur", Content = BuildJustificationTab() },
+                new Facet { Name = "Enchaînements", Icon = "files-bold", Tip = "Ce qui reste solidaire d'une page à l'autre", Content = BuildKeepsTab() }
+            };
+            // Le profil (1.1.0) sans options PAO : Caractère et Paragraphe seulement —
+            // césure, justification et enchaînements gardent leurs valeurs (les
+            // contrôles existent, la synchronisation et l'enregistrement les lisent encore).
+            if (!Profiles.Enabled(Profiles.StylePao)) _facets.RemoveRange(2, _facets.Count - 2);
+            var facetsHeader = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 6) };
+            facetsHeader.Children.Add(new TextBlock
+            {
+                Text = "Réglages du style",
+                Foreground = Chrome.Ink,
+                FontWeight = FontWeight.SemiBold,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            facetsHeader.Children.Add(new TextBlock
+            {
+                Text = "— choisissez une facette :",
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            DockPanel.SetDock(facetsHeader, Dock.Top);
+            right.Children.Add(facetsHeader);
+            _facetBar = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+            DockPanel.SetDock(_facetBar, Dock.Top);
+            right.Children.Add(_facetBar);
+            _facetHost = new ContentControl();
+            right.Children.Add(new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = new Border
+                {
+                    BorderBrush = Chrome.Border,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Background = Chrome.BarBgLight,
+                    Child = _facetHost
+                }
+            });
+            ShowFacet(0);
 
             Grid.SetColumn(right, 1);
             Children.Add(right);
             FillList(null);
         }
+
+        // ---------------------------------------------- les facettes (1.1.0)
+
+        private sealed class Facet
+        {
+            public string Name, Icon, Tip;
+            public Control Content;
+            public Border Button;
+        }
+
+        private List<Facet> _facets;
+        internal int FacetCountForProbe { get { return _facets == null ? 0 : _facets.Count; } }
+        private WrapPanel _facetBar;
+        private ContentControl _facetHost;
+        private int _facet = -1;
+
+        /// <summary>Le sélecteur : un bouton par facette — icône et nom, bordé,
+        /// le choisi plein d'accent et en gras, les autres sur le fond du
+        /// chrome avec un survol d'accent. Des boutons, pas des onglets plats.</summary>
+        private void ShowFacet(int index)
+        {
+            if (_facets == null || index < 0 || index >= _facets.Count) return;
+            _facet = index;
+            _facetBar.Children.Clear();
+            for (var i = 0; i < _facets.Count; i++)
+            {
+                var facet = _facets[i];
+                var chosen = i == index;
+                var row = new StackPanel { Orientation = Orientation.Horizontal };
+                var icon = Icons.Make(facet.Icon, 13, chosen ? Brushes.White : (IBrush)Chrome.Ink) as Control;
+                if (icon != null) { icon.VerticalAlignment = VerticalAlignment.Center; icon.Margin = new Thickness(0, 0, 6, 0); row.Children.Add(icon); }
+                row.Children.Add(new TextBlock
+                {
+                    Text = facet.Name,
+                    FontSize = 12,
+                    FontWeight = chosen ? FontWeight.Bold : FontWeight.SemiBold,
+                    Foreground = chosen ? Brushes.White : (IBrush)Chrome.Ink,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                var button = new Border
+                {
+                    Child = row,
+                    Padding = new Thickness(11, 5, 11, 5),
+                    Margin = new Thickness(0, 0, 6, 6),
+                    CornerRadius = new CornerRadius(8),
+                    Background = chosen ? Chrome.Accent : (IBrush)Chrome.RaisedBg,
+                    BorderBrush = chosen ? Chrome.Accent : (IBrush)Chrome.Border,
+                    BorderThickness = new Thickness(1),
+                    Cursor = new Cursor(StandardCursorType.Hand),
+                    Tag = "facet:" + facet.Name, // sonde
+                    [ToolTip.TipProperty] = facet.Tip
+                };
+                var indexRef = i;
+                button.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+                {
+                    if (e.InitialPressMouseButton != MouseButton.Left) return;
+                    e.Handled = true;
+                    ShowFacet(indexRef);
+                };
+                button.PointerEntered += delegate { if (_facet != indexRef) button.BorderBrush = Chrome.Accent; };
+                button.PointerExited += delegate { if (_facet != indexRef) button.BorderBrush = Chrome.Border; };
+                facet.Button = button;
+                _facetBar.Children.Add(button);
+            }
+            _facetHost.Content = _facets[index].Content;
+        }
+
+        /// <summary>Sonde (1.1.0) : la facette montrée, et le choix par nom.</summary>
+        internal string FacetForProbe { get { return _facet < 0 ? "" : _facets[_facet].Name; } }
+        internal void ShowFacetForProbe(string name)
+        {
+            for (var i = 0; i < _facets.Count; i++) if (_facets[i].Name == name) { ShowFacet(i); return; }
+        }
+        internal int FacetButtonsForProbe { get { return _facetBar.Children.Count; } }
 
         /// <summary>Commet le formulaire dans le style courant (avant Valider).</summary>
         public void Commit()
@@ -227,7 +351,7 @@ namespace Marabook.App
 
             // Le même sélecteur que le ruban (0.50.0) : récentes, aperçu,
             // frappe + Entrée, flèches — un choix commet la feuille.
-            _fontCombo = new FontPicker { [ToolTip.TipProperty] = "Police du style — tapez un nom puis Entrée, ou parcourez aux flèches" };
+            _fontCombo = new FontPicker { [ToolTip.TipProperty] = "Police du style"};
             form.Children.Add(FormRow("Police", _fontCombo));
 
             // La variante de police (01/10) : les graisses réellement
@@ -235,20 +359,23 @@ namespace Marabook.App
             // police en a, on les demande telles quelles au lieu de forcer
             // la case Gras (qui émule). « Selon la case Gras » = l'ancien
             // comportement.
-            var weightRow = new StackPanel { Orientation = Orientation.Horizontal };
+            // Une rangée qui REPLIE son indication (27/10) : en pile horizontale,
+            // elle passait sous le bord droit des Préférences.
+            var weightRow = new DockPanel();
             _weightCombo = new ComboBox
             {
                 MinWidth = 190,
                 VerticalAlignment = VerticalAlignment.Center,
-                [ToolTip.TipProperty] = "La graisse installée à employer — une variante posée remplace la case Gras"
-            };
+                [ToolTip.TipProperty] = "La graisse installée à employer"};
+            DockPanel.SetDock(_weightCombo, Dock.Left);
             weightRow.Children.Add(_weightCombo);
             _weightHint = new TextBlock
             {
                 Foreground = Chrome.SoftText,
                 FontSize = 11,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(8, 0, 0, 0)
+                Margin = new Thickness(8, 0, 0, 0),
+                TextWrapping = TextWrapping.Wrap
             };
             weightRow.Children.Add(_weightHint);
             form.Children.Add(FormRow("Variante", weightRow));
@@ -265,14 +392,16 @@ namespace Marabook.App
             sizeRow.Children.Add(_italicCheck);
             form.Children.Add(FormRow("Taille (pt)", sizeRow));
 
-            var leadingRow = new StackPanel { Orientation = Orientation.Horizontal };
+            var leadingRow = new DockPanel();
             leadingRow.Children.Add(_leadingBox = new TextBox { Width = 60, [ToolTip.TipProperty] = "0 = automatique" });
+            DockPanel.SetDock(_leadingBox, Dock.Left);
             leadingRow.Children.Add(new TextBlock
             {
                 Text = "pt (0 = auto) — l'interligne du document la multiplie",
                 Foreground = Chrome.SoftText,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(6, 0, 0, 0)
+                Margin = new Thickness(6, 0, 0, 0),
+                TextWrapping = TextWrapping.Wrap
             });
             form.Children.Add(FormRow("Valeur d'interligne", leadingRow));
 
@@ -306,8 +435,7 @@ namespace Marabook.App
             {
                 Width = 60,
                 HorizontalAlignment = HorizontalAlignment.Left,
-                [ToolTip.TipProperty] = "Appliqué à l'impression (compositeur 4b)"
-            }));
+                [ToolTip.TipProperty] = "Appliqué à l'impression"}));
             form.Children.Add(FormRow("Espace avant (mm)", _beforeBox = Small()));
             form.Children.Add(FormRow("Espace après (mm)", _afterBox = Small()));
             return form;
@@ -609,17 +737,23 @@ namespace Marabook.App
             return row;
         }
 
+        /// <summary>La vignette de la portée d'un style (29/10, Rémi : une par
+        /// amplitude) : générale (tous les projets), du livre, de l'écrit
+        /// (importée avec lui ou propre à lui).</summary>
         public static Control ScopeIcon(ParagraphStyle style, double size)
         {
-            string name = null;
-            if (style.Scope == ParagraphStyle.ScopeBook) name = "book-bold";
-            else if (style.Scope == ParagraphStyle.ScopeDocument) name = "document";
-            if (name == null) return null;
+            string name, tip;
+            if (style.Scope == ParagraphStyle.ScopeBook) { name = "book-bold"; tip = "Style du livre"; }
+            else if (style.Scope == ParagraphStyle.ScopeDocument) { name = "document"; tip = "Style de l'écrit (importé avec lui, ou propre à lui)"; }
+            else { name = "all"; tip = "Style général (tous les projets)"; }
             var icon = Icons.Make(name, size, Chrome.SoftText) as Control;
             if (icon == null) return null;
+            icon.Width = size;
+            icon.Height = size;
             icon.VerticalAlignment = VerticalAlignment.Center;
             icon.Margin = new Thickness(0, 0, 5, 0);
-            ToolTip.SetTip(icon, style.Scope == ParagraphStyle.ScopeBook ? "Style du livre" : "Style du document");
+            icon.Tag = "scope-" + (style.Scope ?? ParagraphStyle.ScopeGlobal); // sonde
+            ToolTip.SetTip(icon, tip);
             return icon;
         }
 

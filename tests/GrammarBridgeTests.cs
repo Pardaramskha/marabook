@@ -169,6 +169,16 @@ namespace Marabook.Tests
             };
             var tagged = GrammarChecker.ToFindings(typoErrors, mapper);
             t.Equal(2, tagged.Count, "deux erreurs converties");
+            // 29/10 (Rémi) : « , » » n'est pas une faute — la règle
+            // virg_fin_dialogue de Grammalecte est jetée à la source.
+            var house = new List<BridgeError>
+            {
+                new BridgeError { Start = 0, End = 2, Option = "virg", RuleId = "g0__virg_fin_dialogue__b2_a1_1", Message = "Virgule mal placée ou superflue." },
+                new BridgeError { Start = 0, End = 2, Option = "virg", RuleId = "g0__virg_avant_mais__b1", Message = "Virgule manquante." }
+            };
+            var kept = GrammarChecker.ToFindings(house, mapper);
+            t.Equal(1, kept.Count, "virg_fin_dialogue (« Viens, » dit-il) jetée, l'autre règle des virgules gardée");
+            t.Check(GrammarChecker.IsHouseTypography("g0__virg_fin_dialogue__b2_a1_1") && !GrammarChecker.IsHouseTypography("g1__gn_2m_accord"), "IsHouseTypography reconnaît la règle par son nom");
             t.Equal(FindingCategory.Typography, tagged[0].Category, "sType nbsp → Typographie");
             t.Equal(FindingCategory.Grammar, tagged[1].Category, "sType conj → Grammaire");
             var both = GrammalecteOptions.Effective(null, true, true);

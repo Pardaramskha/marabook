@@ -217,7 +217,7 @@ namespace Marabook.App
             {
                 var cell = new StackPanel();
                 cell.Children.Add(new TextBlock { Text = captions[i], Foreground = Chrome.SoftText, FontSize = 11, Margin = new Thickness(0, 0, 0, 2) });
-                var box = new TextBox { Text = initialForms[i] ?? "", [ToolTip.TipProperty] = "Vide : la forme dérivée par la règle (en filigrane) ; tapez pour la remplacer" };
+                var box = new TextBox { Text = initialForms[i] ?? "" };
                 box.TextChanged += delegate { if (!_syncing) RefreshPreview(); };
                 cell.Children.Add(box);
                 _forms[i] = box;
@@ -449,8 +449,7 @@ namespace Marabook.App
                 Width = 64,
                 Text = initialSuffix,
                 Watermark = "ien",
-                Margin = new Thickness(0, 0, 8, 4),
-                [ToolTip.TipProperty] = "Le suffixe collé au nom du lieu — l'une des préconfigurations, ou le vôtre"
+                Margin = new Thickness(0, 0, 8, 4)
             };
             _demonymSuffix.TextChanged += delegate { if (!_syncing) RefreshForms(); };
             row.Children.Add(_demonymSuffix);
@@ -509,8 +508,7 @@ namespace Marabook.App
                 Width = 64,
                 Text = initialSuffix,
                 Watermark = "iste",
-                Margin = new Thickness(0, 0, 8, 4),
-                [ToolTip.TipProperty] = "Le suffixe qui remplace -isme (ou s'ajoute au mot) — l'une des préconfigurations, ou le vôtre"
+                Margin = new Thickness(0, 0, 8, 4)
             };
             _adherentSuffix.TextChanged += delegate { if (!_syncing) RefreshForms(); };
             row.Children.Add(_adherentSuffix);
@@ -762,6 +760,16 @@ namespace Marabook.App
         /// projectScope entre en proposition, la portée choisie sort dans le
         /// Choice. Null si annulé.</summary>
         internal static LexiconEntryDialog ForProbe(Window owner) { return new LexiconEntryDialog(owner, null, false, true); }
+
+        /// <summary>Tutoriel (29/10) : le dialogue montré SANS bloquer, à
+        /// regarder seulement — refermé par le tuto.</summary>
+        internal static LexiconEntryDialog OpenForTutorial(Window owner, bool projectScope)
+        {
+            var dialog = new LexiconEntryDialog(owner, null, projectScope, true);
+            Dialogs.FitToScreen(dialog, owner);
+            dialog.Show(owner);
+            return dialog;
+        }
 
         public static async Task<Choice> Ask(Window owner, LexiconEntry initial, bool projectScope)
         {

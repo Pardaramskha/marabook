@@ -10,6 +10,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Marabook.Model;
+using Marabook.Persistence;
 using Marabook.Settings;
 
 namespace Marabook.App
@@ -23,6 +24,8 @@ namespace Marabook.App
     public class PreferencesDialog : Window
     {
         public event Action AppearanceChanged;
+        /// <summary>Les onglets (1.1.0) : la bascule ou le plafond a changé.</summary>
+        public event Action TabsChanged;
         public event Action ProofingChanged;
         public event Action ShortcutsChanged;
         public event Action GlobalStylesChanged;
@@ -74,6 +77,7 @@ namespace Marabook.App
             Tabs.Classes.Add("column");
             _swatches = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Left };
             Tabs.Items.Add(Tab("Général", BuildPersonalizationTab())); // « Personnalisation » jusqu'à la 1.0.5 — l'en-tête seul change, aucun réglage n'est nommé d'après l'onglet
+            Tabs.Items.Add(Tab("Profil", BuildProfileTab())); // le profil d'utilisation (1.1.0)
             Tabs.Items.Add(Tab("Édition", BuildEditingTab()));
             Tabs.Items.Add(Tab("Correction", BuildProofingTab()));
             Tabs.Items.Add(Tab("Styles globaux", BuildGlobalStylesTab()));
@@ -81,6 +85,9 @@ namespace Marabook.App
             Tabs.Items.Add(Tab("Auteur", BuildAuthorTab()));
             Tabs.Items.Add(Tab("Raccourcis", BuildShortcutsTab()));
             Tabs.Items.Add(Tab("DLC", BuildModulesTab()));
+            AddModuleTabs();
+            MindMapModules.ProviderChanged += OnProviderChanged;
+            Closed += delegate { MindMapModules.ProviderChanged -= OnProviderChanged; };
 
             var layout = new DockPanel();
             var buttons = new StackPanel
@@ -100,6 +107,61 @@ namespace Marabook.App
             layout.Children.Add(buttons);
             layout.Children.Add(Tabs);
             Content = layout;
+        }
+
+        /// <summary>Les onglets des modules à code (26/10/2026, Mental-O en
+        /// DLC) : sous un filet « DLC » (un onglet inerte, en petites
+        /// capitales), un onglet par module qui en apporte un — « Mental-O
+        /// (dlc) ». Installé ou désinstallé pendant que le dialogue est
+        /// ouvert : la liste se refait.</summary>
+        private readonly List<TabItem> _moduleTabs = new List<TabItem>();
+
+        /// <summary>Sonde : les onglets venus des modules (le filet « DLC » compris).</summary>
+        public int ModuleTabCount { get { return _moduleTabs.Count; } }
+
+        private void AddModuleTabs()
+        {
+            foreach (var tab in _moduleTabs) Tabs.Items.Remove(tab);
+            _moduleTabs.Clear();
+            var modules = new List<IMarabookModule>();
+            foreach (var module in CodeModuleHost.Instance.Loaded)
+                if (!string.IsNullOrEmpty(module.PreferencesTitle)) modules.Add(module);
+            if (modules.Count == 0) return;
+            var divider = new TabItem
+            {
+                Header = new TextBlock
+                {
+                    Text = "DLC",
+                    FontSize = 10,
+                    FontWeight = FontWeight.SemiBold,
+                    Foreground = Chrome.FaintText,
+                    Margin = new Thickness(0, 6, 0, 0)
+                },
+                IsEnabled = false,
+                IsHitTestVisible = false,
+                Focusable = false
+            };
+            divider.Classes.Add("divider");
+            _moduleTabs.Add(divider);
+            Tabs.Items.Add(divider);
+            foreach (var module in modules)
+            {
+                Control content;
+                try { content = module.PreferencesTab(); }
+                catch (Exception failure)
+                {
+                    content = Note("L'onglet du module n'a pas pu se construire : " + failure.Message);
+                }
+                if (content == null) continue;
+                var tab = Tab(module.PreferencesTitle, content);
+                _moduleTabs.Add(tab);
+                Tabs.Items.Add(tab);
+            }
+        }
+
+        private void OnProviderChanged()
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(delegate { AddModuleTabs(); RefreshModules(); });
         }
 
         private static TabItem Tab(string header, Control content)
@@ -185,15 +247,29 @@ namespace Marabook.App
             };
         }
 
-        private static TextBlock Caption(string text, double topMargin = 0)
+        /// <summary>L'intertitre d'une sous-section ; au-delà du premier
+        /// (marge haute), un FIN FILET CONTRASTÉ le précède (1.1.0, Rémi) —
+        /// l'encre du thème, éclaircie : noir sur clair, blanc sur sombre.</summary>
+        private static Control Caption(string text, double topMargin = 0)
         {
-            return new TextBlock
+            var label = new TextBlock
             {
                 Text = text,
                 Foreground = Chrome.Ink,
-                FontWeight = FontWeight.SemiBold,
-                Margin = new Thickness(0, topMargin, 0, 0)
+                FontWeight = FontWeight.SemiBold
             };
+            if (topMargin <= 0) return label;
+            var block = new StackPanel { Margin = new Thickness(0, topMargin, 0, 0) };
+            block.Children.Add(new Border
+            {
+                Height = 1,
+                Background = Chrome.Ink,
+                Opacity = 0.3,
+                Margin = new Thickness(0, 0, 0, 10),
+                Tag = "caption-divider" // sonde
+            });
+            block.Children.Add(label);
+            return block;
         }
 
         // ------------------------------------------------------------ DLC
@@ -207,7 +283,7 @@ namespace Marabook.App
             _modulesPanel = new StackPanel();
             panel.Children.Add(_modulesPanel);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0) };
-            var fromFile = Buttons.Text("Installer depuis un fichier .mdlc…", "Un paquet de module obtenu autrement que par GitHub", Buttons.Bar, Buttons.Look.Outline);
+            var fromFile = Buttons.Text("Installer depuis un fichier .mdlc…", null, Buttons.Bar, Buttons.Look.Outline);
             fromFile.Click += async delegate { await InstallModuleFromFile(); };
             actions.Children.Add(fromFile);
             panel.Children.Add(actions);
@@ -308,6 +384,16 @@ namespace Marabook.App
         }
 
         // ------------------------------------------------------------ auteur
+
+        /// <summary>Onglet « Profil » (1.1.0) : le même sélecteur que la fenêtre du
+        /// premier lancement — Écrivain·e, Éditeur·ice, Cinglé·e, Moi-même et sa
+        /// table de cases, le nom de plume. Chaque clic s'applique aussitôt.</summary>
+        private Control BuildProfileTab()
+        {
+            var panel = TabPanel();
+            panel.Children.Add(new ProfileChooser(true) { OpenFeaturesOnChoice = true });
+            return panel;
+        }
 
         private Control BuildAuthorTab()
         {
@@ -514,7 +600,7 @@ namespace Marabook.App
                 e.Handled = true;
             };
             custom.Children.Add(hexBox);
-            var reset = Buttons.Text("Réinitialiser", "Revenir à l'indigo par défaut", Buttons.Bar, Buttons.Look.Outline);
+            var reset = Buttons.Text("Réinitialiser", null, Buttons.Bar, Buttons.Look.Outline);
             reset.Margin = new Thickness(8, 0, 0, 0);
             reset.Click += delegate { SetAccent(null); hexBox.Text = Chrome.DefaultAccent; };
             custom.Children.Add(reset);
@@ -564,9 +650,94 @@ namespace Marabook.App
             panel.Children.Add(animations);
             panel.Children.Add(Note("Les effets d'interface (1.0.6) : les tuiles arrivent en fondu, la Pile et le rail glissent.", 4, 0));
 
+            // Les SONS (1.1.0, 31/10, Rémi) : une case, sans aide.
+            panel.Children.Add(Caption("Sons", 18));
+            var sounds = new CheckBox { Content = "Activer les sons : sauvegarde, erreur, succès, notification", IsChecked = AppSettings.SoundsEnabled, Margin = new Thickness(0, 6, 0, 0), Tag = "sounds" };
+            sounds.IsCheckedChanged += delegate
+            {
+                if (AppSettings.SoundsEnabled == (sounds.IsChecked == true)) return;
+                AppSettings.SoundsEnabled = sounds.IsChecked == true;
+                AppSettings.Save();
+            };
+            panel.Children.Add(sounds);
+
+            // Les ONGLETS (1.1.0, 28/10, Rémi) : la bascule et le plafond, sans
+            // aide — « Onglets maximum » entre WorkTabs.MinLimit et MaxLimit.
+            panel.Children.Add(Caption("Onglets", 18));
+            var tabsOn = new CheckBox { Content = "Activer les onglets", IsChecked = AppSettings.TabsEnabled, Margin = new Thickness(0, 6, 0, 0), Tag = "tabs-enabled" };
+            tabsOn.IsCheckedChanged += delegate
+            {
+                if (AppSettings.TabsEnabled == (tabsOn.IsChecked == true)) return;
+                AppSettings.TabsEnabled = tabsOn.IsChecked == true;
+                AppSettings.Save();
+                var handler = TabsChanged;
+                if (handler != null) handler();
+            };
+            panel.Children.Add(tabsOn);
+            var tabsRow = new DockPanel { Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+            var tabsBox = new TextBox { Width = 56, Text = AppSettings.MaxTabs.ToString(), Tag = "max-tabs" };
+            ToolTip.SetTip(tabsBox, "Entre " + WorkTabs.MinLimit + " et " + WorkTabs.MaxLimit);
+            DockPanel.SetDock(tabsBox, Dock.Left);
+            Action commitTabs = delegate
+            {
+                int value;
+                if (!int.TryParse((tabsBox.Text ?? "").Trim(), out value)) value = AppSettings.MaxTabs;
+                value = WorkTabs.Clamp(value);
+                tabsBox.Text = value.ToString();
+                if (value == AppSettings.MaxTabs) return;
+                AppSettings.MaxTabs = value;
+                AppSettings.Save();
+                var handler = TabsChanged;
+                if (handler != null) handler();
+            };
+            tabsBox.LostFocus += delegate { commitTabs(); };
+            tabsBox.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key == Key.Return || e.Key == Key.Enter) { commitTabs(); e.Handled = true; }
+            };
+            tabsRow.Children.Add(tabsBox);
+            tabsRow.Children.Add(new TextBlock { Text = "Onglets maximum", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) });
+            panel.Children.Add(tabsRow);
+
+            // Les COPIES HORODATÉES (1.1.0, 30/10) : la bascule et l'intervalle
+            // minimal, sans infobulle (Rémi). Cinq copies, dans le dossier de
+            // données de Marabook — ni nombre ni dossier à régler. Le
+            // « .plot.bak » de la version d'avant est toujours écrit (caché),
+            // et retiré à la fermeture propre.
+            panel.Children.Add(Caption("Sauvegardes", 18));
+            var backupsOn = new CheckBox { Content = "Copies horodatées du projet", IsChecked = AppSettings.BackupsEnabled, Margin = new Thickness(0, 6, 0, 0), Tag = "backups-enabled" };
+            backupsOn.IsCheckedChanged += delegate
+            {
+                if (AppSettings.BackupsEnabled == (backupsOn.IsChecked == true)) return;
+                AppSettings.BackupsEnabled = backupsOn.IsChecked == true;
+                AppSettings.Save();
+            };
+            panel.Children.Add(backupsOn);
+            var backupRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            var intervalBox = new TextBox { Width = 56, Text = AppSettings.BackupIntervalMinutes.ToString(), Tag = "backup-interval" };
+            Action commitBackups = delegate
+            {
+                int interval;
+                if (!int.TryParse((intervalBox.Text ?? "").Trim(), out interval)) interval = AppSettings.BackupIntervalMinutes;
+                interval = BackupPolicy.ClampInterval(interval);
+                intervalBox.Text = interval.ToString();
+                if (interval == AppSettings.BackupIntervalMinutes) return;
+                AppSettings.BackupIntervalMinutes = interval;
+                AppSettings.Save();
+            };
+            intervalBox.LostFocus += delegate { commitBackups(); };
+            intervalBox.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key == Key.Return || e.Key == Key.Enter) { commitBackups(); e.Handled = true; }
+            };
+            backupRow.Children.Add(intervalBox);
+            backupRow.Children.Add(new TextBlock { Text = "minutes au moins entre deux copies", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) });
+            panel.Children.Add(backupRow);
+            panel.Children.Add(Note("Les " + Backups.Keep + " dernières copies de chaque projet sont gardées dans le dossier de Marabook, jamais à côté de vos fichiers ; Fichier › Ouvrir le dossier des sauvegardes y mène. Chaque copie est un .plot complet qui s'ouvre comme un autre. Si le projet est illisible, Marabook propose d'abord la version d'avant, puis ces copies.", 6, 0));
+
             panel.Children.Add(Caption("Mode sombre", 18));
             _darkCheck = new CheckBox { Content = "Mode sombre", IsChecked = AppSettings.DarkTheme, Margin = new Thickness(0, 6, 0, 0) };
-            ToolTip.SetTip(_darkCheck, "Aussi : Affichage › Thème sombre (" + AppSettings.DisplayGesture(AppSettings.Gesture("dark-theme") ?? "") + ")");
+            ToolTip.SetTip(_darkCheck, "(" + AppSettings.DisplayGesture(AppSettings.Gesture("dark-theme") ?? "") + ")");
             _darkCheck.IsCheckedChanged += delegate
             {
                 if (AppSettings.DarkTheme == (_darkCheck.IsChecked == true)) return;
@@ -637,17 +808,65 @@ namespace Marabook.App
         {
             var panel = TabPanel();
             panel.Children.Add(Note("Cliquez un champ puis tapez la combinaison voulue. Retour arrière retire le raccourci ; « Défaut » restaure celui d'origine.", 0, 4));
+            // Les actions d'une fonctionnalité cachée par le profil (1.1.0) ne se listent pas.
             var categories = new List<string>();
             foreach (var action in AppSettings.Actions)
-                if (!categories.Contains(action.Category)) categories.Add(action.Category);
+                if (ActionShown(action) && !categories.Contains(action.Category)) categories.Add(action.Category);
             foreach (var category in categories)
             {
                 panel.Children.Add(Caption(category, 10));
                 foreach (var action in AppSettings.Actions)
-                    if (action.Category == category)
+                    if (action.Category == category && ActionShown(action))
                         panel.Children.Add(ShortcutRow(action));
             }
+            // Les raccourcis NON configurables (31/10, Rémi) : câblés, listés
+            // dans un accordéon replié en fin de page.
+            var fixedList = new StackPanel { Spacing = 4, Margin = new Thickness(0, 6, 0, 0) };
+            var cmd = Ui.CommandKey;
+            foreach (var pair in new[]
+            {
+                new[] { "Ctrl+Tab / Ctrl+Maj+Tab", "Onglet suivant / précédent (cyclique)" },
+                new[] { cmd + "+Maj+Droite / " + cmd + "+Maj+Gauche", "Onglet suivant / précédent" },
+                new[] { "Clic molette sur un onglet", "Fermer l'onglet" },
+                new[] { "Maj+molette", "Défilement horizontal" },
+                new[] { cmd + "+molette", "Zoom (éditeur, carte du Gros Graph)" },
+                new[] { "Échap", "Fermer la recherche, vider un champ, désélectionner sur la carte, fermer un menu de propositions" },
+                new[] { "Entrée, Tab, flèches dans un champ à propositions", "Prendre la proposition, s'y déplacer" },
+                new[] { "Ctrl+clic / Maj+clic dans la Pile", "Sélection multiple (le Général en mode lot)" },
+                new[] { "F1 / F2 sur une fiche", "Vue wiki / arbre généalogique" },
+                new[] { "Double-clic sur un nœud du Gros Graph", "Ouvrir l'élément" }
+            })
+            {
+                var row = new DockPanel();
+                var keys = new TextBlock { Text = pair[0], Foreground = Chrome.Ink, FontSize = 12, Width = 300, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Top };
+                DockPanel.SetDock(keys, Dock.Left);
+                row.Children.Add(keys);
+                row.Children.Add(new TextBlock { Text = pair[1], Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap });
+                fixedList.Children.Add(row);
+            }
+            panel.Children.Add(new Expander
+            {
+                Header = new TextBlock { Text = "Raccourcis non-configurables", Foreground = Chrome.Ink, FontSize = 12, FontWeight = FontWeight.SemiBold },
+                Content = fixedList,
+                IsExpanded = false,
+                Margin = new Thickness(0, 18, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Tag = "fixed-shortcuts"
+            });
             return panel;
+        }
+
+        private static bool ActionShown(ActionDefinition action)
+        {
+            switch (action.Id)
+            {
+                case "session-goal": return Profiles.Enabled(Profiles.Sprints);
+                case "new-sheet":
+                case "insert-link":
+                case "templates": return Profiles.Enabled(Profiles.Sheets);
+                case "loose-lines": return Profiles.Enabled(Profiles.LooseLines);
+                default: return true;
+            }
         }
 
         private Control ShortcutRow(ActionDefinition action)
