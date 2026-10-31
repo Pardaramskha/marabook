@@ -5673,9 +5673,12 @@ namespace Marabook.App
             return _inspected != null ? (ItemKind?)_inspected.Kind : CurrentKind();
         }
 
+        /// <summary>Une racine qui GARDE son Général : l'Accueil (b43) et la
+        /// page du Gros Graph (31/10, Rémi : ses outils y vivent) — les
+        /// autres racines de la Pile ont l'onglet grisé.</summary>
         private bool PanelHomeRoot()
         {
-            return _inspected == null && CurrentIsHomeRoot();
+            return _inspected == null && (CurrentIsHomeRoot() || IsGraphItem(_current));
         }
 
         /// <summary>La nature de l'élément courant, null sans sélection — ce

@@ -3038,6 +3038,7 @@ namespace Marabook.App
 
                 // Les défauts (31/10, Rémi) : la Structure seule (relations,
                 // liens, tags) entre fiches ; l'Écriture (écrits, présences…) se coche.
+                Check(shell.InspectorAvailableForProbe, "sur la page du graphe, l'onglet Général du rail est disponible (31/10, Rémi : il restait grisé comme une racine)");
                 Check(shell.GraphToolsInInspectorForProbe && view.TypeFilterCountForProbe == project.SheetCategories.Count,
                     "les outils de la Carte sont dans le Général du rail, avec une case de filtre par catégorie de fiche (" + view.TypeFilterCountForProbe + ")");
                 var sheetsOnly = view.ShownNodeCountForProbe;
