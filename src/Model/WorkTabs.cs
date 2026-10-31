@@ -136,6 +136,22 @@ namespace Marabook.Model
             if (_active > index) _active = index;
         }
 
+        /// <summary>Déplace l'onglet « from » au CRÉNEAU « slot » (0 = avant le
+        /// premier, Count = après le dernier) — le glisser-déposer de la rangée
+        /// (31/10, Rémi). L'actif reste l'actif, où qu'il atterrisse. False
+        /// sans changement (créneau hors limites, ou le même).</summary>
+        public bool Move(int from, int slot)
+        {
+            if (from < 0 || from >= _tabs.Count || slot < 0 || slot > _tabs.Count) return false;
+            if (slot == from || slot == from + 1) return false;
+            var tab = _tabs[from];
+            var active = Active;
+            _tabs.RemoveAt(from);
+            _tabs.Insert(slot > from ? slot - 1 : slot, tab);
+            _active = active == null ? -1 : _tabs.IndexOf(active);
+            return true;
+        }
+
         /// <summary>L'onglet suivant (cyclique). False sans changement.</summary>
         public bool Next() { return Step(1); }
         public bool Previous() { return Step(-1); }

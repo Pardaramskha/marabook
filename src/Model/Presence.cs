@@ -141,6 +141,17 @@ namespace Marabook.Model
         /// noms longs masquent les courts qu'ils contiennent.</summary>
         public static int CountIn(string text, List<string> names)
         {
+            int first;
+            return CountIn(text, names, out first);
+        }
+
+        /// <summary>Le compte, et l'index (dans le texte plié) de la PREMIÈRE
+        /// occurrence d'un des noms, -1 sans occurrence (31/10, Rémi : la
+        /// matrice des présences range les fiches dans l'ordre où elles
+        /// entrent en scène dans l'écrit, pas par titre).</summary>
+        public static int CountIn(string text, List<string> names, out int first)
+        {
+            first = -1;
             if (string.IsNullOrEmpty(text) || names == null || names.Count == 0) return 0;
             var folded = FrenchTokenizer.Fold(text, false);
             bool[] taken = null;
@@ -161,6 +172,7 @@ namespace Marabook.Model
                         for (var i = at; i < at + name.Length; i++) taken[i] = true;
                     }
                     count++;
+                    if (first < 0 || at < first) first = at;
                     from = at + name.Length;
                 }
             }

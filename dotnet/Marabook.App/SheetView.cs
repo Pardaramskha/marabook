@@ -381,7 +381,7 @@ namespace Marabook.App
             // icônes de Markdown We Go, sans texte.
             var toolRow = new DockPanel { Margin = new Thickness(0, 0, 10, 0) };
             var modes = _modesPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(6, 8, 0, 0) };
-            _editToggle = ModeToggle("editeur", "Vue édition");
+            _editToggle = ModeToggle("pencil-simple-line", "Vue édition"); // le crayon, comme Renommer (31/10, Rémi : « editeur » montrait des livres)
             _mirrorToggle = ModeToggle("miroir", "Vue miroir");
             _editToggle.Checked += delegate { SetMirror(false); };
             _mirrorToggle.Checked += delegate { SetMirror(true); };

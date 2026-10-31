@@ -345,6 +345,26 @@ namespace Marabook.Settings
         /// manque ICI, le .plot ne change pas. Clés sans casse.</summary>
         public static Dictionary<string, string> FontSubstitutions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+        // LA PILE DÉPLIÉE, PAR PROJET (1.1.0, 31/10, Rémi : « 3 km de fiches à
+        // chaque ouverture ») : pour chaque projet (son chemin), les ids des
+        // nœuds ouverts — ce qui est replié le reste d'une session à l'autre.
+        // Trente projets au plus, les plus anciens tombent ; jamais dans le
+        // .plot (ne salit pas le projet, propre à cette machine).
+        public static Dictionary<string, List<string>> BinderExpanded = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        private const int BinderExpandedLimit = 30;
+
+        public static void RememberBinderExpanded(string projectPath, IEnumerable<string> expandedIds)
+        {
+            if (string.IsNullOrEmpty(projectPath)) return;
+            if (!BinderExpanded.ContainsKey(projectPath) && BinderExpanded.Count >= BinderExpandedLimit)
+            {
+                string oldest = null;
+                foreach (var key in BinderExpanded.Keys) { oldest = key; break; }
+                if (oldest != null) BinderExpanded.Remove(oldest);
+            }
+            BinderExpanded[projectPath] = new List<string>(expandedIds);
+        }
+
         /// <summary>La famille à employer pour ce nom : son remplacement s'il
         /// en a un, sinon lui-même.</summary>
         public static string SubstituteFont(string family)
@@ -673,6 +693,17 @@ namespace Marabook.Settings
                 }
                 FavoriteFonts = ReadFontList(root, "favoriteFonts"); // 0.50.0, catalogue de polices
                 ExcludedFonts = ReadFontList(root, "excludedFonts");
+                BinderExpanded = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                var expanded = Json.AsObject(Json.Field(root, "binderExpanded")); // 1.1.0 (31/10)
+                if (expanded != null)
+                    foreach (var kv in expanded)
+                    {
+                        var ids = Json.AsList(kv.Value);
+                        if (ids == null || string.IsNullOrEmpty(kv.Key)) continue;
+                        var list = new List<string>();
+                        foreach (var id in ids) if (id is string && ((string)id).Length > 0) list.Add((string)id);
+                        BinderExpanded[kv.Key] = list;
+                    }
                 FontSubstitutions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 var substitutions = Json.AsObject(Json.Field(root, "fontSubstitutions"));
                 if (substitutions != null)
@@ -791,6 +822,12 @@ namespace Marabook.Settings
                 if (FavoriteFonts.Count > 0) root["favoriteFonts"] = new List<object>(FavoriteFonts.ToArray());
                 if (ExcludedFonts.Count > 0) root["excludedFonts"] = new List<object>(ExcludedFonts.ToArray());
                 if (FontSubstitutions.Count > 0) root["fontSubstitutions"] = new Dictionary<string, object>(ToObjectDict(FontSubstitutions));
+                if (BinderExpanded.Count > 0)
+                {
+                    var expanded = new Dictionary<string, object>();
+                    foreach (var kv in BinderExpanded) expanded[kv.Key] = new List<object>(kv.Value.ToArray());
+                    root["binderExpanded"] = expanded;
+                }
                 if (Achievements.Count > 0)
                     root["achievements"] = new Dictionary<string, object>(ToObjectDict(Achievements));
                 if (PermanentlyDeleted > 0) root["permanentlyDeleted"] = PermanentlyDeleted;

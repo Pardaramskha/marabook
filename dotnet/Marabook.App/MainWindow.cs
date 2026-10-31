@@ -2235,6 +2235,7 @@ namespace Marabook.App
             _corkboard.Clear();
             _journalView.Clear();
             _pinnedPanel.SetProject(project, project.Styles);
+            _binder.ExpansionKey = IsTutorialPath(path) ? null : path; // la Pile dépliée telle que laissée (31/10)
             _binder.LoadProject(project, _history);
             _dictionaryView.Load(project); // le Lexique du rail édite par lui (18/09)
             _lexiconPanel.Show(null, true);
@@ -2409,7 +2410,7 @@ namespace Marabook.App
             // Un projet est ouvert : l'accueil (13/09) se retire — quel
             // que soit le chemin qui a mené ici (tuile, sonde, argument).
             if (_welcome != null) _welcome.Release();
-            AppSettings.AddRecentFile(path);
+            RememberRecent(path);
             AppSettings.Save();
             UpdateRecentMenu();
 
@@ -2614,7 +2615,8 @@ namespace Marabook.App
             AdoptFileName(_project, _path);
             DoSave();
             if (!File.Exists(_path)) { _path = null; return false; }
-            AppSettings.AddRecentFile(_path);
+            if (_binder.ExpansionKey == null && !IsTutorialPath(_path)) { _binder.ExpansionKey = _path; _binder.RememberExpansion(); } // un projet neuf enregistré : la Pile se retient désormais
+            RememberRecent(_path);
             AppSettings.Save();
             UpdateRecentMenu();
             UpdateTitle();
@@ -2953,7 +2955,7 @@ namespace Marabook.App
             _dirty = false;
             LastSaveError = null;
             DropRecovery(); // le .plot complet est à jour : le secours est périmé (18/09)
-            AppSettings.AddRecentFile(path);
+            RememberRecent(path);
             AppSettings.Save();
             UpdateRecentMenu();
             UpdateTitle();
@@ -6036,8 +6038,17 @@ namespace Marabook.App
             Title = AppName + " — " + _project.Name + (_dirty ? " *" : "");
         }
 
+        /// <summary>Le tutoriel ne compte pas parmi les récents (31/10, Rémi) :
+        /// ni au menu, ni à l'accueil — son projet est une copie au chaud.</summary>
+        private static void RememberRecent(string path)
+        {
+            if (IsTutorialPath(path)) return;
+            AppSettings.AddRecentFile(path);
+        }
+
         private void UpdateRecentMenu()
         {
+            AppSettings.RecentFiles.RemoveAll(IsTutorialPath); // un tutoriel retenu par une version d'avant
             _recentMenu.Items.Clear();
             foreach (var recent in AppSettings.RecentFiles)
             {
@@ -6461,6 +6472,7 @@ namespace Marabook.App
 
         /// <summary>Sonde (1.1.0) : poser un tag par le champ du Général.</summary>
         internal void AddTagForProbe(string tag) { _tagInput.Text = tag; AddTagFromInput(); }
+        internal ComboBox TagInputForProbe { get { return _tagInput; } }
         internal List<string> TagChipsForProbe()
         {
             var list = new List<string>();

@@ -21,6 +21,7 @@ namespace Marabook.Tests
             Readings(t);
             Layout(t);
             RoundTrip(t);
+            FirstMention(t);
         }
 
         private class World
@@ -161,6 +162,25 @@ namespace Marabook.Tests
             t.Equal(2, graph.PresenceCount(world.Chapter1.Id, world.Keira.Id), "le compte d'une fiche dans un écrit");
             t.Equal(0, graph.PresenceCount(world.Chapter3.Id, world.Marabout.Id), "…zéro quand elle n'y est pas");
             t.Check(graph.Writings.Count == 3 && graph.Writings[0].Id == world.Chapter1.Id && graph.Writings[2].Id == world.Chapter3.Id, "les écrits du graphe suivent l'ordre du récit");
+        }
+
+        /// <summary>L'ordre d'entrée en scène (31/10, Rémi) : le premier nom
+        /// cité dans l'écrit passe en tête, pas le premier par titre.</summary>
+        private static void FirstMention(Harness t)
+        {
+            int first;
+            var count = Presence.CountIn("Un soir, le marabout vit Keira Varenh ; Keira ne dit rien.", new List<string> { Marabook.Correction.FrenchTokenizer.Fold("Keira Varenh", false), Marabook.Correction.FrenchTokenizer.Fold("Keira", false), Marabook.Correction.FrenchTokenizer.Fold("marabout", false) }, out first); // les noms pliés comme NamesOf les donne
+            t.Check(count == 3 && first == "Un soir, le ".Length, "CountIn rend aussi l'index du premier nom cité (" + count + " occurrences, premier à " + first + ")");
+            var world = Make();
+            var graph = Graph(world, new GraphOptions());
+            GraphEdge keiraEdge = null, maraboutEdge = null;
+            foreach (var edge in graph.EdgesOf(world.Chapter1.Id))
+            {
+                if (edge.Kind != GraphEdgeKind.Presence) continue;
+                if (edge.Other(world.Chapter1.Id) == world.Keira.Id) keiraEdge = edge;
+                if (edge.Other(world.Chapter1.Id) == world.Marabout.Id) maraboutEdge = edge;
+            }
+            t.Check(keiraEdge != null && keiraEdge.First >= 0 && (maraboutEdge == null || maraboutEdge.First != keiraEdge.First), "chaque présence porte la position de la première mention (Keira à " + (keiraEdge == null ? -1 : keiraEdge.First) + ")");
         }
 
         private static void Layout(Harness t)

@@ -35,6 +35,7 @@ namespace Marabook.Model
         public GraphEdgeKind Kind;
         public string Label = ""; // la nature d'une relation, le tag partagé
         public int Weight = 1;    // présence : le nombre d'occurrences
+        public int First = -1;    // présence : l'index du premier nom dans l'écrit (l'ordre d'entrée en scène, 31/10)
 
         public string Other(string id) { return From == id ? To : From; }
     }
@@ -220,9 +221,10 @@ namespace Marabook.Model
                     if (string.IsNullOrEmpty(text.Plain)) continue;
                     foreach (var sheet in sheets)
                     {
-                        var count = Presence.CountIn(text.Plain, sheet.Names);
+                        int first;
+                        var count = Presence.CountIn(text.Plain, sheet.Names, out first);
                         if (count == 0) continue;
-                        graph.AddEdge(text.Id, sheet.Id, GraphEdgeKind.Presence, "", count, dedupe, false);
+                        graph.AddEdge(text.Id, sheet.Id, GraphEdgeKind.Presence, "", count, dedupe, false, first);
                         graph.ById[text.Id].Presence++;
                         graph.ById[sheet.Id].Presence++;
                     }
@@ -234,14 +236,14 @@ namespace Marabook.Model
         /// <summary>Une arête de plus — jamais deux fois la même paire pour la
         /// même nature (les relations réciproques n'en font qu'une : la
         /// première rencontrée nomme l'arête).</summary>
-        private void AddEdge(string from, string to, GraphEdgeKind kind, string label, int weight, HashSet<string> dedupe, bool undirectedKey)
+        private void AddEdge(string from, string to, GraphEdgeKind kind, string label, int weight, HashSet<string> dedupe, bool undirectedKey, int first = -1)
         {
             if (from == to) return;
             var a = string.CompareOrdinal(from, to) <= 0 ? from : to;
             var b = ReferenceEquals(a, from) ? to : from;
             var key = kind + "|" + a + "|" + b;
             if (!dedupe.Add(key)) return;
-            var edge = new GraphEdge { From = from, To = to, Kind = kind, Label = label ?? "", Weight = weight };
+            var edge = new GraphEdge { From = from, To = to, Kind = kind, Label = label ?? "", Weight = weight, First = first };
             Edges.Add(edge);
             Incident(from).Add(edge);
             Incident(to).Add(edge);

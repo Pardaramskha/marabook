@@ -1084,6 +1084,9 @@ namespace Marabook.App
                 var title = columns[i].Title.Length == 0 ? "(sans titre)" : columns[i].Title;
                 var nearest = PlanIntensity.Clamp((int)Math.Round(value));
                 _plot.Children.Add(new Line { StartPoint = new Point(x, bottom), EndPoint = new Point(x, bottom + 6), Stroke = Chrome.BorderStrong, StrokeThickness = 1 });
+                // Le trait vertical du socle au point (31/10, Rémi : « repérer
+                // rapidement là où on regarde »), en pointillé discret.
+                _plot.Children.Add(new Line { StartPoint = new Point(x, bottom), EndPoint = new Point(x, y), Stroke = Chrome.AccentSoft, StrokeThickness = 1, StrokeDashArray = new Avalonia.Collections.AvaloniaList<double> { 3, 3 } });
                 var size = dense ? 8 : 12;
                 var dot = new Ellipse
                 {

@@ -36,6 +36,7 @@ namespace Marabook.App
             _tabStrip.CloseOthersRequested += delegate(int index) { TabsRememberPosition(); _tabs.CloseOthers(index); TabsChanged(); ShowActiveTab(); };
             _tabStrip.CloseRightRequested += delegate(int index) { TabsRememberPosition(); _tabs.CloseRight(index); TabsChanged(); ShowActiveTab(); };
             _tabStrip.NewRequested += OpenNewTab;
+            _tabStrip.MoveRequested += MoveTab; // glisser-déposer des onglets (31/10)
             _tabStrip.Bind(_tabs);
             // Ctrl+Tab / Ctrl+Maj+Tab circulent aussi, comme dans tout
             // navigateur — câblés (la touche Tab a déjà ses gestes réglables
@@ -44,6 +45,16 @@ namespace Marabook.App
             // physique, comme Chrome ; ⌘Tab reste au système.
             AddHandler(KeyDownEvent, new EventHandler<KeyEventArgs>(delegate(object sender, KeyEventArgs e)
             {
+                // Ctrl/⌘+Maj+Gauche/Droite (31/10, Rémi) : l'onglet voisin, en
+                // tunnel comme Ctrl+Tab — passe avant la sélection par mot de
+                // l'éditeur.
+                if ((e.Key == Key.Left || e.Key == Key.Right) && Ui.HasCommand(e.KeyModifiers) && (e.KeyModifiers & KeyModifiers.Shift) != 0
+                    && (e.KeyModifiers & KeyModifiers.Alt) == 0 && TabsOn() && !_calmMode)
+                {
+                    if (e.Key == Key.Left) PreviousTab(); else NextTab();
+                    e.Handled = true;
+                    return;
+                }
                 if (e.Key != Key.Tab || (e.KeyModifiers & KeyModifiers.Control) == 0 || !TabsOn() || _calmMode) return;
                 if ((e.KeyModifiers & KeyModifiers.Alt) != 0) return;
                 if ((e.KeyModifiers & KeyModifiers.Shift) != 0) PreviousTab(); else NextTab();
@@ -78,6 +89,12 @@ namespace Marabook.App
         /// <summary>Le modèle a changé : le projet retient la rangée (sans
         /// salir — relire n'est pas modifier, elle part avec la prochaine
         /// vraie sauvegarde, comme les récents), la rangée se redessine.</summary>
+        /// <summary>Un onglet déposé ailleurs dans la rangée (31/10, Rémi).</summary>
+        private void MoveTab(int from, int slot)
+        {
+            if (_tabs.Move(from, slot)) TabsChanged();
+        }
+
         private void TabsChanged()
         {
             if (_project != null)

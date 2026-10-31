@@ -1417,13 +1417,16 @@ namespace Marabook.App
                 var graph = _owner.Graph;
                 if (graph == null) { InvalidateMeasure(); InvalidateVisual(); return; }
                 foreach (var text in graph.Writings) if (_owner.TextInScope(text)) _cols.Add(text);
+                // La première apparition : la colonne, puis la POSITION dans
+                // l'écrit (31/10, Rémi : Keira nommée ligne 2 passe avant Draike).
                 var first = new Dictionary<string, int>();
+                var firstAt = new Dictionary<string, int>();
                 for (var c = 0; c < _cols.Count; c++)
                     foreach (var edge in graph.EdgesOf(_cols[c].Id))
                     {
                         if (edge.Kind != GraphEdgeKind.Presence) continue;
                         var sheet = edge.Other(_cols[c].Id);
-                        if (!first.ContainsKey(sheet)) first[sheet] = c;
+                        if (!first.ContainsKey(sheet)) { first[sheet] = c; firstAt[sheet] = edge.First; }
                     }
                 foreach (var node in graph.Nodes)
                     if (node.IsSheet && first.ContainsKey(node.Id) && _owner.SheetOfType(node)) _rows.Add(node);
@@ -1447,7 +1450,9 @@ namespace Marabook.App
                         if (byTotal != 0) return byTotal;
                     }
                     var byFirst = first[a.Id].CompareTo(first[b.Id]);
-                    return byFirst != 0 ? byFirst : string.Compare(a.Title, b.Title, StringComparison.CurrentCultureIgnoreCase);
+                    if (byFirst != 0) return byFirst;
+                    var byPosition = firstAt[a.Id].CompareTo(firstAt[b.Id]);
+                    return byPosition != 0 ? byPosition : string.Compare(a.Title, b.Title, StringComparison.CurrentCultureIgnoreCase);
                 });
                 _hoverRow = _hoverCol = -1; _hint = null;
                 InvalidateMeasure();

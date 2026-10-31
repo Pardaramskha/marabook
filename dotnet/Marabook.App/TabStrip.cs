@@ -17,7 +17,9 @@ namespace Marabook.App
     /// (elle recouvre le filet de la rangée) ; les autres sont de simples
     /// libellés séparés d'un trait, qui prennent la languette au survol ; un
     /// « + » suit le dernier. Un clic active, la molette (bouton du milieu)
-    /// ferme, le clic droit propose Fermer / les autres / à droite.
+    /// ferme, le clic droit propose Fermer / les autres / à droite ; un
+    /// onglet se GLISSE ailleurs dans la rangée (31/10, Rémi), un trait
+    /// d'accent marque le créneau où il tombera.
     /// La rangée ne décide rien : elle reflète un WorkTabs et lève des
     /// événements que la fenêtre traite.</summary>
     public class TabStrip : Border
@@ -27,6 +29,7 @@ namespace Marabook.App
         public event Action<int> CloseOthersRequested;
         public event Action<int> CloseRightRequested;
         public event Action NewRequested;
+        public event Action<int, int> MoveRequested; // (onglet, créneau 0..Count) — glisser-déposer (31/10)
 
         /// <summary>L'élément d'un onglet (null s'il a disparu : la fenêtre
         /// élague avant de rebâtir, mais la rangée reste sûre).</summary>
@@ -42,6 +45,14 @@ namespace Marabook.App
         private readonly TabsPanel _panel;
         private readonly Button _plus;
         private readonly List<TabView> _views = new List<TabView>();
+        // Le glisser-déposer (31/10) : la pression est retenue par la RANGÉE
+        // (capture du pointeur), pas par l'onglet — l'activation au clic
+        // rebâtit les onglets, la rangée, elle, reste.
+        private readonly Border _dropMark;
+        private int _pressIndex = -1;
+        private Point _pressAt;
+        private bool _dragging;
+        private const double DragThreshold = 6;
 
         public TabStrip()
         {
@@ -56,8 +67,88 @@ namespace Marabook.App
             _plus.Click += delegate { var handler = NewRequested; if (handler != null) handler(); };
             _panel = new TabsPanel(_plus) { Margin = new Thickness(SidePad, TopPad, SidePad, 0) };
             host.Children.Add(_panel);
+            // Le repère du dépôt : un trait d'accent vertical au créneau visé.
+            _dropMark = new Border
+            {
+                Width = 3,
+                Background = Chrome.Accent,
+                CornerRadius = new CornerRadius(1.5),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Margin = new Thickness(0, TopPad, 0, 3),
+                IsVisible = false,
+                IsHitTestVisible = false,
+                ZIndex = 5
+            };
+            host.Children.Add(_dropMark);
             Child = host;
+            PointerMoved += OnDragMoved;
+            PointerReleased += OnDragReleased;
+            PointerCaptureLost += delegate { CancelDrag(); };
         }
+
+        // ---------------------------------------------------------------- glisser-déposer
+
+        /// <summary>Un onglet pressé (bouton gauche) : la rangée capte le
+        /// pointeur et attend de voir si c'est un clic ou un glisser.</summary>
+        internal void BeginDrag(int index, PointerPressedEventArgs e)
+        {
+            _pressIndex = index;
+            _dragging = false;
+            _pressAt = e.GetPosition(this);
+            e.Pointer.Capture(this);
+        }
+
+        private void OnDragMoved(object sender, PointerEventArgs e)
+        {
+            if (_pressIndex < 0 || !ReferenceEquals(e.Pointer.Captured, this)) return;
+            var at = e.GetPosition(this);
+            if (!_dragging && Math.Abs(at.X - _pressAt.X) < DragThreshold) return;
+            _dragging = true;
+            ShowDropMark(SlotAt(at.X));
+        }
+
+        private void OnDragReleased(object sender, PointerReleasedEventArgs e)
+        {
+            if (_pressIndex < 0) return;
+            var from = _pressIndex;
+            var dragging = _dragging;
+            var slot = SlotAt(e.GetPosition(this).X);
+            CancelDrag();
+            if (ReferenceEquals(e.Pointer.Captured, this)) e.Pointer.Capture(null);
+            if (!dragging) return;
+            e.Handled = true;
+            if (slot != from && slot != from + 1) { var handler = MoveRequested; if (handler != null) handler(from, slot); }
+        }
+
+        private void CancelDrag()
+        {
+            _pressIndex = -1;
+            _dragging = false;
+            _dropMark.IsVisible = false;
+        }
+
+        /// <summary>Le créneau (0 = avant le premier, Count = après le dernier)
+        /// le plus proche de cette abscisse de la rangée.</summary>
+        private int SlotAt(double x)
+        {
+            var count = _views.Count;
+            var pitch = _panel.TabPitch;
+            if (count == 0 || pitch <= 0) return 0;
+            var slot = (int)Math.Round((x - SidePad) / pitch);
+            return Math.Max(0, Math.Min(count, slot));
+        }
+
+        private void ShowDropMark(int slot)
+        {
+            var pitch = _panel.TabPitch;
+            var x = SidePad + slot * pitch + (slot == _views.Count && _views.Count > 0 ? Overlap : 0) - 1.5;
+            _dropMark.Margin = new Thickness(Math.Max(0, x), TopPad, 0, 3);
+            _dropMark.IsVisible = true;
+        }
+
+        public bool DropMarkShownForProbe { get { return _dropMark.IsVisible; } }
+        public void MoveForProbe(int from, int slot) { var handler = MoveRequested; if (handler != null) handler(from, slot); }
 
         public void Bind(WorkTabs model)
         {
@@ -140,6 +231,9 @@ namespace Marabook.App
         private sealed class TabsPanel : Panel
         {
             private readonly Button _plus;
+            /// <summary>Le pas d'un onglet au dernier arrangement (largeur moins
+            /// le chevauchement) — le glisser-déposer s'y repère.</summary>
+            public double TabPitch;
 
             public TabsPanel(Button plus) { _plus = plus; }
 
@@ -177,6 +271,7 @@ namespace Marabook.App
             protected override Size ArrangeOverride(Size finalSize)
             {
                 var tabWidth = TabWidth(finalSize.Width);
+                TabPitch = tabWidth - Overlap;
                 double x = 0;
                 foreach (var child in Children)
                 {
@@ -290,7 +385,12 @@ namespace Marabook.App
                     var point = e.GetCurrentPoint(this);
                     if (point.Properties.IsMiddleButtonPressed) { e.Handled = true; _strip.OnClose(_index); return; }
                     if (point.Properties.IsRightButtonPressed) { e.Handled = true; _strip.OnMenu(this, _index); return; }
-                    if (point.Properties.IsLeftButtonPressed) { e.Handled = true; if (!IsActive) _strip.OnActivate(_index); }
+                    if (point.Properties.IsLeftButtonPressed)
+                    {
+                        e.Handled = true;
+                        _strip.BeginDrag(_index, e); // la rangée capte : un glisser peut suivre (31/10)
+                        if (!IsActive) _strip.OnActivate(_index);
+                    }
                 };
             }
 

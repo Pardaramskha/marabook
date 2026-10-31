@@ -2463,6 +2463,15 @@ namespace Marabook.App
             await Settle();
             Check(created.Tags.Count == 2 && created.Tags[0] == "héros" && created.Tags[1] == "mage noir", "les tags s'ajoutent un par un, sans doublon (" + string.Join(", ", created.Tags.ToArray()) + ")");
             Check(shell.TagChipsForProbe().Count == 2 && shell.TagChipsForProbe()[1] == "tag:mage noir", "…en puces dans le Général");
+            // Le champ des tags propose les tags du projet (31/10, Rémi : « ne propose pas les tags déjà présents »).
+            Suggestions.AssumeFocusForProbe = true;
+            var tagBox = shell.TagInputForProbe;
+            tagBox.Text = "mag";
+            await Settle();
+            Check(Suggestions.IsOpenFor(tagBox), "taper « mag » dans le champ des tags propose « mage noir » (autocomplète, 31/10)");
+            tagBox.Text = "";
+            await Settle();
+            Suggestions.AssumeFocusForProbe = false;
             Check(shell.UndoPublic() && created.Tags.Count == 1, "…annulable");
             await Settle();
             shell.Binder.SelectItem(project.Category(Project.KeySheets).Id);
@@ -2927,6 +2936,25 @@ namespace Marabook.App
                 shell.PreviousTabForProbe();
                 await Settle();
                 Check(tabs.ActiveIndex == tabs.Count - 1 && shell.CurrentForProbe == sheet, "Onglet précédent depuis le premier va au dernier");
+                // Ctrl+Maj+Droite / Gauche (31/10, Rémi) : l'onglet voisin, en tunnel sur la fenêtre.
+                shell.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Right, KeyModifiers = Avalonia.Input.KeyModifiers.Control | Avalonia.Input.KeyModifiers.Shift, Source = shell });
+                await Settle();
+                Check(tabs.ActiveIndex == 0 && shell.CurrentForProbe == text, "Ctrl+Maj+Droite passe à l'onglet suivant (31/10)");
+                shell.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Left, KeyModifiers = Avalonia.Input.KeyModifiers.Control | Avalonia.Input.KeyModifiers.Shift, Source = shell });
+                await Settle();
+                Check(tabs.ActiveIndex == tabs.Count - 1 && shell.CurrentForProbe == sheet, "…Ctrl+Maj+Gauche à l'onglet précédent");
+                // Le glisser-déposer (31/10) : le premier onglet déposé en fin de rangée.
+                var rowStrip = shell.TabStripForProbe;
+                var titlesBefore = rowStrip.TitlesForProbe();
+                var activeBefore = tabs.ActiveItemId;
+                rowStrip.MoveForProbe(0, titlesBefore.Count);
+                await Settle();
+                var titlesAfter = rowStrip.TitlesForProbe();
+                Check(titlesAfter.Count == titlesBefore.Count && titlesAfter[titlesAfter.Count - 1] == titlesBefore[0] && tabs.ActiveItemId == activeBefore && shell.CurrentForProbe == sheet && project.OpenTabs[project.OpenTabs.Count - 1] == tabs[tabs.Count - 1].ItemId,
+                    "déposer le premier onglet en fin de rangée le déplace, l'actif reste l'actif, le projet retient l'ordre (" + string.Join(" | ", titlesAfter.ToArray()) + ")");
+                rowStrip.MoveForProbe(titlesAfter.Count - 1, 0);
+                await Settle();
+                Check(string.Join("|", rowStrip.TitlesForProbe().ToArray()) == string.Join("|", titlesBefore.ToArray()), "…et le ramener devant rend l'ordre initial");
                 shell.CloseActiveTabForProbe();
                 await Settle();
                 Check(tabs.Count == baseline + 1 && tabs.ActiveItemId == home.Id && shell.CurrentForProbe == home, "Ctrl+W ferme l'actif ; son voisin de gauche prend la vue (l'Accueil)");

@@ -104,6 +104,14 @@ namespace Marabook.App
             ((ISetLogicalParent)popup).SetParent(box);
 
             var syncing = false;
+            // La frappe de l'utilisateur, reconnue aussi par les touches (31/10,
+            // Rémi : le champ des tags ne proposait rien) — le focus clavier
+            // d'un ComboBox éditable n'est pas toujours « dedans » au moment où
+            // Text change.
+            var lastKey = DateTime.MinValue;
+            box.AddHandler(InputElement.KeyDownEvent, delegate(object sender, KeyEventArgs e) { lastKey = DateTime.UtcNow; }, RoutingStrategies.Tunnel, true);
+            box.AddHandler(InputElement.TextInputEvent, delegate(object sender, TextInputEventArgs e) { lastKey = DateTime.UtcNow; }, RoutingStrategies.Tunnel, true);
+            Func<bool> typing = delegate { return box.IsKeyboardFocusWithin || AssumeFocusForProbe || (DateTime.UtcNow - lastKey).TotalMilliseconds < 400; };
             Action close = delegate
             {
                 if (!popup.IsOpen) return;
@@ -123,12 +131,12 @@ namespace Marabook.App
                 if (args.Property != ComboBox.TextProperty) return;
                 // Strict : la frappe sans réponse passe en rouge, quoi qu'il
                 // arrive au menu (texte posé par le code compris : il redevient noir).
-                if (strict) Tint(box, !syncing && (box.IsKeyboardFocusWithin || AssumeFocusForProbe) && !Matches(box.Text, candidates()));
+                if (strict) Tint(box, !syncing && typing() && !Matches(box.Text, candidates()));
                 // La liste déroulante du ComboBox ouverte : c'est elle qui
                 // répond — le menu de suggestions couvrait ses premières
                 // lignes (les polices favorites, injoignables — 29/09).
                 if (box.IsDropDownOpen) { close(); return; }
-                if (syncing || !(box.IsKeyboardFocusWithin || AssumeFocusForProbe)) { return; }
+                if (syncing || !typing()) { return; }
                 var typed = (box.Text ?? "").Trim();
                 if (typed.Length == 0) { close(); return; }
                 var needle = Correction.FrenchTokenizer.Fold(typed);

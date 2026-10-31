@@ -13,6 +13,21 @@ namespace Marabook.Tests
     /// enregistrée — et l'aller-retour .plot v42 de « tabs » / « activeTab ».</summary>
     public static class WorkTabsTests
     {
+        /// <summary>Le glisser-déposer des onglets (31/10, Rémi) : un onglet
+        /// change de place, l'actif reste l'actif.</summary>
+        private static void Moving(Harness t)
+        {
+            var tabs = new WorkTabs();
+            tabs.Open("a"); tabs.Open("b"); tabs.Open("c"); tabs.Open("d");
+            tabs.Activate(1); // b
+            t.Check(tabs.Move(0, 3), "a déposé entre b et c…");
+            t.Check(tabs[0].ItemId == "b" && tabs[1].ItemId == "c" && tabs[2].ItemId == "a" && tabs[3].ItemId == "d" && tabs.ActiveItemId == "b", "…l'ordre suit (b c a d), l'actif reste b");
+            t.Check(tabs.Move(3, 0) && tabs[0].ItemId == "d" && tabs.ActiveItemId == "b" && tabs.ActiveIndex == 1, "le dernier déposé devant le premier (d b c a), l'actif suit son index (" + tabs.ActiveIndex + ")");
+            t.Check(!tabs.Move(1, 1) && !tabs.Move(1, 2), "le même créneau, ou celui d'après : rien ne bouge");
+            t.Check(!tabs.Move(-1, 0) && !tabs.Move(0, 9), "hors limites : rien");
+            t.Check(tabs.Move(1, 4) && tabs[3].ItemId == "b" && tabs.ActiveIndex == 3, "l'actif déposé en fin : il reste l'actif, à sa nouvelle place");
+        }
+
         public static void Run(Harness t)
         {
             t.Suite("C54 — 1.1.0 : onglets (rangée, plafond, fermeture, reprise, .plot v42)");
@@ -22,6 +37,7 @@ namespace Marabook.Tests
             Dropping(t);
             Limits(t);
             Restoring(t);
+            Moving(t);
             RoundTrip(t);
         }
 

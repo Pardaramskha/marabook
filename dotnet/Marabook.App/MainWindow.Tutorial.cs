@@ -83,6 +83,17 @@ namespace Marabook.App
 
         public bool TutorialActive { get { return _tutorialSteps != null; } }
 
+        /// <summary>Le dossier de la copie au chaud du projet d'exemple.</summary>
+        private static string TutorialFolder { get { return Path.Combine(Path.GetTempPath(), "Marabook", "tutoriel"); } }
+
+        /// <summary>Ce chemin est-il le projet du tutoriel (ou dans son dossier) ?</summary>
+        internal static bool IsTutorialPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            try { return Path.GetFullPath(path).StartsWith(TutorialFolder, StringComparison.OrdinalIgnoreCase); }
+            catch (Exception) { return false; }
+        }
+
         /// <summary>Le fichier d'une ressource du tutoriel : à côté de l'exécutable
         /// (publication), sinon à la racine du dépôt (Debug, sondes).</summary>
         internal static string TutorialAsset(string name)
@@ -120,7 +131,7 @@ namespace Marabook.App
             string path;
             try
             {
-                var folder = Path.Combine(Path.GetTempPath(), "Marabook", "tutoriel");
+                var folder = TutorialFolder;
                 Directory.CreateDirectory(folder);
                 path = Path.Combine(folder, "Tutoriel.plot");
                 foreach (var stale in new[] { path, path + ".bak", path + ".tmp", path + ".lock" })

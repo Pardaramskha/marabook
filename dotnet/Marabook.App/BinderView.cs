@@ -15,6 +15,7 @@ using Avalonia.VisualTree;
 
 using Marabook.History;
 using Marabook.Model;
+using AppSettings = Marabook.Settings.AppSettings;
 using Profiles = Marabook.Settings.Profiles;
 
 namespace Marabook.App
@@ -31,6 +32,10 @@ namespace Marabook.App
         private bool _subscribed;
         private readonly Dictionary<string, TreeViewItem> _nodesById = new Dictionary<string, TreeViewItem>();
         private readonly HashSet<string> _expandedIds = new HashSet<string>();
+        /// <summary>La clé (chemin du projet) sous laquelle l'état déplié se
+        /// retient entre les sessions (31/10) ; null = rien à retenir (projet
+        /// jamais enregistré, tutoriel).</summary>
+        public string ExpansionKey;
         private string _selectedId;
         private bool _rebuilding;
 
@@ -410,7 +415,11 @@ namespace Marabook.App
                 _subscribed = true;
             }
             _expandedIds.Clear();
-            foreach (var root in project.Roots) _expandedIds.Add(root.Id); // categories start open
+            List<string> remembered;
+            if (ExpansionKey != null && AppSettings.BinderExpanded.TryGetValue(ExpansionKey, out remembered))
+                foreach (var id in remembered) _expandedIds.Add(id); // ce que la session d'avant avait déplié (31/10, Rémi)
+            else
+                foreach (var root in project.Roots) _expandedIds.Add(root.Id); // categories start open
             _selectedId = null;
             if (_searchBox != null) _searchBox.Text = ""; // also restores the tree
             Rebuild();
@@ -1048,7 +1057,15 @@ namespace Marabook.App
             if (item == null) return;
             if (node.IsExpanded) _expandedIds.Add(item.Id);
             else _expandedIds.Remove(item.Id);
+            RememberExpansion();
             e.Handled = true;
+        }
+
+        /// <summary>Retient l'état déplié pour la prochaine session (réglages,
+        /// par projet) — sans salir le projet.</summary>
+        public void RememberExpansion()
+        {
+            if (ExpansionKey != null) AppSettings.RememberBinderExpanded(ExpansionKey, _expandedIds);
         }
 
         private TreeViewItem _selectedNode; // TreeView.SelectedItem d'Avalonia ignore les nœuds imbriqués : suivi ici
