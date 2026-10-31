@@ -103,7 +103,10 @@ namespace Marabook.App
             });
             head.Children.Add(titleRow);
 
-            _errorFrame = new Border { BorderThickness = new Thickness(1), BorderBrush = Brushes.Transparent, CornerRadius = new CornerRadius(3), Margin = new Thickness(0, 6, 0, 0) };
+            // Le champ a la taille exacte de « Remplacer par » (31/10, Rémi) : le
+            // cadre d'erreur ne l'entoure plus d'un pixel, c'est le bord du champ
+            // qui rougit (SetNotice).
+            _errorFrame = new Border { BorderThickness = new Thickness(0), BorderBrush = Brushes.Transparent, Margin = new Thickness(0, 6, 0, 0) };
             _queryBox = new TextBox { [ToolTip.TipProperty] = "Le texte (ou l'expression régulière) à chercher — Entrée relance, Échap efface" };
             _queryBox.TextChanged += delegate { SetNotice(null); Schedule(); };
             _queryBox.KeyDown += delegate(object sender, KeyEventArgs e)
@@ -371,7 +374,7 @@ namespace Marabook.App
 
         private void ShowError(string message)
         {
-            _errorFrame.BorderBrush = message == null ? Brushes.Transparent : Chrome.Accent;
+            if (message == null) _queryBox.ClearValue(TemplatedControl.BorderBrushProperty); else _queryBox.BorderBrush = Chrome.Accent;
             _error.Text = message ?? "";
             _error.IsVisible = message == null ? false : true;
         }

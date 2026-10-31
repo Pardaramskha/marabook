@@ -28,7 +28,7 @@ namespace Marabook.App
         public MainWindow(Launch launch) : this()
         {
             _launch = launch ?? new Launch();
-            Sounds.Muted = _launch.Isolated; // la sonde et les captures en silence (31/10)
+            Sounds.Muted = _launch.Isolated && !_launch.Probe; // les captures en silence ; la sonde SONNE, provisoirement (31/10, Rémi : entendre les chevauchements)
             // Sans projet à ouvrir (1.1.0) : le voile de l'accueil dès la première
             // image — l'application vide ne « flashe » plus avant l'écran d'accueil.
             if (!_launch.Isolated && _launch.PlotPath == null) ShowVeil();

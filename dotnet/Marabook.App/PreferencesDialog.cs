@@ -652,7 +652,7 @@ namespace Marabook.App
 
             // Les SONS (1.1.0, 31/10, Rémi) : une case, sans aide.
             panel.Children.Add(Caption("Sons", 18));
-            var sounds = new CheckBox { Content = "Sons", IsChecked = AppSettings.SoundsEnabled, Margin = new Thickness(0, 6, 0, 0), Tag = "sounds" };
+            var sounds = new CheckBox { Content = "Activer les sons : sauvegarde, erreur, succès, notification", IsChecked = AppSettings.SoundsEnabled, Margin = new Thickness(0, 6, 0, 0), Tag = "sounds" };
             sounds.IsCheckedChanged += delegate
             {
                 if (AppSettings.SoundsEnabled == (sounds.IsChecked == true)) return;
@@ -819,6 +819,40 @@ namespace Marabook.App
                     if (action.Category == category && ActionShown(action))
                         panel.Children.Add(ShortcutRow(action));
             }
+            // Les raccourcis NON configurables (31/10, Rémi) : câblés, listés
+            // dans un accordéon replié en fin de page.
+            var fixedList = new StackPanel { Spacing = 4, Margin = new Thickness(0, 6, 0, 0) };
+            var cmd = Ui.CommandKey;
+            foreach (var pair in new[]
+            {
+                new[] { "Ctrl+Tab / Ctrl+Maj+Tab", "Onglet suivant / précédent (cyclique)" },
+                new[] { cmd + "+Maj+Droite / " + cmd + "+Maj+Gauche", "Onglet suivant / précédent" },
+                new[] { "Clic molette sur un onglet", "Fermer l'onglet" },
+                new[] { "Maj+molette", "Défilement horizontal" },
+                new[] { cmd + "+molette", "Zoom (éditeur, carte du Gros Graph)" },
+                new[] { "Échap", "Fermer la recherche, vider un champ, désélectionner sur la carte, fermer un menu de propositions" },
+                new[] { "Entrée, Tab, flèches dans un champ à propositions", "Prendre la proposition, s'y déplacer" },
+                new[] { "Ctrl+clic / Maj+clic dans la Pile", "Sélection multiple (le Général en mode lot)" },
+                new[] { "F1 / F2 sur une fiche", "Vue wiki / arbre généalogique" },
+                new[] { "Double-clic sur un nœud du Gros Graph", "Ouvrir l'élément" }
+            })
+            {
+                var row = new DockPanel();
+                var keys = new TextBlock { Text = pair[0], Foreground = Chrome.Ink, FontSize = 12, Width = 300, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Top };
+                DockPanel.SetDock(keys, Dock.Left);
+                row.Children.Add(keys);
+                row.Children.Add(new TextBlock { Text = pair[1], Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap });
+                fixedList.Children.Add(row);
+            }
+            panel.Children.Add(new Expander
+            {
+                Header = new TextBlock { Text = "Raccourcis non-configurables", Foreground = Chrome.Ink, FontSize = 12, FontWeight = FontWeight.SemiBold },
+                Content = fixedList,
+                IsExpanded = false,
+                Margin = new Thickness(0, 18, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Tag = "fixed-shortcuts"
+            });
             return panel;
         }
 

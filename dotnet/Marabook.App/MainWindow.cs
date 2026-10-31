@@ -5369,7 +5369,7 @@ namespace Marabook.App
         private void ShowAchievementToast(Achievement achievement)
         {
             var badge = AchievementBadge.Build(achievement, true, 48);
-            ShowToast(badge, "Succès débloqué", achievement.Name, achievement.Description, 6);
+            ShowToast(badge, "Succès débloqué", achievement.Name, achievement.Description, 6, false); // le son du succès suffit
         }
 
         /// <summary>Le toast « enregistré » (0.50.0) : la carte des succès, sans
@@ -5378,7 +5378,7 @@ namespace Marabook.App
         {
             if (_project == null || _path == null) return;
             var detail = System.IO.Path.GetFileName(_path) + " · " + DateTime.Now.ToString("HH:mm");
-            ShowToast(null, "Projet enregistré", _project.Name, detail, 3);
+            ShowToast(null, "Projet enregistré", _project.Name, detail, 3, false); // le son de l'enregistrement suffit
         }
 
         /// <summary>La carte qui glisse depuis la droite et s'efface seule :
@@ -5386,6 +5386,14 @@ namespace Marabook.App
         /// ne bloque jamais un clic dessous.</summary>
         private void ShowToast(Control badge, string kicker, string title, string description, double seconds)
         {
+            ShowToast(badge, kicker, title, description, seconds, true);
+        }
+
+        /// <summary>sound : la notification sonne (31/10, Rémi) — sauf
+        /// l'enregistrement et le succès, qui ont leur propre son.</summary>
+        private void ShowToast(Control badge, string kicker, string title, string description, double seconds, bool sound)
+        {
+            if (sound) Sounds.Notification();
             var row = new DockPanel();
             if (badge != null)
             {
@@ -6284,7 +6292,7 @@ namespace Marabook.App
 
         private static TextBox GoalNumberBox()
         {
-            var box = new TextBox { Width = 76, HorizontalContentAlignment = HorizontalAlignment.Right, [ToolTip.TipProperty] = "Un nombre"};
+            var box = new TextBox { HorizontalAlignment = HorizontalAlignment.Stretch, [ToolTip.TipProperty] = "Un nombre"}; // pleine largeur, comme « Remplacer par » (31/10, Rémi)
             box.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key != Key.Return && e.Key != Key.Enter) return;
@@ -6305,9 +6313,12 @@ namespace Marabook.App
 
         private static Control GoalRow(TextBox box, ComboBox unit)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal };
-            row.Children.Add(box);
+            // L'unité à droite, le nombre prend le reste (31/10).
+            var row = new DockPanel();
+            DockPanel.SetDock(unit, Dock.Right);
+            unit.Margin = new Thickness(6, 0, 0, 0);
             row.Children.Add(unit);
+            row.Children.Add(box);
             return row;
         }
 

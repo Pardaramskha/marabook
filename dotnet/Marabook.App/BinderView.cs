@@ -381,7 +381,6 @@ namespace Marabook.App
                 Padding = new Thickness(12, 8, 12, 8),
                 Background = Brushes.Transparent,
                 Cursor = new Cursor(StandardCursorType.Hand),
-                [ToolTip.TipProperty] = "Statistiques d'écriture et objectif journalier",
                 Child = row
             };
             bar.PointerEntered += delegate { bar.Background = Chrome.BarBg; };
