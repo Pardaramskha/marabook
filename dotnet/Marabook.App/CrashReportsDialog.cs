@@ -137,6 +137,7 @@ namespace Marabook.App
 
         public static void Show(Window owner)
         {
+            Sounds.Error(); // le rapport d'erreur paraît (31/10)
             var _ = Dialogs.ShowModal(new CrashReportsDialog(owner), owner);
         }
     }

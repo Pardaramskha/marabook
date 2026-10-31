@@ -1758,7 +1758,18 @@ namespace Marabook.App
             _tagInput = new ComboBox { IsEditable = true, PlaceholderText = "Ajouter un tag, puis Entrée", Margin = new Thickness(0, 4, 0, 0), HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "tag-input" };
             Suggestions.Attach(_tagInput,
                 delegate { return _project == null ? new List<string>() : SheetTags.All(_project); },
-                delegate(string chosen) { _tagInput.Text = chosen; AddTagFromInput(); });
+                delegate(string chosen) { _tagInput.Text = chosen; AddTagFromInput(); }, false, true);
+            // La FLÈCHE (31/10, Rémi) : la liste native montre tous les tags du
+            // projet (remplie à chaque rafraîchissement) ; un choix pose le tag.
+            _tagInput.DropDownClosed += delegate
+            {
+                if (_loadingInspector || _tagInput.SelectedIndex < 0) return;
+                var chosen = _tagInput.SelectedItem as string;
+                _tagInput.SelectedIndex = -1;
+                if (string.IsNullOrEmpty(chosen)) return;
+                _tagInput.Text = chosen;
+                AddTagFromInput();
+            };
             _tagInput.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key != Key.Return && e.Key != Key.Enter) return;
@@ -3064,11 +3075,12 @@ namespace Marabook.App
             ScheduleBinderRebuild();
             // Le toast « enregistré » (0.50.0) : à la demande explicite
             // seulement — l'automatique reste muet.
-            if (!silent) ShowSavedToast();
+            if (!silent) { ShowSavedToast(); Sounds.Saved(); } // l'enregistrement MANUEL sonne (31/10), jamais l'automatique
         }
 
         private void ReportSaveError(Exception error, bool silent)
         {
+            if (!silent) Sounds.Error(); // le rapport d'erreur paraît (31/10)
             {
                 // La sonde lit l'échec ; la console garde la pile complète
                 // (un « Object reference… » sans pile ne dit rien, 27/09).
@@ -5289,6 +5301,7 @@ namespace Marabook.App
             AppSettings.Achievements[id] = DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
             AppSettings.Save();
             ShowAchievementToast(achievement);
+            Sounds.Success(); // un seul son pour une volée de succès (31/10)
             if (_journalView.IsVisible) _journalView.RefreshAchievements();
             // Un palier peut tomber dans la foulée.
             if (!Achievements.IsTier(id)) ScheduleAchievementCheck();
@@ -6407,6 +6420,7 @@ namespace Marabook.App
         /// <summary>Les puces des tags de la fiche montrée.</summary>
         private void RefreshTagChips()
         {
+            RefreshTagChoices();
             var item = InspectedItem;
             var sheet = item != null && item.Kind == ItemKind.Sheet;
             _tagsSection.IsVisible = sheet ? true : false;
@@ -6471,6 +6485,22 @@ namespace Marabook.App
         }
 
         /// <summary>Sonde (1.1.0) : poser un tag par le champ du Général.</summary>
+        /// <summary>Les tags du projet dans la liste native du champ (la flèche) —
+        /// sans toucher à la frappe en cours ni à la sélection.</summary>
+        private void RefreshTagChoices()
+        {
+            if (_tagInput == null) return;
+            var typed = _tagInput.Text;
+            var tags = _project == null ? new List<string>() : SheetTags.All(_project);
+            var same = _tagInput.ItemCount == tags.Count;
+            if (same) for (var i = 0; i < tags.Count; i++) if (!Equals(_tagInput.Items[i], tags[i])) { same = false; break; }
+            if (same) return;
+            _tagInput.Items.Clear();
+            foreach (var tag in tags) _tagInput.Items.Add(tag);
+            _tagInput.SelectedIndex = -1;
+            if ((_tagInput.Text ?? "") != (typed ?? "")) _tagInput.Text = typed;
+        }
+
         internal void AddTagForProbe(string tag) { _tagInput.Text = tag; AddTagFromInput(); }
         internal ComboBox TagInputForProbe { get { return _tagInput; } }
         internal List<string> TagChipsForProbe()

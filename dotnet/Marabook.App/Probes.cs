@@ -2463,6 +2463,7 @@ namespace Marabook.App
             await Settle();
             Check(created.Tags.Count == 2 && created.Tags[0] == "héros" && created.Tags[1] == "mage noir", "les tags s'ajoutent un par un, sans doublon (" + string.Join(", ", created.Tags.ToArray()) + ")");
             Check(shell.TagChipsForProbe().Count == 2 && shell.TagChipsForProbe()[1] == "tag:mage noir", "…en puces dans le Général");
+            Check(shell.TagInputForProbe.ItemCount == 2, "la flèche du champ des tags liste les tags du projet (" + shell.TagInputForProbe.ItemCount + ", 31/10)");
             // Le champ des tags propose les tags du projet (31/10, Rémi : « ne propose pas les tags déjà présents »).
             var tagBox = shell.TagInputForProbe;
             {

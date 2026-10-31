@@ -77,6 +77,16 @@ namespace Marabook.App
 
         public static void Attach(ComboBox box, Func<IEnumerable<string>> candidates, Action<string> pick, bool strict)
         {
+            Attach(box, candidates, pick, strict, false);
+        }
+
+        /// <summary>suggestionsFirst (31/10) : la liste native du ComboBox sert à
+        /// la flèche (tout voir), mais la frappe appartient au menu de
+        /// suggestions — la liste native se referme quand on tape (le champ
+        /// des tags : même contenu des deux côtés). Sans lui, une liste native
+        /// ouverte garde la main (les polices : ses favorites en tête).</summary>
+        public static void Attach(ComboBox box, Func<IEnumerable<string>> candidates, Action<string> pick, bool strict, bool suggestionsFirst)
+        {
             var list = new ListBox
             {
                 Background = Chrome.FieldBg,
@@ -117,11 +127,11 @@ namespace Marabook.App
             // une liste vide, invisible, devant laquelle le menu s'effaçait).
             Func<bool> nativeListOpen = delegate
             {
-                if (box.ItemCount > 0) return box.IsDropDownOpen;
+                if (box.ItemCount > 0 && !suggestionsFirst) return box.IsDropDownOpen;
                 // Refermée APRÈS coup (le fermer dans DropDownOpened boucle
                 // avec la liaison du gabarit) : elle n'a rien à montrer.
                 if (box.IsDropDownOpen)
-                    Avalonia.Threading.Dispatcher.UIThread.Post(delegate { if (box.ItemCount == 0 && box.IsDropDownOpen) box.IsDropDownOpen = false; });
+                    Avalonia.Threading.Dispatcher.UIThread.Post(delegate { if ((box.ItemCount == 0 || suggestionsFirst) && box.IsDropDownOpen) box.IsDropDownOpen = false; });
                 return false;
             };
             Action close = delegate
@@ -195,7 +205,7 @@ namespace Marabook.App
                     else close();
                 }
             }, RoutingStrategies.Tunnel);
-            box.DropDownOpened += delegate { if (nativeListOpen()) close(); }; // la liste du ComboBox prend la place (quand elle a des lignes)
+            box.DropDownOpened += delegate { if (box.ItemCount > 0) close(); }; // la liste du ComboBox prend la place (quand elle a des lignes) — la flèche l'ouvre exprès
             box.LostFocus += delegate
             {
                 // Le focus part vers la liste (clic) : on la laisse répondre.

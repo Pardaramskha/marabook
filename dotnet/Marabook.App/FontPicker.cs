@@ -58,6 +58,7 @@ namespace Marabook.App
             // d'elle-même — référence dynamique, qui suit aussi le passage
             // clair/sombre (correctif 0.50.0).
             IsEditable = true;
+            Classes.Add("wide-list"); // la liste déborde du champ : les noms de police se lisent (31/10)
             MaxDropDownHeight = 440;
             // Une rangée par entrée, le trait pour le séparateur (la liste
             // d'Avalonia virtualise d'elle-même).

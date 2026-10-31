@@ -650,6 +650,17 @@ namespace Marabook.App
             panel.Children.Add(animations);
             panel.Children.Add(Note("Les effets d'interface (1.0.6) : les tuiles arrivent en fondu, la Pile et le rail glissent.", 4, 0));
 
+            // Les SONS (1.1.0, 31/10, Rémi) : une case, sans aide.
+            panel.Children.Add(Caption("Sons", 18));
+            var sounds = new CheckBox { Content = "Sons", IsChecked = AppSettings.SoundsEnabled, Margin = new Thickness(0, 6, 0, 0), Tag = "sounds" };
+            sounds.IsCheckedChanged += delegate
+            {
+                if (AppSettings.SoundsEnabled == (sounds.IsChecked == true)) return;
+                AppSettings.SoundsEnabled = sounds.IsChecked == true;
+                AppSettings.Save();
+            };
+            panel.Children.Add(sounds);
+
             // Les ONGLETS (1.1.0, 28/10, Rémi) : la bascule et le plafond, sans
             // aide — « Onglets maximum » entre WorkTabs.MinLimit et MaxLimit.
             panel.Children.Add(Caption("Onglets", 18));

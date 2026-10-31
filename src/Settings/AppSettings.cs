@@ -258,6 +258,7 @@ namespace Marabook.Settings
         // l'entrée des tuiles, la glissade de la Pile et celle de la colonne de
         // droite. Décochée, tout se pose d'un coup.
         public static bool Animations = true;
+        public static bool SoundsEnabled = true; // les trois sons (succès, enregistrement, rapport d'erreur) — 1.1.0, 31/10
         // Les derniers caractères spéciaux insérés (tiroir du ruban, 0.50.0).
         public static List<string> RecentSpecialChars = new List<string>();
 
@@ -608,6 +609,7 @@ namespace Marabook.Settings
                 ShowLooseLines = Json.AsBool(Json.Field(root, "looseLinesVisible"), false);
                 ShowWidowMarks = Json.AsBool(Json.Field(root, "widowMarksVisible"), true);
                 Animations = Json.AsBool(Json.Field(root, "animations"), true);
+                SoundsEnabled = Json.AsBool(Json.Field(root, "sounds"), true);
                 ImageGrid = Json.AsBool(Json.Field(root, "imageGrid"), false);
                 LexiconPinned = Json.AsBool(Json.Field(root, "lexiconPinned"), true);
                 LoadedFromFile = true;
@@ -777,6 +779,7 @@ namespace Marabook.Settings
                 root["looseLinesVisible"] = ShowLooseLines;
                 root["widowMarksVisible"] = ShowWidowMarks;
                 root["animations"] = Animations;
+                root["sounds"] = SoundsEnabled;
                 root["imageGrid"] = ImageGrid;
                 root["lexiconPinned"] = LexiconPinned;
                 root["proofEnabled"] = ProofEnabled;

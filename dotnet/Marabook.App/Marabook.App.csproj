@@ -47,4 +47,11 @@
     <EmbeddedResource Include="..\..\patchnotes\*.md" Exclude="..\..\patchnotes\CONVENTION.md" LogicalName="patchnotes/%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!-- Les sons (1.1.0, 31/10, Rémi) : trois WAV PCM mono 44,1 kHz (succès,
+       enregistrement, rapport d'erreur), convertis des .mp3 de Pixabay — joués
+       sans décodage ni latence (Sounds.cs). -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\assets\sounds\*.wav" LogicalName="sounds/%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

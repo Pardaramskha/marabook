@@ -300,6 +300,10 @@ namespace Marabook.App
             // ne l'élargit plus (il se coupe d'une ellipse), dans toute l'app.
             styles.Add(Style(x => x.OfType<ComboBox>().Template().OfType<Popup>().Child().OfType<Border>(),
                 new Setter(Layoutable.MaxWidthProperty, new Binding("Bounds.Width") { RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent) })));
+            // …sauf les listes qui ont BESOIN de déborder (31/10, Rémi : polices
+            // et tailles « illisibles ») : la classe « wide-list » rend la largeur libre.
+            styles.Add(Style(x => x.OfType<ComboBox>().Class("wide-list").Template().OfType<Popup>().Child().OfType<Border>(),
+                new Setter(Layoutable.MaxWidthProperty, double.PositiveInfinity)));
             styles.Add(Style(x => x.OfType<ComboBoxItem>().Descendant().OfType<TextBlock>(),
                 new Setter(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis)));
             styles.Add(Style(x => x.OfType<ComboBox>().Descendant().OfType<TextBlock>(),
