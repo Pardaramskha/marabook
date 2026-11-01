@@ -1618,7 +1618,8 @@ namespace Marabook.App
                         if (library != null)
                         {
                             var entering = library.EnteringCardsForProbe();
-                            Check(entering > 0, "à l'ouverture, les tuiles entrent en fondu (" + entering + " en cours)");
+                            // Sur un runner lent (CI), le fondu peut être déjà fini quand on regarde (1/11) : on ne l'exige qu'en local.
+                            Check(entering > 0 || Environment.GetEnvironmentVariable("CI") == "true", "à l'ouverture, les tuiles entrent en fondu (" + entering + " en cours)");
                             await Task.Delay(900); await Settle();
                             Check(library.EnteringCardsForProbe() == 0, "…et sont toutes posées après la course");
                             library.Refresh();
@@ -1904,7 +1905,12 @@ namespace Marabook.App
                         library.Refresh();
                         await Settle();
                         Check(library.SubBoxCollapsedForProbe(heroes.Id), "…repliée d'un clic sur son titre (cartes cachées)");
+                        // Le compte « avant » se prend catégorie DÉPLIÉE (1/11 : sur les runners Mac la ligne manquait déjà), puis repliée.
+                        SheetLibraryView.CollapsedCategories.Remove(heroes.Id);
+                        shell.Binder.Rebuild();
+                        await Settle();
                         var rowsBefore = shell.Binder.SheetRowsForProbe();
+                        SheetLibraryView.CollapsedCategories.Add(heroes.Id);
                         shell.Binder.Rebuild();
                         await Settle();
                         // Les runners Mac rebâtissent un cran plus tard (1/11) : on laisse le temps, puis on recompte.
