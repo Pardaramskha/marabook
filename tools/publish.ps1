@@ -153,16 +153,27 @@ if (-not $ridWindows) {
         }
         $hash = (Get-FileHash $archive -Algorithm SHA256).Hash
         if ($hash -ne $build.Sha256) { throw "Python embarqué : empreinte inattendue pour $($build.Name) ($hash)." }
-        & tar -xzf $archive -C $payload
+        # macOS (1/11) : Python va dans Contents/Resources, pas dans Contents/MacOS —
+        # codesign prenait ses dossiers à nom pointé (include/python3.13,
+        # lib/python3.13) pour des sous-bundles (« bundle format unrecognized »).
+        # Platform.PythonExecutable regarde aussi ../Resources/python/bin/python3.
+        $pythonHome = $payload
+        if ($ridMac) {
+            $pythonHome = Join-Path (Join-Path $bundle 'Contents') 'Resources'
+            New-Item -ItemType Directory -Force $pythonHome | Out-Null
+        }
+        & tar -xzf $archive -C $pythonHome
         if ($LASTEXITCODE -ne 0) { throw 'tar (Python embarqué) a échoué.' }
-        $python3 = Join-Path $payload (Join-Path 'python' (Join-Path 'bin' 'python3'))
+        $python3 = Join-Path $pythonHome (Join-Path 'python' (Join-Path 'bin' 'python3'))
         if (-not (Test-Path $python3)) { throw "Python embarqué : python/bin/python3 manque après déballage." }
-        # Les tests et les caches de bytecode ne partent pas (place).
-        $lib = Join-Path $payload (Join-Path 'python' 'lib')
+        # Les tests, les en-têtes C et les caches de bytecode ne partent pas (place).
+        $lib = Join-Path $pythonHome (Join-Path 'python' 'lib')
         Get-ChildItem $lib -Recurse -Directory -Filter '__pycache__' | Remove-Item -Recurse -Force
         Get-ChildItem $lib -Recurse -Directory | Where-Object { $_.Name -eq 'test' -or $_.Name -eq 'tests' -or $_.Name -eq 'idlelib' -or $_.Name -eq 'tkinter' -or $_.Name -eq 'turtledemo' } | Remove-Item -Recurse -Force
-        if (Outil 'chmod') { & chmod -R a+rX (Join-Path $payload 'python') }
-        Write-Host ("Python embarqué : {0} ({1} Mo déballés)" -f $build.Name, [math]::Round(((Get-ChildItem (Join-Path $payload 'python') -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), 1))
+        $include = Join-Path $pythonHome (Join-Path 'python' 'include')
+        if (Test-Path $include) { Remove-Item -Recurse -Force $include }
+        if (Outil 'chmod') { & chmod -R a+rX (Join-Path $pythonHome 'python') }
+        Write-Host ("Python embarqué : {0} ({1} Mo déballés)" -f $build.Name, [math]::Round(((Get-ChildItem (Join-Path $pythonHome 'python') -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), 1))
     }
 }
 if (-not $ridWindows -and -not $ridMac) {
@@ -313,7 +324,7 @@ if ($ridMac) {
         # une fois, et l'Updater peut recopier le bundle sans le casser.
         # Les binaires de Python embarqué (python3.13, .dylib, .so) ne sont
         # pas à un emplacement que --deep connaît : signés un à un d'abord.
-        $pythonDir = Join-Path $payload 'python'
+        $pythonDir = Join-Path $resources 'python' # Contents/Resources/python (1/11)
         if (Test-Path $pythonDir) {
             $binaires = Get-ChildItem $pythonDir -Recurse -File | Where-Object {
                 $_.Extension -eq '.dylib' -or $_.Extension -eq '.so' -or $_.DirectoryName.EndsWith([IO.Path]::DirectorySeparatorChar + 'bin')

@@ -117,6 +117,10 @@ namespace Marabook.App
             // sinon le python3 du système.
             var bundled = Path.Combine(baseFolder, "python", "bin", "python3");
             if (File.Exists(bundled)) return bundled;
+            // macOS (1/11) : dans le bundle, Python vit dans Contents/Resources
+            // (codesign refuse ses dossiers à nom pointé dans Contents/MacOS).
+            var inResources = Path.GetFullPath(Path.Combine(baseFolder, "..", "Resources", "python", "bin", "python3"));
+            if (File.Exists(inResources)) return inResources;
             // Le pont vérifie File.Exists : un nom nu ne passe pas — le python3
             // du PATH, résolu en chemin complet (P4).
             var path = Environment.GetEnvironmentVariable("PATH") ?? "";
