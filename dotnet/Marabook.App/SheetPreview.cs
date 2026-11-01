@@ -32,6 +32,10 @@ namespace Marabook.App
         private static BinderItem _target;
         private static DispatcherTimer _timer;
 
+        /// <summary>Sonde : une carte est-elle ouverte, et pour quelle fiche ?</summary>
+        public static bool IsShowing { get { return _popup != null && _popup.IsOpen; } }
+        public static BinderItem Showing { get { return IsShowing ? _target : null; } }
+
         /// <summary>Un [[lien]] par titre : la fiche du projet qui le porte, sinon rien.</summary>
         public static void Hover(Control host, string title)
         {
@@ -100,8 +104,10 @@ namespace Marabook.App
         {
             if (item == null || project == null) return null;
             var excerpt = Exchange.Encyclopedia.Excerpt(item.Document == null ? "" : item.Document.ToPlainText(), ExcerptChars);
-            var portrait = item.ImageId == null ? null : ImageCache.Thumbnail(project.FindImage(item.ImageId), ThumbWidth);
-            if (excerpt.Length == 0 && portrait == null) return null;
+            if (excerpt.Length == 0) excerpt = Exchange.Encyclopedia.FieldsSummary(item, project, ExcerptChars); // sans Texte libre : les champs de l'infobox
+            Avalonia.Media.Imaging.Bitmap portrait = null;
+            try { portrait = item.ImageId == null ? null : ImageCache.Thumbnail(project.FindImage(item.ImageId), ThumbWidth); }
+            catch (Exception) { portrait = null; }
             var template = project.TemplateOf(item);
             var text = new StackPanel { Spacing = 2 };
             text.Children.Add(new TextBlock { Text = string.IsNullOrEmpty((item.Title ?? "").Trim()) ? "Sans titre" : item.Title.Trim(), FontWeight = FontWeight.Bold, FontSize = 13.5, Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap });

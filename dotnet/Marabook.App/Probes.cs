@@ -1508,6 +1508,41 @@ namespace Marabook.App
                                 if (run != null && run.Text == "vieux marabout") linkRun = run;
                             }
                         Check(linkRun != null && linkRun.TextDecorations != null && ReferenceEquals(linkRun.Foreground, Chrome.Accent), "mode wiki : le lien d'un champ se rend en accent souligné, marques cachées");
+                        // L'aperçu au survol (1/11) : la ligne du lien, survolée, ouvre la carte de la cible après le délai ; la quitter la ferme.
+                        {
+                            TextBlock linkLine = null;
+                            foreach (var block in lab.GetVisualDescendants().OfType<TextBlock>())
+                                if (block.Inlines != null && block.Inlines.Contains(linkRun)) linkLine = block;
+                            var marabout = shell.Project.FindByTitle("Le marabout");
+                            if (linkLine != null && marabout != null)
+                            {
+                                SheetPreview.Hover(linkLine, marabout);
+                                await Task.Delay(SheetPreview.DelayMs + 250);
+                                await Settle();
+                                Check(SheetPreview.IsShowing && SheetPreview.Showing == marabout, "la carte d'aperçu s'ouvre au survol du lien du wiki (" + (SheetPreview.IsShowing ? "ouverte" : "fermée") + ")");
+                                SheetPreview.Leave(linkLine);
+                                await Settle();
+                                Check(!SheetPreview.IsShowing, "…et se ferme en quittant la ligne");
+                                // Le câblage souris lui-même : un PointerMoved synthétique posé sur le texte du lien.
+                                var start = 0;
+                                foreach (var inline in linkLine.Inlines)
+                                {
+                                    if (ReferenceEquals(inline, linkRun)) break;
+                                    var run = inline as Avalonia.Controls.Documents.Run;
+                                    if (run != null) start += (run.Text ?? "").Length; else if (inline is Avalonia.Controls.Documents.LineBreak) start += 1;
+                                }
+                                var rect = linkLine.TextLayout.HitTestTextPosition(start + 3);
+                                var at = new Point(rect.X + Math.Max(1, rect.Width / 2), rect.Y + Math.Max(1, rect.Height / 2));
+                                var inRoot = linkLine.TranslatePoint(at, lab) ?? at; // PointerEventArgs veut la position dans la fenêtre
+                                var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, true);
+                                linkLine.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, linkLine, pointer, lab, inRoot, (ulong)Environment.TickCount64, new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.Other), Avalonia.Input.KeyModifiers.None));
+                                await Task.Delay(SheetPreview.DelayMs + 250);
+                                await Settle();
+                                Check(SheetPreview.IsShowing && SheetPreview.Showing == marabout, "un vrai mouvement de pointeur sur le texte du lien ouvre la carte (" + at.X.ToString("0") + "," + at.Y.ToString("0") + " → " + (SheetPreview.IsShowing ? "ouverte" : "fermée") + ")");
+                                SheetPreview.Hide();
+                            }
+                            else Check(false, "la ligne du lien et la fiche « Le marabout » pour l'aperçu (" + (linkLine != null) + ", " + (marabout != null) + ")");
+                        }
                         lab.Close();
                         if (had) keira.FieldValues[textField.Id] = keptValue; else keira.FieldValues.Remove(textField.Id);
                     }

@@ -93,6 +93,9 @@ namespace Marabook.Tests
                 var previews = File.ReadAllText(Path.Combine(folder, HtmlEncyclopedia.PreviewsFile));
                 var keiraPath = HtmlEncyclopedia.SheetPath(doc.ById[world.Keira.Id]);
                 t.Check(previews.StartsWith("window.ENCYCLOPEDIE_APERCUS={") && previews.Contains(HtmlEncyclopedia.JsString(keiraPath) + ":{\"t\":\"Keira Varenh\"") && previews.Contains("\"i\":\"images\\/" + world.PortraitId) && previews.Contains("\"x\":\"Elle grandit avec Le marabout"), "apercus.js : par page, le titre, le portrait, le début du Texte libre");
+                t.Check(previews.Contains(HtmlEncyclopedia.JsString(HtmlEncyclopedia.SheetPath(doc.ById[world.Marabout.Id])) + ":{\"t\":\"Le marabout\""), "…une fiche sans texte ni portrait a sa carte aussi (titre, modèle)");
+                var fields = Encyclopedia.FieldsSummary(doc.ById[world.Keira.Id], 200);
+                t.Check(fields.Contains("Devise : Voir Le marabout et Inconnu") && fields.Contains(" · "), "sans Texte libre, l'aperçu dirait les champs de l'infobox, liens dépouillés (" + fields + ")");
                 var page = File.ReadAllText(Path.Combine(folder, keiraPath));
                 var js = File.ReadAllText(Path.Combine(folder, HtmlEncyclopedia.JsFile));
                 t.Check(page.Contains("src=\"../../" + HtmlEncyclopedia.PreviewsFile + "\"") && page.Contains("data-root=\"../../\"") && js.Contains("ENCYCLOPEDIE_APERCUS") && js.Contains("className='apercu'"), "chaque page charge les aperçus et sait sa racine ; le script dessine la carte");

@@ -1724,6 +1724,7 @@ namespace Marabook.App
         private void RefreshMirror()
         {
             if (!_mirrorMode || _item == null) { _mirror.Content = null; return; }
+            SheetPreview.Project = _project; // les aperçus au survol des [[liens]] du miroir aussi (1/11)
             var flow = MarkdownRender.Build(_bodyBox.Text,
                 delegate(string target) { var handler = LinkClicked; if (handler != null) handler(target); },
                 ToggleTask, SheetWiki.ImagesOf(_project));

@@ -557,7 +557,7 @@ namespace Marabook.Exchange
             {
                 var image = sheet.ImageId == null ? null : ImageSrc(document, sheet.ImageId, "");
                 var excerpt = Encyclopedia.Excerpt(sheet.BodyMarkdown, ExcerptChars);
-                if (image == null && excerpt.Length == 0) continue; // rien de plus que le lien : pas de carte (comme SheetPreview.Card)
+                if (excerpt.Length == 0) excerpt = Encyclopedia.FieldsSummary(sheet, ExcerptChars); // sans Texte libre : les champs de l'infobox
                 if (!first) sb.Append(',');
                 first = false;
                 sb.Append(JsString(SheetPath(sheet))).Append(":{\"t\":").Append(JsString(sheet.Title));
@@ -611,7 +611,7 @@ namespace Marabook.Exchange
                 "try{localStorage.setItem(key,dark?'light':'dark')}catch(e){}});}\n" +
                 // L'aperçu au survol d'un lien vers une fiche (1/11, Rémi) : la carte façon Wikipédia — titre, modèle, portrait, début du Texte libre.
                 "var cards=window.ENCYCLOPEDIE_APERCUS,me=document.querySelector('script[data-root]'),base=me?me.getAttribute('data-root')||'':'';\n" +
-                "if(cards&&window.matchMedia&&window.matchMedia('(hover: hover)').matches){\n" +
+                "if(cards){\n" +
                 "var card=document.createElement('div');card.className='apercu';card.hidden=true;document.body.appendChild(card);\n" +
                 "var timer=null,current=null;\n" +
                 "function keyOf(a){var h=a.getAttribute('href')||'';h=h.split('#')[0];while(h.indexOf('../')===0)h=h.slice(3);return h;}\n" +

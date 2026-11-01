@@ -509,6 +509,57 @@ namespace Marabook.Exchange
             return result.Substring(0, cut).TrimEnd(' ', ',', ';', ':', '(', '«') + "…";
         }
 
+        /// <summary>Quand le Texte libre est vide : les premiers champs remplis
+        /// de l'infobox, « Libellé : valeur · … », pour que l'aperçu dise
+        /// quelque chose quand même (1/11).</summary>
+        public static string FieldsSummary(BinderItem item, Project project, int maxChars)
+        {
+            if (item == null || project == null) return "";
+            var sb = new StringBuilder();
+            var template = project.TemplateOf(item);
+            if (template != null)
+                foreach (var field in template.Fields)
+                {
+                    string value;
+                    if (!item.FieldValues.TryGetValue(field.Id, out value) || string.IsNullOrEmpty(value)) continue;
+                    if (!AppendField(sb, field.Name, FieldKinds.Display(field.Kind, value, project), maxChars)) break;
+                }
+            if (sb.Length < maxChars)
+                foreach (var entry in item.FreeInfo)
+                {
+                    if (string.IsNullOrEmpty(entry.Value)) continue;
+                    if (!AppendField(sb, entry.Title, FieldKinds.Display(entry.Kind, entry.Value, project), maxChars)) break;
+                }
+            return Trim(sb.ToString(), maxChars);
+        }
+
+        /// <summary>La même chose depuis le pivot (le rendu HTML n'a pas le projet).</summary>
+        public static string FieldsSummary(EncyclopediaSheet sheet, int maxChars)
+        {
+            var sb = new StringBuilder();
+            foreach (var group in sheet.Groups)
+                foreach (var field in group.Fields)
+                    if (!AppendField(sb, field.Label, field.Value, maxChars)) return Trim(sb.ToString(), maxChars);
+            return Trim(sb.ToString(), maxChars);
+        }
+
+        private static bool AppendField(StringBuilder sb, string label, string value, int maxChars)
+        {
+            var shown = Links.Strip(value ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+            if (shown.Length == 0) return true;
+            if (sb.Length > 0) sb.Append(" · ");
+            sb.Append((label ?? "").Trim()).Append(" : ").Append(shown);
+            return sb.Length < maxChars;
+        }
+
+        private static string Trim(string text, int maxChars)
+        {
+            if (text.Length <= maxChars) return text;
+            var cut = text.LastIndexOf(' ', maxChars);
+            if (cut < maxChars / 2) cut = maxChars;
+            return text.Substring(0, cut).TrimEnd(' ', ',', ';', ':', '(', '«', '·') + "…";
+        }
+
         /// <summary>Le type d'un mot tel que le dictionnaire l'écrit (1/11, Rémi :
         /// le genre compris) : « nom masculin », « nom propre, prénom, féminin »,
         /// « adjectif, masculin et féminin », « verbe ».</summary>
