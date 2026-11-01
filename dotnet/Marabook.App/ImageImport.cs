@@ -107,6 +107,16 @@ namespace Marabook.App
             return bitmap.Resize(info, SKFilterQuality.High) ?? bitmap;
         }
 
+        /// <summary>Réduite à une LARGEUR (l'Encyclopédie, 1/11) ; jamais agrandie.</summary>
+        public static SKBitmap ResizeToWidth(SKBitmap bitmap, int maxWidth)
+        {
+            if (bitmap.Width <= maxWidth) return bitmap;
+            var scale = (double)maxWidth / bitmap.Width;
+            var height = Math.Max(1, (int)Math.Round(bitmap.Height * scale));
+            var info = new SKImageInfo(maxWidth, height, bitmap.ColorType, bitmap.AlphaType);
+            return bitmap.Resize(info, SKFilterQuality.High) ?? bitmap;
+        }
+
         public static SKBitmap Rotate(SKBitmap bitmap, int quarterTurns)
         {
             var turns = ((quarterTurns % 4) + 4) % 4;

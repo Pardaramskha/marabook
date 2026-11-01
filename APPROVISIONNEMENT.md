@@ -12,6 +12,7 @@
 | Dictionnaires Hunspell français | 7.7 | MPL-2.0 | ~3 Mo | oui, en dur |
 | Grammalecte | 2.3.0 (15/12/2025) | GPL-3.0+ | ~24 Mo déployé | oui, en dur, CLI seul |
 | Python embeddable (Windows x64) | 3.13.15 (embarqué b29) | PSF | ~10,4 Mo zippé, ~21 Mo déployé | oui, runtime de Grammalecte |
+| Python portable (macOS x64/arm64, Linux x64) | 3.13.18, python-build-standalone 20261026 (30/10) | PSF (+ OpenSSL, libffi… du tarball) | ~25–35 Mo compressé | oui, téléchargé et vérifié à la publication (tools/publish.ps1) |
 
 ## Sources interdites
 
@@ -184,6 +185,20 @@ Python, qui *est* le source : rien de plus à faire.
   Déployé dans `python/` ; `python313._pth` ajusté (une ligne
   `../grammalecte` — sa présence fige `sys.path`, ni PYTHONPATH ni
   répertoire du script n'y entrent).
+- **Python portable pour macOS et Linux (30/10/2026, Rémi : « on ne VEUT
+  PAS que Grammalecte manque »)** : `python-build-standalone` (astral-sh,
+  release `20261026`), CPython **3.13.18** en variante `install_only_stripped`,
+  un tarball par cible (`x86_64-unknown-linux-gnu`, `x86_64-apple-darwin`,
+  `aarch64-apple-darwin`). Pas dans le dépôt : `tools/publish.ps1` le
+  télécharge depuis la release GitHub au moment de fabriquer l'archive,
+  **vérifie son SHA-256 épinglé dans le script** (empreintes relevées sur
+  l'API GitHub le 30/10/2026) et le déballe dans `python/` ; les dossiers
+  `test`, `idlelib`, `tkinter`, `turtledemo` et les `__pycache__` sont
+  retirés. `Platform.PythonExecutable` préfère `python/bin/python3` au
+  python3 du système. Sur macOS, chaque binaire (`python3.13`, `.dylib`,
+  `.so`) est signé ad hoc avant le bundle. Pas de `._pth` : le répertoire
+  du script (`grammalecte/`) entre dans `sys.path` de lui-même. Pour
+  changer de version : les trois noms et empreintes de `$pythonBuilds`.
 - **Vérification au build étendue** : `tools/embedded-hashes.txt` (78
   empreintes SHA256 des deux arbres, générées depuis ces sources
   vérifiées) contrôlé par `tools/verify-dict.ps1` à chaque build — un

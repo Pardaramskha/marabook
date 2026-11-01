@@ -16,8 +16,8 @@
     <LangVersion>latest</LangVersion>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ApplicationIcon>..\..\tools\app.ico</ApplicationIcon>
-    <Version>1.0.6</Version>
-    <InformationalVersion>1.0.6</InformationalVersion>
+    <Version>1.1.0</Version>
+    <InformationalVersion>1.1.0</InformationalVersion>
     <SatelliteResourceLanguages>fr</SatelliteResourceLanguages>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <!-- CS4014 : les boîtes de message lancées sans await (« feu et oublie »)
@@ -45,6 +45,17 @@
        ligne pour la version installée (07/10). CONVENTION.md n'en est pas. -->
   <ItemGroup>
     <EmbeddedResource Include="..\..\patchnotes\*.md" Exclude="..\..\patchnotes\CONVENTION.md" LogicalName="patchnotes/%(Filename)%(Extension)" />
+    <!-- L'image de tête d'une version majeure (1/11, Rémi : patchnotes/marabook-1.1.0.jpg) : la fenêtre « Nouveautés » la montre hors ligne. -->
+    <EmbeddedResource Include="..\..\patchnotes\*.jpg;..\..\patchnotes\*.png" LogicalName="patchnotes/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- Les sons (1.1.0, 31/10, Rémi) : trois WAV PCM mono 44,1 kHz (succès,
+       enregistrement, rapport d'erreur), convertis des .mp3 de Pixabay — joués
+       sans décodage ni latence (Sounds.cs). -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\assets\sounds\*.wav" LogicalName="sounds/%(Filename)%(Extension)" />
+    <!-- Les images de tête des DLC (1/11, Rémi) : assets/dlc/<fichier>, montrées par la fenêtre d'un module. -->
+    <EmbeddedResource Include="..\..\assets\dlc\*.jpg;..\..\assets\dlc\*.png" LogicalName="dlc/%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

@@ -41,7 +41,13 @@ namespace Marabook.App
         private TextBlock _betaText; // la seconde ligne (13/10) : la beta en cours
         private Border _betaDot;
 
-        public WelcomeWindow(MainWindow shell)
+        public WelcomeWindow(MainWindow shell) : this(shell, !Profiles.Chosen && !shell.IsolatedLaunch)
+        {
+        }
+
+        /// <param name="profilePage">« Qui êtes-vous ? » à la place des projets :
+        /// le premier lancement (jamais en sonde ni en capture — la sonde le demande elle-même).</param>
+        public WelcomeWindow(MainWindow shell, bool profilePage)
         {
             _shell = shell;
             Title = AppInfo.Name;
@@ -51,14 +57,17 @@ namespace Marabook.App
             WindowStartupLocation = WindowStartupLocation.Manual;
             TransparencyLevelHint = new[] { WindowTransparencyLevel.Transparent };
             Background = Brushes.Transparent;
-            Content = new Border
+            // Au premier lancement (1.1.0), l'accueil montre « Qui êtes-vous ? »
+            // à la place des projets ; « Commencer » le rend aux projets.
+            _paper = new Border
             {
                 Background = Chrome.RaisedBg,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(16),
-                Child = Build()
+                Child = profilePage ? BuildProfilePage() : Build()
             };
+            Content = _paper;
             Closing += delegate(object sender, WindowClosingEventArgs e)
             {
                 // Jamais fermée à la main (Alt+F4 sur elle) ; mais quand la
@@ -213,6 +222,74 @@ namespace Marabook.App
             }
         }
 
+        private Border _paper;
+
+        /// <summary>Sonde : l'accueil montre le choix du profil (premier lancement).</summary>
+        public bool ShowsProfileChoice { get { return _profileChooser != null; } }
+        private ProfileChooser _profileChooser;
+
+        /// <summary>La page du premier lancement (1.1.0) : le même en-tête, puis le
+        /// sélecteur de profil avec le nom de plume, « Commencer » au pied. Pour
+        /// « Moi-même », la fenêtre des fonctionnalités s'ouvre ensuite, puis
+        /// l'accueil reprend ses projets.</summary>
+        private Control BuildProfilePage()
+        {
+            var root = new DockPanel { Margin = new Thickness(40, 32, 40, 28) };
+            root.Children.Add(Head());
+
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+            DockPanel.SetDock(buttons, Dock.Bottom);
+            var start = Buttons.Text("Commencer", "Garder ce profil et passer aux projets", Buttons.Bar, Buttons.Look.Primary);
+            start.MinWidth = 120;
+            start.IsEnabled = false;
+            start.IsDefault = true;
+            start.Tag = "profile-start"; // sonde
+            buttons.Children.Add(start);
+            root.Children.Add(buttons);
+
+            _profileChooser = new ProfileChooser(false) { Margin = new Thickness(0, 18, 0, 0) };
+            _profileChooser.SelectionChanged += delegate { start.IsEnabled = _profileChooser.Selected != null; };
+            start.Click += async delegate
+            {
+                if (_profileChooser == null || _profileChooser.Selected == null) return;
+                _profileChooser.CommitPenName();
+                var custom = _profileChooser.Selected == Profiles.Custom;
+                _profileChooser = null;
+                if (custom) await FeaturesWindow.Ask(this);
+                _paper.Child = Build();
+                RefreshUpdateStatus();
+            };
+            root.Children.Add(new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = _profileChooser
+            });
+            return root;
+        }
+
+        /// <summary>L'en-tête de l'accueil : le nom de l'application, la version.</summary>
+        private static StackPanel Head()
+        {
+            var head = new StackPanel();
+            DockPanel.SetDock(head, Dock.Top);
+            head.Children.Add(new TextBlock
+            {
+                Text = AppInfo.Name + " - C'est parti pour nerder",
+                FontSize = 26,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = Chrome.Ink
+            });
+            head.Children.Add(new TextBlock
+            {
+                Text = "Version " + AppInfo.Version + " · " + AppPlatform.OsName,
+                FontSize = 13,
+                Foreground = Chrome.SoftText,
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+            return head;
+        }
+
         private Control Build()
         {
             var root = new DockPanel { Margin = new Thickness(40, 32, 40, 28) };
@@ -311,6 +388,20 @@ namespace Marabook.App
             };
             _openButton = open;
             titleRow.Children.Add(open);
+            // Le tutoriel (1.1.0, 29/10, Rémi) : au-dessus des projets, un
+            // projet d'exemple temporaire et la visite guidée.
+            var tutorialRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 0, 0, 14) };
+            var tutorial = Buttons.IconText("play-fill", "Démarrer le tutoriel",
+                "Ouvre un projet d'exemple temporaire et vous guide à travers les grandes fonctionnalités de Marabook",
+                Buttons.Bar, Buttons.Look.Primary);
+            tutorial.Tag = "welcome-tutorial"; // sonde
+            tutorial.Click += delegate
+            {
+                if (_opening) return;
+                if (_shell.StartTutorial()) Release();
+            };
+            tutorialRow.Children.Add(tutorial); // sans phrase d'aide à côté (1/11, Rémi : le bouton parle de lui-même)
+            center.Children.Add(tutorialRow);
             center.Children.Add(titleRow);
             var tiles = new UniformGrid { Rows = 1, Columns = 6, Height = 150 };
             var shown = 0;
@@ -357,12 +448,29 @@ namespace Marabook.App
             });
             block.Children.Add(titleRow);
             var modules = new WrapPanel();
+            // Les tuiles se redessinent à chaque nouvelle du magasin (réponse de
+            // GitHub, installation) ; un clic ouvre la fenêtre du module, qui
+            // le présente et l'installe (1/11, Rémi).
+            Action fill = null;
+            fill = delegate
+            {
+            modules.Children.Clear();
             foreach (var source in Modules.Catalogue)
             {
+                var sourceRef = source;
                 var installed = Modules.Find(source.Id);
+                var state = ModuleStore.Find(source.Id);
                 var tile = Tile();
                 tile.Width = 236;
-                ToolTip.SetTip(tile, source.Title.Length > 0 ? source.Title : source.Name);
+                tile.Cursor = new Cursor(StandardCursorType.Hand);
+                ToolTip.SetTip(tile, "Présenter " + source.Name + (installed != null ? "" : " et l'installer"));
+                tile.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+                {
+                    if (!e.GetCurrentPoint(tile).Properties.IsLeftButtonPressed) return;
+                    e.Handled = true;
+                    var current = ModuleStore.Find(sourceRef.Id);
+                    if (current != null) ModuleDialog.Show(this, current);
+                };
                 var column = new StackPanel { Margin = new Thickness(14, 10, 14, 10) };
                 var head = new DockPanel();
                 var dot = new Border
@@ -388,7 +496,7 @@ namespace Marabook.App
                 column.Children.Add(head);
                 column.Children.Add(new TextBlock
                 {
-                    Text = source.Features.Count > 0 ? source.Features[0] : source.Title,
+                    Text = source.Tagline.Length > 0 ? source.Tagline : source.Features.Count > 0 ? source.Features[0] : source.Title,
                     FontSize = 11,
                     Foreground = Chrome.SoftText,
                     TextWrapping = TextWrapping.Wrap,
@@ -397,7 +505,7 @@ namespace Marabook.App
                 });
                 column.Children.Add(new TextBlock
                 {
-                    Text = installed != null ? "Installé" + (installed.Version.Length > 0 ? " · " + installed.Version : "") : "Disponible avec la livraison",
+                    Text = state != null ? state.Label : installed != null ? "Installé" + (installed.Version.Length > 0 ? " · " + installed.Version : "") : "Vérification…",
                     FontSize = 11,
                     Foreground = installed != null ? Chrome.Accent : Chrome.FaintText,
                     TextTrimming = TextTrimming.CharacterEllipsis,
@@ -406,6 +514,12 @@ namespace Marabook.App
                 tile.Child = column;
                 modules.Children.Add(tile);
             }
+            };
+            ModuleStore.Refresh();
+            ModuleStore.CheckOnline(Avalonia.Threading.Dispatcher.UIThread);
+            fill();
+            ModuleStore.Changed += fill;
+            Closed += delegate { ModuleStore.Changed -= fill; };
             block.Children.Add(modules);
             return block;
         }
@@ -540,7 +654,7 @@ namespace Marabook.App
                 TextAlignment = TextAlignment.Center
             });
             grid.Children.Add(column);
-            ToolTip.SetTip(grid, "Créer un projet — il est enregistré tout de suite, là où vous le dites");
+            ToolTip.SetTip(grid, "Démarrer une nouvelle aventure");
             grid.PointerEntered += delegate { dashes.Stroke = Chrome.Accent; };
             grid.PointerExited += delegate { dashes.Stroke = Chrome.BorderStrong; };
             grid.PointerReleased += async delegate

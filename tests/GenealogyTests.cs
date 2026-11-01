@@ -19,6 +19,52 @@ namespace Marabook.Tests
             Sync(t);
             Tree(t);
             Migration(t);
+            Schema(t);
+        }
+
+        /// <summary>Le schéma des relations (1.1.0, l'éditeur de relations) : le
+        /// livré vaut l'ancienne table, un schéma remanié change ce que les
+        /// statiques répondent (Active), les natures libres, la réciproque et
+        /// la forme genrée, les cases.</summary>
+        private static void Schema(Harness t)
+        {
+            var defaults = RelationSchema.Defaults();
+            t.Equal(30, defaults.Kinds.Count, "le schéma livré porte les trente natures");
+            t.Equal(15, defaults.Families().Count, "…en quinze familles");
+            t.Equal("Fille", defaults.Reciprocal("Mère", 'f'), "la réciproque de Mère pour une fille : Fille");
+            t.Equal("Oncle", defaults.Reciprocal("Nièce", 'm'), "la réciproque de Nièce pour un garçon : Oncle");
+            t.Equal("Mentor", defaults.Reciprocal("Mentor", 'f'), "une nature inconnue se répond à elle-même");
+            t.Check(defaults.SameAs(RelationSchema.Defaults()) && defaults.Clone().SameAs(defaults), "deux schémas livrés sont identiques, la copie aussi");
+            t.Equal(0, defaults.Find("Père").Slot, "Père : case 0 de sa voie et sa génération");
+            t.Equal(0, defaults.Find("Mère").Slot, "Mère : la même case que Père (même famille)");
+            t.Check(defaults.Find("Amant").Slot == 1 && defaults.Find("Mari").Slot == 3, "les partenaires se suivent : Amoureux 0, Amant 1, Ex 2, Mari 3");
+
+            var custom = defaults.Clone();
+            custom.Find("Mère").Generation = -2;
+            foreach (var kind in custom.OfFamily("sibling")) kind.Lane = RelationLane.Partner;
+            t.Equal("Rivale", custom.AddFree("Rivale"), "une nature libre s'ajoute en voie « autres »");
+            t.Equal("Rivale", custom.AddFree(" rivale "), "…sans doublon (forme retenue)");
+            t.Check(custom.Find("Rivale").Lane == RelationLane.Other && custom.Find("Rivale").Reciprocal == custom.Find("Rivale").Family, "…réciproque d'elle-même, hors généalogie");
+            t.Check(!custom.SameAs(defaults), "un schéma remanié diffère du livré");
+            t.Check(custom.FreeNames().Count == 1 && custom.FreeNames()[0] == "Rivale", "les natures libres à écrire pour les anciens Marabook : Rivale");
+
+            RelationKinds.Active = custom;
+            try
+            {
+                t.Equal(-2, RelationKinds.GenerationOf("Mère"), "Active : la génération de Mère suit le schéma");
+                t.Equal(RelationLane.Partner, RelationKinds.LaneOf("Sœur"), "Active : la voie de Sœur suit le schéma");
+                t.Check(RelationKinds.Find("Rivale") == null && RelationKinds.LaneOf("Rivale") == RelationLane.Other, "une nature libre du schéma n'est pas généalogique");
+                t.Equal("Rivale", RelationKinds.Canonical("RIVALE"), "…mais a une forme canonique");
+                t.Check(new List<string>(RelationKinds.Defaults).Contains("Rivale"), "…et se propose au sélecteur");
+            }
+            finally { RelationKinds.Active = null; }
+            t.Equal(-1, RelationKinds.GenerationOf("Mère"), "sans Active, le livré répond");
+
+            var project = Project.CreateNew();
+            project.AddRelationKind("Mentor");
+            t.Check(project.RelationSchema.Find("Mentor") != null && project.RelationKinds.Contains("Mentor"), "une nature créée depuis une fiche entre dans le schéma et dans l'ancienne liste");
+            var names = new List<string>(project.AllRelationKinds());
+            t.Equal(31, names.Count, "le sélecteur du projet : les trente livrées + Mentor, une fois");
         }
 
         private static void Kinds(Harness t)

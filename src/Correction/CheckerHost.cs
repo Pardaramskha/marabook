@@ -28,6 +28,12 @@ namespace Marabook.Correction
         /// ignorés. Brancher Project.IgnoredRules (persisté au .plot v10).</summary>
         public List<string> IgnoredRules = new List<string>();
 
+        /// <summary>« Ignorer partout » dans L'ÉCRIT ouvert (1.1.0, 30/10) :
+        /// des mots, et des règles préfixées RulePrefix — brancher
+        /// BinderItem.ProofIgnored (persisté au .plot v44). Jamais le projet.</summary>
+        public List<string> ItemIgnored = new List<string>();
+        public const string RulePrefix = "règle:";
+
         // « Ignorer ici » : clé règle|paragraphe|début|mot, session seulement.
         private readonly HashSet<string> _here = new HashSet<string>();
 
@@ -371,14 +377,41 @@ namespace Marabook.Correction
             if (!ContainsWord(GlobalIgnored, word)) GlobalIgnored.Add(word);
         }
 
+        /// <summary>« Ignorer partout » dans l'écrit ouvert : le mot du
+        /// signalement s'il en a un (orthographe, répétition, néologisme…),
+        /// sinon sa règle (grammaire, typographie) — dans ItemIgnored, donc
+        /// dans ce document seul. Rend la clé inscrite, ou null.</summary>
+        public string IgnoreInItem(Finding finding)
+        {
+            var key = ItemKey(finding);
+            if (key == null) return null;
+            if (key.StartsWith(RulePrefix, StringComparison.Ordinal))
+            {
+                if (!ItemIgnored.Contains(key)) ItemIgnored.Add(key);
+            }
+            else if (!ContainsWord(ItemIgnored, key)) ItemIgnored.Add(key);
+            return key;
+        }
+
+        /// <summary>La clé d'un signalement dans la liste de l'écrit : son mot,
+        /// sinon « règle:id », sinon rien.</summary>
+        public static string ItemKey(Finding finding)
+        {
+            if (finding.Word.Length > 0) return finding.Word;
+            if (finding.RuleId.Length > 0) return RulePrefix + finding.RuleId;
+            return null;
+        }
+
         private bool IsFiltered(TextDocument document, Finding finding)
         {
             if (_here.Contains(HereKey(finding))) return true;
             if (finding.Word.Length > 0
                 && (ContainsWord(ProjectIgnored, finding.Word)
-                    || ContainsWord(GlobalIgnored, finding.Word))) return true;
-            if (finding.RuleId.Length > 0 && IgnoredRules.Contains(finding.RuleId))
-                return true;
+                    || ContainsWord(GlobalIgnored, finding.Word)
+                    || ContainsWord(ItemIgnored, finding.Word))) return true;
+            if (finding.RuleId.Length > 0
+                && (IgnoredRules.Contains(finding.RuleId)
+                    || ItemIgnored.Contains(RulePrefix + finding.RuleId))) return true;
             return OverlapsNoProof(document, finding);
         }
 

@@ -206,8 +206,7 @@ namespace Marabook.App
             var entry = new TextBox
             {
                 Watermark = "Un élément, puis Entrée",
-                [ToolTip.TipProperty] = "Entrée ou « + » pose l'élément dans la liste"
-            };
+                [ToolTip.TipProperty] = "Entrée ou « + » ajoute l'élément dans la liste"};
             Action commit = delegate { onChanged(FieldKinds.JoinOptions(items)); };
             Action paint = null;
             paint = delegate

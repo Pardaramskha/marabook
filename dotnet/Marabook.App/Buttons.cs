@@ -30,6 +30,15 @@ namespace Marabook.App
             return button;
         }
 
+        /// <summary>LE « Fermer » des panneaux du rail (27/10, Rémi : « unifier
+        /// les boutons Fermer ») : la croix du jeu, calme, compacte — partout la même.</summary>
+        public static Button Close(string tooltip)
+        {
+            var button = Icon("x-bold", tooltip, Compact, Look.Calm); // la croix X (27/10, Rémi), pas « exclude »
+            button.Tag = "rail-close"; // sonde
+            return button;
+        }
+
         public static Button Text(string label, string tooltip, double height, Look look)
         {
             var button = new Button { Content = TextContent(label), Padding = new Thickness(10, 0, 10, 0) };

@@ -45,14 +45,30 @@ namespace Marabook.Settings
             new ActionDefinition("save-as", "Fichier", "Enregistrer sous", "Ctrl+Shift+S"),
             new ActionDefinition("undo", "Édition", "Annuler", "Ctrl+Z"),
             new ActionDefinition("redo", "Édition", "Rétablir", "Ctrl+Y"),
-            new ActionDefinition("new-text", "Pile", "Nouvel écrit", "Ctrl+T"),
+            // Ctrl+T est passé aux onglets (1.1.0, 28/10, Rémi) : « Nouvel
+            // écrit » garde son T, avec Alt — un raccourci personnalisé
+            // enregistré prime toujours.
+            new ActionDefinition("new-text", "Pile", "Nouvel écrit", "Ctrl+Alt+T"),
+            // Les ONGLETS (1.1.0) : Ctrl+T ouvre l'Accueil dans un onglet neuf,
+            // Ctrl+W ferme l'actif (⌘W reste au système sur macOS : la croix
+            // de l'onglet, ou un autre raccourci), PageDown/PageUp circulent.
+            new ActionDefinition("new-tab", "Onglets", "Nouvel onglet", "Ctrl+T"),
+            new ActionDefinition("close-tab", "Onglets", "Fermer l'onglet", "Ctrl+W"),
+            new ActionDefinition("next-tab", "Onglets", "Onglet suivant", "Ctrl+PageDown"),
+            new ActionDefinition("previous-tab", "Onglets", "Onglet précédent", "Ctrl+PageUp"),
             new ActionDefinition("new-folder", "Pile", "Nouveau dossier", "Ctrl+Shift+T"),
             new ActionDefinition("new-book", "Pile", "Nouveau livre", null),
-            new ActionDefinition("rename", "Pile", "Renommer", "F2"),
+            // Plus de F2 d'office (29/10, Rémi) : la touche est aux fiches
+            // (Généalogie), F1 au mode wiki — un geste personnalisé reste possible.
+            new ActionDefinition("rename", "Pile", "Renommer", null),
             new ActionDefinition("delete", "Pile", "Supprimer vers la corbeille", "Delete"),
             new ActionDefinition("empty-trash", "Pile", "Vider la corbeille", null),
             new ActionDefinition("find", "Édition", "Rechercher dans l'écrit", "Ctrl+F"),
             new ActionDefinition("project-search", "Édition", "Rechercher dans le projet", "Ctrl+Shift+F"),
+            // La palette « Ouvrir par le nom » (1.1.0, 29/10, Rémi) : une barre
+            // au milieu de l'écran qui cherche les éléments de la Pile par
+            // leur nom seul, et s'efface au clic ailleurs ou sur un résultat.
+            new ActionDefinition("quick-open", "Édition", "Ouvrir par le nom", "Ctrl+OemComma"),
             new ActionDefinition("search-next", "Édition", "Occurrence suivante", "F3"),
             new ActionDefinition("search-previous", "Édition", "Occurrence précédente", "Shift+F3"),
             new ActionDefinition("versions-panel", "Édition", "Versions de l'écrit", "Ctrl+Shift+H"),
@@ -71,8 +87,8 @@ namespace Marabook.Settings
             new ActionDefinition("insert-rule", "Format", "Ligne horizontale", null),
             new ActionDefinition("insert-separator", "Format", "Séparateur de scène", null),
             new ActionDefinition("page-break", "Mise en page", "Saut de page", "Ctrl+Return"),
-            new ActionDefinition("preferences", "Fichier", "Préférences de l'application", null),
-            new ActionDefinition("print-preview", "Composition", "Aperçu des pages", "Ctrl+Alt+P"), // le ruban, plus le menu (22/09)
+            new ActionDefinition("preferences", "Fichier", "Préférences de l'application", "F12"), // F12 d'office (29/10, Rémi)
+            new ActionDefinition("print-preview", "Prépresse", "Aperçu des pages", "Ctrl+Alt+P"), // le ruban (onglet Prépresse, ex-Composition, 29/10), plus le menu (22/09)
             new ActionDefinition("print", "Fichier", "Imprimer", "Ctrl+P"),
             new ActionDefinition("export-epub", "Fichier", "Créer un EPUB", null),
             new ActionDefinition("session-goal", "Écriture", "Lancer un sprint", null),
@@ -185,6 +201,11 @@ namespace Marabook.Settings
         public static string GlobalStylesStamp = "";
         // Préférences › Auteur (22/09) : l'auteur·ice par défaut des documents
         // qui ne sont pas des livres, et les métadonnées générales par défaut.
+        /// <summary>Le profil d'utilisation (1.1.0) : « ecrivain », « editeur »,
+        /// « cingle », « perso » — null tant que rien n'est choisi (Profiles).</summary>
+        public static string Profile;
+        /// <summary>Les fonctionnalités décochées du profil « Moi-même » (clés de Profiles.Features).</summary>
+        public static HashSet<string> HiddenFeatures = new HashSet<string>();
         public static string DefaultAuthor = "";
         public static string DefaultPublisher = "";
         public static string DefaultCollection = "";
@@ -192,6 +213,7 @@ namespace Marabook.Settings
         public static bool StatsExpanded;    // « Statistiques » accordion of the inspector
         public static bool ShowAnnotations = true; // teintes + bulles de révision
         public static bool ShowLooseLines;         // lignes lâches signalées à l'écran (09/10) — CACHÉES par défaut, opt-in (13/10) : clé « looseLinesVisible », l'ancienne « showLooseLines » (vraie d'office) est ignorée
+        public static bool ShowWidowMarks = true;  // les marqueurs de veuves et d'orphelines (Mise en page › Veuves/Orphelines, 29/10) — visibles par défaut ; l'affichage seul, jamais la composition
         public static bool ImageGrid;               // grille de placement des images (0.50.0)
         // Les [[liens]] du texte (18/09) : marques visibles et texte du lien
         // en évidence, ou marques masquées (défaut). Jamais persisté : chaque
@@ -201,6 +223,27 @@ namespace Marabook.Settings
         public static bool LexiconPinned = true; // le panneau Lexique tient un onglet du rail (18/09) — épinglé par défaut (1.0.5-a)
         public static bool ProofEnabled = true; // vérification continue (Révision)
         public static int SnapshotCap = 20;        // instantanés gardés par item (b38, 5–100)
+        // Les ONGLETS de la zone centrale (1.1.0, 28/10) : actifs par défaut,
+        // au plus dix ouverts — plafond réglable entre WorkTabs.MinLimit et
+        // MaxLimit (Préférences › Général › Onglets). Clés « tabsEnabled », « maxTabs ».
+        public static bool TabsEnabled = true;
+        public static int MaxTabs = Model.WorkTabs.DefaultLimit;
+        // Les COPIES HORODATÉES du projet (1.1.0, 30/10) — Préférences › Général ›
+        // Sauvegardes : à chaque enregistrement, une copie datée si la
+        // dernière est plus vieille que l'intervalle ; cinq gardées, dans le
+        // dossier de données de Marabook. Clés « backupsEnabled », « backupInterval ».
+        public static bool BackupsEnabled = true;
+        public static int BackupIntervalMinutes = Persistence.BackupPolicy.DefaultIntervalMinutes;
+
+        /// <summary>La politique des copies, telle que réglée.</summary>
+        public static Persistence.BackupPolicy BackupPolicy()
+        {
+            return new Persistence.BackupPolicy
+            {
+                Enabled = BackupsEnabled,
+                IntervalMinutes = Persistence.BackupPolicy.ClampInterval(BackupIntervalMinutes)
+            };
+        }
         public static bool DailySnapshot = true;   // capture à la première modification du jour (b38)
         // L'auto-sélecteur de mot (0.50.0) : un cliquer-glisser qui déborde
         // du mot de départ sélectionne des mots entiers, façon Word.
@@ -215,6 +258,7 @@ namespace Marabook.Settings
         // l'entrée des tuiles, la glissade de la Pile et celle de la colonne de
         // droite. Décochée, tout se pose d'un coup.
         public static bool Animations = true;
+        public static bool SoundsEnabled = true; // les trois sons (succès, enregistrement, rapport d'erreur) — 1.1.0, 31/10
         // Les derniers caractères spéciaux insérés (tiroir du ruban, 0.50.0).
         public static List<string> RecentSpecialChars = new List<string>();
 
@@ -301,6 +345,26 @@ namespace Marabook.Settings
         /// impression). Réglage de la machine, pas du projet : la police
         /// manque ICI, le .plot ne change pas. Clés sans casse.</summary>
         public static Dictionary<string, string> FontSubstitutions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // LA PILE DÉPLIÉE, PAR PROJET (1.1.0, 31/10, Rémi : « 3 km de fiches à
+        // chaque ouverture ») : pour chaque projet (son chemin), les ids des
+        // nœuds ouverts — ce qui est replié le reste d'une session à l'autre.
+        // Trente projets au plus, les plus anciens tombent ; jamais dans le
+        // .plot (ne salit pas le projet, propre à cette machine).
+        public static Dictionary<string, List<string>> BinderExpanded = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        private const int BinderExpandedLimit = 30;
+
+        public static void RememberBinderExpanded(string projectPath, IEnumerable<string> expandedIds)
+        {
+            if (string.IsNullOrEmpty(projectPath)) return;
+            if (!BinderExpanded.ContainsKey(projectPath) && BinderExpanded.Count >= BinderExpandedLimit)
+            {
+                string oldest = null;
+                foreach (var key in BinderExpanded.Keys) { oldest = key; break; }
+                if (oldest != null) BinderExpanded.Remove(oldest);
+            }
+            BinderExpanded[projectPath] = new List<string>(expandedIds);
+        }
 
         /// <summary>La famille à employer pour ce nom : son remplacement s'il
         /// en a un, sinon lui-même.</summary>
@@ -431,6 +495,9 @@ namespace Marabook.Settings
         /// de la copie de secours, ou illisibles et mis de côté.</summary>
         public static string LoadNotice = "";
 
+        /// <summary>Le dossier des réglages (26/10) : un module à code y range les siens ; suit --settings.</summary>
+        public static string SettingsFolder() { return Path.GetDirectoryName(SettingsPath()); }
+
         private static string SettingsPath()
         {
             if (!string.IsNullOrEmpty(PathOverride)) return PathOverride;
@@ -529,6 +596,9 @@ namespace Marabook.Settings
                 GlobalStyles = globalStyles != null ? Persistence.PlotFile.ReadStylesNode(globalStyles) : null;
                 if (GlobalStyles != null) GlobalStyles.EnsureFootnoteStyle(); // réglages d'avant la 0.50.0
                 GlobalStylesStamp = Json.AsString(Json.Field(root, "globalStylesStamp")) ?? "";
+                var profile = Json.AsString(Json.Field(root, "profile"));
+                Profile = profile != null && Profiles.Find(profile) != null ? profile : null;
+                Profiles.LoadHidden(Json.AsStringList(Json.Field(root, "hiddenFeatures")));
                 DefaultAuthor = Json.AsString(Json.Field(root, "defaultAuthor")) ?? "";
                 DefaultPublisher = Json.AsString(Json.Field(root, "defaultPublisher")) ?? "";
                 DefaultCollection = Json.AsString(Json.Field(root, "defaultCollection")) ?? "";
@@ -537,7 +607,9 @@ namespace Marabook.Settings
                 StatsExpanded = Json.AsBool(Json.Field(root, "statsExpanded"), false);
                 ShowAnnotations = Json.AsBool(Json.Field(root, "showAnnotations"), true);
                 ShowLooseLines = Json.AsBool(Json.Field(root, "looseLinesVisible"), false);
+                ShowWidowMarks = Json.AsBool(Json.Field(root, "widowMarksVisible"), true);
                 Animations = Json.AsBool(Json.Field(root, "animations"), true);
+                SoundsEnabled = Json.AsBool(Json.Field(root, "sounds"), true);
                 ImageGrid = Json.AsBool(Json.Field(root, "imageGrid"), false);
                 LexiconPinned = Json.AsBool(Json.Field(root, "lexiconPinned"), true);
                 LoadedFromFile = true;
@@ -545,6 +617,10 @@ namespace Marabook.Settings
                 SnapshotCap = (int)Json.AsDouble(Json.Field(root, "snapshotCap"), 20);
                 if (SnapshotCap < 5) SnapshotCap = 5;
                 if (SnapshotCap > 100) SnapshotCap = 100;
+                TabsEnabled = Json.AsBool(Json.Field(root, "tabsEnabled"), true);
+                MaxTabs = Model.WorkTabs.Clamp((int)Json.AsDouble(Json.Field(root, "maxTabs"), Model.WorkTabs.DefaultLimit));
+                BackupsEnabled = Json.AsBool(Json.Field(root, "backupsEnabled"), true);
+                BackupIntervalMinutes = Persistence.BackupPolicy.ClampInterval((int)Json.AsDouble(Json.Field(root, "backupInterval"), Persistence.BackupPolicy.DefaultIntervalMinutes));
                 DailySnapshot = Json.AsBool(Json.Field(root, "dailySnapshot"), true);
                 AutoSelectWord = Json.AsBool(Json.Field(root, "autoSelectWord"), true);
                 TextDragDrop = Json.AsBool(Json.Field(root, "textDragDrop"), true);
@@ -619,6 +695,17 @@ namespace Marabook.Settings
                 }
                 FavoriteFonts = ReadFontList(root, "favoriteFonts"); // 0.50.0, catalogue de polices
                 ExcludedFonts = ReadFontList(root, "excludedFonts");
+                BinderExpanded = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                var expanded = Json.AsObject(Json.Field(root, "binderExpanded")); // 1.1.0 (31/10)
+                if (expanded != null)
+                    foreach (var kv in expanded)
+                    {
+                        var ids = Json.AsList(kv.Value);
+                        if (ids == null || string.IsNullOrEmpty(kv.Key)) continue;
+                        var list = new List<string>();
+                        foreach (var id in ids) if (id is string && ((string)id).Length > 0) list.Add((string)id);
+                        BinderExpanded[kv.Key] = list;
+                    }
                 FontSubstitutions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 var substitutions = Json.AsObject(Json.Field(root, "fontSubstitutions"));
                 if (substitutions != null)
@@ -680,6 +767,8 @@ namespace Marabook.Settings
                 if (AccentColor != null) root["accentColor"] = AccentColor;
                 if (GlobalStyles != null) root["globalStyles"] = Persistence.PlotFile.BuildStyles(GlobalStyles);
                 if (GlobalStylesStamp.Length > 0) root["globalStylesStamp"] = GlobalStylesStamp;
+                if (Profile != null) root["profile"] = Profile;
+                if (HiddenFeatures.Count > 0) root["hiddenFeatures"] = new List<object>(new List<string>(HiddenFeatures).ToArray());
                 if (DefaultAuthor.Length > 0) root["defaultAuthor"] = DefaultAuthor;
                 if (DefaultPublisher.Length > 0) root["defaultPublisher"] = DefaultPublisher;
                 if (DefaultCollection.Length > 0) root["defaultCollection"] = DefaultCollection;
@@ -688,11 +777,17 @@ namespace Marabook.Settings
                 root["statsExpanded"] = StatsExpanded;
                 root["showAnnotations"] = ShowAnnotations;
                 root["looseLinesVisible"] = ShowLooseLines;
+                root["widowMarksVisible"] = ShowWidowMarks;
                 root["animations"] = Animations;
+                root["sounds"] = SoundsEnabled;
                 root["imageGrid"] = ImageGrid;
                 root["lexiconPinned"] = LexiconPinned;
                 root["proofEnabled"] = ProofEnabled;
                 root["snapshotCap"] = SnapshotCap;
+                root["tabsEnabled"] = TabsEnabled;
+                root["maxTabs"] = MaxTabs;
+                root["backupsEnabled"] = BackupsEnabled;
+                root["backupInterval"] = BackupIntervalMinutes;
                 root["dailySnapshot"] = DailySnapshot;
                 root["autoSelectWord"] = AutoSelectWord;
                 root["textDragDrop"] = TextDragDrop;
@@ -730,6 +825,12 @@ namespace Marabook.Settings
                 if (FavoriteFonts.Count > 0) root["favoriteFonts"] = new List<object>(FavoriteFonts.ToArray());
                 if (ExcludedFonts.Count > 0) root["excludedFonts"] = new List<object>(ExcludedFonts.ToArray());
                 if (FontSubstitutions.Count > 0) root["fontSubstitutions"] = new Dictionary<string, object>(ToObjectDict(FontSubstitutions));
+                if (BinderExpanded.Count > 0)
+                {
+                    var expanded = new Dictionary<string, object>();
+                    foreach (var kv in BinderExpanded) expanded[kv.Key] = new List<object>(kv.Value.ToArray());
+                    root["binderExpanded"] = expanded;
+                }
                 if (Achievements.Count > 0)
                     root["achievements"] = new Dictionary<string, object>(ToObjectDict(Achievements));
                 if (PermanentlyDeleted > 0) root["permanentlyDeleted"] = PermanentlyDeleted;
@@ -783,6 +884,8 @@ namespace Marabook.Settings
                 else if (p == "Subtract") parts[i] = "- (pavé)";
                 else if (p == "OemPlus") parts[i] = "=";
                 else if (p == "OemMinus") parts[i] = "-";
+                else if (p == "OemComma") parts[i] = ",";
+                else if (p == "OemPeriod") parts[i] = ".";
                 else if (p.Length == 2 && p[0] == 'D' && char.IsDigit(p[1])) parts[i] = p[1].ToString();
             }
             return string.Join("+", parts);
@@ -806,6 +909,8 @@ namespace Marabook.Settings
                 else if (p == "Subtract") key = "- (pavé)";
                 else if (p == "OemPlus") key = "=";
                 else if (p == "OemMinus") key = "-";
+                else if (p == "OemComma") key = ",";
+                else if (p == "OemPeriod") key = ".";
                 else if (p.Length == 2 && p[0] == 'D' && char.IsDigit(p[1])) key = p[1].ToString();
                 else if (p.Length > 0) key = p;
             }

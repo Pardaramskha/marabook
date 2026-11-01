@@ -256,6 +256,7 @@ namespace Marabook.App
                 Width = 52,
                 Margin = new Thickness(6, 0, 0, 0),
                 IsEditable = true,
+                Classes = { "wide-list" }, // la liste déborde du champ étroit (31/10)
                 [ToolTip.TipProperty] = "Taille (pt) — tapez une valeur libre puis Entrée"
             };
             foreach (var pt in new[] { 7, 8, 9, 10, 11, 12, 14, 16 }) _sizeCombo.Items.Add(pt);

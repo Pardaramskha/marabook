@@ -225,9 +225,9 @@ namespace Marabook.App
         /// sous la souris par son TextLayout (HitTestPoint) : clic = action,
         /// main au survol, infobulle du lien. (Un InlineUIContainer, même
         /// centré, flottait d'un ou deux pixels dans le Texte libre.)</summary>
-        private sealed class LinkSpan { public int Start, Length; public string Tooltip; public Action Click; }
+        private sealed class LinkSpan { public int Start, Length; public string Tooltip; public Action Click; public string WikiTitle; }
 
-        private static Run Link(TextBlock owner, Run run, string tooltip, Action click)
+        private static Run Link(TextBlock owner, Run run, string tooltip, Action click, string wikiTitle = null)
         {
             var spans = owner.Tag as List<LinkSpan>;
             if (spans == null)
@@ -240,7 +240,9 @@ namespace Marabook.App
                     var over = SpanAt(owner, e.GetPosition(owner));
                     owner.Cursor = over != null ? new Cursor(StandardCursorType.Hand) : new Cursor(StandardCursorType.Arrow);
                     ToolTip.SetTip(owner, over != null ? over.Tooltip : null);
+                    SheetPreview.Hover(owner, over != null ? over.WikiTitle : null, over == null ? null : SheetPreview.RangeRect(owner, over.Start, over.Length)); // l'aperçu de la fiche visée (1/11), ancré sous le lien
                 };
+                owner.PointerExited += delegate { SheetPreview.Leave(owner); };
                 owner.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
                 {
                     if (!e.GetCurrentPoint(owner).Properties.IsLeftButtonPressed) return;
@@ -250,7 +252,7 @@ namespace Marabook.App
                     span.Click();
                 };
             }
-            spans.Add(new LinkSpan { Start = TextLengthOf(owner), Length = (run.Text ?? "").Length, Tooltip = tooltip, Click = click });
+            spans.Add(new LinkSpan { Start = TextLengthOf(owner), Length = (run.Text ?? "").Length, Tooltip = tooltip, Click = click, WikiTitle = wikiTitle });
             run.Foreground = Chrome.Accent;
             run.TextDecorations = TextDecorations.Underline;
             return run;
@@ -341,7 +343,7 @@ namespace Marabook.App
                     into.Add(Link(owner, run, null, delegate
                     {
                         if (wikiClicked != null) wikiClicked(target);
-                    }));
+                    }, target));
                 }
                 else if (inline.LinkUrl != null)
                 {
@@ -362,8 +364,9 @@ namespace Marabook.App
                     // image, réduite à la largeur du paragraphe, l'alt en
                     // infobulle. Les autres adresses (web, chemins) restent
                     // une référence affichée — l'alt en italique doux.
+                    // images reçoit l'ID du magasin, sinon l'adresse telle quelle (1/11 : les patch notes résolvent une URL vers une image embarquée).
                     var storedId = MarkdownDialect.StoredImageId(inline.ImageUrl);
-                    var bitmap = storedId != null && images != null ? images(storedId) : null;
+                    var bitmap = images != null ? images(storedId ?? inline.ImageUrl) : null;
                     if (bitmap != null)
                     {
                         into.Add(new InlineUIContainer(StoredImage(owner, bitmap, inline.Text)));

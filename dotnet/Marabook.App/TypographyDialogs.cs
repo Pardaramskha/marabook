@@ -278,9 +278,9 @@ namespace Marabook.App
         private bool _accepted;
         private bool _syncing;
 
-        private TypographyCompareWindow(Window owner, TypographyPassResult result, string title)
+        private TypographyCompareWindow(Window owner, TypographyPassResult result, string title, string caption)
         {
-            Title = "Passe typographique — " + title;
+            Title = caption + " — " + title;
             Owner = owner;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Width = Math.Max(760, Math.Min(1280, owner == null ? 1000 : owner.Bounds.Width - 120));
@@ -455,9 +455,22 @@ namespace Marabook.App
             }
         }
 
-        public static async Task<bool> Ask(Window owner, TypographyPassResult result, string title)
+        public static Task<bool> Ask(Window owner, TypographyPassResult result, string title)
         {
-            var window = new TypographyCompareWindow(owner, result, title);
+            return Ask(owner, result, title, "Passe typographique");
+        }
+
+        /// <summary>Sonde (29/10) : la fenêtre bâtie, jamais montrée.</summary>
+        internal static Window BuildForProbe(Window owner, TypographyPassResult result, string title, string caption)
+        {
+            return new TypographyCompareWindow(owner, result, title, caption);
+        }
+
+        /// <summary>La même fenêtre pour une autre passe (les dialogues,
+        /// 29/10) : caption = le nom de la passe dans le titre.</summary>
+        public static async Task<bool> Ask(Window owner, TypographyPassResult result, string title, string caption)
+        {
+            var window = new TypographyCompareWindow(owner, result, title, caption);
             await Dialogs.ShowModal(window, owner);
             return window._accepted;
         }

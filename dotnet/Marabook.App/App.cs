@@ -30,6 +30,19 @@ namespace Marabook.App
             AppSettings.Load();
             if (Launch.Dark) AppSettings.DarkTheme = true;
             Chrome.Toggle(AppSettings.DarkTheme);
+            // Les modules à code (26/10, Mental-O en DLC) : le registre posé
+            // avant la lecture du dossier dlc ; une sonde ou une capture lit un
+            // dossier vide, jamais les DLC de l'utilisateur.
+            // MARABOOK_DLC_ROOT (26/10) : un dossier de DLC imposé — pour
+            // sonder ou capturer AVEC un module (le dossier de l'utilisateur
+            // n'est jamais lu par un lancement isolé).
+            var dlcRoot = Environment.GetEnvironmentVariable("MARABOOK_DLC_ROOT");
+            if (!string.IsNullOrEmpty(dlcRoot)) Marabook.Model.Modules.RootOverride = dlcRoot;
+            else if (Launch.Isolated) Marabook.Model.Modules.RootOverride = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-dlc");
+            Marabook.Model.Modules.CodeHost = CodeModuleHost.Instance;
+            CodeModuleHost.Instance.SetDarkTheme(AppSettings.DarkTheme);
+            try { Marabook.Model.Modules.Load(); }
+            catch (Exception failure) { Marabook.Model.Modules.LastLoadError = failure.Message; }
             RequestedThemeVariant = AppSettings.DarkTheme ? ThemeVariant.Dark : ThemeVariant.Light;
             // Le thème de base (gabarits des contrôles), ses ressources
             // remplacées par nos pinceaux, puis nos styles par-dessus.

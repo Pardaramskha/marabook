@@ -11,65 +11,51 @@ namespace Marabook.Model
     /// et le reste (natures libres, non placées).</summary>
     public enum RelationLane { Direct, Side, Partner, Other }
 
-    /// <summary>Ce que l'arbre sait d'une nature de relation.</summary>
+    /// <summary>Ce que l'arbre sait d'une nature de relation — une entrée du
+    /// schéma des relations (RelationSchema, 1.1.0).</summary>
     public class RelationKindInfo
     {
         public string Name;
-        public string Family;      // "parent", "child", "sibling"… (clé de réciprocité)
+        public string Family;      // "parent", "child", "sibling"… (clé de réciprocité ; « perso:… » pour une nature du projet)
         public char Gender;        // 'm', 'f' ou 'n' (forme neutre)
         public int Generation;     // -3…+3 vu depuis le personnage (négatif = ascendant)
         public RelationLane Lane;
+        public int Slot;           // la case de la famille dans sa voie et sa génération (éditeur de relations)
+        public string Reciprocal;  // la famille que la cible déclare en retour (null ou vide = la même)
+
+        public RelationKindInfo Clone()
+        {
+            return new RelationKindInfo { Name = Name, Family = Family, Gender = Gender, Generation = Generation, Lane = Lane, Slot = Slot, Reciprocal = Reciprocal };
+        }
     }
 
-    /// <summary>Les natures de relation livrées (batch 36) — le sélecteur des
-    /// fiches personnage les propose dans cet ordre — avec leur réciproque :
-    /// quand Kaladin déclare Lirin comme « Père », Lirin reçoit Kaladin comme
-    /// « Fils » (ou « Fille », ou « Enfant » si le genre est inconnu). Les
-    /// natures personnalisées du projet (Project.RelationKinds) sont
-    /// symétriques : « Mentor » répond « Mentor ».</summary>
+    /// <summary>Les natures de relation (batch 36) — le sélecteur des fiches
+    /// personnage les propose dans cet ordre — avec leur réciproque : quand
+    /// Kaladin déclare Lirin comme « Père », Lirin reçoit Kaladin comme
+    /// « Fils » (ou « Fille », ou « Enfant » si le genre est inconnu). Depuis
+    /// la 1.1.0, tout vient du SCHÉMA du projet ouvert (Active, posé par la
+    /// fenêtre à l'ouverture du projet) — sans projet, le schéma livré.</summary>
     public static class RelationKinds
     {
-        private static readonly List<RelationKindInfo> _infos = new List<RelationKindInfo>();
-        private static readonly Dictionary<string, RelationKindInfo> _byKey = new Dictionary<string, RelationKindInfo>();
+        private static RelationSchema _defaults;
 
-        static RelationKinds()
+        /// <summary>Le schéma du projet ouvert ; null = le schéma livré.</summary>
+        public static RelationSchema Active;
+
+        public static RelationSchema Schema
         {
-            Family("parent", -1, RelationLane.Direct, "Père", "Mère", "Parent");
-            Family("grandparent", -2, RelationLane.Direct, "Grand-père", "Grand-mère", "Grand-parent");
-            Family("child", 1, RelationLane.Direct, "Fils", "Fille", "Enfant");
-            Family("grandchild", 2, RelationLane.Direct, "Petit-fils", "Petite-fille", "Petit-enfant");
-            Family("ancestor", -3, RelationLane.Direct, null, null, "Aïeul");
-            Family("descendant", 3, RelationLane.Direct, null, null, "Descendant");
-            Family("lover", 0, RelationLane.Partner, null, null, "Amoureux");
-            Family("amant", 0, RelationLane.Partner, null, null, "Amant");
-            Family("ex", 0, RelationLane.Partner, null, null, "Ex");
-            Family("spouse", 0, RelationLane.Partner, "Mari", "Femme", "Partenaire");
-            Family("double", 0, RelationLane.Side, null, null, "Doppelgänger");
-            Family("uncle", -1, RelationLane.Side, "Oncle", "Tante", null);
-            Family("nephew", 1, RelationLane.Side, "Neveu", "Nièce", null);
-            Family("cousin", 0, RelationLane.Side, "Cousin", "Cousine", null);
-            Family("sibling", 0, RelationLane.Side, "Frère", "Sœur", "Adelphe");
+            get
+            {
+                if (Active != null) return Active;
+                if (_defaults == null) _defaults = RelationSchema.Defaults();
+                return _defaults;
+            }
         }
 
-        private static void Family(string family, int generation, RelationLane lane,
-            string masculine, string feminine, string neutral)
-        {
-            if (masculine != null) Add(masculine, family, 'm', generation, lane);
-            if (feminine != null) Add(feminine, family, 'f', generation, lane);
-            if (neutral != null) Add(neutral, family, 'n', generation, lane);
-        }
-
-        private static void Add(string name, string family, char gender, int generation, RelationLane lane)
-        {
-            var info = new RelationKindInfo { Name = name, Family = family, Gender = gender, Generation = generation, Lane = lane };
-            _infos.Add(info);
-            _byKey[Key(name)] = info;
-        }
-
-        /// <summary>Les natures livrées, dans l'ordre du sélecteur.</summary>
+        /// <summary>Les natures proposées, dans l'ordre du sélecteur.</summary>
         public static IEnumerable<string> Defaults
         {
-            get { foreach (var info in _infos) yield return info.Name; }
+            get { return Schema.Names; }
         }
 
         /// <summary>Clé de comparaison : sans casse, sans accents, « œ » → « oe »,
@@ -92,19 +78,20 @@ namespace Marabook.Model
 
         public static bool Same(string a, string b) { return Key(a) == Key(b); }
 
-        /// <summary>La nature livrée qui porte ce nom (null pour une nature
-        /// libre ou personnalisée).</summary>
+        /// <summary>La nature GÉNÉALOGIQUE qui porte ce nom — une nature du
+        /// schéma hors voie « autres » (null pour une nature libre ou inconnue :
+        /// « Mentor » n'oblige à rien).</summary>
         public static RelationKindInfo Find(string kind)
         {
-            RelationKindInfo info;
-            return _byKey.TryGetValue(Key(kind), out info) ? info : null;
+            var info = Schema.Find(kind);
+            return info != null && info.Lane != RelationLane.Other ? info : null;
         }
 
-        /// <summary>La forme canonique d'une nature livrée (« soeur » → « Sœur »),
+        /// <summary>La forme canonique d'une nature du schéma (« soeur » → « Sœur »),
         /// ou la saisie telle quelle.</summary>
         public static string Canonical(string kind)
         {
-            var info = Find(kind);
+            var info = Schema.Find(kind);
             return info != null ? info.Name : (kind ?? "").Trim();
         }
 
@@ -114,22 +101,7 @@ namespace Marabook.Model
         /// elle-même.</summary>
         public static string Reciprocal(string kind, char sourceGender)
         {
-            var info = Find(kind);
-            if (info == null) return (kind ?? "").Trim();
-            string family;
-            switch (info.Family)
-            {
-                case "parent": family = "child"; break;
-                case "child": family = "parent"; break;
-                case "grandparent": family = "grandchild"; break;
-                case "grandchild": family = "grandparent"; break;
-                case "ancestor": family = "descendant"; break;
-                case "descendant": family = "ancestor"; break;
-                case "uncle": family = "nephew"; break;
-                case "nephew": family = "uncle"; break;
-                default: family = info.Family; break; // symétriques : époux, fratrie, cousins, amours, double
-            }
-            return Gendered(family, sourceGender);
+            return Schema.Reciprocal(kind, sourceGender);
         }
 
         /// <summary>La forme d'une famille pour un genre : « child » + 'f' →
@@ -137,29 +109,20 @@ namespace Marabook.Model
         /// masculine (cousins, oncles, neveux — le français n'en a pas).</summary>
         public static string Gendered(string family, char gender)
         {
-            RelationKindInfo exact = null, neutral = null, masculine = null;
-            foreach (var info in _infos)
-            {
-                if (info.Family != family) continue;
-                if (info.Gender == gender) exact = info;
-                if (info.Gender == 'n') neutral = info;
-                if (info.Gender == 'm') masculine = info;
-            }
-            var chosen = exact ?? neutral ?? masculine;
-            return chosen == null ? "" : chosen.Name;
+            return Schema.Gendered(family, gender);
         }
 
         /// <summary>Génération d'une nature vue depuis le personnage (0 pour
-        /// une nature inconnue).</summary>
+        /// une nature inconnue ou libre).</summary>
         public static int GenerationOf(string kind)
         {
-            var info = Find(kind);
-            return info == null ? 0 : info.Generation;
+            var info = Schema.Find(kind);
+            return info == null || info.Lane == RelationLane.Other ? 0 : info.Generation;
         }
 
         public static RelationLane LaneOf(string kind)
         {
-            var info = Find(kind);
+            var info = Schema.Find(kind);
             return info == null ? RelationLane.Other : info.Lane;
         }
 

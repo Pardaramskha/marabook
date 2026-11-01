@@ -94,6 +94,7 @@ namespace Marabook.App
         public static void Show(Panel host, Border toast)
         {
             if (host == null || toast == null) return;
+            Sounds.Notification(); // une snackbar : le son de notification (31/10)
             host.Children.Add(toast);
             Ui.SlideIn(toast, 60, 0, 320);
         }

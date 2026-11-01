@@ -95,6 +95,7 @@ namespace Marabook.App
         public string PinTitle;     // --pin <titre> : l'élément épinglé sur le côté avant la capture (hotfix 1.0.3-a)
         public bool PlanChart;      // --intensite : le plan ouvert montre son graphique d'intensité (hotfix 1.0.3-a)
         public bool SheetText;      // --texte-libre : la fiche ouverte montre son onglet Texte libre (hotfix 1.0.3-a)
+        public bool Correction;     // --correction : le panneau des relevés ouvert sur le premier écrit (capture, 30/10)
         public string SelectTitle;  // --select <titre> : la tuile choisie dans le tableau ou la bibliothèque affichés (diagnostic de la sélection, 1.0.3)
         public string Tint;         // --tint #hex : la couleur posée sur cette tuile avant de la choisir
         public bool TintAfter;      // --tint-apres : …ou APRÈS l'avoir choisie (le tableau se rebâtit avec la carte sélectionnée)
@@ -106,12 +107,14 @@ namespace Marabook.App
         public bool SaveProbe;      // --save-probe : ouvre le .plot donné, le marque modifié, l'enregistre (silencieux), dit OK ou la pile, quitte
         public string FontProbe;    // --police <famille> : dit comment la face se résout (graisse, simulations), puis quitte (29/09)
         public string PagesProbe;   // --pages <fichier.plot> : la pagination de chaque livre, texte par texte, compte seul contre PDF publié, puis quitte (09/10)
+        public string GraphProbe;   // --graphe <fichier.plot> : le graphe relationnel du projet — noms cherchés et présences de chaque fiche, orphelins — puis quitte (28/10)
+        public string EncyclopediaProbe, EncyclopediaFolder; // --encyclopedie <fichier.plot> <dossier> : l'Encyclopédie HTML de toutes les fiches, écrite dans le dossier, puis quitte (31/10)
         public string WordProbe;    // --mot <mot[,mot…]> : accepté ou refusé par le dictionnaire embarqué, radicaux ou suggestions, puis quitte (10/10)
         public string NamesProbe;    // --noms <fichier.plot> : les fiches manquantes (noms propres récurrents) du projet, puis quitte (12/10)
         public string SpellingProbe; // --ortho <fichier.plot> : les mots inconnus de chaque écrit (MARABOOK_ORTHO_FIND filtre les titres), puis quitte (10/10)
         public bool UpdateProbe;    // --maj-test : interroge GitHub, télécharge et déballe la dernière release comme au lancement, dit le résultat, quitte (01/10)
 
-        public bool Isolated { get { return Demo || Probe || CapturePath != null || SaveProbe || FontProbe != null || UpdateProbe || PagesProbe != null || WordProbe != null || SpellingProbe != null || NamesProbe != null; } }
+        public bool Isolated { get { return Demo || Probe || CapturePath != null || SaveProbe || FontProbe != null || UpdateProbe || PagesProbe != null || GraphProbe != null || EncyclopediaProbe != null || WordProbe != null || SpellingProbe != null || NamesProbe != null; } }
 
         public static Launch Parse(string[] args)
         {
@@ -131,6 +134,7 @@ namespace Marabook.App
                 if (arg == "--pin" && i + 1 < args.Length) { launch.PinTitle = args[++i]; continue; }
                 if (arg == "--texte-libre") { launch.SheetText = true; continue; }
                 if (arg == "--intensite") { launch.PlanChart = true; continue; }
+                if (arg == "--correction") { launch.Correction = true; continue; }
                 if (arg == "--tint" && i + 1 < args.Length) { launch.Tint = args[++i]; continue; }
                 if (arg == "--tint-apres") { launch.TintAfter = true; continue; }
                 if (arg == "--tab" && i + 1 < args.Length) { int.TryParse(args[++i], out launch.PrefsTab); launch.Prefs = true; continue; }
@@ -138,6 +142,8 @@ namespace Marabook.App
                 if (arg == "--save-probe") { launch.SaveProbe = true; continue; }
                 if (arg == "--police" && i + 1 < args.Length) { launch.FontProbe = args[++i]; continue; } // diagnostic : comment la face se résout (29/09)
                 if (arg == "--pages" && i + 1 < args.Length) { launch.PagesProbe = args[++i]; continue; } // diagnostic de la pagination d'un livre (09/10)
+                if (arg == "--graphe" && i + 1 < args.Length) { launch.GraphProbe = args[++i]; continue; } // diagnostic du graphe relationnel (28/10)
+                if (arg == "--encyclopedie" && i + 2 < args.Length) { launch.EncyclopediaProbe = args[++i]; launch.EncyclopediaFolder = args[++i]; continue; } // l'Encyclopédie HTML d'un projet (31/10)
                 if (arg == "--mot" && i + 1 < args.Length) { launch.WordProbe = args[++i]; continue; } // diagnostic du dictionnaire (10/10)
                 if (arg == "--ortho" && i + 1 < args.Length) { launch.SpellingProbe = args[++i]; continue; }
                 if (arg == "--noms" && i + 1 < args.Length) { launch.NamesProbe = args[++i]; continue; } // diagnostic des fiches manquantes (12/10) // diagnostic de l'orthographe d'un projet (10/10)

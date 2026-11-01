@@ -114,14 +114,14 @@ namespace Marabook.App
 
             var row = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
             var tools = new StackPanel { Orientation = Orientation.Horizontal };
-            var left = Buttons.Text("↺ Pivoter à gauche", "Un quart de tour vers la gauche", Buttons.Bar, Buttons.Look.Outline);
+            var left = Buttons.Text("↺ Pivoter à gauche", null, Buttons.Bar, Buttons.Look.Outline);
             left.Click += delegate { Turn(-1); };
             tools.Children.Add(left);
-            var right = Buttons.Text("↻ Pivoter à droite", "Un quart de tour vers la droite", Buttons.Bar, Buttons.Look.Outline);
+            var right = Buttons.Text("↻ Pivoter à droite", null, Buttons.Bar, Buttons.Look.Outline);
             right.Margin = new Thickness(8, 0, 0, 0);
             right.Click += delegate { Turn(1); };
             tools.Children.Add(right);
-            var whole = Buttons.Text("Toute l'image", "Annuler le recadrage : le cadre reprend toute l'image", Buttons.Bar, Buttons.Look.Calm);
+            var whole = Buttons.Text("Toute l'image", null, Buttons.Bar, Buttons.Look.Calm);
             whole.Margin = new Thickness(8, 0, 0, 0);
             whole.Click += delegate { _crop = Full(); Layout(); };
             tools.Children.Add(whole);

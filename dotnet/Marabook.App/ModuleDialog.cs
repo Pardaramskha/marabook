@@ -42,6 +42,16 @@ namespace Marabook.App
             Background = Chrome.RaisedBg;
 
             var panel = new StackPanel { Margin = new Thickness(22, 18, 22, 16), Width = 460 };
+            // L'image de tête du module (1/11, Rémi : Mental-O), embarquée dans assets/dlc.
+            var header = HeaderImage(state.Source.Image);
+            if (header != null)
+                panel.Children.Add(new Border
+                {
+                    CornerRadius = new CornerRadius(8),
+                    ClipToBounds = true,
+                    Margin = new Thickness(0, 0, 0, 14),
+                    Child = new Image { Source = header, Stretch = Stretch.Uniform, Width = 460 }
+                });
             panel.Children.Add(new TextBlock
             {
                 Text = state.Source.Name,
@@ -58,6 +68,13 @@ namespace Marabook.App
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 2, 0, 0)
                 });
+            // La présentation du module (1/11, Rémi), **gras** compris.
+            if (!string.IsNullOrEmpty(state.Source.Pitch))
+            {
+                var pitch = new TextBlock { FontSize = 13.5, Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0), LineHeight = 20 };
+                pitch.Inlines = TutorialWindow.Inlines(state.Source.Pitch);
+                panel.Children.Add(pitch);
+            }
             panel.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 12, 0, 12) });
             panel.Children.Add(new TextBlock { Text = "Ce module apporte", FontSize = 11, FontWeight = FontWeight.Bold, Foreground = Chrome.Accent });
             foreach (var feature in state.Source.Features)
@@ -106,6 +123,18 @@ namespace Marabook.App
             ModuleStore.Changed += Sync;
             Closed += delegate { ModuleStore.Changed -= Sync; };
             Sync();
+        }
+
+        /// <summary>L'image de tête embarquée (dlc/&lt;fichier&gt;), ou null.</summary>
+        private static Avalonia.Media.Imaging.Bitmap HeaderImage(string file)
+        {
+            if (string.IsNullOrEmpty(file)) return null;
+            try
+            {
+                using (var stream = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("dlc/" + file))
+                    return stream == null ? null : new Avalonia.Media.Imaging.Bitmap(stream);
+            }
+            catch (Exception) { return null; }
         }
 
         public static void Show(Window owner, ModuleState state)

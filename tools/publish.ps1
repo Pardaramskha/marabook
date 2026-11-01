@@ -29,10 +29,14 @@
 # Marabook(.exe) À LA RACINE, plus VERSION, LICENSE, APPROVISIONNEMENT.md,
 # marabook.stargazer.json, les ressources lues à l'exécution (assets :
 # fond de l'accueil, icône .plot, image du fichier .plot, logo, succès) et
-# les données linguistiques (dict, grammalecte) ; python\ (la distribution
-# embarquée) n'existe que pour Windows — Linux et macOS emploient le python3
-# du système (Platform.PythonExecutable). Même disposition que la 0.43 :
-# l'Updater 0.43 recopie l'archive par-dessus et relance Marabook.exe.
+# les données linguistiques (dict, grammalecte) et PYTHON : python\ (la
+# distribution embarquée du dépôt) pour Windows ; pour Linux et macOS, une
+# distribution portable python-build-standalone (30/10, Rémi : Grammalecte
+# ne doit JAMAIS manquer), téléchargée au moment de la publication, vérifiée
+# par son empreinte SHA-256 et déballée dans python/ (python/bin/python3,
+# que Platform.PythonExecutable préfère au python3 du système). Même
+# disposition que la 0.43 : l'Updater 0.43 recopie l'archive par-dessus et
+# relance Marabook.exe.
 #
 # Les noms ne portent PAS la version (elle est dans le tag et dans VERSION).
 param(
@@ -115,9 +119,52 @@ $fichiers = @('VERSION', 'marabook.stargazer.json', 'LICENSE', 'APPROVISIONNEMEN
               (Join-Path 'assets' 'background.jpg'), (Join-Path 'assets' 'plot.ico'),
               (Join-Path 'assets' 'plot-file.png'), (Join-Path 'assets' 'marabook.png'))
 foreach ($f in $fichiers) { Copier $f $payload }
-$dossiers = @((Join-Path 'assets' 'achievements'), 'dict', 'grammalecte')
+$dossiers = @((Join-Path 'assets' 'achievements'), (Join-Path 'assets' 'tutoriel'), 'dict', 'grammalecte')
 if ($ridWindows) { $dossiers += 'python' }
 foreach ($d in $dossiers) { CopierDossier $d $payload }
+
+# 2 ter. Python embarqué pour Linux et macOS (30/10) : python-build-standalone
+# (astral-sh), la même 3.13 que la distribution Windows, en « install_only
+# stripped » (~25–35 Mo compressés). Le tarball porte un dossier python/ à sa
+# racine, déballé tel quel dans la publication ; l'empreinte est épinglée,
+# l'archive gardée dans dist\cache pour ne pas la retélécharger. Un hôte
+# Windows ne sait pas déballer les liens symboliques du tarball : l'essai
+# local d'une archive Linux ou macOS part alors sans Python (avertissement),
+# la vraie fabrication se fait sur le système cible (workflow).
+$pythonTag = '20261026'
+$pythonBuilds = @{
+    'linux-x64' = @{ Name = 'cpython-3.13.18+20261026-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz'; Sha256 = 'df15fe60d3ff55bf9dcf25824b5572756bb8816ff93865a273d3301d7066a8b7' }
+    'osx-x64'   = @{ Name = 'cpython-3.13.18+20261026-x86_64-apple-darwin-install_only_stripped.tar.gz';       Sha256 = '7412c19d896c99431b74a18a5643e110449a7f9590fbab179c3e5ab27b9aa9e3' }
+    'osx-arm64' = @{ Name = 'cpython-3.13.18+20261026-aarch64-apple-darwin-install_only_stripped.tar.gz';      Sha256 = '8392b6ea51d94391befb2c31ebe75463f045d0b69dfcf5e1bb3234e1f5fa3405' }
+}
+if (-not $ridWindows) {
+    $hoteWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
+    if ($hoteWindows) {
+        Write-Warning "Python embarqué ($Rid) : non déballé depuis un hôte Windows (liens symboliques) — fabriquer sur le système cible."
+    } else {
+        $build = $pythonBuilds[$Rid]
+        $cache = Join-Path $dist 'cache'
+        New-Item -ItemType Directory -Force $cache | Out-Null
+        $archive = Join-Path $cache $build.Name
+        if (-not (Test-Path $archive) -or (Get-FileHash $archive -Algorithm SHA256).Hash -ne $build.Sha256) {
+            $url = "https://github.com/astral-sh/python-build-standalone/releases/download/$pythonTag/" + $build.Name
+            Write-Host "Python embarqué : téléchargement de $($build.Name)"
+            Invoke-WebRequest -Uri $url -OutFile $archive
+        }
+        $hash = (Get-FileHash $archive -Algorithm SHA256).Hash
+        if ($hash -ne $build.Sha256) { throw "Python embarqué : empreinte inattendue pour $($build.Name) ($hash)." }
+        & tar -xzf $archive -C $payload
+        if ($LASTEXITCODE -ne 0) { throw 'tar (Python embarqué) a échoué.' }
+        $python3 = Join-Path $payload (Join-Path 'python' (Join-Path 'bin' 'python3'))
+        if (-not (Test-Path $python3)) { throw "Python embarqué : python/bin/python3 manque après déballage." }
+        # Les tests et les caches de bytecode ne partent pas (place).
+        $lib = Join-Path $payload (Join-Path 'python' 'lib')
+        Get-ChildItem $lib -Recurse -Directory -Filter '__pycache__' | Remove-Item -Recurse -Force
+        Get-ChildItem $lib -Recurse -Directory | Where-Object { $_.Name -eq 'test' -or $_.Name -eq 'tests' -or $_.Name -eq 'idlelib' -or $_.Name -eq 'tkinter' -or $_.Name -eq 'turtledemo' } | Remove-Item -Recurse -Force
+        if (Outil 'chmod') { & chmod -R a+rX (Join-Path $payload 'python') }
+        Write-Host ("Python embarqué : {0} ({1} Mo déballés)" -f $build.Name, [math]::Round(((Get-ChildItem (Join-Path $payload 'python') -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), 1))
+    }
+}
 if (-not $ridWindows -and -not $ridMac) {
     # Le lanceur de bureau et le type MIME des .plot (Linux) sont posés par
     # l'application au premier lancement (FileAssociation) ; le script
@@ -264,6 +311,18 @@ if ($ridMac) {
         # Ad hoc (« - ») : pas d'identité, mais un sceau cohérent sur le
         # bundle et chaque binaire imbriqué — Gatekeeper juge l'ensemble
         # une fois, et l'Updater peut recopier le bundle sans le casser.
+        # Les binaires de Python embarqué (python3.13, .dylib, .so) ne sont
+        # pas à un emplacement que --deep connaît : signés un à un d'abord.
+        $pythonDir = Join-Path $payload 'python'
+        if (Test-Path $pythonDir) {
+            $binaires = Get-ChildItem $pythonDir -Recurse -File | Where-Object {
+                $_.Extension -eq '.dylib' -or $_.Extension -eq '.so' -or $_.DirectoryName.EndsWith([IO.Path]::DirectorySeparatorChar + 'bin')
+            }
+            foreach ($b in $binaires) {
+                if ($b.LinkType) { continue } # les liens (python3 → python3.13) suivent leur cible
+                & codesign --force --sign - $b.FullName 2>$null
+            }
+        }
         & codesign --force --deep --sign - $bundle
         if ($LASTEXITCODE -ne 0) { throw 'codesign (ad hoc) a échoué.' }
     } else { Write-Warning 'codesign absent : bundle non signé (fabriquer sur macOS).' }

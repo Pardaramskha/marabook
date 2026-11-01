@@ -110,7 +110,7 @@ namespace Marabook.App
             var notes = (info.Notes ?? "").Trim();
             Control body;
             if (notes.Length > 0)
-                body = MarkdownRender.Build(notes, null, null);
+                body = MarkdownRender.Build(notes, null, null, PatchNotes.ImageFor); // l'image de tête d'une version majeure (1/11)
             else
                 body = new TextBlock
                 {

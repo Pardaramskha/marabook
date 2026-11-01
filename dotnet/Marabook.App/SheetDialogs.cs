@@ -29,7 +29,42 @@ namespace Marabook.App
 
         private readonly List<SheetTemplate> _templates;
         private readonly ListBox _list;
+        private TabControl _mainTabs; // Sections / Sections extras / Champs / Graph statistique — le tutoriel y navigue (29/10)
+
+        /// <summary>Tutoriel (29/10) : l'éditeur ouvert SANS attendre (pas de
+        /// ShowDialog — la fenêtre du tuto doit rester vivante), à refermer
+        /// par Close() ; les modèles ne sont pas réécrits.</summary>
+        internal static TemplatesDialog OpenForTutorial(Window owner, List<SheetTemplate> source, Project project)
+        {
+            var dialog = new TemplatesDialog(owner, source, project);
+            Dialogs.FitToScreen(dialog, owner);
+            dialog.Show(owner);
+            return dialog;
+        }
+
+        internal bool SelectTabForTutorial(string header)
+        {
+            if (_mainTabs == null) return false;
+            foreach (var item in _mainTabs.Items)
+            {
+                var tab = item as TabItem;
+                if (tab != null && (tab.Header as string) == header) { _mainTabs.SelectedItem = tab; return true; }
+            }
+            return false;
+        }
+
+        internal bool SelectTemplateForTutorial(string namePrefix)
+        {
+            foreach (var item in _list.Items)
+            {
+                var entry = item as ListBoxItem;
+                var name = entry == null ? null : entry.Content as string;
+                if (name != null && TutorialParser.Fold(name).StartsWith(TutorialParser.Fold(namePrefix))) { _list.SelectedItem = entry; return true; }
+            }
+            return false;
+        }
         private readonly TextBox _nameBox;
+        private readonly TextBlock _usedBy; // les catégories du modèle (1.1.0)
         private readonly StackPanel _sectionsPanel, _fieldsPanel;
         private readonly CheckBox _relationsCheck;
         // Les sections extras (21/09) : le suivi des noms et son amplitude
@@ -205,7 +240,17 @@ namespace Marabook.App
             _nameBox.TextChanged += delegate { CommitName(); }; // le nom suit la frappe (et l'historique, 1.0.4)
             nameRow.Children.Add(_nameBox);
             DockPanel.SetDock(nameRow, Dock.Top);
-            if (!_single) right.Children.Add(nameRow);
+            // Les catégories qui emploient ce modèle (1.1.0, Rémi), sous le nom.
+            _usedBy = new TextBlock
+            {
+                Foreground = Chrome.SoftText,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(110, -6, 0, 10),
+                Tag = "used-by" // sonde
+            };
+            DockPanel.SetDock(_usedBy, Dock.Top);
+            if (!_single) { right.Children.Add(nameRow); right.Children.Add(_usedBy); }
             else
             {
                 var hint = new TextBlock
@@ -221,7 +266,7 @@ namespace Marabook.App
                 right.Children.Add(hint);
             }
 
-            var tabs = new TabControl();
+            var tabs = _mainTabs = new TabControl();
 
             // — Sections : Informations (fixe), les sections nommées, Relations.
             var sectionsDock = new DockPanel();
@@ -230,14 +275,14 @@ namespace Marabook.App
             addSection.HorizontalAlignment = HorizontalAlignment.Left;
             addSection.Click += delegate { AddSection(); };
             sectionsFoot.Children.Add(addSection);
+            // La case Relations vit dans « Sections extras » (29/10, Rémi).
             _relationsCheck = new CheckBox
             {
-                Content = "Relations — la section des liens entre fiches (frère, mentor, rivale…)",
-                Margin = new Thickness(0, 12, 0, 0)
+                Content = "Activer les relations",
+                Margin = new Thickness(0, 0, 0, 4)
             };
             _relationsCheck.Checked += delegate { if (_current != null && !_syncing) { _current.Relations = true; Record("+relations"); } };
             _relationsCheck.Unchecked += delegate { if (_current != null && !_syncing) { _current.Relations = false; Record("+relations"); } };
-            if (!_single) sectionsFoot.Children.Add(_relationsCheck);
             DockPanel.SetDock(sectionsFoot, Dock.Bottom);
             sectionsDock.Children.Add(sectionsFoot);
             _sectionsPanel = new StackPanel();
@@ -288,6 +333,13 @@ namespace Marabook.App
             evolutionStack.Children.Add(_evolutionCheck);
             evolutionStack.Children.Add(Note("La section des étapes de la fiche, écrit par écrit ou en étapes libres nommées (« perd son bras », « apprend la vérité »…). Une fiche qui porte déjà des étapes les garde, section désactivée ou non.", 0));
             extras.Items.Add(new TabItem { Header = "Évolution", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = evolutionStack } });
+            // — Relations (29/10, Rémi) : la section des liens entre fiches,
+            //   troisième sous-onglet des Sections extras.
+            var relationsStack = new StackPanel();
+            relationsStack.Children.Add(_relationsCheck);
+            relationsStack.Children.Add(Note("La section des liens entre fiches (frère, mentor, rivale…), avec la généalogie quand les fiches s'y prêtent. Une fiche qui porte déjà des relations les garde, section désactivée ou non.", 0));
+            extras.Items.Insert(0, new TabItem { Header = "Relations", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = relationsStack } }); // premier sous-onglet (29/10, Rémi)
+            extras.SelectedIndex = 0;
             if (!_single) tabs.Items.Add(new TabItem { Header = "Sections extras", Content = new Border { Padding = new Thickness(4, 8, 4, 4), Child = extras } });
 
             // — Champs : nom, nature, section.
@@ -499,10 +551,28 @@ namespace Marabook.App
             _scopeAll.IsChecked = !some;
             _scopeSome.IsChecked = some;
             _syncing = false;
+            if (_usedBy != null) _usedBy.Text = UsedByLabel(template);
             RebuildSections();
             RebuildFields();
             RebuildAxes();
             RebuildScope();
+        }
+
+        /// <summary>« Modèle de base de : Personnage (et ses sous-catégories
+        /// Héros, Figurants) » — ou qu'aucune catégorie ne l'emploie.</summary>
+        internal string UsedByLabel(SheetTemplate template)
+        {
+            if (template == null || _project == null) return "";
+            var names = new List<string>();
+            foreach (var category in _project.TopCategories())
+            {
+                if (category.TemplateId != template.Id) continue;
+                var subs = new List<string>();
+                foreach (var sub in _project.SubCategoriesOf(category)) subs.Add(sub.Name);
+                names.Add(category.Name + (subs.Count == 0 ? "" : " (et " + (subs.Count == 1 ? "sa sous-catégorie " : "ses sous-catégories ") + string.Join(", ", subs.ToArray()) + ")"));
+            }
+            if (names.Count == 0) return "Modèle de base d'aucune catégorie — les fiches qui le portent le gardent.";
+            return "Modèle de base de : " + string.Join(" · ", names.ToArray());
         }
 
         // ------------------------------------------------------------ suivi (21/09)

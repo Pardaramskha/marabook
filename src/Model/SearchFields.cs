@@ -96,6 +96,8 @@ namespace Marabook.Model
             Add(fields, SearchField.KindTitle, "Titre", item.Title, null);
             Add(fields, SearchField.KindSynopsis, "Synopsis", item.Synopsis, null);
             Add(fields, SearchField.KindNotes, "Notes", item.Notes, null);
+            if (item.Kind == ItemKind.Sheet && item.Tags.Count > 0) // les tags (1.1.0) se cherchent comme des notes
+                Add(fields, SearchField.KindNotes, "Tags", string.Join(", ", item.Tags.ToArray()), null);
             if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
             {
                 var document = item.Document;
@@ -414,6 +416,7 @@ namespace Marabook.Model
                 return h.Value;
             }
             h.Add(item.Title); h.Add(item.Synopsis); h.Add(item.Notes);
+            foreach (var tag in item.Tags) { h.Add(tag); h.Add('\n'); } // 1.1.0
             if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
             {
                 foreach (var paragraph in item.Document.Paragraphs)
