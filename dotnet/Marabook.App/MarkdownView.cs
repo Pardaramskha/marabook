@@ -225,9 +225,9 @@ namespace Marabook.App
         /// sous la souris par son TextLayout (HitTestPoint) : clic = action,
         /// main au survol, infobulle du lien. (Un InlineUIContainer, même
         /// centré, flottait d'un ou deux pixels dans le Texte libre.)</summary>
-        private sealed class LinkSpan { public int Start, Length; public string Tooltip; public Action Click; }
+        private sealed class LinkSpan { public int Start, Length; public string Tooltip; public Action Click; public string WikiTitle; }
 
-        private static Run Link(TextBlock owner, Run run, string tooltip, Action click)
+        private static Run Link(TextBlock owner, Run run, string tooltip, Action click, string wikiTitle = null)
         {
             var spans = owner.Tag as List<LinkSpan>;
             if (spans == null)
@@ -240,7 +240,9 @@ namespace Marabook.App
                     var over = SpanAt(owner, e.GetPosition(owner));
                     owner.Cursor = over != null ? new Cursor(StandardCursorType.Hand) : new Cursor(StandardCursorType.Arrow);
                     ToolTip.SetTip(owner, over != null ? over.Tooltip : null);
+                    SheetPreview.Hover(owner, over != null ? over.WikiTitle : null); // l'aperçu de la fiche visée (1/11)
                 };
+                owner.PointerExited += delegate { SheetPreview.Leave(owner); };
                 owner.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
                 {
                     if (!e.GetCurrentPoint(owner).Properties.IsLeftButtonPressed) return;
@@ -250,7 +252,7 @@ namespace Marabook.App
                     span.Click();
                 };
             }
-            spans.Add(new LinkSpan { Start = TextLengthOf(owner), Length = (run.Text ?? "").Length, Tooltip = tooltip, Click = click });
+            spans.Add(new LinkSpan { Start = TextLengthOf(owner), Length = (run.Text ?? "").Length, Tooltip = tooltip, Click = click, WikiTitle = wikiTitle });
             run.Foreground = Chrome.Accent;
             run.TextDecorations = TextDecorations.Underline;
             return run;
@@ -341,7 +343,7 @@ namespace Marabook.App
                     into.Add(Link(owner, run, null, delegate
                     {
                         if (wikiClicked != null) wikiClicked(target);
-                    }));
+                    }, target));
                 }
                 else if (inline.LinkUrl != null)
                 {

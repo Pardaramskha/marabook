@@ -18,7 +18,8 @@ namespace Marabook.Exchange
     /// comme l'EPUB. Les liens internes ne visent que des fiches exportées.</summary>
     public static class HtmlEncyclopedia
     {
-        public const string IndexFile = "index.html", LexiconFile = "lexique.html", CssFile = "encyclopedie.css", JsFile = "encyclopedie.js", SheetsFolder = "fiches", ImagesFolder = "images";
+        public const string IndexFile = "index.html", LexiconFile = "lexique.html", CssFile = "encyclopedie.css", JsFile = "encyclopedie.js", PreviewsFile = "apercus.js", SheetsFolder = "fiches", ImagesFolder = "images";
+        public const int ExcerptChars = 260;
 
         /// <summary>Écrit le dossier ; rend les chemins écrits (index en tête).
         /// Les images se préparent AVANT les pages (1/11) : leur format final
@@ -39,6 +40,9 @@ namespace Marabook.Exchange
             var js = Path.Combine(folder, JsFile);
             File.WriteAllText(js, Js(), new UTF8Encoding(false));
             written.Add(js);
+            var previews = Path.Combine(folder, PreviewsFile);
+            File.WriteAllText(previews, Previews(document, all), new UTF8Encoding(false));
+            written.Add(previews);
             if (document.Options.IncludeLexicon)
             {
                 var lexicon = Path.Combine(folder, LexiconFile);
@@ -374,11 +378,12 @@ namespace Marabook.Exchange
                     current = entry.Letter;
                     sb.Append("<section class=\"letter\" id=\"l-").Append(Esc(current == "#" ? "autres" : current)).Append("\"><h2>").Append(Esc(current)).Append("</h2><dl>\n");
                 }
-                // Rémi (1/11) : le mot, le type (en petit, genre compris), la définition — sans flexions ni dérivés.
-                sb.Append("<dt><b>").Append(Esc(entry.Word)).Append("</b>");
+                // Rémi (1/11) : le mot, le type (en petit, genre compris), la définition — sans flexions ni dérivés ; chaque entrée est une case (fond arrondi au survol, comme l'accueil).
+                sb.Append("<div class=\"entry\"><dt><b>").Append(Esc(entry.Word)).Append("</b>");
                 if (entry.ClassLabel.Length > 0) sb.Append("<i class=\"class\">").Append(Esc(entry.ClassLabel)).Append("</i>");
-                sb.Append("</dt>\n");
-                if (entry.Definition.Length > 0) sb.Append("<dd>").Append(Esc(entry.Definition)).Append("</dd>\n");
+                sb.Append("</dt>");
+                if (entry.Definition.Length > 0) sb.Append("<dd>").Append(Esc(entry.Definition)).Append("</dd>");
+                sb.Append("</div>\n");
             }
             if (current != null) sb.Append("</dl></section>\n");
             sb.Append("</main>\n");
@@ -535,8 +540,61 @@ namespace Marabook.Exchange
             sb.Append("<link rel=\"stylesheet\" href=\"").Append(root).Append(CssFile).Append("\">\n");
             // Le thème choisi par le lecteur (1/11) se pose avant le premier rendu, sans éclair ; le script différé fait le reste.
             sb.Append("<script>try{var t=localStorage.getItem('encyclopedie-theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>\n");
-            sb.Append("<script src=\"").Append(root).Append(JsFile).Append("\" defer></script>\n</head>\n<body class=\"").Append(bodyClass).Append("\">\n");
+            sb.Append("<script src=\"").Append(root).Append(PreviewsFile).Append("\" defer></script>\n");
+            sb.Append("<script src=\"").Append(root).Append(JsFile).Append("\" defer data-root=\"").Append(root).Append("\"></script>\n</head>\n<body class=\"").Append(bodyClass).Append("\">\n");
             sb.Append("<button type=\"button\" class=\"theme\" hidden aria-label=\"Clair ou sombre\" title=\"Clair ou sombre\">◐</button>\n");
+        }
+
+        /// <summary>Les aperçus (1/11, Rémi : la carte façon Wikipédia au survol
+        /// d'un lien) : un script, pas un JSON — Chrome refuse fetch() depuis
+        /// un fichier local, mais charge un script. Par page de fiche : titre,
+        /// nom du modèle, portrait (chemin depuis la racine), début du Texte libre.</summary>
+        public static string Previews(EncyclopediaDocument document, List<EncyclopediaSheet> all)
+        {
+            var sb = new StringBuilder("window.ENCYCLOPEDIE_APERCUS={");
+            var first = true;
+            foreach (var sheet in all)
+            {
+                var image = sheet.ImageId == null ? null : ImageSrc(document, sheet.ImageId, "");
+                var excerpt = Encyclopedia.Excerpt(sheet.BodyMarkdown, ExcerptChars);
+                if (image == null && excerpt.Length == 0) continue; // rien de plus que le lien : pas de carte (comme SheetPreview.Card)
+                if (!first) sb.Append(',');
+                first = false;
+                sb.Append(JsString(SheetPath(sheet))).Append(":{\"t\":").Append(JsString(sheet.Title));
+                if (ShowsKind(sheet)) sb.Append(",\"k\":").Append(JsString(sheet.Subtitle));
+                else if (sheet.Section != null) sb.Append(",\"k\":").Append(JsString(sheet.Section.Title));
+                if (image != null) sb.Append(",\"i\":").Append(JsString(image));
+                if (excerpt.Length > 0) sb.Append(",\"x\":").Append(JsString(excerpt));
+                sb.Append('}');
+            }
+            sb.Append("};\n");
+            return sb.ToString();
+        }
+
+        /// <summary>Une chaîne JavaScript entre guillemets, échappée (et « &lt;/ »
+        /// coupé : rien ne peut refermer la balise script).</summary>
+        internal static string JsString(string text)
+        {
+            var sb = new StringBuilder("\"");
+            foreach (var c in text ?? "")
+            {
+                switch (c)
+                {
+                    case '"': sb.Append("\\\""); break;
+                    case '\\': sb.Append("\\\\"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    case '/': sb.Append("\\/"); break;
+                    case '\u2028': sb.Append("\\u2028"); break;
+                    case '\u2029': sb.Append("\\u2029"); break;
+                    default:
+                        if (c < ' ') sb.Append("\\u").Append(((int)c).ToString("x4"));
+                        else sb.Append(c);
+                        break;
+                }
+            }
+            return sb.Append('"').ToString();
         }
 
         /// <summary>Le script du dossier (1/11), sans dépendance : la bascule
@@ -551,6 +609,33 @@ namespace Marabook.Exchange
                 "if(toggle){toggle.hidden=false;toggle.addEventListener('click',function(){\n" +
                 "var dark=root.getAttribute('data-theme')==='dark';root.setAttribute('data-theme',dark?'light':'dark');\n" +
                 "try{localStorage.setItem(key,dark?'light':'dark')}catch(e){}});}\n" +
+                // L'aperçu au survol d'un lien vers une fiche (1/11, Rémi) : la carte façon Wikipédia — titre, modèle, portrait, début du Texte libre.
+                "var cards=window.ENCYCLOPEDIE_APERCUS,me=document.querySelector('script[data-root]'),base=me?me.getAttribute('data-root')||'':'';\n" +
+                "if(cards&&window.matchMedia&&window.matchMedia('(hover: hover)').matches){\n" +
+                "var card=document.createElement('div');card.className='apercu';card.hidden=true;document.body.appendChild(card);\n" +
+                "var timer=null,current=null;\n" +
+                "function keyOf(a){var h=a.getAttribute('href')||'';h=h.split('#')[0];while(h.indexOf('../')===0)h=h.slice(3);return h;}\n" +
+                "function place(a){var r=a.getBoundingClientRect(),w=card.offsetWidth,h=card.offsetHeight,vw=document.documentElement.clientWidth;\n" +
+                "var x=r.left+window.scrollX,y=r.bottom+window.scrollY+8;\n" +
+                "if(x+w>window.scrollX+vw-12)x=Math.max(window.scrollX+12,window.scrollX+vw-12-w);\n" +
+                "if(r.bottom+8+h>window.innerHeight&&r.top-8-h>0)y=r.top+window.scrollY-8-h;\n" +
+                "card.style.left=x+'px';card.style.top=y+'px';}\n" +
+                "function show(a,d){card.innerHTML='';var t=document.createElement('div');t.className='apercu-text';\n" +
+                "var b=document.createElement('b');b.textContent=d.t;t.appendChild(b);\n" +
+                "if(d.k){var k=document.createElement('i');k.textContent=d.k;t.appendChild(k);}\n" +
+                "if(d.x){var p=document.createElement('p');p.textContent=d.x;t.appendChild(p);}\n" +
+                "card.appendChild(t);\n" +
+                "if(d.i){var img=document.createElement('img');img.src=base+d.i;img.alt='';card.appendChild(img);}\n" +
+                "card.hidden=false;place(a);}\n" +
+                "function hide(){clearTimeout(timer);timer=null;current=null;card.hidden=true;}\n" +
+                "document.addEventListener('mouseover',function(e){var a=e.target.closest?e.target.closest('a[href]'):null;if(!a||card.contains(a)||a===current)return;\n" +
+                "var d=cards[keyOf(a)];if(!d){return;}clearTimeout(timer);current=a;timer=setTimeout(function(){show(a,d);},350);});\n" +
+                "document.addEventListener('mouseout',function(e){var a=e.target.closest?e.target.closest('a[href]'):null;if(!a||a!==current)return;\n" +
+                "var to=e.relatedTarget;if(to&&(a.contains(to)||card.contains(to)))return;hide();});\n" +
+                "card.addEventListener('mouseleave',hide);\n" +
+                "window.addEventListener('scroll',hide,{passive:true});\n" +
+                "document.addEventListener('keydown',function(e){if(e.key==='Escape')hide();});\n" +
+                "}\n" +
                 "var field=document.querySelector('input.search');\n" +
                 "if(!field)return;\n" +
                 "field.parentNode.hidden=false;\n" +
@@ -611,10 +696,12 @@ namespace Marabook.Exchange
             sb.Append(".body img{max-width:100%;height:auto;border-radius:8px}.body blockquote{margin:1em 0;padding:.2em 1em;border-left:3px solid var(--accent);color:var(--soft)}.body pre{background:var(--tint);padding:10px 12px;border-radius:8px;overflow:auto}.body table{border-collapse:collapse;margin:1em 0}.body th,.body td{border:1px solid var(--line);padding:4px 10px}.body .c{text-align:center}.body .r{text-align:right}.body .task .box{color:var(--accent)}.body .done{color:var(--soft);text-decoration:line-through}\n");
             sb.Append(".relations ul,.presence ul{padding-left:1.2em}.evolution dt{font-weight:700;margin-top:.4em}.evolution dd{margin:0 0 0 1em;color:var(--soft)}\n");
             sb.Append(".pager{display:flex;justify-content:space-between;gap:16px;margin:36px 0 0;padding-top:14px;border-top:1px solid var(--line);font-family:var(--heading);font-size:.95rem}.pager .up{color:var(--soft)}\n");
-            sb.Append(".letters{display:flex;flex-wrap:wrap;gap:6px 12px;font-family:var(--heading);margin:0 0 18px}.letter{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:6px 22px 14px;margin:0 0 16px}.letter h2{border:0;color:var(--accent)}.letter dt{margin-top:.9em;line-height:1.3}.letter dt b{display:block;font-size:1.05em}.letter .class{display:block;color:var(--soft);font-size:.8em;font-family:var(--heading);font-style:normal}.letter dd{margin:.15em 0 0}\n");
+            sb.Append(".letters{display:flex;flex-wrap:wrap;gap:6px 12px;font-family:var(--heading);margin:0 0 18px}.letter{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:6px 22px 14px;margin:0 0 16px}.letter h2{border:0;color:var(--accent)}.letter dl{margin:0}.letter .entry{padding:8px 12px;margin:2px -12px;border-radius:10px;transition:background-color .18s ease}.letter .entry:hover{background:var(--tint)}.letter dt{margin:0;line-height:1.3}.letter dt b{display:block;font-size:1.05em}.letter .class{display:block;color:var(--soft);font-size:.8em;font-family:var(--heading);font-style:normal}.letter dd{margin:.15em 0 0}\n");
+            // La carte d'aperçu (1/11) : texte à gauche, portrait à droite, cinq lignes au plus.
+            sb.Append(".apercu{position:absolute;z-index:5;display:flex;gap:12px;width:min(380px,calc(100vw - 24px));padding:12px 14px;background:var(--paper);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.18);font-size:.88rem;line-height:1.4;pointer-events:auto}.apercu[hidden]{display:none}.apercu-text{flex:1;min-width:0}.apercu b{display:block;font-family:var(--heading);font-size:1rem}.apercu i{display:block;color:var(--soft);font-style:normal;font-size:.78rem;font-family:var(--heading)}.apercu p{margin:.35em 0 0;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}.apercu img{width:96px;max-height:130px;object-fit:cover;border-radius:8px;align-self:flex-start}\n");
             sb.Append("footer{text-align:center;color:var(--soft);font-size:.85rem;padding:24px 20px 40px;font-family:var(--heading)}\n");
             // À l'impression (1/11) : papier blanc, l'encart en marge droite, sans navigation ni bouton.
-            sb.Append("@media print{:root{--bg:#FFF;--paper:#FFF;--ink:#000;--soft:#444;--line:#BBB;--tint:#F3F3F3}body{color:#000}.crumbs,.pager,button.theme,.find,.toc,footer{display:none}a{color:inherit}main{max-width:none;padding:0}.sheet-page article{display:block}.infobox{float:right;width:38%;margin:0 0 14px 20px;page-break-inside:avoid}.body{overflow:hidden}.category,.letter{page-break-inside:avoid;border:0;padding:0}.sheets{columns:2}}\n");
+            sb.Append("@media print{:root{--bg:#FFF;--paper:#FFF;--ink:#000;--soft:#444;--line:#BBB;--tint:#F3F3F3}body{color:#000}.crumbs,.pager,button.theme,.find,.toc,.apercu,footer{display:none}a{color:inherit}main{max-width:none;padding:0}.sheet-page article{display:block}.infobox{float:right;width:38%;margin:0 0 14px 20px;page-break-inside:avoid}.body{overflow:hidden}.category,.letter{page-break-inside:avoid;border:0;padding:0}.sheets{columns:2}}\n");
             return sb.ToString();
         }
 

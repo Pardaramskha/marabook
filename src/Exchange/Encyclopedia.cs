@@ -481,6 +481,34 @@ namespace Marabook.Exchange
             document.Lexicon.Sort(delegate(EncyclopediaLexiconEntry a, EncyclopediaLexiconEntry b) { return string.Compare(a.Word, b.Word, French, CompareOptions.IgnoreCase); });
         }
 
+        /// <summary>Le début du Texte libre d'une fiche, en clair (1/11, Rémi :
+        /// l'aperçu façon Wikipédia au survol d'un lien) : les paragraphes,
+        /// citations et listes dans l'ordre, sans titres ni images ni marques,
+        /// coupé à un mot avant maxChars, « … » au bout.</summary>
+        public static string Excerpt(string markdown, int maxChars)
+        {
+            var sb = new StringBuilder();
+            foreach (var block in MarkdownDialect.Parse(markdown ?? ""))
+            {
+                List<MdInline> inlines = null;
+                if (block.Kind == MdBlockKind.Paragraph || block.Kind == MdBlockKind.ListItem) inlines = block.Inlines;
+                else if (block.Kind == MdBlockKind.Quote && block.QuoteLines != null && block.QuoteLines.Count > 0) inlines = block.QuoteLines[0];
+                if (inlines == null) continue;
+                var line = new StringBuilder();
+                foreach (var inline in inlines) if (inline.ImageUrl == null && !string.IsNullOrEmpty(inline.Text)) line.Append(inline.Text);
+                var text = line.ToString().Trim();
+                if (text.Length == 0) continue;
+                if (sb.Length > 0) sb.Append(' ');
+                sb.Append(text);
+                if (sb.Length >= maxChars) break;
+            }
+            var result = sb.ToString();
+            if (result.Length <= maxChars) return result;
+            var cut = result.LastIndexOf(' ', maxChars);
+            if (cut < maxChars / 2) cut = maxChars;
+            return result.Substring(0, cut).TrimEnd(' ', ',', ';', ':', '(', '«') + "…";
+        }
+
         /// <summary>Le type d'un mot tel que le dictionnaire l'écrit (1/11, Rémi :
         /// le genre compris) : « nom masculin », « nom propre, prénom, féminin »,
         /// « adjectif, masculin et féminin », « verbe ».</summary>

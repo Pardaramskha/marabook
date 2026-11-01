@@ -2504,6 +2504,10 @@ namespace Marabook.App
                     "le dialogue de l'Encyclopédie reprend la dernière sélection, l'accent et « ouvrir après » (" + snapshot + ")");
                 var fromSheet = keira == null ? "" : EncyclopediaExportDialog.SnapshotForProbe(shell, shell.Project, Exchange.EncyclopediaSelection.Sheet(keira.Id), new EncyclopediaOptions());
                 Check(fromSheet.StartsWith("1/") && fromSheet.Contains("#5B67D8") && fromSheet.EndsWith("ouvre") && !fromSheet.EndsWith("n-ouvre-pas"), "…depuis une fiche : elle seule, l'accent d'office (" + fromSheet + ")");
+                // L'aperçu d'une fiche au survol d'un lien (1/11) : la carte porte le titre, le modèle et le début du Texte libre.
+                var card = keira == null ? null : SheetPreview.Card(keira, shell.Project);
+                var cardText = card == null ? "" : string.Join(" | ", card.GetVisualDescendants().OfType<TextBlock>().Select(delegate(TextBlock b) { return b.Text ?? ""; }).ToArray());
+                Check(card != null && cardText.Contains("Keira Varenh") && cardText.Length > "Keira Varenh".Length + 10, "la carte d'aperçu de Keira : titre, modèle, extrait du Texte libre (" + (cardText.Length > 90 ? cardText.Substring(0, 90) + "…" : cardText) + ")");
             }
             // Le succès secret (31/10) : un clic le gagne, un autre le perd.
             {

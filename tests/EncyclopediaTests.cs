@@ -80,6 +80,30 @@ namespace Marabook.Tests
                 Encyclopedia.ShrinkImage = before;
                 try { Directory.Delete(folder, true); } catch (IOException) { }
             }
+            // L'aperçu au survol (1/11) : l'extrait du Texte libre, le script des aperçus, les cases du Lexique.
+            t.Equal("Elle grandit avec Le marabout près de la mer & du vent. une liste une tâche", Encyclopedia.Excerpt(world.Keira.Document.ToPlainText(), 400), "l'extrait : les paragraphes et listes en clair, sans titre ni marques");
+            t.Equal("Elle grandit avec Le…", Encyclopedia.Excerpt(world.Keira.Document.ToPlainText(), 22), "…coupé à un mot, « … » au bout");
+            t.Equal("", Encyclopedia.Excerpt("# Titre seul\n\n![img](image:abc)", 100), "…rien sans paragraphe");
+            t.Equal("\"a\\\"b\\\\c\\/d\\n\"", HtmlEncyclopedia.JsString("a\"b\\c/d\n"), "la chaîne JavaScript échappée");
+            folder = Path.Combine(Path.GetTempPath(), "marabook-c60-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var doc = Encyclopedia.Build(project, EncyclopediaSelection.All(), new EncyclopediaOptions());
+                HtmlEncyclopedia.Write(folder, doc, project);
+                var previews = File.ReadAllText(Path.Combine(folder, HtmlEncyclopedia.PreviewsFile));
+                var keiraPath = HtmlEncyclopedia.SheetPath(doc.ById[world.Keira.Id]);
+                t.Check(previews.StartsWith("window.ENCYCLOPEDIE_APERCUS={") && previews.Contains(HtmlEncyclopedia.JsString(keiraPath) + ":{\"t\":\"Keira Varenh\"") && previews.Contains("\"i\":\"images\\/" + world.PortraitId) && previews.Contains("\"x\":\"Elle grandit avec Le marabout"), "apercus.js : par page, le titre, le portrait, le début du Texte libre");
+                var page = File.ReadAllText(Path.Combine(folder, keiraPath));
+                var js = File.ReadAllText(Path.Combine(folder, HtmlEncyclopedia.JsFile));
+                t.Check(page.Contains("src=\"../../" + HtmlEncyclopedia.PreviewsFile + "\"") && page.Contains("data-root=\"../../\"") && js.Contains("ENCYCLOPEDIE_APERCUS") && js.Contains("className='apercu'"), "chaque page charge les aperçus et sait sa racine ; le script dessine la carte");
+                var lexicon = File.ReadAllText(Path.Combine(folder, HtmlEncyclopedia.LexiconFile));
+                var css = File.ReadAllText(Path.Combine(folder, HtmlEncyclopedia.CssFile));
+                t.Check(lexicon.Contains("<div class=\"entry\"><dt><b>Marabout</b>") && css.Contains(".letter .entry:hover{background:var(--tint)}") && css.Contains(".apercu{position:absolute"), "le Lexique en cases survolables, la carte d'aperçu stylée");
+            }
+            finally
+            {
+                try { Directory.Delete(folder, true); } catch (IOException) { }
+            }
             project.Encyclopedia = new EncyclopediaOptions { CoverImageId = jpegId };
             world.Marabout.ImageId = null;
             t.Check(project.UsedImageIds().Contains(jpegId), "la couverture de l'Encyclopédie compte parmi les images employées : l'enregistrement la garde");
