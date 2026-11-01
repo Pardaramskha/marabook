@@ -1305,11 +1305,11 @@ namespace Marabook.App
                 menu.Items.Add(open);
                 var pRef = paragraph;
                 var oRef = offset;
-                var editLink = new MenuItem { Header = "Modifier le lien…", [ToolTip.TipProperty] = "La fiche visée et le texte affiché" };
+                var editLink = new MenuItem { Header = "Modifier le lien…" };
                 editLink.Click += delegate { PlaceCaret(pRef, oRef, false); var h = LinkEditRequested; if (h != null) h(); };
                 menu.Items.Add(editLink);
                 var linkRef = linkHere;
-                var remove = new MenuItem { Header = "Retirer le lien", [ToolTip.TipProperty] = "Les mots restent, le renvoi tombe" };
+                var remove = new MenuItem { Header = "Retirer le lien" };
                 remove.Click += delegate { ReplaceRange(pRef, linkRef.Start, linkRef.End - linkRef.Start, linkRef.Text); RaiseLinksChanged(); };
                 menu.Items.Add(remove);
             }
@@ -1336,7 +1336,6 @@ namespace Marabook.App
                 {
                     header.IsEnabled = true;
                     header.StaysOpenOnClick = true;
-                    header[ToolTip.TipProperty] = "L'occurrence précédente s'éclaire dans le texte";
                     var pen = ComposedRenderer.FindingPen(finding);
                     var solid = pen.Brush as ISolidColorBrush;
                     var glow = solid != null ? new SolidColorBrush(solid.Color) { Opacity = 0.35 } : (IBrush)Chrome.AccentTint;
@@ -1365,8 +1364,7 @@ namespace Marabook.App
                 }
                 var here = new MenuItem
                 {
-                    Header = "Ignorer ici",
-                    [ToolTip.TipProperty] = "Tait CE signalement, pour cette session"
+                    Header = "Ignorer ici"
                 };
                 here.Click += delegate
                 {
@@ -1382,9 +1380,7 @@ namespace Marabook.App
                 {
                     var rule = new MenuItem
                     {
-                        Header = ruleLabel,
-                        [ToolTip.TipProperty] = "Plus aucun signalement de cette règle dans ce projet "
-                            + "(liste enregistrée avec lui)"
+                        Header = ruleLabel
                     };
                     rule.Click += delegate
                     {
@@ -1400,9 +1396,7 @@ namespace Marabook.App
                 {
                     var inProject = new MenuItem
                     {
-                        Header = "Ignorer « " + findingRef.Word + " » dans ce projet",
-                        [ToolTip.TipProperty] = "Le mot ne sera plus signalé dans ce projet "
-                            + "(liste enregistrée avec lui)"
+                        Header = "Ignorer « " + findingRef.Word + " » dans ce projet"
                     };
                     inProject.Click += delegate
                     {
@@ -1422,9 +1416,7 @@ namespace Marabook.App
                     };
                     var inProject = new MenuItem
                     {
-                        Header = "De ce projet",
-                        [ToolTip.TipProperty] = "Le mot est enseigné pour CE roman "
-                            + "(enregistré dans le .plot)"
+                        Header = "De ce projet"
                     };
                     inProject.Click += delegate
                     {
@@ -1434,9 +1426,7 @@ namespace Marabook.App
                     learn.Items.Add(inProject);
                     var everywhere = new MenuItem
                     {
-                        Header = "De tous les projets",
-                        [ToolTip.TipProperty] = "Le mot est enseigné partout (réglages de "
-                            + "l'application)"
+                        Header = "De tous les projets"
                     };
                     everywhere.Click += delegate
                     {
@@ -1462,8 +1452,7 @@ namespace Marabook.App
                 {
                     Menu = new MenuItem
                     {
-                        Header = "Synonymes de « " + word + " »",
-                        [ToolTip.TipProperty] = "Thésaurus de Grammalecte, formes fléchies comme le mot"
+                        Header = "Synonymes de « " + word + " »"
                     },
                     Word = word,
                     Paragraph = paragraph,
@@ -1503,8 +1492,7 @@ namespace Marabook.App
                     var scopeRef = projectScope;
                     var define = new MenuItem
                     {
-                        Header = "Afficher la définition de « " + entry.Word + " »",
-                        [ToolTip.TipProperty] = "Dans le panneau Lexique de la colonne de droite"
+                        Header = "Afficher la définition de « " + entry.Word + " »"
                     };
                     define.Click += delegate
                     {
@@ -1529,9 +1517,7 @@ namespace Marabook.App
                 {
                     Header = excepted
                         ? "Autoriser la césure de « " + word + " »"
-                        : "Ne plus couper « " + word + " »",
-                    [ToolTip.TipProperty] = "Exception de césure du projet : le compositeur ne "
-                        + "coupe jamais ce mot en fin de ligne"
+                        : "Ne plus couper « " + word + " »"
                 };
                 var wordRef = word;
                 toggle.Click += delegate { ToggleHyphenException(wordRef); };
@@ -2095,6 +2081,26 @@ namespace Marabook.App
             _caretOffset = offset;
             ClampCaret();
             UpdateCaretVisual();
+        }
+
+        /// <summary>La VUE D'UN ONGLET retrouvée (1.1.0, 28/10) : le caret à
+        /// sa place d'avant, sans qu'il rappelle la vue à lui, puis le
+        /// défilement tel qu'on l'avait laissé (-1 = le caret fait loi).</summary>
+        public void RestoreView(int paragraph, int offset, double scrollY)
+        {
+            if (_item == null) return;
+            ClearSelection();
+            _caretParagraph = Math.Max(0, paragraph);
+            _caretOffset = Math.Max(0, offset);
+            ClampCaret();
+            if (scrollY >= 0)
+            {
+                _keepScroll = true;
+                try { UpdateCaretVisual(); }
+                finally { _keepScroll = false; }
+                Offset = new Vector(Offset.X, Math.Max(0, Math.Min(scrollY, Math.Max(0, Extent.Height - Viewport.Height))));
+            }
+            else UpdateCaretVisual();
         }
 
         public void BackspacePublic() { Backspace(); }
@@ -3643,6 +3649,13 @@ namespace Marabook.App
         public void SetLooseLines(bool visible)
         {
             ComposedRenderer.ShowLooseLines = visible;
+            RedrawPages();
+        }
+
+        /// <summary>Redessine les pages sans recomposer (les marqueurs de
+        /// veuves et d'orphelines montrés ou cachés, 29/10).</summary>
+        public void RedrawPages()
+        {
             for (var k = 0; k < _pages.Children.Count; k++) PageAt(k).InvalidateVisual();
         }
 

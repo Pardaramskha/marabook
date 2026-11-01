@@ -184,10 +184,14 @@ namespace Marabook.App
                 });
                 entries.Add(new BatchEntry { Label = "Changer l'icône…", Run = delegate { BatchIcon(targets); } });
                 var bookTexts = All(targets, delegate(BinderItem i) { return i.Kind == ItemKind.Text && i.EnclosingBook() != null; });
-                if (bookTexts)
+                // Le profil (1.1.0) peut cacher les gabarits et les pages extra.
+                if (bookTexts && Profiles.Enabled(Profiles.BookFormat))
                 {
                     entries.Add(new BatchEntry { Label = "Appliquer un gabarit…", Run = delegate { ApplyPageTemplateTo(targets); } });
-                    entries.Add(new BatchEntry { Label = "Appliquer le gabarit du livre", Run = delegate { BatchApplyBookLayout(targets); } }); // la mise en page du livre (09/10)
+                    entries.Add(new BatchEntry { Label = "Appliquer le gabarit du livre", Run = delegate { BatchApplyBookLayout(targets); } }); // la mise en page du livre
+                }
+                if (bookTexts && Profiles.Enabled(Profiles.BookExtraPages))
+                {
                     var allExtra = All(targets, delegate(BinderItem i) { return i.IsExtraPage; });
                     entries.Add(new BatchEntry
                     {

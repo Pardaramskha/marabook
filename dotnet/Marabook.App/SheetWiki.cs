@@ -31,6 +31,8 @@ namespace Marabook.App
         public static Control Build(BinderItem item, SheetTemplate template, Project project, string body,
             bool column, Action<BinderItem> navigate, Action<string> linkClicked, Action<int> taskToggled)
         {
+            SheetPreview.Project = project; // les aperçus au survol des liens (1/11)
+            SheetPreview.Hide();
             var page = new Border
             {
                 Background = Chrome.FieldBg, // une page d'interface, sombre au sombre — pas le papier (30/09)
@@ -307,9 +309,14 @@ namespace Marabook.App
                 line.Background = Brushes.Transparent;
                 line.PointerMoved += delegate(object sender, PointerEventArgs e)
                 {
-                    line.Cursor = SpanAt(line, e.GetPosition(line)) != null
-                        ? new Cursor(StandardCursorType.Hand) : new Cursor(StandardCursorType.Arrow);
+                    var over = SpanAt(line, e.GetPosition(line));
+                    line.Cursor = over != null ? new Cursor(StandardCursorType.Hand) : new Cursor(StandardCursorType.Arrow);
+                    // L'aperçu de la fiche visée (1/11) : la cible connue, sinon le titre du [[lien]] ; la carte s'ancre sous le rectangle du lien.
+                    var anchor = over == null ? null : SheetPreview.RangeRect(line, over.Start, over.Length);
+                    if (over != null && over.Target != null) SheetPreview.Hover(line, over.Target, anchor);
+                    else SheetPreview.Hover(line, over != null ? over.Title : null, anchor);
                 };
+                line.PointerExited += delegate { SheetPreview.Leave(line); };
                 line.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
                 {
                     if (!e.GetCurrentPoint(line).Properties.IsLeftButtonPressed) return;

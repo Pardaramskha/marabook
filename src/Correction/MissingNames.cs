@@ -83,7 +83,10 @@ namespace Marabook.Correction
                     if (string.IsNullOrEmpty(name)) continue;
                     keys.Add(NameExtractor.Key(name));
                     foreach (var part in name.Split(' ', '\t', '-'))
-                        if (part.Trim().Length > 1) keys.Add(NameExtractor.Key(part.Trim()));
+                    {
+                        var clean = NameExtractor.StripElision(part.Trim()); // « d'Almor » sert « Almor » (29/10)
+                        if (clean.Length > 1) keys.Add(NameExtractor.Key(clean));
+                    }
                 }
             }
             return keys;

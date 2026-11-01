@@ -15,12 +15,37 @@ namespace Marabook.App
         bool IsDirty { get; }
         void Load(string itemId, string title, byte[] tea);
         byte[] Save(byte[] previous);
+        /// <summary>Le zoom de la carte en pour cent (26/10) : le curseur de la
+        /// barre d'état de Marabook le montre et le règle, comme celui des pages.</summary>
+        double Zoom { get; }
+        event Action<double> ZoomChanged;
+        void SetZoom(double percent);
+        /// <summary>L'inspecteur de l'éditeur (26/10 soir) : les réglages de
+        /// l'élément sélectionné (texte, boîte, lien, groupe), que Marabook pose
+        /// dans le Général du rail à la place du synopsis. Null = rien à montrer.</summary>
+        Control Inspector { get; }
+    }
+
+    /// <summary>Un élément du projet vu par un module (26/10 soir) : de quoi le
+    /// nommer, le reconnaître et le rouvrir — pour les liens et les tuiles que
+    /// Mental-O pose dans ses boîtes.</summary>
+    public class HostItem
+    {
+        public string Id;
+        public string Title;
+        /// <summary>« texte », « fiche », « media », « livre », « plan », « dossier », « carte », « gabarit ».</summary>
+        public string Kind;
+        /// <summary>La couleur de tuile (#RRGGBB), ou null.</summary>
+        public string Color;
     }
 
     public interface IMindMapProvider
     {
         IMindMapEditor CreateEditor();
         byte[] NewMap(string title);
+        /// <summary>Une carte garnie (quelques boîtes, liens, un groupe) : le
+        /// projet d'exemple (--demo) l'emploie pour les captures et les sondes.</summary>
+        byte[] SampleMap(string title);
         Control Thumbnail(byte[] tea, double width, double height);
     }
 
@@ -28,5 +53,63 @@ namespace Marabook.App
     {
         /// <summary>Le fournisseur de cartes mentales ; null = aucun module.</summary>
         public static IMindMapProvider Provider;
+
+        /// <summary>Le fournisseur a changé (module installé, désinstallé) :
+        /// la Pile, les tableaux et les Préférences se redessinent.</summary>
+        public static event Action ProviderChanged;
+
+        public static void SetProvider(IMindMapProvider provider)
+        {
+            if (ReferenceEquals(Provider, provider)) return;
+            Provider = provider;
+            var handler = ProviderChanged;
+            if (handler != null) handler();
+        }
+    }
+
+    /// <summary>Ce que Marabook tend à un module à code (26/10/2026, retour de
+    /// Mental-O en DLC Avalonia) : sa fenêtre, son thème, sa boîte de message.</summary>
+    public interface IModuleHost
+    {
+        Window MainWindow { get; }
+        bool DarkTheme { get; }
+        /// <summary>Le dossier des réglages de Marabook : un module y range les
+        /// siens (sous-dossier à son nom) ; il suit « --settings », donc une sonde
+        /// ou une capture n'écrit jamais chez l'utilisateur.</summary>
+        string SettingsFolder { get; }
+        event Action ThemeChanged;
+        System.Threading.Tasks.Task<MessageResult> Message(string text, string caption, MessageButtons buttons, MessageIcon icon);
+
+        // ---- le projet, pour les liens et les tuiles (26/10 soir)
+
+        /// <summary>Les éléments du projet (sans les catégories ni la corbeille).</summary>
+        System.Collections.Generic.List<HostItem> Items();
+        /// <summary>Un élément par son identifiant ; null s'il n'existe plus.</summary>
+        HostItem FindItem(string id);
+        /// <summary>Le dialogue de choix d'un élément ; « kinds » restreint aux
+        /// genres donnés (null = tous). Null si l'utilisateur renonce.</summary>
+        System.Threading.Tasks.Task<HostItem> PickItem(string caption, string[] kinds);
+        /// <summary>Ouvre l'élément au centre de Marabook.</summary>
+        void OpenItem(string id);
+        /// <summary>La tuile d'un élément, comme dans son tableau ; condensée =
+        /// le titre et la couleur seulement. Null s'il n'existe plus.</summary>
+        Control Tile(string id, double width, bool condensed);
+        /// <summary>Le projet a changé (titres, structure, ouverture d'un autre
+        /// projet) : les liens et tuiles posés par un module se rafraîchissent.</summary>
+        event Action ProjectChanged;
+    }
+
+    /// <summary>LE CONTRAT D'UN MODULE À CODE (26/10/2026) : le type d'entrée
+    /// du manifeste (« entry ») l'implémente. Marabook l'instancie, lui tend
+    /// son hôte, puis lui demande ce qu'il apporte : des cartes mentales
+    /// (MindMaps, ou null), un onglet de Préférences (PreferencesTab, ou
+    /// null — montré sous le filet « DLC » avec le titre PreferencesTitle).</summary>
+    public interface IMarabookModule
+    {
+        string Id { get; }
+        void Initialize(IModuleHost host);
+        IMindMapProvider MindMaps { get; }
+        string PreferencesTitle { get; }
+        Control PreferencesTab();
     }
 }

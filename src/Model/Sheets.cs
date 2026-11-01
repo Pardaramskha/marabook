@@ -316,6 +316,11 @@ namespace Marabook.Model
         // La COULEUR d'une sous-catégorie (1.0.5-a, v39) : « #RRGGBB », null =
         // neutre — la bordure et le fond de sa boîte, comme un dossier.
         public string Color;
+        // L'ICÔNE CHOISIE d'une catégorie (1.1.0, v41) : le nom d'une icône du
+        // jeu « fiche-* », null = celle que son nom désigne (SheetLibraryView
+        // .CategoryIcon) ou l'icône générique. La pastille de filtre la montre
+        // avec une astérisque : une personnalisation.
+        public string Icon;
 
         public bool IsSub { get { return !string.IsNullOrEmpty(ParentId); } }
 
@@ -444,6 +449,10 @@ namespace Marabook.Model
         // par ce nom : FieldAge.
         public const string FieldAge = "Âge";
         public const string FieldBirthDate = "Date de naissance";
+        // LA DATE DE DÉCÈS (1.1.0, Rémi) : sous le lieu de naissance — un
+        // champ texte, comme la date de naissance (.plot v41 : un modèle
+        // Personnage d'avant la reçoit une fois au chargement).
+        public const string FieldDeathDate = "Date de décès";
         // LE GENRE (23/09) : deux champs à choix — le genre de naissance, et
         // le genre « si différent ». Ce dernier, s'il est renseigné, est LE
         // point de référence de la conjugaison des relations (RelationKinds
@@ -455,7 +464,7 @@ namespace Marabook.Model
         /// <summary>Les champs d'infos par défaut du personnage, dans l'ordre (23/09).</summary>
         public static readonly string[] CharacterInfos =
         {
-            "Nom", "Prénom", "Alias", FieldAge, FieldBirthDate, "Lieu de naissance",
+            "Nom", "Prénom", "Alias", FieldAge, FieldBirthDate, "Lieu de naissance", FieldDeathDate,
             FieldBirthGender, FieldGender, "Lieu de résidence", "Croyance", "Capacités/Magie", "Affiliation"
         };
 
@@ -500,6 +509,7 @@ namespace Marabook.Model
             return new List<FieldSpec>
             {
                 S("Nom"), S("Prénom"), S("Alias"), S(FieldAge), S(FieldBirthDate), S("Lieu de naissance"),
+                S(FieldDeathDate), // 1.1.0 (v41)
                 Choice(FieldBirthGender, GroupInfos, GenderOptions, "Sexe de naissance", "Genre", "Sexe"),
                 Choice(FieldGender, GroupInfos, GenderOptions, "Genre"),
                 S("Lieu de résidence"),

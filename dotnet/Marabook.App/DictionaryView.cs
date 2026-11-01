@@ -46,28 +46,25 @@ namespace Marabook.App
             // contre le bord droit.
             var toolbar = new DockPanel { Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0) };
             SetDock(toolbar, Dock.Top);
-            _searchBox = new TextBox { [ToolTip.TipProperty] = "Filtrer les entrées (mot ou forme acceptée)" };
+            _searchBox = new TextBox { [ToolTip.TipProperty] = "Filtrer les entrées"};
             _searchBox.TextChanged += delegate { ResetPages(); Rebuild(); };
-            var search = SheetLibraryView.SearchField(_searchBox);
-            DockPanel.SetDock(search, Dock.Right);
-            toolbar.Children.Add(search);
             var left = new StackPanel { Orientation = Orientation.Horizontal };
-            var newEntry = Buttons.IconText("plus-bold", "Nouvelle entrée",
-                "Ajouter un mot au dictionnaire personnel avec sa nature grammaticale",
+            var newEntry = _newEntryButton = Buttons.IconText("plus-bold", "Nouvelle entrée",
+                null,
                 Buttons.Bar, Buttons.Look.Primary);
             newEntry.Click += delegate { NewEntry(true); };
             left.Children.Add(newEntry);
             // Le menu options (18/09) : l'épingle du Lexique au rail, et
             // l'import/export de dictionnaires (fichiers d'autres apps).
             var options = Buttons.Icon("dots-three-vertical-bold",
-                "Options : Lexique au rail, importer ou exporter un dictionnaire",
+                "Options",
                 Buttons.Bar, Buttons.Look.Calm);
             options.Margin = new Thickness(6, 0, 0, 0);
             options.Click += delegate { OpenOptionsMenu(options); };
             left.Children.Add(options);
             // Les mots inconnus du projet (1.0.5, Rémi) : tout ce que
             // l'orthographe rougit, en une liste à cocher — apprendre en lot.
-            var unknown = Buttons.IconText("magnifying-glass-bold", "Mots inconnus…",
+            var unknown = _unknownButton = Buttons.IconText("magnifying-glass-bold", "Mots inconnus…",
                 "Relever tous les mots que le correcteur ne connaît pas dans les écrits et les fiches, et en apprendre plusieurs d'un coup",
                 Buttons.Bar, Buttons.Look.Outline);
             unknown.Margin = new Thickness(8, 0, 0, 0);
@@ -75,20 +72,26 @@ namespace Marabook.App
             left.Children.Add(unknown);
             // Le filtre par nature (29/09) : toutes, ou une seule (nom propre,
             // nom commun, adjectif…) ; et la taille de page — 25 par défaut.
-            _classFilter = new ComboBox { Margin = new Thickness(14, 0, 0, 0), MinWidth = 150, VerticalAlignment = VerticalAlignment.Center, [ToolTip.TipProperty] = "N'afficher qu'une nature grammaticale" };
+            _classFilter = new ComboBox { Margin = new Thickness(14, 0, 0, 0), MinWidth = 150, VerticalAlignment = VerticalAlignment.Center };
             _classFilter.Items.Add("Toutes natures");
             foreach (var key in LexiconEntry.Classes) _classFilter.Items.Add(LexiconEntry.ClassLabel(key));
             _classFilter.Items.Add("À revoir — migration nécessaire"); // les entrées de l'ancien format (30/09)
             _classFilter.SelectedIndex = 0;
             _classFilter.SelectionChanged += delegate { ResetPages(); Rebuild(); };
             left.Children.Add(_classFilter);
-            _pageSize = new ComboBox { Margin = new Thickness(8, 0, 0, 0), MinWidth = 110, VerticalAlignment = VerticalAlignment.Center, [ToolTip.TipProperty] = "Entrées par page" };
+            _pageSize = new ComboBox { Margin = new Thickness(8, 0, 0, 0), MinWidth = 110, VerticalAlignment = VerticalAlignment.Center };
             foreach (var size in PageSizes) _pageSize.Items.Add(size + " par page");
             _pageSize.SelectedIndex = 0;
             _pageSize.SelectionChanged += delegate { ResetPages(); Rebuild(); };
             left.Children.Add(_pageSize);
             toolbar.Children.Add(left);
             Children.Add(toolbar);
+            // La recherche sur SA ligne, sous les boutons (1.1.0, Rémi) —
+            // comme dans la bibliothèque de fiches.
+            var searchRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(24, 10, 24, 0) };
+            SetDock(searchRow, Dock.Top);
+            searchRow.Children.Add(SheetLibraryView.SearchField(_searchBox));
+            Children.Add(searchRow);
 
             _sections = new StackPanel { Margin = new Thickness(16, 12, 16, 24), MaxWidth = 980, HorizontalAlignment = HorizontalAlignment.Left };
             Children.Add(new ScrollViewer
@@ -129,6 +132,10 @@ namespace Marabook.App
 
         /// <summary>Le relevé des mots inconnus (1.0.5) ; les mots cochés
         /// deviennent des entrées « autre » à revoir du dictionnaire choisi.</summary>
+        private Button _newEntryButton, _unknownButton; // le tutoriel les met en valeur (29/10)
+        internal Control NewEntryButtonForTutorial { get { return _newEntryButton; } }
+        internal Control UnknownButtonForTutorial { get { return _unknownButton; } }
+
         public async void ShowUnknownWords()
         {
             if (_project == null) return;
@@ -269,7 +276,7 @@ namespace Marabook.App
         private Control BuildPager(int slot, int page, int pageCount, int total)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 2, 0, 8) };
-            var previous = Buttons.Text("‹ Précédente", "Page précédente", Buttons.Compact, Buttons.Look.Calm);
+            var previous = Buttons.Text("‹ Précédente", null, Buttons.Compact, Buttons.Look.Calm);
             previous.IsEnabled = page > 0;
             previous.Click += delegate { _pages[slot] = Math.Max(0, _pages[slot] - 1); Rebuild(); };
             row.Children.Add(previous);
@@ -281,7 +288,7 @@ namespace Marabook.App
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(8, 0, 8, 0)
             });
-            var next = Buttons.Text("Suivante ›", "Page suivante", Buttons.Compact, Buttons.Look.Calm);
+            var next = Buttons.Text("Suivante ›", null, Buttons.Compact, Buttons.Look.Calm);
             next.IsEnabled = page < pageCount - 1;
             next.Click += delegate { _pages[slot] = Math.Min(pageCount - 1, _pages[slot] + 1); Rebuild(); };
             row.Children.Add(next);
@@ -472,9 +479,7 @@ namespace Marabook.App
             {
                 Header = "Épingler le Lexique au rail",
                 ToggleType = MenuItemToggleType.CheckBox,
-                IsChecked = AppSettings.LexiconPinned,
-                [ToolTip.TipProperty] = "Un onglet permanent dans la colonne de droite : la définition "
-                    + "du mot choisi par clic droit › « Afficher la définition »"
+                IsChecked = AppSettings.LexiconPinned
             };
             pin.Click += delegate
             {
@@ -485,9 +490,7 @@ namespace Marabook.App
             menu.Items.Add(new Separator());
             var import = new MenuItem
             {
-                Header = "Importer un dictionnaire…",
-                [ToolTip.TipProperty] = "Un fichier Marabook (.json) ou une liste de mots (.txt, .dic de Word, "
-                    + "LibreOffice, Hunspell, Scrivener…) — les mots déjà présents sont gardés"
+                Header = "Importer un dictionnaire…"
             };
             var importProject = new MenuItem { Header = "Dans le dictionnaire du projet" };
             importProject.Click += delegate { ImportInto(true); };
@@ -498,9 +501,7 @@ namespace Marabook.App
             menu.Items.Add(import);
             var export = new MenuItem
             {
-                Header = "Exporter un dictionnaire…",
-                [ToolTip.TipProperty] = "Fichier Marabook (.json, natures et définitions), liste de mots (.txt) "
-                    + "ou dictionnaire personnel Word (.dic)"
+                Header = "Exporter un dictionnaire…"
             };
             var exportProject = new MenuItem { Header = "Le dictionnaire du projet" };
             exportProject.Click += delegate { ExportFrom(true); };

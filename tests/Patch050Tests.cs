@@ -122,6 +122,17 @@ namespace Marabook.Tests
             // Sans mouvement : rien ne bouge.
             PivotEdit.SnapWordSelection(text, 0, 3, text, 0, 3, false, out anchor, out caret);
             t.Check(anchor == 3 && caret == 3, "sans mouvement : ancre et caret inchangés");
+            // Partir d'un signe de ponctuation (29/10, Rémi : « Idiot, » entier
+            // quand on ne voulait que la virgule) : au caractère, dans les deux sens.
+            var idiot = "Idiot, dit-il.";
+            PivotEdit.SnapWordSelection(idiot, 0, 5, idiot, 0, 6, false, out anchor, out caret);
+            t.Check(anchor == 5 && caret == 6, "la virgule seule, en avant (5..6) — pas « Idiot, »");
+            PivotEdit.SnapWordSelection(idiot, 0, 6, idiot, 0, 5, false, out anchor, out caret);
+            t.Check(anchor == 6 && caret == 5, "la virgule seule, en arrière (6..5)");
+            PivotEdit.SnapWordSelection(idiot, 0, 5, idiot, 0, 9, false, out anchor, out caret);
+            t.Check(anchor == 5 && caret == 10, "depuis la virgule jusque dans « dit » : l'ancre reste, le caret finit « dit »");
+            PivotEdit.SnapWordSelection(idiot, 0, 2, idiot, 0, 9, false, out anchor, out caret);
+            t.Check(anchor == 0 && caret == 10, "depuis une lettre d'« Idiot » : les mots entiers, comme avant");
             // Mots entiers (glisser depuis un double-clic) : même dans le mot de départ.
             PivotEdit.SnapWordSelection(text, 0, 3, text, 0, 5, true, out anchor, out caret);
             t.Check(anchor == 0 && caret == 7, "mots entiers : « Bonjour » entier même à l'intérieur");
@@ -129,9 +140,10 @@ namespace Marabook.Tests
             t.Check(anchor == 0 && caret == 7, "mots entiers sans mouvement : le mot du double-clic");
             PivotEdit.SnapWordSelection(text, 0, 13, text, 0, 9, true, out anchor, out caret);
             t.Check(anchor == 16 && caret == 8, "mots entiers en arrière : « le monde »");
-            // Ancre juste après un mot : elle lui appartient (règle du caret en fin de mot).
+            // Ancre juste après un mot (29/10) : on quitte un blanc, pas le
+            // mot — l'ancre reste, le caret s'aligne : « le monde ».
             PivotEdit.SnapWordSelection(text, 0, 7, text, 0, 13, false, out anchor, out caret);
-            t.Check(anchor == 0 && caret == 16, "ancre juste après « Bonjour » : « Bonjour le monde »");
+            t.Check(anchor == 7 && caret == 16, "ancre juste après « Bonjour » : l'ancre reste (7), caret à la fin de « monde »");
             // Ancre hors de tout mot : pas de mot de départ, le caret s'aligne quand même.
             var dashed = "-- Bonjour le monde";
             PivotEdit.SnapWordSelection(dashed, 0, 1, dashed, 0, 16, false, out anchor, out caret);

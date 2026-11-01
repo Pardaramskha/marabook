@@ -13,10 +13,12 @@ namespace Marabook.App
     public static class ColorMenus
     {
         /// <summary>Remplit un ContextMenu ou un MenuItem (sous-menu) ;
-        /// apply reçoit l'hex choisi, ou null pour « aucune couleur ».</summary>
-        public static void Fill(ItemsControl target, Window owner, Project project, string current, Action<string> apply)
+        /// apply reçoit l'hex choisi, ou null pour « aucune couleur » —
+        /// allowNone faux (1/11, l'accent de l'Encyclopédie) : jamais null,
+        /// l'entrée « Aucune couleur » n'est pas proposée.</summary>
+        public static void Fill(ItemsControl target, Window owner, Project project, string current, Action<string> apply, bool allowNone = true)
         {
-            foreach (var swatch in ItemIcons.TintSwatches) target.Items.Add(Entry(swatch, current, apply));
+            foreach (var swatch in ItemIcons.TintSwatches) if (allowNone || swatch != null) target.Items.Add(Entry(swatch, current, apply));
             if (project != null && project.CustomColors.Count > 0)
             {
                 target.Items.Add(new Separator());
@@ -34,7 +36,7 @@ namespace Marabook.App
             target.Items.Add(custom);
             // « Aucune couleur » : le nuancier la porte déjà (entrée nulle en
             // tête) ; sinon on l'ajoute quand il y a une couleur à retirer.
-            if (current != null && Array.IndexOf(ItemIcons.TintSwatches, null) < 0)
+            if (allowNone && current != null && Array.IndexOf(ItemIcons.TintSwatches, null) < 0)
             {
                 var none = new MenuItem { Header = "Aucune couleur" };
                 none.Click += delegate { apply(null); };

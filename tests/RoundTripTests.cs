@@ -19,6 +19,7 @@ namespace Marabook.Tests
         {
             "BinderItem.Parent",            // cycle, reconstruit par RelinkParents
             "Project.LoadedFormatVersion",  // 0 avant écriture, 6 après lecture
+            "Project.DiskIndex",            // l'index du fichier lu (1.1.0, 30/10), jamais dans le .plot
             "TextParagraph.StartOnRecto",   // posés par le compilateur, jamais
             "TextParagraph.Decor"           //   dans le .plot
         };
@@ -62,6 +63,41 @@ namespace Marabook.Tests
             t.Equal(0, BookProgress.Of(null).Present, "livre nul : vide");
         }
 
+        /// <summary>29/10 (1.1.0) : les gabarits de pages s'exportent en
+        /// .marag (type « marag ») ; un .usgab d'avant (type « usgab ») se lit
+        /// encore ; autre chose est refusé.</summary>
+        private static void GabaritFileRoundTrip(Harness t, string dir)
+        {
+            var gabarit = new BinderItem
+            {
+                Kind = ItemKind.PageTemplate,
+                Title = "Gabarit romain",
+                TemplateColor = "#336699",
+                HeaderRecto = new HeaderFooter { Text = "{titre}", SizePt = 9, Align = "center" },
+                FooterVerso = new HeaderFooter { Text = "{folio}", Bold = true },
+                HeaderGapMm = 7.5,
+                FooterHideFirst = true
+            };
+            var path = Path.Combine(dir, "romain" + GabaritFile.Extension);
+            GabaritFile.Export(gabarit, path);
+            t.Check(path.EndsWith(".marag") && File.ReadAllText(path).Contains("\"marag\""), "l'export écrit un .marag de type « marag »");
+            var back = GabaritFile.Import(path);
+            t.Check(back.Kind == ItemKind.PageTemplate && back.Title == "Gabarit romain" && back.TemplateColor == "#336699"
+                && back.HeaderRecto != null && back.HeaderRecto.Text == "{titre}" && back.FooterVerso != null && back.FooterVerso.Bold
+                && Math.Abs(back.HeaderGapMm - 7.5) < 0.001 && back.FooterHideFirst, "…et se relit entier");
+            t.Check(back.Id != gabarit.Id, "…sous un id neuf");
+            var legacy = Path.Combine(dir, "ancien" + GabaritFile.LegacyExtension);
+            File.WriteAllText(legacy, File.ReadAllText(path).Replace("\"marag\"", "\"usgab\""), new UTF8Encoding(false));
+            var old = GabaritFile.Import(legacy);
+            t.Check(old.Title == "Gabarit romain", "un .usgab d'avant (type « usgab ») se lit encore");
+            var other = Path.Combine(dir, "autre.marag");
+            File.WriteAllText(other, "{\"type\":\"plot\"}", new UTF8Encoding(false));
+            var refused = false;
+            try { GabaritFile.Import(other); } catch (InvalidDataException) { refused = true; }
+            t.Check(refused, "un autre type de fichier est refusé");
+            t.Check(GabaritFile.Filter.Contains("*.marag;*.usgab"), "le filtre de fichiers propose les deux extensions");
+        }
+
         public static void Run(Harness t)
         {
             t.Suite("C1 — aller-retour .plot");
@@ -76,6 +112,7 @@ namespace Marabook.Tests
             DuplicateIdsReassigned(t, dir);
             DuplicateIdsRefusedAtSave(t, dir);
             DeepJsonRejected(t);
+            GabaritFileRoundTrip(t, dir);
 
             try { Directory.Delete(dir, true); } catch (IOException) { }
         }
@@ -455,7 +492,13 @@ namespace Marabook.Tests
             sheet.Relations.Add(new SheetRelation { Kind = "mentor", TargetId = chapter.Id });
             sheet.Relations.Add(new SheetRelation { Kind = "rivale", Name = "La Pie" });
             // — Natures de relation personnalisées du projet (batch 36, v16).
-            project.RelationKinds.Add("Mentor");
+            project.AddRelationKind("Mentor"); // dans le schéma (1.1.0) ET l'ancienne liste
+            // — Le schéma des relations (1.1.0) : remanié, il s'écrit ; une forme
+            //   passe au filler (genre et voie, exercés à la main : Lane = Partner).
+            project.RelationSchema.Find("Mère").Generation = -2;
+            project.RelationSchema.Find("Mère").Lane = RelationLane.Partner;
+            project.AddRelationKind("Rivale");
+            FixtureFiller.Fill(project.RelationSchema.Kinds[0], "Gender", "Lane");
             // — Évolution (batch 47, v21) : une étape liée au chapitre, une libre ;
             //   l'épinglé sur le côté = la fiche.
             // — Natures et radar (b47 bis, v22) : un champ « choice » avec

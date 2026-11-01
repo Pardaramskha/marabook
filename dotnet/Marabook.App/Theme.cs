@@ -27,6 +27,8 @@ namespace Marabook.App
     public static class Theme
     {
         public const double Radius = 6;
+        /// <summary>L'espace intérieur d'un champ de texte (5 × 2) — le thème le pose, Ui.WithClear le reprend (31/10).</summary>
+        public static readonly Thickness FieldPadding = new Thickness(5, 2);
 
         /// <summary>L'épaisseur des barres de défilement (le pouce y laisse
         /// 2 px de marge de chaque côté).</summary>
@@ -107,6 +109,13 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<MenuItem>(),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(4))));
+            // Les filets des menus (1/11, Rémi : « pas visibles ») : un trait
+            // d'un pixel en encre douce, de l'air au-dessus et au-dessous.
+            styles.Add(Style(x => x.OfType<Separator>(),
+                new Setter(TemplatedControl.BackgroundProperty, Chrome.SoftText),
+                new Setter(Visual.OpacityProperty, 0.45),
+                new Setter(Layoutable.HeightProperty, 1.0),
+                new Setter(Layoutable.MarginProperty, new Thickness(8, 5, 8, 5))));
             // Les menus contextuels aux coins ronds (29/09) : le cadre du
             // gabarit Simple a des angles droits — coins 8, un peu d'air, un
             // filet. Les sous-menus (Popup d'un MenuItem) prennent les mêmes.
@@ -218,7 +227,7 @@ namespace Marabook.App
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius)),
-                new Setter(TemplatedControl.PaddingProperty, new Thickness(5, 2)),
+                new Setter(TemplatedControl.PaddingProperty, FieldPadding),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TextBox.CaretBrushProperty, Chrome.Ink),
                 new Setter(TextBox.SelectionBrushProperty, Chrome.Accent),
@@ -295,6 +304,19 @@ namespace Marabook.App
                 new Setter(Border.BackgroundProperty, Chrome.FieldBg),
                 new Setter(Border.BorderBrushProperty, Chrome.Border),
                 new Setter(Border.BorderThicknessProperty, new Thickness(1))));
+            // LA LARGEUR DE LA LISTE (31/10, Rémi) : la liste déroulante garde
+            // la largeur du champ qui l'ouvre — un choix au texte trop long
+            // ne l'élargit plus (il se coupe d'une ellipse), dans toute l'app.
+            styles.Add(Style(x => x.OfType<ComboBox>().Template().OfType<Popup>().Child().OfType<Border>(),
+                new Setter(Layoutable.MaxWidthProperty, new Binding("Bounds.Width") { RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent) })));
+            // …sauf les listes qui ont BESOIN de déborder (31/10, Rémi : polices
+            // et tailles « illisibles ») : la classe « wide-list » rend la largeur libre.
+            styles.Add(Style(x => x.OfType<ComboBox>().Class("wide-list").Template().OfType<Popup>().Child().OfType<Border>(),
+                new Setter(Layoutable.MaxWidthProperty, double.PositiveInfinity)));
+            styles.Add(Style(x => x.OfType<ComboBoxItem>().Descendant().OfType<TextBlock>(),
+                new Setter(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis)));
+            styles.Add(Style(x => x.OfType<ComboBox>().Descendant().OfType<TextBlock>(),
+                new Setter(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis)));
             styles.Add(Style(x => x.OfType<ComboBoxItem>(),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(8, 4)),
@@ -415,6 +437,13 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<TabItem>().Class(":selected").Template().OfType<Border>().Name("Bg"),
                 new Setter(TextElement.ForegroundProperty, Chrome.RaisedBg),
                 new Setter(TextElement.FontWeightProperty, FontWeight.Bold)));
+            // Un onglet désactivé (Gabarit pour un écrit de livre, 29/10) : son
+            // libellé en gris clair, sans main — on voit qu'il est inerte.
+            styles.Add(Style(x => x.OfType<TabItem>().Class(":disabled").Template().OfType<Border>().Name("Bg"),
+                new Setter(TextElement.ForegroundProperty, Chrome.FaintText),
+                new Setter(TextElement.FontWeightProperty, FontWeight.Normal),
+                new Setter(Visual.OpacityProperty, 0.6),
+                new Setter(InputElement.CursorProperty, new Cursor(StandardCursorType.Arrow))));
 
             // ---- listes et arbres : la ligne active en accent-tint
             styles.Add(Style(x => x.OfType<ListBox>(),

@@ -7,12 +7,16 @@ using Marabook.Model;
 
 namespace Marabook.Persistence
 {
-    /// <summary>Export/import of a page gabarit (.usgab, JSON) — pour copier
+    /// <summary>Export/import of a page gabarit (.marag, JSON) — pour copier
     /// une maquette d'un livre ou d'une série à l'autre. Fournit aussi les
-    /// (dé)sérialiseurs d'en-tête/pied partagés avec PlotFile.</summary>
+    /// (dé)sérialiseurs d'en-tête/pied partagés avec PlotFile.
+    /// L'extension est .marag depuis la 1.1.0 (29/10, Rémi) ; l'ancienne
+    /// .usgab (type « usgab ») reste lue sans rien dire.</summary>
     public static class GabaritFile
     {
-        public const string Filter = "Gabarit Marabook (*.usgab)|*.usgab|Tous les fichiers (*.*)|*.*";
+        public const string Extension = ".marag";
+        public const string LegacyExtension = ".usgab";
+        public const string Filter = "Gabarit Marabook (*.marag;*.usgab)|*.marag;*.usgab|Tous les fichiers (*.*)|*.*";
 
         public static Dictionary<string, object> BuildHeaderFooter(HeaderFooter value)
         {
@@ -104,7 +108,7 @@ namespace Marabook.Persistence
         public static void Export(BinderItem gabarit, string path)
         {
             var root = new Dictionary<string, object>();
-            root["type"] = "usgab";
+            root["type"] = "marag";
             root["version"] = 1.0;
             root["title"] = gabarit.Title;
             if (gabarit.TemplateColor != null) root["color"] = gabarit.TemplateColor;
@@ -119,11 +123,12 @@ namespace Marabook.Persistence
             File.WriteAllText(path, Json.Write(root), new UTF8Encoding(false));
         }
 
-        /// <summary>Reads a .usgab into a fresh PageTemplate item (new id).</summary>
+        /// <summary>Reads a .marag (or an old .usgab) into a fresh PageTemplate item (new id).</summary>
         public static BinderItem Import(string path)
         {
             var root = Json.AsObject(Json.Parse(File.ReadAllText(path, Encoding.UTF8)));
-            if (root == null || Json.AsString(Json.Field(root, "type")) != "usgab")
+            var type = root == null ? null : Json.AsString(Json.Field(root, "type"));
+            if (type != "marag" && type != "usgab")
                 throw new InvalidDataException("Ce fichier n'est pas un gabarit Marabook.");
             return new BinderItem
             {

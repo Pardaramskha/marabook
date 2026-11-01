@@ -78,6 +78,7 @@ namespace Marabook.App
         private void ExtractCharacters(BinderItem item)
         {
             if (_project == null || item == null || item.Kind != ItemKind.Text) return;
+            if (!Profiles.Enabled(Profiles.Sheets)) return; // profil sans fiches (1.1.0)
             CommitActive();
             OfferCharacters(new List<BinderItem> { item }, item.Title, true);
         }

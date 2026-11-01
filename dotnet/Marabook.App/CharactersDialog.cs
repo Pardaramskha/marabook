@@ -70,9 +70,9 @@ namespace Marabook.App
 
             var buttons = new DockPanel { Margin = new Thickness(0, 14, 0, 0) };
             DockPanel.SetDock(buttons, Dock.Bottom);
-            var all = Buttons.Text("Tout cocher", "Cocher tous les noms", Buttons.Bar, Buttons.Look.Calm);
+            var all = Buttons.Text("Tout cocher", null, Buttons.Bar, Buttons.Look.Calm);
             all.Click += delegate { foreach (var box in _boxes) box.IsChecked = true; };
-            var none = Buttons.Text("Tout décocher", "Décocher tous les noms", Buttons.Bar, Buttons.Look.Calm);
+            var none = Buttons.Text("Tout décocher", null, Buttons.Bar, Buttons.Look.Calm);
             none.Margin = new Thickness(6, 0, 0, 0);
             none.Click += delegate { foreach (var box in _boxes) box.IsChecked = false; };
             var left = new StackPanel { Orientation = Orientation.Horizontal };
@@ -84,7 +84,7 @@ namespace Marabook.App
             _create = Buttons.Text("Créer les fiches", null, Buttons.Bar, Buttons.Look.Primary);
             _create.IsDefault = true;
             _create.Click += delegate { _accepted = true; Close(); };
-            var cancel = Buttons.Text("Ignorer", "Ne créer aucune fiche", Buttons.Bar, Buttons.Look.Calm);
+            var cancel = Buttons.Text("Ignorer", null, Buttons.Bar, Buttons.Look.Calm);
             cancel.IsCancel = true;
             cancel.Margin = new Thickness(8, 0, 0, 0);
             cancel.Click += delegate { Close(); };

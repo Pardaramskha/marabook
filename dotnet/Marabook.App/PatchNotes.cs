@@ -30,5 +30,30 @@ namespace Marabook.App
             }
             catch (Exception) { return null; }
         }
+
+        /// <summary>L'image d'une note (1/11, Rémi : une image en tête des
+        /// patch notes d'une version majeure) : l'adresse écrite dans le
+        /// Markdown (une URL raw.githubusercontent pour la release GitHub, ou
+        /// un simple nom) est ramenée à son nom de fichier, cherché parmi les
+        /// images embarquées (patchnotes/*.jpg, *.png). Null si inconnue.</summary>
+        public static Avalonia.Media.Imaging.Bitmap ImageFor(string address)
+        {
+            if (string.IsNullOrEmpty(address)) return null;
+            try
+            {
+                var name = address.Trim();
+                var cut = Math.Max(name.LastIndexOf('/'), name.LastIndexOf('\\'));
+                if (cut >= 0) name = name.Substring(cut + 1);
+                var query = name.IndexOf('?');
+                if (query >= 0) name = name.Substring(0, query);
+                if (name.Length == 0) return null;
+                using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("patchnotes/" + name))
+                {
+                    if (stream == null) return null;
+                    return new Avalonia.Media.Imaging.Bitmap(stream);
+                }
+            }
+            catch (Exception) { return null; }
+        }
     }
 }

@@ -33,7 +33,7 @@ namespace Marabook.App
 
         // Preset gabarits: name, width, height (mm). Margins stay PAO
         // 20/20/30/20; the bleed is per-book.
-        private static readonly object[][] Presets =
+        internal static readonly object[][] Presets = // partagés avec le dialogue Nouveau livre (29/10)
         {
             new object[] { "Roman (14 × 21,6 cm)", 140.0, 216.0 },
             new object[] { "Poche (11 × 18 cm)", 110.0, 180.0 },

@@ -93,7 +93,10 @@ namespace Marabook.Model
                     if (string.IsNullOrEmpty(name)) continue;
                     known.Add(Key(name));
                     foreach (var part in name.Split(' ', '\t', '-'))
-                        if (part.Trim().Length > 1) known.Add(Key(part.Trim()));
+                    {
+                        var clean = StripElision(part.Trim());
+                        if (clean.Length > 1) known.Add(Key(clean));
+                    }
                 }
 
             var tokens = FrenchTokenizer.Tokenize(text);
@@ -227,6 +230,28 @@ namespace Marabook.Model
         private static bool IsParticle(string part)
         {
             return Particles.Contains(FrenchTokenizer.Fold(part));
+        }
+
+        // Les particules ÉLIDÉES devant un nom : « d'Almor », « l'Ettrups »,
+        // « qu'Yvan », « jusqu'Orléans ».
+        private static readonly HashSet<string> Elisions = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "d", "l", "qu", "j", "n", "m", "t", "s", "c", "jusqu", "lorsqu", "puisqu", "quoiqu"
+        };
+
+        /// <summary>Un mot à particule élidée vers ce qui suit l'apostrophe
+        /// (« d'Almor » → « Almor ») ; les autres mots tels quels (« Aujourd'hui »
+        /// n'a pas de particule connue devant son apostrophe). Le dictionnaire
+        /// et les clés des fiches n'enregistrent que le nom (29/10, Rémi).</summary>
+        public static string StripElision(string word)
+        {
+            if (string.IsNullOrEmpty(word)) return word;
+            var cut = -1;
+            for (var i = 0; i < word.Length && i <= 6; i++)
+                if (word[i] == '\'' || word[i] == '’') { cut = i; break; }
+            if (cut < 1 || cut >= word.Length - 1) return word;
+            if (!Elisions.Contains(FrenchTokenizer.Fold(word.Substring(0, cut)))) return word;
+            return word.Substring(cut + 1);
         }
 
         /// <summary>Ôte en tête les mots ordinaires (civilités, « Le »,

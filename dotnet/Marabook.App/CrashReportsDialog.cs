@@ -75,7 +75,7 @@ namespace Marabook.App
             DockPanel.SetDock(left, Dock.Left);
             buttons.Children.Add(left);
             var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            _copy = Buttons.Text("Copier le rapport", "Copie le texte du rapport choisi dans le presse-papiers", Buttons.Bar, Buttons.Look.Primary);
+            _copy = Buttons.Text("Copier le rapport", "Copie le texte du rapport choisi dans le presse-papiers. À envoyer au dev, si vous pouvez :)", Buttons.Bar, Buttons.Look.Primary);
             _copy.Click += delegate
             {
                 try { Ui.SetClipboardText(this, _preview.Text); } catch { }
@@ -137,6 +137,7 @@ namespace Marabook.App
 
         public static void Show(Window owner)
         {
+            Sounds.Error(); // le rapport d'erreur paraît (31/10)
             var _ = Dialogs.ShowModal(new CrashReportsDialog(owner), owner);
         }
     }

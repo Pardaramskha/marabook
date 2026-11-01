@@ -1,0 +1,393 @@
+WelcomeWindow.cs	{si available : Le nom de la nouvelle version et ses nouveautés — et le bouton pour l'installer | sinon : ∅}
+WelcomeWindow.cs	{si available : Une version d'essai, réservée aux tests : Windows, Mac Apple Silicon et Linux — l'avertissement, les notes et le bouton pour la télécharger | sinon : Les versions beta accompagnent les gros patchs ; elles disparaissent quand la version stable sort}
+WelcomeWindow.cs	Garder ce profil et passer aux projets
+WelcomeWindow.cs	Choisir un fichier .plot sur le disque
+WelcomeWindow.cs	Ouvre un projet d'exemple temporaire et vous guide à travers les grandes fonctionnalités de Marabook
+WelcomeWindow.cs	{si source.Title.Length > 0 : ⟨source.Title⟩ | sinon : ⟨source.Name⟩}
+WelcomeWindow.cs	{si installed != null : Installé | sinon : Non installé}
+WelcomeWindow.cs	⟨path⟩
+WelcomeWindow.cs	Démarrer une nouvelle aventure
+HomeView.cs	Renommer le projet
+ProfileChooser.cs	Choisissez ce que vous voulez voir de Marabook.
+ProfileChooser.cs	Préremplit le nom d'auteur·ice : Le nom par défaut qui sera inscrit comme auteur·ice dans les pages liminaires ou les fichiers. Modifiable par écrit ou livre.
+ProfileChooser.cs	⟨profile.Help⟩
+MainWindow.cs	Déplier la Pile
+MainWindow.cs	Quitter le mode calme (Échap)
+MainWindow.cs	Arrêter le sprint (ou refermer la pastille)
+MainWindow.cs	Teinte de la barre de titre de la carte au tableau
+MainWindow.cs	Le but à atteindre — en mots, en signes (espaces comprises) ou en pages
+MainWindow.cs	Le plafond à ne pas dépasser sinon on vous engueule
+MainWindow.cs	Des mots libres pour retrouver la fiche (y'a un filtre en haut du tableau Fiches)
+MainWindow.cs	Comment vos colonnes sont nommées par défaut ("chapitre" rend "chapitre 1", etc...)
+MainWindow.cs	Quels personnages sont nommés dans cet écrit
+MainWindow.cs	Notes de travail — affichées en priorité sur les cartes du tableau
+MainWindow.cs	Objectif du livre — clic : Options du livre…
+MainWindow.cs	Revenir à 100 %
+MainWindow.cs	Zoom de la page (Ctrl+molette)
+MainWindow.cs	Zoom de la page (Ctrl+molette) — double-clic : 100 %
+MainWindow.cs	Préférences › DLC : installer Mental-o
+MainWindow.cs	{si locked : Rail verrouillé | sinon : Verrouiller le rail pour pas qu'il vous emmerde}
+MainWindow.cs	⟨recent⟩
+MainWindow.cs	Un nombre
+MainWindow.cs	Retirer le tag « ⟨tag⟩ »
+MainWindow.cs	{si value == null : Aucune couleur | sinon : {si InspectedItem == null : ∅ | sinon : ⟨InspectedItem.CardColor⟩}}
+MainWindow.cs	{si resolved : Ouvrir | sinon : Cible inexistante (Ctrl+clic dans le texte pour la créer)}
+MainWindow.cs	Ouvrir la fiche
+TabStrip.cs	
+TabStrip.cs	{si _model.CanOpen : Nouvel onglet⟨(gesture.Length > 0 ? " (" + gesture + ")" : "")⟩ | sinon : Eh, ça va les onglets ? (⟨_model.Limit⟩)}
+MainWindow.Images.cs	Le nom de l'image (celui du fichier importé) — modifiable
+MainWindow.Images.cs	Enregistre l'image elle-même (ses octets d'origine) dans un fichier
+TutorialWindow.cs	Chapitre précédent
+TutorialWindow.cs	Chapitre suivant
+TutorialWindow.cs	Mettre fin au tutoriel (sans le succès - lâcheur)
+TutorialWindow.cs	L'étape précédente
+TutorialWindow.cs	L'étape suivante
+TutorialWindow.cs	{si last : Terminer le tutoriel et revenir à l'accueil | sinon : L'étape suivante}
+BinderView.cs	Rechercher dans la Pile
+BinderView.cs	Vider la recherche
+BinderView.cs	Statistiques d'écriture et objectif journalier
+BinderView.cs	{si collapsed : Déplier « ⟨name⟩ » | sinon : Replier « ⟨name⟩ »}
+BinderView.cs	{si collapsed : Déplier | sinon : Replier}
+BinderView.cs	Projet actif
+BinderView.cs	Replier la Pile
+BinderView.cs	Ce chapitre finit sur une page impaire (p. {si item.Kind == ItemKind.Text && ChapterOddEnd != null : ⟨ChapterOddEnd(item)⟩ | sinon : 0}) : un verso blanc suivra. Clic droit › Unifier ajoute cette page blanche à sa fin.
+BinderView.cs	Des documents de ce livre ne suivent pas son gabarit (clic droit → Appliquer le gabarit à tous les documents)
+BinderView.cs	La page finale de ce livre (⟨BookPageTotal(item)⟩) est impaire : il manque une page blanche pour une imposition correcte (clic droit sur le dernier chapitre › Unifier).
+BinderView.cs	Ajoute une page blanche à la fin de ce chapitre, au gabarit du document — comme un saut de page après sa dernière ligne. Don't thank me.
+BinderView.cs	{si sheets.Count == 0 : Aucune fiche dans ce dossier | sinon : Renvoyer ⟨(sheets.Count == 1 ? "sa fiche" : "ses " + sheets.Count + " fiches")⟩ dans la catégorie Fiches, puis mettre le dossier à la corbeille}
+PinnedPanel.cs	Retirer l'épingle
+PinnedPanel.cs	Ouvrir l'original (l'épingle reste)
+SearchPanel.cs	Fermer le panneau de recherche
+SearchPanel.cs	Le texte (ou l'expression régulière) à chercher — Entrée relance, Échap efface
+SearchPanel.cs	Vider la recherche
+SearchPanel.cs	Respecter la casse
+SearchPanel.cs	Mot entier (sans objet en expression régulière)
+SearchPanel.cs	Insensible aux accents (« eleve » trouve « élève »)
+SearchPanel.cs	Expression régulière (.NET) — casse et accents s'appliquent aussi. Bon courage.
+SearchPanel.cs	La portée de la recherche
+SearchPanel.cs	La nature des éléments fouillés
+SearchPanel.cs	Chercher aussi dans la corbeille
+SearchPanel.cs	Le texte de remplacement
+SearchPanel.cs	Remplacer l'occurrence courante (F3 pour avancer)
+SearchPanel.cs	Prévisualiser puis remplacer toutes les occurrences de la portée
+SearchPanel.cs	{si count == 1 : 1 occurrence | sinon : ⟨count⟩ occurrences}
+SearchPanel.cs	Aller à la première occurrence de cet élément
+SearchPanel.cs	Aller à cette occurrence
+VersionsPanel.cs	Fermer
+VersionsPanel.cs	Figer l'état actuel de cet écrit, avec un libellé
+VersionsPanel.cs	Retirer des instantanés
+VersionsPanel.cs	La version la plus ancienne
+VersionsPanel.cs	La version la plus récente, ou l'état actuel
+VersionsPanel.cs	⟨SnapshotOrigin.Label(snapshot.Origin)⟩
+VersionsPanel.cs	Lire les différences entre cette version et l'état actuel
+VersionsPanel.cs	Remettre l'écrit dans cet état (annulable ; l'état actuel est d'abord figé)
+VersionsPanel.cs	Changer le libellé
+VersionsPanel.cs	Yeet cette version (définitif)
+LexiconPanel.cs	Fermer
+LexiconPanel.cs	Épingler
+LexiconPanel.cs	Modifier l'entrée du dictionnaire
+LexiconPanel.cs	{si _pin.IsChecked == true : Yeet le Lexique du rail | sinon : Épingler le Lexique au rail}
+StyleReportPanel.cs	Fermer
+StyleReportPanel.cs	Copier le bilan dans le presse-papiers
+StyleReportPanel.cs	Aller au paragraphe ⟨(target + 1)⟩
+EditorView.cs	{si inBook : Réglés au niveau du livre (Gabarits & Format) | sinon : ∅}
+EditorView.cs	Fermer (Échap)
+EditorView.cs	Vider la recherche
+EditorView.cs	Occurrence précédente
+EditorView.cs	Occurrence suivante
+EditorView.cs	{si string.IsNullOrEmpty(finding.Detail) : ∅ | sinon : ⟨finding.Detail⟩}
+EditorView.cs	Remplacer par « {si synonyms : ⟨Correction.Typography.KeepCase(finding.Word, suggestions[i])⟩ | sinon : ⟨suggestions[i]⟩} »
+EditorView.cs	« ⟨finding.Word⟩ » a l'air d'un nom propre : l'apprendre au dictionnaire du projet, avec sa nature
+EditorView.cs	Taire ce signalement, ici seulement
+EditorView.cs	{si itemKey.StartsWith(Correction.CheckerHost.RulePrefix, StringComparison.Ordinal) : Ne plus relever cette règle dans cet écrit (pas dans les autres) | sinon : Ne plus relever « ⟨finding.Word⟩ » dans cet écrit (pas dans les autres)}
+EditorView.cs	Aller au passage
+EditorView.cs	Le commentaire de révision
+EditorView.cs	{si annotation.Resolved : Réactiver l'annotation | sinon : Marquer comme traitée}
+EditorView.cs	Supprimer le commentaire
+EditorView.cs	Ouvrir le plan « ⟨plan.Title⟩ » (une colonne raconte cet écrit)
+EditorView.Ribbon.cs	Gestion des styles…
+EditorView.Ribbon.cs	Police
+EditorView.Ribbon.cs	Taille
+EditorView.Ribbon.cs	Variantes de caractère
+EditorView.Ribbon.cs	Gras
+EditorView.Ribbon.cs	Italique
+EditorView.Ribbon.cs	Souligné
+EditorView.Ribbon.cs	Barré
+EditorView.Ribbon.cs	Petites majuscules
+EditorView.Ribbon.cs	Caractères spéciaux
+EditorView.Ribbon.cs	Aligné à gauche
+EditorView.Ribbon.cs	Centré
+EditorView.Ribbon.cs	Aligné à droite
+EditorView.Ribbon.cs	Justifié
+EditorView.Ribbon.cs	Interligne
+EditorView.Ribbon.cs	Interligne
+EditorView.Ribbon.cs	Liste à puces
+EditorView.Ribbon.cs	Liste numérotée
+EditorView.Ribbon.cs	Case à cocher
+EditorView.Ribbon.cs	Ajouter un décalage
+EditorView.Ribbon.cs	Retirer le décalage
+EditorView.Ribbon.cs	Couleur du texte
+EditorView.Ribbon.cs	Surlignage
+EditorView.Ribbon.cs	Ligne horizontale
+EditorView.Ribbon.cs	Séparateur de scène
+EditorView.Ribbon.cs	Point médian (raccourci : « :: »)
+EditorView.Ribbon.cs	Approche
+EditorView.Ribbon.cs	+5
+EditorView.Ribbon.cs	−5
+EditorView.Ribbon.cs	Approche
+EditorView.Ribbon.cs	Plan
+EditorView.Ribbon.cs	⟨label⟩
+EditorView.Ribbon.cs	⟨saved[1]⟩
+EditorView.Ribbon.cs	Marges
+EditorView.Ribbon.cs	Colonnes
+EditorView.Ribbon.cs	Colonnes
+EditorView.Ribbon.cs	Afficher ou masquer les marqueurs de veuves et d'orphelines
+EditorView.Ribbon.cs	Afficher ou masquer les lignes lâches⟨(string.IsNullOrEmpty(looseGesture) ? "" : " (" + Marabook.Settings.AppSettings.DisplayGesture(looseGesture) + ")")⟩
+SpecialCharsDrawer.cs	⟨entry.Name⟩ (U+⟨(int)entry.Text[0]).ToString("X4"⟩)
+StylesPanel.cs	Nouveau style
+StylesPanel.cs	Dupliquer le style
+StylesPanel.cs	Supprimer le style
+StylesPanel.cs	Revenir aux styles de Marabook tels qu'à l'installation : tous les styles de cette feuille sont remplacés
+StylesPanel.cs	⟨facet.Tip⟩
+StylesPanel.cs	Police du style
+StylesPanel.cs	La graisse installée à employer
+StylesPanel.cs	0 = automatique
+StylesPanel.cs	« auto » ou #RRGGBB
+StylesPanel.cs	Appliqué à l'impression
+StylesPanel.cs	Jamais de saut de page entre ce paragraphe et le précédent
+StylesPanel.cs	Cliquer puis taper la combinaison qui appliquera ce style dans l'éditeur (Ctrl+1, Ctrl+Maj+2…) — Retour arrière : aucun
+SeparatorEditor.cs	Le ou les caractères insérés par le bouton du ruban Texte
+ReplaceDialog.cs	Décocher pour épargner cet élément
+UnknownWordsDialog.cs	Ne montrer que les mots contenant ces lettres
+UnknownWordsDialog.cs	Où relever : le projet actif, tous les écrits (et les fiches), un livre ou un dossier
+CharactersDialog.cs	Nature de la fiche à créer
+MissingSheetsDialog.cs	Où relever : le projet actif, tous les écrits, un livre ou un dossier
+MissingSheetsDialog.cs	Le type (la catégorie) de la fiche à créer
+BookView.cs	Signale un chapitre, ou le livre entier, qui finit sur une page impaire (un verso blanc suivra) : pastille dans la Pile et sur la tuile, « Unifier » au clic droit.
+BookPanels.cs	Nomenclature PAO : de tête (haut), de pied (bas), petit fond (côté reliure), grand fond (côté extérieur)
+BookEditionTab.cs	PNG, JPEG, GIF ou BMP — 20 Mo au plus
+BookEditionTab.cs	La couleur de la carte du livre dans Écrits et sur l'Accueil
+BookEditionTab.cs	Une virgule (ou Entrée) transforme le texte en étiquette
+BookEditionTab.cs	Retirer
+BookPublicationTab.cs	Compiler tout le livre en un PDF prêt à imprimer : pagination continue, gabarits appliqués, CMJN FOGRA39 par défaut
+BookPublicationTab.cs	Le livre en EPUB 3, pour les liseuses — titre, métadonnées et couverture au dialogue
+NewBookDialog.cs	Coché : marges 20 / 20 / 30 / 20 mm (tête, pied, petit fond, grand fond), alternées recto-verso. Décoché : 25 mm partout.
+PdfExportDialog.cs	RVB pour un PDF de relecture ; CMJN FOGRA39 pour le fichier remis à l'imprimeur
+PdfExportDialog.cs	Le cahier s'imprime recto-verso puis se plie en deux : ⏎ les faces portent les bonnes paires de pages (complété en ⏎ pages blanches à un multiple de 4). Fond perdu et traits de ⏎ coupe sont ignorés dans ce mode.
+PdfExportDialog.cs	Produit le PDF exact (options ci-dessus) dans un fichier ⏎ temporaire et l'ouvre — le BAT, trait pour trait.
+EpubExportDialog.cs	Vide : un identifiant unique est généré
+EpubExportDialog.cs	Code de langue : fr, en, es…
+CompareWindow.cs	Remettre ce seul paragraphe tel qu'il était dans la version comparée (annulable)
+CorkboardView.cs	Un écrit à la fin du livre, au gabarit du livre
+CorkboardView.cs	Une partie : un dossier indicatif, traversé par la compilation et les folios
+CorkboardView.cs	Tout remettre à neutre
+CorkboardView.cs	Options de la carte
+CorkboardView.cs	Un document hors-livre : notes, lettre d'accompagnement… — dans le dossier Hors-livre du livre
+CorkboardView.cs	Partie « ⟨folder.Title⟩ »
+CorkboardView.cs	Options du gabarit
+CorkboardView.cs	(.marag ou .usgab)
+CorkboardView.cs	Ajouter un document à la fin du livre
+CorkboardView.cs	Pages extra : liminaires, table des matières…
+CorkboardView.cs	Sans effet sur la compilation ni les folios
+CorkboardView.cs	La limite du texte est dépassée
+CorkboardView.cs	Gabarit : ⟨gabarit.Title⟩
+CorkboardView.cs	Ce document ne suit pas la mise en page du livre (clic droit > appliquer le gabarit du livre).
+CorkboardView.cs	Ce chapitre finit sur une page impaire (p. {si enclosing != null && item.Kind == ItemKind.Text && ChapterOddEnd != null : ⟨ChapterOddEnd(item)⟩ | sinon : 0}) : un verso blanc suivra. Clic droit › Unifier ajoute cette page blanche à sa fin.
+CorkboardView.cs	Annotations de révision dans ce document
+SheetView.cs	Votre fiche, mais en plus stylé
+SheetView.cs	Renommer
+SheetView.cs	Portrait affiché sur la fiche et sur sa carte
+SheetView.cs	Modifier le diagramme relationnel
+SheetView.cs	Filtrer le suivi
+SheetView.cs	Occurrence suivante
+SheetView.cs	Vue édition
+SheetView.cs	Vue miroir
+SheetView.cs	À propos du texte libre
+SheetView.cs	Ouvrir l'écrit
+SheetView.cs	Supprimer cette étape
+SheetView.cs	Supprimer ce champ
+SheetView.cs	Nom du champ — Entrée pour valider
+SheetView.cs	Changer le nom du champ
+SheetView.cs	Nature du champ
+SheetView.cs	Les options de ce choix (séparées par des virgules)
+SheetView.cs	Ajouter le nom de la fiche au dictionnaire du projet
+SheetView.cs	{si present : Chaque mot du nom, du prénom et de l'alias est connu du dictionnaire. GG ! | sinon : Manque : ⟨string.Join(", ", missing.ToArray())⟩}
+SheetView.cs	Supprimer cette relation (réciproque)
+SheetView.cs	Nature de la relation
+SheetView.cs	Ouvrir la fiche
+SheetView.cs	Une fiche du projet, ou un nom libre
+SheetView.cs	Gras (Ctrl+B)
+SheetView.cs	Italique (Ctrl+I)
+SheetView.cs	Souligné (Ctrl+U)
+SheetView.cs	Barré
+SheetView.cs	Titre de niveau 1
+SheetView.cs	Titre de niveau 2
+SheetView.cs	Titre de niveau 3
+SheetView.cs	Liste à puces
+SheetView.cs	Liste numérotée
+SheetView.cs	Liste à tirets
+SheetView.cs	Liste de tâches (cases à cocher)
+SheetView.cs	Citation
+SheetView.cs	Insérer un tableau
+SheetView.cs	Filet horizontal
+SheetView.cs	Lien hypertexte
+SheetView.cs	Image
+SheetView.cs	Lien vers une fiche (Ctrl+K)
+SheetView.cs	⟨module.Title⟩ — parce que vous avez vraiment du temps à perdre
+SheetView.cs	La fiche visée et le texte affiché
+SheetView.cs	Le mot ne sera plus signalé dans ce projet
+SheetView.cs	Le mot est enseigné pour CE roman
+SheetView.cs	Le mot est enseigné partout
+SheetLibraryView.cs	Retour
+SheetLibraryView.cs	Toutes les fiches, catégorie par catégorie — ⟨Plural(total, "fiche", "fiches")⟩
+SheetLibraryView.cs	⟨category.Name⟩ — {si count == 0 : aucune fiche | sinon : ⟨Plural(count, "fiche", "fiches")⟩}
+SheetLibraryView.cs	Sans catégorie — ⟨Plural(uncategorized, "fiche", "fiches")⟩
+SheetLibraryView.cs	Modifier la catégorie…
+SheetLibraryView.cs	Nouvelle fiche dans « ⟨_project.CategoryPath(category)⟩ », sur son modèle de base
+SheetLibraryView.cs	Cette fiche n'utilise pas le modèle de base de la catégorie
+SheetLibraryView.cs	Fiche ⟨module.Name + (complete ? " — complète" : " — " + Modules.FilledCount(module, sheet) + " / " + module.ValueIds().Count + " champs")⟩
+SheetLibraryView.cs	Les champs que CETTE sous-catégorie ajoute au modèle hérité, sur chacune de ses fiches
+SheetLibraryView.cs	Le modèle des NOUVELLES fiches de la catégorie — les fiches existantes gardent le leur (puce sur leur carte)
+SheetLibraryView.cs	Champs, groupes et types — l'éditeur de modèles
+SheetLibraryView.cs	L'icône de la pastille de filtre et des fiches sans image — une astérisque signale un choix
+SheetLibraryView.cs	Une partie de « ⟨category.Name⟩ » : même modèle (hérité), plus ses champs propres
+SheetLibraryView.cs	Modifier la sous-catégorie…
+SheetLibraryView.cs	{si collapsed : Déplier la sous-catégorie | sinon : Replier la sous-catégorie}
+SheetDialogs.cs	Nouveau modèle
+SheetDialogs.cs	Dupliquer le modèle
+SheetDialogs.cs	Supprimer le modèle
+SheetDialogs.cs	Le nom de l'onglet et de la section : « ⟨SheetTemplate.DefaultRadarName⟩ », « Traits », « Aptitudes »…
+SheetDialogs.cs	{si kind == ItemKind.Book : Un livre : tous ses écrits | sinon : {si kind == ItemKind.Folder : Un groupe : tous ses écrits | sinon : Un écrit}}
+SheetDialogs.cs	Retirer cet axe (les fiches perdent sa valeur)
+SheetDialogs.cs	Retirer cette section (ses champs rejoignent Informations)
+SheetDialogs.cs	Comment ce champ se saisit et se lit sur la fiche
+SheetDialogs.cs	La section où ce champ s'affiche sur la fiche
+SheetDialogs.cs	Monter ce champ
+SheetDialogs.cs	Descendre ce champ
+SheetDialogs.cs	Supprimer ce champ (les fiches gardent leur valeur, dormante)
+SheetDialogs.cs	Les valeurs proposées, séparées par des virgules : « vivant, mort, disparu »
+FieldEditors.cs	Un nombre, avec son unité si vous voulez : « 1,78 m », « 34 »
+FieldEditors.cs	{si bad : Cette valeur ne commence pas par un nombre — elle est gardée telle quelle | sinon : Un nombre, avec son unité si vous voulez : « 1,78 m », « 34 »}
+FieldEditors.cs	Une date du monde — réelle (JJ/MM/AAAA, le calendrier aide) ou libre (« an 342 du Cycle »)
+FieldEditors.cs	Choisir une date réelle
+FieldEditors.cs	1 / ⟨FieldKinds.RatingMax⟩
+FieldEditors.cs	Entrée ou « + » ajoute l'élément dans la liste
+FieldEditors.cs	Ajouter à la liste (Entrée)
+FieldEditors.cs	Retirer de la liste
+FieldEditors.cs	Une valeur parmi les options du modèle
+FieldEditors.cs	La fiche liée — une fiche du projet
+FieldEditors.cs	Ouvrir la fiche liée
+RadarChart.cs	⟨axes[i].Name⟩ : ⟨Format(value)⟩ / ⟨Math.Max(1, template.RadarMax)⟩
+TemplateView.cs	{si value == null : Aucune | sinon : ⟨swatch⟩}
+TemplateView.cs	Ne pas afficher l'en-tête sur la première page du document (évite le titre de chapitre en corps ET en haut de page)
+TemplateView.cs	Ne pas afficher le pied de page sur la première page du document
+TemplateView.cs	Gras
+TemplateView.cs	Italique
+TemplateView.cs	Souligné
+TemplateView.cs	Taille (pt) — tapez une valeur libre puis Entrée
+TemplateView.cs	Police de la zone — tapez un nom puis Entrée, ou parcourez aux flèches
+TemplateView.cs	Aligné à gauche
+TemplateView.cs	Centré
+TemplateView.cs	Aligné à droite
+TemplateView.cs	Insérer une variable au curseur
+TemplateView.cs	⟨(isHeader ? "En-tête " : "Pied ") + (recto ? "recto" : "verso")⟩ — marquez le texte avec la barre d'outils, variables {page}/{pages}/{titre}
+IconPicker.cs	Une image (PNG, JPG…) copiée dans le dossier d'icônes de l'application
+IconPicker.cs	⟨hex ?? "Couleur d'encre du thème"⟩
+IconPicker.cs	{si colon < 0 : ⟨icon.Substring(4)⟩ | sinon : ⟨token.Substring(0, colon)⟩}
+IconPicker.cs	⟨System.IO.Path.GetFileName(path)⟩
+ColorDialog.cs	⟨hex⟩
+ImageEditDialog.cs	Applique la rotation et le recadrage, optimise l'image et l'ajoute au projet
+RelationsEditorWindow.cs	Retirer la dernière colonne de cette bande (si elle est vide)
+RelationsEditorWindow.cs	Une colonne de plus dans cette bande : de la place pour de nouveaux niveaux
+RelationsEditorWindow.cs	Tirer sur une autre tuile : elle devient la réciproque (ce que l'autre fiche déclare en retour) ; lâcher dans le vide : la relation se répond à elle-même
+RelationsEditorWindow.cs	Le personnage de la fiche
+RelationsEditorWindow.cs	⟨FamilyLabel(family)⟩ — glisser pour changer de génération ou de voie, cliquer pour régler
+RelationsEditorWindow.cs	Une relation neuve dans « Autres relations » (ou double-clic sur une case vide)
+RelationsEditorWindow.cs	« Père », « Frère »… — vide : pas de forme masculine
+RelationsEditorWindow.cs	« Mère », « Sœur »… — vide : pas de forme féminine
+RelationsEditorWindow.cs	« Parent », « Adelphe »…
+RelationsEditorWindow.cs	La bande du diagramme — ligne directe, collatéraux, partenaires ; « Autres relations » = une nature libre, hors généalogie
+RelationsEditorWindow.cs	La rangée du diagramme : négatif = ascendants, positif = descendants
+RelationsEditorWindow.cs	Ce que la fiche d'en face déclare en retour : « Père » répond « Fils » (ou « Fille », « Enfant » selon le genre)
+RelationsEditorWindow.cs	Retirer cette relation des choix proposés — les fiches qui l'emploient la gardent, en nature libre
+RelationsEditorWindow.cs	⟨FamilyLabel(family)⟩ — glisser pour changer de génération ou de voie, cliquer pour régler
+GraphView.cs	La carte des liens : relations, liens, présences, structure
+GraphView.cs	Qui paraît dans quel écrit — et depuis quand on ne l'a plus vu
+GraphView.cs	Fiches orphelines, îlots, jamais présentes, absences longues
+GraphView.cs	Les relations typées entre fiches (diagramme relationnel)
+GraphView.cs	Les liens [[…]] posés dans les fiches et les écrits
+GraphView.cs	Les fiches dont un nom apparaît dans un écrit (trait d'autant plus fort qu'elles y sont souvent)
+GraphView.cs	Un livre et ses chapitres
+GraphView.cs	Un plan et les écrits reliés à ses colonnes
+GraphView.cs	Deux fiches qui partagent un tag
+GraphView.cs	Montrer les écrits, livres et plans — décoché : les fiches seules
+GraphView.cs	Les nœuds dont le titre contient ce texte restent en lumière, les autres s'estompent (Échap efface)
+GraphView.cs	Effacer la recherche
+GraphView.cs	Le voisinage du nœud sélectionné : lui seul avec ses voisins directs, ou à deux sauts
+GraphView.cs	Disposer à nouveau (les nœuds épinglés ne bougent pas)
+GraphView.cs	Tout voir
+GraphView.cs	Exporter la carte en PNG (ce qui est affiché) ou en SVG (tout le graphe)…
+GraphView.cs	L'amplitude : tout le récit, le projet actif, un livre, un dossier ou un écrit
+GraphView.cs	Quelles fiches : une catégorie, ou toutes
+GraphView.cs	L'ordre des fiches : leur première apparition dans les écrits retenus, ou leur nombre d'occurrences (les plus présentes d'abord)
+GraphView.cs	⟨ToolTip.GetTip(pair.Value) as string⟩
+GraphView.cs	Voir sur la carte (double-clic : ouvrir)
+GraphView.cs	⟨node.Title⟩ — ⟨node.Degree + (node.Degree > 1 ? " liens" : " lien") + (node.IsSheet ? ", présente dans " + node.Presence + (node.Presence > 1 ? " écrits" : " écrit") : "")⟩
+GenealogyView.cs	{si node.IsSelf : Le personnage de la fiche | sinon : {si node.TargetId != null : Ouvrir la fiche « ⟨node.Label⟩ » | sinon : Nom libre (aucune fiche liée)}}
+DictionaryView.cs	Filtrer les entrées
+DictionaryView.cs	Options
+DictionaryView.cs	Relever tous les mots que le correcteur ne connaît pas dans les écrits et les fiches, et en apprendre plusieurs d'un coup
+DictionaryView.cs	Nouvelle entrée dans « ⟨caption⟩ »
+DictionaryView.cs	Entrée de l'ancien dictionnaire : ouvrez-la pour préciser son type, sa nature et sa flexion — Valider lève la pastille
+LexiconEntryDialog.cs	Préremplir « ⟨suggestion⟩ »
+LexiconEntryDialog.cs	Suffixe « -⟨preset⟩ »
+LexiconEntryDialog.cs	Vide : la forme dérivée par la règle (en filigrane) ; tapez-la si la règle se trompe (Bordeaux → bordelais)
+LexiconEntryDialog.cs	Suffixe « -⟨preset⟩ »
+LexiconEntryDialog.cs	Vide : la forme dérivée par la règle (en filigrane) ; tapez-la si la règle se trompe (christianisme → chrétien)
+PlanView.cs	Revenir à la carte des plans
+PlanView.cs	Renommer le plan
+PlanView.cs	Le livre ou le dossier que ce plan décrit
+PlanView.cs	Ouvrir le livre ou le dossier relié
+PlanView.cs	Déplacer, supprimer la colonne
+PlanView.cs	Titre de la colonne
+PlanView.cs	Ouvrir l'écrit relié
+PlanView.cs	L'écrit que cette colonne raconte (facultatif)
+PlanView.cs	{si entry.IsNote : Note — clic : modifier, glisser : réordonner | sinon : Élément — clic : modifier, glisser : réordonner}
+PlanView.cs	{si value == null : Neutre | sinon : ⟨swatch⟩}
+PlanView.cs	Resserrer les colonnes (Ctrl+molette)
+PlanView.cs	Écarter les colonnes (Ctrl+molette)
+PlanView.cs	{si columns[i].Title.Length == 0 : (sans titre) | sinon : ⟨columns[i].Title⟩} — ⟨(value <= 0 ? "aucun élément" : PlanIntensity.Label(nearest) + " (moyenne " + value.ToString("0.0") + ")")⟩
+PlanView.cs	{si columns[i].Title.Length == 0 : (sans titre) | sinon : ⟨columns[i].Title⟩}
+JournalView.cs	Les ⟨days⟩ derniers jours
+JournalView.cs	Une durée, un objectif de mots
+JournalView.cs	⟨Cap(dates[i].ToString("ddd d MMM", culture))⟩ — ⟨days[i].ToString("N0", culture) + (days[i] > 1 ? " mots" : " mot")⟩
+PreferencesDialog.cs	Retire le module ; les projets gardent leurs valeurs
+PreferencesDialog.cs	L'état de l'écrit tel qu'ouvert, figé une fois par jour et par écrit — il compte dans le plafond
+PreferencesDialog.cs	Entre ⟨SnapshotStore.MinCap⟩ et ⟨SnapshotStore.MaxCap⟩
+PreferencesDialog.cs	Grammalecte tourne dans un sous-processus : ses signalements arrivent quelques instants après la frappe, ⏎ sans jamais ralentir l'orthographe ni la saisie.
+PreferencesDialog.cs	Une couleur personnalisée : #RRGGBB, puis Entrée
+PreferencesDialog.cs	Vitesse du défilement à la molette : ×0,25 (lent) à ×3 (rapide){si OperatingSystem.IsMacOS() : — sur macOS le système défile lui-même, ce réglage n'y joue pas (07/10) | sinon : ∅}
+PreferencesDialog.cs	L'entrée des tuiles de la bibliothèque, la glissade de la Pile et celle de la colonne de droite. ⏎ Décochée : tout se pose d'un coup.
+PreferencesDialog.cs	Entre ⟨WorkTabs.MinLimit⟩ et ⟨WorkTabs.MaxLimit⟩
+PreferencesDialog.cs	(⟨raccourci de dark-theme⟩)
+PreferencesDialog.cs	L'interface reste sombre mais les pages (fiches, gabarits) ⏎ gardent leur papier blanc et leur encre noire, comme à l'impression.
+PreferencesDialog.cs	⟨entry[1]⟩ — ⟨entry[0]⟩
+PreferencesDialog.cs	Cliquer puis taper la combinaison — Retour arrière : aucun raccourci
+PreferencesDialog.cs	Revenir au raccourci d'origine⟨(string.IsNullOrEmpty(action.DefaultGesture) ? " (aucun)" : " : " + AppSettings.DisplayGesture(action.DefaultGesture))⟩
+FontCatalogTab.cs	Remplace la phrase d'exemple sous chaque police
+FontSubstitutionDialog.cs	⟨family⟩
+FontSubstitutionDialog.cs	Les styles, écrits et fiches qui demandent cette police
+ProofOptionsDialog.cs	Entre 20 et 500 mots — 100 convient au roman
+ProofOptionsDialog.cs	Les infinitifs des verbes ternes, séparés par des virgules
+ModuleDialog.cs	{si Modules.DownloadsEnabled : Télécharge le paquet publié sur GitHub et l'installe | sinon : Téléchargeable dans une prochaine version}
+ModuleDialog.cs	Retire le module ; les valeurs saisies restent dans le projet
+MarkdownView.cs	{si over != null : ⟨over.Tooltip⟩ | sinon : ∅}
+MarkdownView.cs	⟨alt⟩
+MarkdownView.cs	⟨inline.LinkUrl⟩
+AboutDialog.cs	⟨url⟩
+CrashReportsDialog.cs	Le dossier des rapports dans l'Explorateur
+CrashReportsDialog.cs	Supprime tous les rapports
+CrashReportsDialog.cs	Copie le texte du rapport choisi dans le presse-papiers. À envoyer au dev, si vous pouvez :)
+UpdateNotesDialog.cs	⟨info.PageUrl⟩
+UpdateNotesDialog.cs	{si prepared : La mise à jour est déjà téléchargée : Marabook se ferme, remplace ses fichiers (vos projets et réglages restent) et redémarre | sinon : Télécharge la mise à jour, puis Marabook se ferme, remplace ses fichiers (vos projets et réglages restent) et redémarre}
+InfoDialog.cs	⟨url⟩
