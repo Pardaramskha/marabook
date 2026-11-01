@@ -1907,7 +1907,10 @@ namespace Marabook.App
                         var rowsBefore = shell.Binder.SheetRowsForProbe();
                         shell.Binder.Rebuild();
                         await Settle();
-                        Check(shell.Binder.SheetRowsForProbe() < rowsBefore || rowsBefore == 0, "la Pile suit : la catégorie repliée cache ses fiches (" + rowsBefore + " → " + shell.Binder.SheetRowsForProbe() + ")");
+                        // Les runners Mac rebâtissent un cran plus tard (1/11) : on laisse le temps, puis on recompte.
+                        var rowsAfter = shell.Binder.SheetRowsForProbe();
+                        for (var attempt = 0; attempt < 8 && rowsAfter >= rowsBefore && rowsBefore > 0; attempt++) { await Task.Delay(150); await Settle(); rowsAfter = shell.Binder.SheetRowsForProbe(); }
+                        Check(rowsAfter < rowsBefore || rowsBefore == 0, "la Pile suit : la catégorie repliée cache ses fiches (" + rowsBefore + " → " + rowsAfter + ")");
                         // 1.0.5-b : la tuile double-cliquée d'une fiche dont la
                         // catégorie est repliée dans la Pile — SelectItem ne
                         // trouvait pas de ligne et la fiche ne s'ouvrait pas.
@@ -3088,10 +3091,11 @@ namespace Marabook.App
                 await Settle();
                 Check(tabs.ActiveIndex == tabs.Count - 1 && shell.CurrentForProbe == sheet, "Onglet précédent depuis le premier va au dernier");
                 // Ctrl+Maj+Droite / Gauche (31/10, Rémi) : l'onglet voisin, en tunnel sur la fenêtre.
-                shell.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Right, KeyModifiers = Avalonia.Input.KeyModifiers.Control | Avalonia.Input.KeyModifiers.Shift, Source = shell });
+                // Le modificateur de commande du système (⌘ sur Mac, 1/11 : la sonde des runners Mac).
+                shell.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Right, KeyModifiers = Ui.Command | Avalonia.Input.KeyModifiers.Shift, Source = shell });
                 await Settle();
                 Check(tabs.ActiveIndex == 0 && shell.CurrentForProbe == text, "Ctrl+Maj+Droite passe à l'onglet suivant (31/10)");
-                shell.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Left, KeyModifiers = Avalonia.Input.KeyModifiers.Control | Avalonia.Input.KeyModifiers.Shift, Source = shell });
+                shell.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Left, KeyModifiers = Ui.Command | Avalonia.Input.KeyModifiers.Shift, Source = shell });
                 await Settle();
                 Check(tabs.ActiveIndex == tabs.Count - 1 && shell.CurrentForProbe == sheet, "…Ctrl+Maj+Gauche à l'onglet précédent");
                 // Le glisser-déposer (31/10) : le premier onglet déposé en fin de rangée.
@@ -3574,7 +3578,8 @@ namespace Marabook.App
                 Check(!palette.IsOpen && shell.Binder.SelectedItem != null && shell.Binder.SelectedItem.Id == firstId, "…choisir un résultat le sélectionne dans la Pile et referme la palette");
             }
             else if (palette != null) palette.Close();
-            Check(AppSettings.DisplayGesture("Ctrl+OemComma") == "Ctrl+,", "le raccourci s'affiche « Ctrl+, » (" + AppSettings.DisplayGesture("Ctrl+OemComma") + ")");
+            var commaShown = AppSettings.MacKeys ? "⌘," : "Ctrl+,"; // macOS écrit ⌘ (1/11 : la sonde des runners Mac)
+            Check(AppSettings.DisplayGesture("Ctrl+OemComma") == commaShown, "le raccourci s'affiche « " + commaShown + " » (" + AppSettings.DisplayGesture("Ctrl+OemComma") + ")");
             // — Le dialogue Nouveau livre (bâti sans être montré).
             var withFormat = NewBookDialog.BuildForProbe(true);
             var template = withFormat.TemplateForProbe;
