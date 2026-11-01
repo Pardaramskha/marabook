@@ -214,6 +214,7 @@ namespace Marabook.Model
         public HashSet<string> UsedImageIds()
         {
             var used = new HashSet<string>();
+            if (Encyclopedia != null && Encyclopedia.CoverImageId != null) used.Add(Encyclopedia.CoverImageId); // la couverture de l'Encyclopédie (1/11)
             foreach (var item in AllItems())
             {
                 if (item.ImageId != null) used.Add(item.ImageId);

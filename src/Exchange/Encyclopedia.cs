@@ -135,9 +135,28 @@ namespace Marabook.Exchange
         public const string UncategorizedTitle = "Sans catégorie";
 
         /// <summary>Réduit une image (octets d'origine, largeur maximale en px)
-        /// et la rend en PNG ; null = garder l'original. Posé par l'application
-        /// (le cœur ne décode pas d'image) ; les tests n'en ont pas.</summary>
+        /// pour le web — JPEG pour une photo, PNG s'il y a de la transparence,
+        /// le format se lit dans les octets rendus (ExtensionOf) ; null = garder
+        /// l'original. Posé par l'application (le cœur ne décode pas d'image) ;
+        /// les tests n'en ont pas.</summary>
         public static Func<byte[], int, byte[]> ShrinkImage;
+
+        /// <summary>L'extension lue dans l'en-tête des octets (PNG, JPEG, GIF,
+        /// WebP, BMP), sinon celle donnée.</summary>
+        public static string ExtensionOf(byte[] bytes, string fallback)
+        {
+            if (bytes != null && bytes.Length >= 12)
+            {
+                if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) return ".png";
+                if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) return ".jpg";
+                if (bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == '8') return ".gif";
+                if (bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F' && bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P') return ".webp";
+                if (bytes[0] == 'B' && bytes[1] == 'M') return ".bmp";
+            }
+            var ext = (fallback ?? "").Trim().ToLowerInvariant();
+            if (ext == ".jpeg") ext = ".jpg";
+            return ext.Length == 0 ? ".png" : ext;
+        }
 
         public const int PortraitMaxWidth = 800, BodyImageMaxWidth = 1200, CoverMaxWidth = 1600;
 

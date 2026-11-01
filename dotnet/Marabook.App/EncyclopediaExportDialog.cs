@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Marabook.Exchange;
 using Marabook.Model;
 
@@ -28,6 +29,10 @@ namespace Marabook.App
         private readonly FontPicker _bodyFont, _headingFont;
         private readonly ComboBox _size, _portrait, _format;
         private readonly CheckBox _dark, _infobox, _relations, _presence, _radar, _tags, _dates, _lexicon, _lexiconDefined, _lexiconGlobal, _emptySheets, _open;
+        private readonly Image _coverPreview;
+        private readonly TextBlock _coverLabel;
+        private readonly Button _coverRemove;
+        private string _coverImageId;   // la couverture de l'accueil (1/11) : une image du projet, ou null
         private bool _accepted, _syncing;
 
         public sealed class Answer
@@ -97,9 +102,37 @@ namespace Marabook.App
             right.Children.Add(_format);
 
             right.Children.Add(Caption("Titres", 12));
-            _title = Field(right, "Titre", defaults.Title, "Vide : « Encyclopédie de <projet> »");
+            _title = Field(right, "Titre", defaults.Title, "Vide : « Encyclopédie de <projet> » (du, des, d'… selon le nom)");
             _subtitle = Field(right, "Sous-titre", defaults.Subtitle, null);
             _author = Field(right, "Auteur·ice", defaults.Author, "Vide : l'auteur·ice du projet");
+
+            // La couverture (1/11) : une image du disque, recadrable, en tête de l'accueil ; retenue dans le projet avec les options.
+            var coverRow = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+            var coverCaption = new TextBlock { Text = "Couverture", Width = 90, Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center };
+            DockPanel.SetDock(coverCaption, Dock.Left);
+            coverRow.Children.Add(coverCaption);
+            _coverPreview = new Image { Stretch = Stretch.UniformToFill };
+            var frame = new Border
+            {
+                Width = 40, Height = 54, CornerRadius = new CornerRadius(4), ClipToBounds = true,
+                Background = Chrome.FieldBg, BorderBrush = Chrome.Border, BorderThickness = new Thickness(1),
+                Margin = new Thickness(0, 0, 10, 0), Child = _coverPreview
+            };
+            DockPanel.SetDock(frame, Dock.Left);
+            coverRow.Children.Add(frame);
+            var coverButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+            DockPanel.SetDock(coverButtons, Dock.Right);
+            var pickCover = Buttons.Text("Choisir…", "Une image du disque, en grand sur l'accueil", Buttons.Compact, Buttons.Look.Calm);
+            pickCover.Click += async delegate { await PickCover(); };
+            _coverRemove = Buttons.Text("Retirer", "Plus de couverture", Buttons.Compact, Buttons.Look.Calm);
+            _coverRemove.Click += delegate { SetCover(null); };
+            coverButtons.Children.Add(pickCover);
+            coverButtons.Children.Add(_coverRemove);
+            coverRow.Children.Add(coverButtons);
+            _coverLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 8, 0) };
+            coverRow.Children.Add(_coverLabel);
+            right.Children.Add(coverRow);
+            SetCover(defaults.CoverImageId);
 
             right.Children.Add(Caption("Apparence", 12));
             var fonts = new Grid { ColumnDefinitions = new ColumnDefinitions("90,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"), Margin = new Thickness(0, 0, 0, 4) };
@@ -315,6 +348,47 @@ namespace Marabook.App
             _countLabel.Text = n + (n > 1 ? " fiches" : " fiche") + " sur " + _sheetBoxes.Count;
         }
 
+        // ---------------------------------------------------------------- la couverture
+
+        /// <summary>Une image du disque, passée par l'éditeur (rotation,
+        /// recadrage, optimisation), ajoutée au projet : elle n'y restera à
+        /// l'enregistrement que si l'export la retient (UsedImageIds).</summary>
+        private async Task PickCover()
+        {
+            var path = await Ui.PickOpenFile(this, "La couverture de l'Encyclopédie", "Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp");
+            if (path == null || _project == null) return;
+            try
+            {
+                var info = new System.IO.FileInfo(path);
+                if (info.Length > 20 * 1024 * 1024) throw new InvalidOperationException("image de plus de 20 Mo — réduisez-la d'abord.");
+                var bytes = System.IO.File.ReadAllBytes(path);
+                var edited = await ImageEditDialog.Show(this, bytes, System.IO.Path.GetExtension(path));
+                if (edited == null) return;
+                SetCover(_project.AddImage(edited.Bytes, edited.Extension));
+            }
+            catch (Exception error)
+            {
+                MessageDialog.Show(this, "Image refusée : " + error.Message, "Encyclopédie", MessageButtons.OK, MessageIcon.Warning);
+            }
+        }
+
+        private void SetCover(string imageId)
+        {
+            var image = imageId == null || _project == null ? null : _project.FindImage(imageId);
+            _coverImageId = image == null ? null : imageId;
+            Bitmap bitmap = null;
+            if (image != null && image.Bytes != null)
+            {
+                try { using (var stream = new System.IO.MemoryStream(image.Bytes)) bitmap = new Bitmap(stream); }
+                catch (Exception) { bitmap = null; }
+            }
+            var previous = _coverPreview.Source as Bitmap;
+            _coverPreview.Source = bitmap;
+            if (previous != null && !ReferenceEquals(previous, bitmap)) previous.Dispose();
+            _coverLabel.Text = _coverImageId == null ? "Aucune : l'accueil commence par le titre" : bitmap == null ? "Une image du projet" : "Image du projet, " + bitmap.PixelSize.Width + " × " + bitmap.PixelSize.Height + " px";
+            _coverRemove.IsEnabled = _coverImageId != null;
+        }
+
         // ---------------------------------------------------------------- aides
 
         private static TextBlock Caption(string text, double top = 0)
@@ -385,7 +459,7 @@ namespace Marabook.App
                 LexiconOnlyDefined = dialog._lexiconDefined.IsChecked == true,
                 LexiconAllProjects = dialog._lexiconGlobal.IsChecked == true,
                 IncludeEmptySheets = dialog._emptySheets.IsChecked == true,
-                CoverImageId = defaults == null ? null : defaults.CoverImageId
+                CoverImageId = dialog._coverImageId
             };
             return new Answer { Selection = selection, Options = options, OpenAfter = dialog._open.IsChecked == true };
         }

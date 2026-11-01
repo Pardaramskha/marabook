@@ -44,23 +44,42 @@ namespace Marabook.App
             Platform.Init();
             Platform.Current = new AppPlatform();
             Platform.Images = new AvaloniaImageCodec();
-            Encyclopedia.ShrinkImage = ShrinkToPng; // les images de l'Encyclopédie HTML, réduites (31/10)
+            Encyclopedia.ShrinkImage = ShrinkForWeb; // les images de l'Encyclopédie HTML, réduites et en JPEG pour les photos (31/10, 1/11)
             Settings.AppSettings.MacKeys = IsMac; // les raccourcis s'écrivent « ⇧⌘S » (02/10)
         }
 
-        /// <summary>Une image plus large que maxWidth est réduite et rendue en
-        /// PNG ; null = garder l'original (déjà assez petite, ou illisible).</summary>
-        private static byte[] ShrinkToPng(byte[] bytes, int maxWidth)
+        /// <summary>Une image pour le web (1/11) : plus large que maxWidth, elle
+        /// est réduite ; une photo (sans transparence) s'écrit en JPEG, une
+        /// image à transparence en PNG ; un gros PNG opaque est réencodé en
+        /// JPEG même sans réduction, si cela l'allège. Null = garder
+        /// l'original (déjà petite, un GIF, un SVG, ou illisible).</summary>
+        private static byte[] ShrinkForWeb(byte[] bytes, int maxWidth)
         {
-            int width, height;
-            if (bytes == null || !Platform.Images.TryGetSize(bytes, out width, out height) || width <= maxWidth) return null;
-            using (var input = new MemoryStream(bytes))
-            using (var bitmap = Bitmap.DecodeToWidth(input, maxWidth))
-            using (var output = new MemoryStream())
+            if (bytes == null || bytes.Length == 0) return null;
+            try
             {
-                bitmap.Save(output);
-                return output.ToArray();
+                using (var bitmap = SkiaSharp.SKBitmap.Decode(bytes))
+                {
+                    if (bitmap == null || bitmap.Width <= 0) return null;
+                    var resize = bitmap.Width > maxWidth;
+                    var transparent = ImageImport.HasTransparency(bitmap);
+                    var png = Encyclopedia.ExtensionOf(bytes, "") == ".png";
+                    if (!resize && (transparent || !png || bytes.Length < 200 * 1024)) return null;
+                    var source = resize ? ImageImport.ResizeToWidth(bitmap, maxWidth) : bitmap;
+                    try
+                    {
+                        using (var image = SkiaSharp.SKImage.FromBitmap(source))
+                        using (var data = image.Encode(transparent ? SkiaSharp.SKEncodedImageFormat.Png : SkiaSharp.SKEncodedImageFormat.Jpeg, transparent ? 100 : ImageImport.JpegQuality))
+                        {
+                            if (data == null) return null;
+                            var result = data.ToArray();
+                            return !resize && result.Length >= bytes.Length ? null : result;
+                        }
+                    }
+                    finally { if (!ReferenceEquals(source, bitmap)) source.Dispose(); }
+                }
             }
+            catch (Exception) { return null; }
         }
 
         /// <summary>« Windows », « Linux » ou « macOS » — pour la barre d'état.</summary>

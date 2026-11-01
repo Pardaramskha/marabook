@@ -24,6 +24,67 @@ namespace Marabook.Tests
             Slugs(t);
             Html(t);
             RoundTrip(t);
+            Refinements(t);
+        }
+
+        /// <summary>Le lot de finitions HTML du 1/11 : le titre contracté selon
+        /// l'article, l'extension finale des images (un petit JPEG reste un .jpg,
+        /// une image réduite prend le format de ses octets), la couverture
+        /// comptée parmi les images employées, le script (bascule, recherche),
+        /// la hiérarchie des titres et la feuille d'impression.</summary>
+        private static void Refinements(Harness t)
+        {
+            t.Equal("du serment des gardiens", EncyclopediaOptions.OfName("Le serment des gardiens"), "« Le … » → « du … »");
+            t.Equal("des Gardiens", EncyclopediaOptions.OfName("Les Gardiens"), "« Les … » → « des … »");
+            t.Equal("de la crique", EncyclopediaOptions.OfName("La crique"), "« La … » → « de la … »");
+            t.Equal("de l'Île", EncyclopediaOptions.OfName("L'Île"), "« L'… » → « de l'… »");
+            t.Equal("d'Enerya", EncyclopediaOptions.OfName("Enerya"), "une voyelle : « d'… »");
+            t.Equal("d'un été", EncyclopediaOptions.OfName("Un été"), "« Un … » → « d'un … »");
+            t.Equal("de Marabook", EncyclopediaOptions.OfName("Marabook"), "sinon « de … »");
+            t.Equal("de Lea", EncyclopediaOptions.OfName("Lea"), "un nom qui commence par « Le » sans espace n'est pas un article");
+            t.Equal(".jpg", Encyclopedia.ExtensionOf(new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0 }, ".png"), "l'extension se lit dans les octets : JPEG");
+            t.Equal(".png", Encyclopedia.ExtensionOf(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0, 0, 0, 0, 0 }, ".jpg"), "…PNG");
+            t.Equal(".jpg", Encyclopedia.ExtensionOf(new byte[] { 1, 2, 3 }, ".jpeg"), "…sinon celle donnée, normalisée");
+
+            var world = Make();
+            var project = world.Project;
+            // Un petit « JPEG » (octets JPEG, extension .jpg) en portrait du marabout : sans réduction, il garde son .jpg et la page y renvoie.
+            var jpegId = project.AddImage(new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, 0x4A, 0x46, 0x49, 0x46, 0, 1, 0xFF, 0xD9 }, ".jpg");
+            world.Marabout.ImageId = jpegId;
+            var before = Encyclopedia.ShrinkImage;
+            var folder = Path.Combine(Path.GetTempPath(), "marabook-c60-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                // Un réducteur de pacotille : il rend un en-tête PNG pour toute image plus large que la limite demandée… sauf le JPEG, gardé tel quel.
+                Encyclopedia.ShrinkImage = delegate(byte[] bytes, int maxWidth) { return bytes.Length > 100 ? new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0 } : null; };
+                var options = new EncyclopediaOptions { CoverImageId = world.PortraitId };
+                var doc = Encyclopedia.Build(project, EncyclopediaSelection.All(), options);
+                var written = HtmlEncyclopedia.Write(folder, doc, project);
+                var marabout = doc.ById[world.Marabout.Id];
+                var page = File.ReadAllText(Path.Combine(folder, HtmlEncyclopedia.SheetPath(marabout)));
+                t.Check(page.Contains("images/" + jpegId + ".jpg") && File.Exists(Path.Combine(folder, HtmlEncyclopedia.ImagesFolder, jpegId + ".jpg")), "un petit JPEG gardé tel quel : la page l'appelle en .jpg et le fichier est un .jpg (plus de lien mort)");
+                t.Check(doc.Images[jpegId] == ".jpg" && doc.Images[world.PortraitId] == ".png", "document.Images porte l'extension finale de chaque image");
+                var home = File.ReadAllText(Path.Combine(folder, HtmlEncyclopedia.IndexFile));
+                t.Check(home.Contains("class=\"cover\"") && home.Contains("images/" + world.PortraitId + ".png") && home.Contains("class=\"search\"") && home.Contains("class=\"none\"") && home.Contains(HtmlEncyclopedia.JsFile), "l'accueil : la couverture, le champ de recherche (caché sans script), le script");
+                t.Check(home.Contains("button type=\"button\" class=\"theme\"") && page.Contains("class=\"theme\"") && File.Exists(Path.Combine(folder, HtmlEncyclopedia.JsFile)), "la bascule clair/sombre sur chaque page, le script écrit");
+                var js = File.ReadAllText(Path.Combine(folder, HtmlEncyclopedia.JsFile));
+                t.Check(js.Contains("encyclopedie-theme") && js.Contains("normalize('NFD')") && js.Contains("input.search"), "le script : le thème retenu, la recherche à accents pliés");
+                var css = File.ReadAllText(Path.Combine(folder, HtmlEncyclopedia.CssFile));
+                t.Check(css.Contains(".infobox h3{") && css.Contains("@media print{") && css.Contains("h3{font-size:1.15rem}"), "la feuille : les titres de l'encart à part, les titres du corps hiérarchisés, l'impression");
+                var keira = File.ReadAllText(Path.Combine(folder, HtmlEncyclopedia.SheetPath(doc.ById[world.Keira.Id])));
+                t.Check(!keira.Contains("<p class=\"kind\">Personnage</p>"), "le nom du modèle ne se répète pas sous le titre quand il est celui de la catégorie");
+                t.Check(doc.Title == "Encyclopédie " + EncyclopediaOptions.OfName(project.Name), "le titre d'office est contracté selon le nom du projet (" + doc.Title + ")");
+            }
+            finally
+            {
+                Encyclopedia.ShrinkImage = before;
+                try { Directory.Delete(folder, true); } catch (IOException) { }
+            }
+            project.Encyclopedia = new EncyclopediaOptions { CoverImageId = jpegId };
+            world.Marabout.ImageId = null;
+            t.Check(project.UsedImageIds().Contains(jpegId), "la couverture de l'Encyclopédie compte parmi les images employées : l'enregistrement la garde");
+            project.Encyclopedia = null;
+            t.Check(!project.UsedImageIds().Contains(jpegId), "…et plus sans elle");
         }
 
         private class World
@@ -195,7 +256,7 @@ namespace Marabook.Tests
                 t.Check(home.Contains("<title>Encyclopédie de ") && home.Contains("Les Gardiens") && home.Contains("R. Auteur") && home.Contains("href=\"" + HtmlEncyclopedia.SheetPath(keira) + "\"") && home.Contains("Keira Varenh") && home.Contains("id=\"" + heroesSlug(doc, world) + "\""), "l'accueil : titre, sous-titre, auteur, le lien de chaque fiche, l'ancre de chaque section");
                 t.Check(home.Contains("href=\"" + HtmlEncyclopedia.LexiconFile + "\""), "…et le lien vers le Lexique");
                 var page = File.ReadAllText(keiraPath);
-                t.Check(page.Contains("<h1>Keira Varenh</h1>") && page.Contains("Vingt-deux ans &lt;script&gt;") && !page.Contains("<script>"), "la page : le titre, les champs, le texte échappé");
+                t.Check(page.Contains("<h1>Keira Varenh</h1>") && page.Contains("Vingt-deux ans &lt;script&gt;") && !page.Contains("ans <script>"), "la page : le titre, les champs, le texte échappé");
                 t.Check(page.Contains("href=\"../../" + HtmlEncyclopedia.SheetPath(marabout) + "\"") && page.Contains("Inconnu") && !page.Contains("inconnu.html"), "les [[liens]] vers une fiche exportée deviennent des liens, les autres du texte");
                 t.Check(page.Contains("<h2>Histoire</h2>") && page.Contains("<strong>la mer</strong>") && page.Contains("&amp; du vent") && page.Contains("class=\"task\"") && page.Contains("<li>une liste</li>"), "le corps Markdown : titres décalés, gras, échappement, listes et tâches");
                 t.Check(page.Contains("class=\"portrait\"") && page.Contains("images/" + world.PortraitId) && File.Exists(Path.Combine(folder, HtmlEncyclopedia.ImagesFolder, world.PortraitId + ".png")), "le portrait est écrit dans images/ et affiché");

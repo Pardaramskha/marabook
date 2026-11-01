@@ -47,12 +47,36 @@ namespace Marabook.Model
             });
         }
 
-        /// <summary>Le titre effectif : le titre posé, sinon « Encyclopédie de … ».</summary>
+        /// <summary>Le titre effectif : le titre posé, sinon « Encyclopédie de … »
+        /// (contracté : du Serment…, des Gardiens…, d'Enerya).</summary>
         public string TitleFor(Project project)
         {
             if (!string.IsNullOrEmpty((Title ?? "").Trim())) return Title.Trim();
             var name = project == null ? "" : (project.Name ?? "").Trim();
-            return name.Length == 0 ? "Encyclopédie" : "Encyclopédie de " + name;
+            return name.Length == 0 ? "Encyclopédie" : "Encyclopédie " + OfName(name);
+        }
+
+        /// <summary>« de X » selon l'article du nom (1/11) : « Le serment » →
+        /// « du serment », « Les Gardiens » → « des Gardiens », « La crique » →
+        /// « de la crique », « L'Île » → « de l'Île », « Enerya » → « d'Enerya »,
+        /// « Un été » → « d'un été » ; sinon « de X ». Le reste du nom garde sa casse.</summary>
+        public static string OfName(string name)
+        {
+            var n = (name ?? "").Trim();
+            if (n.Length == 0) return "";
+            if (StartsWithWord(n, "le")) return "du " + n.Substring(3);
+            if (StartsWithWord(n, "les")) return "des " + n.Substring(4);
+            if (StartsWithWord(n, "la")) return "de la " + n.Substring(3);
+            if (n.Length > 2 && (n[0] == 'L' || n[0] == 'l') && (n[1] == '\'' || n[1] == '’')) return "de l" + n.Substring(1);
+            if (StartsWithWord(n, "un")) return "d'un " + n.Substring(3);
+            if (StartsWithWord(n, "une")) return "d'une " + n.Substring(4);
+            return ("aeiouyàâäéèêëîïôöùûüAEIOUYÀÂÄÉÈÊËÎÏÔÖÙÛÜ".IndexOf(n[0]) >= 0 ? "d'" : "de ") + n;
+        }
+
+        private static bool StartsWithWord(string text, string word)
+        {
+            return text.Length > word.Length + 1 && text[word.Length] == ' '
+                && string.Compare(text, 0, word, 0, word.Length, StringComparison.OrdinalIgnoreCase) == 0;
         }
 
         public string AuthorFor(Project project)
