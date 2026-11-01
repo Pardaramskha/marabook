@@ -789,7 +789,8 @@ namespace Marabook.Persistence
                 o["showTags"] = e.ShowTags;
                 o["showDates"] = e.ShowDates;
                 o["includeLexicon"] = e.IncludeLexicon;
-                o["lexiconOnlyDefined"] = e.LexiconOnlyDefined;
+                o["lexiconUndefined"] = e.LexiconUndefined;       // 1/11 (remplace « lexiconOnlyDefined », relu à l'envers)
+                o["lexiconExcludeNames"] = e.LexiconExcludeNames; // 1/11
                 o["lexiconAllProjects"] = e.LexiconAllProjects;
                 o["includeEmptySheets"] = e.IncludeEmptySheets;
                 if (!string.IsNullOrEmpty(e.CoverImageId)) o["coverImageId"] = e.CoverImageId;
@@ -1393,8 +1394,9 @@ namespace Marabook.Persistence
                         ShowTags = Json.AsBool(Json.Field(encyclopedia, "showTags"), true),
                         ShowDates = Json.AsBool(Json.Field(encyclopedia, "showDates"), true),
                         IncludeLexicon = Json.AsBool(Json.Field(encyclopedia, "includeLexicon"), true),
-                        LexiconOnlyDefined = Json.AsBool(Json.Field(encyclopedia, "lexiconOnlyDefined"), true),
-                        LexiconAllProjects = Json.AsBool(Json.Field(encyclopedia, "lexiconAllProjects"), true),
+                        LexiconUndefined = Json.AsBool(Json.Field(encyclopedia, "lexiconUndefined"), !Json.AsBool(Json.Field(encyclopedia, "lexiconOnlyDefined"), false)),
+                        LexiconExcludeNames = Json.AsBool(Json.Field(encyclopedia, "lexiconExcludeNames"), false),
+                        LexiconAllProjects = Json.AsBool(Json.Field(encyclopedia, "lexiconAllProjects"), false),
                         IncludeEmptySheets = Json.AsBool(Json.Field(encyclopedia, "includeEmptySheets"), true),
                         CoverImageId = Json.AsString(Json.Field(encyclopedia, "coverImageId")),
                         OpenAfter = Json.AsBool(Json.Field(encyclopedia, "openAfter"), true)

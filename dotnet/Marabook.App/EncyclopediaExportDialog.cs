@@ -32,7 +32,7 @@ namespace Marabook.App
         private string _accent;          // l'accent, « #RRGGBB » (1/11 : le nuancier de Marabook plutôt qu'un champ hex)
         private readonly FontPicker _bodyFont, _headingFont;
         private readonly ComboBox _size, _portrait, _format;
-        private readonly CheckBox _dark, _infobox, _relations, _presence, _radar, _tags, _dates, _lexicon, _lexiconDefined, _lexiconGlobal, _emptySheets, _open;
+        private readonly CheckBox _dark, _infobox, _relations, _presence, _radar, _tags, _dates, _lexicon, _lexiconUndefined, _lexiconNoNames, _lexiconGlobal, _emptySheets, _open;
         private readonly Image _coverPreview;
         private readonly TextBlock _coverLabel;
         private readonly Button _coverRemove;
@@ -199,13 +199,17 @@ namespace Marabook.App
             right.Children.Add(_emptySheets);
 
             right.Children.Add(Caption("Lexique", 12));
-            _lexicon = new CheckBox { Content = "Ajouter le Lexique (un dictionnaire)", IsChecked = defaults.IncludeLexicon };
-            _lexiconDefined = new CheckBox { Content = "Seulement les mots qui ont une définition", IsChecked = defaults.LexiconOnlyDefined, Margin = new Thickness(24, 0, 0, 0) };
-            _lexiconGlobal = new CheckBox { Content = "Avec le dictionnaire de tous les projets", IsChecked = defaults.LexiconAllProjects, Margin = new Thickness(24, 0, 0, 0) };
-            _lexicon.IsCheckedChanged += delegate { _lexiconDefined.IsEnabled = _lexiconGlobal.IsEnabled = _lexicon.IsChecked == true; };
-            _lexiconDefined.IsEnabled = _lexiconGlobal.IsEnabled = _lexicon.IsChecked == true;
+            // Le Dictionnaire (1/11, Rémi) : celui de CE projet, les mots sans définition d'office, les prénoms et noms de famille à écarter, tous les projets en option.
+            _lexicon = new CheckBox { Content = "Exporter le Dictionnaire de ce projet (page « Lexique »)", IsChecked = defaults.IncludeLexicon };
+            _lexiconUndefined = new CheckBox { Content = "Exporter les mots sans définition", IsChecked = defaults.LexiconUndefined, Margin = new Thickness(24, 0, 0, 0) };
+            _lexiconNoNames = new CheckBox { Content = "Exclure les prénoms et noms de famille", IsChecked = defaults.LexiconExcludeNames, Margin = new Thickness(24, 0, 0, 0) };
+            ToolTip.SetTip(_lexiconNoNames, "Les noms propres notés « Prénom » ou « Nom de famille » dans le Dictionnaire restent au vestiaire");
+            _lexiconGlobal = new CheckBox { Content = "Ajouter les mots du dictionnaire de tous les projets", IsChecked = defaults.LexiconAllProjects, Margin = new Thickness(24, 0, 0, 0) };
+            _lexicon.IsCheckedChanged += delegate { _lexiconUndefined.IsEnabled = _lexiconNoNames.IsEnabled = _lexiconGlobal.IsEnabled = _lexicon.IsChecked == true; };
+            _lexiconUndefined.IsEnabled = _lexiconNoNames.IsEnabled = _lexiconGlobal.IsEnabled = _lexicon.IsChecked == true;
             right.Children.Add(_lexicon);
-            right.Children.Add(_lexiconDefined);
+            right.Children.Add(_lexiconUndefined);
+            right.Children.Add(_lexiconNoNames);
             right.Children.Add(_lexiconGlobal);
             Grid.SetColumn(right, 2);
             columns.Children.Add(right);
@@ -499,7 +503,8 @@ namespace Marabook.App
                 ShowTags = dialog._tags.IsChecked == true,
                 ShowDates = dialog._dates.IsChecked == true,
                 IncludeLexicon = dialog._lexicon.IsChecked == true,
-                LexiconOnlyDefined = dialog._lexiconDefined.IsChecked == true,
+                LexiconUndefined = dialog._lexiconUndefined.IsChecked == true,
+                LexiconExcludeNames = dialog._lexiconNoNames.IsChecked == true,
                 LexiconAllProjects = dialog._lexiconGlobal.IsChecked == true,
                 IncludeEmptySheets = dialog._emptySheets.IsChecked == true,
                 CoverImageId = dialog._coverImageId,

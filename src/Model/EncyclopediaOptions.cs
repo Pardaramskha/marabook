@@ -24,9 +24,10 @@ namespace Marabook.Model
         public bool Dark;
         public string PortraitSide = "right"; // "right" | "left" | "top"
         public bool ShowInfobox = true, ShowRelations = true, ShowPresence = true, ShowRadar = true, ShowTags = true, ShowDates = true;
-        public bool IncludeLexicon = true;
-        public bool LexiconOnlyDefined = true;  // seuls les mots qui ont une définition
-        public bool LexiconAllProjects = true;  // le dictionnaire de tous les projets aussi
+        public bool IncludeLexicon = true;       // le Dictionnaire de CE projet (1/11, Rémi)
+        public bool LexiconUndefined = true;     // les mots sans définition aussi
+        public bool LexiconExcludeNames;         // sans les prénoms ni les noms de famille (noms propres de ces sortes)
+        public bool LexiconAllProjects;          // les mots du dictionnaire de tous les projets en plus
         public bool IncludeEmptySheets = true;  // une fiche sans champ ni texte : son titre seul
         public string CoverImageId;             // null = pas de couverture
         /// <summary>Les fiches cochées au dernier export (1/11, Rémi : « ce qui
@@ -49,7 +50,7 @@ namespace Marabook.Model
             {
                 Format, Title, Subtitle, Author, BodyFont, HeadingFont, BaseSize.ToString(System.Globalization.CultureInfo.InvariantCulture), Accent,
                 Dark ? "1" : "0", PortraitSide, ShowInfobox ? "1" : "0", ShowRelations ? "1" : "0", ShowPresence ? "1" : "0", ShowRadar ? "1" : "0",
-                ShowTags ? "1" : "0", ShowDates ? "1" : "0", IncludeLexicon ? "1" : "0", LexiconOnlyDefined ? "1" : "0", LexiconAllProjects ? "1" : "0",
+                ShowTags ? "1" : "0", ShowDates ? "1" : "0", IncludeLexicon ? "1" : "0", LexiconUndefined ? "1" : "0", LexiconExcludeNames ? "1" : "0", LexiconAllProjects ? "1" : "0",
                 IncludeEmptySheets ? "1" : "0", CoverImageId ?? "", OpenAfter ? "1" : "0", string.Join(",", (SheetIds ?? new List<string>()).ToArray())
             });
         }

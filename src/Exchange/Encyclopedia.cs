@@ -462,13 +462,14 @@ namespace Marabook.Exchange
                 {
                     if (entry == null || string.IsNullOrEmpty((entry.Word ?? "").Trim())) continue;
                     var definition = (entry.Definition ?? "").Trim();
-                    if (options.LexiconOnlyDefined && definition.Length == 0) continue;
+                    if (!options.LexiconUndefined && definition.Length == 0) continue;
+                    if (options.LexiconExcludeNames && entry.Class == LexiconEntry.ClassProper && (entry.ProperKind == LexiconEntry.ProperFirstName || entry.ProperKind == LexiconEntry.ProperSurname)) continue;
                     var key = FrenchTokenizer.Fold(entry.Word.Trim());
                     if (!seen.Add(key)) continue; // le projet l'emporte sur le global
                     var line = new EncyclopediaLexiconEntry
                     {
                         Word = entry.Word.Trim(),
-                        ClassLabel = LexiconEntry.ClassLabel(entry.Class),
+                        ClassLabel = KindOf(entry),
                         Definition = definition,
                         Note = (entry.Note ?? "").Trim(),
                         Letter = LetterOf(entry.Word)
@@ -478,6 +479,24 @@ namespace Marabook.Exchange
                     document.Lexicon.Add(line);
                 }
             document.Lexicon.Sort(delegate(EncyclopediaLexiconEntry a, EncyclopediaLexiconEntry b) { return string.Compare(a.Word, b.Word, French, CompareOptions.IgnoreCase); });
+        }
+
+        /// <summary>Le type d'un mot tel que le dictionnaire l'écrit (1/11, Rémi :
+        /// le genre compris) : « nom masculin », « nom propre, prénom, féminin »,
+        /// « adjectif, masculin et féminin », « verbe ».</summary>
+        public static string KindOf(LexiconEntry entry)
+        {
+            var parts = new List<string> { LexiconEntry.ClassLabel(entry.Class).ToLowerInvariant() };
+            if (entry.Class == LexiconEntry.ClassProper)
+            {
+                var kind = LexiconEntry.ProperKindLabel(entry.ProperKind);
+                if (!string.IsNullOrEmpty(kind)) parts.Add(kind.ToLowerInvariant());
+                var first = entry.FirstNameGender();
+                if (first.Length > 0) parts.Add(LexiconEntry.GendersLabel(first));
+            }
+            var genders = LexiconEntry.GendersLabel(entry.EffectiveGenders());
+            if (genders.Length > 0 && !parts.Contains(genders)) parts.Add(genders);
+            return string.Join(", ", parts.ToArray());
         }
 
         /// <summary>La lettre d'index d'un mot : sa première lettre pliée, en

@@ -374,16 +374,11 @@ namespace Marabook.Exchange
                     current = entry.Letter;
                     sb.Append("<section class=\"letter\" id=\"l-").Append(Esc(current == "#" ? "autres" : current)).Append("\"><h2>").Append(Esc(current)).Append("</h2><dl>\n");
                 }
+                // Rémi (1/11) : le mot, le type (en petit, genre compris), la définition — sans flexions ni dérivés.
                 sb.Append("<dt><b>").Append(Esc(entry.Word)).Append("</b>");
-                if (entry.ClassLabel.Length > 0) sb.Append(" <i class=\"class\">").Append(Esc(entry.ClassLabel.ToLowerInvariant())).Append("</i>");
-                if (entry.Forms.Count > 0) sb.Append(" <span class=\"forms\">(").Append(Esc(string.Join(", ", entry.Forms.ToArray()))).Append(")</span>");
+                if (entry.ClassLabel.Length > 0) sb.Append("<i class=\"class\">").Append(Esc(entry.ClassLabel)).Append("</i>");
                 sb.Append("</dt>\n");
-                if (entry.Definition.Length > 0 || entry.Note.Length > 0)
-                {
-                    sb.Append("<dd>").Append(Esc(entry.Definition));
-                    if (entry.Note.Length > 0) sb.Append(entry.Definition.Length > 0 ? " <span class=\"note\">— " : "<span class=\"note\">").Append(Esc(entry.Note)).Append("</span>");
-                    sb.Append("</dd>\n");
-                }
+                if (entry.Definition.Length > 0) sb.Append("<dd>").Append(Esc(entry.Definition)).Append("</dd>\n");
             }
             if (current != null) sb.Append("</dl></section>\n");
             sb.Append("</main>\n");
@@ -604,7 +599,8 @@ namespace Marabook.Exchange
             sb.Append("button.theme{position:fixed;top:12px;right:14px;z-index:2;width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--paper);color:var(--soft);font-size:18px;line-height:1;cursor:pointer}button.theme:hover{color:var(--accent);border-color:var(--accent)}\n");
             sb.Append(".toc ul{list-style:none;padding:0;display:flex;flex-wrap:wrap;gap:8px 18px;justify-content:center;margin:0 0 24px}.n{color:var(--soft);font-size:.85em}.kind{color:var(--soft);font-size:.85em}\n");
             sb.Append(".category{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:8px 22px 14px;margin:0 0 18px}.category h2,.category h3,.category h4{border:0;text-transform:none;letter-spacing:0;color:var(--ink);font-size:1.3rem;padding-left:14px;border-left:4px solid var(--cat,var(--accent))}.category h3{font-size:1.1rem}.category h4{font-size:1rem}\n");
-            sb.Append(".sheets{list-style:none;padding:0;margin:0 0 6px;columns:3 220px;column-gap:24px}.sheets li{break-inside:avoid;padding:3px 0}\n");
+            // Chaque fiche de l'accueil est une case : au survol, un fond arrondi glisse dessous (1/11, Rémi).
+            sb.Append(".sheets{list-style:none;padding:0;margin:0 0 6px;columns:3 220px;column-gap:24px}.sheets li{break-inside:avoid;padding:0}.sheets li a{display:block;padding:5px 10px;margin:0 -10px;border-radius:8px;transition:background-color .18s ease,color .18s ease}.sheets li a:hover,.sheets li a:focus-visible{background:var(--tint);text-decoration:none;outline:none}.sheets li .kind{display:inline;margin-left:0}\n");
             sb.Append(".crumbs{max-width:1100px;margin:0 auto;padding:14px 20px 0;color:var(--soft);font-family:var(--heading);font-size:.9rem}.crumbs .sep{margin:0 .3em}\n");
             sb.Append(".sheet-page article{display:grid;grid-template-columns:minmax(0,1fr) 300px;grid-template-areas:\"head head\" \"body aside\";gap:0 32px}.sheet-page header{grid-area:head}.sheet-page .infobox{grid-area:aside}.sheet-page .body{grid-area:body;min-width:0}\n");
             sb.Append(".portrait-left article{grid-template-columns:300px minmax(0,1fr);grid-template-areas:\"head head\" \"aside body\"}.portrait-top article{grid-template-columns:minmax(0,1fr);grid-template-areas:\"head\" \"aside\" \"body\"}.portrait-top .infobox{display:flex;flex-wrap:wrap;gap:16px}.portrait-top .infobox .portrait{max-width:280px}\n");
@@ -615,7 +611,7 @@ namespace Marabook.Exchange
             sb.Append(".body img{max-width:100%;height:auto;border-radius:8px}.body blockquote{margin:1em 0;padding:.2em 1em;border-left:3px solid var(--accent);color:var(--soft)}.body pre{background:var(--tint);padding:10px 12px;border-radius:8px;overflow:auto}.body table{border-collapse:collapse;margin:1em 0}.body th,.body td{border:1px solid var(--line);padding:4px 10px}.body .c{text-align:center}.body .r{text-align:right}.body .task .box{color:var(--accent)}.body .done{color:var(--soft);text-decoration:line-through}\n");
             sb.Append(".relations ul,.presence ul{padding-left:1.2em}.evolution dt{font-weight:700;margin-top:.4em}.evolution dd{margin:0 0 0 1em;color:var(--soft)}\n");
             sb.Append(".pager{display:flex;justify-content:space-between;gap:16px;margin:36px 0 0;padding-top:14px;border-top:1px solid var(--line);font-family:var(--heading);font-size:.95rem}.pager .up{color:var(--soft)}\n");
-            sb.Append(".letters{display:flex;flex-wrap:wrap;gap:6px 12px;font-family:var(--heading);margin:0 0 18px}.letter{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:6px 22px 14px;margin:0 0 16px}.letter h2{border:0;color:var(--accent)}.letter dt{margin-top:.6em}.letter .class{color:var(--soft);font-size:.9em}.letter .forms{color:var(--soft);font-size:.85em}.letter dd{margin:0 0 0 1.2em}.letter .note{color:var(--soft)}\n");
+            sb.Append(".letters{display:flex;flex-wrap:wrap;gap:6px 12px;font-family:var(--heading);margin:0 0 18px}.letter{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:6px 22px 14px;margin:0 0 16px}.letter h2{border:0;color:var(--accent)}.letter dt{margin-top:.9em;line-height:1.3}.letter dt b{display:block;font-size:1.05em}.letter .class{display:block;color:var(--soft);font-size:.8em;font-family:var(--heading);font-style:normal}.letter dd{margin:.15em 0 0}\n");
             sb.Append("footer{text-align:center;color:var(--soft);font-size:.85rem;padding:24px 20px 40px;font-family:var(--heading)}\n");
             // À l'impression (1/11) : papier blanc, l'encart en marge droite, sans navigation ni bouton.
             sb.Append("@media print{:root{--bg:#FFF;--paper:#FFF;--ink:#000;--soft:#444;--line:#BBB;--tint:#F3F3F3}body{color:#000}.crumbs,.pager,button.theme,.find,.toc,footer{display:none}a{color:inherit}main{max-width:none;padding:0}.sheet-page article{display:block}.infobox{float:right;width:38%;margin:0 0 14px 20px;page-break-inside:avoid}.body{overflow:hidden}.category,.letter{page-break-inside:avoid;border:0;padding:0}.sheets{columns:2}}\n");
