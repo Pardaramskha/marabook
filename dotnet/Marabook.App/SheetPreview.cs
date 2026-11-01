@@ -2,6 +2,7 @@ using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Primitives.PopupPositioning;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -30,26 +31,34 @@ namespace Marabook.App
         private static Popup _popup;
         private static Control _host;
         private static BinderItem _target;
-        private static DispatcherTimer _timer;
+        private static Rect? _anchor;
+        private static DispatcherTimer _timer, _hideTimer;
+        private static readonly System.Collections.Generic.HashSet<Control> _wired = new System.Collections.Generic.HashSet<Control>();
+        public const int HideGraceMs = 200;
 
         /// <summary>Sonde : une carte est-elle ouverte, et pour quelle fiche ?</summary>
         public static bool IsShowing { get { return _popup != null && _popup.IsOpen; } }
         public static BinderItem Showing { get { return IsShowing ? _target : null; } }
 
-        /// <summary>Un [[lien]] par titre : la fiche du projet qui le porte, sinon rien.</summary>
-        public static void Hover(Control host, string title)
+        /// <summary>Un [[lien]] par titre : la fiche du projet qui le porte, sinon rien.
+        /// anchor : le rectangle du lien dans host — la carte se pose DESSOUS,
+        /// jamais sous le curseur (1/11, Rémi : « le pointeur clignote » — posée
+        /// au pointeur, la carte passait sous la souris, la ligne perdait le
+        /// pointeur, la carte se fermait, rouvrait… en boucle).</summary>
+        public static void Hover(Control host, string title, Rect? anchor = null)
         {
-            Hover(host, title == null || Project == null ? null : Project.FindByTitle(title));
+            Hover(host, title == null || Project == null ? null : Project.FindByTitle(title), anchor);
         }
 
-        public static void Hover(Control host, BinderItem target)
+        public static void Hover(Control host, BinderItem target, Rect? anchor = null)
         {
             if (target != null && target.Kind != ItemKind.Sheet) target = null;
             if (target == null) { if (host == _host) Hide(); return; }
-            if (target == _target && host == _host) return; // déjà en route, ou déjà montrée
+            if (target == _target && host == _host) { CancelHide(); return; } // déjà en route, ou déjà montrée
             Hide();
             _host = host;
             _target = target;
+            _anchor = anchor;
             _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DelayMs) };
             _timer.Tick += delegate
             {
@@ -60,13 +69,26 @@ namespace Marabook.App
             _timer.Start();
         }
 
+        /// <summary>Le pointeur quitte la ligne : la carte en route s'annule ;
+        /// la carte ouverte attend un court instant — le temps d'y entrer.</summary>
         public static void Leave(Control host)
         {
-            if (host == _host) Hide();
+            if (host != _host) return;
+            if (_popup == null) { Hide(); return; }
+            if (_hideTimer != null) return;
+            _hideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(HideGraceMs) };
+            _hideTimer.Tick += delegate { CancelHide(); Hide(); };
+            _hideTimer.Start();
+        }
+
+        private static void CancelHide()
+        {
+            if (_hideTimer != null) { _hideTimer.Stop(); _hideTimer = null; }
         }
 
         public static void Hide()
         {
+            CancelHide();
             if (_timer != null) { _timer.Stop(); _timer = null; }
             if (_popup != null)
             {
@@ -75,6 +97,23 @@ namespace Marabook.App
             }
             _host = null;
             _target = null;
+            _anchor = null;
+        }
+
+        /// <summary>Le rectangle d'une plage de texte d'un TextBlock (le lien),
+        /// dans ses coordonnées ; null si la mise en page ne le connaît pas.</summary>
+        public static Rect? RangeRect(TextBlock block, int start, int length)
+        {
+            try
+            {
+                var layout = block.TextLayout;
+                if (layout == null || length <= 0) return null;
+                Rect? union = null;
+                foreach (var rect in layout.HitTestTextRange(start, length))
+                    union = union == null ? rect : union.Value.Union(rect);
+                return union;
+            }
+            catch (Exception) { return null; }
         }
 
         private static void Show(Control host, BinderItem item)
@@ -86,12 +125,28 @@ namespace Marabook.App
             var popup = new Popup
             {
                 PlacementTarget = host,
-                Placement = PlacementMode.Pointer,
                 IsLightDismissEnabled = false,
                 Child = card
             };
+            if (_anchor != null)
+            {
+                // Sous le lien, à gauche ; remontée au-dessus si le bas manque (le positionneur retourne).
+                popup.Placement = PlacementMode.AnchorAndGravity;
+                popup.PlacementRect = _anchor.Value;
+                popup.PlacementAnchor = PopupAnchor.BottomLeft;
+                popup.PlacementGravity = PopupGravity.BottomRight;
+                popup.VerticalOffset = 6;
+            }
+            else
+            {
+                popup.Placement = PlacementMode.BottomEdgeAlignedLeft;
+                popup.VerticalOffset = 6;
+            }
+            card.Margin = new Thickness(0);
+            card.PointerEntered += delegate { CancelHide(); };
+            card.PointerExited += delegate { if (_popup == popup) Hide(); };
             try { ((ISetLogicalParent)popup).SetParent(host); } catch (Exception) { }
-            host.DetachedFromVisualTree += delegate { if (_popup == popup) Hide(); };
+            if (_wired.Add(host)) host.DetachedFromVisualTree += delegate { _wired.Remove(host); if (_host == host) Hide(); };
             _popup = popup;
             try { popup.IsOpen = true; }
             catch (Exception) { _popup = null; }

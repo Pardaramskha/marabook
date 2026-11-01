@@ -1521,6 +1521,7 @@ namespace Marabook.App
                                 await Settle();
                                 Check(SheetPreview.IsShowing && SheetPreview.Showing == marabout, "la carte d'aperçu s'ouvre au survol du lien du wiki (" + (SheetPreview.IsShowing ? "ouverte" : "fermée") + ")");
                                 SheetPreview.Leave(linkLine);
+                                await Task.Delay(SheetPreview.HideGraceMs + 150); // le délai de grâce (le temps d'entrer dans la carte)
                                 await Settle();
                                 Check(!SheetPreview.IsShowing, "…et se ferme en quittant la ligne");
                                 // Le câblage souris lui-même : un PointerMoved synthétique posé sur le texte du lien.

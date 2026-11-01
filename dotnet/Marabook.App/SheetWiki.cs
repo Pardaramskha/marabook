@@ -311,9 +311,10 @@ namespace Marabook.App
                 {
                     var over = SpanAt(line, e.GetPosition(line));
                     line.Cursor = over != null ? new Cursor(StandardCursorType.Hand) : new Cursor(StandardCursorType.Arrow);
-                    // L'aperçu de la fiche visée (1/11) : la cible connue, sinon le titre du [[lien]].
-                    if (over != null && over.Target != null) SheetPreview.Hover(line, over.Target);
-                    else SheetPreview.Hover(line, over != null ? over.Title : null);
+                    // L'aperçu de la fiche visée (1/11) : la cible connue, sinon le titre du [[lien]] ; la carte s'ancre sous le rectangle du lien.
+                    var anchor = over == null ? null : SheetPreview.RangeRect(line, over.Start, over.Length);
+                    if (over != null && over.Target != null) SheetPreview.Hover(line, over.Target, anchor);
+                    else SheetPreview.Hover(line, over != null ? over.Title : null, anchor);
                 };
                 line.PointerExited += delegate { SheetPreview.Leave(line); };
                 line.PointerPressed += delegate(object sender, PointerPressedEventArgs e)

@@ -240,7 +240,7 @@ namespace Marabook.App
                     var over = SpanAt(owner, e.GetPosition(owner));
                     owner.Cursor = over != null ? new Cursor(StandardCursorType.Hand) : new Cursor(StandardCursorType.Arrow);
                     ToolTip.SetTip(owner, over != null ? over.Tooltip : null);
-                    SheetPreview.Hover(owner, over != null ? over.WikiTitle : null); // l'aperçu de la fiche visée (1/11)
+                    SheetPreview.Hover(owner, over != null ? over.WikiTitle : null, over == null ? null : SheetPreview.RangeRect(owner, over.Start, over.Length)); // l'aperçu de la fiche visée (1/11), ancré sous le lien
                 };
                 owner.PointerExited += delegate { SheetPreview.Leave(owner); };
                 owner.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
