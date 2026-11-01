@@ -234,9 +234,23 @@ namespace Marabook.App
             {
                 TutorialResetModes();
                 var targets = new List<Func<Control>>();
-                foreach (var action in step.Cue.Actions) TutorialApply(action, targets);
+                // Les deux derniers chapitres (journal perso, dernières notes) : ni le rail ni la ligne de la Pile en valeur (1/11, Rémi).
+                var lastTwo = chapterIndex >= playable.Count - 2;
+                foreach (var action in step.Cue.Actions)
+                {
+                    if (lastTwo && (action == "highlight:rail" || action == "highlight:rail-panel")) continue;
+                    TutorialApply(action, targets);
+                }
                 // Dès « 2. Les Écrits », la ligne sélectionnée dans la Pile reste en valeur à chaque étape (1/11, Rémi).
-                if (chapter.Number >= 2 && AppSettings.BinderVisible) targets.Add(delegate { return _binder.SelectedRowForTutorial; });
+                if (chapter.Number >= 2 && !lastTwo && AppSettings.BinderVisible) targets.Add(delegate { return _binder.SelectedRowForTutorial; });
+                // Le tout dernier pas (1/11, Rémi) : la fenêtre au centre, comme celui des raccourcis.
+                if (index == _tutorialSteps.Count - 1) _tutorialCenterWindow = true;
+                if (Environment.GetEnvironmentVariable("MARABOOK_TRACE") == "1")
+                {
+                    var names = new List<string>();
+                    foreach (var target in targets) { Control c = null; try { c = target(); } catch (Exception) { } names.Add(c == null ? "∅" : c.GetType().Name + (c.Name != null ? "#" + c.Name : "")); }
+                    Console.Error.WriteLine("[tuto] " + index + " « " + chapter.Title + " » actions=" + string.Join(" ", step.Cue.Actions.ToArray()) + " cibles=" + string.Join(", ", names.ToArray()) + " rail=" + AppSettings.RightPanel);
+                }
                 _tutorialVeil.SetTargets(targets);
             }
             catch (Exception error)

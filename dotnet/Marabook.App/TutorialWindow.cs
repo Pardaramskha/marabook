@@ -96,7 +96,7 @@ namespace Marabook.App
             DockPanel.SetDock(close, Dock.Left);
             foot.Children.Add(close);
             var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            _previous = Buttons.Text("Précédent", "L'étape précédente", Buttons.Bar, Buttons.Look.Outline);
+            _previous = Buttons.Text("(⌫) Précédent", "L'étape précédente — Retour arrière", Buttons.Bar, Buttons.Look.Outline);
             _previous.Click += delegate { var h = PreviousRequested; if (h != null) h(); };
             _next = Buttons.Text("Suivant", "L'étape suivante", Buttons.Bar, Buttons.Look.Primary);
             _next.MinWidth = 96;
@@ -132,6 +132,13 @@ namespace Marabook.App
             frame.Child = column;
             Content = frame;
 
+            // Entrée avance, Retour arrière recule (1/11, Rémi) — en tunnel, avant
+            // le bouton qui aurait le focus (sinon Entrée « cliquerait » Précédent).
+            AddHandler(InputElement.KeyDownEvent, new EventHandler<KeyEventArgs>(delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key == Key.Enter || e.Key == Key.Return) { var h = NextRequested; if (h != null) h(); e.Handled = true; }
+                else if (e.Key == Key.Back) { var h = PreviousRequested; if (h != null && _previous.IsEnabled) h(); e.Handled = true; }
+            }), Avalonia.Interactivity.RoutingStrategies.Tunnel);
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key == Key.Escape) { var h = CloseRequested; if (h != null) h(); e.Handled = true; }
@@ -180,8 +187,8 @@ namespace Marabook.App
             _previous.IsEnabled = !first;
             _previousChapter.IsEnabled = !firstChapter;
             _nextChapter.IsEnabled = !lastChapter;
-            _next.Content = last ? "Terminer" : "Suivant";
-            ToolTip.SetTip(_next, last ? "Terminer le tutoriel et revenir à l'accueil" : "L'étape suivante");
+            _next.Content = last ? "Terminer (↵)" : "Suivant (↵)"; // les touches entre parenthèses (1/11, Rémi)
+            ToolTip.SetTip(_next, last ? "Terminer le tutoriel et revenir à l'accueil — Entrée" : "L'étape suivante — Entrée");
         }
 
         /// <summary>Le Markdown léger de Rémi : **gras**, *italique*, le reste tel quel.</summary>

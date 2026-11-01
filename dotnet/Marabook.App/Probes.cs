@@ -3631,7 +3631,7 @@ namespace Marabook.App
             var seenRibbon = false; var seenSheetWiki = false; var seenTemplates = false; var seenJournal = false; var seenChart = false;
             var seenEntryDialog = false; var seenUnknownDialog = false; var seenBrick = false;
             var guard = 0;
-            while (window.NextLabelForProbe != "Terminer" && guard++ < 200)
+            while (!window.NextLabelForProbe.StartsWith("Terminer") && guard++ < 200) // « Terminer (↵) » (1/11)
             {
                 window.ClickNextForProbe();
                 await Settle();
@@ -3650,7 +3650,7 @@ namespace Marabook.App
             Check(seenUnknownDialog, "jalon : « Mots inconnus » ouverte sans bloquer, inerte");
             Check(seenBrick, "jalon : la fiche d'une brique existante du plan, ouverte sans bloquer, inerte");
             Check(shell.TutorialOpenWindowsForProbe == 0, "au dernier pas, les fenêtres ouvertes par le tuto sont refermées (" + shell.TutorialOpenWindowsForProbe + ")");
-            Check(window.NextLabelForProbe == "Terminer" && shell.TutorialIndexForProbe == total - 1, "le parcours entier par Suivant mène au « Terminer » (" + shell.TutorialIndexForProbe + "/" + (total - 1) + ")");
+            Check(window.NextLabelForProbe.StartsWith("Terminer") && shell.TutorialIndexForProbe == total - 1, "le parcours entier par Suivant mène au « Terminer (↵) » (" + shell.TutorialIndexForProbe + "/" + (total - 1) + ")");
             var endCapture = Environment.GetEnvironmentVariable("MARABOOK_TUTORIAL_END_CAPTURE"); // la fenêtre du tuto à l'avant-dernière étape (les blocs de raccourcis)
             if (!string.IsNullOrEmpty(endCapture))
             {

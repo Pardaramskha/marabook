@@ -214,6 +214,11 @@ namespace Marabook.App
                 IsLightDismissEnabled = true,
                 VerticalOffset = 4
             };
+            // Le Popup prend le bouton pour parent LOGIQUE (1/11, Rémi : « une
+            // nouvelle fenêtre blanche, infobulles sans style, pas de survol ») :
+            // sans parent, sa racine n'hérite pas des styles de la fenêtre —
+            // fond blanc, boutons et infobulles nus. Comme le menu des suggestions.
+            try { ((ISetLogicalParent)popup).SetParent(anchor); } catch (Exception) { }
             // Le contenu est bâti AVANT la première ouverture (1/11, Rémi : « ne
             // s'ouvre qu'au second clic » — un Popup sans enfant ne se montre
             // pas), puis rebâti à chaque ouverture (récents, police du caret).
@@ -343,6 +348,7 @@ namespace Marabook.App
                 HorizontalContentAlignment = HorizontalAlignment.Center,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 ClipToBounds = true,
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand), // la main au survol (1/11)
                 Focusable = false,
                 [ToolTip.TipProperty] = entry.Name == null ? CodeOf(entry.Text) : entry.Name + " (" + CodeOf(entry.Text) + ")"
             };
