@@ -6,6 +6,6 @@ namespace Marabook.Model
     public static class AppInfo
     {
         public const string Name = "Marabook";
-        public const string Version = "1.0.6";
+        public const string Version = "1.1.0";
     }
 }
