@@ -2493,6 +2493,18 @@ namespace Marabook.App
                 }
                 finally { if (string.IsNullOrEmpty(keep)) { try { System.IO.Directory.Delete(folder, true); } catch (System.IO.IOException) { } } }
             }
+            // Le dialogue de l'Encyclopédie (1/11) : ce qui est entré revient (fiches cochées, « ouvrir après »), l'accent est un bouton au nuancier.
+            {
+                BinderItem keira = null;
+                foreach (var item in shell.Project.AllItems()) if (item.Kind == ItemKind.Sheet && item.Title == "Keira Varenh") { keira = item; break; }
+                var remembered = new EncyclopediaOptions { Accent = "#C0392B", OpenAfter = false };
+                if (keira != null) remembered.SheetIds.Add(keira.Id);
+                var snapshot = EncyclopediaExportDialog.SnapshotForProbe(shell, shell.Project, Exchange.EncyclopediaSelection.All(), remembered);
+                Check(keira != null && snapshot.StartsWith("1/") && snapshot.Contains("#C0392B") && snapshot.Contains("sans-couverture") && snapshot.EndsWith("n-ouvre-pas"),
+                    "le dialogue de l'Encyclopédie reprend la dernière sélection, l'accent et « ouvrir après » (" + snapshot + ")");
+                var fromSheet = keira == null ? "" : EncyclopediaExportDialog.SnapshotForProbe(shell, shell.Project, Exchange.EncyclopediaSelection.Sheet(keira.Id), new EncyclopediaOptions());
+                Check(fromSheet.StartsWith("1/") && fromSheet.Contains("#5B67D8") && fromSheet.EndsWith("ouvre") && !fromSheet.EndsWith("n-ouvre-pas"), "…depuis une fiche : elle seule, l'accent d'office (" + fromSheet + ")");
+            }
             // Le succès secret (31/10) : un clic le gagne, un autre le perd.
             {
                 var hadCurious = AppSettings.Achievements.ContainsKey(Achievements.Curious);

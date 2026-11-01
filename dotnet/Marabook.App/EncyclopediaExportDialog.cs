@@ -25,7 +25,11 @@ namespace Marabook.App
         private readonly List<CheckBox> _sheetBoxes = new List<CheckBox>();
         private readonly Dictionary<string, CheckBox> _categoryBoxes = new Dictionary<string, CheckBox>();
         private readonly TextBlock _countLabel;
-        private readonly TextBox _title, _subtitle, _author, _accent;
+        private readonly TextBox _title, _subtitle, _author;
+        private readonly Button _accentButton;
+        private readonly Border _accentDot;
+        private readonly TextBlock _accentText;
+        private string _accent;          // l'accent, « #RRGGBB » (1/11 : le nuancier de Marabook plutôt qu'un champ hex)
         private readonly FontPicker _bodyFont, _headingFont;
         private readonly ComboBox _size, _portrait, _format;
         private readonly CheckBox _dark, _infobox, _relations, _presence, _radar, _tags, _dates, _lexicon, _lexiconDefined, _lexiconGlobal, _emptySheets, _open;
@@ -77,7 +81,9 @@ namespace Marabook.App
             quick.Children.Add(_countLabel);
             left.Children.Add(quick);
             var tree = new StackPanel { Spacing = 2 };
-            BuildTree(tree, preset);
+            // Depuis le menu Fichier (préréglage « tout »), les fiches cochées au dernier export reviennent (1/11) ; depuis une fiche ou une catégorie, c'est elle.
+            var remembered = preset == null || preset.Scope == EncyclopediaSelection.ScopeAll ? RememberedSelection(defaults) : null;
+            BuildTree(tree, remembered ?? preset);
             left.Children.Add(new Border
             {
                 BorderBrush = Chrome.Border,
@@ -146,8 +152,26 @@ namespace Marabook.App
             foreach (var px in new[] { 14, 15, 16, 17, 18, 20 }) _size.Items.Add(px + " px");
             _size.SelectedIndex = Math.Max(0, Array.IndexOf(new[] { 14, 15, 16, 17, 18, 20 }, (int)Math.Round(defaults.BaseSize)));
             if (_size.SelectedIndex < 0) _size.SelectedIndex = 2;
-            _accent = new TextBox { Text = defaults.Accent ?? "#5B67D8", Width = 110, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 6) };
-            ToolTip.SetTip(_accent, "La couleur des liens, des titres de section et des tags : #RRGGBB");
+            // L'accent (1/11, Rémi : « personne ne connaît les couleurs hex par cœur ») : la pastille et le nom, le nuancier partagé au clic (ColorMenus : nuancier, couleurs du projet, « Nouvelle couleur… »).
+            _accent = EncyclopediaOptions.SafeColor(defaults.Accent, "#5B67D8");
+            _accentDot = ColorMenus.Dot(_accent, 1, Chrome.Border);
+            _accentText = new TextBlock { Text = _accent, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            var accentContent = new StackPanel { Orientation = Orientation.Horizontal };
+            accentContent.Children.Add(_accentDot);
+            accentContent.Children.Add(_accentText);
+            _accentButton = new Button { Content = accentContent, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 6) };
+            ToolTip.SetTip(_accentButton, "La couleur des liens, des titres de section et des tags");
+            _accentButton.Click += delegate
+            {
+                var menu = new ContextMenu { Placement = PlacementMode.Bottom, PlacementTarget = _accentButton };
+                ColorMenus.Fill(menu, this, _project, _accent, delegate(string value)
+                {
+                    _accent = EncyclopediaOptions.SafeColor(value, _accent);
+                    _accentDot.Background = new SolidColorBrush(Ink.Parse(_accent).ToColor());
+                    _accentText.Text = _accent;
+                }, false);
+                Ui.ShowMenu(menu, _accentButton);
+            };
             _portrait = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 0, 0, 6) };
             _portrait.Items.Add("À droite du texte");
             _portrait.Items.Add("À gauche du texte");
@@ -156,7 +180,7 @@ namespace Marabook.App
             AddRow(fonts, 0, "Texte", _bodyFont);
             AddRow(fonts, 1, "Titres", _headingFont);
             AddRow(fonts, 2, "Taille", _size);
-            AddRow(fonts, 3, "Accent", _accent);
+            AddRow(fonts, 3, "Accent", _accentButton);
             AddRow(fonts, 4, "Portrait", _portrait);
             right.Children.Add(fonts);
             _dark = new CheckBox { Content = "Thème sombre", IsChecked = defaults.Dark };
@@ -187,7 +211,7 @@ namespace Marabook.App
             columns.Children.Add(right);
             root.Children.Add(columns);
 
-            _open = new CheckBox { Content = "Ouvrir l'accueil dans le navigateur une fois l'export fait", IsChecked = true, Margin = new Thickness(0, 14, 0, 0) };
+            _open = new CheckBox { Content = "Ouvrir l'accueil dans le navigateur une fois l'export fait", IsChecked = defaults.OpenAfter, Margin = new Thickness(0, 14, 0, 0) };
             root.Children.Add(_open);
 
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
@@ -209,6 +233,16 @@ namespace Marabook.App
         }
 
         // ---------------------------------------------------------------- l'arbre
+
+        /// <summary>La sélection du dernier export, si elle vise encore au
+        /// moins une fiche du projet ; sinon null (tout).</summary>
+        private EncyclopediaSelection RememberedSelection(EncyclopediaOptions defaults)
+        {
+            if (defaults == null || defaults.SheetIds == null || defaults.SheetIds.Count == 0) return null;
+            var selection = new EncyclopediaSelection { Scope = EncyclopediaSelection.ScopeSheets };
+            foreach (var id in defaults.SheetIds) if (_project.FindById(id) != null) selection.Ids.Add(id);
+            return selection.Ids.Count == 0 ? null : selection;
+        }
 
         private void BuildTree(StackPanel tree, EncyclopediaSelection preset)
         {
@@ -427,6 +461,15 @@ namespace Marabook.App
             return box;
         }
 
+        /// <summary>Sonde (1/11) : le dialogue construit sans être montré —
+        /// fiches cochées, fiches en tout, texte du bouton d'accent, état de
+        /// la couverture.</summary>
+        internal static string SnapshotForProbe(Window owner, Project project, EncyclopediaSelection preset, EncyclopediaOptions defaults)
+        {
+            var dialog = new EncyclopediaExportDialog(owner, project, preset, defaults ?? new EncyclopediaOptions());
+            return dialog.SelectedIds().Count + "/" + dialog._sheetBoxes.Count + " " + dialog._accentText.Text + " " + (dialog._coverImageId == null ? "sans-couverture" : "couverture") + " " + (dialog._open.IsChecked == true ? "ouvre" : "n-ouvre-pas");
+        }
+
         // ---------------------------------------------------------------- réponse
 
         public static async Task<Answer> Ask(Window owner, Project project, EncyclopediaSelection preset, EncyclopediaOptions defaults)
@@ -446,7 +489,7 @@ namespace Marabook.App
                 BodyFont = dialog._bodyFont.SelectedFontName ?? "",
                 HeadingFont = dialog._headingFont.SelectedFontName ?? "",
                 BaseSize = sizes[Math.Max(0, Math.Min(sizes.Length - 1, dialog._size.SelectedIndex))],
-                Accent = EncyclopediaOptions.SafeColor(dialog._accent.Text, "#5B67D8"),
+                Accent = EncyclopediaOptions.SafeColor(dialog._accent, "#5B67D8"),
                 Dark = dialog._dark.IsChecked == true,
                 PortraitSide = dialog._portrait.SelectedIndex == 1 ? "left" : dialog._portrait.SelectedIndex == 2 ? "top" : "right",
                 ShowInfobox = dialog._infobox.IsChecked == true,
@@ -459,9 +502,12 @@ namespace Marabook.App
                 LexiconOnlyDefined = dialog._lexiconDefined.IsChecked == true,
                 LexiconAllProjects = dialog._lexiconGlobal.IsChecked == true,
                 IncludeEmptySheets = dialog._emptySheets.IsChecked == true,
-                CoverImageId = dialog._coverImageId
+                CoverImageId = dialog._coverImageId,
+                OpenAfter = dialog._open.IsChecked == true
             };
-            return new Answer { Selection = selection, Options = options, OpenAfter = dialog._open.IsChecked == true };
+            // Les fiches cochées sont retenues avec les options (vide si tout est coché : « toutes », même les fiches à venir).
+            if (selection.Ids.Count < dialog._sheetBoxes.Count) options.SheetIds.AddRange(selection.Ids);
+            return new Answer { Selection = selection, Options = options, OpenAfter = options.OpenAfter };
         }
     }
 }

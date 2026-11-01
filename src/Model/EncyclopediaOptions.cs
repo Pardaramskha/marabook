@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Marabook.Model
 {
@@ -28,10 +29,16 @@ namespace Marabook.Model
         public bool LexiconAllProjects = true;  // le dictionnaire de tous les projets aussi
         public bool IncludeEmptySheets = true;  // une fiche sans champ ni texte : son titre seul
         public string CoverImageId;             // null = pas de couverture
+        /// <summary>Les fiches cochées au dernier export (1/11, Rémi : « ce qui
+        /// est entré dans la fenêtre est gardé ») ; vide = toutes.</summary>
+        public List<string> SheetIds = new List<string>();
+        public bool OpenAfter = true;           // ouvrir l'accueil dans le navigateur après l'export
 
         public EncyclopediaOptions Clone()
         {
-            return (EncyclopediaOptions)MemberwiseClone();
+            var copy = (EncyclopediaOptions)MemberwiseClone();
+            copy.SheetIds = new List<string>(SheetIds ?? new List<string>());
+            return copy;
         }
 
         /// <summary>Une empreinte de tous les réglages : deux options égales
@@ -43,7 +50,7 @@ namespace Marabook.Model
                 Format, Title, Subtitle, Author, BodyFont, HeadingFont, BaseSize.ToString(System.Globalization.CultureInfo.InvariantCulture), Accent,
                 Dark ? "1" : "0", PortraitSide, ShowInfobox ? "1" : "0", ShowRelations ? "1" : "0", ShowPresence ? "1" : "0", ShowRadar ? "1" : "0",
                 ShowTags ? "1" : "0", ShowDates ? "1" : "0", IncludeLexicon ? "1" : "0", LexiconOnlyDefined ? "1" : "0", LexiconAllProjects ? "1" : "0",
-                IncludeEmptySheets ? "1" : "0", CoverImageId ?? ""
+                IncludeEmptySheets ? "1" : "0", CoverImageId ?? "", OpenAfter ? "1" : "0", string.Join(",", (SheetIds ?? new List<string>()).ToArray())
             });
         }
 

@@ -4353,17 +4353,29 @@ namespace Marabook.App
             CommitActive();
             var answer = await EncyclopediaExportDialog.Ask(this, _project, preset, Exchange.Encyclopedia.DefaultOptions(_project));
             if (answer == null) return;
-            var parent = await Ui.PickFolder(this, "Où poser le dossier de l'Encyclopédie ?");
-            if (parent == null) return;
+            // Ce qui est entré dans la fenêtre est gardé dès maintenant (1/11, Rémi) : même si l'on renonce au dossier, ou si l'export échoue.
+            RememberEncyclopediaOptions(answer.Options);
+            string folder;
             try
             {
+                var titled = answer.Options.TitleFor(_project);
+                // Le dialogue d'enregistrement plutôt que le sélecteur de dossier (plantage du 1/11, voir Ui.PickFolder) : l'emplacement et le nom du dossier en un geste.
+                folder = await Ui.PickNewFolder(this, "Où poser le dossier de l'Encyclopédie ?", SafeFileName(titled));
+            }
+            catch (Exception error)
+            {
+                MessageDialog.Show(this, "Le choix du dossier a échoué : " + error.Message, "Encyclopédie", MessageButtons.OK, MessageIcon.Warning);
+                return;
+            }
+            if (folder == null) return;
+            try
+            {
+                if (System.IO.File.Exists(folder)) throw new InvalidOperationException("un fichier porte déjà ce nom — choisissez un autre nom de dossier.");
                 var document = Exchange.Encyclopedia.Build(_project, answer.Selection, answer.Options, AppSettings.Lexicon);
-                var folder = System.IO.Path.Combine(parent, SafeFileName(document.Title));
                 var written = Exchange.HtmlEncyclopedia.Write(folder, document, _project);
-                RememberEncyclopediaOptions(answer.Options);
                 ShowToast(null, "Encyclopédie exportée", document.Title,
                     document.SheetCount + (document.SheetCount > 1 ? " fiches" : " fiche") + (document.Lexicon.Count > 0 ? ", le Lexique" : "") + " — " + written.Count + " fichiers dans " + folder, 6);
-                if (answer.OpenAfter)
+                if (answer.Options.OpenAfter)
                 {
                     try { AppPlatform.OpenWithShell(System.IO.Path.Combine(folder, Exchange.HtmlEncyclopedia.IndexFile)); }
                     catch { }

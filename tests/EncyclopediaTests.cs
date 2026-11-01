@@ -285,7 +285,12 @@ namespace Marabook.Tests
         {
             var world = Make();
             var project = world.Project;
-            project.Encyclopedia = new EncyclopediaOptions { Format = EncyclopediaOptions.FormatHtml, Title = "Codex", Author = "Moi", BodyFont = "Garamond", BaseSize = 18, Accent = "#112233", Dark = true, ShowRadar = false, IncludeLexicon = false, PortraitSide = "left", CoverImageId = world.PortraitId };
+            project.Encyclopedia = new EncyclopediaOptions { Format = EncyclopediaOptions.FormatHtml, Title = "Codex", Author = "Moi", BodyFont = "Garamond", BaseSize = 18, Accent = "#112233", Dark = true, ShowRadar = false, IncludeLexicon = false, PortraitSide = "left", CoverImageId = world.PortraitId, OpenAfter = false };
+            project.Encyclopedia.SheetIds.Add(world.Keira.Id);
+            project.Encyclopedia.SheetIds.Add(world.Cove.Id);
+            var cloned = project.Encyclopedia.Clone();
+            cloned.SheetIds.Add("autre");
+            t.Check(project.Encyclopedia.SheetIds.Count == 2 && cloned.SheetIds.Count == 3 && cloned.Signature() != project.Encyclopedia.Signature(), "Clone copie la liste des fiches ; la signature la compte");
             var path = Path.Combine(Path.GetTempPath(), "marabook-c60-" + Guid.NewGuid().ToString("N") + ".plot");
             try
             {
@@ -295,6 +300,7 @@ namespace Marabook.Tests
                 t.Check(loaded.LoadedFormatVersion >= 45, "le .plot est en v45 au moins (" + loaded.LoadedFormatVersion + ")");
                 t.Check(e != null && e.Title == "Codex" && e.Author == "Moi" && e.BodyFont == "Garamond" && Math.Abs(e.BaseSize - 18) < 0.001 && e.Accent == "#112233" && e.Dark && !e.ShowRadar && !e.IncludeLexicon && e.PortraitSide == "left" && e.CoverImageId == world.PortraitId && e.ShowInfobox,
                     "les options de l'Encyclopédie font l'aller-retour, les absentes gardent leur défaut");
+                t.Check(e != null && !e.OpenAfter && e.SheetIds.Count == 2 && e.SheetIds[0] == world.Keira.Id && e.SheetIds[1] == world.Cove.Id, "…les fiches cochées et « ouvrir après » aussi (1/11)");
                 var empty = Project.CreateNew();
                 PlotFile.Save(empty, path);
                 t.Check(PlotFile.Load(path).Encyclopedia == null, "jamais réglées : rien dans le .plot");

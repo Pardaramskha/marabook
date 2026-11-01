@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Layout;
@@ -219,13 +220,45 @@ namespace Marabook.App
             return picked == null ? null : picked.TryGetLocalPath();
         }
 
-        /// <summary>Un dossier, ou null (31/10 : l'Encyclopédie s'écrit dans un dossier).</summary>
+        /// <summary>Un dossier existant, ou null (31/10). PIÈGE (plantage du
+        /// 1/11, Rémi) : le sélecteur de dossier d'Avalonia 11.3 lève
+        /// « Directory must exist » quand le chemin rendu par Windows ne lui
+        /// paraît pas exister (dossier synchronisé, chemin virtuel…) — attrapé
+        /// ici : on l'explique, et on rend null.</summary>
         public static async Task<string> PickFolder(Visual visual, string title)
         {
             var top = visual == null ? null : TopLevel.GetTopLevel(visual);
             if (top == null) return null;
-            var picked = await top.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = title, AllowMultiple = false });
-            return picked == null || picked.Count == 0 ? null : picked[0].TryGetLocalPath();
+            try
+            {
+                var picked = await top.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = title, AllowMultiple = false });
+                return picked == null || picked.Count == 0 ? null : picked[0].TryGetLocalPath();
+            }
+            catch (Exception error)
+            {
+                MessageDialog.Show(OwnerOf(visual), "Ce dossier n'a pas pu être lu (" + error.Message + ") : choisissez-en un autre.", "Marabook", MessageButtons.OK, MessageIcon.Warning);
+                return null;
+            }
+        }
+
+        /// <summary>Un dossier À CRÉER (1/11) : le dialogue d'enregistrement, où
+        /// l'on choisit l'emplacement et le nom en un geste — le chemin rendu
+        /// est celui du dossier, pas encore créé ; null si l'on renonce. Plus
+        /// sûr que le sélecteur de dossier (voir PickFolder), et le nom du
+        /// dossier se change sur place.</summary>
+        public static async Task<string> PickNewFolder(Visual visual, string title, string suggestedName)
+        {
+            var top = visual == null ? null : TopLevel.GetTopLevel(visual);
+            if (top == null) return null;
+            var picked = await top.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = title,
+                SuggestedFileName = suggestedName,
+                ShowOverwritePrompt = false,
+                FileTypeChoices = new List<FilePickerFileType> { new FilePickerFileType("Dossier") { Patterns = new[] { "*" } } }
+            });
+            var path = picked == null ? null : picked.TryGetLocalPath();
+            return string.IsNullOrEmpty(path) ? null : path;
         }
 
         /// <summary>Plusieurs fichiers à l'ouverture, ou null.</summary>

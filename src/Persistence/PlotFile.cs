@@ -793,6 +793,8 @@ namespace Marabook.Persistence
                 o["lexiconAllProjects"] = e.LexiconAllProjects;
                 o["includeEmptySheets"] = e.IncludeEmptySheets;
                 if (!string.IsNullOrEmpty(e.CoverImageId)) o["coverImageId"] = e.CoverImageId;
+                o["openAfter"] = e.OpenAfter; // 1/11 : ce qui est entré dans la fenêtre est gardé (clés additives)
+                if (e.SheetIds != null && e.SheetIds.Count > 0) o["sheetIds"] = new List<object>(e.SheetIds.ToArray());
                 manifest["encyclopedia"] = o;
             }
             manifest["createdAt"] = project.CreatedAt;
@@ -1394,8 +1396,16 @@ namespace Marabook.Persistence
                         LexiconOnlyDefined = Json.AsBool(Json.Field(encyclopedia, "lexiconOnlyDefined"), true),
                         LexiconAllProjects = Json.AsBool(Json.Field(encyclopedia, "lexiconAllProjects"), true),
                         IncludeEmptySheets = Json.AsBool(Json.Field(encyclopedia, "includeEmptySheets"), true),
-                        CoverImageId = Json.AsString(Json.Field(encyclopedia, "coverImageId"))
+                        CoverImageId = Json.AsString(Json.Field(encyclopedia, "coverImageId")),
+                        OpenAfter = Json.AsBool(Json.Field(encyclopedia, "openAfter"), true)
                     };
+                    var sheetIds = Json.AsList(Json.Field(encyclopedia, "sheetIds")); // 1/11
+                    if (sheetIds != null)
+                        foreach (var entry in sheetIds)
+                        {
+                            var id = Json.AsString(entry);
+                            if (!string.IsNullOrEmpty(id) && !e.SheetIds.Contains(id)) e.SheetIds.Add(id);
+                        }
                     if (e.BaseSize < 10 || e.BaseSize > 32) e.BaseSize = d.BaseSize;
                     project.Encyclopedia = e;
                 }
