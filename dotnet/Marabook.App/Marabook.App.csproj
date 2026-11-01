@@ -56,6 +56,11 @@
     <EmbeddedResource Include="..\..\assets\sounds\*.wav" LogicalName="sounds/%(Filename)%(Extension)" />
     <!-- Les images de tête des DLC (1/11, Rémi) : assets/dlc/<fichier>, montrées par la fenêtre d'un module. -->
     <EmbeddedResource Include="..\..\assets\dlc\*.jpg;..\..\assets\dlc\*.png" LogicalName="dlc/%(Filename)%(Extension)" />
+    <!-- Le dictionnaire d'orthographe à côté de la DLL (1/11) : SpellChecker le
+         cherche dans <exe>/dict ; publish.ps1 le copie dans l'archive, mais la
+         sonde de l'intégration continue tourne sur bin/ — sans cette copie,
+         l'orthographe y était muette (0 relevé). -->
+    <None Include="..\..\dict\*" Link="dict\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

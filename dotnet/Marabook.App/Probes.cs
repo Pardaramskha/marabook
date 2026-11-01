@@ -219,8 +219,12 @@ namespace Marabook.App
                     chapter.Document.Paragraphs.Add(seeded);
                     editor.Reload();
                     editor.RefreshProofing(); // la passe tout de suite (Reload recompose sans vérifier)
-                    await Task.Delay(1500);
-                    await Settle();
+                    // La passe est asynchrone et le dictionnaire se charge à la première
+                    // fois : on attend les relevés jusqu'à 30 s (1/11 : les runners de
+                    // l'intégration continue sont lents — 1,5 s n'y suffisait pas).
+                    var waited = 0;
+                    while (editor.FindingCount < 3 && waited < 30000) { await Task.Delay(250); waited += 250; await Settle(); }
+                    if (editor.FindingCount < 3) { editor.RefreshProofing(); await Task.Delay(2000); await Settle(); }
                     shell.SetRightPanelPublic(RightPanel.Correction);
                     await Settle();
                     var panel = editor.CorrectionPanel;
