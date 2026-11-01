@@ -7048,7 +7048,9 @@ namespace Marabook.App
             }
             else if (_current != null && _current.Kind == ItemKind.MindMap)
             {
-                CommitMindMap();
+                // Pas de commit de la carte pour des statistiques (1/11, Rémi :
+                // le commit validait la boîte en cours d'édition et sortait le
+                // caret, 400 ms après chaque geste) : les derniers octets commis suffisent.
                 var summary = MindMaps.Inspect(_current.MapBytes);
                 _statusRight.Text = summary.Label;
                 _inspStats.Text = summary.Label;
