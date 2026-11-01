@@ -124,6 +124,19 @@ namespace Marabook.App
             // en plus de son menu, c'était le bug du portage — le menu seul
             // suffit. L'élément VISÉ se surligne le temps du menu (batch 28) —
             // sur l'interligne, on sait enfin à qui le menu s'applique.
+            // Le clic MOLETTE sur une ligne (1/11, Rémi) : l'élément s'ouvre dans un nouvel onglet, sans bouger la sélection.
+            _tree.AddHandler(InputElement.PointerPressedEvent, new EventHandler<PointerPressedEventArgs>(delegate(object sender, PointerPressedEventArgs e)
+            {
+                if (!e.GetCurrentPoint(_tree).Properties.IsMiddleButtonPressed) return;
+                e.Handled = true;
+                var node = NodeFromSource(e.Source);
+                if (node == null || _renameBox != null) return;
+                var item = node.Tag as BinderItem;
+                if (item == null || (item.IsCategory && item.CategoryKey == MainWindow.GraphKey)) return;
+                if (CanOpenTab == null || !CanOpenTab()) return;
+                var handler = NewTabRequested;
+                if (handler != null) handler(item);
+            }), Avalonia.Interactivity.RoutingStrategies.Tunnel);
             _tree.AddHandler(InputElement.PointerPressedEvent, new EventHandler<PointerPressedEventArgs>(delegate(object sender, PointerPressedEventArgs e)
             {
                 var node = NodeFromSource(e.Source);
@@ -2463,11 +2476,28 @@ namespace Marabook.App
         /// exclues — partagé avec la palette « Ouvrir par le nom ».</summary>
         public static List<BinderItem> NameMatches(Project project, string query, SearchKind kind, int cap)
         {
+            return NameMatches(project, query, kind, cap, false);
+        }
+
+        /// <summary>withSections (1/11, Rémi : la palette Ctrl+,) : les SECTIONS
+        /// de la Pile (Écrits, Fiches, Plans… — les racines, pas les
+        /// sous-catégories) répondent aussi par leur nom ; les livres y sont
+        /// déjà (tout élément hors catégorie).</summary>
+        public static List<BinderItem> NameMatches(Project project, string query, SearchKind kind, int cap, bool withSections)
+        {
             var matches = new List<BinderItem>();
             if (project == null || string.IsNullOrEmpty(query)) return matches;
             foreach (var item in ProjectSearch.PileOrder(project))
             {
-                if (item.IsCategory || !ProjectSearch.Matches(kind, item)) continue;
+                if (item.IsCategory)
+                {
+                    if (!withSections || item.Parent != null || item.CategoryKey == Project.KeyTrash || item.CategoryKey == MainWindow.GraphKey) continue;
+                    if (!ContainsLoose(item.Title ?? "", query)) continue;
+                    matches.Add(item);
+                    if (matches.Count >= cap) break;
+                    continue;
+                }
+                if (!ProjectSearch.Matches(kind, item)) continue;
                 if (item.RootCategory().CategoryKey == Project.KeyTrash) continue;
                 if (!ContainsLoose(item.Title ?? "", query)) continue;
                 matches.Add(item);

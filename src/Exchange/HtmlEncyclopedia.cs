@@ -556,8 +556,7 @@ namespace Marabook.Exchange
             foreach (var sheet in all)
             {
                 var image = sheet.ImageId == null ? null : ImageSrc(document, sheet.ImageId, "");
-                var excerpt = Encyclopedia.Excerpt(sheet.BodyMarkdown, ExcerptChars);
-                if (excerpt.Length == 0) excerpt = Encyclopedia.FieldsSummary(sheet, ExcerptChars); // sans Texte libre : les champs de l'infobox
+                var excerpt = Encyclopedia.Excerpt(sheet.BodyMarkdown, ExcerptChars); // sans premier paragraphe : titre, modèle, portrait seuls (1/11, Rémi)
                 if (!first) sb.Append(',');
                 first = false;
                 sb.Append(JsString(SheetPath(sheet))).Append(":{\"t\":").Append(JsString(sheet.Title));

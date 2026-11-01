@@ -9,10 +9,10 @@ Tout est **gratuit**, hors-ligne, sans IA embarquée ou "aide à l'écriture" (f
 
 Passons ensemble sur le gros des fonctionnalités de ce fat motherfucker!
 
-1. La pile et le rail
-* (highlight pile + ouvrir la pile) A gauche se trouve **la pile** où se rangeront toutes vos créations par catégories. C'est votre point de navigation principal !
-* (highlight rail + menu du rail + ouvrir le rail) A droite se trouve **le rail**, qui est l'endroit à partir duquel vous pourrez modifier beaucoup d'options, faire des recherches dans votre lexique personnalisé, ou encore épingler des textes pour les garder sous la main !
-* (highlight onglets) Vous pouvez créer et gérer vos onglets pour être plus organisé ! J'espère que vous avez confiance en votre ordi, cependant...
+1. La base
+* (highlight pile + ouvrir la pile) A gauche se trouve **la pile** où se rangeront toutes vos créations par catégories. C'est votre point de navigation principal ! Vous pouvez aussi faire une recherche rapide avec `Ctrl+,`.
+* (highlight rail + menu général du rail + ouvrir le rail) A droite se trouve **le rail**, qui est l'endroit à partir duquel vous pourrez modifier beaucoup d'options, faire des recherches dans votre lexique personnalisé, ou encore épingler des textes pour les garder sous la main !
+* (highlight onglets) Vous pouvez **créer et gérer vos onglets** pour être plus organisé ! J'espère que vous avez confiance en votre ordi, cependant...
 * (switch vers le tableau écrits, highlight tableau) Ca, c'est un **tableau** qui contient des **tuiles**. Tous vos éléments se présenteront ainsi. Les tuiles peuvent être réordonnées, et leurs options permettent d'en changer la couleur, l'icône, le statut, et bien d'autres choses ! N'hésitez jamais à faire de petits clics droits, vous ne savez pas ce que vous pourrez trouver !
 
 2. Les écrits
@@ -25,7 +25,7 @@ Passons ensemble sur le gros des fonctionnalités de ce fat motherfucker!
 * (switch onglet - highlight tableau) L'onglet **Publication** permet de passer en revue les métriques de votre beau bébé, les éléments (potentiellement) manquants, les irrégularités et autres broutilles que vous ne voulez pas laisser fuir avant d'envoyer tout ça à imprimer ! 
 
 3. L'éditeur de texte
-* (Ouverture Chapitre 1 - highlight ruban + fenêtre) Là où la magie se fait ! L'éditeur de texte est votre surface de travail principale ! On retrouve différents onglets du **ruban**, où sont toutes les options !
+* (Ouverture Chapitre 1 - highlight ruban + fenêtre) **Là où la magie se fait** ! L'éditeur de texte est votre surface de travail principale ! On retrouve différents onglets du **ruban**, où sont toutes les options !
 * (switch onglet - highlight onglets + ruban) L'onglet **texte** comprend toutes les options classiques pour écrire, insérer des listes, des séparateurs de scène, points médians, et gérer vos styles de paragraphe !
 * (switch onglet - highlight onglets + ruban) L'onglet **image** est assez parlant. Vous pourrez insérer vos images ici et les travailler du besoin, même si les fonctionnalités restent assez limitées.
 * (switch onglet - highlight onglets + ruban) L'onglet **Insertion** permet d'insérer les notes de bas de page, les sauts de page, ou les **liens vers les fiches** (raccourci CTRL+K).
@@ -40,48 +40,50 @@ Passons ensemble sur le gros des fonctionnalités de ce fat motherfucker!
 
 
 4. La recherche
-* (tableau recherche - highlight tableau) Que dire de plus ? Un tableau blanc et un bouton Importer. Emmenez ici tout ce que vous voudriez avoir sous la main pour vos recherches, vos fichiers resteront là. Notez qu'importer des fichiers locaux en réalise une copie dans Marabook, votre projet va donc grossir de manière exponentielle ! Attention à ne pas voir trop grand !
-* (switch sur Le pigeon - highlight contenu de la page) Et bien sur, cliquer dessus vous ouvrira le fichier en question ! S'il a besoin d'un autre logiciel, celui-ci s'ouvrira automatiquement.
+* (tableau recherche - highlight tableau) Que dire de plus ? **Un tableau blanc et un bouton Importer**. Emmenez ici tout ce que vous voudriez avoir sous la main pour vos recherches, vos fichiers resteront là. Notez qu'importer des fichiers locaux en réalise une copie dans Marabook, votre projet va donc grossir de manière exponentielle ! Attention à ne pas voir trop grand !
+* (switch sur Le pigeon - highlight contenu de la page) Et bien sur, **cliquer dessus** vous ouvrira le fichier en question ! S'il a besoin d'un autre logiciel, celui-ci s'ouvrira automatiquement.
 
 5. Les fiches
-* (tableau fiches - highlight tableau) Créez votre bibliothèque de fiches, gérez vos modèles et catégories personnalisées, et faites-vous une vraie encyclopédie de vos écrits ! Les fiches viennent avec des catégories par défaut (personnage, lieu, etc.) que vous pouvez voir en survolant les icones-filtres.
-* (highlight boutons) Vous pouvez créer de nouvelles catégories au besoin : cela créera également un modèle de fiche associé que vous pourrez changer depuis **l'éditeur de modèles** ! Vous pouvez également créer des sous-catégories pour gagner en précision.
+* (tableau fiches - highlight tableau) Créez votre **bibliothèque de fiches**, gérez vos modèles et catégories personnalisées, et faites-vous une vraie encyclopédie de vos écrits ! Les fiches viennent avec des catégories par défaut (personnage, lieu, etc.) que vous pouvez voir en survolant les icones-filtres.
+* (highlight boutons) Vous pouvez **créer de nouvelles catégories** au besoin : cela créera également un modèle de fiche associé que vous pourrez changer depuis **l'éditeur de modèles** ! Vous pouvez également créer des sous-catégories pour gagner en précision.
 * (switch vers une fiche de personnage onglet général - highlight page) Les modèles de fiche personnage sont les plus complets, alors prenons-le pour exemple. Dans l'onglet **général**, Chaque grande zone est une **section de fiche** qui représente un bloc ou une utilité distincte dans la fiche. Les champs sont variés, et vous pouvez rajouter des champs **par fiche** depuis la fiche concernée.
-* (switch vers le texte libre - highlight éditeur de texte) L'onglet **Texte libre** vous laisse la possibilité d'écrire le contenu de votre fiche en **markdown**, séparé en gros titres, à la manière d'une page Wikipédia. Renseignez-vous sur le markdown pour gagner rapidement les réflexes d'écriture !
+* (switch vers le texte libre - highlight éditeur de texte) L'onglet **Texte libre** vous laisse la possibilité d'écrire le contenu de votre fiche en **markdown**, séparé en gros titres, à la manière d'une page Wikipédia. Renseignez-vous sur le markdown pour gagner rapidement les réflexes d'écriture ! (Promis c'est pas une esbroufe, ça s'apprend très vite).
 * (switch vue miroir - highlight boutons mode) Vous pouvez cliquer sur le bouton **vue miroir** pour voir à quoi ressemble votre texte !
 * (switch mode wiki - highlight bouton vue wiki) Cliquez sur le bouton **Mode Wiki** (ou F1) pour avoir un aperçu de votre fiche mise en forme ! Sexy, hein ?
-* (switch vers onglet général, highlight Relations) Vous pouvez également déterminer des relations ! Elles se mettront à jour sur les différentes fiches concernées selon le genre du personnage. Vous pouvez également juste écrire des noms, même s'ils ne renvoient pas vers des fiches !
-* (highlight bouton éditeur de relations) Vous pouvez également rajouter des types de relations ou modifier leur disposition ici...
-* (switch généalogie - highlight arbre généalogique) ...ou bien voir directement l'arbre généalogique de votre personnage en cliquant sur **Généalogie** ou en appuyant sur F2 depuis la fiche !
+* (switch vers onglet général, highlight Relations) Vous pouvez également déterminer des **relations** ! Elles se mettront à jour sur les différentes fiches concernées selon le genre du personnage. Vous pouvez également juste écrire des noms, même s'ils ne renvoient pas vers des fiches. L'intérêt principal ici : l'arbre généalogique !
+* (highlight bouton éditeur de relations) Ce bouton là vous renvoi vers le **diagramme des relations**, qui vous permet de rajouter des types de relations à tout votre projet, que vous pourrez réutiliser partout...
+* (switch généalogie - highlight arbre généalogique) ...pour finir par les retrouver dans l'arbre généalogique du personnage en cliquant sur **Généalogie** ou en appuyant sur F2 depuis la fiche !
 
 6. L'éditeur de modèles
-* (highlight bouton éditeur de modèles) Depuis le tableau Fiches, vous avez accès à l'éditeur de modèles ! Cette fenêtre vous permet d'éditer les modèles de fiches existants ou d'en créer des nouveaux pour vos besoins !
-* (fenêtre éditeur de modèle > personnage > sections) Ici, vous pouvez éditer ou ajouter des sections ! Vous savez, ce qu'il y a sous l'image de votre perso, dans son wiki ?
+* (highlight bouton éditeur de modèles) Depuis le tableau Fiches, vous avez accès à **l'éditeur de modèles** ! Cette fenêtre vous permet d'éditer les modèles de fiches existants ou d'en créer des nouveaux pour vos besoins !
+* (fenêtre éditeur de modèle > personnage > sections) Ici, vous pouvez éditer ou ajouter des **sections** ! Vous savez, ce qu'il y a sous l'image de votre perso, dans son wiki ?
 * (sections extras) Les sections extras se placent au même endroit, mais relèvent de fonctionnalités précises : relations, suivi de la présence d'un personnage dans vos écrits, ou paliers d'évolution personnalisables pour vous souvenir d'où en est votre personnage à un moment T.
 * (champs) Ici, vous verrez tous les champs de chacune de vos sections classiques. Editez, rajoutez, réordonnez - le monde est à vous ! Prenez le temps d'essayer les différents types de champs pour voir lesquels vous correspondent le mieux !
 * (graph) Le graph statistique ! Cette petite fonctionnalité est surtout utile pour les rôlistes ou les dingues de stats. Créez un graph statistique pour vos personnages (ou autres) afin de savoir qui peut casser les dents à qui.
 
 7. Le dictionnaire
 * (tableau dictionnaire - highlight tableau) Depuis le **dictionnaire**, vous pouvez rajouter autant de mots que souhaité, créer leurs variations et leur donner des définitions ! Le dictionnaire est accessible à tout moment depuis le rail à droite.
-* (switch nouvelle entrée - highlight bouton) Créez vos entrées, et elles seront automatiquement ajoutées dans le correcteur ortho-grammatical des éditeurs de texte des Ecrits et des Fiches !
+* (switch nouvelle entrée - highlight bouton) Créez vos entrées, et elles seront **automatiquement ajoutées dans le correcteur ortho-grammatical** des éditeurs de texte des Ecrits et des Fiches !
 * (switch Mots Inconnus - highlight bouton) La fenêtre **Mots inconnus** relève tout ce qui ressemble de trop près à un mot qui n'est pas encore présent dans le dico. Vous pouvez changer le lieu de détection, et automatiquement rajouter les mots concernés !
 
 8. Les plans
-* (tableau plans - highlight tableau) Les plans sont une manière d'ordonner vos éléments narratifs et de prévoir une histoire sur différents mouvement, que ce soient des chapitres ou des livres entiers.
-* (plan ouvert - highlight colonnes) Dans l'idée, chaque colonne est un chapitre. Dans chaque colonne, vous pouvez ajouter des briques qui correspondent à des moments, des actions, etc. avec différentes intensités. Vous pouvez également rajouter des notes, et tout réordonner avec un glissé-déposé.
+* (tableau plans - highlight tableau) Les **plans** sont une manière d'ordonner vos éléments narratifs et de prévoir une histoire sur différents mouvements, que ce soient des chapitres ou des livres entiers.
+* (plan ouvert - highlight colonnes) Dans l'idée, **chaque colonne est un chapitre**. Dans chaque colonne, vous pouvez ajouter des briques qui correspondent à des moments, des actions, etc. avec différentes intensités. Vous pouvez également rajouter des notes, et tout réordonner avec un glissé-déposé.
 * (nouvelle brique ouverte - ouvrir brique "Azi se réveille" et highlight le contenu) Donnez-leur nom, couleur, et intensité ici.
-* (highlight bouton graph intensité) Depuis votre plan, vous pouvez également regarder le graph d'intensité de l'histoire.
+* (highlight bouton graph intensité) Depuis votre plan, vous pouvez également regarder le **graph d'intensité** de l'histoire.
 * (graph d'intensité ouvert - highlight graph) Cette vue permet de repérer rapidement quels chapitres sont plus intenses ou, à l'inverse, plus mous. Faites-vous une idée des potentiels temps-morts de votre histoire avant même de l'avoir écrite ! Ca, c'est de la planification !
 
 9. Le GG (ou Gros Graph)
-(section à venir, à ne pas implémenter vide)
+* (tableau gros graph - highlight tableau) Maintenant, le **gros graph** ! Cet outil est la meilleure manière de visualiser la dynamique globale entre vos fiches finies !
+* (highlight onglet général du rail et son contenu avec les filtres) Vous pouvez modifier les options de visualisation à tout moment depuis le rail pour **filtrer ce qui apparaît** ! C'est le bordel... et c'est normal ! C'estd e la data, qu'est-ce que vous croyez ?
+* (switch écran présences, option de filtre "Tous les écrits", highlight tableau des présences). Dans l'onglet **Présences**, vous pourrez voir rapidement quelle fiche est détectée où ! Une belle manière de vous souvenir de quel personnage apparaît quand... ou de si vous avez oublié quelqu'un en route !
 
 10. La base de connaissances
 (section à venir, à ne pas implémenter vide)
 
 11. Le journal perso
-* (highlight le journal perso + le bouton en bas de la pile) Le journal perso, c'est votre tableau de bord ! Si vous êtes un giga prouveur, fixez-vous des objectifs de mots, regardez vos stats, ou paramétrez des Sprints pour vous mettre un petit chrono sous l'oeil !
-* (switch vue succès - highlight succès) Vous pourrez également débloquer des succès ! Ca change rien à votre expérience, mais eh, on a toustes besoin d'un petit sucre de temps en temps !
+* (highlight le journal perso + le bouton en bas de la pile) Le journal perso, c'est votre **tableau de bord** ! Si vous êtes un giga prouveur, fixez-vous des objectifs de mots, regardez vos stats, ou paramétrez des Sprints pour vous mettre un petit chrono sous l'oeil !
+* (switch vue succès - highlight succès) Vous pourrez également débloquer des **succès** ! Ca change rien à votre expérience, mais eh, on a toustes besoin d'un petit sucre de temps en temps !
 
 12. Quelques dernières notes...
 * (switch accueil - centrer la fenêtre du tuto) Retenez quelques petites choses qui vous faciliteront la vie :
@@ -92,5 +94,6 @@ Passons ensemble sur le gros des fonctionnalités de ce fat motherfucker!
   * Ctrl/Cmd+2 : Ouvrir/Fermer le rail
   * Ctrl/Cmd+Maj+F : Ouvrir la recherche avancée
   * Ctrl/Cmd+T : Ouvrir un nouvel onglet
+  * Ctrl/Cmd+Maj+L : Mode sombre <3
   * F12 : Ouvrir les Préférences
 * Merci d'avoir lu ce tuto ! Vous allez dès à présent revenir à l'écran d'accueil et pouvoir créer votre premier **projet** ! Bonne écriture, petit nerd ! <3

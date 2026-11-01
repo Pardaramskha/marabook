@@ -400,15 +400,7 @@ namespace Marabook.App
                 if (_opening) return;
                 if (_shell.StartTutorial()) Release();
             };
-            tutorialRow.Children.Add(tutorial);
-            tutorialRow.Children.Add(new TextBlock
-            {
-                Text = "Dix minutes pour faire le tour du propriétaire, sur un projet d'exemple.",
-                FontSize = 12,
-                Foreground = Chrome.SoftText,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(12, 0, 0, 0)
-            });
+            tutorialRow.Children.Add(tutorial); // sans phrase d'aide à côté (1/11, Rémi : le bouton parle de lui-même)
             center.Children.Add(tutorialRow);
             center.Children.Add(titleRow);
             var tiles = new UniformGrid { Rows = 1, Columns = 6, Height = 150 };

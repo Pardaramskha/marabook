@@ -383,7 +383,8 @@ namespace Marabook.App
                 PointerPressed += delegate(object sender, PointerPressedEventArgs e)
                 {
                     var point = e.GetCurrentPoint(this);
-                    if (point.Properties.IsMiddleButtonPressed) { e.Handled = true; _strip.OnClose(_index); return; }
+                    // Le clic molette ne ferme plus l'onglet (1/11, Rémi) : il sert à OUVRIR dans un onglet (Pile, tuiles).
+                    if (point.Properties.IsMiddleButtonPressed) { e.Handled = true; return; }
                     if (point.Properties.IsRightButtonPressed) { e.Handled = true; _strip.OnMenu(this, _index); return; }
                     if (point.Properties.IsLeftButtonPressed)
                     {

@@ -279,7 +279,7 @@ namespace Marabook.App
         private Control BuildModulesTab()
         {
             var panel = TabPanel();
-            panel.Children.Add(Note("Les modules (DLC) ajoutent des fonctions à Marabook : une fiche avancée, des succès… Un paquet .mdlc s'installe sans redémarrage ; désinstallés, les projets gardent leurs valeurs. Le téléchargement depuis GitHub arrive avec la livraison.", 0, 12));
+            panel.Children.Add(Note("Les modules (DLC) ajoutent des fonctions à Marabook : une fiche avancée, des succès… Un paquet .mdlc s'installe sans redémarrage ; désinstallés, les projets gardent leurs valeurs. Les DLC du catalogue se téléchargent depuis GitHub d'un clic (1/11), ou s'installent depuis un fichier.", 0, 12));
             _modulesPanel = new StackPanel();
             panel.Children.Add(_modulesPanel);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0) };

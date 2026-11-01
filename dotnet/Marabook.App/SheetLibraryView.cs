@@ -76,6 +76,7 @@ namespace Marabook.App
         public event Action<List<BinderItem>> DeleteManyRequested;
 
         public event Action<BinderItem> Navigate; // ouvrir une fiche
+        public event Action<BinderItem> NewTabRequested; // clic molette sur une tuile : dans un nouvel onglet (1/11)
         public event Action<SheetCategory> ExportCategoryRequested; // « Exporter la catégorie… » (Encyclopédie, 31/10)
         public event Action<BinderItem> ExportSheetRequested;       // « Exporter la fiche… » (Encyclopédie, 31/10)
         public event Action Changed;              // structure/projet modifiés
@@ -1490,6 +1491,13 @@ namespace Marabook.App
             // — comme les cartes des écrits. Le droit ne fait que le menu.
             card.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
             {
+                if (e.GetCurrentPoint(card).Properties.IsMiddleButtonPressed) // clic molette : un nouvel onglet (1/11)
+                {
+                    e.Handled = true;
+                    var tab = NewTabRequested;
+                    if (tab != null) tab(sheetRef);
+                    return;
+                }
                 if (!e.GetCurrentPoint(card).Properties.IsLeftButtonPressed) return;
                 // La tuile pressée est prête à glisser (1.1.0) ; le double-clic ouvre.
                 _dragCandidate = sheetRef;

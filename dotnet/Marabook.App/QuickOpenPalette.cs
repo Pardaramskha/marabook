@@ -124,7 +124,7 @@ namespace Marabook.App
                 _hint.Text = IdleHint;
                 return;
             }
-            var matches = BinderView.NameMatches(_project, query, SearchKind.All, Cap);
+            var matches = BinderView.NameMatches(_project, query, SearchKind.All, Cap, true); // sections de la Pile et livres compris (1/11)
             foreach (var item in matches) _list.Items.Add(Row(item));
             _list.IsVisible = matches.Count > 0;
             if (matches.Count > 0) _list.SelectedIndex = 0;

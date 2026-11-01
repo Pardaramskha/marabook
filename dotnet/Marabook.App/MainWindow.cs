@@ -448,6 +448,7 @@ namespace Marabook.App
             edit.Items.Add(_versionsMenu);
             _sprintMenu = Entry("session-goal", "Lancer un sprint…", StartSprint);
             edit.Items.Add(_sprintMenu);
+            edit.Items.Add(new Separator()); // un filet avant Fiches (1/11, Rémi)
             // Édition › Fiches (1.1.0, l'éditeur de relations) : le diagramme
             // relationnel en tête, puis ce qui touche aux fiches.
             _sheetsMenu = new MenuItem { Header = "Fiches" };
@@ -469,6 +470,7 @@ namespace Marabook.App
             edit.Items.Add(Entry("new-folder", "Nouveau dossier", delegate { _binder.NewFolder(null); }));
             edit.Items.Add(Entry("new-book", "Nouveau livre", delegate { _binder.NewBook(null); }));
             edit.Items.Add(Entry("import-media", "Importer dans Recherche…", delegate { _binder.ImportMediaDialog(null); }));
+            edit.Items.Add(new Separator()); // un filet avant Renommer (1/11, Rémi)
             edit.Items.Add(Entry("rename", "Renommer…", delegate { _binder.Rename(null); }, ItemSelected));
             edit.Items.Add(Entry("delete", "Envoyer à la corbeille", delegate { _binder.Delete(null); }, ItemSelected)); // suppression douce (29/09)
             edit.Items.Add(new Separator());
@@ -476,15 +478,17 @@ namespace Marabook.App
             menu.Items.Add(edit);
 
             // --- Format ---
+            // Rangement du 1/11 (Rémi) : Format ne garde que « Lien vers une fiche » et « Gérer les styles » ;
+            // note, image, ligne et séparateur vivent dans le ruban, leurs raccourcis restent à la fenêtre.
             var format = new MenuItem { Header = "F_ormat" };
-            format.Items.Add(Entry("styles", "Gérer les styles…", OpenStylesDialog));
-            format.Items.Add(Entry("insert-footnote", "Note de bas de page", InsertFootnoteInActive, TextOrSheetActive));
             _insertLinkMenu = Entry("insert-link", "Lien vers une fiche…", InsertLinkInActive, TextOrSheetActive);
             format.Items.Add(_insertLinkMenu);
-            format.Items.Add(Entry("insert-image", "Insérer une image…", InsertImageInActive, TextOrSheetActive));
-            format.Items.Add(Entry("insert-rule", "Ligne horizontale", delegate { RouteToActiveEditor("rule"); }, TextOrSheetActive));
-            format.Items.Add(Entry("insert-separator", "Séparateur de scène", delegate { RouteToActiveEditor("separator"); }, TextOrSheetActive));
+            format.Items.Add(Entry("styles", "Gérer les styles…", OpenStylesDialog));
             menu.Items.Add(format);
+            AddGesture("insert-footnote", delegate { if (TextOrSheetActive()) InsertFootnoteInActive(); });
+            AddGesture("insert-image", delegate { if (TextOrSheetActive()) InsertImageInActive(); });
+            AddGesture("insert-rule", delegate { if (TextOrSheetActive()) RouteToActiveEditor("rule"); });
+            AddGesture("insert-separator", delegate { if (TextOrSheetActive()) RouteToActiveEditor("separator"); });
 
             // « Mise en page » lives as a ribbon tab in the editor now; only
             // its shortcut survives at the window level.
@@ -522,6 +526,7 @@ namespace Marabook.App
             help.Items.Add(Entry(null, "Nouveautés…", ShowCurrentNotes)); // les patch notes de la version installée (07/10)
             help.Items.Add(Entry(null, "Rapports de plantage…", ShowCrashReports));
             help.Items.Add(Entry(null, "Ouvrir le dossier d'installation", OpenInstallFolder));
+            help.Items.Add(Entry(null, "Catalogue de DLC…", delegate { _preferencesTab = "DLC"; OpenPreferences(); })); // les modules disponibles, installés ou non (1/11, Rémi)
             help.Items.Add(new Separator());
             help.Items.Add(Entry(null, "Réinitialiser les succès…", ResetAchievements));
             help.Items.Add(new Separator());
@@ -881,6 +886,7 @@ namespace Marabook.App
             _corkboard.ChapterOddEnd = ChapterOddEnd;
             _corkboard.LimitExceeded = LimitExceeded; // le liseré rouge d'une limite dépassée (1.1.0)
             _corkboard.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _corkboard.NewTabRequested += OpenInNewTab; // clic molette sur une carte (1/11)
             _corkboard.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             _corkboard.ExportRequested += ExportItem;
             _corkboard.FilesDropped += ImportDroppedFiles; // fichiers du système (29/09)
@@ -906,6 +912,7 @@ namespace Marabook.App
             // « Fiches » — rangées par catégorie, cartes, recherche.
             _sheetLibrary = new SheetLibraryView { IsVisible = false };
             _sheetLibrary.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _sheetLibrary.NewTabRequested += OpenInNewTab; // clic molette sur une tuile (1/11)
             _sheetLibrary.CardSelected += InspectCard; // clic simple sur une tuile de fiche : le Général la montre (29/09)
             _sheetLibrary.ExportCategoryRequested += delegate(SheetCategory category) { ExportEncyclopedia(Exchange.EncyclopediaSelection.Category(category.Id)); }; // l'Encyclopédie (31/10)
             _sheetLibrary.ExportSheetRequested += delegate(BinderItem item) { ExportEncyclopedia(Exchange.EncyclopediaSelection.Sheet(item.Id)); };
@@ -3402,6 +3409,16 @@ namespace Marabook.App
                 return _homeView.IsVisible;
             if (item.Kind == ItemKind.Plan)
                 return _planView.IsVisible && _planView.ShowsItem(item);
+            // Une carte mentale (1/11, Rémi : « les cartes mentales flickent en
+            // permanence ») : sans ce cas, la carte ouverte passait pour absente,
+            // la re-sélection de la Pile la rechargeait (ShowMindMap → Load,
+            // toile à nouveau invisible jusqu'au recentrage), le rechargement
+            // reprogrammait le Rebuild de la Pile (29/10), qui re-sélectionnait
+            // la carte… toutes les 300 ms. Sans module, la tuile de remplacement
+            // compte comme la vue de la carte.
+            if (item.Kind == ItemKind.MindMap)
+                return _mindMapHost != null && _mindMapHost.IsVisible
+                    && (ReferenceEquals(_mindMapItem, item) || (_mindMapEditor == null && ReferenceEquals(_current, item)));
             return _corkboard.IsVisible && _corkboard.ShowsItem(item);
         }
 
@@ -6111,9 +6128,20 @@ namespace Marabook.App
             CodeModuleHost.Instance.SetDarkTheme(AppSettings.DarkTheme); // Mental-O en DLC (26/10)
         }
 
+        private string _preferencesTab; // l'onglet à montrer d'abord (Aide › Catalogue de DLC…, 1/11)
+
         private async void OpenPreferences()
         {
             var dialog = new PreferencesDialog(this, _project);
+            if (_preferencesTab != null)
+            {
+                foreach (var entry in dialog.Tabs.Items)
+                {
+                    var tab = entry as TabItem;
+                    if (tab != null && string.Equals(tab.Header as string, _preferencesTab, StringComparison.Ordinal)) dialog.Tabs.SelectedItem = tab;
+                }
+                _preferencesTab = null;
+            }
             dialog.AppearanceChanged += ApplyAppearance;
             dialog.AppearanceChanged += ScheduleAchievementCheck; // « Pimp my write »
             dialog.TabsChanged += ApplyTabsSettings; // bascule et plafond des onglets (1.1.0)

@@ -5,6 +5,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Primitives.PopupPositioning;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Marabook.Model;
 
@@ -158,10 +159,11 @@ namespace Marabook.App
         public static Border Card(BinderItem item, Project project)
         {
             if (item == null || project == null) return null;
+            // Sans premier paragraphe, pas d'information de la fiche (1/11, Rémi) : le titre, le modèle, le portrait.
             var excerpt = Exchange.Encyclopedia.Excerpt(item.Document == null ? "" : item.Document.ToPlainText(), ExcerptChars);
-            if (excerpt.Length == 0) excerpt = Exchange.Encyclopedia.FieldsSummary(item, project, ExcerptChars); // sans Texte libre : les champs de l'infobox
             Avalonia.Media.Imaging.Bitmap portrait = null;
-            try { portrait = item.ImageId == null ? null : ImageCache.Thumbnail(project.FindImage(item.ImageId), ThumbWidth); }
+            // La vignette décodée à trois fois sa taille d'affichage (1/11, Rémi : « atrocement pixellisée ») : nette au zoom et sur un écran dense.
+            try { portrait = item.ImageId == null ? null : ImageCache.Thumbnail(project.FindImage(item.ImageId), ThumbWidth * 3); }
             catch (Exception) { portrait = null; }
             var template = project.TemplateOf(item);
             var text = new StackPanel { Spacing = 2 };
@@ -172,10 +174,12 @@ namespace Marabook.App
             row.Children.Add(text);
             if (portrait != null)
             {
+                var picture = new Image { Source = portrait, Stretch = Stretch.UniformToFill, Width = ThumbWidth };
+                RenderOptions.SetBitmapInterpolationMode(picture, BitmapInterpolationMode.HighQuality);
                 var image = new Border
                 {
                     Width = ThumbWidth, MaxHeight = 130, CornerRadius = new CornerRadius(6), ClipToBounds = true, VerticalAlignment = VerticalAlignment.Top,
-                    Child = new Image { Source = portrait, Stretch = Stretch.UniformToFill, Width = ThumbWidth }
+                    Child = picture
                 };
                 Grid.SetColumn(image, 2);
                 row.Children.Add(image);

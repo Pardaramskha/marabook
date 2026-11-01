@@ -364,8 +364,9 @@ namespace Marabook.App
                     // image, réduite à la largeur du paragraphe, l'alt en
                     // infobulle. Les autres adresses (web, chemins) restent
                     // une référence affichée — l'alt en italique doux.
+                    // images reçoit l'ID du magasin, sinon l'adresse telle quelle (1/11 : les patch notes résolvent une URL vers une image embarquée).
                     var storedId = MarkdownDialect.StoredImageId(inline.ImageUrl);
-                    var bitmap = storedId != null && images != null ? images(storedId) : null;
+                    var bitmap = images != null ? images(storedId ?? inline.ImageUrl) : null;
                     if (bitmap != null)
                     {
                         into.Add(new InlineUIContainer(StoredImage(owner, bitmap, inline.Text)));

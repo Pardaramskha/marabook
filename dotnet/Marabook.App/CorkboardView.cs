@@ -74,6 +74,7 @@ namespace Marabook.App
         private readonly StackPanel _documentActions; // « Nouveau document ▾ »
 
         public event Action<BinderItem> Navigate;
+        public event Action<BinderItem> NewTabRequested; // clic molette sur une carte : dans un nouvel onglet (1/11)
         public event Action Changed; // synopsis edited or cards reordered
         // Des fichiers de l'Explorateur / du Finder déposés sur le tableau
         // (29/09) : (conteneur visé, chemins). La coquille importe — documents
@@ -1883,6 +1884,13 @@ namespace Marabook.App
         {
             card.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
             {
+                if (e.GetCurrentPoint(card).Properties.IsMiddleButtonPressed) // clic molette : un nouvel onglet (1/11)
+                {
+                    e.Handled = true;
+                    var tab = NewTabRequested;
+                    if (tab != null) tab(item);
+                    return;
+                }
                 _dragCandidate = item;
                 _dragStart = e.GetPosition(this);
                 if (e.ClickCount == 2)

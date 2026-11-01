@@ -45,6 +45,8 @@
        ligne pour la version installée (07/10). CONVENTION.md n'en est pas. -->
   <ItemGroup>
     <EmbeddedResource Include="..\..\patchnotes\*.md" Exclude="..\..\patchnotes\CONVENTION.md" LogicalName="patchnotes/%(Filename)%(Extension)" />
+    <!-- L'image de tête d'une version majeure (1/11, Rémi : patchnotes/marabook-1.1.0.jpg) : la fenêtre « Nouveautés » la montre hors ligne. -->
+    <EmbeddedResource Include="..\..\patchnotes\*.jpg;..\..\patchnotes\*.png" LogicalName="patchnotes/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- Les sons (1.1.0, 31/10, Rémi) : trois WAV PCM mono 44,1 kHz (succès,
