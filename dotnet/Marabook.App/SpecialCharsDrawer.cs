@@ -57,7 +57,8 @@ namespace Marabook.App
             new Entry("œ", "e dans l'o"), new Entry("Œ", "E dans l'O"), new Entry("æ", "e dans l'a"), new Entry("Æ", "E dans l'A"),
 
             new Entry("©", "Copyright"), new Entry("°", "Degré"), new Entry("€", "Euro"), new Entry("→", "Flèche droite"),
-            new Entry("•", "Puce"), new Entry("§", "Paragraphe"), new Entry("×", "Multiplication"), new Entry("½", "Un demi")
+            // Les capitales accentuées courantes plutôt que §, × et ½ (1/11, Rémi).
+            new Entry("•", "Puce"), new Entry("À", "A accent grave"), new Entry("É", "E accent aigu"), new Entry("È", "E accent grave")
         };
 
         /// <summary>Les autres caractères dont on connaît le nom (l'ancien

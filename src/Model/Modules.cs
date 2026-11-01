@@ -86,6 +86,9 @@ namespace Marabook.Model
         public string Repository = "";   // « Pardaramskha/marabook-dlc-fpdm »
         public string Asset = "";        // « fpdm.mdlc »
         public List<string> Features = new List<string>();
+        public string Tagline = "";      // la ligne de la tuile de l'accueil (1/11, Rémi)
+        public string Pitch = "";        // la présentation dans la fenêtre du module (**gras** permis)
+        public string Image = "";        // l'image de tête embarquée (assets/dlc/<fichier>), ou vide
     }
 
     /// <summary>Les règles de succès qu'un module peut invoquer (le module ne
@@ -137,6 +140,8 @@ namespace Marabook.Model
                 Title = "Fiches de Personnages pour Dangereux Monomaniaques",
                 Repository = "Pardaramskha/marabook-dlc-fpdm",
                 Asset = "fpdm.mdlc",
+                Tagline = "Fiches de personnages pour dangereux monomaniaques",
+                Pitch = "Depuis vos fiches de personnages, créez un nouvel onglet de Fiche de Personnage pour Dangereux Monomaniaque ! Vous aurez un sacré nombre de questions auxquelles répondre pour voir si vous connaissez VRAIMENT vos petits chouchous !",
                 Features =
                 {
                     "Créez des fiches de personnages avancées depuis votre écran d'édition de fiche",
@@ -158,6 +163,9 @@ namespace Marabook.Model
                 Title = "Cartes mentales",
                 Repository = "Pardaramskha/mental-o",
                 Asset = "mental-o.mdlc",
+                Tagline = "Créez des cartes mentales et rendez votre bordel plus bordélique",
+                Pitch = "On a toujours besoin de **cartes mentales** dans la vie ! Vous pourrez créer et organiser vos cartes, faire des liens vers le reste de vos éléments, et vous y prendre comme un vrai profiler !",
+                Image = "mental-o.jpg",
                 Features =
                 {
                     "Une racine « Cartes mentales » dans la Pile (section Structure) : vos cartes vivent dans le projet, enregistrées avec lui",

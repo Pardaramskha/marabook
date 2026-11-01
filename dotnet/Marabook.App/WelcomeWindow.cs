@@ -448,12 +448,29 @@ namespace Marabook.App
             });
             block.Children.Add(titleRow);
             var modules = new WrapPanel();
+            // Les tuiles se redessinent à chaque nouvelle du magasin (réponse de
+            // GitHub, installation) ; un clic ouvre la fenêtre du module, qui
+            // le présente et l'installe (1/11, Rémi).
+            Action fill = null;
+            fill = delegate
+            {
+            modules.Children.Clear();
             foreach (var source in Modules.Catalogue)
             {
+                var sourceRef = source;
                 var installed = Modules.Find(source.Id);
+                var state = ModuleStore.Find(source.Id);
                 var tile = Tile();
                 tile.Width = 236;
-                ToolTip.SetTip(tile, source.Title.Length > 0 ? source.Title : source.Name);
+                tile.Cursor = new Cursor(StandardCursorType.Hand);
+                ToolTip.SetTip(tile, "Présenter " + source.Name + (installed != null ? "" : " et l'installer"));
+                tile.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+                {
+                    if (!e.GetCurrentPoint(tile).Properties.IsLeftButtonPressed) return;
+                    e.Handled = true;
+                    var current = ModuleStore.Find(sourceRef.Id);
+                    if (current != null) ModuleDialog.Show(this, current);
+                };
                 var column = new StackPanel { Margin = new Thickness(14, 10, 14, 10) };
                 var head = new DockPanel();
                 var dot = new Border
@@ -479,7 +496,7 @@ namespace Marabook.App
                 column.Children.Add(head);
                 column.Children.Add(new TextBlock
                 {
-                    Text = source.Features.Count > 0 ? source.Features[0] : source.Title,
+                    Text = source.Tagline.Length > 0 ? source.Tagline : source.Features.Count > 0 ? source.Features[0] : source.Title,
                     FontSize = 11,
                     Foreground = Chrome.SoftText,
                     TextWrapping = TextWrapping.Wrap,
@@ -488,7 +505,7 @@ namespace Marabook.App
                 });
                 column.Children.Add(new TextBlock
                 {
-                    Text = installed != null ? "Installé" + (installed.Version.Length > 0 ? " · " + installed.Version : "") : "Disponible avec la livraison",
+                    Text = state != null ? state.Label : installed != null ? "Installé" + (installed.Version.Length > 0 ? " · " + installed.Version : "") : "Vérification…",
                     FontSize = 11,
                     Foreground = installed != null ? Chrome.Accent : Chrome.FaintText,
                     TextTrimming = TextTrimming.CharacterEllipsis,
@@ -497,6 +514,12 @@ namespace Marabook.App
                 tile.Child = column;
                 modules.Children.Add(tile);
             }
+            };
+            ModuleStore.Refresh();
+            ModuleStore.CheckOnline(Avalonia.Threading.Dispatcher.UIThread);
+            fill();
+            ModuleStore.Changed += fill;
+            Closed += delegate { ModuleStore.Changed -= fill; };
             block.Children.Add(modules);
             return block;
         }
