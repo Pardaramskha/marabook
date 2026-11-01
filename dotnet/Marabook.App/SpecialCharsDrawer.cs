@@ -214,7 +214,10 @@ namespace Marabook.App
                 IsLightDismissEnabled = true,
                 VerticalOffset = 4
             };
-            popup.Opened += delegate
+            // Le contenu est bâti AVANT la première ouverture (1/11, Rémi : « ne
+            // s'ouvre qu'au second clic » — un Popup sans enfant ne se montre
+            // pas), puis rebâti à chaque ouverture (récents, police du caret).
+            Action refresh = delegate
             {
                 var font = previewFont == null ? null : previewFont();
                 popup.Child = BuildContent(font,
@@ -234,6 +237,8 @@ namespace Marabook.App
                         Dispatcher.UIThread.Post(delegate { OpenAll(owner, font, insert); });
                     });
             };
+            refresh();
+            popup.Opened += delegate { refresh(); };
             return popup;
         }
 

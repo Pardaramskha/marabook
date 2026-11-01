@@ -79,6 +79,17 @@ namespace Marabook.App
         public Control SearchBarForTabs { get { return _searchBar; } }
         private Control _journalRow; // « Journal perso », en pied de Pile — le tutoriel le met en valeur (29/10)
         internal Control JournalRowForTutorial { get { return _journalRow; } }
+
+        /// <summary>Tutoriel (1/11) : l'en-tête de la ligne sélectionnée, à mettre en valeur ; null sans sélection.</summary>
+        internal Control SelectedRowForTutorial
+        {
+            get
+            {
+                TreeViewItem node;
+                if (_selectedId == null || !_nodesById.TryGetValue(_selectedId, out node) || node == null) return null;
+                return (node.Header as Control) ?? node;
+            }
+        }
         public Func<BinderItem, bool> IsSidePinned;
 
         // Fourni par MainWindow (cache de composition) : total de pages d'un

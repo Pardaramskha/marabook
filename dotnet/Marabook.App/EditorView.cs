@@ -61,6 +61,10 @@ namespace Marabook.App
         private FontPicker _fontCombo;          // le sélecteur de police partagé (0.50.0)
         private ToggleButton _smallCapsBtn;     // petites majuscules (0.50.0)
         private Popup _specialDrawer; // le tiroir des caractères spéciaux (0.50.0)
+        private Button _specialButtonForProbe;
+        /// <summary>Sonde (1/11) : le bouton et le tiroir des caractères spéciaux.</summary>
+        internal Button SpecialButtonForProbe { get { return _specialButtonForProbe; } }
+        internal Popup SpecialDrawerForProbe { get { return _specialDrawer; } }
         private bool _sizeArrowNav, _sizeDropDownChoice; // la taille : flèches sans ouvrir, choix dans la liste
         private string _lastAppliedFont;        // l'aperçu puis le choix définitif n'appliquent qu'une fois
         private ToggleButton _boldBtn, _italicBtn, _underBtn, _strikeBtn;

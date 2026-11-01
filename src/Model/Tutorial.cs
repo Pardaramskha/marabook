@@ -220,6 +220,18 @@ namespace Marabook.Model
                 return cue;
             }
 
+            // — Le chapitre du Gros Graph (1/11, Rémi : « ne renvoie pas vers le
+            // tableau ») : tout y mène à la page du graphe ; « présences » bascule
+            // la facette et prend tout le récit ; « rail » montre le Général et ses filtres.
+            if (chapter.Contains("gros graph") || chapter.StartsWith("le gg") || chapter.Contains("(gg)"))
+            {
+                cue.Add("nav:graph");
+                if (n.Contains("presence")) { cue.Add("graph:presences"); cue.Add("graph:scope:all"); cue.Add("highlight:center"); }
+                else if (n.Contains("rail")) { cue.Add("rail:open"); cue.Add("highlight:rail"); cue.Add("highlight:rail-panel"); }
+                else cue.Add("highlight:center");
+                return cue;
+            }
+
             // — Les navigations (une seule), dans l'ordre des mots les plus précis.
             if (n.Contains("accueil")) cue.Add("nav:home");
             else if (n.Contains("tableau ecrits") || n.Contains("tableau des ecrits")) cue.Add("nav:writings");
@@ -281,7 +293,8 @@ namespace Marabook.Model
                 var h = n.Substring(n.IndexOf("highlight", StringComparison.Ordinal));
                 if (h.Contains("pile") && !h.Contains("bas de la pile")) cue.Add("highlight:pile");
                 if (h.Contains("rail")) cue.Add("highlight:rail");
-                if (h.Contains("details de correction") || h.Contains("menu versions")) cue.Add("highlight:rail-panel");
+                // Le panneau déplié du rail avec le rail fixe (1/11, Rémi : « menu général du rail »).
+                if (h.Contains("details de correction") || h.Contains("menu versions") || h.Contains("menu general")) cue.Add("highlight:rail-panel");
                 if (h.Contains("ruban")) cue.Add("highlight:ribbon");
                 else if (h.Contains("onglets")) cue.Add("highlight:tabs");
                 if (h.Contains("boutons mode")) cue.Add("highlight:sheet-modes");

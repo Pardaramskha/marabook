@@ -41,7 +41,7 @@ namespace Marabook.App
         /// fiche, journal…) — « highlight tableau / page / contenu / fenêtre ».</summary>
         private Control TutorialCenterView()
         {
-            var views = new Control[] { _editor, _sheetView, _bookView, _corkboard, _sheetLibrary, _dictionaryView, _planView, _journalView, _mediaView, _homeView };
+            var views = new Control[] { _editor, _sheetView, _bookView, _corkboard, _sheetLibrary, _dictionaryView, _planView, _journalView, _mediaView, _homeView, _graphView };
             foreach (var view in views) if (view != null && view.IsVisible) return view;
             return null;
         }
@@ -235,6 +235,8 @@ namespace Marabook.App
                 TutorialResetModes();
                 var targets = new List<Func<Control>>();
                 foreach (var action in step.Cue.Actions) TutorialApply(action, targets);
+                // Dès « 2. Les Écrits », la ligne sélectionnée dans la Pile reste en valeur à chaque étape (1/11, Rémi).
+                if (chapter.Number >= 2 && AppSettings.BinderVisible) targets.Add(delegate { return _binder.SelectedRowForTutorial; });
                 _tutorialVeil.SetTargets(targets);
             }
             catch (Exception error)
@@ -329,10 +331,16 @@ namespace Marabook.App
                         case "plan": TutorialSelect(TutorialItem(ItemKind.Plan, null)); break;
                         case "journal": ShowJournal(); break;
                         case "home": TutorialSelect(_project.Category(Project.KeyHome)); break;
+                        case "graph": ShowGraph(); break; // la page du Gros Graph (1/11)
                     }
                     break;
                 case "pile":
                     if (arg == "open" && !AppSettings.BinderVisible) ToggleBinder();
+                    break;
+                case "graph": // la facette et l'amplitude du Gros Graph (1/11)
+                    if (_graphView == null || !_graphView.IsVisible) ShowGraph();
+                    if (arg == "presences") _graphView.ShowFacetForTutorial("Présences");
+                    else if (arg == "scope:all") _graphView.ScopeForProbe(0); // « Tout le récit »
                     break;
                 case "window":
                     if (arg == "center") _tutorialCenterWindow = true;

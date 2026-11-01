@@ -127,6 +127,26 @@ namespace Marabook.App
                 Check(editor.IsVisible && chapter != null && editor.ShowsItem(chapter), "l'écrit s'ouvre dans l'éditeur composé");
                 var composed = shell.Composed;
                 Check(composed != null && composed.HasItem && composed.IsVisible, "la surface composée est attachée");
+                // Le tiroir des caractères spéciaux (1/11, Rémi : « ne s'ouvre qu'au second clic ») : un clic l'ouvre, avec ses carreaux.
+                {
+                    var specialButton = editor.SpecialButtonForProbe;
+                    var drawer = editor.SpecialDrawerForProbe;
+                    if (specialButton != null && drawer != null)
+                    {
+                        var tabBefore = editor.RibbonTabForProbe;
+                        editor.SelectRibbonTabForProbe("Texte");
+                        await Settle();
+                        specialButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                        await Settle();
+                        var tiles = drawer.Child == null ? 0 : drawer.Child.GetVisualDescendants().OfType<Button>().Count();
+                        Check(drawer.IsOpen && tiles >= 24, "le tiroir des caractères spéciaux s'ouvre au PREMIER clic, avec ses carreaux (" + (drawer.IsOpen ? "ouvert" : "fermé") + ", " + tiles + " boutons)");
+                        drawer.IsOpen = false;
+                        await Settle();
+                        if (tabBefore != null) editor.SelectRibbonTabForProbe(tabBefore);
+                        await Settle();
+                    }
+                    else Check(false, "le bouton des caractères spéciaux du ruban et son tiroir");
+                }
                 Check(composed != null && composed.Extent.Height > composed.Viewport.Height + 1,
                     "…et elle défile : la page dépasse la fenêtre (" + (composed == null ? "-" : composed.Extent.Height.ToString("0") + " > " + composed.Viewport.Height.ToString("0")) + ")");
                 Check(shell.StatusPagesText.Contains("page"), "la barre d'état donne les pages de l'écrit (" + shell.StatusPagesText + ")");

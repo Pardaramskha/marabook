@@ -413,6 +413,9 @@ namespace Marabook.App
             if (shown) _hiddenCategories.Remove(categoryId); else _hiddenCategories.Add(categoryId);
         }
 
+        /// <summary>Tutoriel (1/11) : la facette par son nom (« Carte », « Présences »).</summary>
+        public void ShowFacetForTutorial(string name) { ShowFacet(name); }
+
         public void ShowCategoryForProbe(string categoryId, bool shown)
         {
             foreach (var box in _typeFilterBoxes)

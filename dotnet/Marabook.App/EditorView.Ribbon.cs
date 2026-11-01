@@ -229,7 +229,18 @@ namespace Marabook.App
                     _composed.InsertSpecial(text);
                     _composed.FocusSurface();
                 });
-            specialBtn.Click += delegate { _specialDrawer.IsOpen = !_specialDrawer.IsOpen; };
+            // Le clic sur le bouton pendant que le tiroir est ouvert : la fermeture
+            // automatique (clic hors du tiroir) l'a déjà refermé au moment où Click
+            // arrive — sans garde, il se rouvrait aussitôt (1/11).
+            var drawerClosedAt = DateTime.MinValue;
+            _specialDrawer.Closed += delegate { drawerClosedAt = DateTime.UtcNow; };
+            specialBtn.Click += delegate
+            {
+                if (_specialDrawer.IsOpen) { _specialDrawer.IsOpen = false; return; }
+                if ((DateTime.UtcNow - drawerClosedAt).TotalMilliseconds < 300) return;
+                _specialDrawer.IsOpen = true;
+            };
+            _specialButtonForProbe = specialBtn;
             typeBottom.Children.Add(specialBtn);
             panel.Children.Add(typeRows);
             panel.Children.Add(VerticalRuleTall());
@@ -1087,6 +1098,16 @@ namespace Marabook.App
         /// <summary>Sonde (29/10) : montre l'onglet du ruban qui porte cet
         /// en-tête (« Formatage »…), pour que ses boutons soient dans l'arbre
         /// visuel ; vrai s'il existe.</summary>
+        /// <summary>Sonde (1/11) : l'en-tête de l'onglet du ruban choisi, ou null.</summary>
+        public string RibbonTabForProbe
+        {
+            get
+            {
+                var tab = _ribbonTabs == null ? null : _ribbonTabs.SelectedItem as TabItem;
+                return tab == null ? null : tab.Header as string;
+            }
+        }
+
         public bool SelectRibbonTabForProbe(string header)
         {
             if (_ribbonTabs == null) return false;
