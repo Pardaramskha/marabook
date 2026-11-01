@@ -242,9 +242,22 @@ namespace Marabook.App
                         Dispatcher.UIThread.Post(delegate { OpenAll(owner, font, insert); });
                     });
             };
+            // Jamais dans Opened (1/11, Rémi : « complètement vide ») : un Popup
+            // déjà ouvert ne met pas en page un enfant posé après coup (carte 0×0).
+            // Open() rebâtit PUIS ouvre.
             refresh();
-            popup.Opened += delegate { refresh(); };
+            popup.Tag = refresh;
             return popup;
+        }
+
+        /// <summary>Ouvre le tiroir : le contenu est rebâti (récents, police du
+        /// caret) AVANT l'ouverture, puis le Popup s'ouvre.</summary>
+        public static void Open(Popup popup)
+        {
+            if (popup == null) return;
+            var refresh = popup.Tag as Action;
+            if (refresh != null) refresh();
+            popup.IsOpen = true;
         }
 
         private static async void OpenAll(Window owner, FontFamily font, Action<string> insert)

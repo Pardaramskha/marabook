@@ -140,6 +140,25 @@ namespace Marabook.App
                         await Settle();
                         var tiles = drawer.Child == null ? 0 : drawer.Child.GetVisualDescendants().OfType<Button>().Count();
                         Check(drawer.IsOpen && tiles >= 24, "le tiroir des caractères spéciaux s'ouvre au PREMIER clic, avec ses carreaux (" + (drawer.IsOpen ? "ouvert" : "fermé") + ", " + tiles + " boutons)");
+                        // …et ses carreaux ont une taille et un glyphe posés (1/11, Rémi : « complètement vide ») ; MARABOOK_PROBE_SHOTS=<dossier> en garde une image.
+                        var laidOut = drawer.Child == null ? 0 : drawer.Child.GetVisualDescendants().OfType<Button>().Count(delegate(Button b) { return b.IsEffectivelyVisible && b.Bounds.Width > 1 && b.Bounds.Height > 1; });
+                        var glyphs = drawer.Child == null ? 0 : drawer.Child.GetVisualDescendants().OfType<TextBlock>().Count(delegate(TextBlock t) { return t.IsEffectivelyVisible && t.Bounds.Width > 0 && !string.IsNullOrEmpty(t.Text); });
+                        var cardSize = drawer.Child == null ? "" : drawer.Child.Bounds.Width.ToString("0") + "×" + drawer.Child.Bounds.Height.ToString("0");
+                        Check(laidOut >= 24 && glyphs >= 24, "…les carreaux sont mis en page et lisibles (" + laidOut + " carreaux, " + glyphs + " glyphes, carte " + cardSize + ")");
+                        var shots = Environment.GetEnvironmentVariable("MARABOOK_PROBE_SHOTS");
+                        if (!string.IsNullOrEmpty(shots) && drawer.Child != null && drawer.Child.Bounds.Width > 0)
+                        {
+                            try
+                            {
+                                var size = new PixelSize((int)Math.Ceiling(drawer.Child.Bounds.Width), (int)Math.Ceiling(drawer.Child.Bounds.Height));
+                                using (var shot = new Avalonia.Media.Imaging.RenderTargetBitmap(size, new Vector(96, 96)))
+                                {
+                                    shot.Render(drawer.Child);
+                                    shot.Save(System.IO.Path.Combine(shots, "tiroir.png"));
+                                }
+                            }
+                            catch (Exception error) { Console.Error.WriteLine("[sonde] image du tiroir : " + error.Message); }
+                        }
                         drawer.IsOpen = false;
                         await Settle();
                         if (tabBefore != null) editor.SelectRibbonTabForProbe(tabBefore);

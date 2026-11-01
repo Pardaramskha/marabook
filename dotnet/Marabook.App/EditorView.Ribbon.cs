@@ -238,7 +238,7 @@ namespace Marabook.App
             {
                 if (_specialDrawer.IsOpen) { _specialDrawer.IsOpen = false; return; }
                 if ((DateTime.UtcNow - drawerClosedAt).TotalMilliseconds < 300) return;
-                _specialDrawer.IsOpen = true;
+                SpecialCharsDrawer.Open(_specialDrawer); // le contenu rebâti avant l'ouverture (1/11)
             };
             _specialButtonForProbe = specialBtn;
             typeBottom.Children.Add(specialBtn);
