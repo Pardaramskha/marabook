@@ -6170,6 +6170,8 @@ namespace Marabook.App
                 }
             };
             await Dialogs.ShowModal(dialog, this);
+            // « Complexe de Dieu » (1/11, Rémi) : le nom d'auteur des Préférences est le sien.
+            if (Achievements.IsGodName(AppSettings.DefaultAuthor) && !AppSettings.Achievements.ContainsKey(Achievements.GodComplex)) UnlockAchievement(Achievements.GodComplex);
         }
 
         // ============================================================= displays

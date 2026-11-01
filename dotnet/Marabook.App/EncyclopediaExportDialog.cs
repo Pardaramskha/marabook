@@ -100,8 +100,8 @@ namespace Marabook.App
             var right = new StackPanel();
             right.Children.Add(Caption("Format"));
             _format = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-            _format.Items.Add("HTML — un dossier navigable");
-            _format.Items.Add("PDF — bientôt");
+            _format.Items.Add(new ComboBoxItem { Content = "HTML — un dossier navigable" });
+            _format.Items.Add(new ComboBoxItem { Content = "PDF — bientôt", IsEnabled = false }); // grisé (1/11, Rémi) : le lot PDF n'est pas livré
             _format.SelectedIndex = 0;
             ToolTip.SetTip(_format, "Le PDF arrive dans un prochain lot : le HTML est prêt");
             _format.SelectionChanged += delegate { if (_format.SelectedIndex != 0) _format.SelectedIndex = 0; };

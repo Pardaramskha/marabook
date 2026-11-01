@@ -273,25 +273,19 @@ namespace Marabook.App
             all.Click += delegate { openAll(); };
             body.Children.Add(all);
 
-            // L'ombre sur un cadre vide dessous (le piège des papers), la carte
-            // arrondie par-dessus ; la marge laisse la place au flou (1/11).
-            var card = new Grid { Margin = new Thickness(12, 4, 12, 14) };
-            card.Children.Add(new Border
+            // Une seule carte, ombre portée dessus (1/11, Rémi : le cadre vide
+            // d'ombre dessous se voyait comme une seconde surface) ; la marge
+            // laisse la place au flou.
+            return new Border
             {
-                Background = Chrome.RaisedBg,
-                CornerRadius = new CornerRadius(8),
-                BoxShadow = new BoxShadows(new BoxShadow { OffsetX = 0, OffsetY = 2, Blur = 10, Color = Color.FromArgb(0x38, 0, 0, 0) })
-            });
-            card.Children.Add(new Border
-            {
+                Margin = new Thickness(12, 4, 12, 14),
                 Background = Chrome.RaisedBg,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
-                ClipToBounds = true,
+                BoxShadow = new BoxShadows(new BoxShadow { OffsetX = 0, OffsetY = 2, Blur = 10, Color = Color.FromArgb(0x38, 0, 0, 0) }),
                 Child = body
-            });
-            return card;
+            };
         }
 
         private static void AddSection(Panel body, string title, IEnumerable<Entry> entries, FontFamily font, Action<string> insert)

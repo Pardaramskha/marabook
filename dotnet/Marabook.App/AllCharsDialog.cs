@@ -90,7 +90,6 @@ namespace Marabook.App
             DockPanel.SetDock(left, Dock.Left);
             left.Children.Add(Caption("Sous-ensemble"));
             _list = new ListBox { Height = gridHeight, Background = Chrome.FieldBg };
-            ToolTip.SetTip(_list, "Les plages Unicode : la grille de droite montre le sous-ensemble choisi");
             foreach (var subset in Subsets)
                 _list.Items.Add(new ListBoxItem { Content = new TextBlock { Text = subset.Name, FontSize = 13 }, Tag = subset });
             _list.SelectionChanged += delegate { if (string.IsNullOrEmpty((_search.Text ?? "").Trim())) ShowSubset(SelectedSubset()); };

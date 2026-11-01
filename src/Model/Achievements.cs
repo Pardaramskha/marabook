@@ -88,10 +88,18 @@ namespace Marabook.Model
         // affiché mais pas la description tant qu'ils ne sont pas obtenus ;
         // hors du compte et des paliers (All ne les contient pas).
         public const string Curious = "il-suffit-d-etre-curieux"; // se gagne OU se perd au clic sur sa ligne
+        public const string GodComplex = "complexe-de-dieu"; // le nom d'auteur des Préférences est celui de l'auteur de Marabook (1/11 — merci Orteil)
         public static readonly Achievement[] Secrets =
         {
-            new Achievement(Curious, "Il suffit d'être curieux", "Cliquez sur ce succès. C'est pas si difficile, hein ?") { Secret = true }
+            new Achievement(Curious, "Il suffit d'être curieux", "Cliquez sur ce succès. C'est pas si difficile, hein ?") { Secret = true },
+            new Achievement(GodComplex, "Complexe de Dieu", "Ah, vous vous croyez malins, hein ?") { Secret = true }
         };
+
+        /// <summary>« Complexe de Dieu » : ce nom d'auteur, accents et casse pliés.</summary>
+        public static bool IsGodName(string author)
+        {
+            return string.Equals(Correction.FrenchTokenizer.Fold((author ?? "").Trim()), Correction.FrenchTokenizer.Fold("Rémi Escamilla"), StringComparison.OrdinalIgnoreCase);
+        }
 
         /// <summary>Les succès de Marabook, puis ceux des modules installés
         /// (DLC, 22/09) intercalés AVANT les paliers de fin (« Obtenez cinq

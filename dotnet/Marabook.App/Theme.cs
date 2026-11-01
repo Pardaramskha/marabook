@@ -109,6 +109,13 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<MenuItem>(),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(4))));
+            // Les filets des menus (1/11, Rémi : « pas visibles ») : un trait
+            // d'un pixel en encre douce, de l'air au-dessus et au-dessous.
+            styles.Add(Style(x => x.OfType<Separator>(),
+                new Setter(TemplatedControl.BackgroundProperty, Chrome.SoftText),
+                new Setter(Visual.OpacityProperty, 0.45),
+                new Setter(Layoutable.HeightProperty, 1.0),
+                new Setter(Layoutable.MarginProperty, new Thickness(8, 5, 8, 5))));
             // Les menus contextuels aux coins ronds (29/09) : le cadre du
             // gabarit Simple a des angles droits — coins 8, un peu d'air, un
             // filet. Les sous-menus (Popup d'un MenuItem) prennent les mêmes.

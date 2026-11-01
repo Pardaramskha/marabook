@@ -302,57 +302,72 @@ namespace Marabook.App
             return panel;
         }
 
+        /// <summary>Les lignes du catalogue (1/11, Rémi : « pas de bouton
+        /// installer ») viennent du magasin (ModuleStore) : l'état croisé
+        /// installé / publié sur GitHub, « Installer » ou « Mettre à jour »
+        /// quand le paquet est là, « Désinstaller » quand le module est posé ;
+        /// la vérification en ligne part à l'ouverture de l'onglet et chaque
+        /// réponse redessine les lignes.</summary>
+        private bool _modulesWatched;
+
         private void RefreshModules()
         {
             if (_modulesPanel == null) return;
+            if (!_modulesWatched)
+            {
+                _modulesWatched = true;
+                ModuleStore.Changed += RefreshModules;
+                Closed += delegate { ModuleStore.Changed -= RefreshModules; };
+                ModuleStore.CheckOnline(Avalonia.Threading.Dispatcher.UIThread);
+            }
             _modulesPanel.Children.Clear();
-            var seen = new HashSet<string>();
-            foreach (var source in Modules.Catalogue)
-            {
-                seen.Add(source.Id);
-                var installed = Modules.Find(source.Id);
-                _modulesPanel.Children.Add(ModuleRow(source.Name, source.Title,
-                    installed != null ? "Installé" + (installed.Version.Length > 0 ? " · " + installed.Version : "") : "Disponible avec la livraison",
-                    installed != null, installed != null ? source.Id : null));
-            }
-            foreach (var module in Modules.Installed)
-            {
-                if (seen.Contains(module.Id)) continue;
-                _modulesPanel.Children.Add(ModuleRow(module.Name, "", "Installé depuis un fichier" + (module.Version.Length > 0 ? " · " + module.Version : ""), true, module.Id));
-            }
+            foreach (var state in ModuleStore.Refresh()) _modulesPanel.Children.Add(ModuleRow(state));
             if (_modulesPanel.Children.Count == 0)
                 _modulesPanel.Children.Add(new TextBlock { Text = "Aucun module connu.", Foreground = Chrome.SoftText, FontSize = 12 });
         }
 
-        private Control ModuleRow(string name, string title, string label, bool installed, string uninstallId)
+        private Control ModuleRow(ModuleState state)
         {
             var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
-            if (uninstallId != null)
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+            DockPanel.SetDock(actions, Dock.Right);
+            if (Modules.DownloadsEnabled && state.IsAvailable && (!state.IsInstalled || state.HasUpdate))
+            {
+                var install = Buttons.Text(state.HasUpdate ? "Mettre à jour" : "Installer", "Télécharge le paquet publié sur GitHub et l'installe, sans redémarrage", Buttons.Compact, Buttons.Look.Primary);
+                install.IsEnabled = !state.Busy;
+                install.Click += delegate
+                {
+                    ModuleStore.Install(state, Avalonia.Threading.Dispatcher.UIThread, delegate(string failure)
+                    {
+                        if (failure != null) MessageDialog.Show(this, "Installation impossible : " + failure, "DLC", MessageButtons.OK, MessageIcon.Warning);
+                    });
+                };
+                actions.Children.Add(install);
+            }
+            if (state.IsInstalled)
             {
                 var remove = Buttons.Text("Désinstaller", "Retire le module ; les projets gardent leurs valeurs", Buttons.Compact, Buttons.Look.Outline);
-                remove.Margin = new Thickness(12, 0, 0, 0);
-                remove.VerticalAlignment = VerticalAlignment.Center;
+                remove.IsEnabled = !state.Busy;
                 remove.Click += async delegate
                 {
-                    var answer = await MessageDialog.Show(this, "Désinstaller « " + name + " » ?", "Modules", MessageButtons.YesNo, MessageIcon.Question);
+                    var answer = await MessageDialog.Show(this, "Désinstaller « " + state.Source.Name + " » ?", "DLC", MessageButtons.YesNo, MessageIcon.Question);
                     if (answer != MessageResult.Yes) return;
-                    Modules.Uninstall(uninstallId);
-                    RefreshModules();
+                    ModuleStore.Uninstall(state);
                 };
-                DockPanel.SetDock(remove, Dock.Right);
-                row.Children.Add(remove);
+                actions.Children.Add(remove);
             }
+            if (actions.Children.Count > 0) row.Children.Add(actions);
             var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             var head = new StackPanel { Orientation = Orientation.Horizontal };
-            head.Children.Add(new TextBlock { Text = name, FontSize = 13, FontWeight = FontWeight.SemiBold, Foreground = Chrome.Ink });
-            if (!string.IsNullOrEmpty(title))
-                head.Children.Add(new TextBlock { Text = "  " + title, FontSize = 12, Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Bottom });
+            head.Children.Add(new TextBlock { Text = state.Source.Name, FontSize = 13, FontWeight = FontWeight.SemiBold, Foreground = Chrome.Ink });
+            if (!string.IsNullOrEmpty(state.Source.Title))
+                head.Children.Add(new TextBlock { Text = "  " + state.Source.Title, FontSize = 12, Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Bottom });
             text.Children.Add(head);
             text.Children.Add(new TextBlock
             {
-                Text = label,
+                Text = state.Label,
                 FontSize = 11,
-                Foreground = installed ? Chrome.Accent : Chrome.SoftText,
+                Foreground = state.IsInstalled ? Chrome.Accent : Chrome.SoftText,
                 Margin = new Thickness(0, 2, 0, 0)
             });
             row.Children.Add(text);

@@ -495,7 +495,7 @@ namespace Marabook.App
                     text.Children.Add(new TextBlock { Text = secret.Name, Foreground = earned ? Chrome.Ink : Chrome.SoftText, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap });
                     text.Children.Add(new TextBlock
                     {
-                        Text = earned ? secret.Description : "Secret…",
+                        Text = earned ? secret.Description : "???", // (1/11, Rémi)
                         Foreground = earned ? Chrome.SoftText : Chrome.FaintText,
                         FontStyle = earned ? FontStyle.Normal : FontStyle.Italic,
                         FontSize = 11,
