@@ -26,6 +26,29 @@ namespace Marabook.Tests
             FrameParsing(t);
             FixtureEndToEnd(t);
             RuleIgnore(t);
+            BytecodeCache(t);
+        }
+
+        /// <summary>02/11/2026 : le bytecode de Python hors des sources (sur
+        /// macOS il cassait le sceau du bundle signé). L'option de ligne de
+        /// commande, pas la variable d'environnement, et des guillemets pour
+        /// les chemins à espaces.</summary>
+        private static void BytecodeCache(Harness t)
+        {
+            var args = GrammalecteBridge.PythonArguments(
+                "C:\\Mon Drive\\Marabook\\grammalecte\\marabook_grammar.py",
+                "C:\\Users\\remi\\AppData\\Roaming\\Marabook\\pycache");
+            t.Equal("-X \"pycache_prefix=C:\\Users\\remi\\AppData\\Roaming\\Marabook\\pycache\" "
+                + "\"C:\\Mon Drive\\Marabook\\grammalecte\\marabook_grammar.py\"", args,
+                "-X pycache_prefix=<cache> puis le script, chacun entre guillemets");
+            t.Check(args.IndexOf("-X \"pycache_prefix=", StringComparison.Ordinal) == 0,
+                "l'option précède le script (après lui, Python la prendrait pour un argument du script)");
+            var cache = GrammalecteBridge.BytecodeCacheFolder;
+            t.Equal("pycache", System.IO.Path.GetFileName(cache), "le dossier s'appelle pycache");
+            t.Equal(Platform.Current.DataFolder, System.IO.Path.GetDirectoryName(cache),
+                "sous le dossier des données, jamais sous les sources");
+            t.Check(GrammalecteBridge.PythonArguments(GrammalecteBridge.ScriptPath, cache)
+                .IndexOf(cache, StringComparison.Ordinal) > 0, "le vrai dossier est bien transmis");
         }
 
         // ------------------------------------------------------ le mappeur
