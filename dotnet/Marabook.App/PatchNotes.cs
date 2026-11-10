@@ -31,6 +31,21 @@ namespace Marabook.App
             catch (Exception) { return null; }
         }
 
+        /// <summary>Les versions dont les notes sont embarquées (1.1.1) : les
+        /// noms des ressources patchnotes/*.md, sans le dossier ni l'extension.</summary>
+        public static System.Collections.Generic.List<string> KnownVersions()
+        {
+            var versions = new System.Collections.Generic.List<string>();
+            try
+            {
+                foreach (var name in Assembly.GetExecutingAssembly().GetManifestResourceNames())
+                    if (name.StartsWith("patchnotes/", StringComparison.Ordinal) && name.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+                        versions.Add(name.Substring("patchnotes/".Length, name.Length - "patchnotes/".Length - 3));
+            }
+            catch (Exception) { }
+            return versions;
+        }
+
         /// <summary>L'image d'une note (1/11, Rémi : une image en tête des
         /// patch notes d'une version majeure) : l'adresse écrite dans le
         /// Markdown (une URL raw.githubusercontent pour la release GitHub, ou

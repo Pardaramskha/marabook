@@ -1416,7 +1416,8 @@ namespace Marabook.App
             var titleMissing = missing.Count == 0;
             foreach (var word in missing)
                 if (_item.Title.IndexOf(word, StringComparison.CurrentCultureIgnoreCase) >= 0) { titleMissing = true; break; }
-            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), titleMissing ? _item.Title : missing[0], true, missing);
+            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), titleMissing ? _item.Title : missing[0], true, missing,
+                RelationKinds.GenderOf(_item, _template)); // le genre de la fiche elle-même (1.1.1)
             if (entry == null) return;
             var existing = LexiconEntry.Find(_project.Lexicon, entry.Word);
             if (existing != null) _project.Lexicon.Remove(existing);
@@ -2820,7 +2821,7 @@ namespace Marabook.App
         {
             var checker = Spell();
             if (checker == null) return;
-            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), word, projectScope);
+            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), word, projectScope, null, RelationKinds.GenderOfName(_project, word));
             if (entry == null) return;
             var list = projectScope ? checker.ProjectWords : checker.GlobalWords;
             var existing = LexiconEntry.Find(list, entry.Word);

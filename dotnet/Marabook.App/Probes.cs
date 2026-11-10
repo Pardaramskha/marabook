@@ -2321,6 +2321,71 @@ namespace Marabook.App
                 shell.CloseProjectPublic();
                 await Settle();
                 Check(shell.Welcome != null && shell.Welcome.IsVisible, "projet fermé : l'accueil est posé sur la coquille");
+                // — Un projet introuvable à l'accueil (1.1.1, Rémi) : la tuile
+                //   est grisée et porte une croix qui le retire des récents ;
+                //   cliquer la tuile ouvre « Projet introuvable » — relier ou retirer.
+                if (shell.Welcome != null)
+                {
+                    var ghost = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-introuvable-" + Guid.NewGuid().ToString("N") + ".plot");
+                    AppSettings.RecentFiles.Insert(0, ghost);
+                    shell.Welcome.RefreshTilesForProbe();
+                    await Settle();
+                    var missingTile = shell.Welcome.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => Equals(b.Tag, "welcome-missing"));
+                    var missingClose = shell.Welcome.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => Equals(b.Tag, "welcome-missing-close"));
+                    Check(missingTile != null && missingClose != null && missingTile.Opacity < 1, "un projet introuvable : sa tuile est grisée et porte une croix");
+                    var missingTask = shell.Welcome.MissingProject(ghost);
+                    await Settle();
+                    MessageDialog missingBox = null;
+                    foreach (var window in ((Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)Avalonia.Application.Current.ApplicationLifetime).Windows)
+                        if (window is MessageDialog && ((MessageDialog)window).Title == "Projet introuvable") missingBox = (MessageDialog)window;
+                    Check(missingBox != null, "cliquer la tuile ouvre la boîte « Projet introuvable »");
+                    if (missingBox != null)
+                    {
+                        Check(FindButton(missingBox, "Relier") != null && FindButton(missingBox, "Retirer") != null, "…avec « Relier depuis son nouvel emplacement… » et « Retirer des projets récents »");
+                        var remove = FindButton(missingBox, "Retirer");
+                        if (remove != null) remove.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else missingBox.Close();
+                    }
+                    await missingTask;
+                    await Settle();
+                    Check(!AppSettings.RecentFiles.Contains(ghost), "« Retirer des projets récents » retire le projet de la liste");
+                    Func<bool> ghostTile = delegate { return shell.Welcome.GetVisualDescendants().OfType<Border>().Any(b => Equals(b.Tag, "welcome-missing") && (ToolTip.GetTip(b) as string ?? "").StartsWith(ghost)); }; // d'autres récents de la sonde sont introuvables aussi (dossiers temporaires effacés)
+                    Check(!ghostTile(), "…et sa tuile disparaît de l'accueil");
+                    AppSettings.RecentFiles.Insert(0, ghost);
+                    shell.Welcome.RefreshTilesForProbe();
+                    await Settle();
+                    shell.Welcome.ForgetForProbe(ghost);
+                    await Settle();
+                    Check(!AppSettings.RecentFiles.Contains(ghost) && !ghostTile(), "la croix de la tuile retire aussi le projet");
+                    // Relier : le fichier désigné doit être LE MÊME projet (signature retenue).
+                    var relinkDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-sonde-relier-" + Guid.NewGuid().ToString("N"));
+                    System.IO.Directory.CreateDirectory(relinkDir);
+                    try
+                    {
+                        var kept = Project.CreateNew();
+                        kept.Name = "Relié (sonde)";
+                        var originalPath = System.IO.Path.Combine(relinkDir, "original.plot");
+                        Persistence.PlotFile.Save(kept, originalPath);
+                        AppSettings.RememberSignature(originalPath, kept);
+                        var movedPath = System.IO.Path.Combine(relinkDir, "deplace.plot");
+                        System.IO.File.Move(originalPath, movedPath);
+                        var stranger = Project.CreateNew();
+                        stranger.Name = "Étranger (sonde)";
+                        stranger.CreatedAt = "2001-01-01 01:01";
+                        var strangerPath = System.IO.Path.Combine(relinkDir, "etranger.plot");
+                        Persistence.PlotFile.Save(stranger, strangerPath);
+                        Check(await WelcomeWindow.Verify(originalPath, movedPath) == null, "relier : le même projet déplacé est reconnu (date de création)");
+                        var refusal = await WelcomeWindow.Verify(originalPath, strangerPath);
+                        Check(refusal != null && refusal.Contains("Étranger"), "…un autre projet est refusé, en le nommant (" + refusal + ")");
+                        AppSettings.RecentFiles.Insert(0, originalPath);
+                        AppSettings.RelinkRecentFile(originalPath, movedPath);
+                        Check(AppSettings.RecentFiles[0] == movedPath && !AppSettings.RecentFiles.Contains(originalPath) && AppSettings.SignatureOf(movedPath).Name == "Relié (sonde)", "…le chemin relié prend la place de l'ancien, la signature suit");
+                        AppSettings.RemoveRecentFile(movedPath);
+                    }
+                    finally
+                    {
+                        try { System.IO.Directory.Delete(relinkDir, true); } catch { }
+                    }
+                }
                 Check(shell.Welcome.Width >= 640 && shell.Welcome.Height >= 420, "l'accueil fait au moins 640×420 (" + shell.Welcome.Width.ToString("0") + "×" + shell.Welcome.Height.ToString("0") + ")");
                 // — Le statut de mise à jour au pied (02/10) : en sonde, la
                 //   vérification est sautée et le pied le dit ; l'ancien texte
@@ -2385,12 +2450,63 @@ namespace Marabook.App
                     Check(texts.Any(delegate(string t) { return t.Contains("02/10/2026") && t.Contains("vous avez la 1.0.1"); }), "la date de publication et la version locale sont dites");
                     Check(inlineTexts.Any(delegate(string t) { return t.Contains("sous-liste"); }) && inlineTexts.Any(delegate(string t) { return t == "fenêtre"; }), "les patch notes sont rendues depuis le Markdown (liste imbriquée, gras)");
                     Check(FindButton(notes, "Installer") != null, "le bouton « Installer et redémarrer » est là");
+                    // Les deux onglets (1.1.1, Rémi) : 9.9.9 est un patch — ses notes
+                    // de patch sont ouvertes, l'onglet « Notes de version » est là.
+                    var notesTabs = notes.TabsForProbe;
+                    Check(notesTabs != null && notesTabs.Items.Count == 2 && notesTabs.SelectedIndex == 1, "un patch s'ouvre sur l'onglet « Notes du patch » (" + (notesTabs == null ? "sans onglets" : notesTabs.SelectedIndex.ToString()) + ")");
                     var later = FindButton(notes, "Plus tard");
                     Check(later != null, "le bouton « Plus tard » est là");
                     if (later != null) later.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else notes.Close();
                 }
                 var chosen = await notesTask;
                 Check(!chosen && !installed, "« Plus tard » ferme sans installer");
+                // — Un patch du cycle 1.1 (1.1.1) : l'onglet « Notes de version »
+                //   relit les notes embarquées de la 1.1.0 (« Wikipédiatre »),
+                //   et les patchs d'avant s'y ajoutent sous leur nom en H1.
+                {
+                    ReleaseNotesStore.Remember("1.1.1", "* un premier patch (sonde)");
+                    var patchInfo = new Updater.Info { Version = "1.1.2", Notes = "* un second patch (sonde)", PublishedAt = "2026-11-10T09:00:00Z" };
+                    var patchTask = UpdateNotesDialog.Show(shell.Welcome, patchInfo, "1.1.0", false, delegate { });
+                    await Settle();
+                    UpdateNotesDialog patchDialog = null;
+                    foreach (var window in ((Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)Avalonia.Application.Current.ApplicationLifetime).Windows)
+                        if (window is UpdateNotesDialog) patchDialog = (UpdateNotesDialog)window;
+                    Check(patchDialog != null && patchDialog.TabsForProbe != null && patchDialog.TabsForProbe.SelectedIndex == 1, "la 1.1.2 s'ouvre sur ses notes de patch");
+                    if (patchDialog != null && patchDialog.TabsForProbe != null)
+                    {
+                        Func<List<string>> runs = delegate
+                        {
+                            return patchDialog.GetVisualDescendants().OfType<TextBlock>()
+                                .SelectMany(delegate(TextBlock b) { return (b.Inlines == null ? new string[0] : b.Inlines.OfType<Avalonia.Controls.Documents.Run>().Select(delegate(Avalonia.Controls.Documents.Run r) { return r.Text ?? ""; })).Concat(new[] { b.Text ?? "" }); }).ToList();
+                        };
+                        Check(runs().Any(delegate(string s) { return s.Contains("second patch"); }), "…ses notes sont rendues");
+                        patchDialog.TabsForProbe.SelectedIndex = 0;
+                        await Settle();
+                        var texts = runs();
+                        Check(texts.Any(delegate(string s) { return s.Contains("Wikipédiatre"); }), "l'onglet « Notes de version » relit les notes embarquées de la 1.1.0");
+                        Check(texts.Any(delegate(string s) { return s.Contains("Patch 1.1.1"); }) && texts.Any(delegate(string s) { return s.Contains("premier patch"); }), "…suivies du patch 1.1.1 sous son nom en H1");
+                        Check(!texts.Any(delegate(string s) { return s.Contains("second patch"); }), "…sans le patch qui arrive (il a son onglet)");
+                        var header = patchDialog.TabsForProbe.Items.OfType<TabItem>().Select(delegate(TabItem i) { return i.Header as string; }).ToList();
+                        Check(header.Count == 2 && header[0] == UpdateNotesDialog.VersionTabHeader && header[1] == UpdateNotesDialog.PatchTabHeader, "les onglets se nomment « Notes de version » et « Notes du patch »");
+                        var patchLater = FindButton(patchDialog, "Plus tard");
+                        if (patchLater != null) patchLater.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else patchDialog.Close();
+                    }
+                    await patchTask;
+                    // Une majeure (1.1.0) s'ouvre sur ses notes de version.
+                    var majorInfo = new Updater.Info { Version = "1.1.0", Notes = PatchNotes.ForVersion("1.1.0") ?? "* la majeure", PublishedAt = "2026-11-01T09:00:00Z" };
+                    var majorTask = UpdateNotesDialog.Show(shell.Welcome, majorInfo, "1.0.6", false, delegate { });
+                    await Settle();
+                    UpdateNotesDialog majorDialog = null;
+                    foreach (var window in ((Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)Avalonia.Application.Current.ApplicationLifetime).Windows)
+                        if (window is UpdateNotesDialog) majorDialog = (UpdateNotesDialog)window;
+                    Check(majorDialog != null && majorDialog.TabsForProbe != null && majorDialog.TabsForProbe.SelectedIndex == 0, "une majeure s'ouvre sur l'onglet « Notes de version »");
+                    if (majorDialog != null)
+                    {
+                        var majorLater = FindButton(majorDialog, "Plus tard");
+                        if (majorLater != null) majorLater.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else majorDialog.Close();
+                    }
+                    await majorTask;
+                }
                 // — La même fenêtre pour une beta (13/10) : l'avertissement de
                 //   Rémi au-dessus des notes, le bouton de téléchargement nommé.
                 var betaInfo = new Updater.Info { Version = "9.9.9-beta", Beta = true, Notes = "* une beta", PublishedAt = "2026-10-13T09:00:00Z" };
@@ -3000,7 +3116,7 @@ namespace Marabook.App
                 var view = shell.Sheet.GenealogyForProbe;
                 var tiles = view.GetVisualDescendants().OfType<Border>().Count(b => Equals(b.Tag, "genealogy-node"));
                 var lines = view.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Line>().Count();
-                Check(tiles == sheet.Relations.Count && view.GetVisualDescendants().OfType<Border>().Any(b => Equals(b.Tag, "genealogy-self")), "…une tuile par relation et le personnage (" + tiles + ")");
+                Check(tiles >= sheet.Relations.Count && view.GetVisualDescendants().OfType<Border>().Any(b => Equals(b.Tag, "genealogy-self")), "…une tuile par relation (au moins : les fiches liées en amènent d'autres, 1.1.1) et le personnage (" + tiles + ")");
                 // Père–Mère : union, branche, bus, deux pieds (le personnage, Frère) = 5 ; personnage–partenaire : union double, branche, bus, deux pieds (Fils, Fille) = 6.
                 Check(lines >= 11, "…les traits d'union, branches, bus et pieds sont dessinés (" + lines + " traits)");
                 var genealogyPng = Environment.GetEnvironmentVariable("MARABOOK_GENEALOGY_PNG");

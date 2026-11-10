@@ -404,17 +404,8 @@ namespace Marabook.App
             center.Children.Add(tutorialRow);
             center.Children.Add(titleRow);
             var tiles = new UniformGrid { Rows = 1, Columns = 6, Height = 150 };
-            var shown = 0;
-            foreach (var path in AppSettings.RecentFiles)
-            {
-                if (shown >= 5) break;
-                tiles.Children.Add(RecentTile(path));
-                shown++;
-            }
-            tiles.Children.Add(NewTile());
-            for (var i = shown + 1; i < 6; i++)
-                tiles.Children.Add(new Border { IsVisible = false });
             _tiles = tiles;
+            FillTiles();
             center.Children.Add(tiles);
             center.Children.Add(BuildLoading());
             center.Children.Add(BuildModules());
@@ -585,11 +576,90 @@ namespace Marabook.App
 
         // ------------------------------------------------------- tuiles
 
+        /// <summary>Remplit (ou re-remplit) la grille : les récents, « + », du vide.</summary>
+        private void FillTiles()
+        {
+            _tiles.Children.Clear();
+            var shown = 0;
+            foreach (var path in AppSettings.RecentFiles)
+            {
+                if (shown >= 5) break;
+                _tiles.Children.Add(RecentTile(path));
+                shown++;
+            }
+            _tiles.Children.Add(NewTile());
+            for (var i = shown + 1; i < 6; i++)
+                _tiles.Children.Add(new Border { IsVisible = false });
+        }
+
+        public void RefreshTilesForProbe() { FillTiles(); }
+
+        /// <summary>Retire un projet introuvable des récents (1.1.1 : la croix
+        /// de sa tuile, ou le choix de la boîte « Projet introuvable »).</summary>
+        private void Forget(string path)
+        {
+            AppSettings.RemoveRecentFile(path);
+            AppSettings.Save();
+            FillTiles();
+            _shell.RefreshRecentMenu();
+        }
+
+        public void ForgetForProbe(string path) { Forget(path); }
+
+        /// <summary>Un projet introuvable cliqué (1.1.1, Rémi) : relier le
+        /// projet depuis son nouvel emplacement — le fichier désigné est lu et
+        /// comparé à la signature retenue (date de création, instantanés
+        /// horodatés) avant de remplacer le chemin —, ou le retirer de la liste
+        /// des projets récents.</summary>
+        public async Task MissingProject(string path)
+        {
+            if (_opening) return;
+            var name = System.IO.Path.GetFileNameWithoutExtension(path);
+            var owner = Ui.OwnerOf(this);
+            var choice = await MessageDialog.ShowChoices(owner,
+                "Le fichier du projet « " + name + " » est introuvable :\n" + path
+                + "\n\nVoulez-vous relier le projet depuis son nouvel emplacement (s'il est encore en vie), ou le retirer de la liste des projets récents ?",
+                "Projet introuvable", MessageIcon.Warning,
+                new[] { "Relier depuis son nouvel emplacement…", "Retirer des projets récents", "Annuler" }, 0);
+            if (choice == 1) { Forget(path); return; }
+            if (choice != 0) return;
+            var picked = await Ui.PickOpenFile(this, "Relier « " + name + " » depuis son nouvel emplacement", Persistence.PlotFile.OpenFilter);
+            if (string.IsNullOrEmpty(picked)) return;
+            var verdict = await Verify(path, picked);
+            if (verdict != null)
+            {
+                await MessageDialog.Show(owner, verdict + "\n\nLe projet « " + name + " » reste dans la liste, toujours introuvable.",
+                    "Projet introuvable", MessageButtons.OK, MessageIcon.Warning);
+                return;
+            }
+            AppSettings.RelinkRecentFile(path, picked);
+            AppSettings.Save();
+            FillTiles();
+            _shell.RefreshRecentMenu();
+            BeginOpen(picked);
+        }
+
+        /// <summary>Le fichier désigné est-il bien le projet retenu ? Null
+        /// quand oui, sinon la raison. La lecture se fait hors du fil d'interface.</summary>
+        public static async Task<string> Verify(string rememberedPath, string candidatePath)
+        {
+            var signature = AppSettings.SignatureOf(rememberedPath);
+            Project candidate = null;
+            string failure = null;
+            await Task.Run(delegate
+            {
+                try { candidate = Persistence.PlotFile.Load(candidatePath, new List<string>()); }
+                catch (Exception error) { failure = error.Message; }
+            });
+            if (candidate == null) return "Ce fichier n'a pas pu être lu" + (string.IsNullOrEmpty(failure) ? "." : " : " + failure);
+            return signature.Verdict(candidate);
+        }
+
         private Control RecentTile(string path)
         {
             var exists = File.Exists(path);
             var tile = Tile();
-            tile.Cursor = new Cursor(exists ? StandardCursorType.Hand : StandardCursorType.Arrow);
+            tile.Cursor = new Cursor(StandardCursorType.Hand);
             tile.Opacity = exists ? 1 : 0.55;
             var column = new StackPanel { Margin = new Thickness(12, 10, 12, 10) };
             var icon = Icons.Make("book-bold", 22, Chrome.Accent);
@@ -621,9 +691,47 @@ namespace Marabook.App
                 Foreground = Chrome.SoftText,
                 Margin = new Thickness(0, 2, 0, 0)
             });
-            tile.Child = column;
-            ToolTip.SetTip(tile, path);
-            if (exists) tile.PointerReleased += delegate { BeginOpen(path); };
+            if (exists)
+            {
+                tile.Child = column;
+                ToolTip.SetTip(tile, path);
+                tile.PointerReleased += delegate { BeginOpen(path); };
+                return tile;
+            }
+            // Introuvable (1.1.1, Rémi) : une croix en haut à droite retire le
+            // projet des récents ; cliquer la tuile ouvre « Projet introuvable »
+            // (relier depuis le nouvel emplacement, ou retirer).
+            var overlay = new Grid();
+            overlay.Children.Add(column);
+            var close = new Border
+            {
+                Width = 20, Height = 20,
+                CornerRadius = new CornerRadius(10),
+                Background = Brushes.Transparent,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 6, 6, 0),
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Tag = "welcome-missing-close", // sonde
+                Child = Icons.Make("x-bold", 9, Chrome.SoftText)
+            };
+            ToolTip.SetTip(close, "Retirer ce projet introuvable des projets récents");
+            close.PointerEntered += delegate { close.Background = Chrome.AccentTint; };
+            close.PointerExited += delegate { close.Background = Brushes.Transparent; };
+            close.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            {
+                e.Handled = true;
+                Forget(path);
+            };
+            overlay.Children.Add(close);
+            tile.Child = overlay;
+            tile.Tag = "welcome-missing"; // sonde
+            ToolTip.SetTip(tile, path + "\nIntrouvable : cliquer pour relier le projet depuis son nouvel emplacement, ou le retirer des récents");
+            tile.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            {
+                if (e.InitialPressMouseButton != MouseButton.Left) return;
+                var _ = MissingProject(path);
+            };
             return tile;
         }
 

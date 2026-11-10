@@ -2434,7 +2434,7 @@ namespace Marabook.App
             // Un projet est ouvert : l'accueil (13/09) se retire — quel
             // que soit le chemin qui a mené ici (tuile, sonde, argument).
             if (_welcome != null) _welcome.Release();
-            RememberRecent(path);
+            RememberRecent(path, project);
             AppSettings.Save();
             UpdateRecentMenu();
 
@@ -2640,7 +2640,7 @@ namespace Marabook.App
             DoSave();
             if (!File.Exists(_path)) { _path = null; return false; }
             if (_binder.ExpansionKey == null && !IsTutorialPath(_path)) { _binder.ExpansionKey = _path; _binder.RememberExpansion(); } // un projet neuf enregistré : la Pile se retient désormais
-            RememberRecent(_path);
+            RememberRecent(_path, _project);
             AppSettings.Save();
             UpdateRecentMenu();
             UpdateTitle();
@@ -2979,7 +2979,7 @@ namespace Marabook.App
             _dirty = false;
             LastSaveError = null;
             DropRecovery(); // le .plot complet est à jour : le secours est périmé (18/09)
-            RememberRecent(path);
+            RememberRecent(path, _project);
             AppSettings.Save();
             UpdateRecentMenu();
             UpdateTitle();
@@ -6183,11 +6183,15 @@ namespace Marabook.App
 
         /// <summary>Le tutoriel ne compte pas parmi les récents (31/10, Rémi) :
         /// ni au menu, ni à l'accueil — son projet est une copie au chaud.</summary>
-        private static void RememberRecent(string path)
+        private static void RememberRecent(string path, Project project)
         {
             if (IsTutorialPath(path)) return;
             AppSettings.AddRecentFile(path);
+            AppSettings.RememberSignature(path, project); // de quoi relier un projet déplacé (1.1.1)
         }
+
+        /// <summary>Le menu des récents refait (1.1.1 : l'accueil retire ou relie un projet introuvable).</summary>
+        public void RefreshRecentMenu() { UpdateRecentMenu(); }
 
         private void UpdateRecentMenu()
         {

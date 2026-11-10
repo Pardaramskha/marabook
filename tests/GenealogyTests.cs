@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Marabook.Model;
 
@@ -18,6 +19,7 @@ namespace Marabook.Tests
             CustomKinds(t);
             Sync(t);
             Tree(t);
+            ExtendedTree(t);
             Migration(t);
             Schema(t);
         }
@@ -264,6 +266,133 @@ namespace Marabook.Tests
             t.Check(generations.Count == 2 && generations[0] == -1 && generations[1] == 0, "générations présentes : -1 et 0 (les « autres » ne comptent pas)");
             t.Equal(1, Genealogy.Generations(Genealogy.Build(project, tien)).Count, "sans relation : la seule génération 0");
             t.Equal(0, Genealogy.Build(project, null).Count, "fiche nulle : arbre vide");
+        }
+
+        /// <summary>Les familles élargies (1.1.1, Rémi) : ce qu'une fiche liée
+        /// déclare entre dans l'arbre — le père déclaré sur la fiche du
+        /// grand-père est l'arrière-grand-père ; le demi-frère amène son autre
+        /// parent ; et chaque fratrie pend du milieu de SES deux parents.</summary>
+        private static void ExtendedTree(Harness t)
+        {
+            var project = Project.CreateNew();
+            var template = project.CharacterTemplate();
+            var sheets = project.Category(Project.KeySheets);
+            var theo = Sheet(template, "Théo", "Homme");
+            var suzanne = Sheet(template, "Suzanne", "Femme");
+            var mathieu = Sheet(template, "Mathieu", "Homme");
+            var abel = Sheet(template, "Abel", "Homme");
+            var albert = Sheet(template, "Albert", "Homme");
+            var gerard = Sheet(template, "Gérard", "Homme");
+            var bertrand = Sheet(template, "Bertrand", "Homme");
+            var odile = Sheet(template, "Odile", "Femme");
+            foreach (var sheet in new[] { theo, suzanne, mathieu, abel, albert, gerard, bertrand, odile }) sheets.Children.Add(sheet);
+            project.RelinkParents();
+            suzanne.ImageId = "img-suzanne";
+            // Théo : mère Suzanne, père Mathieu, frère Abel, grand-père Gérard.
+            theo.Relations.Add(new SheetRelation { Kind = "Mère", TargetId = suzanne.Id });
+            theo.Relations.Add(new SheetRelation { Kind = "Père", TargetId = mathieu.Id });
+            theo.Relations.Add(new SheetRelation { Kind = "Frère", TargetId = abel.Id });
+            theo.Relations.Add(new SheetRelation { Kind = "Grand-père", TargetId = gerard.Id });
+            // Abel : mère Suzanne, père Albert (le demi-frère amène Albert).
+            abel.Relations.Add(new SheetRelation { Kind = "Mère", TargetId = suzanne.Id });
+            abel.Relations.Add(new SheetRelation { Kind = "Père", TargetId = albert.Id });
+            // Gérard : père Bertrand (l'arrière-grand-père de Théo), sœur Odile (grand-tante).
+            gerard.Relations.Add(new SheetRelation { Kind = "Père", TargetId = bertrand.Id });
+            gerard.Relations.Add(new SheetRelation { Kind = "Sœur", TargetId = odile.Id });
+            // Mathieu : fils Théo (le miroir), père Gérard.
+            mathieu.Relations.Add(new SheetRelation { Kind = "Fils", TargetId = theo.Id });
+            mathieu.Relations.Add(new SheetRelation { Kind = "Père", TargetId = gerard.Id });
+
+            var nodes = Genealogy.Build(project, theo);
+            var byLabel = new Dictionary<string, GenealogyNode>();
+            foreach (var node in nodes) byLabel[node.Label] = node;
+            t.Equal(8, nodes.Count, "les huit personnes de la famille élargie (" + nodes.Count + ")");
+            t.Check(byLabel.ContainsKey("Bertrand") && byLabel["Bertrand"].Generation == -3 && byLabel["Bertrand"].Inferred, "Bertrand, père du grand-père, en génération -3 (par rebond)");
+            t.Equal("Arrière-grand-père", byLabel["Bertrand"].Kind, "…nommé arrière-grand-père");
+            t.Check(byLabel["Bertrand"].Lane == RelationLane.Direct && byLabel["Bertrand"].Lineal, "…en ligne directe");
+            t.Check(byLabel.ContainsKey("Odile") && byLabel["Odile"].Generation == -2 && byLabel["Odile"].Kind == "Grand-tante" && byLabel["Odile"].Lane == RelationLane.Side, "Odile, sœur du grand-père : grand-tante, collatérale en -2 (" + (byLabel.ContainsKey("Odile") ? byLabel["Odile"].Kind : "absente") + ")");
+            t.Check(byLabel.ContainsKey("Albert") && byLabel["Albert"].Generation == -1 && byLabel["Albert"].Kind == "Père d'Abel" && byLabel["Albert"].Lane == RelationLane.Side, "Albert, père du demi-frère : « Père d'Abel », collatéral en -1 (" + (byLabel.ContainsKey("Albert") ? byLabel["Albert"].Kind : "absent") + ")");
+            t.Check(byLabel["Gérard"].Kind == "Grand-père" && !byLabel["Gérard"].Inferred, "Gérard garde sa nature déclarée");
+            t.Check(byLabel["Suzanne"].ImageId == "img-suzanne" && byLabel["Suzanne"].Gender == 'f', "la photo et le genre de la fiche suivent");
+            t.Check(byLabel["Théo"].ParentKeys.Contains(suzanne.Id) && byLabel["Théo"].ParentKeys.Contains(mathieu.Id), "Théo connaît ses deux parents");
+            t.Check(byLabel["Abel"].ParentKeys.Contains(suzanne.Id) && byLabel["Abel"].ParentKeys.Contains(albert.Id) && !byLabel["Abel"].ParentKeys.Contains(mathieu.Id), "Abel connaît les siens (Suzanne et Albert, pas Mathieu)");
+            t.Check(byLabel["Gérard"].ParentKeys.Contains(bertrand.Id) && byLabel["Mathieu"].ParentKeys.Contains(gerard.Id), "les parents se lisent dans les deux sens (déclaré « Père » ou reçu « Fils »)");
+
+            var rows = Genealogy.Rows(nodes);
+            t.Equal(4, rows.Count, "quatre rangées : -3, -2, -1, 0");
+            var parentsRow = rows[2];
+            t.Equal(3, parentsRow.Nodes.Count, "la rangée des parents : Mathieu, Suzanne, Albert");
+            t.Equal("Suzanne", parentsRow.Nodes.Count == 3 ? parentsRow.Nodes[1].Label : "?", "…Suzanne AU MILIEU, entre ses deux partenaires (" + Labels(parentsRow.Nodes) + ")");
+            var couples = Genealogy.Couples(nodes, rows);
+            GenealogyCouple theoCouple = null, abelCouple = null;
+            foreach (var couple in couples)
+            {
+                if (couple.Children.Count == 1 && couple.Children[0].Label == "Théo") theoCouple = couple;
+                if (couple.Children.Count == 1 && couple.Children[0].Label == "Abel") abelCouple = couple;
+            }
+            t.Check(theoCouple != null && theoCouple.Parents.Count == 2 && Has(theoCouple.Parents, "Suzanne") && Has(theoCouple.Parents, "Mathieu"), "Théo pend du couple Suzanne–Mathieu");
+            t.Check(abelCouple != null && abelCouple.Parents.Count == 2 && Has(abelCouple.Parents, "Suzanne") && Has(abelCouple.Parents, "Albert"), "Abel pend du couple Suzanne–Albert, pas du parent commun");
+            GenealogyCouple gerardCouple = null;
+            foreach (var couple in couples) if (couple.Parents.Count == 1 && couple.Parents[0].Label == "Bertrand") gerardCouple = couple;
+            t.Check(gerardCouple != null && gerardCouple.Children.Count == 2 && Has(gerardCouple.Children, "Gérard") && Has(gerardCouple.Children, "Odile"), "Gérard et Odile pendent de Bertrand (la fratrie partage ses parents)");
+            t.Check(!Has(parentsRow.Nodes, "Odile") && rows[1].Nodes.Count == 2, "la rangée des grands-parents : Gérard et Odile (" + Labels(rows[1].Nodes) + ")");
+
+            // Les présomptions d'avant restent : un enfant du personnage sans
+            // autre parent connu pend du personnage et de sa partenaire.
+            var syl = Sheet(template, "Syl", "Femme");
+            sheets.Children.Add(syl);
+            project.RelinkParents();
+            theo.Relations.Add(new SheetRelation { Kind = "Partenaire", TargetId = syl.Id });
+            theo.Relations.Add(new SheetRelation { Kind = "Fille", Name = "Rock" });
+            nodes = Genealogy.Build(project, theo);
+            rows = Genealogy.Rows(nodes);
+            couples = Genealogy.Couples(nodes, rows);
+            GenealogyCouple rockCouple = null;
+            foreach (var couple in couples) if (couple.Children.Count == 1 && couple.Children[0].Label == "Rock") rockCouple = couple;
+            t.Check(rockCouple != null && rockCouple.WithSelf && Has(rockCouple.Parents, "Syl"), "Rock (nom libre) pend de Théo et Syl, trait double");
+            var selfRow = rows[3];
+            var theoAt = IndexOf(selfRow.Nodes, "Théo");
+            var sylAt = IndexOf(selfRow.Nodes, "Syl");
+            t.Check(theoAt >= 0 && sylAt >= 0 && Math.Abs(theoAt - sylAt) == 1, "Syl est collée à Théo dans la rangée (" + Labels(selfRow.Nodes) + ")");
+            t.Equal("d'Abel", Genealogy.Of("Abel"), "élision devant une voyelle");
+            t.Equal("de Marc", Genealogy.Of("Marc"), "…pas devant une consonne");
+            t.Equal("Arrière-grand-mère", Genealogy.LinealWord(-3, 'f'), "le mot de la génération -3 au féminin");
+            t.Equal("Aïeule", Genealogy.LinealWord(-4, 'f'), "…et au-delà");
+            t.Equal("Arrière-petit-enfant", Genealogy.LinealWord(3, 'n'), "la génération +3, genre inconnu");
+
+            // Le genre d'un nom d'après les fiches (1.1.1, pour « Ajouter au dictionnaire »).
+            t.Equal('f', RelationKinds.GenderOfName(project, "Suzanne"), "le genre de la fiche Suzanne");
+            t.Equal('m', RelationKinds.GenderOfName(project, "théo"), "…sans casse");
+            t.Equal('n', RelationKinds.GenderOfName(project, "Inconnu"), "…'n' sans fiche");
+            t.Equal('n', RelationKinds.GenderOfName(null, "Suzanne"), "…'n' sans projet");
+            var verlaine = Sheet(template, "Odile Verlaine", "Femme");
+            sheets.Children.Add(verlaine);
+            project.RelinkParents();
+            t.Equal('f', RelationKinds.GenderOfName(project, "Verlaine"), "…un mot du titre composé");
+            t.Equal('f', RelationKinds.GenderOfName(project, "Odile"), "…le prénom en tête du titre (la fiche Odile seule dit la même chose)");
+            sheets.Children.Add(Sheet(template, "Marc Verlaine", "Homme"));
+            project.RelinkParents();
+            t.Equal('n', RelationKinds.GenderOfName(project, "Verlaine"), "…deux Verlaine de genres différents : rien");
+            t.Equal('m', RelationKinds.GenderOfName(project, "Marc"), "…mais Marc reste un homme");
+        }
+
+        private static bool Has(List<GenealogyNode> nodes, string label)
+        {
+            foreach (var node in nodes) if (node.Label == label) return true;
+            return false;
+        }
+
+        private static int IndexOf(List<GenealogyNode> nodes, string label)
+        {
+            for (var i = 0; i < nodes.Count; i++) if (nodes[i].Label == label) return i;
+            return -1;
+        }
+
+        private static string Labels(List<GenealogyNode> nodes)
+        {
+            var labels = new List<string>();
+            foreach (var node in nodes) labels.Add(node.Label);
+            return string.Join(", ", labels.ToArray());
         }
 
         /// <summary>Le modèle Personnage tel que livré par le batch 31.</summary>
