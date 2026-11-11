@@ -71,6 +71,95 @@ namespace Marabook.App
             }
         }
 
+        /// <summary>MARABOOK_PROBE_SHOTS=<dossier> : la photo d'un visuel (fenêtre, vue).</summary>
+        private static void Shot(Control visual, string name)
+        {
+            var shots = Environment.GetEnvironmentVariable("MARABOOK_PROBE_SHOTS");
+            if (string.IsNullOrEmpty(shots) || visual == null || visual.Bounds.Width < 1 || visual.Bounds.Height < 1) return;
+            try
+            {
+                var size = new PixelSize((int)Math.Ceiling(visual.Bounds.Width), (int)Math.Ceiling(visual.Bounds.Height));
+                using (var shot = new Avalonia.Media.Imaging.RenderTargetBitmap(size, new Vector(96, 96)))
+                {
+                    shot.Render(visual);
+                    shot.Save(System.IO.Path.Combine(shots, name));
+                }
+            }
+            catch (Exception error) { Console.Error.WriteLine("[sonde] image " + name + " : " + error.Message); }
+        }
+
+        /// <summary>MARABOOK_PROBE_SHOTS : des arbres d'exemple (1.1.1) dans une
+        /// fenêtre à part — une famille élargie aux lignées colorées, les cases
+        /// « ??? », le tracé progressif figé à trois instants.</summary>
+        private static async Task GenealogyShots()
+        {
+            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MARABOOK_PROBE_SHOTS"))) return;
+            var saved = RelationKinds.Active;
+            RelationKinds.Active = null;
+            try
+            {
+                var project = Project.CreateNew();
+                var template = project.CharacterTemplate();
+                var sheets = project.Category(Project.KeySheets);
+                Func<string, string, BinderItem> make = delegate(string title, string gender)
+                {
+                    var item = new BinderItem { Kind = ItemKind.Sheet, Title = title, TemplateId = template.Id };
+                    foreach (var field in template.Fields)
+                        if (field.Name == SheetDefaults.FieldGender) item.FieldValues[field.Id] = gender;
+                    sheets.Children.Add(item);
+                    return item;
+                };
+                Action<BinderItem, string, BinderItem> link = delegate(BinderItem from, string kind, BinderItem to)
+                {
+                    var relation = new SheetRelation { Kind = kind, TargetId = to.Id };
+                    from.Relations.Add(relation);
+                    RelationSync.Mirror(project, from, relation, null);
+                };
+                var raeza = make("Raeza", "Femme"); var zenxix = make("Zenxix", "Homme"); var mirel = make("Mirel", "Femme");
+                var kael = make("Kael", "Homme"); var ilya = make("Ilya", "Femme"); var toren = make("Toren", "Homme");
+                var sorha = make("Sorha", "Femme"); var davn = make("Davn", "Homme"); var lyss = make("Lyss", "Femme");
+                var orin = make("Orin", "Homme"); var nima = make("Nima", "Femme"); var vexa = make("Vexa", "Femme");
+                var halden = make("Halden", "Homme"); var yselle = make("Yselle", "Femme"); var brann = make("Brann", "Homme");
+                project.RelinkParents();
+                // Raeza : son grand-père Zenxix et sa grand-mère Mirel, sans parents connus (« ??? ») ;
+                // son mari Kael, leurs enfants Ilya et Toren ; sa sœur Sorha ; sa tante Vexa.
+                link(raeza, "Grand-père", zenxix); link(raeza, "Grand-mère", mirel); link(zenxix, "Femme", mirel);
+                link(raeza, "Mari", kael); link(raeza, "Fille", ilya); link(raeza, "Fils", toren);
+                link(kael, "Fille", ilya); link(kael, "Fils", toren);
+                link(raeza, "Sœur", sorha); link(raeza, "Tante", vexa);
+                raeza.Relations.Add(new SheetRelation { Kind = "Mentor", Name = "Maître Ouro" });
+                // Kael : ses parents Halden et Yselle, son frère Brann.
+                link(kael, "Père", halden); link(kael, "Mère", yselle); link(halden, "Femme", yselle); link(kael, "Frère", brann);
+                link(brann, "Père", halden); link(brann, "Mère", yselle);
+                // Sorha : son mari Davn, leur fille Lyss.
+                link(sorha, "Mari", davn); link(sorha, "Fille", lyss); link(davn, "Fille", lyss);
+                link(kael, "Tante", nima); // sans grands-parents de ce côté : un lien en tirets
+
+                var view = new GenealogyView();
+                var window = new Window { Width = 1500, Height = 900, Content = view, Title = "Généalogie (sonde)", ShowInTaskbar = false };
+                window.Show();
+                await Settle();
+                view.Load(project, raeza, true);
+                await Settle();
+                view.SetProgressForProbe(1);
+                await Settle();
+                Shot(view, "genealogie-raeza-couleurs-et-etapes-manquantes.png");
+                view.SetProgressForProbe(0.25); await Settle(); Shot(view, "genealogie-raeza-trace-1.png");
+                view.SetProgressForProbe(0.55); await Settle(); Shot(view, "genealogie-raeza-trace-2.png");
+                view.SetProgressForProbe(0.85); await Settle(); Shot(view, "genealogie-raeza-trace-3.png");
+                view.Load(project, kael);
+                await Settle();
+                Shot(view, "genealogie-kael-lignees.png");
+                view.Load(project, zenxix);
+                await Settle();
+                Shot(view, "genealogie-zenxix-descendance.png");
+                window.Close();
+                await Settle();
+            }
+            catch (Exception error) { Console.Error.WriteLine("[sonde] arbres d'exemple : " + error); }
+            finally { RelationKinds.Active = saved; }
+        }
+
         private static async Task Settle()
         {
             await Task.Delay(120);
@@ -2341,13 +2430,23 @@ namespace Marabook.App
                     Check(missingBox != null, "cliquer la tuile ouvre la boîte « Projet introuvable »");
                     if (missingBox != null)
                     {
-                        Check(FindButton(missingBox, "Relier") != null && FindButton(missingBox, "Retirer") != null, "…avec « Relier depuis son nouvel emplacement… » et « Retirer des projets récents »");
+                        Check(FindButton(missingBox, "Relier") != null && FindButton(missingBox, "Retirer") != null, "…avec « Relier… » et « Retirer »");
+                        // Les boutons tiennent dans la fenêtre (1.1.1, Rémi : ils en débordaient).
+                        var missingButtons = missingBox.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible).ToList();
+                        var overflow = missingButtons.Any(delegate(Button b)
+                        {
+                            var corner = b.TranslatePoint(new Point(b.Bounds.Width, 0), missingBox);
+                            var origin = b.TranslatePoint(new Point(0, 0), missingBox);
+                            return !corner.HasValue || !origin.HasValue || origin.Value.X < 0 || corner.Value.X > missingBox.ClientSize.Width + 0.5;
+                        });
+                        Check(missingButtons.Count >= 3 && !overflow, "…et ses boutons tiennent dans la fenêtre (" + missingButtons.Count + " boutons, fenêtre " + missingBox.ClientSize.Width.ToString("0") + " px)");
+                        Shot(missingBox, "projet-introuvable.png");
                         var remove = FindButton(missingBox, "Retirer");
                         if (remove != null) remove.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); else missingBox.Close();
                     }
                     await missingTask;
                     await Settle();
-                    Check(!AppSettings.RecentFiles.Contains(ghost), "« Retirer des projets récents » retire le projet de la liste");
+                    Check(!AppSettings.RecentFiles.Contains(ghost), "« Retirer » retire le projet de la liste");
                     Func<bool> ghostTile = delegate { return shell.Welcome.GetVisualDescendants().OfType<Border>().Any(b => Equals(b.Tag, "welcome-missing") && (ToolTip.GetTip(b) as string ?? "").StartsWith(ghost)); }; // d'autres récents de la sonde sont introuvables aussi (dossiers temporaires effacés)
                     Check(!ghostTile(), "…et sa tuile disparaît de l'accueil");
                     AppSettings.RecentFiles.Insert(0, ghost);
@@ -3038,17 +3137,33 @@ namespace Marabook.App
             Check(editor.TileCountForProbe == 15, "le diagramme montre une tuile par famille (" + editor.TileCountForProbe + ")");
             var self = editor.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => Equals(b.Tag, "self-tile"));
             Check(self != null && self.IsVisible, "…et le Personnage au centre");
+            // Les relations familiales de base sont statiques (1.1.1, Rémi) : elles ne
+            // bougent pas, ne cèdent pas leur case, gardent leur réciproque.
             editor.MoveFamily("parent", RelationLane.Direct, 1, -2);
-            Check(editor.SchemaForProbe.Find("Mère").Generation == -2 && editor.SchemaForProbe.Find("Père").Slot == 1, "déplacer la famille parent : Père et Mère changent de génération et de case");
-            editor.MoveFamily("uncle", RelationLane.Direct, 1, -2);
-            Check(editor.SchemaForProbe.Find("Oncle").Generation == -2 && editor.SchemaForProbe.Find("Père").Lane == RelationLane.Side && editor.SchemaForProbe.Find("Père").Generation == -1,
+            Check(editor.SchemaForProbe.Find("Mère").Generation == -1 && editor.SchemaForProbe.Find("Père").Slot == 0, "une relation familiale de base ne se déplace pas (Père et Mère restent en -1)");
+            editor.SelectForProbe("parent");
+            await Settle();
+            var staticNote = editor.GetVisualDescendants().OfType<Border>().Any(x => Equals(x.Tag, "relation-static"));
+            var nameBoxes = editor.GetVisualDescendants().OfType<TextBox>().Where(x => (x.Tag as string ?? "").StartsWith("name:")).ToList();
+            var hasRemove = FindButton(editor, "Supprimer la relation") != null;
+            Check(staticNote && nameBoxes.Count == 3 && nameBoxes.All(x => x.IsReadOnly) && !hasRemove, "…le rail la montre en lecture seule, sans « Supprimer » (" + nameBoxes.Count + " champs)");
+            Shot(editor, "diagramme-relation-fixe.png");
+            editor.MoveFamily("double", RelationLane.Side, 2, 1);
+            Check(editor.SchemaForProbe.Find("Doppelgänger").Generation == 1 && editor.SchemaForProbe.Find("Doppelgänger").Slot == 2, "déplacer une relation libre : elle change de génération et de case");
+            var amantSlot = editor.SchemaForProbe.Find("Amant").Slot; var exSlot = editor.SchemaForProbe.Find("Ex").Slot;
+            editor.MoveFamily("ex", RelationLane.Partner, amantSlot, 0);
+            Check(editor.SchemaForProbe.Find("Ex").Slot == amantSlot && editor.SchemaForProbe.Find("Amant").Slot == exSlot,
                 "poser une famille sur une case occupée : les deux s'échangent");
+            editor.MoveFamily("ex", RelationLane.Partner, editor.SchemaForProbe.Find("Mari").Slot, 0);
+            Check(editor.SchemaForProbe.Find("Ex").Slot == amantSlot, "…sauf sur la case d'une relation familiale de base");
             var family = editor.CreateFamily(RelationLane.Other, 0, 1);
             Check(editor.SchemaForProbe.OfFamily(family).Count == 1 && editor.SelectedForProbe == family && editor.TileCountForProbe == 16, "une relation neuve : une tuile de plus, choisie");
-            editor.SetReciprocal(family, "cousin");
-            Check(editor.SchemaForProbe.OfFamily(family)[0].Reciprocal == "cousin" && editor.SchemaForProbe.Find("Cousin").Reciprocal == family, "la réciproque se fixe dans les deux sens");
+            editor.SetReciprocal(family, "double");
+            Check(editor.SchemaForProbe.OfFamily(family)[0].Reciprocal == "double" && editor.SchemaForProbe.Find("Doppelgänger").Reciprocal == family, "la réciproque se fixe dans les deux sens");
             editor.SetReciprocal(family, family);
-            Check(editor.SchemaForProbe.Find("Cousin").Reciprocal == "cousin", "…et se défait : Cousin se répond de nouveau à lui-même");
+            Check(editor.SchemaForProbe.Find("Doppelgänger").Reciprocal == "double", "…et se défait : Doppelgänger se répond de nouveau à lui-même");
+            editor.SetReciprocal(family, "cousin");
+            Check(editor.SchemaForProbe.Find("Cousin").Reciprocal == "cousin" && editor.SchemaForProbe.OfFamily(family)[0].Reciprocal == family, "la réciproque d'une relation familiale de base ne se prend pas");
             var png = Environment.GetEnvironmentVariable("MARABOOK_RELATIONS_PNG");
             if (!string.IsNullOrEmpty(png))
             {
@@ -3066,14 +3181,21 @@ namespace Marabook.App
             }
             var applied = await editor.ApplyForProbe();
             await Settle();
-            Check(applied && project.RelationSchema.Find("Oncle") != null && project.RelationSchema.Find("Oncle").Generation == -2
-                && project.RelationSchema.Find("Mère").Lane == RelationLane.Side, "appliquer : le schéma du projet suit (Oncle en -2, Mère collatérale)");
+            Check(applied && project.RelationSchema.Find("Doppelgänger") != null && project.RelationSchema.Find("Doppelgänger").Generation == 1
+                && project.RelationSchema.Find("Mère").Lane == RelationLane.Direct, "appliquer : le schéma du projet suit (Doppelgänger en +1, Mère toujours en ligne directe)");
             shell.AdoptRelationSchemaForProbe();
-            Check(RelationKinds.GenerationOf("Tante") == -2 && RelationKinds.LaneOf("Père") == RelationLane.Side, "…et les statiques du projet ouvert répondent avec lui");
+            Check(RelationKinds.GenerationOf("Doppelgänger") == 1 && RelationKinds.LaneOf("Père") == RelationLane.Direct, "…et les statiques du projet ouvert répondent avec lui");
             Check(new List<string>(project.AllRelationKinds()).Contains("Nouvelle relation"), "la relation neuve se propose au sélecteur des fiches");
+            // Un schéma remanié avant la 1.1.1 : les relations familiales reviennent à leur place.
+            var old = RelationSchema.Defaults();
+            foreach (var kind in old.OfFamily("uncle")) kind.Generation = -2;
+            foreach (var kind in old.OfFamily("parent")) kind.Lane = RelationLane.Side;
+            old.Kinds.RemoveAll(k => k.Family == "cousin");
+            Check(old.RestoreStatic() && old.Find("Oncle").Generation == -1 && old.Find("Mère").Lane == RelationLane.Direct && old.Find("Cousine") != null && !old.RestoreStatic(),
+                "un schéma remanié avant la 1.1.1 : oncles, parents et cousins reviennent à leur place livrée");
             project.RelationSchema = RelationSchema.Defaults();
             shell.AdoptRelationSchemaForProbe();
-            Check(RelationKinds.GenerationOf("Mère") == -1, "le schéma livré remis : Mère en -1");
+            Check(RelationKinds.GenerationOf("Doppelgänger") == 0, "le schéma livré remis : Doppelgänger en 0");
             if (!editor.IsVisible) { } else editor.Close();
             await Settle();
 
@@ -3111,14 +3233,60 @@ namespace Marabook.App
                 shell.Binder.SelectItem(sheet.Id);
                 await Settle();
                 shell.Sheet.ToggleGenealogyForProbe();
+                var view = shell.Sheet.GenealogyForProbe;
+                // Ouvert depuis la fiche : les liens se tracent à partir du personnage (1.1.1) —
+                // si les animations sont permises (Préférences › Général).
+                Check(view.AnimatingForProbe == AppSettings.Animations, "ouvrir l'arbre depuis la fiche lance le tracé progressif des liens (animations " + (AppSettings.Animations ? "permises" : "coupées") + ")");
                 await Settle();
                 Check(shell.Sheet.GenealogyOnForProbe, "F2 : la généalogie prend la place des papers de la fiche (" + shell.Sheet.GenealogyStateForProbe + ")");
-                var view = shell.Sheet.GenealogyForProbe;
+                view.SetProgressForProbe(0.4);
+                var partial = view.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Line>().ToList();
+                var hidden = partial.Count(l => !l.IsVisible);
+                view.SetProgressForProbe(1);
+                Check(hidden > 0 && partial.All(l => l.IsVisible), "…à mi-course les liens lointains attendent, à la fin tous sont tracés (" + hidden + " en attente sur " + partial.Count + ")");
                 var tiles = view.GetVisualDescendants().OfType<Border>().Count(b => Equals(b.Tag, "genealogy-node"));
                 var lines = view.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Line>().Count();
                 Check(tiles >= sheet.Relations.Count && view.GetVisualDescendants().OfType<Border>().Any(b => Equals(b.Tag, "genealogy-self")), "…une tuile par relation (au moins : les fiches liées en amènent d'autres, 1.1.1) et le personnage (" + tiles + ")");
                 // Père–Mère : union, branche, bus, deux pieds (le personnage, Frère) = 5 ; personnage–partenaire : union double, branche, bus, deux pieds (Fils, Fille) = 6.
                 Check(lines >= 11, "…les traits d'union, branches, bus et pieds sont dessinés (" + lines + " traits)");
+                // L'arbre est centré dans la page et se déplace comme une carte de Mental-O (1.1.1).
+                var port = view.ViewportSizeForProbe; var content = view.ContentSizeForProbe; var at = view.OriginForProbe;
+                var centered = content.Width > port.Width - 260 || Math.Abs(at.X - port.Width / 2) <= 1;
+                var middle = content.Height > port.Height - 56 || Math.Abs(at.Y + content.Height / 2 - port.Height / 2) <= 1;
+                Check(port.Width > 0 && centered && middle, "l'arbre est centré dans la page (origine " + at.X.ToString("0") + " × " + at.Y.ToString("0") + ", page " + port.Width.ToString("0") + " × " + port.Height.ToString("0") + ", arbre " + content.Width.ToString("0") + " × " + content.Height.ToString("0") + ")");
+                view.PanForProbe(40, -25);
+                view.Refresh();
+                Check(Math.Abs(view.OriginForProbe.X - at.X - 40) < 0.5 && Math.Abs(view.OriginForProbe.Y - at.Y + 25) < 0.5 && !view.AnimatingForProbe, "déplacée, la vue reste où on l'a mise quand l'arbre se redessine — sans rejouer le tracé");
+                view.Load(project, sheet);
+                Check(Math.Abs(view.OriginForProbe.X - at.X) < 0.5 && !view.AnimatingForProbe, "passer d'un arbre à l'autre recentre, sans tracé progressif");
+                {
+                    var savedAnimations = AppSettings.Animations;
+                    AppSettings.Animations = false;
+                    view.Load(project, sheet, true);
+                    Check(!view.AnimatingForProbe, "animations coupées dans les Préférences : pas de tracé progressif");
+                    AppSettings.Animations = savedAnimations;
+                }
+                // Une étape manquante de la ligne directe : la case grise « ??? » ; un lien non rattaché : des tirets coudés.
+                var kept = new List<SheetRelation>(sheet.Relations);
+                sheet.Relations.Clear();
+                sheet.Relations.Add(new SheetRelation { Kind = "Grand-père", Name = "Zenxix (sonde)" });
+                sheet.Relations.Add(new SheetRelation { Kind = "Cousine", Name = "Vexa (sonde)" });
+                sheet.Relations.Add(new SheetRelation { Kind = "Mari", Name = "Orin (sonde)" });
+                view.Refresh();
+                await Settle();
+                var gaps = view.GetVisualDescendants().OfType<Border>().Where(b => Equals(b.Tag, "genealogy-missing")).ToList();
+                var gapTexts = gaps.SelectMany(b => b.GetVisualDescendants().OfType<TextBlock>()).Select(t => t.Text).ToList();
+                Check(gaps.Count == 1 && gapTexts.Contains("???") && gapTexts.Contains("parent"), "grand-père sans parents connus : une case grise « ??? », nature « parent » (" + string.Join(" / ", gapTexts) + ")");
+                var dashes = view.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Line>().Where(l => Equals(l.Tag, "genealogy-dashed")).ToList();
+                Check(dashes.Count >= 1 && dashes.All(l => l.StrokeThickness >= 1.6 && l.Opacity >= 0.9), "la cousine sans oncle ni tante connus pend en tirets nets (" + dashes.Count + " traits)");
+                var unionLines = view.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Line>().Count(l => !Equals(l.Tag, "genealogy-dashed") && Math.Abs(l.StartPoint.Y - l.EndPoint.Y) < 0.5 && Math.Abs(l.StartPoint.Y - (view.SelfCenterForProbe.Y - view.OriginForProbe.Y)) < 4.5);
+                Check(unionLines == 1, "le personnage et son mari : UN trait d'union, plus de double lien (" + unionLines + ")");
+                Check(view.GetVisualDescendants().OfType<Border>().Any(b => Equals(b.Tag, "genealogy-legend") && b.IsVisible), "la légende du code couleur est affichée");
+                sheet.Relations.Clear();
+                sheet.Relations.AddRange(kept);
+                view.Load(project, sheet);
+                await Settle();
+                await GenealogyShots();
                 var genealogyPng = Environment.GetEnvironmentVariable("MARABOOK_GENEALOGY_PNG");
                 if (!string.IsNullOrEmpty(genealogyPng))
                 {

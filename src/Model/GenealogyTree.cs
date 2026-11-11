@@ -25,11 +25,17 @@ namespace Marabook.Model
         public string ViaKey;         // le nœud par lequel on l'a atteint (null pour le personnage)
         public string Family = "";    // la famille de la nature dans le schéma (parent, child, sibling…) ; "" pour une nature libre
         public bool Lineal;           // en ligne directe : ascendant d'ascendant, descendant de descendant
+        public bool Placeholder;      // une étape manquante de la ligne directe (« ??? », 1.1.1) : aucune fiche, aucun nom
         public int Depth;             // le nombre de rebonds depuis le personnage
         public List<string> ParentKeys = new List<string>();
         public List<string> PartnerKeys = new List<string>();
         public List<string> SiblingKeys = new List<string>();
     }
+
+    /// <summary>La nature d'un nœud pour le code couleur de la vue (1.1.1) :
+    /// la ligne directe, la fratrie, les conjoints, les collatéraux (oncles,
+    /// cousins, neveux, alliés), l'étape manquante, les natures libres.</summary>
+    public enum GenealogyNature { Self, Direct, Sibling, Partner, Collateral, Missing, Other }
 
     /// <summary>Une rangée de l'arbre : une génération, ses nœuds dans l'ordre
     /// de dessin (les enfants d'un même couple côte à côte, sous leurs parents ;
@@ -153,6 +159,7 @@ namespace Marabook.Model
             }
             foreach (var node in nodes)
                 if (node.Inferred) node.Kind = InferredKind(node, byKey);
+            FillGaps(nodes, selfNode);
             nodes.Sort(delegate(GenealogyNode a, GenealogyNode b)
             {
                 if (a.IsSelf != b.IsSelf) return a.IsSelf ? -1 : 1;
@@ -187,6 +194,100 @@ namespace Marabook.Model
         private static void AddOnce(List<string> list, string key)
         {
             if (!list.Contains(key)) list.Add(key);
+        }
+
+        // ------------------------------------------------- les étapes manquantes
+
+        /// <summary>Les étapes manquantes de la ligne directe (1.1.1, Rémi) :
+        /// Raeza déclare Zenxix « Grand-père » sans qu'aucune fiche ne dise qui
+        /// sont ses parents — une case « ??? » (nature « Parent ») prend la
+        /// génération vide entre eux, et l'arbre garde sa forme. De même vers
+        /// le bas (« Petite-fille » sans enfant connu : « ??? », « Enfant »).
+        /// Une case par génération ENTIÈREMENT vide ; dès qu'une génération a
+        /// quelqu'un en ligne directe, les présomptions d'EffectiveParents
+        /// suffisent.</summary>
+        private static void FillGaps(List<GenealogyNode> nodes, GenealogyNode self)
+        {
+            var min = 0; var max = 0;
+            foreach (var node in nodes)
+                if (OnLine(node)) { min = Math.Min(min, node.Generation); max = Math.Max(max, node.Generation); }
+            // Vers le haut : de la génération la plus ancienne vers le personnage.
+            for (var g = min + 1; g <= -1; g++)
+            {
+                if (LineAt(nodes, g).Count > 0) continue;
+                var above = new List<GenealogyNode>();
+                foreach (var candidate in LineAt(nodes, g - 1))
+                {
+                    var hasChild = false;
+                    foreach (var node in nodes) if (node.ParentKeys.Contains(candidate.Key)) { hasChild = true; break; }
+                    if (!hasChild) above.Add(candidate);
+                }
+                if (above.Count == 0) continue;
+                var missing = Missing(g, self);
+                foreach (var parent in above) missing.ParentKeys.Add(parent.Key);
+                if (g == -1) AddOnce(self.ParentKeys, missing.Key);
+                nodes.Add(missing);
+            }
+            // Vers le bas : de la génération la plus lointaine vers le personnage.
+            for (var g = max - 1; g >= 1; g--)
+            {
+                if (LineAt(nodes, g).Count > 0) continue;
+                var below = new List<GenealogyNode>();
+                foreach (var candidate in LineAt(nodes, g + 1))
+                {
+                    var hasParent = false;
+                    foreach (var key in candidate.ParentKeys)
+                        foreach (var node in nodes) if (node.Key == key) { hasParent = true; break; }
+                    if (!hasParent) below.Add(candidate);
+                }
+                if (below.Count == 0) continue;
+                var missing = Missing(g, self);
+                foreach (var child in below) AddOnce(child.ParentKeys, missing.Key);
+                if (g == 1) missing.ParentKeys.Add(self.Key);
+                nodes.Add(missing);
+            }
+        }
+
+        private static bool OnLine(GenealogyNode node)
+        {
+            return !node.IsSelf && node.Lineal && node.Lane == RelationLane.Direct;
+        }
+
+        private static List<GenealogyNode> LineAt(List<GenealogyNode> nodes, int generation)
+        {
+            var list = new List<GenealogyNode>();
+            foreach (var node in nodes) if (OnLine(node) && node.Generation == generation) list.Add(node);
+            return list;
+        }
+
+        private static GenealogyNode Missing(int generation, GenealogyNode self)
+        {
+            return new GenealogyNode
+            {
+                Key = "vide:" + generation, Label = "???", Kind = LinealWord(generation, 'n'), Placeholder = true,
+                Generation = generation, Lane = RelationLane.Direct, Lineal = true, ViaKey = self.Key,
+                Family = generation == -1 ? "parent" : generation == 1 ? "child" : generation < 0 ? "grandparent" : "grandchild",
+                Depth = Math.Abs(generation)
+            };
+        }
+
+        /// <summary>La nature d'un nœud pour le code couleur (1.1.1).</summary>
+        public static GenealogyNature NatureOf(GenealogyNode node)
+        {
+            if (node == null) return GenealogyNature.Other;
+            if (node.IsSelf) return GenealogyNature.Self;
+            if (node.Placeholder) return GenealogyNature.Missing;
+            if (node.Lane == RelationLane.Other) return GenealogyNature.Other;
+            if (node.Lane == RelationLane.Partner) return GenealogyNature.Partner;
+            if (node.Lineal && node.Lane == RelationLane.Direct) return GenealogyNature.Direct;
+            if (node.Generation == 0)
+            {
+                // La fratrie DU PERSONNAGE : sa nature dit « Frère », « Sœur » (déclarée,
+                // ou déduite — l'enfant d'un parent) ; « Frère de Kael » est un allié.
+                var info = RelationKinds.Find(node.Kind);
+                if (info != null && info.Family == "sibling") return GenealogyNature.Sibling;
+            }
+            return GenealogyNature.Collateral;
         }
 
         // ------------------------------------------------------- les libellés

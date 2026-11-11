@@ -617,10 +617,10 @@ namespace Marabook.App
             var name = System.IO.Path.GetFileNameWithoutExtension(path);
             var owner = Ui.OwnerOf(this);
             var choice = await MessageDialog.ShowChoices(owner,
-                "Le fichier du projet « " + name + " » est introuvable :\n" + path
-                + "\n\nVoulez-vous relier le projet depuis son nouvel emplacement (s'il est encore en vie), ou le retirer de la liste des projets récents ?",
+                "Le projet « " + name + " » n'est plus à cet emplacement :\n" + path
+                + "\n\nS'il a été déplacé ou renommé, reliez-le depuis son nouvel emplacement. Sinon, retirez-le des projets récents.",
                 "Projet introuvable", MessageIcon.Warning,
-                new[] { "Relier depuis son nouvel emplacement…", "Retirer des projets récents", "Annuler" }, 0);
+                new[] { "Relier…", "Retirer", "Annuler" }, 0);
             if (choice == 1) { Forget(path); return; }
             if (choice != 0) return;
             var picked = await Ui.PickOpenFile(this, "Relier « " + name + " » depuis son nouvel emplacement", Persistence.PlotFile.OpenFilter);

@@ -1642,8 +1642,8 @@ namespace Marabook.App
         {
             if (_item == null) { _genealogyButton.IsChecked = false; return; }
             if (_previewToggle.IsChecked == true) _previewToggle.IsChecked = false;
-            _genealogy.Load(_project, _item);
             _genealogy.IsVisible = true;
+            _genealogy.Load(_project, _item, true); // ouvert depuis la fiche : les liens se tracent (1.1.1)
             _body.IsVisible = false;
         }
 

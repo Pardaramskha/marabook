@@ -20,8 +20,106 @@ namespace Marabook.Tests
             Sync(t);
             Tree(t);
             ExtendedTree(t);
+            Gaps(t);
             Migration(t);
             Schema(t);
+        }
+
+        /// <summary>Les étapes manquantes (1.1.1, Rémi) : une génération vide de la
+        /// ligne directe reçoit une case « ??? » ; la nature de chaque nœud
+        /// pour le code couleur ; les relations familiales statiques.</summary>
+        private static void Gaps(Harness t)
+        {
+            var project = Project.CreateNew();
+            var template = project.CharacterTemplate();
+            var sheets = project.Category(Project.KeySheets);
+            var raeza = Sheet(template, "Raeza", "Femme");
+            var zenxix = Sheet(template, "Zenxix", "Homme");
+            var kael = Sheet(template, "Kael", "Homme");
+            var sorha = Sheet(template, "Sorha", "Femme");
+            foreach (var sheet in new[] { raeza, zenxix, kael, sorha }) sheets.Children.Add(sheet);
+            project.RelinkParents();
+            raeza.Relations.Add(new SheetRelation { Kind = "Grand-père", TargetId = zenxix.Id });
+            zenxix.Relations.Add(new SheetRelation { Kind = "Petite-fille", TargetId = raeza.Id });
+            raeza.Relations.Add(new SheetRelation { Kind = "Mari", TargetId = kael.Id });
+            raeza.Relations.Add(new SheetRelation { Kind = "Sœur", TargetId = sorha.Id });
+            raeza.Relations.Add(new SheetRelation { Kind = "Tante", Name = "Vexa" });
+
+            // — Vue de Raeza : « ??? » (Parent) entre elle et Zenxix.
+            var nodes = Genealogy.Build(project, raeza);
+            GenealogyNode missing = null, self = null, grandfather = null;
+            var count = 0;
+            foreach (var node in nodes)
+            {
+                if (node.Placeholder) { missing = node; count++; }
+                if (node.IsSelf) self = node;
+                if (node.TargetId == zenxix.Id) grandfather = node;
+            }
+            t.Equal(1, count, "grand-père sans parents connus : une étape manquante");
+            t.Check(missing != null && missing.Label == "???" && missing.Kind == "Parent" && missing.Generation == -1 && missing.TargetId == null,
+                "…« ??? », nature « Parent », en génération -1, sans fiche");
+            t.Check(missing != null && missing.ParentKeys.Contains(grandfather.Key) && self.ParentKeys.Contains(missing.Key),
+                "…enfant du grand-père, parent du personnage");
+            var parents = Genealogy.EffectiveParents(nodes);
+            t.Check(parents[self.Key].Count == 1 && parents[self.Key][0] == missing.Key, "le personnage pend de l'étape manquante");
+            var rows = Genealogy.Rows(nodes);
+            t.Check(rows.Count == 3 && rows[1].Nodes.Count >= 1 && rows[1].Nodes.Contains(missing), "trois rangées : la case « ??? » tient celle du milieu");
+            // — Les natures, pour le code couleur.
+            foreach (var node in nodes)
+            {
+                if (node.IsSelf) t.Check(Genealogy.NatureOf(node) == GenealogyNature.Self, "nature : le personnage");
+                else if (node.Placeholder) t.Check(Genealogy.NatureOf(node) == GenealogyNature.Missing, "nature : l'étape manquante");
+                else if (node.TargetId == zenxix.Id) t.Check(Genealogy.NatureOf(node) == GenealogyNature.Direct, "nature : le grand-père en ligne directe");
+                else if (node.TargetId == kael.Id) t.Check(Genealogy.NatureOf(node) == GenealogyNature.Partner, "nature : le mari parmi les conjoints");
+                else if (node.TargetId == sorha.Id) t.Check(Genealogy.NatureOf(node) == GenealogyNature.Sibling, "nature : la sœur dans la fratrie");
+                else if (node.Label == "Vexa") t.Check(Genealogy.NatureOf(node) == GenealogyNature.Collateral, "nature : la tante parmi les collatéraux");
+            }
+
+            // — Vue de Zenxix : « ??? » (Enfant) entre lui et sa petite-fille.
+            var down = Genealogy.Build(project, zenxix);
+            GenealogyNode child = null, granddaughter = null;
+            foreach (var node in down)
+            {
+                if (node.Placeholder) child = node;
+                if (node.TargetId == raeza.Id) granddaughter = node;
+            }
+            t.Check(child != null && child.Kind == "Enfant" && child.Generation == 1 && child.ParentKeys.Contains(zenxix.Id)
+                && granddaughter != null && granddaughter.ParentKeys.Contains(child.Key), "petite-fille sans enfant connu : « ??? », nature « Enfant », entre les deux");
+
+            // — Un parent connu : plus d'étape manquante.
+            var mother = Sheet(template, "Ysa", "Femme");
+            sheets.Children.Add(mother);
+            project.RelinkParents();
+            raeza.Relations.Add(new SheetRelation { Kind = "Mère", TargetId = mother.Id });
+            var filled = 0;
+            foreach (var node in Genealogy.Build(project, raeza)) if (node.Placeholder) filled++;
+            t.Equal(0, filled, "un parent connu : la génération n'est plus vide, pas de « ??? »");
+
+            // — Deux générations vides : deux cases.
+            var far = Project.CreateNew();
+            var farTemplate = far.CharacterTemplate();
+            var one = Sheet(farTemplate, "Un", "Homme");
+            far.Category(Project.KeySheets).Children.Add(one);
+            far.RelinkParents();
+            one.Relations.Add(new SheetRelation { Kind = "Aïeul", Name = "Le Vieux" });
+            var chain = new List<string>();
+            foreach (var node in Genealogy.Build(far, one)) if (node.Placeholder) chain.Add(node.Generation + ":" + node.Kind);
+            chain.Sort();
+            t.Equal("-1:Parent|-2:Grand-parent", string.Join("|", chain.ToArray()), "aïeul seul : « ??? » parent et « ??? » grand-parent");
+
+            // — Les relations familiales statiques (1.1.1).
+            t.Check(RelationSchema.IsStatic("parent") && RelationSchema.IsStatic("sibling") && RelationSchema.IsStatic("spouse")
+                && !RelationSchema.IsStatic("ex") && !RelationSchema.IsStatic("double") && !RelationSchema.IsStatic("perso:mentor"),
+                "statiques : parents, fratrie, époux… ; libres : ex, doppelgänger, relations du projet");
+            var schema = RelationSchema.Defaults();
+            t.Check(!schema.RestoreStatic() && schema.SameAs(RelationSchema.Defaults()), "le schéma livré n'a rien à remettre en place");
+            foreach (var kind in schema.OfFamily("uncle")) kind.Generation = -2;
+            foreach (var kind in schema.OfFamily("child")) kind.Reciprocal = "child";
+            schema.Kinds.RemoveAll(delegate(RelationKindInfo k) { return k.Name == "Sœur"; });
+            schema.AddFree("Mentor");
+            t.Check(schema.RestoreStatic(), "un schéma remanié : il y a à remettre");
+            t.Check(schema.Find("Tante").Generation == -1 && schema.Reciprocal("Fils", 'm') == "Père" && schema.Find("Sœur") != null && schema.Find("Mentor") != null,
+                "…oncles en -1, Fils répond Père, Sœur revient, Mentor reste");
         }
 
         /// <summary>Le schéma des relations (1.1.0, l'éditeur de relations) : le
