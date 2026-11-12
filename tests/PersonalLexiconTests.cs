@@ -52,6 +52,17 @@ namespace Marabook.Tests
 
             var surname = new LexiconEntry { Word = "Kholin", Class = LexiconEntry.ClassProper, ProperKind = LexiconEntry.ProperSurname };
             t.Equal("Kholin Kholin :M2:e:i\n", PersonalLexicon.Describe(PersonalLexicon.Triples(surname)), "nom de famille → :M2:e:i");
+            // 1.1.1 : le genre posé compte pour TOUTE sorte de nom propre — un
+            // prénom féminin ajouté sans préciser « Prénom » doit accorder.
+            var unspecified = new LexiconEntry { Word = "Suzanne", Class = LexiconEntry.ClassProper, Genders = LexiconEntry.GendersFeminine };
+            t.Equal("Suzanne Suzanne :MP:f:i\n", PersonalLexicon.Describe(PersonalLexicon.Triples(unspecified)), "sorte non précisée, féminin → :MP:f:i");
+            t.Equal("f", unspecified.ProperGender(), "…ProperGender le dit");
+            t.Equal("", unspecified.FirstNameGender(), "…FirstNameGender non (ce n'est pas un prénom déclaré)");
+            var lady = new LexiconEntry { Word = "Davar", Class = LexiconEntry.ClassProper, ProperKind = LexiconEntry.ProperSurname, Genders = LexiconEntry.GendersFeminine };
+            t.Equal("Davar Davar :M2:f:i\n", PersonalLexicon.Describe(PersonalLexicon.Triples(lady)), "nom de famille féminin → :M2:f:i");
+            var city = new LexiconEntry { Word = "Lutèce", Class = LexiconEntry.ClassProper, ProperKind = LexiconEntry.ProperPlace, Genders = LexiconEntry.GendersFeminine };
+            t.Equal("Lutèce Lutèce :MP:f:i\n", PersonalLexicon.Describe(PersonalLexicon.Triples(city)), "lieu féminin → :MP:f:i");
+            t.Check(unspecified.Summary().Contains("féminin") && surname.Summary().IndexOf("neutre") < 0, "le résumé dit le genre d'un nom propre genré, rien pour un nom sans genre");
             var place = new LexiconEntry { Word = "Kholinar", Class = LexiconEntry.ClassProper, ProperKind = LexiconEntry.ProperPlace };
             t.Equal("Kholinar Kholinar :MP:e:i\n", PersonalLexicon.Describe(PersonalLexicon.Triples(place)), "lieu → :MP:e:i");
 

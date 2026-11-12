@@ -1416,7 +1416,8 @@ namespace Marabook.App
             var titleMissing = missing.Count == 0;
             foreach (var word in missing)
                 if (_item.Title.IndexOf(word, StringComparison.CurrentCultureIgnoreCase) >= 0) { titleMissing = true; break; }
-            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), titleMissing ? _item.Title : missing[0], true, missing);
+            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), titleMissing ? _item.Title : missing[0], true, missing,
+                RelationKinds.GenderOf(_item, _template)); // le genre de la fiche elle-même (1.1.1)
             if (entry == null) return;
             var existing = LexiconEntry.Find(_project.Lexicon, entry.Word);
             if (existing != null) _project.Lexicon.Remove(existing);
@@ -1641,8 +1642,8 @@ namespace Marabook.App
         {
             if (_item == null) { _genealogyButton.IsChecked = false; return; }
             if (_previewToggle.IsChecked == true) _previewToggle.IsChecked = false;
-            _genealogy.Load(_project, _item);
             _genealogy.IsVisible = true;
+            _genealogy.Load(_project, _item, true); // ouvert depuis la fiche : les liens se tracent (1.1.1)
             _body.IsVisible = false;
         }
 
@@ -1651,6 +1652,9 @@ namespace Marabook.App
             _genealogy.IsVisible = false;
             if (_previewToggle.IsChecked != true) _body.IsVisible = true;
         }
+
+        /// <summary>L'apparence a changé : l'arbre ouvert reprend ses teintes (1.1.1).</summary>
+        internal void OnThemeChanged() { _genealogy.OnThemeChanged(); }
 
         private void SyncGenealogy()
         {
@@ -2820,7 +2824,7 @@ namespace Marabook.App
         {
             var checker = Spell();
             if (checker == null) return;
-            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), word, projectScope);
+            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), word, projectScope, null, RelationKinds.GenderOfName(_project, word));
             if (entry == null) return;
             var list = projectScope ? checker.ProjectWords : checker.GlobalWords;
             var existing = LexiconEntry.Find(list, entry.Word);

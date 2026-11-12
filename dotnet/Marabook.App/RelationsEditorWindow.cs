@@ -61,6 +61,7 @@ namespace Marabook.App
         internal RelationSchema SchemaForProbe { get { return _schema; } }
         internal int TileCountForProbe { get { return _tiles.Count; } }
         internal string SelectedForProbe { get { return _selected; } }
+        internal void SelectForProbe(string family) { Select(family); }
 
         public RelationsEditorWindow(Project project)
         {
@@ -97,7 +98,7 @@ namespace Marabook.App
             bannerRow.Children.Add(new TextBlock { Text = "Diagramme relationnel", Foreground = Chrome.Ink, FontSize = 16, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center });
             bannerRow.Children.Add(new TextBlock
             {
-                Text = "les natures de relation du projet et leur place dans l'arbre · glisser une tuile la déplace · la poignée fixe la réciproque · double-clic sur une case vide : nouvelle relation",
+                Text = "les natures de relation du projet et leur place dans l'arbre · les relations familiales de base sont fixes · glisser une autre tuile la déplace · la poignée fixe la réciproque · double-clic sur une case vide : nouvelle relation",
                 Foreground = Chrome.SoftText,
                 FontSize = 11,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -157,7 +158,7 @@ namespace Marabook.App
             {
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Background = Chrome.PaperBg,
+                Background = Chrome.CanvasBg, // une toile, pas du papier (1.1.1)
                 Content = stage
             });
             Content = root;
@@ -398,6 +399,7 @@ namespace Marabook.App
                 Canvas.SetTop(tile, pair.Value.Y);
                 _canvas.Children.Add(tile);
                 _tiles[pair.Key] = tile;
+                if (RelationSchema.IsStatic(pair.Key)) continue; // pas de poignée : la réciproque est fixe
                 var handle = new Ellipse
                 {
                     Width = Handle, Height = Handle,
@@ -447,12 +449,19 @@ namespace Marabook.App
                 CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(8, 4, 8, 4),
                 Child = TileContent(family),
-                Cursor = new Cursor(StandardCursorType.Hand),
+                Cursor = new Cursor(RelationSchema.IsStatic(family) ? StandardCursorType.Arrow : StandardCursorType.Hand),
                 BoxShadow = new BoxShadows(new BoxShadow { Blur = 8, OffsetY = 2, Color = Color.FromArgb(0x22, 0, 0, 0) }),
                 Tag = "family:" + family // sonde
             };
-            ToolTip.SetTip(tile, FamilyLabel(family) + " — glisser pour changer de génération ou de voie, cliquer pour régler");
+            ToolTip.SetTip(tile, TileTip(family));
             return tile;
+        }
+
+        private string TileTip(string family)
+        {
+            return RelationSchema.IsStatic(family)
+                ? FamilyLabel(family) + " — relation familiale de base : fixe, elle ne se déplace ni ne se renomme"
+                : FamilyLabel(family) + " — glisser pour changer de génération ou de voie, cliquer pour régler";
         }
 
         /// <summary>Le contenu d'une tuile : ses formes, puis sa réciproque.</summary>
@@ -549,7 +558,7 @@ namespace Marabook.App
             _pressAt = point;
             _moved = false;
             var handle = HandleUnder(point);
-            if (handle != null)
+            if (handle != null && !RelationSchema.IsStatic(handle))
             {
                 _linking = handle;
                 var from = new Point(_rects[handle].Right, _rects[handle].Y + TileH / 2);
@@ -560,6 +569,12 @@ namespace Marabook.App
                 return;
             }
             var family = FamilyUnder(point);
+            if (family != null && RelationSchema.IsStatic(family))
+            {
+                Select(family); // statique : se consulte, ne se glisse pas
+                e.Handled = true;
+                return;
+            }
             if (family != null)
             {
                 _dragging = family;
@@ -631,10 +646,11 @@ namespace Marabook.App
         internal void MoveFamily(string family, RelationLane lane, int slot, int generation)
         {
             var kinds = _schema.OfFamily(family);
-            if (kinds.Count == 0) return;
+            if (kinds.Count == 0 || RelationSchema.IsStatic(family)) return; // une relation familiale ne bouge pas (1.1.1)
             var oldLane = kinds[0].Lane; var oldSlot = kinds[0].Slot; var oldGeneration = kinds[0].Generation;
             if (oldLane == lane && oldSlot == slot && oldGeneration == generation) return;
             var occupant = FamilyAt(lane, slot, generation, family);
+            if (occupant != null && RelationSchema.IsStatic(occupant)) return; // …et ne cède pas sa case
             foreach (var kind in kinds) { kind.Lane = lane; kind.Slot = slot; kind.Generation = generation; }
             if (occupant != null)
                 foreach (var kind in _schema.OfFamily(occupant)) { kind.Lane = oldLane; kind.Slot = oldSlot; kind.Generation = oldGeneration; }
@@ -644,6 +660,8 @@ namespace Marabook.App
         {
             var kinds = _schema.OfFamily(family);
             if (kinds.Count == 0) return;
+            // Les réciproques des relations familiales sont fixes (1.1.1).
+            if (RelationSchema.IsStatic(family) || (reciprocal != family && RelationSchema.IsStatic(reciprocal))) { Redraw(); return; }
             // L'ancienne réciproque, si elle nous répondait, se répond désormais à elle-même.
             var previous = string.IsNullOrEmpty(kinds[0].Reciprocal) ? family : kinds[0].Reciprocal;
             if (previous != family && previous != reciprocal)
@@ -717,14 +735,34 @@ namespace Marabook.App
             var family = _selected;
             var kinds = _schema.OfFamily(family);
             var first = kinds[0];
+            var locked = RelationSchema.IsStatic(family);
             _syncing = true;
             try
             {
                 _rail.Children.Add(Caption("Relation"));
+                if (locked)
+                    _rail.Children.Add(new Border
+                    {
+                        Background = Chrome.AccentTint,
+                        BorderBrush = Chrome.AccentSoft,
+                        BorderThickness = new Thickness(1),
+                        CornerRadius = new CornerRadius(8),
+                        Padding = new Thickness(10, 8, 10, 8),
+                        Margin = new Thickness(0, 0, 0, 10),
+                        Tag = "relation-static", // sonde
+                        Child = new TextBlock
+                        {
+                            Text = "Relation familiale de base : ses noms, sa génération, sa voie et sa réciproque sont fixes. L'arbre généalogique s'appuie sur elles pour se construire tout seul.",
+                            Foreground = Chrome.Ink,
+                            FontSize = 11.5,
+                            TextWrapping = TextWrapping.Wrap
+                        }
+                    });
                 _rail.Children.Add(NameField("Masculin", family, 'm', "« Père », « Frère »… — vide : pas de forme masculine"));
                 _rail.Children.Add(NameField("Féminin", family, 'f', "« Mère », « Sœur »… — vide : pas de forme féminine"));
                 _rail.Children.Add(NameField("Neutre", family, 'n', "« Parent », « Adelphe »…"));
-                _rail.Children.Add(Note("Au moins une forme ; la fiche d'en face reçoit la forme qui va avec le genre du personnage."));
+                _rail.Children.Add(Note(locked ? "La fiche d'en face reçoit la forme qui va avec le genre du personnage."
+                    : "Au moins une forme ; la fiche d'en face reçoit la forme qui va avec le genre du personnage."));
 
                 _rail.Children.Add(Divider());
                 _rail.Children.Add(Caption("Dans l'arbre"));
@@ -732,6 +770,7 @@ namespace Marabook.App
                 var lane = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
                 for (var i = 0; i < Bands.Length; i++) lane.Items.Add(new ComboBoxItem { Content = BandNames[i], Tag = Bands[i] });
                 lane.SelectedIndex = BandOf(first.Lane);
+                lane.IsEnabled = !locked;
                 ToolTip.SetTip(lane, "La bande du diagramme — ligne directe, collatéraux, partenaires ; « Autres relations » = une nature libre, hors généalogie");
                 lane.SelectionChanged += delegate
                 {
@@ -752,6 +791,7 @@ namespace Marabook.App
                 var generation = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
                 for (var g = -3; g <= 3; g++) generation.Items.Add(new ComboBoxItem { Content = (g > 0 ? "+" : "") + g + " — " + GenealogyView.GenerationCaption(g), Tag = g });
                 generation.SelectedIndex = RowOf(first.Generation);
+                generation.IsEnabled = !locked;
                 ToolTip.SetTip(generation, "La rangée du diagramme : négatif = ascendants, positif = descendants");
                 generation.SelectionChanged += delegate
                 {
@@ -781,6 +821,7 @@ namespace Marabook.App
                     reciprocal.Items.Add(item);
                     if (other == current) reciprocal.SelectedItem = item;
                 }
+                reciprocal.IsEnabled = !locked;
                 ToolTip.SetTip(reciprocal, "Ce que la fiche d'en face déclare en retour : « Père » répond « Fils » (ou « Fille », « Enfant » selon le genre)");
                 reciprocal.SelectionChanged += delegate
                 {
@@ -792,6 +833,12 @@ namespace Marabook.App
 
                 _rail.Children.Add(Divider());
                 var used = UsersOf(family);
+                if (locked)
+                {
+                    _rail.Children.Add(Note(used == 0 ? "Aucune fiche n'emploie cette relation."
+                        : used + (used > 1 ? " fiches emploient" : " fiche emploie") + " cette relation."));
+                    return;
+                }
                 _rail.Children.Add(Note(used == 0 ? "Aucune fiche n'emploie cette relation."
                     : used + (used > 1 ? " fiches emploient" : " fiche emploie") + " cette relation : la renommer les modifiera, après accord."));
                 var remove = Buttons.IconText("trash-bold", "Supprimer la relation", "Retirer cette relation des choix proposés — les fiches qui l'emploient la gardent, en nature libre", Buttons.Bar, Buttons.Look.Outline);
@@ -818,6 +865,14 @@ namespace Marabook.App
             RelationKindInfo existing = null;
             foreach (var kind in _schema.OfFamily(family)) if (kind.Gender == gender) existing = kind;
             var box = new TextBox { Text = existing == null ? "" : existing.Name, Watermark = "—", Tag = "name:" + gender };
+            if (RelationSchema.IsStatic(family))
+            {
+                box.IsReadOnly = true; // relation familiale de base : nom fixe (1.1.1)
+                box.Focusable = false;
+                box.Opacity = 0.7;
+                row.Children.Add(box);
+                return row;
+            }
             ToolTip.SetTip(box, tip);
             box.TextChanged += delegate
             {
@@ -855,7 +910,7 @@ namespace Marabook.App
             Border tile;
             if (!_tiles.TryGetValue(family, out tile)) return;
             tile.Child = TileContent(family);
-            ToolTip.SetTip(tile, FamilyLabel(family) + " — glisser pour changer de génération ou de voie, cliquer pour régler");
+            ToolTip.SetTip(tile, TileTip(family));
             // Les tuiles qui répondent à celle-ci portent son nom.
             foreach (var other in _schema.Families())
             {
@@ -920,6 +975,7 @@ namespace Marabook.App
         {
             // Une forme sans nom (vidée dans le rail) disparaît ; une famille vidée aussi.
             _schema.Kinds.RemoveAll(k => string.IsNullOrEmpty(k.Name));
+            _schema.RestoreStatic(); // les relations familiales restent à leur place (1.1.1)
             var original = _project.RelationSchema;
             var renames = new List<KeyValuePair<string, string>>();
             var removed = new List<string>();

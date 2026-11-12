@@ -66,16 +66,19 @@ namespace Marabook.Correction.Grammalecte
             {
                 case LexiconEntry.ClassProper:
                     if (entry.HasFlexion) { Inflected(result, entry, ":N"); Inflected(result, entry, ":A", true); break; }
+                    // Le genre posé vaut pour toute sorte de nom propre (1.1.1) :
+                    // Grammalecte accorde aussi sur :M2 et :MP genrés.
+                    var properGender = GenderTag(entry.ProperGender());
                     switch (entry.ProperKind)
                     {
                         case LexiconEntry.ProperFirstName:
-                            result.Add(new[] { word, word, ":M1:" + GenderTag(entry.FirstNameGender()) + ":i" });
+                            result.Add(new[] { word, word, ":M1:" + properGender + ":i" });
                             break;
                         case LexiconEntry.ProperSurname:
-                            result.Add(new[] { word, word, ":M2:e:i" });
+                            result.Add(new[] { word, word, ":M2:" + properGender + ":i" });
                             break;
                         default:
-                            result.Add(new[] { word, word, ":MP:e:i" });
+                            result.Add(new[] { word, word, ":MP:" + properGender + ":i" });
                             break;
                     }
                     foreach (var form in entry.DemonymForms())
