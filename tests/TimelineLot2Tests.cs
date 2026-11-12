@@ -182,7 +182,7 @@ namespace Marabook.Tests
             t.Equal("E2.905", zero.Format(TimeSystemChange.Convert(before, zero, At(before, "E2.905"))), "avec l'an zéro : E2.905 reste E2.905");
         }
 
-        /// <summary>Le défaut rapporté par Rémi (13/11) : changer la durée d'une
+        /// <summary>Le défaut rapporté par Rémi (12/11) : changer la durée d'une
         /// ère laissait les briques à leur ancienne place sur l'axe.</summary>
         private static void EraLength(Harness t)
         {

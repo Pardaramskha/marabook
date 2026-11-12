@@ -24,7 +24,7 @@ namespace Marabook.App
     /// l'onglet et le cadre de ce qu'on regarde. Le Général du rail reçoit le
     /// compte des événements, la durée de la temporalité et celle de l'ère.
     ///
-    /// Lot 2 (13/11, Rémi) : chaque modification s'annule (Ctrl+Z) ; l'onglet
+    /// Lot 2 (12/11, Rémi) : chaque modification s'annule (Ctrl+Z) ; l'onglet
     /// d'une ère ne montre QUE cette ère, sur toute la largeur ; les briques
     /// qui se gênent s'empilent en escalier, de la plus ancienne à la plus
     /// récente ; « Naissance » et « Décès » naissent des dates liées sur les

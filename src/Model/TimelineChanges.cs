@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Marabook.Model
 {
-    // LES FRISES, lot 2 (1.2.0, 13/11/2026, Rémi) : les naissances et les décès
+    // LES FRISES, lot 2 (1.2.0, 12/11/2026, Rémi) : les naissances et les décès
     // nés des fiches, l'accord de « mort / morte », l'âge d'époque de la vue
     // wiki, et ce qui se passe quand la temporalité change — chaque date est
     // RELUE dans le nouveau système (une brique datée « E2.905 » reste
