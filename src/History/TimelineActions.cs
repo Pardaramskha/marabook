@@ -52,6 +52,7 @@ namespace Marabook.History
             }
             foreach (var pair in _change.InfosAfter) pair.Key.Timeline = pair.Value.Clone();
             if (_change.EpochAfter != null && _project.Epoch != null) _project.Epoch.Notation = _change.EpochAfter;
+            DissonanceChanges.Apply(_change.DissonancesAfter);
             if (_change.Links.Edits.Count > 0) _change.Links.Apply(_project, true);
         }
 
@@ -59,6 +60,7 @@ namespace Marabook.History
         {
             if (_change.Links.Edits.Count > 0) _change.Links.Apply(_project, false);
             if (_change.EpochBefore != null && _project.Epoch != null) _project.Epoch.Notation = _change.EpochBefore;
+            DissonanceChanges.Apply(_change.DissonancesBefore);
             foreach (var pair in _change.InfosBefore) pair.Key.Timeline = pair.Value.Clone();
             if (_creating) _project.TimeSystems.Remove(_change.After);
             else

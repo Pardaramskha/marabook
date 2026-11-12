@@ -18,6 +18,7 @@ namespace Marabook.History
         public List<InfoEntry> FreeInfo = new List<InfoEntry>();
         public List<SheetRelation> Relations = new List<SheetRelation>();
         public List<EvolutionEntry> Evolution = new List<EvolutionEntry>();
+        public List<Dissonance> Dissonances = new List<Dissonance>(); // 1.2.0
         public List<string> Tags = new List<string>(); // 1.1.0
 
         public static SheetState Capture(BinderItem item)
@@ -34,6 +35,7 @@ namespace Marabook.History
             foreach (var entry in item.FreeInfo) state.FreeInfo.Add(Copy(entry));
             foreach (var relation in item.Relations) state.Relations.Add(Copy(relation));
             foreach (var step in item.Evolution) state.Evolution.Add(Copy(step));
+            foreach (var entry in item.Dissonances) state.Dissonances.Add(entry.Clone());
             return state;
         }
 
@@ -55,6 +57,8 @@ namespace Marabook.History
             foreach (var relation in Relations) item.Relations.Add(Copy(relation));
             item.Evolution.Clear();
             foreach (var step in Evolution) item.Evolution.Add(Copy(step));
+            item.Dissonances.Clear();
+            foreach (var entry in Dissonances) item.Dissonances.Add(entry.Clone());
             item.Tags.Clear();
             item.Tags.AddRange(Tags);
         }
@@ -108,6 +112,8 @@ namespace Marabook.History
                 delegate(SheetRelation x, SheetRelation y) { return x.Kind == y.Kind && x.TargetId == y.TargetId && x.Name == y.Name; });
             DiffList(keys, "evolution", a.Evolution, b.Evolution, delegate(EvolutionEntry s) { return s.Id; },
                 delegate(EvolutionEntry x, EvolutionEntry y) { return x.TextId == y.TextId && x.Title == y.Title && x.Note == y.Note; });
+            DiffList(keys, "dissonance", a.Dissonances, b.Dissonances, delegate(Dissonance d) { return d.Id; },
+                delegate(Dissonance x, Dissonance y) { return x.SameAs(y); });
             return string.Join("|", keys);
         }
 

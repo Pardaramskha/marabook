@@ -318,6 +318,45 @@ namespace Marabook.App
                     await Settle();
                     Check(!shell.Sheet.EpochSkullShownForProbe && (shell.Sheet.EpochNoteForProbe ?? "").Contains("32 ans"), "…celle d'une vivante, son âge, sans crâne (" + shell.Sheet.EpochNoteForProbe + ")");
                 }
+                // — Les dissonances (12/11) : le bouton à droite du champ « Âge », sa fenêtre, l'âge qui saute.
+                if (keiraSheet != null)
+                {
+                    shell.Sheet.ShowGeneralTabForProbe();
+                    await Settle();
+                    Check(shell.Sheet.GetVisualDescendants().OfType<Button>().Any(delegate(Button b) { return Equals(b.Tag, "sheet-dissonances") && b.IsEffectivelyVisible; }),
+                        "la fiche d'un personnage a le bouton « Dissonances » à droite de son âge");
+                    var bare = Project.CreateNew();
+                    Check(!DissonanceDialog.ForProbe(bare, keiraSheet).CanAddForProbe, "sans système temporel, rien ne s'ajoute dans la fenêtre Dissonances");
+                    var dissonances = DissonanceDialog.ForProbe(project, keiraSheet);
+                    Check(dissonances.CanAddForProbe && dissonances.RowsForProbe == 0, "avec un système, les deux ajouts sont offerts");
+                    dissonances.AddForProbe(Dissonance.Reference, "n'importe quand", null, "19");
+                    Check(!dissonances.AcceptForProbe() && dissonances.ErrorForProbe != null, "une date illisible est refusée (" + dissonances.ErrorForProbe + ")");
+                    dissonances = DissonanceDialog.ForProbe(project, keiraSheet);
+                    dissonances.AddForProbe(Dissonance.Exclusion, "E3.20", "E3.30", null);
+                    dissonances.AddForProbe(Dissonance.Reference, "E3.60", null, "19");
+                    dissonances.Show();
+                    await Settle();
+                    Shot((Control)dissonances.Content, "frises-13-dissonances.png");
+                    Check(dissonances.AcceptForProbe() && keiraSheet.Dissonances.Count == 2, "une période d'exclusion et un point de référence validés");
+                    await Settle();
+                    shell.Sheet.RefreshEpoch();
+                    Check((shell.Sheet.EpochNoteForProbe ?? "").Contains("22 ans (excl.) en E3.40"), "E3.40, après un saut de dix ans : « 22 ans (excl.) » (" + shell.Sheet.EpochNoteForProbe + ")");
+                    project.Epoch.Notation = "E3.25";
+                    shell.Sheet.RefreshEpoch();
+                    Check((shell.Sheet.EpochNoteForProbe ?? "").Contains("Hors-temps en E3.25 · 12 ans en E3.20"), "E3.25, pendant le saut : hors-temps (" + shell.Sheet.EpochNoteForProbe + ")");
+                    await Settle();
+                    Shot(shell.Sheet, "frises-14-fiche-hors-temps.png");
+                    shell.Binder.SelectItem(sheetsRoot.Id);
+                    await Settle();
+                    library.RefreshEpoch();
+                    await Settle();
+                    Check(cardTexts(keiraSheet).Contains("Hors-temps") && tagged(keiraSheet, "epoch-dimmed"), "…et sa tuile est en retrait, « Hors-temps »");
+                    Shot(library, "frises-15-epoque-hors-temps.png");
+                    keiraSheet.Dissonances.Clear();
+                    project.Epoch.Notation = "E3.40";
+                    library.RefreshEpoch();
+                    await Settle();
+                }
                 // L'époque s'éteint, tout revient.
                 shell.Binder.SelectItem(sheetsRoot.Id);
                 await Settle();

@@ -93,6 +93,7 @@ namespace Marabook.Model
         public List<InfoEntry> FreeInfo = new List<InfoEntry>();
         public List<SheetRelation> Relations = new List<SheetRelation>(); // fiches (batch 34)
         public List<EvolutionEntry> Evolution = new List<EvolutionEntry>(); // fiches : les étapes liées aux écrits (batch 47)
+        public List<Dissonance> Dissonances = new List<Dissonance>(); // fiches : sauts dans le temps, points de référence (1.2.0, 12/11)
         public Dictionary<string, double> RadarValues = new Dictionary<string, double>(); // fiches : valeur par id d'axe du radar (b47 bis), par pas de 0,5
         // LES TAGS d'une fiche (1.1.0, .plot v41) : des mots libres, rognés,
         // sans doublon (casse ignorée) — le filtre par tag de la bibliothèque,
@@ -249,6 +250,7 @@ namespace Marabook.Model
                 copy.Relations.Add(new SheetRelation { Kind = relation.Kind, TargetId = relation.TargetId, Name = relation.Name });
             foreach (var step in Evolution)
                 copy.Evolution.Add(new EvolutionEntry { TextId = step.TextId, Title = step.Title, Note = step.Note });
+            foreach (var entry in Dissonances) { var twin = entry.Clone(); twin.Id = Guid.NewGuid().ToString("N"); copy.Dissonances.Add(twin); }
             foreach (var child in Children)
             {
                 var twin = child.Duplicate(false);

@@ -51,7 +51,7 @@ namespace Marabook.Model
             foreach (var link in Links.Find(value))
             {
                 string title, notation;
-                if (!TimeLinks.Split(link.Target, out title, out notation)) continue;
+                if (!TimeLinks.SplitField(project, link, out title, out notation)) continue;
                 if (!Links.SameTitle(title, (timeline.Title ?? "").Trim())) continue;
                 TimePoint point;
                 if (!system.TryParse(notation, out point))
@@ -91,7 +91,9 @@ namespace Marabook.Model
             var when = system.Format(at);
             switch (status.State)
             {
-                case LifeState.Alive: return status.HasAge ? "(" + TimeSystem.YearsLabel(status.Age) + " en " + when + ")" : null;
+                case LifeState.Alive: return status.HasAge ? "(" + status.Label + " en " + when + ")" : null;
+                case LifeState.Absent: return "(" + Word(project, sheet, "absent", "absente", "absent·e") + " en " + when + ")";
+                case LifeState.OutOfTime: return "(hors-temps en " + when + (status.Detail.Length > 0 ? ", " + status.Detail : "") + ")";
                 case LifeState.Dead:
                     return "(" + Word(project, sheet, "mort", "morte", "mort·e") + (status.HasAge ? " à " + TimeSystem.YearsLabel(status.Age) : "") + ", avant " + when + ")";
                 case LifeState.Unborn: return "(pas encore " + Word(project, sheet, "né", "née", "né·e") + " en " + when + ")";
@@ -110,6 +112,8 @@ namespace Marabook.Model
         public Dictionary<BinderItem, TimelineInfo> InfosBefore = new Dictionary<BinderItem, TimelineInfo>();
         public Dictionary<BinderItem, TimelineInfo> InfosAfter = new Dictionary<BinderItem, TimelineInfo>();
         public string EpochBefore, EpochAfter;
+        public Dictionary<BinderItem, List<Dissonance>> DissonancesBefore = new Dictionary<BinderItem, List<Dissonance>>();
+        public Dictionary<BinderItem, List<Dissonance>> DissonancesAfter = new Dictionary<BinderItem, List<Dissonance>>();
         public ReplacePlan Links = new ReplacePlan();
         public int Moved;        // briques dont la place sur l'axe a suivi
         public int Pending;      // briques passées en attente
@@ -219,6 +223,9 @@ namespace Marabook.Model
                     }
                 }
             }
+
+            // Les dissonances des fiches, écrites dans ce système (12/11).
+            DissonanceChanges.Build(project, before, after, change.DissonancesBefore, change.DissonancesAfter);
 
             // Les liens de date du texte : réécrits quand la date se lit toujours
             // mais ne s'écrit plus pareil (la notation a changé).

@@ -236,7 +236,9 @@ namespace Marabook.Persistence
         //      manifeste, "timeSystems" (les systèmes temporels : segments,
         //      notation, mois, bissextiles, semaine, horloge ; omis si vide)
         //      et "epoch" (l'époque de la bibliothèque des fiches : frise,
-        //      date, active ; omise tant que jamais réglée). Un vieux
+        //      date, active ; omise tant que jamais réglée) ; sur une fiche,
+        //      "dissonances" ({id, kind "exclusion" | "reference", system,
+        //      from, to ou age} ; omise si vide). Un vieux
         //      Marabook ouvre le fichier en lecture seule (version supérieure).
         private const int FormatVersion = 46;
 
@@ -1039,6 +1041,21 @@ namespace Marabook.Persistence
                         relations.Add(r);
                     }
                     node["relations"] = relations;
+                }
+                if (item.Dissonances.Count > 0) // v46 : sauts dans le temps et points de référence
+                {
+                    var dissonances = new List<object>();
+                    foreach (var entry in item.Dissonances)
+                    {
+                        var d = new Dictionary<string, object>();
+                        d["id"] = entry.Id;
+                        d["kind"] = entry.Kind;
+                        if (entry.SystemId != null) d["system"] = entry.SystemId;
+                        d["from"] = entry.From;
+                        if (entry.IsReference) d["age"] = (double)entry.Age; else d["to"] = entry.To;
+                        dissonances.Add(d);
+                    }
+                    node["dissonances"] = dissonances;
                 }
                 if (item.RadarValues.Count > 0) // v22
                 {
@@ -2022,6 +2039,22 @@ namespace Marabook.Persistence
                         relation.TargetId = Json.AsString(Json.Field(r, "target"));
                         relation.Name = Json.AsString(Json.Field(r, "name")) ?? "";
                         item.Relations.Add(relation);
+                    }
+                var dissonances = Json.AsList(Json.Field(obj, "dissonances")); // v46
+                if (dissonances != null)
+                    foreach (var dissonanceNode in dissonances)
+                    {
+                        var d = Json.AsObject(dissonanceNode);
+                        if (d == null) continue;
+                        var entry = new Dissonance();
+                        var entryId = Json.AsString(Json.Field(d, "id"));
+                        if (!string.IsNullOrEmpty(entryId)) entry.Id = entryId;
+                        entry.Kind = Json.AsString(Json.Field(d, "kind")) == Dissonance.Reference ? Dissonance.Reference : Dissonance.Exclusion;
+                        entry.SystemId = Json.AsString(Json.Field(d, "system"));
+                        entry.From = Json.AsString(Json.Field(d, "from")) ?? "";
+                        entry.To = Json.AsString(Json.Field(d, "to")) ?? "";
+                        entry.Age = (long)Json.AsDouble(Json.Field(d, "age"), 0);
+                        item.Dissonances.Add(entry);
                     }
                 var radarValues = Json.AsObject(Json.Field(obj, "radar")); // v22
                 if (radarValues != null)

@@ -206,10 +206,15 @@ namespace Marabook.App
             titleRow.Children.Add(renameButton);
             _categoryLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 11 };
             titles.Children.Add(titleRow);
-            _epochNote = new TextBlock { Foreground = Chrome.Time, FontSize = 11, IsVisible = false, Margin = new Thickness(8, 0, 0, 0), Tag = "sheet-epoch-note" };
-            var categoryRow = new StackPanel { Orientation = Orientation.Horizontal };
-            categoryRow.Children.Add(_categoryLabel);
+            // Encre pleine, en demi-gras (12/11, Rémi : le bleu-vert fin ne se lisait dans aucun mode).
+            _epochNote = new TextBlock { Foreground = Chrome.Ink, FontWeight = FontWeight.SemiBold, FontSize = 11.5, IsVisible = false, Margin = new Thickness(8, 0, 0, 0), Tag = "sheet-epoch-note" };
+            // La note d'époque d'abord servie (12/11) : faute de place, c'est le libellé de
+            // catégorie qui se coupe (« Hors-temps en E3.25 · 12 ans en E3.20 » était rogné).
+            var categoryRow = new DockPanel { HorizontalAlignment = HorizontalAlignment.Left };
+            _categoryLabel.TextTrimming = TextTrimming.CharacterEllipsis;
+            DockPanel.SetDock(_epochNote, Dock.Right);
             categoryRow.Children.Add(_epochNote);
+            categoryRow.Children.Add(_categoryLabel);
             titles.Children.Add(categoryRow);
             bannerRow.Children.Add(titles);
             banner.Child = bannerRow;
@@ -524,6 +529,7 @@ namespace Marabook.App
         internal void ShowTextTabPublic() { ShowTextTab(); } // capture (hotfix 1.0.3-a)
         internal void ShowGeneralTabPublic() { _tabs.SelectedIndex = 0; } // sonde des champs cross-fiche (07/10)
         internal bool GeneralTabShownForProbe { get { return _tabs.SelectedIndex == 0; } }
+        internal void ShowGeneralTabForProbe() { _tabs.SelectedIndex = 0; }
 
         private void ShowTextTab()
         {
@@ -1070,6 +1076,8 @@ namespace Marabook.App
                     {
                         _item.FieldValues[fieldRef.Id] = text;
                     }, field.Id);
+                    // Les dissonances (1.2.0, 12/11, Rémi) : à droite du champ « Âge », l'icône de l'Époque.
+                    if (field.Name == SheetDefaults.FieldAge) editor = WithDissonances(editor);
                     PanelFor(field.Group).Children.Add(FieldRow(field.Name, editor, null));
                 }
             foreach (var entry in _item.FreeInfo)
@@ -1079,6 +1087,26 @@ namespace Marabook.App
                     pair.Value.Children.Add(Hint(pair.Key.Length == 0
                         ? "Aucune information — ajoutez un champ."
                         : "Aucun champ dans cette section — ajoutez-en un."));
+        }
+
+        private Control WithDissonances(Control editor)
+        {
+            var button = Buttons.Icon("pile-frises", "Dissonances", Buttons.Compact, Buttons.Look.Calm);
+            button.Tag = "sheet-dissonances";
+            button.Margin = new Thickness(6, 0, 0, 0);
+            button.VerticalAlignment = VerticalAlignment.Top;
+            button.Click += async delegate
+            {
+                if (_item == null || _project == null) return;
+                if (!await DissonanceDialog.Ask(Ui.OwnerOf(this), _project, _item)) return;
+                NotifyEdited();
+                RefreshEpoch();
+            };
+            var row = new DockPanel();
+            DockPanel.SetDock(button, Dock.Right);
+            row.Children.Add(button);
+            row.Children.Add(editor);
+            return row;
         }
 
         private static TextBlock Hint(string text)
@@ -1681,7 +1709,7 @@ namespace Marabook.App
             _epochSkull.IsVisible = status.State == LifeState.Dead;
             ToolTip.SetTip(_epochSkull, status.State == LifeState.Dead ? status.Label : null);
             _epochNote.IsVisible = status.State != LifeState.Unknown;
-            if (status.State != LifeState.Unknown) _epochNote.Text = "·  " + status.Label + " en " + system.Format(at);
+            if (status.State != LifeState.Unknown) _epochNote.Text = "·  " + Epochs.BannerNote(status, system.Format(at));
         }
         internal bool EpochSkullShownForProbe { get { return _epochSkull != null && _epochSkull.IsVisible; } }
         internal string EpochNoteForProbe { get { return _epochNote == null || !_epochNote.IsVisible ? null : _epochNote.Text; } }

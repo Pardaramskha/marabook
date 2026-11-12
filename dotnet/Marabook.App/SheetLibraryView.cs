@@ -636,7 +636,7 @@ namespace Marabook.App
             if (name != null) { name.Margin = new Thickness(6, 5, 6, 1); stack.Children.Add(name); }
             stack.Children.Add(new TextBlock
             {
-                Text = status.Label.Split(new[] { " · " }, StringSplitOptions.None)[0], FontSize = 10.5, Foreground = status.State == LifeState.Alive ? (IBrush)Chrome.Time : Chrome.SoftText,
+                Text = status.Label.Split(new[] { " · " }, StringSplitOptions.None)[0], FontSize = 11, FontWeight = FontWeight.SemiBold, Foreground = Chrome.Ink, // encre pleine (12/11, Rémi : le bleu-vert fin ne se lisait pas)
                 TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(4, 0, 4, 6),
                 Tag = "epoch-age", [ToolTip.TipProperty] = status.Label
             });

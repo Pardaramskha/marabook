@@ -1070,6 +1070,24 @@ namespace Marabook.Model
             return timelineTitle.Length > 0 && notation.Length > 0;
         }
 
+        /// <summary>La date d'un lien posé dans un CHAMP de fiche (naissance,
+        /// décès) : un lien de date, ou — toléré, 12/11 — un lien ordinaire vers
+        /// une frise dont le texte affiché se lit comme une date de son système
+        /// (« [[Ma frise|E5.878]] » : la fiche de Rémi disait « en vie » sans âge).</summary>
+        public static bool SplitField(Project project, Link link, out string timelineTitle, out string notation)
+        {
+            if (Split(link.Target, out timelineTitle, out notation)) return true;
+            timelineTitle = null;
+            notation = null;
+            if (IsTimeLink(link.Target) || string.IsNullOrEmpty(link.Text)) return false;
+            var timeline = Timelines.FindByTitle(project, link.Target);
+            TimePoint point;
+            if (timeline == null || !Timelines.SystemOf(project, timeline).TryParse(link.Text, out point)) return false;
+            timelineTitle = (timeline.Title ?? "").Trim();
+            notation = link.Text.Trim();
+            return true;
+        }
+
         /// <summary>La notation à insérer : le texte affiché est toujours écrit
         /// (la date, à défaut d'autres mots) pour que la cible reste cachée.</summary>
         public static string Markup(string timelineTitle, string notation, string text)
@@ -1140,7 +1158,9 @@ namespace Marabook.Model
 
     // =========================================================== les époques
 
-    public enum LifeState { Unknown, Unborn, Alive, Dead }
+    // Absent : avant un point de référence ; OutOfTime : dans une période
+    // d'exclusion (les dissonances, 12/11 — Dissonances.cs).
+    public enum LifeState { Unknown, Unborn, Alive, Dead, Absent, OutOfTime }
 
     /// <summary>L'état d'un personnage à l'époque choisie : pas encore né,
     /// vivant (et son âge), mort (et l'âge de sa mort).</summary>
@@ -1150,6 +1170,8 @@ namespace Marabook.Model
         public bool HasAge;
         public long Age;
         public string Label = "";
+        public bool Excluded;       // l'âge saute une période d'exclusion : « 28 ans (excl.) »
+        public string Detail = "";  // hors-temps : « 20 ans en E5.500 » (l'âge du départ)
     }
 
     /// <summary>L'ÉPOQUE de la bibliothèque des fiches : une frise et une date.
@@ -1222,47 +1244,6 @@ namespace Marabook.Model
             return Evaluate(project, sheet, system, at);
         }
 
-        public static LifeStatus Evaluate(Project project, BinderItem sheet, TimeSystem system, TimePoint at)
-        {
-            var status = new LifeStatus();
-            var birth = DateOf(project, sheet, SheetDefaults.FieldBirthDate, system);
-            var death = DateOf(project, sheet, SheetDefaults.FieldDeathDate, system);
-            if (birth == null && death == null) return status;
-            if (birth != null && system.AxisEnd(at) <= system.AxisStart(birth))
-            {
-                status.State = LifeState.Unborn;
-                var wait = birth.Year - at.Year;
-                status.Label = wait <= 0 ? "Pas encore " + Word(project, sheet, "né", "née", "né·e") : "Naît dans " + TimeSystem.YearsLabel(wait);
-                return status;
-            }
-            if (death != null && system.AxisStart(at) >= system.AxisEnd(death))
-            {
-                status.State = LifeState.Dead;
-                if (birth != null)
-                {
-                    status.HasAge = true;
-                    status.Age = Math.Max(0, system.AgeAt(birth, death));
-                    status.Label = Word(project, sheet, "Mort", "Morte", "Mort·e") + " à " + TimeSystem.YearsLabel(status.Age);
-                }
-                else status.Label = Word(project, sheet, "Mort", "Morte", "Mort·e");
-                var since = at.Year - death.Year;
-                if (since > 0) status.Label += " · depuis " + TimeSystem.YearsLabel(since);
-                return status;
-            }
-            if (birth == null)
-            {
-                // Une date de décès seule, pas encore atteinte : en vie, d'âge inconnu.
-                status.State = LifeState.Alive;
-                status.Label = "En vie";
-                return status;
-            }
-            status.State = LifeState.Alive;
-            status.HasAge = true;
-            status.Age = Math.Max(0, system.AgeAt(birth, at));
-            status.Label = TimeSystem.YearsLabel(status.Age);
-            return status;
-        }
-
         /// <summary>La date d'un champ de la fiche, si elle est un lien vers une
         /// frise DE CE SYSTÈME (un âge ne se calcule pas entre deux calendriers).</summary>
         public static TimePoint DateOf(Project project, BinderItem sheet, string fieldName, TimeSystem system)
@@ -1271,11 +1252,11 @@ namespace Marabook.Model
             if (value == null) return null;
             foreach (var link in Links.Find(value))
             {
-                if (!TimeLinks.IsTimeLink(link.Target)) continue;
-                TimeSystem found;
+                string title, notation;
+                if (!TimeLinks.SplitField(project, link, out title, out notation)) continue;
+                var item = Timelines.FindByTitle(project, title);
                 TimePoint point;
-                var item = TimeLinks.Resolve(project, link.Target, out found, out point);
-                if (item != null && point != null && found != null && found.Id == system.Id) return point;
+                if (item != null && Timelines.SystemOf(project, item).Id == system.Id && system.TryParse(notation, out point)) return point;
             }
             return null;
         }
