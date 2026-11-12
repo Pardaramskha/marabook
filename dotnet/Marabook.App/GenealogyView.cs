@@ -68,7 +68,7 @@ namespace Marabook.App
 
         public GenealogyView()
         {
-            Background = Chrome.PaperBg;
+            Background = Chrome.CanvasBg; // une toile, pas du papier : elle suit le thème même avec « papier blanc » (1.1.1)
             _dots = new DotGrid();
             _canvas = new Canvas { RenderTransform = _move };
             _labels = new Canvas { RenderTransform = _labelsMove, IsHitTestVisible = false };
@@ -130,6 +130,15 @@ namespace Marabook.App
 
         /// <summary>Redessine (une relation a changé) : la vue reste où elle est.</summary>
         public void Refresh() { Draw(false); }
+
+        /// <summary>Le thème a changé (sombre, accent, papier blanc) : les teintes
+        /// des tuiles et les points de la grille sont figés au dessin — on
+        /// redessine, sans bouger la vue.</summary>
+        public void OnThemeChanged()
+        {
+            _dots.InvalidateVisual();
+            if (IsVisible) Draw(false);
+        }
 
         /// <summary>Le libellé d'une génération vue depuis le personnage.</summary>
         public static string GenerationCaption(int generation)
@@ -357,7 +366,7 @@ namespace Marabook.App
         {
             var caption = new Border
             {
-                Background = new SolidColorBrush(Chrome.PaperBg.Color, 0.85),
+                Background = new SolidColorBrush(Chrome.CanvasBg.Color, 0.85),
                 CornerRadius = new CornerRadius(6),
                 Padding = new Thickness(5, 2, 5, 2),
                 MaxWidth = LabelW - 14,
@@ -821,7 +830,7 @@ namespace Marabook.App
                 Width = TileW,
                 Height = _tileH,
                 Background = node.IsSelf ? Chrome.AccentTint
-                    : missing ? new SolidColorBrush(Chrome.Blend(Chrome.PaperBg.Color, Chrome.CardBg.Color, 0.6))
+                    : missing ? new SolidColorBrush(Chrome.Blend(Chrome.CanvasBg.Color, Chrome.CardBg.Color, 0.6))
                     : tinted ? new SolidColorBrush(Chrome.Blend(Chrome.CardBg.Color, color, 0.13))
                     : (IBrush)Chrome.CardBg,
                 BorderBrush = node.IsSelf ? Chrome.Accent
@@ -853,7 +862,11 @@ namespace Marabook.App
                 tile.Padding = new Thickness(0);
                 tile.Child = frame;
             }
-            else tile.BoxShadow = new BoxShadows(new BoxShadow { Blur = 8, OffsetY = 2, Color = Color.FromArgb(0x22, 0, 0, 0) });
+            else
+            {
+                tile.BoxShadow = new BoxShadows(new BoxShadow { Blur = 8, OffsetY = 2, Color = Color.FromArgb(0x22, 0, 0, 0) });
+                CardLift.Attach(tile); // la tuile se soulève au survol, comme les cartes de la bibliothèque (1.1.1)
+            }
             if (node.Inferred && !node.IsSelf) tile.Opacity = 0.92;
             if (node.TargetId != null && !node.IsSelf)
             {

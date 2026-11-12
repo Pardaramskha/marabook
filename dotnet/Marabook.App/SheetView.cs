@@ -1653,6 +1653,9 @@ namespace Marabook.App
             if (_previewToggle.IsChecked != true) _body.IsVisible = true;
         }
 
+        /// <summary>L'apparence a changé : l'arbre ouvert reprend ses teintes (1.1.1).</summary>
+        internal void OnThemeChanged() { _genealogy.OnThemeChanged(); }
+
         private void SyncGenealogy()
         {
             if (_genealogyButton.IsChecked != true) return;

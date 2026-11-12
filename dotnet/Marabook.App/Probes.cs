@@ -2583,7 +2583,14 @@ namespace Marabook.App
                         await Settle();
                         var texts = runs();
                         Check(texts.Any(delegate(string s) { return s.Contains("Wikipédiatre"); }), "l'onglet « Notes de version » relit les notes embarquées de la 1.1.0");
-                        Check(texts.Any(delegate(string s) { return s.Contains("Patch 1.1.1"); }) && texts.Any(delegate(string s) { return s.Contains("premier patch"); }), "…suivies du patch 1.1.1 sous son nom en H1");
+                        // Depuis la sortie de la 1.1.1, ses VRAIES notes sont embarquées et priment
+                        // sur celles que la sonde retient : on y cherche alors leur première ligne.
+                        var firstPatchMark = "premier patch";
+                        var embeddedFirstPatch = PatchNotes.ForVersion("1.1.1");
+                        if (embeddedFirstPatch != null)
+                            foreach (var line in embeddedFirstPatch.Split('\n'))
+                                if (line.Trim().Length > 0) { firstPatchMark = line.Trim().TrimStart('#', ' ', '*'); break; }
+                        Check(texts.Any(delegate(string s) { return s.Contains("Patch 1.1.1"); }) && texts.Any(delegate(string s) { return s.Contains(firstPatchMark); }), "…suivies du patch 1.1.1 sous son nom en H1 (« " + firstPatchMark + " »)");
                         Check(!texts.Any(delegate(string s) { return s.Contains("second patch"); }), "…sans le patch qui arrive (il a son onglet)");
                         var header = patchDialog.TabsForProbe.Items.OfType<TabItem>().Select(delegate(TabItem i) { return i.Header as string; }).ToList();
                         Check(header.Count == 2 && header[0] == UpdateNotesDialog.VersionTabHeader && header[1] == UpdateNotesDialog.PatchTabHeader, "les onglets se nomment « Notes de version » et « Notes du patch »");
@@ -3287,6 +3294,35 @@ namespace Marabook.App
                 view.Load(project, sheet);
                 await Settle();
                 await GenealogyShots();
+                {
+                    // Le fond de l'arbre suit le thème sombre, même avec « papier blanc malgré le mode sombre » (1.1.1).
+                    var wasDark = Chrome.Dark; var wasWhite = AppSettings.WhitePaperInDark;
+                    AppSettings.WhitePaperInDark = true;
+                    Chrome.Toggle(true);
+                    view.OnThemeChanged();
+                    await Settle();
+                    var ground = view.Background as Avalonia.Media.ISolidColorBrush;
+                    var paperStaysWhite = Chrome.PaperBg.Color.R == 0xFF;
+                    Check(paperStaysWhite && ground != null && ground.Color.R < 0x40 && ground.Color.G < 0x40 && ground.Color.B < 0x40,
+                        "mode sombre + papier blanc : le fond de l'arbre est sombre (" + (ground == null ? "?" : Chrome.Hex(ground.Color)) + "), le papier reste blanc");
+                    var darkPng = Environment.GetEnvironmentVariable("MARABOOK_GENEALOGY_DARK_PNG");
+                    if (!string.IsNullOrEmpty(darkPng))
+                    {
+                        try
+                        {
+                            using (var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize((int)view.Bounds.Width, (int)view.Bounds.Height), new Vector(96, 96)))
+                            {
+                                bitmap.Render(view);
+                                bitmap.Save(darkPng);
+                            }
+                        }
+                        catch (Exception error) { Console.WriteLine("  (photo de la généalogie sombre : " + error.Message + ")"); }
+                    }
+                    AppSettings.WhitePaperInDark = wasWhite;
+                    Chrome.Toggle(wasDark);
+                    view.OnThemeChanged();
+                    await Settle();
+                }
                 var genealogyPng = Environment.GetEnvironmentVariable("MARABOOK_GENEALOGY_PNG");
                 if (!string.IsNullOrEmpty(genealogyPng))
                 {

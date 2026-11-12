@@ -158,7 +158,7 @@ namespace Marabook.App
             {
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Background = Chrome.PaperBg,
+                Background = Chrome.CanvasBg, // une toile, pas du papier (1.1.1)
                 Content = stage
             });
             Content = root;

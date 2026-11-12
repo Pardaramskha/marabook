@@ -6125,6 +6125,7 @@ namespace Marabook.App
             if (_darkMenu != null) _darkMenu.IsChecked = AppSettings.DarkTheme; // le commutateur des Préférences (22/09)
             var themeHandler = ThemeChanged; // les modules à code suivent le thème (22/09)
             if (themeHandler != null) themeHandler();
+            if (_sheetView != null) _sheetView.OnThemeChanged(); // l'arbre généalogique fige ses teintes au dessin (1.1.1)
             CodeModuleHost.Instance.SetDarkTheme(AppSettings.DarkTheme); // Mental-O en DLC (26/10)
         }
 
