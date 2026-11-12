@@ -733,6 +733,17 @@ namespace Marabook.Model
         public string LinkKind;
         public string LinkId;
 
+        // EN ATTENTE (1.2.0, lot 2) : la temporalité a changé et la date de la
+        // brique ne s'y lit plus. On garde ce qui était écrit (le début, la fin)
+        // pour le redemander à l'auteur ; la brique quitte l'axe d'ici là.
+        public string PendingStart;
+        public string PendingEnd;
+        public bool IsPending { get { return PendingStart != null; } }
+
+        // Née d'une fiche (date de naissance ou de décès liée à la frise) :
+        // jamais enregistrée, recalculée à chaque lecture.
+        public bool Derived;
+
         public bool IsSpan { get { return End != null; } }
 
         public TimelineEvent Clone()
@@ -741,7 +752,7 @@ namespace Marabook.Model
             {
                 Id = Id, Title = Title, Description = Description, TypeId = TypeId,
                 Start = Start == null ? new TimePoint() : Start.Clone(), End = End == null ? null : End.Clone(),
-                LinkKind = LinkKind, LinkId = LinkId
+                LinkKind = LinkKind, LinkId = LinkId, PendingStart = PendingStart, PendingEnd = PendingEnd, Derived = Derived
             };
         }
     }
@@ -756,7 +767,18 @@ namespace Marabook.Model
         {
             if (id == null) return null;
             foreach (var type in Types) if (type.Id == id) return type;
-            return null;
+            return BuiltInType(id); // « Naissance » et « Décès », nés des fiches
+        }
+
+        public const string BirthTypeId = "life-birth";
+        public const string DeathTypeId = "life-death";
+        private static readonly TimelineEventType Birth = new TimelineEventType { Id = BirthTypeId, Name = "Naissance", Color = "#4FA36B" };
+        private static readonly TimelineEventType Death = new TimelineEventType { Id = DeathTypeId, Name = "Décès", Color = "#6B7280" };
+
+        /// <summary>Les deux types que toute frise porte d'office (1.2.0, lot 2).</summary>
+        public static TimelineEventType BuiltInType(string id)
+        {
+            return id == BirthTypeId ? Birth : id == DeathTypeId ? Death : null;
         }
 
         public TimelineEvent FindEvent(string id)
@@ -878,7 +900,7 @@ namespace Marabook.Model
         public List<TimelineSegmentStats> Segments = new List<TimelineSegmentStats>();
     }
 
-    public static class Timelines
+    public static partial class Timelines
     {
         /// <summary>Le système d'une frise ; à défaut (système supprimé, vieille
         /// frise), le premier du projet, sinon celui de notre monde.</summary>
@@ -951,11 +973,19 @@ namespace Marabook.Model
 
         public static TimelineStats Stats(TimeSystem system, TimelineInfo timeline)
         {
+            var events = new List<TimelineEvent>();
+            if (timeline != null) foreach (var entry in timeline.Events) if (!entry.IsPending) events.Add(entry);
+            return Stats(system, events);
+        }
+
+        /// <summary>Les statistiques d'une liste de briques (celles de la frise et
+        /// celles nées des fiches).</summary>
+        public static TimelineStats Stats(TimeSystem system, IList<TimelineEvent> events)
+        {
             var stats = new TimelineStats();
             var any = false;
             double min = 0, max = 0;
-            if (timeline != null)
-                foreach (var entry in timeline.Events)
+                foreach (var entry in events)
                 {
                     if (entry.Start == null) continue;
                     stats.Events++;
@@ -975,8 +1005,7 @@ namespace Marabook.Model
                     var open = length <= 0;
                     if (open) length = Math.Max(1, (long)Math.Ceiling(any ? max : 0) - start); // ouvert : jusqu'au dernier événement
                     var segment = new TimelineSegmentStats { Name = system.SegmentName(i), Start = start, Length = length, Open = open };
-                    if (timeline != null)
-                        foreach (var entry in timeline.Events)
+                        foreach (var entry in events)
                             if (entry.Start != null && SegmentOf(system, entry) == i) segment.Events++;
                     stats.Segments.Add(segment);
                     if (open) break; // rien après un segment ouvert
@@ -1013,7 +1042,7 @@ namespace Marabook.Model
     /// autres dans le texte, dont la cible commence par « date: » —
     /// « [[date:Frise des Âges@E5.902|E5.902]] ». La notation reste du texte :
     /// à l'export, seuls les mots affichés restent.</summary>
-    public static class TimeLinks
+    public static partial class TimeLinks
     {
         public const string Prefix = "date:";
 
@@ -1133,7 +1162,7 @@ namespace Marabook.Model
         public string Notation = "";
     }
 
-    public static class Epochs
+    public static partial class Epochs
     {
         private static string Key(string name)
         {
@@ -1203,7 +1232,7 @@ namespace Marabook.Model
             {
                 status.State = LifeState.Unborn;
                 var wait = birth.Year - at.Year;
-                status.Label = wait <= 0 ? "Pas encore né·e" : "Naît dans " + TimeSystem.YearsLabel(wait);
+                status.Label = wait <= 0 ? "Pas encore " + Word(project, sheet, "né", "née", "né·e") : "Naît dans " + TimeSystem.YearsLabel(wait);
                 return status;
             }
             if (death != null && system.AxisStart(at) >= system.AxisEnd(death))
@@ -1213,9 +1242,9 @@ namespace Marabook.Model
                 {
                     status.HasAge = true;
                     status.Age = Math.Max(0, system.AgeAt(birth, death));
-                    status.Label = "Mort·e à " + TimeSystem.YearsLabel(status.Age);
+                    status.Label = Word(project, sheet, "Mort", "Morte", "Mort·e") + " à " + TimeSystem.YearsLabel(status.Age);
                 }
-                else status.Label = "Mort·e";
+                else status.Label = Word(project, sheet, "Mort", "Morte", "Mort·e");
                 var since = at.Year - death.Year;
                 if (since > 0) status.Label += " · depuis " + TimeSystem.YearsLabel(since);
                 return status;

@@ -212,6 +212,7 @@ namespace Marabook.Persistence
             var events = new List<object>();
             foreach (var entry in timeline.Events)
             {
+                if (entry.Derived) continue; // née d'une fiche : jamais enregistrée
                 var e = new Dictionary<string, object>();
                 e["id"] = entry.Id;
                 e["title"] = entry.Title ?? "";
@@ -219,6 +220,8 @@ namespace Marabook.Persistence
                 if (entry.TypeId != null) e["type"] = entry.TypeId;
                 e["start"] = BuildPoint(entry.Start ?? new TimePoint());
                 if (entry.End != null) e["end"] = BuildPoint(entry.End);
+                if (entry.PendingStart != null) e["pendingStart"] = entry.PendingStart; // en attente d'une nouvelle date
+                if (entry.PendingEnd != null) e["pendingEnd"] = entry.PendingEnd;
                 if (entry.LinkKind != null && entry.LinkId != null)
                 {
                     e["linkKind"] = entry.LinkKind;
@@ -263,6 +266,8 @@ namespace Marabook.Persistence
                     entry.TypeId = Json.AsString(Json.Field(e, "type"));
                     entry.Start = ReadPoint(Json.Field(e, "start")) ?? new TimePoint();
                     entry.End = ReadPoint(Json.Field(e, "end"));
+                    entry.PendingStart = Json.AsString(Json.Field(e, "pendingStart"));
+                    entry.PendingEnd = entry.PendingStart == null ? null : Json.AsString(Json.Field(e, "pendingEnd"));
                     entry.LinkKind = Json.AsString(Json.Field(e, "linkKind"));
                     entry.LinkId = Json.AsString(Json.Field(e, "link"));
                     if (entry.LinkKind == null || entry.LinkId == null) { entry.LinkKind = null; entry.LinkId = null; }

@@ -164,11 +164,24 @@ namespace Marabook.App
             panel.Children.Add(_span);
             panel.Children.Add(TimelineUi.Label(entry.IsSpan ? "Début :" : "Date :", 8));
             var startLabel = (TextBlock)panel.Children[panel.Children.Count - 1];
-            _start = new DateField(system, entry.Start == null ? "" : system.Format(entry.Start));
+            // Une brique EN ATTENTE (lot 2) : ce qui était écrit ne se lit plus — on le montre et on redemande.
+            if (entry.IsPending)
+                panel.Children.Insert(0, new Border
+                {
+                    Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 0, 0, 12), CornerRadius = new CornerRadius(8),
+                    Background = new SolidColorBrush(Chrome.Danger.Color, 0.10), BorderBrush = new SolidColorBrush(Chrome.Danger.Color, 0.55), BorderThickness = new Thickness(1),
+                    Tag = "event-pending-notice",
+                    Child = new TextBlock
+                    {
+                        Text = "Cet événement attend une nouvelle date : « " + entry.PendingStart + (entry.PendingEnd != null ? " → " + entry.PendingEnd : "") + " » ne se lit plus dans la temporalité.",
+                        Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap, FontSize = 12
+                    }
+                });
+            _start = new DateField(system, entry.IsPending ? entry.PendingStart : entry.Start == null ? "" : system.Format(entry.Start));
             panel.Children.Add(_start);
             _endLabel = TimelineUi.Label("Fin :", 8);
             panel.Children.Add(_endLabel);
-            _end = new DateField(system, entry.End == null ? "" : system.Format(entry.End));
+            _end = new DateField(system, entry.IsPending ? (entry.PendingEnd ?? "") : entry.End == null ? "" : system.Format(entry.End));
             panel.Children.Add(_end);
             _span.IsCheckedChanged += delegate
             {
@@ -222,7 +235,11 @@ namespace Marabook.App
             Content = panel;
             _start.Changed += Validate;
             _end.Changed += Validate;
-            Loaded += delegate { _title.Focus(); _title.SelectAll(); };
+            Loaded += delegate
+            {
+                if (entry.IsPending) { _start.Box.Focus(); _start.Box.SelectAll(); }
+                else { _title.Focus(); _title.SelectAll(); }
+            };
         }
 
         private void FillLinkItems(string selectedId)
@@ -272,6 +289,8 @@ namespace Marabook.App
             if (_entry.Title.Length == 0) _entry.Title = "Événement";
             _entry.TypeId = _type.SelectedIndex >= 0 && _type.SelectedIndex < _timeline.Types.Count ? _timeline.Types[_type.SelectedIndex].Id : null;
             _entry.Start = _start.Point;
+            _entry.PendingStart = null; // une date lisible : la brique retrouve l'axe
+            _entry.PendingEnd = null;
             _entry.End = _span.IsChecked == true ? _end.Point : null;
             var kind = _linkKind.SelectedIndex;
             var item = _linkItem.SelectedIndex;
@@ -459,7 +478,10 @@ namespace Marabook.App
             Content = panel;
             FillSystems(null);
             _system.SelectionChanged += delegate { Describe(); };
-            Loaded += delegate { _title.Focus(); _title.SelectAll(); };
+            Loaded += delegate
+            {
+                _title.Focus(); _title.SelectAll();
+            };
         }
 
         private void FillSystems(TimeSystem select)

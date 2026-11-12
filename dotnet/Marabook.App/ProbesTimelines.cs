@@ -43,13 +43,13 @@ namespace Marabook.App
                 var view = shell.TimelineForProbe;
                 Check(view.IsVisible && view.ShowsItem(timeline), "une frise s'ouvre dans sa vue");
                 Check(view.TabCountForProbe == 4 && view.TabForProbe == -1, "quatre onglets : « Tout » et les trois ères (" + view.TabCountForProbe + ")");
-                Check(view.PlacedCountForProbe == 14, "les quatorze briques sont posées (" + view.PlacedCountForProbe + ")");
+                Check(view.PlacedCountForProbe == 15, "les quinze briques sont posées : douze de la frise, trois nées des fiches (" + view.PlacedCountForProbe + ")");
                 Check(view.MinimapShownForProbe, "la minimap est là");
                 var labels = view.RulerLabelsForProbe();
                 Check(labels.Count >= 4 && labels.Any(delegate(string l) { return l.StartsWith("E2."); }) && labels.Any(delegate(string l) { return l.StartsWith("E1."); }),
                     "la règle est graduée dans la notation, par ère (" + string.Join(", ", labels.Take(8).ToArray()) + "…)");
                 var general = view.InspectorTextsForProbe();
-                Check(general.Any(delegate(string s) { return s.Contains("14 événements"); }), "Général du rail : le nombre d'événements");
+                Check(general.Any(delegate(string s) { return s.Contains("15 événements"); }), "Général du rail : le nombre d'événements");
                 Check(general.Any(delegate(string s) { return s.Contains("Durée totale de la temporalité") && s.Replace(' ', ' ').Replace(' ', ' ').Contains("2 154 ans"); }), "…la durée totale de la temporalité (2 154 ans)");
                 Check(general.Any(delegate(string s) { return s.Contains("Ère des Phares") && s.Replace(' ', ' ').Replace(' ', ' ').Contains("1 200 ans"); }), "…et la durée de chaque ère");
                 Check(shell.InspectorKindForProbe.StartsWith("Frise"), "…sous le genre « Frise — son système » (" + shell.InspectorKindForProbe + ")");
@@ -58,10 +58,20 @@ namespace Marabook.App
                 // — Un onglet d'ère.
                 view.SelectTabForProbe(2);
                 await Settle();
-                Check(view.TabForProbe == 2 && view.PlacedCountForProbe == 5, "l'onglet de la troisième ère : ses cinq briques (" + view.PlacedCountForProbe + ")");
+                Check(view.TabForProbe == 2 && view.PlacedCountForProbe == 6, "l'onglet de la troisième ère : ses six briques (" + view.PlacedCountForProbe + ")");
+                Check(view.ViewStartForProbe > 1999.2 && view.ViewStartForProbe <= 2000 && view.ViewEndForProbe >= 2034 && view.ViewEndForProbe < 2034.8,
+                    "…l'ère seule occupe toute la frise, de son début à sa fin (" + view.ViewStartForProbe.ToString("0.##") + " → " + view.ViewEndForProbe.ToString("0.##") + ")");
+                view.ZoomForProbe(0.2);
+                await Settle();
+                Check(view.ViewStartForProbe > 1999.2 && view.ViewStartForProbe <= 2000 && view.ViewEndForProbe >= 2034 && view.ViewEndForProbe < 2034.8, "…et dézoomer n'y fait pas entrer les autres ères");
+                view.ZoomForProbe(8);
+                await Settle();
+                Check(view.ViewStartForProbe > 1999.2 && view.ViewEndForProbe < 2034.8 && view.ViewEndForProbe - view.ViewStartForProbe < 6, "…mais on peut y sur-zoomer (" + (view.ViewEndForProbe - view.ViewStartForProbe).ToString("0.#") + " ans à l'écran)");
+                view.FitAll();
+                await Settle();
                 general = view.InspectorTextsForProbe();
                 Check(general.Any(delegate(string s) { return s.StartsWith("Ère des Grandes Marées") && s.Contains("34 ans"); }), "…et le Général dit la durée de l'ère ouverte (34 ans, en cours)");
-                Check(view.RulerLabelsForProbe().Count(delegate(string l) { return l.Contains("E3."); }) >= 3, "…la règle compte dans cette ère (" + string.Join(", ", view.RulerLabelsForProbe().Take(6).ToArray()) + "…)");
+                Check(view.RulerLabelsForProbe().Count >= 3 && view.RulerLabelsForProbe().All(delegate(string l) { return l.Contains("E3."); }), "…la règle ne compte plus que dans cette ère (" + string.Join(", ", view.RulerLabelsForProbe().Take(6).ToArray()) + "…)");
                 Shot(view, "frises-3-ere.png");
                 view.SelectTabForProbe(-1);
                 await Settle();
@@ -69,10 +79,56 @@ namespace Marabook.App
                 // — Filtrer par type, zoomer, se déplacer par la minimap.
                 view.ToggleTypeForProbe("type-3");
                 await Settle();
-                Check(view.PlacedCountForProbe == 11, "masquer le type « Personnage » retire ses trois briques (" + view.PlacedCountForProbe + ")");
+                Check(view.PlacedCountForProbe == 14, "masquer le type « Personnage » retire sa brique (" + view.PlacedCountForProbe + ")");
                 view.ToggleTypeForProbe("type-3");
                 await Settle();
-                Check(view.PlacedCountForProbe == 14, "…et le remontrer les rend");
+                Check(view.PlacedCountForProbe == 15, "…et le remontrer la rend");
+                // — Lot 2 : les filtres « Naissance » et « Décès », l'escalier, la ligne de vie, pas d'infobulle.
+                view.ToggleTypeForProbe(TimelineInfo.BirthTypeId);
+                view.ToggleTypeForProbe(TimelineInfo.DeathTypeId);
+                await Settle();
+                Check(view.PlacedCountForProbe == 12, "masquer « Naissance » et « Décès » retire les trois briques nées des fiches (" + view.PlacedCountForProbe + ")");
+                view.ToggleTypeForProbe(TimelineInfo.BirthTypeId);
+                view.ToggleTypeForProbe(TimelineInfo.DeathTypeId);
+                await Settle();
+                Check(!view.SurfaceHasTipForProbe, "survoler la frise ne pose aucune infobulle");
+                var lanes = view.LanesForProbe();
+                var stairs = true;
+                var previousLane = -1;
+                foreach (var lane in lanes)
+                {
+                    if (lane.Key.EndsWith(":deces")) continue; // un décès se pose sur la ligne de sa naissance
+                    if (lane.Value != 0 && lane.Value <= previousLane) stairs = false;
+                    previousLane = lane.Value;
+                }
+                Check(stairs && lanes.Any(delegate(KeyValuePair<string, int> l) { return l.Value >= 3; }), "les briques qui se gênent descendent en escalier, de la plus ancienne à la plus récente (" + string.Join(" ", lanes.Select(delegate(KeyValuePair<string, int> l) { return l.Value.ToString(); }).ToArray()) + ")");
+                var maraboutItem = project.AllItems().FirstOrDefault(delegate(BinderItem i) { return i.Kind == ItemKind.Sheet && i.Title == "Le marabout"; });
+                var bornLane = lanes.Where(delegate(KeyValuePair<string, int> l) { return l.Key == "vie:" + maraboutItem.Id + ":naissance"; }).Select(delegate(KeyValuePair<string, int> l) { return l.Value; }).DefaultIfEmpty(-1).First();
+                var diedLane = lanes.Where(delegate(KeyValuePair<string, int> l) { return l.Key == "vie:" + maraboutItem.Id + ":deces"; }).Select(delegate(KeyValuePair<string, int> l) { return l.Value; }).DefaultIfEmpty(-2).First();
+                Check(bornLane >= 0 && bornLane == diedLane, "le décès du marabout est sur la ligne de sa naissance (couloir " + bornLane + ")");
+                // — Le cadre de l'événement choisi, puis une suppression défaite par Ctrl+Z.
+                var lighthouse = timeline.Timeline.Events.Find(delegate(TimelineEvent e) { return e.Title == "Le premier phare"; });
+                view.SelectForProbe(lighthouse.Id);
+                await Settle();
+                Check(view.InspectorHasTagForProbe("timeline-selected-card"), "Général du rail : l'événement choisi est dans un cadre arrondi");
+                Shot(view.Inspector, "frises-13-rail-evenement-choisi.png");
+                view.DeleteSelectedForProbe();
+                await Settle();
+                Check(view.PlacedCountForProbe == 14 && timeline.Timeline.Events.Count == 11, "retirer une brique : quatorze à l'écran");
+                shell.HistoryForProbe.Undo();
+                await Settle();
+                Check(view.PlacedCountForProbe == 15 && timeline.Timeline.Events.Exists(delegate(TimelineEvent e) { return e.Title == "Le premier phare"; }), "Ctrl+Z la rend");
+                // — Renommer la frise : son écran suit tout de suite.
+                shell.HistoryForProbe.Run(new Marabook.History.RenameItemAction(timeline, "Annales du Littoral", project));
+                await Settle();
+                Check(view.TitleForProbe == "Annales du Littoral", "frise renommée : le titre de son écran suit (" + view.TitleForProbe + ")");
+                Check(view.PlacedCountForProbe == 15, "…et les naissances liées suivent le nouveau nom");
+                shell.HistoryForProbe.Undo();
+                await Settle();
+                Check(view.TitleForProbe == TimelineSamples.TimelineTitle, "…et revient avec Ctrl+Z");
+                view.FitAll();
+                await Settle();
+                Shot(view, "frises-14-escalier-et-vies.png");
                 var scale = view.ScaleForProbe;
                 view.ZoomForProbe(6);
                 await Settle();
@@ -132,6 +188,45 @@ namespace Marabook.App
                     systemDialog.CancelForProbe();
                 }
                 Check(await systemTask == null && view.System.YearPattern == "E{s}.{a}" && !view.System.Cumulative, "annuler laisse le système tel quel");
+
+                // — Lot 2 : changer la durée d'une ère. Les briques gardent leur date ; celles qui n'en ont plus attendent.
+                var longer = view.System.Clone();
+                longer.Segments[0].Length = 7500;
+                shell.HistoryForProbe.Run(new Marabook.History.TimeSystemEditAction(project, TimeSystemChange.Build(project, view.System, longer), false));
+                await Settle();
+                var book = timeline.Timeline.Events.Find(delegate(TimelineEvent e) { return e.Title == "Le livre des marées"; });
+                Check(ReferenceEquals(view.System, longer) && view.System.Format(book.Start) == "E2.905" && book.Start.Year == 8404 && view.PendingCountForProbe == 0,
+                    "l'ère 1 portée à 7 500 ans : « Le livre des marées » reste en E2.905 et suit sur l'axe (année " + book.Start.Year + ")");
+                Check(view.PlacedCountForProbe == 15, "…toutes les briques sont replacées, naissances comprises (" + view.PlacedCountForProbe + ")");
+                Shot(view, "frises-15-ere-de-7500-ans.png");
+                shell.HistoryForProbe.Undo();
+                await Settle();
+                Check(view.System.Segments[0].Length == 800 && view.PendingCountForProbe == 0, "Ctrl+Z rend l'ère de 800 ans");
+                var shorter = view.System.Clone();
+                shorter.Segments[1].Length = 1000;
+                shell.HistoryForProbe.Run(new Marabook.History.TimeSystemEditAction(project, TimeSystemChange.Build(project, view.System, shorter), false));
+                await Settle();
+                Check(view.PendingCountForProbe == 1 && view.InspectorHasTagForProbe("timeline-problems") && view.InspectorHasTagForProbe("timeline-pending") && view.InspectorHasTagForProbe("timeline-problem"),
+                    "l'ère 2 raccourcie : « La Grande Tempête » attend dans « Problèmes › Événements en attente » du rail (" + view.PendingCountForProbe + ")");
+                Check(view.PlacedCountForProbe == 13, "…elle a quitté l'axe, et la naissance devenue illisible aussi (" + view.PlacedCountForProbe + ")");
+                Shot(view.Inspector, "frises-16-rail-problemes.png");
+                var waiting = timeline.Timeline.Events.Find(delegate(TimelineEvent e) { return e.IsPending; });
+                var pendingTask = TimelineEventDialog.Ask(shell, project, view.System, timeline.Timeline, waiting.Clone(), false);
+                await Settle();
+                var pendingDialog = OpenWindow<TimelineEventDialog>();
+                Check(pendingDialog != null && pendingDialog.GetVisualDescendants().OfType<Border>().Any(delegate(Border b) { return Equals(b.Tag, "event-pending-notice"); }),
+                    "rouvrir une brique en attente : la fenêtre dit ce qui ne se lit plus et redemande une date");
+                if (pendingDialog != null)
+                {
+                    Shot(pendingDialog, "frises-17-evenement-en-attente.png");
+                    pendingDialog.FillForProbe("La Grande Tempête", "E2.988", "E2.1000");
+                    pendingDialog.AcceptForProbe();
+                }
+                var redated = await pendingTask;
+                Check(redated != null && !redated.Deleted && !redated.Event.IsPending && view.System.Format(redated.Event.Start) == "E2.988", "une nouvelle date la sort de l'attente");
+                shell.HistoryForProbe.Undo();
+                await Settle();
+                Check(view.PendingCountForProbe == 0 && view.PlacedCountForProbe == 15 && !view.InspectorHasTagForProbe("timeline-problems"), "Ctrl+Z : plus rien en attente, la section Problèmes disparaît");
 
                 // — Le lien de date (Ctrl+!) dans une fiche : la notation sélectionnée est lue d'office.
                 var sheet = FirstTitled(project, "Keira");
@@ -203,6 +298,7 @@ namespace Marabook.App
                 Check(tagged(maraboutSheet, "epoch-dimmed") && tagged(maraboutSheet, "epoch-skull") && cardTexts(maraboutSheet).Any(delegate(string s) { return s.StartsWith("Mort·e à 93 ans"); }),
                     "en E3.40, la tuile du marabout est grisée, porte le crâne et dit son âge de mort");
                 Check(cardTexts(keiraSheet).Contains("32 ans"), "…Keira a 32 ans");
+                Check(Epochs.AgeNote(project, keiraSheet) == "(32 ans en E3.40)", "vue wiki : à côté de l'âge, « (32 ans en E3.40) » (" + Epochs.AgeNote(project, keiraSheet) + ")");
                 Shot(library, "frises-10-epoque-E3-40.png");
                 project.Epoch.Notation = "E3.2";
                 library.RefreshEpoch();

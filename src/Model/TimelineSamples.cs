@@ -97,23 +97,18 @@ namespace Marabook.Model
             events.Add(Event(tides, "Serment des Gardiens", history, "1 Aubemer E2.1", null, "Les gardiens de phare prennent la charge du littoral : une ère commence."));
             events.Add(Event(tides, "Les Quarante Hivers", history, "E2.430", "E2.470", "Quarante années sans été ; la mer gèle dans les ports."));
             events.Add(Event(tides, "Le livre des marées", culture, "E2.905", null, "Première table écrite des marées du littoral."));
-            var birthMarabout = Event(tides, "Naissance du marabout", character, "E2.1141", null, null);
-            Assign(birthMarabout, marabout);
-            events.Add(birthMarabout);
             events.Add(Event(tides, "La Grande Tempête", conflict, "E2.1188", "E2.1200", "Douze ans de tempêtes ; les phares s'éteignent un à un."));
             events.Add(Event(tides, "La première grande marée", history, "1 Aubemer E3.1", null, "La mer monte plus haut que la digue : l'ère des Grandes Marées."));
-            var birthKeira = Event(tides, "Naissance de Keira", character, "12 Sel E3.8", null, "À Ourkhal, un jour de jusant.");
-            Assign(birthKeira, keira);
-            events.Add(birthKeira);
+            // Les naissances et les décès ne sont plus posés ici (lot 2) : ils naissent des dates liées sur les fiches.
+            var pupil = Event(tides, "Keira devient l'élève du marabout", character, "E3.20", null, "Elle a douze ans ; il lui apprend à lire les marées.");
+            Assign(pupil, keira);
+            events.Add(pupil);
             var novel = Event(tides, "Le marabout et la mer", story, "3 Brisants E3.30", "20 Noroît E3.30", "Le temps du roman.");
             Assign(novel, book);
             events.Add(novel);
             var tide = Event(tides, "La grande marée", story, "14 Noroît E3.30", null, "Le chapitre trois.");
             Assign(tide, chapter);
             events.Add(tide);
-            var deathMarabout = Event(tides, "Mort du marabout", character, "2 Longue-Nuit E3.34", null, null);
-            Assign(deathMarabout, marabout);
-            events.Add(deathMarabout);
             root.Children.Add(timeline);
 
             var writing = new BinderItem

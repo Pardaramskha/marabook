@@ -78,10 +78,20 @@ namespace Marabook.App
             var creating = system == null || !_project.TimeSystems.Contains(system);
             var edited = await TimeSystemDialog.Edit(this, _project, system ?? TimeSystemDialog.Template(_project), creating);
             if (edited == null) return;
-            if (creating) _project.TimeSystems.Add(edited);
-            else _project.TimeSystems[_project.TimeSystems.IndexOf(system)] = edited;
-            MarkDirty();
-            RefreshTimelineViews();
+            // Lot 2 : chaque date des frises de ce système est RELUE dans le nouveau
+            // (une brique « E2.905 » reste « E2.905 » si l'ère 1 s'allonge) ; ce qui ne
+            // s'y lit plus passe en attente (Problèmes, au rail) ; les liens de date
+            // dont l'écriture change sont réécrits. Le tout s'annule d'un Ctrl+Z.
+            var change = TimeSystemChange.Build(_project, creating ? null : system, edited);
+            _history.Run(new History.TimeSystemEditAction(_project, change, creating));
+            if (!change.TouchesDates) return;
+            var parts = new List<string>();
+            if (change.Moved > 0) parts.Add(TimeSystem.Count(change.Moved, "événement replacé", "événements replacés"));
+            if (change.Pending > 0) parts.Add(TimeSystem.Count(change.Pending, "événement en attente", "événements en attente") + " (Problèmes, au rail)");
+            if (change.LinksRewritten > 0) parts.Add(TimeSystem.Count(change.LinksRewritten, "lien de date réécrit", "liens de date réécrits"));
+            if (change.LinksUnreadable > 0) parts.Add(TimeSystem.Count(change.LinksUnreadable, "lien de date devenu illisible", "liens de date devenus illisibles"));
+            if (parts.Count == 0) parts.Add("L'époque suit la nouvelle notation");
+            ShowToast(null, "Temporalité modifiée", string.Join(" · ", parts.ToArray()) + ".", Ui.Keys("Ctrl+Z") + " annule le changement", 7);
         }
 
         private async void RemoveTimeSystem(TimeSystem system)

@@ -1490,9 +1490,21 @@ namespace Marabook.App
             // Un renommage (1.0.5) : les [[liens]] qui visaient l'ancien titre
             // ont suivi — la vue ouverte recharge si elle en portait, et
             // l'auteur est prévenu de ce qui a bougé.
+            // Les frises (1.2.0, lot 2) : une brique ou un système défait ou refait.
+            if (action is History.TimelineEditAction || action is History.TimeSystemEditAction)
+            {
+                MarkDirty();
+                var systemEdit = action as History.TimeSystemEditAction;
+                if (systemEdit != null && systemEdit.Change.Links.Edits.Count > 0 && _current != null && systemEdit.Change.Links.Touches(_current)) ReloadCurrentView();
+                RefreshTimelineViews();
+                return;
+            }
             var rename = action as History.RenameItemAction;
             if (rename != null)
             {
+                // Une frise renommée : son écran et la page des frises suivent tout de suite (lot 2).
+                if (_timelineView.IsVisible) _timelineView.Refresh();
+                if (_timelineHub.IsVisible) _timelineHub.Refresh();
                 MarkDirty();
                 if (rename.Plan == null) return;
                 if (_current != null && rename.Touches(_current)) ReloadCurrentView();
@@ -3509,7 +3521,7 @@ namespace Marabook.App
             {
                 _editor.Clear();
                 _sheetView.Clear();
-                _timelineView.Load(item, _project);
+                _timelineView.Load(item, _project, _history);
                 _timelineView.IsVisible = true;
                 _timelineView.Focus();
                 RefreshTimelineSection(item);

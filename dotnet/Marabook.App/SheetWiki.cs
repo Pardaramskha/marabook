@@ -188,6 +188,12 @@ namespace Marabook.App
                         if (!string.Equals(SectionKey(names, field.Group), name, StringComparison.Ordinal)) continue;
                         string value;
                         item.FieldValues.TryGetValue(field.Id, out value);
+                        // L'âge à l'époque active (1.2.0, lot 2) : « (33 ans en E5.912) » à côté de l'âge.
+                        if (field.Name == SheetDefaults.FieldAge)
+                        {
+                            var epochAge = Epochs.AgeNote(project, item);
+                            if (epochAge != null) value = string.IsNullOrEmpty(value) ? epochAge : value + " " + epochAge;
+                        }
                         if (string.IsNullOrEmpty(value)) continue;
                         AddRow(paper, field.Name, field.Kind, value, project, navigate, linkClicked);
                     }

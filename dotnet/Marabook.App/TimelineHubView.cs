@@ -105,7 +105,10 @@ namespace Marabook.App
         private Control TimelineRow(BinderItem timeline)
         {
             var system = Timelines.SystemOf(_project, timeline);
-            var stats = Timelines.Stats(system, timeline.Timeline);
+            var events = new List<TimelineEvent>();
+            foreach (var entry in timeline.Timeline.Events) if (!entry.IsPending) events.Add(entry);
+            events.AddRange(Timelines.LifeEventsOf(_project, timeline, system).Events); // les naissances et les décès nés des fiches
+            var stats = Timelines.Stats(system, events);
             var body = new StackPanel();
             var top = new DockPanel();
             var meta = new TextBlock
@@ -121,7 +124,7 @@ namespace Marabook.App
             top.Children.Add(name);
             body.Children.Add(top);
             body.Children.Add(new TextBlock { Text = system.Name + "  ·  " + TimeSystemDialog.Summary(system), Foreground = Chrome.SoftText, FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 3, 0, 6) });
-            body.Children.Add(new Strip(system, timeline.Timeline, stats) { Height = 26 });
+            body.Children.Add(new Strip(system, timeline.Timeline, events, stats) { Height = 26 });
             var row = new Border
             {
                 Background = Chrome.CardBg, BorderBrush = Chrome.Border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
@@ -179,9 +182,11 @@ namespace Marabook.App
             private readonly TimeSystem _system;
             private readonly TimelineInfo _timeline;
             private readonly TimelineStats _stats;
+            private readonly List<TimelineEvent> _events;
 
-            public Strip(TimeSystem system, TimelineInfo timeline, TimelineStats stats)
+            public Strip(TimeSystem system, TimelineInfo timeline, List<TimelineEvent> events, TimelineStats stats)
             {
+                _events = events;
                 _system = system;
                 _timeline = timeline;
                 _stats = stats;
@@ -207,7 +212,7 @@ namespace Marabook.App
                 }
                 if (_timeline == null) return;
                 var row = 0;
-                foreach (var entry in _timeline.Events)
+                foreach (var entry in _events)
                 {
                     if (entry.Start == null) continue;
                     var color = TimelineView.ColorOf(_timeline.FindType(entry.TypeId));

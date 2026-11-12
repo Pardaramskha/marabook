@@ -72,7 +72,7 @@ namespace Marabook.Model
                     // Un champ entier : les cibles posées à rebours dans le texte.
                     var after = field.Text;
                     for (var i = edits.Count - 1; i >= 0; i--)
-                        after = after.Substring(0, edits[i].Start) + newTitle + after.Substring(edits[i].Start + edits[i].Before.Length);
+                        after = after.Substring(0, edits[i].Start) + edits[i].After + after.Substring(edits[i].Start + edits[i].Before.Length);
                     plan.Edits.Add(new ReplaceEdit
                     {
                         Item = item,
@@ -82,6 +82,46 @@ namespace Marabook.Model
                         After = after
                     });
                     plan.Occurrences += edits.Count;
+                }
+            }
+            return plan;
+        }
+
+        /// <summary>Le plan qui RÉÉCRIT des liens entiers (1.2.0, lot 2 : les liens
+        /// de date quand la notation de leur système change) : rewrite rend la
+        /// nouvelle notation « [[…]] » d'un lien, ou null pour le laisser.</summary>
+        public static ReplacePlan RewriteLinks(Project project, Func<Link, string> rewrite)
+        {
+            var plan = new ReplacePlan();
+            if (project == null || rewrite == null) return plan;
+            foreach (var item in project.AllItems())
+            {
+                if (item.IsCategory) continue;
+                foreach (var field in item.SearchFields(project))
+                {
+                    if (field.Kind == SearchField.KindTitle || string.IsNullOrEmpty(field.Text)) continue;
+                    var links = Links.Find(field.Text);
+                    if (links.Count == 0) continue;
+                    var edits = new List<ReplaceEdit>();
+                    foreach (var link in links)
+                    {
+                        var written = rewrite(link);
+                        var was = field.Text.Substring(link.Start, link.End - link.Start);
+                        if (written == null || written == was) continue;
+                        edits.Add(new ReplaceEdit
+                        {
+                            Item = item, Kind = SearchField.KindParagraph, ParagraphIndex = field.ParagraphIndex,
+                            Start = link.Start, Before = was, After = written
+                        });
+                    }
+                    if (edits.Count == 0) continue;
+                    if (!plan.Items.Contains(item)) plan.Items.Add(item);
+                    plan.Occurrences += edits.Count;
+                    if (field.IsParagraph) { plan.Edits.AddRange(edits); continue; }
+                    var after = field.Text;
+                    for (var i = edits.Count - 1; i >= 0; i--)
+                        after = after.Substring(0, edits[i].Start) + edits[i].After + after.Substring(edits[i].Start + edits[i].Before.Length);
+                    plan.Edits.Add(new ReplaceEdit { Item = item, Kind = field.Kind, RefId = field.RefId, Before = field.Text, After = after });
                 }
             }
             return plan;

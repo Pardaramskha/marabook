@@ -230,8 +230,8 @@ namespace Marabook.Tests
             var project = Sample(out timeline);
             var system = Timelines.SystemOf(project, timeline);
             t.Equal(TimelineSamples.SystemName, system.Name, "la frise d'exemple est posée sur le Calendrier des Marées");
-            var stats = Timelines.Stats(system, timeline.Timeline);
-            t.Equal(14, stats.Events, "quatorze événements");
+            var stats = Timelines.Stats(system, TimelineLot2Tests.AllEvents(project, timeline, system));
+            t.Equal(15, stats.Events, "quinze événements : douze posés, trois nés des fiches (deux naissances, un décès)");
             t.Equal(4, stats.Spans, "…dont quatre sur la durée");
             t.Equal(3, stats.Segments.Count, "trois ères");
             t.Equal(800L, stats.Segments[0].Length, "l'ère des Brumes : 800 ans");
@@ -239,7 +239,7 @@ namespace Marabook.Tests
             t.Check(stats.Segments[2].Open && stats.Segments[2].Length == 34, "l'ère des Grandes Marées, ouverte, court jusqu'au dernier événement : 34 ans (" + stats.Segments[2].Length + ")");
             t.Equal(4, stats.Segments[0].Events, "quatre événements dans la première ère (dont celui d'avant l'origine)");
             t.Equal(5, stats.Segments[1].Events, "cinq dans la deuxième");
-            t.Equal(5, stats.Segments[2].Events, "cinq dans la troisième");
+            t.Equal(6, stats.Segments[2].Events, "six dans la troisième");
             // Le total : les trois ères (2 034 ans) et les 120 ans d'avant l'origine.
             t.Equal(2154L, stats.TotalYears, "durée totale de la temporalité : 2 154 ans");
             t.Equal(2, Timelines.All(project).Count, "deux frises dans le projet");
@@ -358,12 +358,12 @@ namespace Marabook.Tests
                 t.Check(root != null && root.Children.Count == 2 && root.Children[0].Kind == ItemKind.Timeline, "la racine Frises et ses deux frises");
                 var again = loaded.FindById("sample-timeline");
                 t.Check(again != null && again.Timeline != null && again.Timeline.SystemId == "sample-tides" && again.Timeline.Types.Count == 5
-                    && again.Timeline.Events.Count == 14, "la frise : son système, ses types, ses quatorze événements");
+                    && again.Timeline.Events.Count == 12, "la frise : son système, ses types, ses douze événements posés");
                 TimelineEvent novel = null, birth = null;
                 foreach (var entry in again.Timeline.Events)
                 {
                     if (entry.Title == "Le marabout et la mer") novel = entry;
-                    if (entry.Title == "Naissance de Keira") birth = entry;
+                    if (entry.Title == "Keira devient l'élève du marabout") birth = entry;
                 }
                 t.Check(novel != null && novel.IsSpan && novel.Start.Year == 2029 && novel.Start.Month == 5 && novel.Start.Day == 3
                     && novel.End.Month == 9 && novel.End.Day == 20 && novel.TypeId == "type-4", "un événement sur la durée : début, fin, type");
