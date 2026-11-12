@@ -387,33 +387,36 @@ namespace Marabook.App
                     box.IsCheckedChanged += delegate { if (!_syncing) RefreshForms(); };
                     children.Children.Add(box);
                 }
-                if (kind == LexiconEntry.ProperFirstName)
-                {
-                    // Le genre d'un prénom (1.0.3) : neutre par défaut — le
-                    // correcteur n'accorde que sur un prénom genré.
-                    var initialFirstName = initial != null && initial.ProperKind == LexiconEntry.ProperFirstName ? initial.Genders : "";
-                    _firstNameGender = initialFirstName == LexiconEntry.GendersMasculine || initialFirstName == LexiconEntry.GendersFeminine ? initialFirstName : "";
-                    foreach (var pair in new[] { new[] { LexiconEntry.GendersMasculine, "Masculin" }, new[] { LexiconEntry.GendersFeminine, "Féminin" }, new[] { "", "Neutre" } })
-                    {
-                        var genderRadio = new RadioButton
-                        {
-                            Content = pair[1],
-                            GroupName = "lexicon-firstname",
-                            IsChecked = pair[0] == _firstNameGender,
-                            Margin = new Thickness(0, 2, 14, 0)
-                        };
-                        var genderRef = pair[0];
-                        genderRadio.IsCheckedChanged += delegate
-                        {
-                            if (genderRadio.IsChecked == true) _firstNameGender = genderRef;
-                            if (!_syncing) RefreshForms();
-                        };
-                        _firstNameRadios.Add(genderRadio);
-                        children.Children.Add(genderRadio);
-                    }
-                }
                 if (children.Children.Count > 0) host.Children.Add(children);
             }
+            // Le genre d'un nom propre (1.0.3 pour les prénoms ; 1.1.1 pour
+            // toute sorte sans flexion — « Suzanne est étonné » passait quand
+            // le prénom avait été ajouté sans préciser « Prénom ») : neutre par
+            // défaut, le correcteur n'accorde que sur un nom genré.
+            var initialGender = initial != null && initial.Class == LexiconEntry.ClassProper ? initial.Genders : "";
+            _firstNameGender = initialGender == LexiconEntry.GendersMasculine || initialGender == LexiconEntry.GendersFeminine ? initialGender : "";
+            var genderRow = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
+            genderRow.Children.Add(new TextBlock { Text = "Genre :", Margin = new Thickness(0, 2, 10, 0), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center });
+            foreach (var pair in new[] { new[] { LexiconEntry.GendersMasculine, "Masculin" }, new[] { LexiconEntry.GendersFeminine, "Féminin" }, new[] { "", "Neutre" } })
+            {
+                var genderRadio = new RadioButton
+                {
+                    Content = pair[1],
+                    GroupName = "lexicon-firstname",
+                    IsChecked = pair[0] == _firstNameGender,
+                    Margin = new Thickness(0, 2, 14, 0)
+                };
+                var genderRef = pair[0];
+                genderRadio.IsCheckedChanged += delegate
+                {
+                    if (genderRadio.IsChecked == true) _firstNameGender = genderRef;
+                    if (!_syncing) RefreshForms();
+                };
+                _firstNameRadios.Add(genderRadio);
+                genderRow.Children.Add(genderRadio);
+            }
+            ToolTip.SetTip(genderRow, "Le correcteur accorde autour d'un nom genré : « Suzanne est étonnée ». Neutre = pas d'accord vérifié");
+            host.Children.Add(genderRow);
             host.Children.Add(BuildDemonymPanel(initial));
             host.Children.Add(BuildAdherentPanel(initial));
             UpdateProperChildren();
@@ -574,7 +577,7 @@ namespace Marabook.App
             }
             if (_demonymPanel != null) _demonymPanel.IsVisible = LexiconEntry.AllowsDemonym(kind) ? true : false;
             if (_adherentPanel != null) _adherentPanel.IsVisible = SelectedClass() == LexiconEntry.ClassNoun || kind == LexiconEntry.ProperOther;
-            foreach (var genderRadio in _firstNameRadios) genderRadio.IsEnabled = kind == LexiconEntry.ProperFirstName;
+            foreach (var genderRadio in _firstNameRadios) genderRadio.IsEnabled = kind != LexiconEntry.ProperDemonym; // un gentilé se fléchit, lui
             // Un gentilé se décline aux deux genres (Mànisien, Mànisienne) ;
             // un autre nom propre ne se fléchit pas (01/10).
             if (kind == LexiconEntry.ProperDemonym && !_syncing && _forms[3] != null)
@@ -697,7 +700,7 @@ namespace Marabook.App
                 Word = (_word.Text ?? "").Trim(),
                 Class = cls,
                 Genders = flexion ? SelectedGenders()
-                    : cls == LexiconEntry.ClassProper && SelectedProperKind() == LexiconEntry.ProperFirstName ? _firstNameGender : "",
+                    : cls == LexiconEntry.ClassProper ? _firstNameGender : "",
                 Plural = !flexion ? "" : _invariable.IsChecked == true ? LexiconEntry.PluralInvariable : (_initial != null && _initial.Plural == LexiconEntry.PluralX ? LexiconEntry.PluralX : ""),
                 MascSg = flexion ? (_forms[0].Text ?? "").Trim() : "",
                 MascPl = flexion ? (_forms[1].Text ?? "").Trim() : "",
@@ -783,19 +786,33 @@ namespace Marabook.App
         /// pré-rempli, type deviné, portée fixée par le sous-menu.</summary>
         public static Task<LexiconEntry> AskForWord(Window owner, string word, bool projectScope)
         {
-            return AskForWord(owner, word, projectScope, null);
+            return AskForWord(owner, word, projectScope, null, 'n');
         }
 
         /// <summary>Même dialogue, avec des chips de suggestions en tête
         /// (les mots d'une fiche, 29/09) — un clic préremplit le mot.</summary>
-        public static async Task<LexiconEntry> AskForWord(Window owner, string word, bool projectScope, IList<string> suggestions)
+        public static Task<LexiconEntry> AskForWord(Window owner, string word, bool projectScope, IList<string> suggestions)
+        {
+            return AskForWord(owner, word, projectScope, suggestions, 'n');
+        }
+
+        /// <summary>Même dialogue, avec le GENRE que porte une fiche personnage
+        /// de ce nom (1.1.1) : « Prénom » et « Féminin » pré-cochés pour
+        /// « Suzanne » quand la fiche Suzanne dit « Femme » — le correcteur
+        /// accordera. 'n' = rien de connu, neutre.</summary>
+        public static async Task<LexiconEntry> AskForWord(Window owner, string word, bool projectScope, IList<string> suggestions, char sheetGender)
         {
             var guessed = LexiconInflector.GuessClass(word);
+            var known = sheetGender == 'm' ? LexiconEntry.GendersMasculine : sheetGender == 'f' ? LexiconEntry.GendersFeminine : "";
             var initial = new LexiconEntry
             {
                 Word = word ?? "",
                 Class = guessed,
-                Genders = guessed == LexiconEntry.ClassAdjective ? LexiconEntry.GendersBoth : guessed == LexiconEntry.ClassNoun || guessed == LexiconEntry.ClassProper ? LexiconEntry.GendersMasculine : "",
+                // Un nom propre part NEUTRE (1.1.1 : avant, « masculin » était posé
+                // sans effet ; désormais le genre compte pour toute sorte), sauf
+                // quand une fiche dit son genre.
+                Genders = guessed == LexiconEntry.ClassAdjective ? LexiconEntry.GendersBoth : guessed == LexiconEntry.ClassNoun ? LexiconEntry.GendersMasculine : guessed == LexiconEntry.ClassProper ? known : "",
+                ProperKind = guessed == LexiconEntry.ClassProper && known.Length > 0 ? LexiconEntry.ProperFirstName : "",
                 Plural = guessed == LexiconEntry.ClassProper ? LexiconEntry.PluralInvariable : ""
             };
             var dialog = new LexiconEntryDialog(owner, initial, projectScope, false, suggestions);

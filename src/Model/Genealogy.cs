@@ -157,6 +157,39 @@ namespace Marabook.Model
             return 'n';
         }
 
+        /// <summary>Le genre d'un NOM tel qu'une fiche le porte (1.1.1, pour
+        /// pré-remplir « Ajouter au dictionnaire ») : la fiche dont le titre
+        /// est ce mot, ou dont le titre commence par ce mot (le prénom de
+        /// « Suzanne Verlaine ») ; 'n' sans fiche ou sans genre.</summary>
+        public static char GenderOfName(Project project, string word)
+        {
+            var name = (word ?? "").Trim();
+            if (project == null || name.Length == 0) return 'n';
+            // Trois forces : le titre entier, le premier mot du titre, un autre
+            // mot du titre ; à force égale, deux fiches qui se contredisent
+            // (Odile Verlaine, Marc Verlaine) ne disent rien.
+            var found = new char[] { 'n', 'n', 'n' };
+            var conflict = new bool[3];
+            foreach (var item in project.AllItems())
+            {
+                if (item.Kind != ItemKind.Sheet || string.IsNullOrEmpty(item.Title)) continue;
+                var words = item.Title.Trim().Split(new[] { ' ', (char)0xA0, '-', (char)39 }, StringSplitOptions.RemoveEmptyEntries);
+                var level = -1;
+                if (string.Equals(item.Title.Trim(), name, StringComparison.CurrentCultureIgnoreCase)) level = 0;
+                else
+                    for (var i = 0; i < words.Length; i++)
+                        if (string.Equals(words[i], name, StringComparison.CurrentCultureIgnoreCase)) { level = i == 0 ? 1 : 2; break; }
+                if (level < 0) continue;
+                var gender = GenderOf(item, project.TemplateOf(item));
+                if (gender == 'n') continue;
+                if (found[level] == 'n') found[level] = gender;
+                else if (found[level] != gender) conflict[level] = true;
+            }
+            for (var level = 0; level < 3; level++)
+                if (found[level] != 'n' && !conflict[level]) return found[level];
+            return 'n';
+        }
+
         public static char GenderOfValue(string value)
         {
             var key = Key(value);
@@ -235,66 +268,6 @@ namespace Marabook.Model
             foreach (var r in target.Relations)
                 if (r.TargetId == source.Id && RelationKinds.Same(r.Kind, kind)) return r;
             return null;
-        }
-    }
-
-    /// <summary>Un nœud de l'arbre généalogique : le personnage lui-même ou
-    /// l'une de ses relations, placé sur une génération et une voie.</summary>
-    public class GenealogyNode
-    {
-        public string Label = "";
-        public string Kind = "";
-        public string TargetId;      // fiche liée (cliquable), null = nom libre
-        public int Generation;       // 0 = la génération du personnage
-        public RelationLane Lane;
-        public bool IsSelf;
-    }
-
-    /// <summary>L'arbre par défaut d'une fiche (batch 36) : le personnage au
-    /// centre, ses relations réparties par génération (ascendants au-dessus,
-    /// descendants au-dessous, partenaires et collatéraux à côté), les
-    /// natures libres dans une voie « autres ». Modèle pur, testable ; la
-    /// fenêtre GenealogyWindow le dessine.</summary>
-    public static class Genealogy
-    {
-        public static List<GenealogyNode> Build(Project project, BinderItem self)
-        {
-            var nodes = new List<GenealogyNode>();
-            if (self == null) return nodes;
-            nodes.Add(new GenealogyNode { Label = self.Title, IsSelf = true, Lane = RelationLane.Direct });
-            foreach (var relation in self.Relations)
-            {
-                var target = project == null || relation.TargetId == null ? null : project.FindById(relation.TargetId);
-                var label = target != null ? target.Title : relation.Name;
-                if (label.Length == 0) continue;
-                nodes.Add(new GenealogyNode
-                {
-                    Label = label,
-                    Kind = RelationKinds.Canonical(relation.Kind),
-                    TargetId = target != null ? target.Id : null,
-                    Generation = RelationKinds.GenerationOf(relation.Kind),
-                    Lane = RelationKinds.LaneOf(relation.Kind)
-                });
-            }
-            nodes.Sort(delegate(GenealogyNode a, GenealogyNode b)
-            {
-                if (a.IsSelf != b.IsSelf) return a.IsSelf ? -1 : 1;
-                if (a.Generation != b.Generation) return a.Generation.CompareTo(b.Generation);
-                if (a.Lane != b.Lane) return a.Lane.CompareTo(b.Lane);
-                return string.Compare(a.Label, b.Label, StringComparison.CurrentCultureIgnoreCase);
-            });
-            return nodes;
-        }
-
-        /// <summary>Les générations présentes, de la plus ancienne à la plus
-        /// récente — la génération 0 toujours incluse.</summary>
-        public static List<int> Generations(List<GenealogyNode> nodes)
-        {
-            var set = new SortedDictionary<int, bool>();
-            set[0] = true;
-            foreach (var node in nodes)
-                if (node.Lane != RelationLane.Other) set[node.Generation] = true;
-            return new List<int>(set.Keys);
         }
     }
 }

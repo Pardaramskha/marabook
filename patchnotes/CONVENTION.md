@@ -24,3 +24,9 @@ L'application embarque les images du dossier (`*.jpg`, `*.png`) et la fenêtre �
 ## Beta
 
 Une version beta (les patchs massifs, publiée depuis la branche `beta` quand `VERSION` finit par `-beta`) a ses notes comme les autres : `patchnotes/1.1.0-beta.md`. Elles sont reprises telles quelles dans la pré-release et dans la fenêtre de la beta, sous l'avertissement que l'application y pose elle-même. Le workflow refuse de publier une beta sans ce fichier.
+
+## Notes de version et notes de patch (1.1.1)
+
+La fenêtre « Nouveautés » a deux onglets. **« Notes de version »** montre la majeure du cycle (`x.y.0` : 1.1.0, 2.0.0…), suivie des patchs déjà sortis de ce cycle, chacun après un filet `---` et sous son nom en H1 (`# Patch 1.1.1`). **« Notes du patch »** montre le patch qui arrive (`x.y.z` avec z > 0, ou `-patch-a`). Un patch s'ouvre sur ses notes de patch, une majeure sur ses notes de version.
+
+Rien à écrire de spécial : chaque version garde son fichier `patchnotes/<VERSION>.md`, l'application compose les onglets à partir des notes embarquées et de celles des releases qu'elle a vues en ligne (retenues dans `notes-de-version.json` à côté des réglages ; pour un patch dont la majeure est inconnue de l'installation, la release de la majeure est relue sur GitHub par son tag).

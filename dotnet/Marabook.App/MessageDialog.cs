@@ -36,8 +36,10 @@ namespace Marabook.App
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Background = Chrome.RaisedBg;
 
-            var panel = new StackPanel { Margin = new Thickness(18, 16, 18, 14), MaxWidth = 520 };
-            var body = new DockPanel();
+            // Le TEXTE est borné, pas la boîte : des libellés longs élargissent la
+            // fenêtre au lieu d'en déborder (1.1.1 — « Projet introuvable »).
+            var panel = new StackPanel { Margin = new Thickness(18, 16, 18, 14) };
+            var body = new DockPanel { MaxWidth = 520, HorizontalAlignment = HorizontalAlignment.Left };
             var glyph = Glyph(icon);
             if (glyph != null)
             {

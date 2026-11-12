@@ -118,12 +118,33 @@ namespace Marabook.App
                 check.Message = check.Available
                     ? "Marabook " + info.Version + " est disponible"
                     : "Vous avez la dernière version";
+                RememberNotes(info);
             }
             catch (Exception failure)
             {
                 check.Message = failure.Message;
             }
             return check;
+        }
+
+        /// <summary>Retient les notes de la release vue (1.1.1 : l'onglet
+        /// « Notes de version » les relira) et, pour un patch dont la majeure
+        /// du cycle est inconnue de cette installation (une 1.0.6 qui voit
+        /// arriver la 1.1.1 sans être passée par la 1.1.0), va chercher la
+        /// release de la majeure par son tag. Jamais d'exception.</summary>
+        private static void RememberNotes(Info info)
+        {
+            try
+            {
+                ReleaseNotesStore.Remember(info.Version, info.Notes);
+                if (ReleaseNotesStore.MajorMissing(info.Version))
+                {
+                    var major = Marabook.Model.ReleaseNotes.MajorOf(info.Version);
+                    var json = Get("https://api.github.com/repos/" + Repository + "/releases/tags/v" + major);
+                    ReleaseNotesStore.Remember(major, Field(json, "body"));
+                }
+            }
+            catch (Exception) { }
         }
 
         /// <summary>La dernière release publiée. Lève une exception parlante sinon.</summary>

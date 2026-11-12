@@ -1439,7 +1439,11 @@ namespace Marabook.Persistence
                             Reciprocal = Json.AsString(Json.Field(k, "reciprocal"))
                         });
                     }
-                    if (schema.Kinds.Count > 0) project.RelationSchema = schema;
+                    if (schema.Kinds.Count > 0)
+                    {
+                        schema.RestoreStatic(); // les relations familiales sont statiques (1.1.1)
+                        project.RelationSchema = schema;
+                    }
                 }
                 var relationKinds = Json.AsList(Json.Field(manifest, "relationKinds"));
                 if (relationKinds != null)

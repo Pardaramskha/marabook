@@ -39,6 +39,70 @@ namespace Marabook.Model
             return schema;
         }
 
+        /// <summary>Les relations FAMILIALES livrées (1.1.1, Rémi) : statiques —
+        /// leurs noms, leur génération, leur voie et leur réciproque ne se
+        /// règlent pas dans le diagramme relationnel. C'est sur elles que
+        /// reposent les automatismes de l'arbre (rebonds, « ??? », lignées) ;
+        /// les partenaires hors mariage, le Doppelgänger et les relations du
+        /// projet restent libres.</summary>
+        public static readonly string[] StaticFamilies =
+        {
+            "parent", "grandparent", "child", "grandchild", "ancestor", "descendant",
+            "spouse", "uncle", "nephew", "cousin", "sibling"
+        };
+
+        public static bool IsStatic(string family)
+        {
+            return family != null && Array.IndexOf(StaticFamilies, family) >= 0;
+        }
+
+        /// <summary>Remet les relations familiales statiques à leur place livrée
+        /// (génération, voie, réciproque ; une famille ou une forme retirée
+        /// revient) — pour un projet remanié avant la 1.1.1. Les noms déjà
+        /// portés restent : des fiches les emploient. Vrai si quelque chose a
+        /// changé.</summary>
+        public bool RestoreStatic()
+        {
+            var defaults = Defaults();
+            var changed = false;
+            foreach (var family in StaticFamilies)
+            {
+                var models = defaults.OfFamily(family);
+                var mine = OfFamily(family);
+                var model = models[0];
+                var moved = mine.Count == 0 || mine[0].Lane != model.Lane || mine[0].Generation != model.Generation;
+                var slot = moved ? NextSlot(model.Lane, model.Generation, family) : mine[0].Slot;
+                foreach (var kind in mine)
+                {
+                    if (kind.Lane == model.Lane && kind.Generation == model.Generation && kind.Slot == slot && kind.Reciprocal == model.Reciprocal) continue;
+                    kind.Lane = model.Lane; kind.Generation = model.Generation; kind.Slot = slot; kind.Reciprocal = model.Reciprocal;
+                    changed = true;
+                }
+                foreach (var wanted in models)
+                {
+                    var present = false;
+                    foreach (var kind in mine) if (kind.Gender == wanted.Gender) { present = true; break; }
+                    if (present || Find(wanted.Name) != null) continue;
+                    var restored = wanted.Clone();
+                    restored.Slot = slot;
+                    Kinds.Add(restored);
+                    changed = true;
+                }
+            }
+            // Une relation du projet ne répond plus à une famille statique qui ne lui répond pas.
+            foreach (var kind in Kinds)
+                if (!IsStatic(kind.Family) && IsStatic(kind.Reciprocal)) { kind.Reciprocal = kind.Family; changed = true; }
+            return changed;
+        }
+
+        private int NextSlot(RelationLane lane, int generation, string except)
+        {
+            var slot = 0;
+            foreach (var kind in Kinds)
+                if (kind.Family != except && kind.Lane == lane && kind.Generation == generation && kind.Slot >= slot) slot = kind.Slot + 1;
+            return slot;
+        }
+
         private static void Family(RelationSchema schema, string family, int generation, RelationLane lane, string reciprocal,
             string masculine, string feminine, string neutral)
         {

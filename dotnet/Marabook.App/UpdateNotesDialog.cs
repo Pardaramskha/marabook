@@ -20,6 +20,14 @@ namespace Marabook.App
     /// bouton d'installation rend la main à la coquille (install).</summary>
     public class UpdateNotesDialog : Window
     {
+        private TabControl _tabs; // « Notes de version » / « Notes du patch » (1.1.1) ; null pour une beta
+
+        /// <summary>Les onglets des notes (sonde) ; null pour une beta.</summary>
+        public TabControl TabsForProbe { get { return _tabs; } }
+
+        public const string VersionTabHeader = "Notes de version";
+        public const string PatchTabHeader = "Notes du patch";
+
         public UpdateNotesDialog(Window owner, Updater.Info info, string localVersion, bool prepared, Action install)
             : this(owner, info, localVersion, prepared, install, false) { }
 
@@ -108,30 +116,47 @@ namespace Marabook.App
                     }
                 });
             var notes = (info.Notes ?? "").Trim();
-            Control body;
-            if (notes.Length > 0)
-                body = MarkdownRender.Build(notes, null, null, PatchNotes.ImageFor); // l'image de tête d'une version majeure (1/11)
-            else
-                body = new TextBlock
-                {
-                    Text = "Aucune note n'accompagne cette version.",
-                    FontSize = 13,
-                    Foreground = Chrome.FaintText,
-                    FontStyle = FontStyle.Italic
-                };
-            body.Margin = new Thickness(0, 12, 12, 8);
-            panel.Children.Add(new Border
+            if (beta)
             {
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(0, 1, 0, 0),
-                Child = new ScrollViewer
+                // Une beta : ses notes seules, sous l'avertissement, comme avant.
+                panel.Children.Add(new Border
                 {
-                    MaxHeight = 380,
-                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                    Content = body
-                }
-            });
+                    BorderBrush = Chrome.Border,
+                    BorderThickness = new Thickness(0, 1, 0, 0),
+                    Child = Scroll(NotesBody(notes, "Aucune note n'accompagne cette version."))
+                });
+            }
+            else
+            {
+                // Deux onglets (1.1.1, Rémi) : « Notes de version » — la majeure
+                // du cycle (1.1.0), suivie des patchs déjà sortis, chacun après
+                // un filet et sous son nom en H1 — et « Notes du patch », le
+                // patch qui arrive. Un patch s'ouvre sur ses notes de patch, une
+                // majeure sur ses notes de version.
+                var patch = Marabook.Model.ReleaseNotes.IsPatch(info.Version);
+                var versionNotes = ReleaseNotesStore.VersionNotes(info.Version, notes.Length > 0 ? notes : null);
+                var major = Marabook.Model.ReleaseNotes.MajorOf(info.Version);
+                var tabs = new TabControl { Tag = "notes-tabs", Margin = new Thickness(0, 4, 0, 0) };
+                tabs.Items.Add(new TabItem
+                {
+                    Header = VersionTabHeader,
+                    Tag = "notes-version",
+                    Content = Scroll(NotesBody(versionNotes, patch
+                        ? "Les notes de la version " + major + " ne sont pas connues de cette installation."
+                        : "Aucune note n'accompagne cette version."))
+                });
+                tabs.Items.Add(new TabItem
+                {
+                    Header = PatchTabHeader,
+                    Tag = "notes-patch",
+                    Content = Scroll(NotesBody(patch ? notes : null, patch
+                        ? "Aucune note n'accompagne ce patch."
+                        : "Aucun patch n'est encore sorti pour la " + info.Version + "."))
+                });
+                tabs.SelectedIndex = patch ? 1 : 0;
+                _tabs = tabs;
+                panel.Children.Add(tabs);
+            }
 
             // ---- le lien vers la release
             if (!current && !string.IsNullOrEmpty(info.PageUrl))
@@ -189,6 +214,39 @@ namespace Marabook.App
             Dialogs.Arrange(buttons, go);
             panel.Children.Add(buttons);
             Content = panel;
+        }
+
+        /// <summary>Le corps d'un onglet : le Markdown rendu par le moteur des
+        /// fiches (l'image de tête d'une majeure comprise, 1/11), ou la phrase
+        /// d'absence en italique.</summary>
+        private static Control NotesBody(string notes, string emptyMessage)
+        {
+            var text = (notes ?? "").Trim();
+            Control body;
+            if (text.Length > 0)
+                body = MarkdownRender.Build(text, null, null, PatchNotes.ImageFor);
+            else
+                body = new TextBlock
+                {
+                    Text = emptyMessage,
+                    FontSize = 13,
+                    Foreground = Chrome.FaintText,
+                    FontStyle = FontStyle.Italic,
+                    TextWrapping = TextWrapping.Wrap
+                };
+            body.Margin = new Thickness(0, 12, 12, 8);
+            return body;
+        }
+
+        private static ScrollViewer Scroll(Control body)
+        {
+            return new ScrollViewer
+            {
+                MaxHeight = 380,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = body
+            };
         }
 
         /// <summary>« 2026-10-02T09:12:33Z » → « 02/10/2026 » (heure locale) ; vide si illisible.</summary>

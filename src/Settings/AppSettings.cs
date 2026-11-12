@@ -329,6 +329,50 @@ namespace Marabook.Settings
         // projets — le pendant de Project.LearnedWords.
         public static List<Model.LexiconEntry> Lexicon = new List<Model.LexiconEntry>();
         public static List<string> RecentFiles = new List<string>(); // last 5 .plot files
+        /// <summary>La signature de chaque projet récent, par chemin (1.1.1) :
+        /// de quoi reconnaître le fichier quand l'auteur relie un projet
+        /// introuvable (ProjectSignature).</summary>
+        public static Dictionary<string, Model.ProjectSignature> RecentSignatures = new Dictionary<string, Model.ProjectSignature>(StringComparer.OrdinalIgnoreCase);
+
+        public static void RememberSignature(string path, Model.Project project)
+        {
+            if (string.IsNullOrEmpty(path) || project == null) return;
+            RecentSignatures[path] = Model.ProjectSignature.Of(project);
+        }
+
+        /// <summary>La signature retenue pour un chemin ; vide sans rien de retenu.</summary>
+        public static Model.ProjectSignature SignatureOf(string path)
+        {
+            Model.ProjectSignature signature;
+            return path != null && RecentSignatures.TryGetValue(path, out signature) && signature != null ? signature : new Model.ProjectSignature();
+        }
+
+        private static bool SamePath(string a, string b)
+        {
+            return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Retire un projet des récents (1.1.1 : la croix d'une tuile introuvable).</summary>
+        public static void RemoveRecentFile(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            RecentFiles.RemoveAll(delegate(string existing) { return SamePath(existing, path); });
+            RecentSignatures.Remove(path);
+        }
+
+        /// <summary>Remplace le chemin d'un récent par son nouvel emplacement,
+        /// à la même place, la signature suivant (1.1.1).</summary>
+        public static void RelinkRecentFile(string oldPath, string newPath)
+        {
+            if (string.IsNullOrEmpty(oldPath) || string.IsNullOrEmpty(newPath)) return;
+            var signature = SignatureOf(oldPath);
+            var index = RecentFiles.FindIndex(delegate(string existing) { return SamePath(existing, oldPath); });
+            RecentFiles.RemoveAll(delegate(string existing) { return SamePath(existing, oldPath) || SamePath(existing, newPath); });
+            if (index < 0) index = 0;
+            RecentFiles.Insert(Math.Min(index, RecentFiles.Count), newPath);
+            RecentSignatures.Remove(oldPath);
+            RecentSignatures[newPath] = signature;
+        }
         // Les dernières polices employées (0.50.0) : la tête de liste du
         // sélecteur de police, 5 au plus, la plus récente d'abord.
         public static List<string> RecentFonts = new List<string>();
@@ -718,6 +762,11 @@ namespace Marabook.Settings
                     foreach (var entry in recents)
                         if (entry is string) RecentFiles.Add((string)entry);
                 }
+                RecentSignatures = new Dictionary<string, Model.ProjectSignature>(StringComparer.OrdinalIgnoreCase);
+                var signatures = Json.AsObject(Json.Field(root, "recentSignatures"));
+                if (signatures != null)
+                    foreach (var pair in signatures)
+                        if (!string.IsNullOrEmpty(pair.Key)) RecentSignatures[pair.Key] = Model.ProjectSignature.FromJson(pair.Value);
                 var achievements = Json.AsObject(Json.Field(root, "achievements"));
                 if (achievements != null)
                 {
@@ -821,6 +870,13 @@ namespace Marabook.Settings
                 if (Lexicon.Count > 0)
                     root["lexicon"] = Model.LexiconEntry.ToJsonList(Lexicon);
                 root["recentFiles"] = new List<object>(RecentFiles.ToArray());
+                var recentSignatures = new Dictionary<string, object>();
+                foreach (var recent in RecentFiles)
+                {
+                    Model.ProjectSignature signature;
+                    if (RecentSignatures.TryGetValue(recent, out signature) && signature != null && !signature.IsEmpty) recentSignatures[recent] = signature.ToJson();
+                }
+                if (recentSignatures.Count > 0) root["recentSignatures"] = recentSignatures;
                 if (RecentFonts.Count > 0) root["recentFonts"] = new List<object>(RecentFonts.ToArray());
                 if (FavoriteFonts.Count > 0) root["favoriteFonts"] = new List<object>(FavoriteFonts.ToArray());
                 if (ExcludedFonts.Count > 0) root["excludedFonts"] = new List<object>(ExcludedFonts.ToArray());

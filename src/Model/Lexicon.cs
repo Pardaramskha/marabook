@@ -312,6 +312,16 @@ namespace Marabook.Model
             return Genders == GendersMasculine || Genders == GendersFeminine ? Genders : "";
         }
 
+        /// <summary>Le genre d'un NOM PROPRE sans flexion, quelle que soit sa
+        /// sorte (1.1.1 : un utilisateur avait ajouté un prénom féminin sans
+        /// préciser « Prénom » — « Suzanne est étonné » passait) : « m », « f »,
+        /// ou « » = neutre, le correcteur n'accorde pas dessus.</summary>
+        public string ProperGender()
+        {
+            if (Class != ClassProper || HasFlexion) return "";
+            return Genders == GendersMasculine || Genders == GendersFeminine ? Genders : "";
+        }
+
         /// <summary>Le pluriel effectif : « invariable » quand la nature le
         /// dit (entité non comptable, 01/10), le réglage sinon.</summary>
         public string EffectivePlural()
@@ -347,10 +357,11 @@ namespace Marabook.Model
                 if (trait != null && trait.Class == Class) natures.Add(trait.Label.ToLowerInvariant());
             }
             if (natures.Count > 0) parts.Add(string.Join(", ", natures.ToArray()));
-            if (Class == ClassProper && ProperKind == ProperFirstName)
+            if (Class == ClassProper && !HasFlexion)
             {
-                var firstName = FirstNameGender();
-                parts.Add(firstName.Length == 0 ? "neutre" : GendersLabel(firstName));
+                var properGender = ProperGender();
+                if (properGender.Length > 0) parts.Add(GendersLabel(properGender));
+                else if (ProperKind == ProperFirstName) parts.Add("neutre");
             }
             if (HasFlexion)
             {

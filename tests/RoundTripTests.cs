@@ -495,10 +495,10 @@ namespace Marabook.Tests
             project.AddRelationKind("Mentor"); // dans le schéma (1.1.0) ET l'ancienne liste
             // — Le schéma des relations (1.1.0) : remanié, il s'écrit ; une forme
             //   passe au filler (genre et voie, exercés à la main : Lane = Partner).
-            project.RelationSchema.Find("Mère").Generation = -2;
-            project.RelationSchema.Find("Mère").Lane = RelationLane.Partner;
+            project.RelationSchema.Find("Ex").Generation = -2; // une relation libre : les familiales sont statiques (1.1.1), le chargement les remet en place
+            project.RelationSchema.Find("Ex").Lane = RelationLane.Side;
             project.AddRelationKind("Rivale");
-            FixtureFiller.Fill(project.RelationSchema.Kinds[0], "Gender", "Lane");
+            FixtureFiller.Fill(project.RelationSchema.Find("Amant"), "Gender", "Lane");
             // — Évolution (batch 47, v21) : une étape liée au chapitre, une libre ;
             //   l'épinglé sur le côté = la fiche.
             // — Natures et radar (b47 bis, v22) : un champ « choice » avec

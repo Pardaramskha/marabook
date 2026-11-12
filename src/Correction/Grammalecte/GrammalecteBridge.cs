@@ -174,6 +174,28 @@ namespace Marabook.Correction.Grammalecte
             get { return Path.Combine(BaseFolder, Path.Combine("grammalecte", "marabook_grammar.py")); }
         }
 
+        /// <summary>Le dossier où Python range son bytecode (02/11/2026) :
+        /// DataFolder\pycache, jamais à côté des sources. Sans cela, le
+        /// premier lancement écrivait des __pycache__ dans grammalecte/ et
+        /// dans la bibliothèque du Python embarqué — sur macOS, DANS le bundle
+        /// signé : le sceau codesign était cassé dès la première vérification
+        /// (« a sealed resource is missing or invalid ») ; sur Windows, le
+        /// dossier de l'application se salissait (gitignore, robocopy).</summary>
+        public static string BytecodeCacheFolder
+        {
+            get { return Path.Combine(Marabook.Model.Platform.Current.DataFolder, "pycache"); }
+        }
+
+        /// <summary>La ligne d'arguments du fils : <c>-X pycache_prefix=…</c>
+        /// puis le script. Une option -X plutôt que PYTHONPYCACHEPREFIX : le
+        /// ._pth de l'embeddable Windows n'honore pas toutes les variables
+        /// d'environnement, la ligne de commande passe partout (3.8+). Les
+        /// guillemets couvrent les espaces des chemins (« Mon Drive »).</summary>
+        public static string PythonArguments(string scriptPath, string cacheFolder)
+        {
+            return "-X \"pycache_prefix=" + cacheFolder + "\" \"" + scriptPath + "\"";
+        }
+
         /// <summary>Vérifie un texte (un PARAGRAPHE, déjà NFC). La tâche
         /// échoue si le pont est indisponible, si la requête expire ou si le
         /// processus meurt — l'appelant (GrammarChecker) se tait alors.</summary>
@@ -296,7 +318,7 @@ namespace Marabook.Correction.Grammalecte
                     // (qui fige sys.path), et -I ferait ignorer
                     // PYTHONIOENCODING (-E est inclus dans -I).
                     FileName = PythonPath,
-                    Arguments = "\"" + ScriptPath + "\"",
+                    Arguments = PythonArguments(ScriptPath, BytecodeCacheFolder),
                     WorkingDirectory = Path.GetDirectoryName(ScriptPath),
                     UseShellExecute = false,
                     CreateNoWindow = true,

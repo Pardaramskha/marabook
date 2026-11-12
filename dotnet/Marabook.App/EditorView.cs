@@ -1021,7 +1021,8 @@ namespace Marabook.App
         private async Task LearnFinding(Correction.Finding finding, bool projectScope)
         {
             if (_spellChecker == null || finding.Word.Length == 0) return;
-            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), finding.Word, projectScope);
+            var entry = await LexiconEntryDialog.AskForWord(Ui.OwnerOf(this), finding.Word, projectScope, null,
+                Model.RelationKinds.GenderOfName(_project, finding.Word)); // le genre de la fiche de ce nom (1.1.1)
             if (entry == null) return;
             var list = projectScope
                 ? _spellChecker.ProjectWords : _spellChecker.GlobalWords;

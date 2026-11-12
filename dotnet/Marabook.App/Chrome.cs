@@ -26,6 +26,11 @@ namespace Marabook.App
         /// <summary>Le papier IMPRIMÉ, figé : blanc et encre sombre quel que
         /// soit le thème — pour un aperçu qui montre le rendu au papier (le
         /// séparateur de scène, 30/09). Jamais recolorés par Toggle.</summary>
+        /// <summary>Le fond des TOILES (l'arbre généalogique, le gestionnaire de
+        /// généalogie) : blanc au clair, le fond des barres au sombre — et
+        /// jamais le papier : avec « papier blanc malgré le mode sombre »,
+        /// l'arbre restait blanc sous une interface sombre (1.1.1, Rémi).</summary>
+        public static readonly SolidColorBrush CanvasBg = Brush(0xFF, 0xFF, 0xFF);   // canvas
         public static readonly SolidColorBrush PrintPaper = Brush(0xFF, 0xFF, 0xFF);
         public static readonly SolidColorBrush PrintInk = Brush(0x1E, 0x21, 0x28);
         public static readonly SolidColorBrush Border = Brush(0xD3, 0xD7, 0xE3);       // line : filets
@@ -71,6 +76,7 @@ namespace Marabook.App
                 RaisedBg.Color = raised;
                 CardBg.Color = raised;
                 FieldBg.Color = Rgb(0x27, 0x2B, 0x35);
+                CanvasBg.Color = Rgb(0x1B, 0x1E, 0x25);
                 Border.Color = Rgb(0x2E, 0x33, 0x40);
                 BorderStrong.Color = Rgb(0x3D, 0x43, 0x54);
                 Ink.Color = Rgb(0xE7, 0xE9, 0xF0);
@@ -105,6 +111,7 @@ namespace Marabook.App
                 RaisedBg.Color = raised;
                 CardBg.Color = raised;
                 FieldBg.Color = Rgb(0xFF, 0xFF, 0xFF);
+                CanvasBg.Color = Rgb(0xFF, 0xFF, 0xFF);
                 Border.Color = Rgb(0xD3, 0xD7, 0xE3);
                 BorderStrong.Color = Rgb(0xBF, 0xC5, 0xD8);
                 Ink.Color = Rgb(0x1E, 0x21, 0x28);
