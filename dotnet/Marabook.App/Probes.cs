@@ -19,7 +19,7 @@ namespace Marabook.App
     /// la Pile, l'inspecteur, les Préférences, la boîte de message, le thème.
     /// Chaque vérification écrit OK ou ÉCHEC ; le code de retour du processus
     /// est le nombre d'échecs. Tourne sur Windows et sous WSLg.</summary>
-    public static class Probes
+    public static partial class Probes
     {
         public static int Failures;
         private static int _checks;
@@ -175,7 +175,7 @@ namespace Marabook.App
                 // — La coquille sur le projet d'exemple.
                 Check(shell.Project != null, "le projet d'exemple est ouvert");
                 var roots = shell.Project.Roots;
-                Check(roots != null && roots.Count == 8, "la Pile montre les huit racines (" + (roots == null ? "-" : roots.Count.ToString()) + ")");
+                Check(roots != null && roots.Count == 9, "la Pile montre les neuf racines (Frises depuis la 1.2.0) (" + (roots == null ? "-" : roots.Count.ToString()) + ")");
                 var writings = shell.Project.Category(Project.KeyWritings);
                 var book = writings.Children.Count > 1 ? writings.Children[1] : null;
                 Check(book != null && book.Kind == ItemKind.Book && book.Children.Count == 3, "le livre d'exemple a trois chapitres");
@@ -1179,7 +1179,7 @@ namespace Marabook.App
                     kinds.Add(item.Kind);
                     var expected = item.Kind == ItemKind.Text ? "editor" : item.Kind == ItemKind.Sheet ? "sheet"
                         : item.Kind == ItemKind.Book ? "book" : item.Kind == ItemKind.Plan ? "plan" : item.Kind == ItemKind.Media ? "media"
-                        : item.Kind == ItemKind.MindMap ? "mindmap" : item.Kind == ItemKind.PageTemplate ? "template"
+                        : item.Kind == ItemKind.MindMap ? "mindmap" : item.Kind == ItemKind.Timeline ? "timeline" : item.Kind == ItemKind.PageTemplate ? "template"
                         : item.Kind == ItemKind.Folder && item.RootCategory().CategoryKey == Project.KeySheets ? "library" : "corkboard";
                     if (shell.VisibleView != expected) wrong.Add(item.Title + " : " + shell.VisibleView + " au lieu de " + expected);
                 }
@@ -2696,6 +2696,7 @@ namespace Marabook.App
                 await ProbeTabs(shell);
                 // ================================================== 1.1.0 : le graphe relationnel (28/10)
                 await ProbeGraph(shell);
+                await ProbeTimelines(shell); // les frises (1.2.0)
                 // ================================================== 1.1.0 : la passe des dialogues (29/10)
                 await ProbeDialogues(shell);
                 // ================================================== 1.1.0 : le lot de correctifs du 29/10

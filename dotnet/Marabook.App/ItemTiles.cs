@@ -27,6 +27,7 @@ namespace Marabook.App
                 case ItemKind.Plan: return "plan";
                 case ItemKind.Folder: return "dossier";
                 case ItemKind.MindMap: return "carte";
+                case ItemKind.Timeline: return "frise";
                 case ItemKind.PageTemplate: return "gabarit";
                 default: return "texte";
             }
@@ -148,6 +149,12 @@ namespace Marabook.App
                 if (item.Plan != null) foreach (var column in item.Plan.Columns) bricks += column.Entries.Count;
                 text = columns == 0 ? "Plan vide"
                     : columns + (columns > 1 ? " colonnes" : " colonne") + " · " + bricks + (bricks > 1 ? " briques" : " brique");
+            }
+            if (item.Kind == ItemKind.Timeline)
+            {
+                var system = Timelines.SystemOf(project, item);
+                var stats = Timelines.Stats(system, item.Timeline);
+                text = TimeSystem.Count(stats.Events, "événement", "événements") + " · " + TimeSystem.YearsLabel(stats.TotalYears) + " · " + system.Name;
             }
             if (item.Kind == ItemKind.MindMap)
             {

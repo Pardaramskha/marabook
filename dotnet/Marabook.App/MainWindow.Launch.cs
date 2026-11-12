@@ -216,6 +216,8 @@ namespace Marabook.App
                 if (_dictionaryView != null && _dictionaryView.IsVisible) return "dictionary";
                 if (_homeView != null && _homeView.IsVisible) return "home";
                 if (_planView != null && _planView.IsVisible) return "plan";
+                if (_timelineView != null && _timelineView.IsVisible) return "timeline";
+                if (_timelineHub != null && _timelineHub.IsVisible) return "timelines";
                 if (_mindMapHost != null && _mindMapHost.IsVisible) return "mindmap";
                 if (_corkboard != null && _corkboard.IsVisible) return "corkboard";
                 if (_bookView != null && _bookView.IsVisible) return "book";
@@ -679,6 +681,8 @@ public static Project SampleProject()
             AddPlanColumn(plan, "Acte III — La grande marée", "Le retour du marabout|5");
             AddPlanColumn(plan, "Épilogue", "La mer, au loin|2");
             plans.Children.Add(plan);
+            // Les frises d'exemple (1.2.0) : un calendrier inventé à trois ères, sa chronique, et une frise sur le calendrier de notre monde.
+            TimelineSamples.Seed(project);
             // Une carte mentale garnie (26/10) quand le module Mental-O est là
             // (MARABOOK_DLC_ROOT pour une capture ou une sonde avec le DLC).
             var mindMaps = MindMapModules.Provider;

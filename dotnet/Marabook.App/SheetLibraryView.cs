@@ -80,6 +80,7 @@ namespace Marabook.App
         public event Action<SheetCategory> ExportCategoryRequested; // « Exporter la catégorie… » (Encyclopédie, 31/10)
         public event Action<BinderItem> ExportSheetRequested;       // « Exporter la fiche… » (Encyclopédie, 31/10)
         public event Action Changed;              // structure/projet modifiés
+        public event Action<bool> EpochRequested; // le bouton « Époque » (1.2.0) : vrai = régler la frise et la date
         public event Action<string> AchievementEvent; // succès à événement (12/09)
 
         private static bool IsWithinCard(Visual source)
@@ -291,6 +292,21 @@ namespace Marabook.App
             missing.Margin = new Thickness(8, 0, 0, 0);
             missing.Click += delegate { ShowMissingSheets(); };
             left.Children.Add(missing);
+            // L'ÉPOQUE (1.2.0, Rémi) : placer la bibliothèque à une date d'une frise —
+            // qui est né, mort, et son âge. Le bouton allume et éteint ; la puce
+            // à côté dit la date et la règle.
+            _epochButton = Buttons.IconTextToggle("pile-frises", "Époque",
+                "Placer les fiches à une date d'une frise : qui est né, mort, et son âge", Buttons.Bar, Buttons.Look.Outline);
+            _epochButton.Margin = new Thickness(8, 0, 0, 0);
+            _epochButton.Tag = "library-epoch";
+            _epochButton.Click += delegate { var h = EpochRequested; if (h != null) h(false); };
+            left.Children.Add(_epochButton);
+            _epochChip = Buttons.Text("", "Changer la frise ou la date de l'époque", Buttons.Bar, Buttons.Look.Calm);
+            _epochChip.Margin = new Thickness(4, 0, 0, 0);
+            _epochChip.IsVisible = false;
+            _epochChip.Tag = "library-epoch-date";
+            _epochChip.Click += delegate { var h = EpochRequested; if (h != null) h(true); };
+            left.Children.Add(_epochChip);
             toolbar.Children.Add(left);
             Children.Add(toolbar);
 
@@ -578,10 +594,72 @@ namespace Marabook.App
 
         public void Refresh() { RebuildRows(); }
 
+        // ============================================================ l'époque (1.2.0)
+
+        private ToggleButton _epochButton;
+        private Button _epochChip;
+        private TimeSystem _epochSystem;   // l'époque lue une fois par reconstruction
+        private TimePoint _epochAt;
+
+        /// <summary>L'époque a changé (allumée, éteinte, réglée, une date liée) :
+        /// le bouton, la puce et les tuiles suivent.</summary>
+        public void RefreshEpoch()
+        {
+            SyncEpoch();
+            if (_project != null) RebuildRows();
+        }
+
+        private void SyncEpoch()
+        {
+            BinderItem timeline;
+            _epochAt = Epochs.Current(_project, out _epochSystem, out timeline);
+            if (_epochButton == null) return;
+            _epochButton.IsChecked = _epochAt != null;
+            _epochChip.IsVisible = _epochAt != null;
+            if (_epochAt != null) _epochChip.Content = _epochSystem.Format(_epochAt) + "  ·  " + timeline.Title;
+        }
+
+        internal bool EpochOnForProbe { get { return _epochButton != null && _epochButton.IsChecked == true; } }
+        internal string EpochChipForProbe { get { return _epochChip == null || !_epochChip.IsVisible ? null : _epochChip.Content as string; } }
+        internal Border CardForProbe(string sheetId) { Border card; return _cardsById.TryGetValue(sheetId, out card) ? card : null; }
+
+        /// <summary>La tuile à l'époque active : l'âge sous le nom ; grisée pour
+        /// qui n'est pas encore né ou déjà mort ; le crâne sur les morts.</summary>
+        private void DressEpoch(BinderItem sheet, Panel layout, Grid picture, Border nameZone)
+        {
+            if (_epochAt == null) return;
+            var status = Epochs.Evaluate(_project, sheet, _epochSystem, _epochAt);
+            if (status.State == LifeState.Unknown) return;
+            var name = nameZone.Child as Control;
+            nameZone.Child = null;
+            var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            if (name != null) { name.Margin = new Thickness(6, 5, 6, 1); stack.Children.Add(name); }
+            stack.Children.Add(new TextBlock
+            {
+                Text = status.Label.Split(new[] { " · " }, StringSplitOptions.None)[0], FontSize = 10.5, Foreground = status.State == LifeState.Alive ? (IBrush)Chrome.Time : Chrome.SoftText,
+                TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(4, 0, 4, 6),
+                Tag = "epoch-age", [ToolTip.TipProperty] = status.Label
+            });
+            nameZone.Child = stack;
+            if (status.State == LifeState.Alive) return;
+            layout.Opacity = 0.45; // ni né, ni vivant : en retrait
+            layout.Tag = "epoch-dimmed";
+            if (status.State != LifeState.Dead) return;
+            picture.Children.Add(new Border
+            {
+                Width = 26, Height = 26, CornerRadius = new CornerRadius(13), Background = Chrome.CardBg,
+                BorderBrush = Chrome.Border, BorderThickness = new Thickness(1),
+                HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 6, 6),
+                Child = Icons.Make("death-skull", 15, Chrome.Ink), Tag = "epoch-skull",
+                [ToolTip.TipProperty] = status.Label
+            });
+        }
+
         // ---------------------------------------------------------- rangées
 
         private void RebuildRows()
         {
+            SyncEpoch(); // l'époque active, lue une fois (1.2.0)
             var watch = System.Diagnostics.Stopwatch.StartNew();
             _entrances.Clear(); // une reconstruction oublie les enveloppes (elles meurent avec les rangées)
             try { RebuildRowsCore(); }
@@ -1470,6 +1548,7 @@ namespace Marabook.App
                 VerticalAlignment = VerticalAlignment.Center
             };
             layout.Children.Add(nameZone);
+            DressEpoch(sheet, layout, grid, nameZone); // né, mort, son âge à l'époque choisie (1.2.0)
 
             var card = new Border
             {

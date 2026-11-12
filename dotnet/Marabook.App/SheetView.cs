@@ -34,6 +34,8 @@ namespace Marabook.App
         private const double BodyFontSize = 14.5; // Georgia, comme l'aperçu wiki
 
         private readonly TextBlock _titleLabel, _categoryLabel;
+        private Border _epochSkull;      // le crâne d'un personnage mort à l'époque active (1.2.0)
+        private TextBlock _epochNote;    // son état à cette époque : « 4 ans en E5.912 »
         private readonly ToggleButton _previewToggle;
         private readonly Grid _body;
         private readonly TabControl _tabs;         // Général | Texte libre (b36) | Radar (b47 bis, si le modèle l'active)
@@ -191,13 +193,24 @@ namespace Marabook.App
             // Le crayon pour renommer la fiche sans passer par la Pile (b43).
             var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
             titleRow.Children.Add(_titleLabel);
+            // L'époque active (1.2.0) : le crâne des morts dans le titre, quelle que soit la vue.
+            _epochSkull = new Border
+            {
+                Child = Icons.Make("death-skull", 15, Chrome.SoftText), Margin = new Thickness(7, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center, IsVisible = false, Background = Brushes.Transparent, Tag = "sheet-epoch-skull"
+            };
+            titleRow.Children.Add(_epochSkull);
             var renameButton = Buttons.Icon("pencil-simple-line", "Renommer", Buttons.Compact, Buttons.Look.Calm);
             renameButton.Margin = new Thickness(6, 0, 0, 0);
             renameButton.Click += delegate { var h = RenameRequested; if (h != null) h(); };
             titleRow.Children.Add(renameButton);
             _categoryLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 11 };
             titles.Children.Add(titleRow);
-            titles.Children.Add(_categoryLabel);
+            _epochNote = new TextBlock { Foreground = Chrome.Time, FontSize = 11, IsVisible = false, Margin = new Thickness(8, 0, 0, 0), Tag = "sheet-epoch-note" };
+            var categoryRow = new StackPanel { Orientation = Orientation.Horizontal };
+            categoryRow.Children.Add(_categoryLabel);
+            categoryRow.Children.Add(_epochNote);
+            titles.Children.Add(categoryRow);
             bannerRow.Children.Add(titles);
             banner.Child = bannerRow;
             Children.Add(banner);
@@ -1656,6 +1669,23 @@ namespace Marabook.App
         /// <summary>L'apparence a changé : l'arbre ouvert reprend ses teintes (1.1.1).</summary>
         internal void OnThemeChanged() { _genealogy.OnThemeChanged(); }
 
+        /// <summary>L'état de la fiche à l'époque active (1.2.0) : le crâne des
+        /// morts dans le titre, l'âge à côté de la catégorie.</summary>
+        public void RefreshEpoch()
+        {
+            if (_epochSkull == null) return;
+            TimeSystem system = null;
+            BinderItem timeline;
+            var at = _item == null ? null : Epochs.Current(_project, out system, out timeline);
+            var status = at == null ? new LifeStatus() : Epochs.Evaluate(_project, _item, system, at);
+            _epochSkull.IsVisible = status.State == LifeState.Dead;
+            ToolTip.SetTip(_epochSkull, status.State == LifeState.Dead ? status.Label : null);
+            _epochNote.IsVisible = status.State != LifeState.Unknown;
+            if (status.State != LifeState.Unknown) _epochNote.Text = "·  " + status.Label + " en " + system.Format(at);
+        }
+        internal bool EpochSkullShownForProbe { get { return _epochSkull != null && _epochSkull.IsVisible; } }
+        internal string EpochNoteForProbe { get { return _epochNote == null || !_epochNote.IsVisible ? null : _epochNote.Text; } }
+
         private void SyncGenealogy()
         {
             if (_genealogyButton.IsChecked != true) return;
@@ -2031,6 +2061,7 @@ namespace Marabook.App
             var category = _project == null ? null : _project.SheetCategoryOf(item);
             _portraitIcon.Content = SheetLibraryView.CategoryPlaceholder(category, 48, _project);
             _titleLabel.Text = item.Title;
+            RefreshEpoch();
             _categoryLabel.Text = (category != null ? "Fiche " + _project.CategoryPath(category) : "Fiche")
                 + (template != null ? " — modèle " + template.Name : " (modèle introuvable — champs libres uniquement)");
             RebuildPapers();

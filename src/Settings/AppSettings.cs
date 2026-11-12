@@ -75,6 +75,7 @@ namespace Marabook.Settings
             new ActionDefinition("new-sheet", "Pile", "Nouvelle fiche", "Ctrl+Shift+K"),
             new ActionDefinition("import-media", "Pile", "Importer dans Recherche", null),
             new ActionDefinition("insert-link", "Format", "Lien vers une fiche", "Ctrl+K"),
+            new ActionDefinition("insert-time-link", "Format", "Lien vers la temporalité", "Ctrl+Oem8"), // Ctrl+! (1.2.0)
             new ActionDefinition("templates", "Format", "Modèles de fiches", null),
             new ActionDefinition("import-docs", "Fichier", "Importer des documents", null),
             new ActionDefinition("import-scrivener", "Fichier", "Importer un projet Scrivener", null),
@@ -942,6 +943,7 @@ namespace Marabook.Settings
                 else if (p == "OemMinus") parts[i] = "-";
                 else if (p == "OemComma") parts[i] = ",";
                 else if (p == "OemPeriod") parts[i] = ".";
+                else if (p == "Oem8") parts[i] = "!";
                 else if (p.Length == 2 && p[0] == 'D' && char.IsDigit(p[1])) parts[i] = p[1].ToString();
             }
             return string.Join("+", parts);
@@ -967,6 +969,7 @@ namespace Marabook.Settings
                 else if (p == "OemMinus") key = "-";
                 else if (p == "OemComma") key = ",";
                 else if (p == "OemPeriod") key = ".";
+                else if (p == "Oem8") key = "!";
                 else if (p.Length == 2 && p[0] == 'D' && char.IsDigit(p[1])) key = p[1].ToString();
                 else if (p.Length > 0) key = p;
             }

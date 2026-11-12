@@ -253,7 +253,7 @@ namespace Marabook.App
                 };
             }
             spans.Add(new LinkSpan { Start = TextLengthOf(owner), Length = (run.Text ?? "").Length, Tooltip = tooltip, Click = click, WikiTitle = wikiTitle });
-            run.Foreground = Chrome.Accent;
+            run.Foreground = TimeLinks.IsTimeLink(wikiTitle) ? Chrome.Time : Chrome.Accent; // un lien de date a sa teinte (1.2.0)
             run.TextDecorations = TextDecorations.Underline;
             return run;
         }

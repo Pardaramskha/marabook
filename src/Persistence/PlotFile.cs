@@ -229,7 +229,16 @@ namespace Marabook.Persistence
         //      auteur, polices, taille, accent, sombre, portrait, encarts,
         //      lexique, fiches vides, couverture ; omis tant que jamais
         //      réglées). Un vieux Marabook ignore la clé.
-        private const int FormatVersion = 45;
+        // v46: 1.2.0 (12/11) — FRISES : la racine « Frises » (catégorie
+        //      "timelines"), le genre d'élément "timeline" et sa clé "timeline"
+        //      (le système visé, les types d'événement, les briques : titre,
+        //      texte, type, début, fin facultative, élément assigné) ; au
+        //      manifeste, "timeSystems" (les systèmes temporels : segments,
+        //      notation, mois, bissextiles, semaine, horloge ; omis si vide)
+        //      et "epoch" (l'époque de la bibliothèque des fiches : frise,
+        //      date, active ; omise tant que jamais réglée). Un vieux
+        //      Marabook ouvre le fichier en lecture seule (version supérieure).
+        private const int FormatVersion = 46;
 
         // La voie d'une nature de relation dans le .plot (1.1.0, schéma des relations).
         private static string LaneName(RelationLane lane)
@@ -709,6 +718,9 @@ namespace Marabook.Persistence
                 manifest["proofIgnored"] = new List<object>(project.ProofIgnored.ToArray());
             if (project.Lexicon.Count > 0)
                 manifest["lexicon"] = LexiconEntry.ToJsonList(project.Lexicon);
+            if (project.TimeSystems.Count > 0) manifest["timeSystems"] = TimelineJson.BuildSystems(project.TimeSystems); // v46
+            var epoch = TimelineJson.BuildEpoch(project.Epoch);
+            if (epoch != null) manifest["epoch"] = epoch; // v46
             if (project.IgnoredRules.Count > 0)
                 manifest["ignoredRules"] = new List<object>(project.IgnoredRules.ToArray());
             // Les natures libres pour les Marabook d'avant le schéma (1.1.0) : celles
@@ -880,6 +892,7 @@ namespace Marabook.Persistence
                          : item.Kind == ItemKind.Book ? "book"
                          : item.Kind == ItemKind.Plan ? "plan"
                          : item.Kind == ItemKind.MindMap ? "mindmap"
+                         : item.Kind == ItemKind.Timeline ? "timeline"
                          : item.Kind == ItemKind.PageTemplate ? "pagetpl" : "text";
             if (item.CategoryKey != null) node["category"] = item.CategoryKey;
             if (item.Page != null) node["page"] = BuildPageSetup(item.Page);
@@ -903,6 +916,7 @@ namespace Marabook.Persistence
                 if (item.HeaderHideFirst) node["headerHideFirst"] = true;
                 if (item.FooterHideFirst) node["footerHideFirst"] = true;
             }
+            if (item.Kind == ItemKind.Timeline && item.Timeline != null) node["timeline"] = TimelineJson.BuildTimeline(item.Timeline); // v46
             if (item.Kind == ItemKind.Plan && item.Plan != null)
             {
                 var plan = new Dictionary<string, object>();
@@ -1327,6 +1341,8 @@ namespace Marabook.Persistence
                     foreach (var entry in proofIgnored)
                         if (entry is string) project.ProofIgnored.Add((string)entry);
                 project.Lexicon = LexiconEntry.FromJsonList(Json.AsList(Json.Field(manifest, "lexicon")));
+                project.TimeSystems = TimelineJson.ReadSystems(Json.Field(manifest, "timeSystems")); // v46
+                project.Epoch = TimelineJson.ReadEpoch(Json.Field(manifest, "epoch"));
                 var learnedWords = Json.AsList(Json.Field(manifest, "learnedWords"));
                 if (learnedWords != null) // v9-v12 : mots nus → entrées « autre »
                 {
@@ -1551,7 +1567,15 @@ namespace Marabook.Persistence
                 EnsureCategory(project, "Recherche", Project.KeyResearch);
                 EnsureCategory(project, "Fiches", Project.KeySheets);
                 EnsureCategory(project, "Plans", Project.KeyPlans, Project.KeyDictionary); // b35, après Fiches
+                EnsureCategory(project, "Frises", Project.KeyTimelines, Project.KeyMindMaps); // 1.2.0, après Plans
                 EnsureCategory(project, "Cartes mentales", Project.KeyMindMaps, Project.KeyDictionary); // 22/09, après Plans
+                if (project.Category(Project.KeyMindMaps) != null && project.Roots.IndexOf(project.Category(Project.KeyTimelines)) > project.Roots.IndexOf(project.Category(Project.KeyMindMaps)))
+                {
+                    // Un vieux projet sans Cartes mentales au moment de l'insertion : les Frises restent devant elles.
+                    var timelinesRoot = project.Category(Project.KeyTimelines);
+                    project.Roots.Remove(timelinesRoot);
+                    project.Roots.Insert(project.Roots.IndexOf(project.Category(Project.KeyMindMaps)), timelinesRoot);
+                }
                 EnsureCategory(project, "Dictionnaire", Project.KeyDictionary); // b33, avant la Corbeille
                 EnsureCategory(project, "Corbeille", Project.KeyTrash);
 
@@ -1827,6 +1851,7 @@ namespace Marabook.Persistence
                       : kind == "book" ? ItemKind.Book
                       : kind == "plan" ? ItemKind.Plan
                       : kind == "mindmap" ? ItemKind.MindMap
+                      : kind == "timeline" ? ItemKind.Timeline
                       : kind == "pagetpl" ? ItemKind.PageTemplate : ItemKind.Text;
 
             var ownPage = Json.AsObject(Json.Field(obj, "page"));
@@ -1853,6 +1878,7 @@ namespace Marabook.Persistence
                 item.FooterHideFirst = Json.AsBool(Json.Field(obj, "footerHideFirst"), false);
             }
 
+            if (item.Kind == ItemKind.Timeline) item.Timeline = TimelineJson.ReadTimeline(Json.Field(obj, "timeline")); // v46
             if (item.Kind == ItemKind.Plan)
             {
                 item.Plan = new PlanInfo();

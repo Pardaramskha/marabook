@@ -901,7 +901,7 @@ namespace Marabook.Print
                 else if (span.IsMark)
                     AddTextAtoms(atoms, part, style, run, false, start, InkRole.Faint, HighlightRole.None);
                 else if (shown)
-                    AddTextAtoms(atoms, part, style, run, false, start, InkRole.Accent, HighlightRole.Accent);
+                    AddTextAtoms(atoms, part, style, run, false, start, span.IsTime ? InkRole.Time : InkRole.Accent, span.IsTime ? HighlightRole.Time : HighlightRole.Accent);
                 else
                     AddTextAtoms(atoms, part, style, run, false, start);
                 pos = end;
@@ -980,6 +980,12 @@ namespace Marabook.Print
             // La teinte d'un lien montré, par-dessus le run et le style.
             if (inkRole == InkRole.Faint) ink = palette.FaintText;
             else if (inkRole == InkRole.Accent) ink = palette.AccentStrong;
+            else if (inkRole == InkRole.Time) ink = palette.TimeStrong;
+            if (highlightRole == HighlightRole.Time)
+            {
+                highlight = palette.TimeTint;
+                highlightKind = HighlightRole.Time;
+            }
             if (highlightRole == HighlightRole.Accent)
             {
                 highlight = palette.AccentTint;

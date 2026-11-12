@@ -15,7 +15,9 @@ namespace Marabook.Print
         /// repère visuel, jamais une couleur du document (30/09).</summary>
         Default,
         Faint,
-        Accent
+        Accent,
+        /// <summary>Le texte d'un lien vers la temporalité (1.2.0).</summary>
+        Time
     }
 
     /// <summary>Le surlignage d'une pièce : aucun, explicite (run), la teinte
@@ -26,7 +28,8 @@ namespace Marabook.Print
         None,
         Explicit,
         Accent,
-        Annotation
+        Annotation,
+        Time
     }
 
     /// <summary>Les couleurs du thème que le compositeur pose dans les pièces
@@ -39,6 +42,8 @@ namespace Marabook.Print
         public Ink AccentStrong = Ink.Rgb(0x45, 0x4F, 0xB8);
         public Ink AccentTint = Ink.Rgb(0xED, 0xEF, 0xFC);
         public Ink AnnotationTint = Ink.Argb(0x55, 0xF1, 0xC4, 0x0F);
+        public Ink TimeStrong = Ink.Rgb(0x0E, 0x7C, 0x7B);
+        public Ink TimeTint = Ink.Rgb(0xDD, 0xF3, 0xF1);
 
         public static readonly CompositionPalette Current = new CompositionPalette();
     }

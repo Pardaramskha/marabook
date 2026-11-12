@@ -25,6 +25,7 @@ namespace Marabook.Model
     {
         public int Start, Length;
         public bool IsMark; // vrai = « [[cible| » ou « ]] » ; faux = le texte du lien
+        public bool IsTime; // un lien vers la temporalité (« date: », 1.2.0) : une autre teinte
         public LinkSpan(int start, int length, bool isMark)
         {
             Start = start; Length = length; IsMark = isMark;
@@ -105,10 +106,13 @@ namespace Marabook.Model
             var spans = new List<LinkSpan>();
             foreach (var link in Find(text))
             {
+                var time = TimeLinks.IsTimeLink(link.Target);
+                var first = spans.Count;
                 spans.Add(new LinkSpan(link.Start, link.TextStart - link.Start, true));
                 if (link.TextEnd > link.TextStart)
                     spans.Add(new LinkSpan(link.TextStart, link.TextEnd - link.TextStart, false));
                 spans.Add(new LinkSpan(link.TextEnd, link.End - link.TextEnd, true));
+                if (time) for (var i = first; i < spans.Count; i++) { var span = spans[i]; span.IsTime = true; spans[i] = span; }
             }
             return spans;
         }
@@ -118,6 +122,10 @@ namespace Marabook.Model
         public static string Markup(string target, string text)
         {
             target = (target ?? "").Trim();
+            // Un lien de date (1.2.0) écrit toujours son texte : sa cible
+            // (« date:Frise@E5.902 ») ne doit jamais se lire dans la phrase.
+            string frise, notation;
+            if (TimeLinks.Split(target, out frise, out notation)) return TimeLinks.Markup(frise, notation, text);
             var shown = text ?? "";
             if (shown.Trim().Length == 0 || shown.Trim() == target
                 || shown.IndexOf('|') >= 0 || shown.IndexOf("]]", StringComparison.Ordinal) >= 0

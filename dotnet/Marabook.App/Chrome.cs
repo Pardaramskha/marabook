@@ -50,6 +50,11 @@ namespace Marabook.App
         public static readonly SolidColorBrush Accent = Brush(0x5B, 0x67, 0xD8);       // action principale, onglet actif
         public static readonly SolidColorBrush AccentStrong = Brush(0x45, 0x4F, 0xB8); // enfoncé, texte posé sur accent-tint
 
+        // ---- les liens vers la temporalité (1.2.0) : sarcelle, pour ne pas se
+        //      confondre avec les liens de fiche (accent)
+        public static readonly SolidColorBrush Time = Brush(0x0E, 0x7C, 0x7B);
+        public static readonly SolidColorBrush TimeTint = Brush(0xDD, 0xF3, 0xF1);
+
         // ---- couleurs de sens
         public static readonly SolidColorBrush Ok = Brush(0x2E, 0x9E, 0x6B);
         public static readonly SolidColorBrush Warn = Brush(0xC4, 0x82, 0x0E);
@@ -98,6 +103,9 @@ namespace Marabook.App
                 AccentTint.Color = Tint(hue, 0.30, 0.21);
                 AccentSoft.Color = Tint(hue, 0.33, 0.35);
                 AccentStrong.Color = Tint(hue, 0.75, 0.79);
+                // Sur un papier resté blanc, la sarcelle sombre du clair ; sinon sa version lumineuse.
+                Time.Color = AppSettings.WhitePaperInDark ? Rgb(0x0E, 0x7C, 0x7B) : Rgb(0x5F, 0xD0, 0xC8);
+                TimeTint.Color = AppSettings.WhitePaperInDark ? Rgb(0xDD, 0xF3, 0xF1) : Rgb(0x1F, 0x3B, 0x3C);
                 Ok.Color = Rgb(0x4F, 0xBF, 0x8B);
                 Warn.Color = Rgb(0xE0, 0xA6, 0x3C);
                 Danger.Color = Rgb(0xE8, 0x70, 0x6F);
@@ -124,6 +132,8 @@ namespace Marabook.App
                 AccentTint.Color = Tint(hue, 0.71, 0.96);
                 AccentSoft.Color = Tint(hue, 0.64, 0.86);
                 AccentStrong.Color = Tint(hue, 0.45, 0.50);
+                Time.Color = Rgb(0x0E, 0x7C, 0x7B);
+                TimeTint.Color = Rgb(0xDD, 0xF3, 0xF1);
                 Ok.Color = Rgb(0x2E, 0x9E, 0x6B);
                 Warn.Color = Rgb(0xC4, 0x82, 0x0E);
                 Danger.Color = Rgb(0xCE, 0x46, 0x46);
@@ -138,6 +148,8 @@ namespace Marabook.App
             palette.FaintText = ToInk(FaintText.Color);
             palette.AccentStrong = ToInk(AccentStrong.Color);
             palette.AccentTint = ToInk(AccentTint.Color);
+            palette.TimeStrong = ToInk(Time.Color);
+            palette.TimeTint = ToInk(TimeTint.Color);
             palette.AnnotationTint = ToInk(AnnotationTint.Color);
         }
 

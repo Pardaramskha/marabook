@@ -41,7 +41,7 @@ namespace Marabook.App
         /// fiche, journal…) — « highlight tableau / page / contenu / fenêtre ».</summary>
         private Control TutorialCenterView()
         {
-            var views = new Control[] { _editor, _sheetView, _bookView, _corkboard, _sheetLibrary, _dictionaryView, _planView, _journalView, _mediaView, _homeView, _graphView };
+            var views = new Control[] { _editor, _sheetView, _bookView, _corkboard, _sheetLibrary, _dictionaryView, _planView, _timelineView, _timelineHub, _journalView, _mediaView, _homeView, _graphView };
             foreach (var view in views) if (view != null && view.IsVisible) return view;
             return null;
         }

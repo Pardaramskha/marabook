@@ -469,7 +469,7 @@ namespace Marabook.App
         {
             new PileSection { Name = "Écriture", Keys = new[] { Project.KeyWritings, Project.KeyResearch } },
             new PileSection { Name = "Encyclopédie", Keys = new[] { Project.KeySheets, Project.KeyDictionary } },
-            new PileSection { Name = "Structure", Keys = new[] { Project.KeyPlans, Project.KeyMindMaps } },
+            new PileSection { Name = "Structure", Keys = new[] { Project.KeyPlans, Project.KeyTimelines, Project.KeyMindMaps } },
             new PileSection { Name = "Outils", Keys = new string[0] },
             new PileSection { Name = null, Keys = new[] { Project.KeyTrash } }
         };
@@ -1444,6 +1444,12 @@ namespace Marabook.App
                 AddMenu(menu, "Nouveau plan", delegate { NewPlan(item); });
                 return menu;
             }
+            // La racine Frises (1.2.0) ne reçoit que des frises.
+            if (item.IsCategory && item.CategoryKey == Project.KeyTimelines)
+            {
+                AddMenu(menu, "Nouvelle frise…", delegate { NewTimeline(item); });
+                return menu;
+            }
             // La racine Cartes mentales (22/09) ne reçoit que des cartes.
             if (item.IsCategory && item.CategoryKey == Project.KeyMindMaps)
             {
@@ -1491,6 +1497,8 @@ namespace Marabook.App
                     AddMenu(menu, "Nouvel import…", delegate { ImportMediaDialog(parent); });
                 else if (item.Kind == ItemKind.Plan)
                     AddMenu(menu, "Nouveau plan", delegate { NewPlan(null); });
+                else if (item.Kind == ItemKind.Timeline)
+                    AddMenu(menu, "Nouvelle frise…", delegate { NewTimeline(null); });
                 else if (item.Kind == ItemKind.MindMap)
                 {
                     AddMenu(menu, "Nouvelle carte mentale", delegate { NewMindMap(null); });
@@ -1657,7 +1665,7 @@ namespace Marabook.App
         {
             if (item == null) return false;
             var what = item.Kind == ItemKind.Book ? "le livre" : item.Kind == ItemKind.Folder ? "le dossier"
-                : item.Kind == ItemKind.Sheet ? "la fiche" : item.Kind == ItemKind.Plan ? "le plan" : item.Kind == ItemKind.MindMap ? "la carte"
+                : item.Kind == ItemKind.Sheet ? "la fiche" : item.Kind == ItemKind.Plan ? "le plan" : item.Kind == ItemKind.MindMap ? "la carte" : item.Kind == ItemKind.Timeline ? "la frise"
                 : item.Kind == ItemKind.PageTemplate ? "le gabarit" : item.Kind == ItemKind.Media ? "le document" : "l'écrit";
             var answer = MessageDialog.Show(Ui.OwnerOf(this),
                 "Envoyer " + what + " « " + item.Title + " » à la corbeille ?"
@@ -1702,7 +1710,7 @@ namespace Marabook.App
         private static bool IsSpecialRoot(BinderItem item)
         {
             var key = item.RootCategory().CategoryKey;
-            return key == Project.KeyTrash || key == Project.KeyDictionary || key == Project.KeyPlans
+            return key == Project.KeyTrash || key == Project.KeyDictionary || key == Project.KeyPlans || key == Project.KeyTimelines
                 || key == Project.KeyHome; // l'Accueil (b41) : un point d'entrée, pas un dossier
         }
 
@@ -1715,6 +1723,23 @@ namespace Marabook.App
             var title = await InputDialog.Ask(Ui.OwnerOf(this), "Nouveau plan", "Nom du plan :", "Nouveau plan");
             if (title == null) return;
             var item = new BinderItem { Kind = ItemKind.Plan, Title = title, Plan = new PlanInfo() };
+            RunAndSelect(new AddItemAction(root, item, -1), item.Id, root.Id);
+        }
+
+        /// <summary>Une nouvelle frise (1.2.0), toujours dans la racine Frises :
+        /// le système de notation du temps d'abord, le nom ensuite.</summary>
+        public async void NewTimeline(BinderItem parent)
+        {
+            var root = _project.Category(Project.KeyTimelines);
+            if (root == null) return;
+            var choice = await NewTimelineDialog.Ask(Ui.OwnerOf(this), _project);
+            if (choice == null) return;
+            if (choice.SystemIsNew) _project.TimeSystems.Add(choice.System);
+            var item = new BinderItem
+            {
+                Kind = ItemKind.Timeline, Title = choice.Title,
+                Timeline = new TimelineInfo { SystemId = choice.System.Id, Types = TimelineInfo.DefaultTypes() }
+            };
             RunAndSelect(new AddItemAction(root, item, -1), item.Id, root.Id);
         }
 
@@ -2409,6 +2434,9 @@ namespace Marabook.App
             // La racine Plans n'accepte que des plans, et un plan ne sort pas de sa racine (b35).
             if ((target.RootCategory().CategoryKey == Project.KeyPlans) != (dragged.Kind == ItemKind.Plan)) return false;
             if (dragged.Kind == ItemKind.Plan && !target.IsCategory) return false;
+            // Même règle pour les frises (1.2.0).
+            if ((target.RootCategory().CategoryKey == Project.KeyTimelines) != (dragged.Kind == ItemKind.Timeline)) return false;
+            if (dragged.Kind == ItemKind.Timeline && !target.IsCategory) return false;
             // Même règle pour les cartes mentales (22/09).
             if ((target.RootCategory().CategoryKey == Project.KeyMindMaps) != (dragged.Kind == ItemKind.MindMap)) return false;
             if (dragged.Kind == ItemKind.MindMap && !target.IsCategory) return false;

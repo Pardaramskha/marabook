@@ -39,7 +39,16 @@ namespace Marabook.Model
                     var edits = new List<ReplaceEdit>();
                     foreach (var link in links)
                     {
-                        if (!Links.SameTitle(link.Target, oldTitle)) continue;
+                        // Un lien de date (1.2.0) : sa cible est « date:Frise@notation » —
+                        // la frise renommée, seul son nom change dans la cible.
+                        string frise, notation;
+                        var retargeted = newTitle;
+                        if (TimeLinks.Split(link.Target, out frise, out notation))
+                        {
+                            if (!Links.SameTitle(frise, oldTitle)) continue;
+                            retargeted = TimeLinks.Target(newTitle, notation);
+                        }
+                        else if (!Links.SameTitle(link.Target, oldTitle)) continue;
                         int start, end;
                         RawTarget(field.Text, link, out start, out end);
                         edits.Add(new ReplaceEdit
@@ -49,7 +58,7 @@ namespace Marabook.Model
                             ParagraphIndex = field.ParagraphIndex,
                             Start = start,
                             Before = field.Text.Substring(start, end - start),
-                            After = newTitle
+                            After = retargeted
                         });
                     }
                     if (edits.Count == 0) continue;

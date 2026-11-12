@@ -328,7 +328,7 @@ namespace Marabook.App
                 };
             }
             spans.Add(new LinkSpan { Start = TextLengthOf(line), Length = label.Length, Target = target, Title = title });
-            return new Run(label) { Foreground = Chrome.Accent, TextDecorations = TextDecorations.Underline };
+            return new Run(label) { Foreground = TimeLinks.IsTimeLink(title) ? Chrome.Time : Chrome.Accent, TextDecorations = TextDecorations.Underline }; // un lien de date a sa teinte (1.2.0)
         }
 
         private static int TextLengthOf(TextBlock line)

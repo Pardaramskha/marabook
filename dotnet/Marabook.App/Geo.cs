@@ -66,6 +66,7 @@ namespace Marabook.App
                 case InkRole.Default: return Chrome.PaperInk; // repère : encre du papier du thème, le PDF garde le noir
                 case InkRole.Faint: return Chrome.FaintText;
                 case InkRole.Accent: return Chrome.AccentStrong;
+                case InkRole.Time: return Chrome.Time;
                 default: return piece.Ink.ToBrush();
             }
         }
@@ -77,6 +78,7 @@ namespace Marabook.App
             {
                 case HighlightRole.Annotation: return Chrome.AnnotationTint;
                 case HighlightRole.Accent: return Chrome.AccentTint;
+                case HighlightRole.Time: return Chrome.TimeTint;
                 case HighlightRole.Explicit: return piece.Highlight.HasValue ? piece.Highlight.Value.ToBrush() : null;
                 default: return null;
             }

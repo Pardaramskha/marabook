@@ -23,6 +23,8 @@ namespace Marabook.Model
         public const string KindBook = "book";           // métadonnée de livre (RefId = nom de la propriété)
         public const string KindColumn = "column";       // titre d'une colonne de plan (RefId = id)
         public const string KindEntry = "entry";         // brique d'une colonne de plan (RefId = id)
+        public const string KindEvent = "event";         // titre d'une brique de frise (RefId = id, 1.2.0)
+        public const string KindEventNote = "event-note"; // description d'une brique de frise (RefId = id)
         public const string KindLexicon = "lexicon";     // mot d'une entrée du dictionnaire (RefId = index)
         public const string KindLexiconNote = "lexicon-note";
         public const string KindLexiconDefinition = "lexicon-definition";
@@ -154,6 +156,12 @@ namespace Marabook.Model
                 Add(fields, SearchField.KindBook, "Accroche", item.Book.Pitch, "Pitch");
                 Add(fields, SearchField.KindBook, "Quatrième de couverture", item.Book.BackCover, "BackCover");
             }
+            if (item.Kind == ItemKind.Timeline && item.Timeline != null) // les briques d'une frise (1.2.0)
+                foreach (var entry in item.Timeline.Events)
+                {
+                    Add(fields, SearchField.KindEvent, "Événement", entry.Title, entry.Id);
+                    Add(fields, SearchField.KindEventNote, "Description d'événement", entry.Description, entry.Id);
+                }
             if (item.Kind == ItemKind.Plan && item.Plan != null)
                 for (var c = 0; c < item.Plan.Columns.Count; c++)
                 {
@@ -247,6 +255,13 @@ namespace Marabook.Model
                             return theme >= 0 && theme < item.Book.Themes.Count ? item.Book.Themes[theme] : null;
                         }
                     }
+                case SearchField.KindEvent:
+                case SearchField.KindEventNote:
+                {
+                    var timelineEvent = item.Timeline == null ? null : item.Timeline.FindEvent(refId);
+                    if (timelineEvent == null) return null;
+                    return kind == SearchField.KindEvent ? timelineEvent.Title : timelineEvent.Description;
+                }
                 case SearchField.KindColumn:
                 {
                     var column = item.Plan == null ? null : item.Plan.FindColumn(refId);
@@ -335,6 +350,14 @@ namespace Marabook.Model
                             return true;
                         }
                     }
+                case SearchField.KindEvent:
+                case SearchField.KindEventNote:
+                {
+                    var timelineEvent = item.Timeline == null ? null : item.Timeline.FindEvent(refId);
+                    if (timelineEvent == null) return false;
+                    if (kind == SearchField.KindEvent) timelineEvent.Title = text; else timelineEvent.Description = text;
+                    return true;
+                }
                 case SearchField.KindColumn:
                 {
                     var column = item.Plan == null ? null : item.Plan.FindColumn(refId);
@@ -454,6 +477,8 @@ namespace Marabook.Model
                 h.Add(item.Book.Genre); h.Add(item.Book.Audience); h.Add(item.Book.Pitch); h.Add(item.Book.BackCover);
                 foreach (var theme in item.Book.Themes) h.Add(theme);
             }
+            if (item.Kind == ItemKind.Timeline && item.Timeline != null)
+                foreach (var entry in item.Timeline.Events) { h.Add(entry.Id); h.Add(entry.Title); h.Add(entry.Description); }
             if (item.Kind == ItemKind.Plan && item.Plan != null)
             {
                 h.Add(item.Plan.ColumnWord);

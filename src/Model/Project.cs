@@ -22,6 +22,7 @@ namespace Marabook.Model
         public const string KeyDictionary = "dictionary"; // batch 33 : le dictionnaire personnel
         public const string KeyPlans = "plans";           // batch 35 : les plans
         public const string KeyMindMaps = "mindmaps";     // 22/09 : les cartes mentales (module Mental-o)
+        public const string KeyTimelines = "timelines";   // 1.2.0 : les frises chronologiques
         public const string KeyTrash = "trash";
 
         public string Name = "Sans titre";
@@ -86,6 +87,19 @@ namespace Marabook.Model
         // les projets d'avant les catégories.
         public List<SheetTemplate> Templates = new List<SheetTemplate>();
         public List<SheetCategory> SheetCategories = new List<SheetCategory>();
+
+        // LES SYSTÈMES TEMPORELS du projet (1.2.0, .plot v46) : calendrier,
+        // segments (ères) et notation — une frise se pose sur l'un d'eux. Et
+        // l'ÉPOQUE de la bibliothèque des fiches (une frise, une date).
+        public List<TimeSystem> TimeSystems = new List<TimeSystem>();
+        public EpochState Epoch = new EpochState();
+
+        public TimeSystem FindTimeSystem(string id)
+        {
+            if (id == null) return null;
+            foreach (var system in TimeSystems) if (system.Id == id) return system;
+            return null;
+        }
 
         // Natures de relation PERSONNALISÉES du projet (batch 36, v16) —
         // « Mentor », « Rivale »… créées depuis le sélecteur d'une fiche,
@@ -501,6 +515,7 @@ namespace Marabook.Model
             project.Roots.Add(MakeCategory("Recherche", KeyResearch));
             project.Roots.Add(MakeCategory("Fiches", KeySheets));
             project.Roots.Add(MakeCategory("Plans", KeyPlans));
+            project.Roots.Add(MakeCategory("Frises", KeyTimelines)); // 1.2.0
             project.Roots.Add(MakeCategory("Cartes mentales", KeyMindMaps)); // 22/09
             project.Roots.Add(MakeCategory("Dictionnaire", KeyDictionary));
             project.Roots.Add(MakeCategory("Corbeille", KeyTrash));

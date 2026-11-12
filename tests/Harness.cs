@@ -108,6 +108,7 @@ namespace Marabook.Tests
                 GenealogyTests.Run,      // C15 — généalogie (b36)
                 ReleaseNotesTests.Run,   // C61 — notes de version et de patch (1.1.1)
                 ProjectIdentityTests.Run, // C62 — signature des projets récents (1.1.1)
+                TimelineTests.Run,       // C63 — frises, systèmes temporels, liens de date, époque (1.2.0)
                 ProjectSearchTests.Run,  // C16 — recherche projet (b37)
                 DocumentDiffTests.Run,   // C17 — versions d'écrits (b38)
                 RightPanelTests.Run,     // C18 — la colonne de droite (b39)

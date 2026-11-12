@@ -483,6 +483,7 @@ namespace Marabook.App
             var format = new MenuItem { Header = "F_ormat" };
             _insertLinkMenu = Entry("insert-link", "Lien vers une fiche…", InsertLinkInActive, TextOrSheetActive);
             format.Items.Add(_insertLinkMenu);
+            format.Items.Add(Entry("insert-time-link", "Lien vers la temporalité…", InsertTimeLinkInActive, TextOrSheetActive)); // 1.2.0
             format.Items.Add(Entry("styles", "Gérer les styles…", OpenStylesDialog));
             menu.Items.Add(format);
             AddGesture("insert-footnote", delegate { if (TextOrSheetActive()) InsertFootnoteInActive(); });
@@ -919,6 +920,7 @@ namespace Marabook.App
             _sheetLibrary.SelectionChanged += InspectGroup; // la sélection multiple (1.0.3)
             _sheetLibrary.BatchMenuProvider = BuildBatchMenu;
             _sheetLibrary.DeleteManyRequested += TrashMany;
+            _sheetLibrary.EpochRequested += ToggleEpoch; // le bouton « Époque » (1.2.0)
             _sheetLibrary.AchievementEvent += UnlockAchievement; // « Crétin des alpes » (12/09)
             _sheetLibrary.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             _sheetLibrary.MenuProvider = delegate(BinderItem item) { return _binder.BuildContextMenu(item, true); }; // les tuiles offrent le menu de la Pile (14/09)
@@ -991,6 +993,7 @@ namespace Marabook.App
                 if (root != null) _binder.SelectItem(root.Id);
             };
             center.Children.Add(_planView);
+            BuildTimelineViews(center); // les frises (1.2.0)
             _mindMapHost = new Grid { IsVisible = false, Background = Chrome.WindowBg };
             // La carte mentale (26/10) a le même curseur de zoom que les pages.
             Ui.OnVisibilityChanged(_mindMapHost, delegate { SyncZoomForView(); });
@@ -1591,6 +1594,7 @@ namespace Marabook.App
             }
             else if (item.Kind == ItemKind.Sheet) _sheetView.GoTo(field, hit.Start, hit.Length);
             else if (item.Kind == ItemKind.Plan) _planView.GoTo(field, hit.Start, hit.Length);
+            else if (item.Kind == ItemKind.Timeline && field.RefId != null) _timelineView.SelectEvent(field.RefId); // la brique trouvée, choisie et centrée (1.2.0)
         }
 
         private Border BuildInspector()
@@ -1642,6 +1646,9 @@ namespace Marabook.App
             // du synopsis.
             _moduleSection = new ContentControl { IsVisible = false, Margin = new Thickness(0, 0, 0, 10) };
             panel.Children.Add(_moduleSection);
+            // Une frise (1.2.0) : ses événements, la durée de la temporalité, celle de l'ère.
+            _timelineSection = new ContentControl { IsVisible = false, Margin = new Thickness(0, 0, 0, 10) };
+            panel.Children.Add(_timelineSection);
             // Livre ou dossier relié à un plan (batch 35) : le lien, cliquable.
             _inspPlanLink = new TextBlock
             {
@@ -3407,6 +3414,10 @@ namespace Marabook.App
                 return _dictionaryView.IsVisible;
             if (item.IsHomeRoot)
                 return _homeView.IsVisible;
+            if (item.Kind == ItemKind.Timeline)
+                return _timelineView.IsVisible && _timelineView.ShowsItem(item);
+            if (item.IsCategory && item.CategoryKey == Project.KeyTimelines)
+                return _timelineHub.IsVisible;
             if (item.Kind == ItemKind.Plan)
                 return _planView.IsVisible && _planView.ShowsItem(item);
             // Une carte mentale (1/11, Rémi : « les cartes mentales flickent en
@@ -3492,6 +3503,26 @@ namespace Marabook.App
                 _sheetView.Clear();
                 ShowMindMap(item);
                 _mindMapHost.IsVisible = true;
+                return;
+            }
+            if (item != null && item.Kind == ItemKind.Timeline) // une frise (1.2.0)
+            {
+                _editor.Clear();
+                _sheetView.Clear();
+                _timelineView.Load(item, _project);
+                _timelineView.IsVisible = true;
+                _timelineView.Focus();
+                RefreshTimelineSection(item);
+                return;
+            }
+            // La racine « Frises » (1.2.0) : la page des frises et des systèmes temporels.
+            if (item != null && item.IsCategory && item.CategoryKey == Project.KeyTimelines)
+            {
+                _editor.Clear();
+                _sheetView.Clear();
+                _timelineHub.Load(_project);
+                _timelineHub.IsVisible = true;
+                _timelineHub.Focus();
                 return;
             }
             if (item != null && item.Kind == ItemKind.Plan)
@@ -3593,6 +3624,9 @@ namespace Marabook.App
             _homeView.IsVisible = false;
             _planView.IsVisible = false;
             _planView.Clear();
+            _timelineView.IsVisible = false;
+            _timelineView.Clear();
+            _timelineHub.IsVisible = false;
             CommitMindMap(); // la carte quittée rend ses octets (22/09)
             _mindMapHost.IsVisible = false;
             _corkboard.IsVisible = false;
@@ -3761,6 +3795,12 @@ namespace Marabook.App
             // lieu de la remplacer (« [[Keira Varenh]]Keira Varenh »).
             if (sheet && !_sheetView.HasLinkTarget()) return; // aucune zone de texte n'a le clavier (07/10 soir)
             var existing = sheet ? _sheetView.CaptureLinkContext() : _editor.LinkAtCaret();
+            if (existing != null && TimeLinks.IsTimeLink(existing.Target)) // un lien de date : sa propre fenêtre (1.2.0)
+            {
+                _sheetView.ForgetLinkContext();
+                InsertTimeLinkInActive();
+                return;
+            }
             if (!sheet) _editor.CaptureLinkContext();
             string target, text;
             if (existing != null)
@@ -3801,6 +3841,7 @@ namespace Marabook.App
 
         private async void NavigateToTitle(string title)
         {
+            if (FollowTimeLink(title)) return; // un lien de date ouvre sa frise (1.2.0)
             var target = _project.FindByTitle(title);
             if (target != null)
             {
@@ -6277,6 +6318,7 @@ namespace Marabook.App
                 _tagsSection.IsVisible = false;
                 SetInspectorFieldVisibility(true, false);
                 RefreshModuleSection(null);
+                RefreshTimelineSection(null);
             }
             else
             {
@@ -6294,6 +6336,7 @@ namespace Marabook.App
                                : item.Kind == ItemKind.PageTemplate ? "Gabarit de pages"
                                : item.Kind == ItemKind.Plan ? "Plan"
                                : item.Kind == ItemKind.MindMap ? "Carte mentale"
+                               : item.Kind == ItemKind.Timeline ? "Frise — " + Timelines.SystemOf(_project, item).Name
                                : "Écrit";
                 _synopsisBox.Text = item.Synopsis ?? "";
                 _synopsisBox.IsEnabled = !item.IsCategory;
@@ -6309,9 +6352,11 @@ namespace Marabook.App
                         && item.Kind != ItemKind.Plan // un plan : la couleur, rien d'autre (b35)
                         && item.Kind != ItemKind.Book // le synopsis d'un livre vit dans Édition (b43)
                         && item.Kind != ItemKind.MindMap // une carte : l'inspecteur du module (26/10 soir)
+                        && item.Kind != ItemKind.Timeline // une frise : son propre panneau (1.2.0)
                         && !item.IsCategory,
                     item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet);
                 RefreshModuleSection(item);
+                RefreshTimelineSection(item);
 
                 // État (textes seulement) + couleur de carte (documents,
                 // fiches, médias — et dossiers, dont les boîtes de livre).
@@ -6355,6 +6400,7 @@ namespace Marabook.App
                 _tagsSection.IsVisible = false;
                 SetInspectorFieldVisibility(false, false);
                 RefreshModuleSection(null);
+                RefreshTimelineSection(null);
             }
 
             // Le plan d'un livre ou d'un dossier (batch 35).
@@ -6822,7 +6868,7 @@ namespace Marabook.App
             // Un plan ne montre pas de liens (batch 43) : ses [[liens]] de
             // briques rendaient la liste confuse. L'Accueil non plus (son
             // Général = les raccourcis, rien d'autre).
-            var hidden = _current != null && (_current.Kind == ItemKind.Plan || _current.IsHomeRoot);
+            var hidden = _current != null && (_current.Kind == ItemKind.Plan || _current.Kind == ItemKind.Timeline || _current.IsHomeRoot);
             _linksLabel.IsVisible = hidden ? false : true;
             _linksPanel.IsVisible = _linksLabel.IsVisible;
             if (hidden) return;
@@ -6839,7 +6885,16 @@ namespace Marabook.App
 
             // Outgoing: the [[targets]] of this item's own text (« [[Cible|texte]] » compris, 18/09).
             foreach (var title in Links.Targets(_current.SearchText()))
+            {
+                if (TimeLinks.IsTimeLink(title)) // un lien de date : « E5.902 — Frise »
+                {
+                    string frise, notation;
+                    if (TimeLinks.Split(title, out frise, out notation))
+                        _linksPanel.Children.Add(LinkRow("arrow-right-bold", notation + " — " + frise, title, Timelines.FindByTitle(_project, frise) != null, true));
+                    continue;
+                }
                 _linksPanel.Children.Add(LinkRow("arrow-right-bold", title, title, _project.FindByTitle(title) != null));
+            }
 
             // Incoming: items whose text links to this title.
             foreach (var item in _project.AllItems())
@@ -6861,9 +6916,9 @@ namespace Marabook.App
 
         /// <summary>Une ligne du panneau des liens : la flèche livrée (b36 —
         /// sortant → / entrant ↖) puis le titre.</summary>
-        private Control LinkRow(string icon, string label, string targetTitle, bool resolved)
+        private Control LinkRow(string icon, string label, string targetTitle, bool resolved, bool time = false)
         {
-            var brush = resolved ? (IBrush)Chrome.Accent : Chrome.SoftText;
+            var brush = resolved ? (time ? (IBrush)Chrome.Time : Chrome.Accent) : Chrome.SoftText;
             var row = new DockPanel
             {
                 Margin = new Thickness(0, 1, 0, 1),
@@ -7059,6 +7114,11 @@ namespace Marabook.App
                 var summary = MindMaps.Inspect(_current.MapBytes);
                 _statusRight.Text = summary.Label;
                 _inspStats.Text = summary.Label;
+            }
+            else if (_current != null && _current.Kind == ItemKind.Timeline && _timelineView.IsVisible)
+            {
+                _statusRight.Text = _timelineView.StatusLabel;
+                _inspStats.Text = ""; // le panneau de la frise dit tout
             }
             else if (_current != null && _current.Kind == ItemKind.Book)
             {
