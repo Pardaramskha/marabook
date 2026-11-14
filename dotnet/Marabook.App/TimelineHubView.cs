@@ -17,7 +17,7 @@ namespace Marabook.App
     /// sur lesquels les frises se posent.</summary>
     public class TimelineHubView : DockPanel
     {
-        private readonly StackPanel _timelines, _systems;
+        private readonly StackPanel _timelines, _systems, _worlds;
         private Project _project;
 
         public event Action<BinderItem> OpenRequested;
@@ -25,6 +25,9 @@ namespace Marabook.App
         public event Action NewSystemRequested;
         public event Action<TimeSystem> EditSystemRequested;
         public event Action<TimeSystem> RemoveSystemRequested;
+        public event Action<TimeSystem> CalculatorRequested;  // le Calculateur de dates du rail
+        public event Action<World> EditWorldRequested;        // null : un nouveau monde
+        public event Action<World> RemoveWorldRequested;
 
         public TimelineHubView()
         {
@@ -63,6 +66,18 @@ namespace Marabook.App
             var side = new StackPanel();
             side.Children.Add(Heading("SYSTÈMES TEMPORELS"));
             side.Children.Add(_systems);
+            // LES MONDES (14/11) : taille, saisons, lunes — ce que partagent les calendriers d'une même planète.
+            var worldsHead = Heading("MONDES");
+            worldsHead.Margin = new Thickness(0, 22, 0, 8);
+            side.Children.Add(worldsHead);
+            _worlds = new StackPanel { Spacing = 8 };
+            side.Children.Add(_worlds);
+            var newWorld = Buttons.IconText("plus-bold", "Nouveau monde", "Un monde : sa taille, ses saisons, ses lunes", Buttons.Compact, Buttons.Look.Outline);
+            newWorld.HorizontalAlignment = HorizontalAlignment.Left;
+            newWorld.Margin = new Thickness(0, 8, 0, 0);
+            newWorld.Tag = "hub-new-world";
+            newWorld.Click += delegate { var h = EditWorldRequested; if (h != null) h(null); };
+            side.Children.Add(newWorld);
             Grid.SetColumn(side, 2);
             grid.Children.Add(left);
             grid.Children.Add(side);
@@ -84,7 +99,15 @@ namespace Marabook.App
         {
             _timelines.Children.Clear();
             _systems.Children.Clear();
+            _worlds.Children.Clear();
             if (_project == null) return;
+            foreach (var world in _project.Worlds) _worlds.Children.Add(WorldCard(world));
+            if (_project.Worlds.Count == 0)
+                _worlds.Children.Add(new TextBlock
+                {
+                    Text = "Aucun monde. Un monde donne aux calendriers qui y vivent leurs saisons, leurs lunes et sa taille.",
+                    Foreground = Chrome.SoftText, TextWrapping = TextWrapping.Wrap, FontSize = 12
+                });
             var all = Timelines.All(_project);
             foreach (var timeline in all) _timelines.Children.Add(TimelineRow(timeline));
             if (all.Count == 0)
@@ -143,12 +166,43 @@ namespace Marabook.App
             return row;
         }
 
+        private Control WorldCard(World world)
+        {
+            var body = new StackPanel();
+            body.Children.Add(new TextBlock { Text = world.Name, Foreground = Chrome.Ink, FontSize = 13, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+            body.Children.Add(new TextBlock { Text = Astro.Summary(world), Foreground = Chrome.SoftText, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) });
+            var systems = Astro.SystemsOf(_project, world);
+            var names = new List<string>();
+            foreach (var system in systems) names.Add(system.Name);
+            body.Children.Add(new TextBlock
+            {
+                Text = names.Count == 0 ? "Aucun calendrier n'y vit" : "Calendriers : " + string.Join(", ", names.ToArray()),
+                Foreground = Chrome.FaintText, FontSize = 11, Margin = new Thickness(0, 3, 0, 6), TextWrapping = TextWrapping.Wrap
+            });
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            var edit = Buttons.Text("Modifier…", "Taille du monde, saisons, lunes", Buttons.Compact, Buttons.Look.Outline);
+            edit.Tag = "hub-world-edit";
+            edit.Click += delegate { var h = EditWorldRequested; if (h != null) h(world); };
+            buttons.Children.Add(edit);
+            var remove = Buttons.Text("Retirer", null, Buttons.Compact, Buttons.Look.Calm);
+            remove.Click += delegate { var h = RemoveWorldRequested; if (h != null) h(world); };
+            buttons.Children.Add(remove);
+            body.Children.Add(buttons);
+            return new Border
+            {
+                Background = Chrome.CardBg, BorderBrush = Chrome.Border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(14, 10, 14, 10), Child = body, Tag = "hub-world"
+            };
+        }
+
         private Control SystemCard(TimeSystem system)
         {
             var uses = Timelines.UsesOf(_project, system);
             var body = new StackPanel();
             body.Children.Add(new TextBlock { Text = system.Name, Foreground = Chrome.Ink, FontSize = 13, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
             body.Children.Add(new TextBlock { Text = TimeSystemDialog.Summary(system), Foreground = Chrome.SoftText, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) });
+            var home = Astro.WorldOf(_project, system);
+            if (home != null) body.Children.Add(new TextBlock { Text = "Monde : " + home.Name, Foreground = Chrome.SoftText, FontSize = 11.5, Margin = new Thickness(0, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
             body.Children.Add(new TextBlock
             {
                 Text = uses == 0 ? "Aucune frise ne l'utilise" : uses + (uses > 1 ? " frises l'utilisent" : " frise l'utilise"),
@@ -162,7 +216,7 @@ namespace Marabook.App
             // Le calculateur de dates du système (14/11, Rémi).
             var calculator = Buttons.Text("Calculateur de dates", "Ajouter une durée à une date, compter le temps entre deux dates", Buttons.Compact, Buttons.Look.Outline);
             calculator.Tag = "hub-system-calculator";
-            calculator.Click += delegate { DateCalculatorDialog.Open(TopLevel.GetTopLevel(this) as Window, system, null); };
+            calculator.Click += delegate { var h = CalculatorRequested; if (h != null) h(system); };
             buttons.Children.Add(calculator);
             if (uses == 0)
             {
@@ -179,6 +233,7 @@ namespace Marabook.App
         }
 
         internal int TimelineRowsForProbe { get { var n = 0; foreach (var child in _timelines.Children) if (child is Border) n++; return n; } }
+        internal int WorldCardsForProbe { get { var n = 0; foreach (var child in _worlds.Children) if (child is Border) n++; return n; } }
         internal int SystemCardsForProbe { get { var n = 0; foreach (var child in _systems.Children) if (child is Border) n++; return n; } }
 
         /// <summary>La bande miniature d'une frise : ses segments, un trait par événement.</summary>

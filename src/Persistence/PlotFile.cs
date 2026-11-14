@@ -721,6 +721,7 @@ namespace Marabook.Persistence
             if (project.Lexicon.Count > 0)
                 manifest["lexicon"] = LexiconEntry.ToJsonList(project.Lexicon);
             if (project.TimeSystems.Count > 0) manifest["timeSystems"] = TimelineJson.BuildSystems(project.TimeSystems); // v46
+            if (project.Worlds.Count > 0) manifest["worlds"] = TimelineJson.BuildWorlds(project.Worlds); // v46 (14/11) : les mondes de l'Astrolabe
             var epoch = TimelineJson.BuildEpoch(project.Epoch);
             if (epoch != null) manifest["epoch"] = epoch; // v46
             if (project.IgnoredRules.Count > 0)
@@ -1359,6 +1360,7 @@ namespace Marabook.Persistence
                         if (entry is string) project.ProofIgnored.Add((string)entry);
                 project.Lexicon = LexiconEntry.FromJsonList(Json.AsList(Json.Field(manifest, "lexicon")));
                 project.TimeSystems = TimelineJson.ReadSystems(Json.Field(manifest, "timeSystems")); // v46
+                project.Worlds = TimelineJson.ReadWorlds(Json.Field(manifest, "worlds"));
                 project.Epoch = TimelineJson.ReadEpoch(Json.Field(manifest, "epoch"));
                 var learnedWords = Json.AsList(Json.Field(manifest, "learnedWords"));
                 if (learnedWords != null) // v9-v12 : mots nus → entrées « autre »

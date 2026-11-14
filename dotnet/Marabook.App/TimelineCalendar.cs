@@ -33,6 +33,7 @@ namespace Marabook.App
         public Action<TimelineEvent> Select, Edit;
         public Action<TimePoint> Create;
         public Func<TimelineEvent, TimePoint, ContextMenu> Menu;
+        public Func<World> World;                                   // le monde du calendrier (saisons, lunes) ; null sans monde
 
         private readonly TextBlock _title, _subtitle;
         private readonly ComboBox _months;
@@ -183,8 +184,9 @@ namespace Marabook.App
             _months.SelectedIndex = Month - 1;
             _filling = false;
             _title.Text = (_system.Months.Count > 0 ? _system.Months[Month - 1].Name + " · " : "") + _system.FormatYear(Year);
+            _world = World == null ? null : World();
             _subtitle.Text = (_system.HasSegments && Year >= 0 ? _system.SegmentName(_system.SegmentIndexOf(Year)) + " · " : "")
-                + TimeSystem.Count(_system.DaysInMonth(Year, Month), "jour", "jours");
+                + TimeSystem.Count(_system.DaysInMonth(Year, Month), "jour", "jours") + SeasonsOfMonth();
             long ignoredYear;
             int ignoredMonth;
             _previous.IsEnabled = Neighbour(-1, out ignoredYear, out ignoredMonth);
@@ -226,6 +228,54 @@ namespace Marabook.App
             RebuildOrphans(events, selected);
         }
 
+        private World _world;
+
+        /// <summary>Les saisons du mois affiché : « · Hiver », ou « · Hiver → Printemps » s'il en change.</summary>
+        private string SeasonsOfMonth()
+        {
+            if (_world == null || _world.Seasons.Count == 0) return "";
+            var names = new List<string>();
+            var days = Math.Max(1, _system.DaysInMonth(Year, Month));
+            for (var day = 1; day <= days; day++)
+            {
+                var season = Astro.SeasonAt(_world, _system, new TimePoint(Year, Month, day));
+                if (season != null && (names.Count == 0 || names[names.Count - 1] != season.Name)) names.Add(season.Name);
+            }
+            return names.Count == 0 ? "" : " · " + string.Join(" → ", names.ToArray());
+        }
+
+        /// <summary>Le petit disque d'une lune, à l'une de ses quatre phases principales.</summary>
+        private sealed class MoonGlyph : Control
+        {
+            private readonly Color _color;
+            private readonly int _phase;
+
+            public MoonGlyph(Color color, int phase)
+            {
+                _color = color;
+                _phase = phase;
+                Width = 11;
+                Height = 11;
+                Margin = new Thickness(3, 1, 0, 0);
+                VerticalAlignment = VerticalAlignment.Center;
+            }
+
+            public int Phase { get { return _phase; } }
+
+            public override void Render(DrawingContext context)
+            {
+                var center = new Point(5.5, 5.5);
+                var brush = new SolidColorBrush(_color);
+                var pen = new Pen(brush, 1.2);
+                if (_phase == Astro.Full) { context.DrawEllipse(brush, pen, center, 4.4, 4.4); return; }
+                context.DrawEllipse(null, pen, center, 4.4, 4.4);
+                if (_phase == Astro.New) return;
+                // Un quartier : la moitié du disque — la droite pour le premier, la gauche pour le dernier.
+                using (context.PushClip(_phase == Astro.FirstQuarter ? new Rect(5.5, 0, 5.5, 11) : new Rect(0, 0, 5.5, 11)))
+                    context.DrawEllipse(brush, null, center, 4.4, 4.4);
+            }
+        }
+
         private bool SameMonths()
         {
             var names = _months.ItemsSource as List<string>;
@@ -239,7 +289,25 @@ namespace Marabook.App
             var date = new TimePoint(Year, Month, day);
             var body = new StackPanel();
             var number = new TextBlock { Text = day.ToString(CultureInfo.InvariantCulture), Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(2, 0, 0, 3) };
-            body.Children.Add(number);
+            // L'en-tête de la case : le numéro du jour ; à droite, les lunes qui changent de phase ce jour-là.
+            var top = new DockPanel();
+            Color seasonTint = default(Color);
+            var hasSeason = false;
+            if (_world != null)
+            {
+                var moons = new StackPanel { Orientation = Orientation.Horizontal, Tag = "calendar-moons" };
+                for (var i = 0; i < _world.Moons.Count; i++)
+                {
+                    var phase = Astro.MainPhaseOn(_world.Moons[i], dayNumber);
+                    Color tint;
+                    if (phase >= 0 && Color.TryParse(Astro.ColorOf(_world.Moons[i], i), out tint)) moons.Children.Add(new MoonGlyph(tint, phase));
+                }
+                if (moons.Children.Count > 0) { DockPanel.SetDock(moons, Dock.Right); top.Children.Add(moons); }
+                var seasonIndex = Astro.SeasonIndexAt(_world, _system, date);
+                hasSeason = seasonIndex >= 0 && Color.TryParse(Astro.ColorOf(_world.Seasons[seasonIndex], seasonIndex), out seasonTint);
+            }
+            top.Children.Add(number);
+            body.Children.Add(top);
             var count = 0;
             foreach (var entry in events)
             {
@@ -255,6 +323,13 @@ namespace Marabook.App
                 Child = body, MinHeight = 88, Margin = new Thickness(2), Padding = new Thickness(5, 4, 5, 5), CornerRadius = new CornerRadius(6),
                 Background = Chrome.CanvasBg, BorderBrush = Chrome.Border, BorderThickness = new Thickness(1), Tag = "calendar-day"
             };
+            // La saison du jour : un liseré de sa couleur en haut de la case.
+            if (hasSeason)
+            {
+                cell.BorderBrush = new SolidColorBrush(seasonTint, 0.85);
+                cell.BorderThickness = new Thickness(0, 3, 0, 0);
+                cell.Padding = new Thickness(6, 2, 6, 6);
+            }
             cell.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
             {
                 if (e.Handled) return;
@@ -425,6 +500,37 @@ namespace Marabook.App
                 if (inside && row != null) titles.Add(((TextBlock)((StackPanel)row.Child).Children[0]).Text);
             }
             return titles;
+        }
+        internal string SubtitleForProbe { get { return _subtitle.Text ?? ""; } }
+        /// <summary>Sonde : les phases des lunes dessinées dans la case d'un jour (Astro.Full…), dans l'ordre.</summary>
+        internal List<int> MoonsOfDayForProbe(int day)
+        {
+            var phases = new List<int>();
+            var n = 0;
+            foreach (var child in _grid.Children)
+            {
+                var cell = child as Border;
+                if (cell == null || ++n != day) continue;
+                var top = ((StackPanel)cell.Child).Children[0] as DockPanel;
+                if (top == null) continue;
+                foreach (var item in top.Children)
+                {
+                    var moons = item as StackPanel;
+                    if (moons == null) continue;
+                    foreach (var glyph in moons.Children) if (glyph is MoonGlyph) phases.Add(((MoonGlyph)glyph).Phase);
+                }
+            }
+            return phases;
+        }
+        internal bool DayHasSeasonForProbe(int day)
+        {
+            var n = 0;
+            foreach (var child in _grid.Children)
+            {
+                var cell = child as Border;
+                if (cell != null && ++n == day) return cell.BorderThickness.Top >= 3;
+            }
+            return false;
         }
         internal void JumpForProbe(int direction) { Jump(direction); }
         internal void ShiftMonthForProbe(int delta) { ShiftMonth(delta); }

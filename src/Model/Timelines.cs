@@ -129,6 +129,8 @@ namespace Marabook.Model
     {
         public string Id = Guid.NewGuid().ToString("N");
         public string Name = "Calendrier";
+        // Le MONDE où vit ce calendrier (Astro.cs, 14/11) : ses saisons, ses lunes, sa taille ; null = aucun.
+        public string WorldId;
 
         // — La temporalité par segments.
         public bool Segmented;
@@ -172,7 +174,7 @@ namespace Marabook.Model
         {
             var copy = new TimeSystem
             {
-                Id = Id, Name = Name, Segmented = Segmented, SegmentWord = SegmentWord, Cumulative = Cumulative,
+                Id = Id, Name = Name, WorldId = WorldId, Segmented = Segmented, SegmentWord = SegmentWord, Cumulative = Cumulative,
                 YearPattern = YearPattern, NegativePattern = NegativePattern, DatePattern = DatePattern, YearZero = YearZero, SegmentYearZero = SegmentYearZero,
                 HoursPerDay = HoursPerDay, MinutesPerHour = MinutesPerHour
             };

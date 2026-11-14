@@ -221,6 +221,7 @@ namespace Marabook.Settings
         // session repart cachée, l'insertion d'un lien les montre.
         public static bool ShowLinks;
         public static bool LoadedFromFile; // vrai quand Load a lu un fichier (la sonde distingue un défaut d'un choix enregistré)
+        public static bool CalculatorPinned;     // le Calculateur de dates tient un onglet du rail (14/11) — à la demande par défaut
         public static bool LexiconPinned = true; // le panneau Lexique tient un onglet du rail (18/09) — épinglé par défaut (1.0.5-a)
         public static bool ProofEnabled = true; // vérification continue (Révision)
         public static int SnapshotCap = 20;        // instantanés gardés par item (b38, 5–100)
@@ -657,6 +658,7 @@ namespace Marabook.Settings
                 SoundsEnabled = Json.AsBool(Json.Field(root, "sounds"), true);
                 ImageGrid = Json.AsBool(Json.Field(root, "imageGrid"), false);
                 LexiconPinned = Json.AsBool(Json.Field(root, "lexiconPinned"), true);
+                CalculatorPinned = Json.AsBool(Json.Field(root, "calculatorPinned"), false);
                 LoadedFromFile = true;
                 ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
                 SnapshotCap = (int)Json.AsDouble(Json.Field(root, "snapshotCap"), 20);
@@ -832,6 +834,7 @@ namespace Marabook.Settings
                 root["sounds"] = SoundsEnabled;
                 root["imageGrid"] = ImageGrid;
                 root["lexiconPinned"] = LexiconPinned;
+                if (CalculatorPinned) root["calculatorPinned"] = true;
                 root["proofEnabled"] = ProofEnabled;
                 root["snapshotCap"] = SnapshotCap;
                 root["tabsEnabled"] = TabsEnabled;

@@ -70,7 +70,7 @@ namespace Marabook.App
         // (TimelineCalendar). Les boutons de zoom, les onglets d'ère et la minimap
         // n'y ont pas de sens : ils se cachent.
         private readonly TimelineCalendar _calendar;
-        private readonly ToggleButton _modeTimeline, _modeCalendar;
+        private readonly Button _mode;               // « Mode : Frise ▾ » — un menu (14/11 soir, Rémi), plus deux boutons
         private readonly List<Control> _timelineOnly = new List<Control>();
         private bool _calendarMode;
         private bool _calendarPlaced;                // le calendrier a déjà son mois pour cette frise
@@ -82,6 +82,7 @@ namespace Marabook.App
         public event Action RenameRequested;
         public event Action<TimeSystem> SystemEditRequested;
         public event Action InspectorChanged;
+        public event Action<TimeSystem, TimePoint> CalculatorRequested; // le Calculateur de dates du rail, à cette date
 
         public TimelineView()
         {
@@ -158,14 +159,8 @@ namespace Marabook.App
             _systemButton.Tag = "timeline-system";
             _systemButton.Click += delegate { var h = SystemEditRequested; if (h != null && _item != null) h(_system); };
             left.Children.Add(_systemButton);
-            _modeTimeline = Buttons.TextToggle("Frise", null, Buttons.Compact, Buttons.Look.Outline);
-            _modeTimeline.Tag = "timeline-mode-timeline";
-            _modeTimeline.Click += delegate { SetCalendarMode(false); };
-            _modeCalendar = Buttons.TextToggle("Calendrier", null, Buttons.Compact, Buttons.Look.Outline);
-            _modeCalendar.Margin = new Thickness(4, 0, 0, 0);
-            _modeCalendar.Tag = "timeline-mode-calendar";
-            _modeCalendar.Click += delegate { SetCalendarMode(true); };
-            _modeTimeline.IsChecked = true;
+            _mode = new Button { Padding = new Thickness(9, 0, 9, 0), Height = Buttons.Compact, MinHeight = Buttons.Compact, Focusable = false, Tag = "timeline-mode" };
+            _mode.Click += delegate { Ui.ShowMenu(ModeMenu(), _mode); };
             row.Children.Add(left);
             head.Child = row;
             Children.Add(head);
@@ -190,8 +185,8 @@ namespace Marabook.App
             // Frise | Calendrier : au bout de la ligne des types, visible dans les deux vues
             // (dans l'en-tête, les boutons se chevauchaient dès que la page était étroite).
             var modes = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(12, 0, 0, 0) };
-            modes.Children.Add(_modeTimeline);
-            modes.Children.Add(_modeCalendar);
+            modes.Children.Add(new TextBlock { Text = "Mode :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
+            modes.Children.Add(_mode);
             DockPanel.SetDock(modes, Dock.Right);
             var filterRow = new DockPanel();
             filterRow.Children.Add(modes);
@@ -228,6 +223,7 @@ namespace Marabook.App
             _calendar.Edit = delegate(TimelineEvent entry) { if (!entry.Derived) EditEvent(entry); else OpenAssigned(entry); };
             _calendar.Create = delegate(TimePoint at) { NewEvent(at); };
             _calendar.Menu = MenuFor;
+            _calendar.World = delegate { return Astro.WorldOf(_project, _system); };
             var center = new Grid();
             center.Children.Add(_surface);
             center.Children.Add(_empty);
@@ -355,12 +351,31 @@ namespace Marabook.App
 
         private void ApplyMode()
         {
-            _modeTimeline.IsChecked = !_calendarMode;
-            _modeCalendar.IsChecked = _calendarMode;
+            var face = new StackPanel { Orientation = Orientation.Horizontal };
+            var modeIcon = Icons.Make(_calendarMode ? CalendarIcon : TimelineIcon, 14, Chrome.Ink) as Control;
+            if (modeIcon != null) { modeIcon.VerticalAlignment = VerticalAlignment.Center; modeIcon.Margin = new Thickness(0, 0, 6, 0); face.Children.Add(modeIcon); }
+            face.Children.Add(new TextBlock { Text = _calendarMode ? "Calendrier" : "Frise", Foreground = Chrome.Ink, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+            face.Children.Add(new TextBlock { Text = "▾", Foreground = Chrome.SoftText, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(7, 0, 0, 0) });
+            _mode.Content = face;
             _calendar.IsVisible = _calendarMode;
             _surface.IsVisible = !_calendarMode;
             foreach (var control in _timelineOnly) control.IsVisible = !_calendarMode;
             _tabsBar.IsVisible = !_calendarMode && _system.HasSegments;
+        }
+
+        // L'icône d'une frise dans la Pile ; celle des fiches Événement.
+        private const string TimelineIcon = "frise", CalendarIcon = "fiche-evenement";
+
+        private ContextMenu ModeMenu()
+        {
+            var menu = new ContextMenu();
+            var timeline = new MenuItem { Header = "Frise", Icon = Icons.Make(TimelineIcon, 14, Chrome.Ink), Tag = "timeline-mode-timeline" };
+            timeline.Click += delegate { SetCalendarMode(false); };
+            var calendar = new MenuItem { Header = "Calendrier", Icon = Icons.Make(CalendarIcon, 14, Chrome.Ink), Tag = "timeline-mode-calendar" };
+            calendar.Click += delegate { SetCalendarMode(true); };
+            menu.Items.Add(timeline);
+            menu.Items.Add(calendar);
+            return menu;
         }
 
         /// <summary>Le filtre des types seul (le calendrier ignore l'onglet d'ère : il a sa propre navigation).</summary>
@@ -774,7 +789,7 @@ namespace Marabook.App
         private void AddCalculator(ContextMenu menu, TimePoint at)
         {
             var item = new MenuItem { Header = "Calculateur de dates…", Tag = "timeline-menu-calculator" };
-            item.Click += delegate { DateCalculatorDialog.Open(TopLevel.GetTopLevel(this) as Window, _system, at); };
+            item.Click += delegate { var h = CalculatorRequested; if (h != null) h(_system, at); };
             menu.Items.Add(item);
         }
 
@@ -840,6 +855,22 @@ namespace Marabook.App
             }
             _inspector.Children.Add(Line("Système :", _system.Name));
             _inspector.Children.Add(Line("Notation :", _system.Example()));
+            // Le monde du calendrier (14/11) : ses saisons, ses lunes — et ce que la dérive fait sur la durée de la frise.
+            var world = Astro.WorldOf(_project, _system);
+            if (world != null)
+            {
+                _inspector.Children.Add(Caption("MONDE"));
+                var worldLine = Line(world.Name + " :", Astro.Summary(world));
+                worldLine.Tag = "timeline-world";
+                _inspector.Children.Add(worldLine);
+                var drift = Astro.DriftOver(world, _system, _stats.TotalYears);
+                if (drift >= 1)
+                {
+                    var driftLine = Line("Dérive des saisons :", TimeSystem.Count((long)Math.Round(drift), "jour", "jours") + " sur " + TimeSystem.YearsLabel(_stats.TotalYears));
+                    driftLine.Tag = "timeline-world-drift";
+                    _inspector.Children.Add(driftLine);
+                }
+            }
             if (_system.HasSegments)
             {
                 if (SegmentOnly)
@@ -976,6 +1007,10 @@ namespace Marabook.App
         internal List<string> RulerLabelsForProbe() { return _surface.RulerLabels(); }
         internal int PendingCountForProbe { get { return _pending.Count; } }
         internal TimelineCalendar CalendarForProbe { get { return _calendar; } }
+        internal List<string> ModeChoicesForProbe() { var names = new List<string>(); foreach (var item in ModeMenu().Items) { var entry = item as MenuItem; if (entry != null) names.Add((entry.Header as string) + (entry.Icon != null ? " (icône)" : "")); } return names; }
+        internal string ModeLabelForProbe { get { var face = _mode.Content as StackPanel; if (face == null) return null; foreach (var child in face.Children) { var text = child as TextBlock; if (text != null) return text.Text; } return null; } }
+        internal double PointedBandWidthForProbe { get { return _surface.PointedBandWidth(); } }
+        internal void RequestCalculatorForProbe(TimePoint at) { var h = CalculatorRequested; if (h != null) h(_system, at); }
         internal bool SurfaceShownForProbe { get { return _surface.IsVisible && _minimap.IsVisible; } }
         /// <summary>Sonde : le curseur posé sur une année de l'axe (null : il sort).</summary>
         internal void PointAtForProbe(double? axis) { _surface.PointForProbe(axis == null ? (Point?)null : new Point(_surface.XOfForProbe(axis.Value), 120)); }
@@ -1474,9 +1509,26 @@ namespace Marabook.App
                 if (_cursor != null && !_panning)
                 {
                     var at = _cursor.Value;
-                    var x = Math.Round(at.X) + 0.5;
-                    context.DrawLine(new Pen(new SolidColorBrush(Chrome.Ink.Color, 0.55), 1), new Point(x, 0), new Point(x, height));
-                    var caption = Text(PointedLabel(), 11.5, Chrome.PaperBg, FontWeight.SemiBold);
+                    // Toute la largeur de l'année pointée (14/11 soir, Rémi) : une bande — un trait quand l'année fait moins d'un pixel.
+                    var yearLeft = X(PointedYear());
+                    var yearRight = X(PointedYear() + 1);
+                    if (yearRight - yearLeft >= 2)
+                    {
+                        var bandLeft = Math.Max(0, yearLeft);
+                        var bandRight = Math.Min(width, yearRight);
+                        context.DrawRectangle(new SolidColorBrush(Chrome.Ink.Color, 0.10), null, new Rect(bandLeft, 0, Math.Max(0, bandRight - bandLeft), height));
+                        var edgePen = new Pen(new SolidColorBrush(Chrome.Ink.Color, 0.40), 1);
+                        if (yearLeft >= 0) context.DrawLine(edgePen, new Point(Math.Round(yearLeft) + 0.5, 0), new Point(Math.Round(yearLeft) + 0.5, height));
+                        if (yearRight <= width) context.DrawLine(edgePen, new Point(Math.Round(yearRight) - 0.5, 0), new Point(Math.Round(yearRight) - 0.5, height));
+                    }
+                    else
+                    {
+                        var x = Math.Round(at.X) + 0.5;
+                        context.DrawLine(new Pen(new SolidColorBrush(Chrome.Ink.Color, 0.55), 1), new Point(x, 0), new Point(x, height));
+                    }
+                    // L'étiquette : l'encre en fond, le fond de la fenêtre en lettres — lisible en clair comme en sombre
+                    // (PaperBg reste BLANC en sombre avec « papier blanc » : blanc sur encre claire, illisible).
+                    var caption = Text(PointedLabel(), 11.5, Chrome.WindowBg, FontWeight.SemiBold);
                     var boxWidth = caption.Width + 14;
                     var boxHeight = caption.Height + 8;
                     var left = at.X + 12;
@@ -1498,7 +1550,10 @@ namespace Marabook.App
             public string PointedLabel()
             {
                 if (_cursor == null) return null;
-                return _owner._system.Format(_owner._system.FromAxis(AxisAt(_cursor.Value.X), _owner.PrecisionForScale()));
+                var pointed = _owner._system.FromAxis(AxisAt(_cursor.Value.X), _owner.PrecisionForScale());
+                // Quand le zoom distingue les mois ou les jours, le monde ajoute la saison et les lunes.
+                var sky = _owner._project == null ? null : Astro.DayLabel(_owner._project, _owner._system, pointed);
+                return _owner._system.Format(pointed) + (string.IsNullOrEmpty(sky) ? "" : "  ·  " + sky);
             }
 
             public List<string> PointedEvents()
@@ -1509,6 +1564,7 @@ namespace Marabook.App
                 return ids;
             }
 
+            public double PointedBandWidth() { return _cursor == null ? 0 : X(PointedYear() + 1) - X(PointedYear()); }
             public void PointForProbe(Point? at) { _cursor = at; InvalidateVisual(); }
             public double XOfForProbe(double axis) { return X(axis); }
 

@@ -20,6 +20,7 @@ namespace Marabook.Persistence
                 var o = new Dictionary<string, object>();
                 o["id"] = system.Id;
                 o["name"] = system.Name;
+                if (!string.IsNullOrEmpty(system.WorldId)) o["worldId"] = system.WorldId;
                 if (system.Segmented) o["segmented"] = true;
                 if (system.SegmentWord != "Ère") o["segmentWord"] = system.SegmentWord ?? "";
                 if (system.Cumulative) o["cumulative"] = true;
@@ -76,6 +77,101 @@ namespace Marabook.Persistence
             return list;
         }
 
+        // -------------------------------------------------------------- mondes
+
+        /// <summary>Les mondes de l'Astrolabe dans le manifeste (« worlds », 14/11).</summary>
+        public static List<object> BuildWorlds(List<World> worlds)
+        {
+            var list = new List<object>();
+            foreach (var world in worlds)
+            {
+                var o = new Dictionary<string, object>();
+                o["id"] = world.Id;
+                o["name"] = world.Name ?? "";
+                if (world.Circumference > 0) o["circumference"] = world.Circumference;
+                if (world.AxialTilt >= 0) o["axialTilt"] = world.AxialTilt;
+                if (world.SolarYear > 0) o["solarYear"] = world.SolarYear;
+                if (world.Seasons.Count > 0)
+                {
+                    var seasons = new List<object>();
+                    foreach (var season in world.Seasons)
+                    {
+                        var s = new Dictionary<string, object>();
+                        s["id"] = season.Id;
+                        s["name"] = season.Name ?? "";
+                        s["startDay"] = season.StartDay;
+                        if (!string.IsNullOrEmpty(season.Color)) s["color"] = season.Color;
+                        seasons.Add(s);
+                    }
+                    o["seasons"] = seasons;
+                }
+                if (world.Moons.Count > 0)
+                {
+                    var moons = new List<object>();
+                    foreach (var moon in world.Moons)
+                    {
+                        var m = new Dictionary<string, object>();
+                        m["id"] = moon.Id;
+                        m["name"] = moon.Name ?? "";
+                        m["period"] = moon.Period;
+                        m["fullAt"] = moon.FullAt;
+                        if (!string.IsNullOrEmpty(moon.Color)) m["color"] = moon.Color;
+                        moons.Add(m);
+                    }
+                    o["moons"] = moons;
+                }
+                list.Add(o);
+            }
+            return list;
+        }
+
+        public static List<World> ReadWorlds(object node)
+        {
+            var worlds = new List<World>();
+            var list = Json.AsList(node);
+            if (list == null) return worlds;
+            foreach (var entry in list)
+            {
+                var o = Json.AsObject(entry);
+                if (o == null) continue;
+                var world = new World();
+                var id = Json.AsString(Json.Field(o, "id"));
+                if (!string.IsNullOrEmpty(id)) world.Id = id;
+                world.Name = Json.AsString(Json.Field(o, "name")) ?? "Monde";
+                world.Circumference = Math.Max(0, Json.AsDouble(Json.Field(o, "circumference"), 0));
+                world.AxialTilt = Json.AsDouble(Json.Field(o, "axialTilt"), -1);
+                world.SolarYear = Math.Max(0, Json.AsDouble(Json.Field(o, "solarYear"), 0));
+                var seasons = Json.AsList(Json.Field(o, "seasons"));
+                if (seasons != null)
+                    foreach (var seasonNode in seasons)
+                    {
+                        var s = Json.AsObject(seasonNode);
+                        if (s == null) continue;
+                        var season = new Season { Name = Json.AsString(Json.Field(s, "name")) ?? "", StartDay = Math.Max(1, Json.AsInt(Json.Field(s, "startDay"), 1)), Color = Json.AsString(Json.Field(s, "color")) };
+                        var seasonId = Json.AsString(Json.Field(s, "id"));
+                        if (!string.IsNullOrEmpty(seasonId)) season.Id = seasonId;
+                        world.Seasons.Add(season);
+                    }
+                var moons = Json.AsList(Json.Field(o, "moons"));
+                if (moons != null)
+                    foreach (var moonNode in moons)
+                    {
+                        var m = Json.AsObject(moonNode);
+                        if (m == null) continue;
+                        var moon = new Moon
+                        {
+                            Name = Json.AsString(Json.Field(m, "name")) ?? "", Period = Math.Max(0.01, Json.AsDouble(Json.Field(m, "period"), 29.53)),
+                            FullAt = Json.AsDouble(Json.Field(m, "fullAt"), 0), Color = Json.AsString(Json.Field(m, "color"))
+                        };
+                        var moonId = Json.AsString(Json.Field(m, "id"));
+                        if (!string.IsNullOrEmpty(moonId)) moon.Id = moonId;
+                        world.Moons.Add(moon);
+                    }
+                worlds.Add(world);
+            }
+            return worlds;
+        }
+
         public static List<TimeSystem> ReadSystems(object node)
         {
             var systems = new List<TimeSystem>();
@@ -89,6 +185,8 @@ namespace Marabook.Persistence
                 var id = Json.AsString(Json.Field(o, "id"));
                 if (!string.IsNullOrEmpty(id)) system.Id = id;
                 system.Name = Json.AsString(Json.Field(o, "name")) ?? "Calendrier";
+                var worldId = Json.AsString(Json.Field(o, "worldId"));
+                system.WorldId = string.IsNullOrEmpty(worldId) ? null : worldId;
                 system.Segmented = Json.AsBool(Json.Field(o, "segmented"), false);
                 system.SegmentWord = Json.AsString(Json.Field(o, "segmentWord")) ?? "Ère";
                 system.Cumulative = Json.AsBool(Json.Field(o, "cumulative"), false);

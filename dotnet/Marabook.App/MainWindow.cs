@@ -1265,6 +1265,7 @@ namespace Marabook.App
             // personnel, même colonne (MainWindow.Lexicon.cs).
             BuildLexiconPanel(grid);
             BuildNotebookPanel(grid); // le Carnet (14/11) : toujours au rail, sous le Lexique
+            BuildCalculatorPanel(grid); // le Calculateur de dates (14/11) : à la demande, épinglable
             BuildStyleReportPanel(grid); // le Bilan de style au rail (09/10)
             _pinTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
             _pinTimer.Tick += delegate { _pinTimer.Stop(); RefreshSidePin(); };
@@ -1492,7 +1493,7 @@ namespace Marabook.App
             // ont suivi — la vue ouverte recharge si elle en portait, et
             // l'auteur est prévenu de ce qui a bougé.
             // Les frises (1.2.0, lot 2) : une brique ou un système défait ou refait.
-            if (action is History.TimelineEditAction || action is History.TimeSystemEditAction)
+            if (action is History.TimelineEditAction || action is History.TimeSystemEditAction || action is History.WorldsEditAction)
             {
                 MarkDirty();
                 var systemEdit = action as History.TimeSystemEditAction;
@@ -5749,8 +5750,8 @@ namespace Marabook.App
         /// la colonne (il ne déborde pas pendant la course).</summary>
         private void ShowRightHost(RightPanel shown)
         {
-            var hosts = new[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _styleReportHost };
-            var panels = new[] { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned, RightPanel.Lexicon, RightPanel.Notebook, RightPanel.StyleReport };
+            var hosts = new[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _calculatorHost, _styleReportHost };
+            var panels = new[] { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned, RightPanel.Lexicon, RightPanel.Notebook, RightPanel.Calculator, RightPanel.StyleReport };
             for (var i = 0; i < hosts.Length; i++)
             {
                 if (hosts[i] == null) continue;
@@ -5816,7 +5817,7 @@ namespace Marabook.App
         /// de la course) ou libre (NaN).</summary>
         private void FreezeRightHosts(double width)
         {
-            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _styleReportHost };
+            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _calculatorHost, _styleReportHost };
             foreach (var host in hosts)
             {
                 if (host == null) continue;
@@ -5841,14 +5842,14 @@ namespace Marabook.App
             var shown = ShownRightPanel();
             if (!AppSettings.RailLocked || shown != RightPanel.None || AppSettings.RightPanel == RightPanel.None
                 || _journalOpen || _calmMode || _project == null) return shown;
-            foreach (var candidate in RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel, HasStyleReport))
+            foreach (var candidate in RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel, HasStyleReport, HasCalculatorPanel))
                 if (IsPanelAvailable(candidate)) return candidate;
             return shown;
         }
 
         private bool IsPanelAvailable(RightPanel panel)
         {
-            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, PanelKind(), PanelHomeRoot(), _sidePin != null, HasLexiconPanel, HasStyleReport);
+            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, PanelKind(), PanelHomeRoot(), _sidePin != null, HasLexiconPanel, HasStyleReport, HasCalculatorPanel);
         }
 
         /// <summary>La nature qui décide du panneau de droite (30/09) : la
@@ -6051,6 +6052,8 @@ namespace Marabook.App
                     icon = "pile-dictionnaire"; name = "Lexique — la définition d'un mot du dictionnaire personnel"; break;
                 case RightPanel.Notebook:
                     icon = "notebook"; name = "Carnet — vos notes, gardées d'un projet à l'autre"; break;
+                case RightPanel.Calculator:
+                    icon = "pile-frises"; name = "Calculateur de dates"; break;
                 case RightPanel.StyleReport:
                     icon = "exam-bold"; name = "Bilan de style de l'écrit ouvert"; break;
                 default:
@@ -6129,7 +6132,7 @@ namespace Marabook.App
             var railOn = !_journalOpen && !_calmMode;
             _rail.IsVisible = railOn ? true : false;
             _railCol.Width = new GridLength(railOn ? RailWidth : 0);
-            var offered = RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel, HasStyleReport);
+            var offered = RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel, HasStyleReport, HasCalculatorPanel);
             if (!ReferenceEquals(offered, _railOffered)) RebuildRailTabs(offered);
             UpdatePinTip();
             UpdateRailLock();

@@ -113,6 +113,7 @@ namespace Marabook.Tests
                 DissonanceTests.Run,     // C65 — dissonances : exclusion, référence, lien ordinaire lu comme date (1.2.0)
                 TimelineLot3Tests.Run,   // C66 — frises, lot 3 : an 0 par segment, années des segments, carnet (1.2.0)
                 TimeMathTests.Run,       // C67 — arithmétique des dates, calendrier, Astrolabe (1.2.0)
+                AstroTests.Run,          // C68 — mondes : saisons, lunes, taille ; calculateur au rail (1.2.0)
                 ProjectSearchTests.Run,  // C16 — recherche projet (b37)
                 DocumentDiffTests.Run,   // C17 — versions d'écrits (b38)
                 RightPanelTests.Run,     // C18 — la colonne de droite (b39)

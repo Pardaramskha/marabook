@@ -40,6 +40,7 @@ namespace Marabook.App
             };
             _timelineView.SystemEditRequested += delegate(TimeSystem system) { EditTimeSystem(system); };
             _timelineView.InspectorChanged += delegate { UpdateStats(); };
+            _timelineView.CalculatorRequested += ShowCalculator;
             center.Children.Add(_timelineView);
 
             _timelineHub = new TimelineHubView { IsVisible = false };
@@ -48,6 +49,9 @@ namespace Marabook.App
             _timelineHub.NewSystemRequested += delegate { EditTimeSystem(null); };
             _timelineHub.EditSystemRequested += delegate(TimeSystem system) { EditTimeSystem(system); };
             _timelineHub.RemoveSystemRequested += delegate(TimeSystem system) { RemoveTimeSystem(system); };
+            _timelineHub.CalculatorRequested += delegate(TimeSystem system) { ShowCalculator(system, null); };
+            _timelineHub.EditWorldRequested += delegate(World world) { EditWorld(world); };
+            _timelineHub.RemoveWorldRequested += delegate(World world) { RemoveWorld(world); };
             center.Children.Add(_timelineHub);
         }
 
@@ -94,6 +98,64 @@ namespace Marabook.App
             ShowToast(null, "Temporalité modifiée", string.Join(" · ", parts.ToArray()) + ".", Ui.Keys("Ctrl+Z") + " annule le changement", 7);
         }
 
+        /// <summary>Un monde de l'Astrolabe (14/11) : créé (world null) ou modifié —
+        /// sa taille, ses saisons, ses lunes, et les calendriers qui y vivent.
+        /// Ctrl+Z rend les mondes d'avant.</summary>
+        private async void EditWorld(World world)
+        {
+            if (_project == null) return;
+            var creating = world == null || !_project.Worlds.Contains(world);
+            if (creating) world = NewWorldDraft();
+            var choice = await WorldDialog.Edit(this, _project, world, creating);
+            if (choice == null) return;
+            ApplyWorld(creating ? null : world, choice);
+        }
+
+        /// <summary>Le brouillon d'un monde : nommé, vide — et, s'il est le premier
+        /// d'un projet sans autre monde, déjà lié au système de la frise ouverte.</summary>
+        private World NewWorldDraft()
+        {
+            var draft = new World { Name = "Nouveau monde" };
+            var number = 2;
+            while (_project.Worlds.Exists(delegate(World w) { return w.Name == draft.Name; })) draft.Name = "Nouveau monde " + number++;
+            return draft;
+        }
+
+        private void ApplyWorld(World replaced, WorldChoice choice)
+        {
+            var before = History.WorldsEditAction.Snapshot(_project);
+            var links = History.WorldsEditAction.Links(_project);
+            var index = replaced == null ? -1 : _project.Worlds.IndexOf(replaced);
+            if (index >= 0) _project.Worlds[index] = choice.World;
+            else _project.Worlds.Add(choice.World);
+            foreach (var system in _project.TimeSystems)
+            {
+                if (choice.SystemIds.Contains(system.Id)) system.WorldId = choice.World.Id;
+                else if (system.WorldId == choice.World.Id) system.WorldId = null;
+            }
+            _history.Push(new History.WorldsEditAction(_project, before, links));
+            MarkDirty();
+            RefreshTimelineViews();
+        }
+
+        private async void RemoveWorld(World world)
+        {
+            if (_project == null || world == null) return;
+            var answer = await MessageDialog.Show(this, "Retirer le monde « " + world.Name + " » du projet ?\n\nSes saisons et ses lunes ne s'afficheront plus dans les calendriers qui y vivaient.", "Astrolabe",
+                MessageButtons.YesNo, MessageIcon.Question);
+            if (answer != MessageResult.Yes) return;
+            var before = History.WorldsEditAction.Snapshot(_project);
+            var links = History.WorldsEditAction.Links(_project);
+            _project.Worlds.Remove(world);
+            foreach (var system in _project.TimeSystems) if (system.WorldId == world.Id) system.WorldId = null;
+            _history.Push(new History.WorldsEditAction(_project, before, links));
+            MarkDirty();
+            RefreshTimelineViews();
+        }
+
+        internal void ApplyWorldForProbe(World replaced, WorldChoice choice) { ApplyWorld(replaced, choice); }
+        internal World NewWorldDraftForProbe() { return NewWorldDraft(); }
+
         private async void RemoveTimeSystem(TimeSystem system)
         {
             if (_project == null || system == null || Timelines.UsesOf(_project, system) > 0) return;
@@ -112,6 +174,7 @@ namespace Marabook.App
             if (_timelineHub != null && _timelineHub.IsVisible) _timelineHub.Refresh();
             if (_sheetLibrary != null && _sheetLibrary.IsVisible) _sheetLibrary.RefreshEpoch();
             if (_sheetView != null && _sheetView.IsVisible) _sheetView.RefreshEpoch();
+            if (_calculatorPanel != null && HasCalculatorPanel) _calculatorPanel.Reload(); // ses systèmes ont pu changer
             UpdateInspector();
             UpdateStats();
         }

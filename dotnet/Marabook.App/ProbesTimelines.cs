@@ -75,53 +75,86 @@ namespace Marabook.App
                     await Settle();
                     Check(view.PointedLabelForProbe == "E2.301" && view.PointedEventsForProbe().Count == 0, "une année sans rien : le repère seul");
                     Check(!view.SurfaceHasTipForProbe, "…une étiquette dessinée, pas une infobulle à flèche");
+                    view.SelectTabForProbe(2);
+                    await Settle();
+                    view.PointAtForProbe(2000 + 20.5);
+                    await Settle();
+                    Check(view.PointedBandWidthForProbe > 8, "le repère couvre toute la largeur de l'année pointée (" + view.PointedBandWidthForProbe.ToString("0.#") + " px dans l'onglet d'une ère)");
+                    Shot(view, "frises-27-survol-annee.png");
+                    view.SelectTabForProbe(-1);
+                    await Settle();
                     view.PointAtForProbe(null);
                     await Settle();
                 }
 
-                // — Lot 4 : le calculateur de dates.
+                // — Lot 4 puis 5 : le calculateur de dates, UN onglet du rail (à la demande, épinglable).
                 {
+                    var panelBefore = AppSettings.RightPanel;
+                    var pinnedBefore = AppSettings.CalculatorPinned;
+                    shell.PinCalculatorForProbe(false);
+                    await Settle();
+                    Check(!shell.HasCalculatorForProbe && !shell.RailHasTabForProbe(RightPanel.Calculator), "tant qu'on ne l'a pas demandé, le rail n'a pas d'onglet Calculateur");
                     TimePoint clicked;
                     view.System.TryParse("14 Noroît E3.30", out clicked);
                     var menu = view.MenuForProbe(clicked);
                     Check(menu.Items.OfType<MenuItem>().Any(delegate(MenuItem m) { return Equals(m.Tag, "timeline-menu-calculator"); }), "clic droit sur un point de la frise : « Calculateur de dates… »");
-                    var calculator = DateCalculatorDialog.Open(shell, view.System, clicked);
+                    view.RequestCalculatorForProbe(clicked);
                     await Settle();
-                    Check(calculator != null && calculator.IsVisible && (calculator.Title ?? "").StartsWith("Calculateur de dates") && calculator.FromForProbe == "14 Noroît E3.30", "il s'ouvre à la date pointée (" + (calculator == null ? "-" : calculator.FromForProbe) + ")");
-                    if (calculator != null)
-                    {
-                        calculator.SetSumForProbe("1 Aubemer E3.1", false, "", "", "", "36");
-                        await Settle();
-                        Check(calculator.SumForProbe == "1 Vent-Neuf E3.1", "1 Aubemer + 36 jours = 1 Vent-Neuf (" + calculator.SumForProbe + ")");
-                        calculator.SetSumForProbe("1 Aubemer E3.1", false, "2", "1", "1", "3");
-                        await Settle();
-                        Check(calculator.SumForProbe == "10 Vent-Neuf E3.3", "+ 2 ans, 1 mois, 1 semaine (6 jours) et 3 jours = 10 Vent-Neuf E3.3 (" + calculator.SumForProbe + ")");
-                        Check(calculator.SumDetailForProbe.Contains("Ère des Grandes Marées") && calculator.SumDetailForProbe.Contains("jour 46 de l'année"), "…avec le jour de la semaine, l'ère et le rang du jour (" + calculator.SumDetailForProbe + ")");
-                        calculator.SetSumForProbe("1 Aubemer E3.1", true, "", "", "", "1");
-                        await Settle();
-                        Check(calculator.SumForProbe == "36 Longue-Nuit E2.1200", "retirer un jour au premier jour d'une ère : la veille, dans l'ère d'avant (" + calculator.SumForProbe + ")");
-                        calculator.SetBetweenForProbe("3 Brisants E3.30", "20 Noroît E3.30");
-                        await Settle();
-                        Check(calculator.BetweenForProbe == "4 mois et 17 jours" && calculator.BetweenDetailForProbe.Contains("161 jours") && calculator.BetweenDetailForProbe.Contains("26 semaines et 5 jours"),
-                            "du 3 Brisants au 20 Noroît : 4 mois et 17 jours, 161 jours (" + calculator.BetweenForProbe + " — " + calculator.BetweenDetailForProbe + ")");
-                        calculator.SetSumForProbe("n'importe quoi", false, "", "", "", "1");
-                        await Settle();
-                        Check(calculator.SumForProbe == "—", "une date illisible : pas de résultat");
-                        calculator.SetSumForProbe("1 Aubemer E3.1", false, "2", "1", "1", "3");
-                        await Settle();
-                        Shot((Control)calculator.Content, "frises-24-calculateur.png");
-                        calculator.Close();
-                        await Settle();
-                    }
+                    var calculator = shell.CalculatorPanelForProbe;
+                    Check(shell.HasCalculatorForProbe && shell.RailHasTabForProbe(RightPanel.Calculator) && AppSettings.RightPanel == RightPanel.Calculator && calculator.IsEffectivelyVisible,
+                        "demandé : l'onglet paraît au rail et le Calculateur prend la colonne");
+                    Check(shell.RailTabRankForProbe(RightPanel.Calculator) == shell.RailTabRankForProbe(RightPanel.Notebook) + 1, "…sous le Carnet");
+                    Check(calculator.FromForProbe == "14 Noroît E3.30" && calculator.SystemForProbe == view.System.Name && calculator.SystemChoicesForProbe == 2, "il s'ouvre à la date pointée, sur le système de la frise (" + calculator.FromForProbe + ")");
+                    Check(shell.OwnedWindows.OfType<Window>().All(delegate(Window w) { return !(w.Title ?? "").StartsWith("Calculateur"); }), "…et ce n'est plus une fenêtre : un seul calculateur");
+                    calculator.SetSumForProbe("1 Aubemer E3.1", false, "", "", "", "36");
+                    await Settle();
+                    Check(calculator.SumForProbe == "1 Vent-Neuf E3.1", "1 Aubemer + 36 jours = 1 Vent-Neuf (" + calculator.SumForProbe + ")");
+                    calculator.SetSumForProbe("1 Aubemer E3.1", false, "2", "1", "1", "3");
+                    await Settle();
+                    Check(calculator.SumForProbe == "10 Vent-Neuf E3.3", "+ 2 ans, 1 mois, 1 semaine (6 jours) et 3 jours = 10 Vent-Neuf E3.3 (" + calculator.SumForProbe + ")");
+                    Check(calculator.SumDetailForProbe.Contains("Ère des Grandes Marées") && calculator.SumDetailForProbe.Contains("jour 46 de l'année"), "…avec le jour de la semaine, l'ère et le rang du jour (" + calculator.SumDetailForProbe + ")");
+                    calculator.SetSumForProbe("1 Aubemer E3.1", true, "", "", "", "1");
+                    await Settle();
+                    Check(calculator.SumForProbe == "36 Longue-Nuit E2.1200", "retirer un jour au premier jour d'une ère : la veille, dans l'ère d'avant (" + calculator.SumForProbe + ")");
+                    calculator.SetBetweenForProbe("3 Brisants E3.30", "20 Noroît E3.30");
+                    await Settle();
+                    Check(calculator.BetweenForProbe == "4 mois et 17 jours" && calculator.BetweenDetailForProbe.Contains("161 jours") && calculator.BetweenDetailForProbe.Contains("26 semaines et 5 jours"),
+                        "du 3 Brisants au 20 Noroît : 4 mois et 17 jours, 161 jours (" + calculator.BetweenForProbe + " — " + calculator.BetweenDetailForProbe + ")");
+                    calculator.SetSumForProbe("n'importe quoi", false, "", "", "", "1");
+                    await Settle();
+                    Check(calculator.SumForProbe == "—", "une date illisible : pas de résultat");
+                    calculator.SetSumForProbe("1 Aubemer E3.1", false, "2", "1", "1", "3");
+                    await Settle();
+                    Shot(calculator, "frises-24-calculateur.png");
+                    // Demandé une seconde fois : le même panneau, à la nouvelle date.
+                    view.RequestCalculatorForProbe(new TimePoint(2000 + 7, 4, 12));
+                    await Settle();
+                    Check(ReferenceEquals(calculator, shell.CalculatorPanelForProbe) && calculator.FromForProbe == "12 Sel E3.8", "redemandé ailleurs : le même calculateur, à la nouvelle date (" + calculator.FromForProbe + ")");
+                    // Fermé sans épingle : l'onglet s'en va. Épinglé : il reste.
+                    shell.CloseCalculatorForProbe();
+                    await Settle();
+                    Check(!shell.HasCalculatorForProbe && !shell.RailHasTabForProbe(RightPanel.Calculator) && AppSettings.RightPanel != RightPanel.Calculator, "fermé sans épingle : l'onglet quitte le rail");
+                    view.RequestCalculatorForProbe(clicked);
+                    await Settle();
+                    shell.PinCalculatorForProbe(true);
+                    await Settle();
+                    shell.CloseCalculatorForProbe();
+                    await Settle();
+                    Check(calculator.PinnedForProbe && shell.HasCalculatorForProbe && shell.RailHasTabForProbe(RightPanel.Calculator), "épinglé puis fermé : l'onglet reste au rail");
+                    shell.PinCalculatorForProbe(pinnedBefore);
+                    shell.SetRightPanelForProbe(panelBefore);
+                    await Settle();
                 }
 
                 // — Lot 4 : la vue Calendrier et ses orphelins.
                 {
                     var calendar = view.CalendarForProbe;
                     Func<string, TimePoint> date = delegate(string notation) { TimePoint point; view.System.TryParse(notation, out point); return point; };
+                    Check(view.ModeLabelForProbe == "Frise" && view.ModeChoicesForProbe().Count == 2 && view.ModeChoicesForProbe()[0] == "Frise (icône)" && view.ModeChoicesForProbe()[1] == "Calendrier (icône)"
+                        && Icons.Has("frise") && Icons.Has("fiche-evenement"), "le menu « Mode » offre Frise et Calendrier, chacun avec son icône (" + string.Join(", ", view.ModeChoicesForProbe().ToArray()) + ")");
                     view.SetCalendarMode(true);
                     await Settle();
-                    Check(view.CalendarMode && calendar.IsVisible && !view.SurfaceShownForProbe, "« Calendrier » remplace la frise et sa minimap");
+                    Check(view.CalendarMode && calendar.IsVisible && !view.SurfaceShownForProbe && view.ModeLabelForProbe == "Calendrier", "« Calendrier » remplace la frise et sa minimap ; le bouton dit le mode");
                     Check(calendar.TitleForProbe == "Aubemer · E2.1" && calendar.EventsOfDayForProbe(1).Contains("Serment des Gardiens"), "il s'ouvre au premier événement daté au jour (" + calendar.TitleForProbe + ")");
                     Check(calendar.ColumnsForProbe == 6 && calendar.DayCellsForProbe == 36, "une colonne par jour de la semaine (6), une case par jour du mois (36)");
                     Check(calendar.OrphansForProbe("calendar-orphans-month").Count == 0 && calendar.OrphansForProbe("calendar-orphans-elsewhere").Contains("Guerre des Brumes")
@@ -153,6 +186,107 @@ namespace Marabook.App
                     view.SetCalendarMode(false);
                     await Settle();
                     Check(!view.CalendarMode && view.SurfaceShownForProbe && !calendar.IsVisible, "« Frise » ramène la frise");
+                }
+
+                // — Lot 5 (14/11) : un MONDE — sa taille, ses saisons, ses lunes — et ce qu'il donne au calendrier.
+                {
+                    Func<string, string> plain = delegate(string text) { return (text ?? "").Replace('\u202f', ' ').Replace('\u00a0', ' '); };
+                    var hubNow = shell.TimelineHubForProbe;
+                    Check(project.Worlds.Count == 0 && !view.InspectorHasTagForProbe("timeline-world"), "un projet sans monde : rien au Général de la frise");
+                    var worldTask = WorldDialog.Edit(shell, project, shell.NewWorldDraftForProbe(), true);
+                    await Settle();
+                    var worldDialog = OpenWindow<WorldDialog>();
+                    Check(worldDialog != null && (worldDialog.Title ?? "") == "Nouveau monde", "la fenêtre d'un nouveau monde s'ouvre");
+                    WorldChoice choice = null;
+                    if (worldDialog != null)
+                    {
+                        worldDialog.CheckSystemForProbe(0, true); // le Calendrier des Marées vit dans ce monde
+                        worldDialog.SetSizeForProbe("40 075", "23,4");
+                        await Settle();
+                        var facts = worldDialog.FactsForProbe().ConvertAll(delegate(string f) { return plain(f); });
+                        Check(facts.Count == 6 && facts[0].Contains("Rayon : 6 378 km") && facts[2].Contains("le jour en compte 20") && facts[2].Contains("2 004 km") && facts[4].Contains("Tropiques à 23,4°"),
+                            "la taille du monde : rayon, horizon, heure de soleil (dans les heures du calendrier), tropiques (" + (facts.Count > 0 ? facts[0] : "-") + ")");
+                        Shot(worldDialog, "astrolabe-1-monde-taille.png");
+                        worldDialog.SetSizeForProbe("beaucoup", "23,4");
+                        await Settle();
+                        Check(worldDialog.ProblemForProbe != null, "une circonférence illisible est signalée");
+                        worldDialog.SetSizeForProbe("40 075", "23,4");
+                        worldDialog.FourSeasonsForProbe();
+                        await Settle();
+                        Check(worldDialog.SeasonRowsForProbe == 4 && worldDialog.SeasonEchoForProbe(1) == "→ 19 Hautes-Eaux", "« Quatre saisons égales » : la deuxième commence le jour 91, dit dans le calendrier (" + worldDialog.SeasonEchoForProbe(1) + ")");
+                        worldDialog.SetSolarYearForProbe("360,25");
+                        await Settle();
+                        Check(worldDialog.DriftForProbe.Contains("plus longue") && worldDialog.DriftForProbe.Contains("plus tôt"), "une durée réelle de l'année : la dérive du calendrier est dite (" + worldDialog.DriftForProbe + ")");
+                        worldDialog.ShowTabForProbe(1);
+                        await Settle();
+                        Shot(worldDialog, "astrolabe-2-monde-saisons.png");
+                        worldDialog.SetSolarYearForProbe("");
+                        worldDialog.AddMoonForProbe("Sélène", "30", "1 Aubemer E3.1");
+                        worldDialog.AddMoonForProbe("Nyx", "45", "1 Aubemer E3.1");
+                        await Settle();
+                        Check(plain(worldDialog.MoonsEchoForProbe).Contains("Sélène : pleine lune suivante le 31 Aubemer E3.1") && plain(worldDialog.MoonsEchoForProbe).Contains("Toutes pleines ensemble") && plain(worldDialog.MoonsEchoForProbe).Contains("90 jours plus tard"),
+                            "deux lunes de 30 et 45 jours : la pleine lune suivante, et leur conjonction tous les 90 jours (" + plain(worldDialog.MoonsEchoForProbe).Replace("\n", " / ") + ")");
+                        worldDialog.ShowTabForProbe(2);
+                        await Settle();
+                        Shot(worldDialog, "astrolabe-3-monde-lunes.png");
+                        worldDialog.AddMoonForProbe("Fausse", "30", "le jour d'après");
+                        await Settle();
+                        Check(worldDialog.ProblemForProbe != null && worldDialog.ProblemForProbe.Contains("Fausse"), "une date de pleine lune illisible est signalée (" + worldDialog.ProblemForProbe + ")");
+                        worldDialog.CancelForProbe();
+                        Check(await worldTask == null && project.Worlds.Count == 0, "annulé : aucun monde créé");
+
+                        // Le même monde, validé cette fois.
+                        worldTask = WorldDialog.Edit(shell, project, shell.NewWorldDraftForProbe(), true);
+                        await Settle();
+                        worldDialog = OpenWindow<WorldDialog>();
+                        worldDialog.CheckSystemForProbe(0, true);
+                        worldDialog.SetSizeForProbe("40 075", "23,4");
+                        worldDialog.FourSeasonsForProbe();
+                        worldDialog.AddMoonForProbe("Sélène", "30", "1 Aubemer E3.1");
+                        worldDialog.AddMoonForProbe("Nyx", "45", "1 Aubemer E3.1");
+                        await Settle();
+                        worldDialog.AcceptForProbe();
+                        choice = await worldTask;
+                    }
+                    Check(choice != null && choice.SystemIds.Count == 1 && choice.World.Seasons.Count == 4 && choice.World.Moons.Count == 2, "validé : le monde, ses quatre saisons, ses deux lunes, son calendrier");
+                    if (choice != null)
+                    {
+                        shell.ApplyWorldForProbe(null, choice);
+                        await Settle();
+                        Check(project.Worlds.Count == 1 && view.System.WorldId == choice.World.Id && view.InspectorHasTagForProbe("timeline-world"), "le calendrier de la frise vit dans le monde ; le Général de la frise le dit");
+                        hubNow.Load(project);
+                        Check(hubNow.WorldCardsForProbe == 1, "l'Astrolabe a la tuile du monde");
+                        var calendar = view.CalendarForProbe;
+                        TimePoint first;
+                        view.System.TryParse("1 Aubemer E3.1", out first);
+                        view.SetCalendarMode(true);
+                        view.GoTo(first);
+                        await Settle();
+                        Check(calendar.SubtitleForProbe.EndsWith("· Printemps") && calendar.DayHasSeasonForProbe(1), "le calendrier dit la saison du mois, chaque case porte son liseré (" + calendar.SubtitleForProbe + ")");
+                        Check(calendar.MoonsOfDayForProbe(1).Count == 2 && calendar.MoonsOfDayForProbe(1).TrueForAll(delegate(int phase) { return phase == Astro.Full; }), "1 Aubemer E3.1 : les deux lunes sont pleines");
+                        Check(calendar.MoonsOfDayForProbe(16).Count == 1 && calendar.MoonsOfDayForProbe(16)[0] == Astro.New && calendar.MoonsOfDayForProbe(2).Count == 0, "le 16 : la nouvelle lune de Sélène ; le 2 : rien");
+                        Check(calendar.MoonsOfDayForProbe(31).Contains(Astro.Full), "le 31 : Sélène de nouveau pleine");
+                        Shot(view, "astrolabe-4-calendrier-saisons-lunes.png");
+                        calendar.ShiftMonthForProbe(2);
+                        await Settle();
+                        Check(calendar.SubtitleForProbe.Contains("Printemps → Été"), "un mois à cheval sur deux saisons le dit (" + calendar.SubtitleForProbe + ")");
+                        view.SetCalendarMode(false);
+                        await Settle();
+                        // Le Calculateur dit aussi le ciel du jour.
+                        view.RequestCalculatorForProbe(first);
+                        await Settle();
+                        var sky = shell.CalculatorPanelForProbe;
+                        sky.SetSumForProbe("1 Aubemer E3.1", false, "", "", "", "15");
+                        await Settle();
+                        Check(sky.SumDetailForProbe.Contains("Printemps") && sky.SumDetailForProbe.Contains("Sélène : nouvelle lune"), "le Calculateur dit la saison et les lunes du jour trouvé (" + sky.SumDetailForProbe + ")");
+                        shell.PinCalculatorForProbe(false);
+                        shell.CloseCalculatorForProbe();
+                        await Settle();
+                        // Ctrl+Z rend le projet sans monde.
+                        Check(shell.UndoForProbe() && project.Worlds.Count == 0 && view.System.WorldId == null, "Ctrl+Z : le monde s'en va, le calendrier est délié");
+                        await Settle();
+                        Check(!view.InspectorHasTagForProbe("timeline-world"), "…et le Général de la frise ne le dit plus");
+                    }
                 }
 
                 // — Un onglet d'ère.

@@ -21,6 +21,7 @@ namespace Marabook.Settings
         Pinned,      // l'écrit ou la fiche ÉPINGLÉ SUR LE CÔTÉ, lu en miroir (b47)
         Lexicon,     // la définition d'un mot du dictionnaire personnel (18/09) — épinglable au rail
         Notebook,    // le CARNET (14/11) : des notes en Markdown à l'échelle de l'application — toujours au rail, sous le Lexique
+        Calculator,  // le CALCULATEUR DE DATES (14/11) : un onglet à la demande (Astrolabe, clic droit de la frise), épinglable comme le Lexique
         StyleReport  // le BILAN DE STYLE de l'écrit ouvert (09/10) : un onglet le temps du bilan, fermé avec le rail ou au changement d'écrit
     }
 
@@ -54,19 +55,30 @@ namespace Marabook.Settings
             return result;
         }
 
-        /// <summary>Les variantes d'un tableau de base : [lexique ? 1 : 0] —
-        /// chacune avec le Carnet en queue. Des instances fixes.</summary>
+        /// <summary>Les variantes d'un tableau de base, par index
+        /// (lexique ? 1 : 0) + (calculateur ? 2 : 0) + (bilan ? 4 : 0) : le
+        /// Lexique, le Carnet (toujours), le Calculateur de dates (14/11, à la
+        /// demande), le Bilan de style. Des instances fixes — le rail compare
+        /// par référence.</summary>
         private static RightPanel[][] WithTools(RightPanel[] source)
         {
-            return new[] { Append(source, RightPanel.Notebook), Append(Append(source, RightPanel.Lexicon), RightPanel.Notebook) };
+            var variants = new RightPanel[8][];
+            for (var i = 0; i < 8; i++)
+            {
+                var panels = source;
+                if ((i & 1) != 0) panels = Append(panels, RightPanel.Lexicon);
+                panels = Append(panels, RightPanel.Notebook);
+                if ((i & 2) != 0) panels = Append(panels, RightPanel.Calculator);
+                if ((i & 4) != 0) panels = Append(panels, RightPanel.StyleReport);
+                variants[i] = panels;
+            }
+            return variants;
         }
 
         private static readonly RightPanel[][] TextTools = WithTools(ForText);
         private static readonly RightPanel[][] BookTools = WithTools(ForBook);
         private static readonly RightPanel[][] OthersTools = WithTools(ForOthers);
         private static readonly RightPanel[][] CategoryTools = WithTools(ForCategory);
-        private static readonly RightPanel[][] TextReportTools =
-            { Append(TextTools[0], RightPanel.StyleReport), Append(TextTools[1], RightPanel.StyleReport) };
 
         /// <summary>Le nom persisté dans settings.json (« rightPanel »).</summary>
         public static string Name(RightPanel panel)
@@ -80,6 +92,7 @@ namespace Marabook.Settings
                 case RightPanel.Pinned: return "pinned";
                 case RightPanel.Lexicon: return "lexicon";
                 case RightPanel.Notebook: return "notebook";
+                case RightPanel.Calculator: return "calculator";
                 case RightPanel.StyleReport: return "style-report";
                 default: return "none";
             }
@@ -98,6 +111,7 @@ namespace Marabook.Settings
                 case "pinned": return RightPanel.Pinned;
                 case "lexicon": return RightPanel.Lexicon;
                 case "notebook": return RightPanel.Notebook;
+                case "calculator": return RightPanel.Calculator; // sans épingle au lancement : indisponible, donc absent
                 case "style-report": return RightPanel.StyleReport; // sans bilan au lancement : indisponible, donc grisé
                 default: return RightPanel.Inspector;
             }
@@ -123,19 +137,19 @@ namespace Marabook.Settings
         /// leur Général ne montrait rien), sauf l'Accueil qui garde son
         /// Général (les raccourcis « Commencer ») ; tout le reste (fiches,
         /// plans, dossiers, niveau projet) a Général et Recherche.</summary>
-        public static RightPanel[] Offered(ItemKind? kind, bool homeRoot = false, bool lexicon = false, bool report = false)
+        public static RightPanel[] Offered(ItemKind? kind, bool homeRoot = false, bool lexicon = false, bool report = false, bool calculator = false)
         {
-            var variant = lexicon ? 1 : 0;
-            if (kind == ItemKind.Text && report) return TextReportTools[variant]; // le bilan ne vaut que pour un écrit
+            var variant = (lexicon ? 1 : 0) + (calculator ? 2 : 0);
+            if (kind == ItemKind.Text && report) return TextTools[variant + 4]; // le bilan ne vaut que pour un écrit
             if (kind == ItemKind.Text) return TextTools[variant];
             if (kind == ItemKind.Book) return BookTools[variant];
             if (kind == ItemKind.Category && !homeRoot) return CategoryTools[variant];
             return OthersTools[variant];
         }
 
-        public static bool Offers(ItemKind? kind, RightPanel panel, bool homeRoot = false, bool lexicon = false, bool report = false)
+        public static bool Offers(ItemKind? kind, RightPanel panel, bool homeRoot = false, bool lexicon = false, bool report = false, bool calculator = false)
         {
-            return Array.IndexOf(Offered(kind, homeRoot, lexicon, report), panel) >= 0;
+            return Array.IndexOf(Offered(kind, homeRoot, lexicon, report, calculator), panel) >= 0;
         }
 
         /// <summary>Général DÉCRIT l'élément courant ; les autres sont des
@@ -152,10 +166,12 @@ namespace Marabook.Settings
         /// sans élément courant (« on cherche avant d'avoir cliqué », b37) ;
         /// l'épinglé (b47) ne demande qu'une épingle posée, élément courant
         /// ou non.</summary>
-        public static bool Available(RightPanel panel, bool columnHidden, bool hasProject, ItemKind? kind, bool homeRoot = false, bool hasPin = false, bool hasLexicon = false, bool hasReport = false)
+        public static bool Available(RightPanel panel, bool columnHidden, bool hasProject, ItemKind? kind, bool homeRoot = false, bool hasPin = false, bool hasLexicon = false, bool hasReport = false, bool hasCalculator = false)
         {
             if (columnHidden || !hasProject) return false;
-            if (!Offers(kind, panel, homeRoot, panel == RightPanel.Lexicon, panel == RightPanel.StyleReport)) return false;
+            if (!Offers(kind, panel, homeRoot, panel == RightPanel.Lexicon, panel == RightPanel.StyleReport, panel == RightPanel.Calculator)) return false;
+            // Le Calculateur de dates (14/11) : épinglé au rail ou ouvert à la demande — comme le Lexique.
+            if (panel == RightPanel.Calculator) return hasCalculator;
             if (panel == RightPanel.StyleReport) return hasReport; // le temps d'un bilan (09/10)
             // Le Général d'une racine ne montre rien (b43) : offert pour que
             // l'onglet reste visible, indisponible donc grisé (30/09).

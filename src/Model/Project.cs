@@ -95,6 +95,8 @@ namespace Marabook.Model
         // segments (ères) et notation — une frise se pose sur l'un d'eux. Et
         // l'ÉPOQUE de la bibliothèque des fiches (une frise, une date).
         public List<TimeSystem> TimeSystems = new List<TimeSystem>();
+        // Les mondes de l'Astrolabe (14/11) : taille, saisons, lunes — partagés par les calendriers qui y vivent.
+        public List<World> Worlds = new List<World>();
         public EpochState Epoch = new EpochState();
 
         public TimeSystem FindTimeSystem(string id)

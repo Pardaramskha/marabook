@@ -23,6 +23,53 @@ namespace Marabook.History
         public void Undo() { _item.Timeline = _before.Clone(); }
     }
 
+    /// <summary>Un monde de l'Astrolabe créé, modifié ou retiré (14/11) : la
+    /// liste des mondes et le monde de chaque système temporel, avant et après.</summary>
+    public class WorldsEditAction : IUndoableAction
+    {
+        private readonly Project _project;
+        private readonly List<World> _before, _after;
+        private readonly Dictionary<string, string> _linksBefore, _linksAfter;
+
+        /// <summary>À bâtir AVANT la modification (Capture), puis Commit après.</summary>
+        public WorldsEditAction(Project project, List<World> before, Dictionary<string, string> linksBefore)
+        {
+            _project = project;
+            _before = before;
+            _linksBefore = linksBefore;
+            _after = Snapshot(project);
+            _linksAfter = Links(project);
+        }
+
+        public static List<World> Snapshot(Project project)
+        {
+            var copy = new List<World>();
+            foreach (var world in project.Worlds) copy.Add(world.Clone());
+            return copy;
+        }
+
+        public static Dictionary<string, string> Links(Project project)
+        {
+            var links = new Dictionary<string, string>();
+            foreach (var system in project.TimeSystems) links[system.Id] = system.WorldId;
+            return links;
+        }
+
+        private void Apply(List<World> worlds, Dictionary<string, string> links)
+        {
+            _project.Worlds = new List<World>();
+            foreach (var world in worlds) _project.Worlds.Add(world.Clone());
+            foreach (var system in _project.TimeSystems)
+            {
+                string worldId;
+                if (links.TryGetValue(system.Id, out worldId)) system.WorldId = worldId;
+            }
+        }
+
+        public void Do() { Apply(_after, _linksAfter); }
+        public void Undo() { Apply(_before, _linksBefore); }
+    }
+
     /// <summary>Un système temporel créé ou modifié (« Temporalité par
     /// segments ») avec tout ce qui a suivi : les briques replacées ou mises
     /// en attente, l'époque, les liens de date réécrits.</summary>
