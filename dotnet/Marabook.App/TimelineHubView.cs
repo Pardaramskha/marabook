@@ -49,7 +49,7 @@ namespace Marabook.App
             row.Children.Add(right);
             var title = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             title.Children.Add(Icons.Make("pile-frises", 20, Chrome.Accent));
-            title.Children.Add(new TextBlock { Text = "Frises", Foreground = Chrome.Ink, FontSize = 17, FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+            title.Children.Add(new TextBlock { Text = Project.TimelinesRootTitle, Foreground = Chrome.Ink, FontSize = 17, FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
             row.Children.Add(title);
             head.Child = row;
             Children.Add(head);
@@ -159,6 +159,11 @@ namespace Marabook.App
             edit.Tag = "hub-system-edit";
             edit.Click += delegate { var h = EditSystemRequested; if (h != null) h(system); };
             buttons.Children.Add(edit);
+            // Le calculateur de dates du système (14/11, Rémi).
+            var calculator = Buttons.Text("Calculateur de dates", "Ajouter une durée à une date, compter le temps entre deux dates", Buttons.Compact, Buttons.Look.Outline);
+            calculator.Tag = "hub-system-calculator";
+            calculator.Click += delegate { DateCalculatorDialog.Open(TopLevel.GetTopLevel(this) as Window, system, null); };
+            buttons.Children.Add(calculator);
             if (uses == 0)
             {
                 var remove = Buttons.Text("Retirer", "Retirer ce système du projet (aucune frise ne l'utilise)", Buttons.Compact, Buttons.Look.Calm);

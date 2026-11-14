@@ -1584,7 +1584,9 @@ namespace Marabook.Persistence
                 EnsureCategory(project, "Recherche", Project.KeyResearch);
                 EnsureCategory(project, "Fiches", Project.KeySheets);
                 EnsureCategory(project, "Plans", Project.KeyPlans, Project.KeyDictionary); // b35, après Fiches
-                EnsureCategory(project, "Frises", Project.KeyTimelines, Project.KeyMindMaps); // 1.2.0, après Plans
+                EnsureCategory(project, Project.TimelinesRootTitle, Project.KeyTimelines, Project.KeyMindMaps); // 1.2.0, après Plans
+                // « Frises » est devenue « Astrolabe » le 14/11 (Rémi) : la racine d'un projet d'avant suit.
+                if (project.Category(Project.KeyTimelines).Title == "Frises") project.Category(Project.KeyTimelines).Title = Project.TimelinesRootTitle;
                 EnsureCategory(project, "Cartes mentales", Project.KeyMindMaps, Project.KeyDictionary); // 22/09, après Plans
                 if (project.Category(Project.KeyMindMaps) != null && project.Roots.IndexOf(project.Category(Project.KeyTimelines)) > project.Roots.IndexOf(project.Category(Project.KeyMindMaps)))
                 {

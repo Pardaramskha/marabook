@@ -562,22 +562,27 @@ namespace Marabook.App
         private readonly RadioButton _reset, _cumulative;
         private readonly StackPanel _segments, _months, _leaps, _segmentBlock;
         private readonly TextBlock _example, _dateExample, _tryEcho, _problem, _yearLength;
-        // Les jours de la semaine en pastilles (14/11, Rémi) : un nom puis « , ».
+        // Les jours de la semaine en LISTE (14/11, Rémi) : un nom puis « , » l'ajoute ;
+        // chaque ligne a ses flèches (monter, descendre) et sa croix.
         private readonly List<string> _days = new List<string>();
-        private readonly WrapPanel _dayChips;
+        private readonly StackPanel _dayRows;
+        private readonly TextBox _weeksPerMonth;
+        private readonly TextBlock _distributeEcho, _clockHint;
+        private readonly Button _distribute;
         private bool _accepted;
         private bool _building;
 
         /// <summary>Le brouillon d'un système personnalisé : douze mois de trente
-        /// jours, pas de découpage (14/11, Rémi) — trois âges attendent, prêts,
-        /// que la case soit cochée ; la notation est déjà la leur.</summary>
+        /// jours, pas de découpage, donc l'année seule : « {a} » (14/11, Rémi) —
+        /// trois âges attendent, prêts, que la case soit cochée ; la notation
+        /// passe alors à « A{s}.{a} » (SegmentedPattern). Une date s'écrit comme
+        /// chez nous : jour/mois/année.</summary>
         public static TimeSystem Template(Project project)
         {
             var system = new TimeSystem
             {
                 Name = "Nouveau système", Segmented = false, SegmentWord = "Âge", Cumulative = false,
-                // « -{a} » avant l'origine : sans cela le trait d'union de la notation donnerait « A1--320 ».
-                YearPattern = "A{s}-{a}", NegativePattern = "-{a}", DatePattern = "{j} {M} {année}"
+                YearPattern = "{a}", NegativePattern = "-{a}", DatePattern = "{j}/{M}/{année}"
             };
             var number = 2;
             while (project != null && project.TimeSystems.Exists(delegate(TimeSystem s) { return s.Name == system.Name; }))
@@ -713,6 +718,22 @@ namespace Marabook.App
             _yearLength = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
             monthButtons.Children.Add(_yearLength);
             second.Children.Add(monthButtons);
+            // RÉPARTIR AUTOMATIQUEMENT LES JOURS (14/11, Rémi) : chaque mois reçoit un
+            // nombre entier de semaines — 13 mois de 5 semaines de 6 jours = 30 jours.
+            second.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 10, 0, 8) });
+            second.Children.Add(new TextBlock { Text = "Répartir automatiquement les jours :", Foreground = Chrome.Ink });
+            var distributeRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            distributeRow.Children.Add(new TextBlock { Text = "Semaines par mois :", Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            _weeksPerMonth = new TextBox { Text = "4", Width = 56, Tag = "system-weeks-per-month" };
+            distributeRow.Children.Add(_weeksPerMonth);
+            _distribute = Buttons.Text("Répartir", "Donner à chaque mois ce nombre de semaines entières", Buttons.Compact, Buttons.Look.Outline);
+            _distribute.Margin = new Thickness(8, 0, 0, 0);
+            _distribute.Tag = "system-distribute";
+            _distribute.Click += delegate { Distribute(); };
+            distributeRow.Children.Add(_distribute);
+            second.Children.Add(distributeRow);
+            _distributeEcho = TimelineUi.Hint("");
+            second.Children.Add(_distributeEcho);
             second.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 10, 0, 8) });
             second.Children.Add(new TextBlock { Text = "Années bissextiles :", Foreground = Chrome.Ink });
             _leaps = new StackPanel { Spacing = 4, Margin = new Thickness(0, 6, 0, 0) };
@@ -729,9 +750,9 @@ namespace Marabook.App
             var third = new StackPanel { Margin = new Thickness(4, 10, 4, 4) };
             third.Children.Add(new TextBlock { Text = "Les jours de la semaine, dans l'ordre :", Foreground = Chrome.Ink });
             _days.AddRange(system.WeekDays);
-            _dayChips = new WrapPanel { Margin = new Thickness(0, 8, 0, 0), Tag = "system-week-days" };
-            third.Children.Add(_dayChips);
-            _weekDays = new TextBox { Watermark = "Un nom de jour, puis une virgule", Margin = new Thickness(0, 2, 0, 0), AcceptsReturn = false };
+            _dayRows = new StackPanel { Spacing = 4, Tag = "system-week-days" };
+            third.Children.Add(new ScrollViewer { MaxHeight = 300, Margin = new Thickness(0, 8, 0, 0), VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, Content = _dayRows });
+            _weekDays = new TextBox { Watermark = "Ajouter un jour : son nom, puis une virgule ou Entrée", Margin = new Thickness(0, 6, 0, 0), AcceptsReturn = false };
             _weekDays.KeyDown += delegate(object sender, Avalonia.Input.KeyEventArgs e)
             {
                 if (e.Key == Avalonia.Input.Key.Enter && e.KeyModifiers == Avalonia.Input.KeyModifiers.None && (_weekDays.Text ?? "").Trim().Length > 0)
@@ -741,7 +762,7 @@ namespace Marabook.App
                 }
             };
             third.Children.Add(_weekDays);
-            third.Children.Add(TimelineUi.Hint("Écrivez un nom puis une virgule : le jour devient une pastille. Glissez une pastille pour changer l'ordre, sa croix la retire. Autant de jours que vous voulez ; aucun : pas de semaine."));
+            third.Children.Add(TimelineUi.Hint("Autant de jours que vous voulez : une semaine de cinq, de dix jours… Aucun : pas de semaine."));
             RebuildDays();
             var clock = new Grid { ColumnDefinitions = new ColumnDefinitions("190,8,90"), RowDefinitions = new RowDefinitions("Auto,Auto"), Margin = new Thickness(0, 14, 0, 0) };
             _hours = new TextBox { Text = system.HoursPerDay.ToString(CultureInfo.InvariantCulture) };
@@ -749,7 +770,8 @@ namespace Marabook.App
             AddRow(clock, 0, "Heures par jour :", _hours);
             AddRow(clock, 1, "Minutes par heure :", _minutes);
             third.Children.Add(clock);
-            third.Children.Add(TimelineUi.Hint("Une date précise au jour peut porter une heure : « 12 Mois 3 E2.880 14h30 »."));
+            _clockHint = TimelineUi.Hint("");
+            third.Children.Add(_clockHint);
             tabs.Items.Add(new TabItem { Header = "Semaine et horloge", Content = third });
 
             root.Children.Add(tabs);
@@ -773,13 +795,41 @@ namespace Marabook.App
             EventHandler<TextChangedEventArgs> changed = delegate { Preview(); };
             foreach (var box in new[] { _word, _yearPattern, _negativePattern, _datePattern, _try, _hours, _minutes, _weekDays }) box.TextChanged += changed;
             _weekDays.TextChanged += delegate { TakeDays(); };
-            _segmented.IsCheckedChanged += delegate { Preview(); };
+            _weeksPerMonth.TextChanged += changed;
+            _segmented.IsCheckedChanged += delegate
+            {
+                // La notation de base suit le découpage (14/11, Rémi) : « {a} » sans
+                // segments, « A{s}.{a} » avec — sans toucher une notation déjà à sa place.
+                var pattern = _yearPattern.Text ?? "";
+                var names = pattern.Contains("{s}") || pattern.Contains("{c}") || pattern.Contains("{n}");
+                if (_segmented.IsChecked == true && !names) _yearPattern.Text = SegmentedPattern();
+                else if (_segmented.IsChecked != true && names) _yearPattern.Text = "{a}";
+                Preview();
+            };
             _yearZero.IsCheckedChanged += delegate { Preview(); };
             _segmentYearZero.IsCheckedChanged += delegate { Preview(); };
             _reset.IsCheckedChanged += delegate { Preview(); };
             _cumulative.IsCheckedChanged += delegate { Preview(); };
             Preview();
             Loaded += delegate { Dialogs.FitToScreen(this, owner); _name.Focus(); _name.SelectAll(); };
+        }
+
+        /// <summary>« A{s}.{a} » : l'initiale du mot des segments (sans accent), leur numéro, l'année.</summary>
+        private string SegmentedPattern()
+        {
+            var word = (_word.Text ?? "").Trim();
+            var initial = word.Length == 0 ? "S" : word.Substring(0, 1).Normalize(System.Text.NormalizationForm.FormD).Substring(0, 1).ToUpperInvariant();
+            return initial + "{s}.{a}";
+        }
+
+        private int WeeksPerMonth() { return Math.Max(0, Math.Min(1000, TimelineUi.ParseInt(_weeksPerMonth.Text, 0))); }
+
+        private void Distribute()
+        {
+            Collect();
+            if (!TimeMath.Distribute(_system, WeeksPerMonth())) return;
+            RebuildMonths();
+            Preview();
         }
 
         private const string ResetLabel = "Chaque segment repart de zéro";
@@ -815,91 +865,49 @@ namespace Marabook.App
 
         private void RebuildDays()
         {
-            _dayChips.Children.Clear();
-            for (var i = 0; i < _days.Count; i++) _dayChips.Children.Add(DayChip(i));
-            _dayChips.IsVisible = _days.Count > 0;
+            var was = _building;
+            _building = true;
+            _dayRows.Children.Clear();
+            for (var i = 0; i < _days.Count; i++) _dayRows.Children.Add(DayRow(i));
+            _dayRows.IsVisible = _days.Count > 0;
+            _building = was;
         }
 
-        /// <summary>La pastille d'un jour : son rang, son nom, sa croix. On la
-        /// glisse sur une autre pour prendre sa place.</summary>
-        private Border DayChip(int index)
+        /// <summary>La ligne d'un jour : son rang, son nom (modifiable), les
+        /// flèches qui le montent et le descendent, la croix qui l'efface.</summary>
+        private Grid DayRow(int index)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal };
-            row.Children.Add(new TextBlock { Text = (index + 1) + ".", FontSize = 11, Foreground = Chrome.AccentStrong, Opacity = 0.6, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center });
-            row.Children.Add(new TextBlock { Text = _days[index], FontSize = 12.5, Foreground = Chrome.AccentStrong, VerticalAlignment = VerticalAlignment.Center });
-            var cross = new TextBlock
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("28,*,8,26,2,26,8,26"), Tag = "system-week-day" };
+            row.Children.Add(new TextBlock { Text = (index + 1) + ".", Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center });
+            var name = new TextBox { Text = _days[index] };
+            Grid.SetColumn(name, 1);
+            name.TextChanged += delegate
             {
-                Text = "×", FontSize = 14, Foreground = Chrome.AccentStrong, Margin = new Thickness(7, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center, Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+                if (_building || index >= _days.Count) return;
+                _days[index] = (name.Text ?? "").Trim();
+                Preview();
             };
-            row.Children.Add(cross);
-            var chip = new Border
+            var up = Buttons.Icon("caret-up-bold", "Monter ce jour", Buttons.Compact, Buttons.Look.Calm);
+            up.IsEnabled = index > 0;
+            up.Click += delegate { MoveDay(index, index - 1); };
+            Grid.SetColumn(up, 3);
+            var down = Buttons.Icon("caret-down-bold", "Descendre ce jour", Buttons.Compact, Buttons.Look.Calm);
+            down.IsEnabled = index < _days.Count - 1;
+            down.Click += delegate { MoveDay(index, index + 1); };
+            Grid.SetColumn(down, 5);
+            var remove = Buttons.Icon("x-bold", "Effacer ce jour", Buttons.Compact, Buttons.Look.Calm);
+            remove.Click += delegate
             {
-                Child = row, Background = Chrome.AccentTint, CornerRadius = new CornerRadius(11), Padding = new Thickness(10, 3, 8, 4),
-                Margin = new Thickness(0, 0, 6, 6), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeAll), Tag = "system-week-day"
-            };
-            cross.PointerPressed += delegate(object sender, Avalonia.Input.PointerPressedEventArgs e)
-            {
-                if (!e.GetCurrentPoint(cross).Properties.IsLeftButtonPressed) return;
-                e.Handled = true;
                 if (index < _days.Count) _days.RemoveAt(index);
                 RebuildDays();
                 Preview();
             };
-            var pressed = false;
-            var dragging = false;
-            var origin = new Point();
-            chip.PointerPressed += delegate(object sender, Avalonia.Input.PointerPressedEventArgs e)
-            {
-                if (!e.GetCurrentPoint(chip).Properties.IsLeftButtonPressed) return;
-                pressed = true;
-                dragging = false;
-                origin = e.GetPosition(_dayChips);
-                e.Pointer.Capture(chip);
-                e.Handled = true;
-            };
-            chip.PointerMoved += delegate(object sender, Avalonia.Input.PointerEventArgs e)
-            {
-                if (!pressed) return;
-                var at = e.GetPosition(_dayChips);
-                if (!dragging && Math.Abs(at.X - origin.X) + Math.Abs(at.Y - origin.Y) < 5) return;
-                dragging = true;
-                chip.Opacity = 0.45;
-                // La pastille survolée s'éclaire : c'est là que le jour ira.
-                var target = DayIndexAt(at);
-                for (var i = 0; i < _dayChips.Children.Count; i++)
-                {
-                    var other = _dayChips.Children[i] as Border;
-                    if (other != null && other != chip) other.Background = i == target ? Chrome.Border : Chrome.AccentTint;
-                }
-            };
-            chip.PointerReleased += delegate(object sender, Avalonia.Input.PointerReleasedEventArgs e)
-            {
-                if (!pressed) return;
-                pressed = false;
-                e.Pointer.Capture(null);
-                if (!dragging) return;
-                dragging = false;
-                var target = DayIndexAt(e.GetPosition(_dayChips));
-                if (target < 0 || target == index) { RebuildDays(); return; }
-                MoveDay(index, target);
-            };
-            return chip;
-        }
-
-        /// <summary>La pastille sous ce point de la rangée (la plus proche sur sa ligne), -1 hors de la rangée.</summary>
-        private int DayIndexAt(Point at)
-        {
-            var best = -1;
-            var bestDistance = double.MaxValue;
-            for (var i = 0; i < _dayChips.Children.Count; i++)
-            {
-                var bounds = _dayChips.Children[i].Bounds;
-                if (at.Y < bounds.Top - 3 || at.Y > bounds.Bottom + 3) continue;
-                var distance = at.X < bounds.Left ? bounds.Left - at.X : at.X > bounds.Right ? at.X - bounds.Right : 0;
-                if (distance < bestDistance) { bestDistance = distance; best = i; }
-            }
-            return bestDistance <= 60 ? best : -1;
+            Grid.SetColumn(remove, 7);
+            row.Children.Add(name);
+            row.Children.Add(up);
+            row.Children.Add(down);
+            row.Children.Add(remove);
+            return row;
         }
 
         private static void AddRow(Grid grid, int row, string label, Control field)
@@ -1097,6 +1105,13 @@ namespace Marabook.App
                 leapYears = " · bissextile : " + _system.DaysInYear(sample) + " jours (" + _system.FormatYear(sample) + ")";
             }
             _yearLength.Text = "Une année : " + _system.BaseDays + " jours" + leapYears;
+            var weeks = WeeksPerMonth();
+            var weekLength = _system.WeekDays.Count;
+            _distribute.IsEnabled = weekLength > 0 && weeks > 0;
+            _distributeEcho.Text = weekLength == 0 ? "Donnez d'abord ses jours à la semaine (onglet « Semaine et horloge »)."
+                : weeks == 0 ? "Indiquez un nombre de semaines par mois."
+                : TimeSystem.Count(weeks, "semaine", "semaines") + " de " + TimeSystem.Count(weekLength, "jour", "jours") + " : "
+                    + (weeks * weekLength) + " jours par mois, " + (weeks * weekLength * _system.Months.Count) + " par an sur " + TimeSystem.Count(_system.Months.Count, "mois", "mois") + ".";
             if (problem != null && _system.NotationProblem() != null)
             {
                 _example.Text = ""; _dateExample.Text = ""; _tryEcho.Text = ""; _tryEcho.IsVisible = false;
@@ -1123,8 +1138,9 @@ namespace Marabook.App
             parts.Add(_system.FormatYear(-320));
             _example.Text = "Exemples : " + string.Join("   ·   ", parts.ToArray());
             var sampleMonth = Math.Min(3, _system.Months.Count);
-            _dateExample.Text = _system.Months.Count == 0 ? ""
-                : "→ " + _system.Format(new TimePoint(year0, sampleMonth, Math.Min(12, _system.DaysInMonth(year0, sampleMonth))));
+            var sampleDate = _system.Months.Count == 0 ? "" : _system.Format(new TimePoint(year0, sampleMonth, Math.Min(12, _system.DaysInMonth(year0, sampleMonth))));
+            _dateExample.Text = sampleDate.Length == 0 ? "" : "→ " + sampleDate;
+            _clockHint.Text = "Une date précise au jour peut porter une heure : « " + sampleDate + " 14h30 ».";
             var tried = (_try.Text ?? "").Trim();
             _tryEcho.IsVisible = tried.Length > 0;
             if (tried.Length == 0) { _tryEcho.Text = ""; return; }
@@ -1195,7 +1211,15 @@ namespace Marabook.App
         internal string WordForProbe { get { return _word.Text ?? ""; } }
         internal void TypeDayForProbe(string text) { _weekDays.Text = text; }
         internal string DaysForProbe { get { return string.Join("|", _days.ToArray()); } }
-        internal int DayChipsForProbe { get { return _dayChips.Children.Count; } }
+        internal int DayRowsForProbe { get { return _dayRows.Children.Count; } }
+        internal void ClickDayArrowForProbe(int index, bool up) { ((Button)((Grid)_dayRows.Children[index]).Children[up ? 2 : 3]).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); }
+        internal bool DayArrowEnabledForProbe(int index, bool up) { return ((Button)((Grid)_dayRows.Children[index]).Children[up ? 2 : 3]).IsEnabled; }
+        internal void RemoveDayForProbe(int index) { ((Button)((Grid)_dayRows.Children[index]).Children[4]).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); }
+        internal string DatePatternForProbe { get { return _datePattern.Text ?? ""; } }
+        internal void DistributeForProbe(string weeks) { _weeksPerMonth.Text = weeks; Distribute(); }
+        internal bool DistributeEnabledForProbe { get { return _distribute.IsEnabled; } }
+        internal string DistributeEchoForProbe { get { return _distributeEcho.Text ?? ""; } }
+        internal string MonthDaysForProbe { get { var days = new List<string>(); foreach (var month in _system.Months) days.Add(month.Days.ToString(CultureInfo.InvariantCulture)); return string.Join(",", days.ToArray()); } }
         internal void MoveDayForProbe(int from, int to) { MoveDay(from, to); }
         internal string PendingDayForProbe { get { return _weekDays.Text ?? ""; } }
         internal bool TryBoxFramedForProbe

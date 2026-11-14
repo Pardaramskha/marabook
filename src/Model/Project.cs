@@ -23,6 +23,9 @@ namespace Marabook.Model
         public const string KeyPlans = "plans";           // batch 35 : les plans
         public const string KeyMindMaps = "mindmaps";     // 22/09 : les cartes mentales (module Mental-o)
         public const string KeyTimelines = "timelines";   // 1.2.0 : les frises chronologiques
+        // « Astrolabe » (14/11, Rémi) : la racine des frises portera tout ce qui touche
+        // à l'écoulement du temps — les frises, les calendriers, bientôt les astres.
+        public const string TimelinesRootTitle = "Astrolabe";
         public const string KeyTrash = "trash";
 
         public string Name = "Sans titre";
@@ -515,7 +518,7 @@ namespace Marabook.Model
             project.Roots.Add(MakeCategory("Recherche", KeyResearch));
             project.Roots.Add(MakeCategory("Fiches", KeySheets));
             project.Roots.Add(MakeCategory("Plans", KeyPlans));
-            project.Roots.Add(MakeCategory("Frises", KeyTimelines)); // 1.2.0
+            project.Roots.Add(MakeCategory(TimelinesRootTitle, KeyTimelines)); // 1.2.0
             project.Roots.Add(MakeCategory("Cartes mentales", KeyMindMaps)); // 22/09
             project.Roots.Add(MakeCategory("Dictionnaire", KeyDictionary));
             project.Roots.Add(MakeCategory("Corbeille", KeyTrash));

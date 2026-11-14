@@ -175,7 +175,7 @@ namespace Marabook.App
                 // — La coquille sur le projet d'exemple.
                 Check(shell.Project != null, "le projet d'exemple est ouvert");
                 var roots = shell.Project.Roots;
-                Check(roots != null && roots.Count == 9, "la Pile montre les neuf racines (Frises depuis la 1.2.0) (" + (roots == null ? "-" : roots.Count.ToString()) + ")");
+                Check(roots != null && roots.Count == 9, "la Pile montre les neuf racines (Astrolabe depuis la 1.2.0) (" + (roots == null ? "-" : roots.Count.ToString()) + ")");
                 var writings = shell.Project.Category(Project.KeyWritings);
                 var book = writings.Children.Count > 1 ? writings.Children[1] : null;
                 Check(book != null && book.Kind == ItemKind.Book && book.Children.Count == 3, "le livre d'exemple a trois chapitres");

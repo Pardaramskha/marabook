@@ -13,7 +13,7 @@ namespace Marabook.App
     public partial class MainWindow
     {
         private TimelineView _timelineView;       // une frise
-        private TimelineHubView _timelineHub;     // la racine « Frises »
+        private TimelineHubView _timelineHub;     // la racine « Astrolabe »
         private ContentControl _timelineSection;  // le panneau de la frise dans le Général
 
         private void BuildTimelineViews(Panel center)
@@ -149,7 +149,7 @@ namespace Marabook.App
             if (_project == null || (_editor.IsVisible == false && _sheetView.IsVisible == false)) return;
             if (Timelines.All(_project).Count == 0)
             {
-                await MessageDialog.Show(this, "Un lien de date vise une frise : créez-en d'abord une (racine « Frises » de la Pile).",
+                await MessageDialog.Show(this, "Un lien de date vise une frise : créez-en d'abord une (racine « Astrolabe » de la Pile).",
                     "Lien vers la temporalité", MessageButtons.OK, MessageIcon.Information);
                 return;
             }
@@ -215,7 +215,7 @@ namespace Marabook.App
             {
                 if (Timelines.All(_project).Count == 0)
                 {
-                    await MessageDialog.Show(this, "L'époque se lit sur une frise : créez-en d'abord une (racine « Frises » de la Pile).",
+                    await MessageDialog.Show(this, "L'époque se lit sur une frise : créez-en d'abord une (racine « Astrolabe » de la Pile).",
                         "Époque", MessageButtons.OK, MessageIcon.Information);
                     _sheetLibrary.RefreshEpoch();
                     return;

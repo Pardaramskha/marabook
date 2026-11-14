@@ -26,7 +26,7 @@ namespace Marabook.App
                 var timeline = Timelines.FindByTitle(project, TimelineSamples.TimelineTitle);
                 Check(root != null && timeline != null && Timelines.All(project).Count == 2, "le projet d'exemple a sa racine « Frises » et ses deux frises");
                 if (root == null || timeline == null) return;
-                Check(shell.Binder.TopRowsForProbe().Contains("Frises"), "la Pile montre « Frises » (section Structure)");
+                Check(shell.Binder.TopRowsForProbe().Contains("Astrolabe") && !shell.Binder.TopRowsForProbe().Contains("Frises"), "la Pile montre « Astrolabe » (ex-« Frises », section Structure)");
                 Check(Icons.Has("pile-frises") && Icons.Has("frise") && Icons.Has("death-skull")
                     && ItemIcons.DefaultSvg(root) == "pile-frises" && ItemIcons.DefaultSvg(timeline) == "frise", "les icônes : l'astrolabe pour la racine, le diagramme pour une frise, le crâne");
 
@@ -35,6 +35,8 @@ namespace Marabook.App
                 await Settle();
                 var hub = shell.TimelineHubForProbe;
                 Check(hub.IsVisible && hub.TimelineRowsForProbe == 2 && hub.SystemCardsForProbe == 2, "la racine ouvre la page des frises : deux frises, deux systèmes temporels (" + hub.TimelineRowsForProbe + ", " + hub.SystemCardsForProbe + ")");
+                Check(hub.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock b) { return b.Text == "Astrolabe" && b.FontSize >= 16; }), "la page s'appelle « Astrolabe »");
+                Check(hub.GetVisualDescendants().OfType<Button>().Count(delegate(Button b) { return Equals(b.Tag, "hub-system-calculator"); }) == 2, "chaque tuile de système a son bouton « Calculateur de dates »");
                 Shot(hub, "frises-1-page.png");
 
                 // — Une frise ouverte.
@@ -56,6 +58,102 @@ namespace Marabook.App
                 Check(general.Any(delegate(string s) { return s.Contains("Ère des Phares") && s.Replace(' ', ' ').Replace(' ', ' ').Contains("1 200 ans"); }), "…et la durée de chaque ère");
                 Check(shell.InspectorKindForProbe.StartsWith("Frise"), "…sous le genre « Frise — son système » (" + shell.InspectorKindForProbe + ")");
                 Shot(view, "frises-2-tout.png");
+
+                // — Lot 4 (14/11) : le repère du survol.
+                {
+                    var byTitle = new Func<string, string>(delegate(string title) { var found = view.Item.Timeline.Events.Find(delegate(TimelineEvent e) { return e.Title == title; }); return found == null ? "?" : found.Id; });
+                    Check(view.PointedLabelForProbe == null && view.PointedEventsForProbe().Count == 0, "sans curseur sur la frise : ni repère ni brique éclairée");
+                    view.PointAtForProbe(800 + 904.5);
+                    await Settle();
+                    Check(view.PointedLabelForProbe == "E2.905", "le curseur sur la frise dit l'année pointée (" + view.PointedLabelForProbe + ")");
+                    Check(view.PointedEventsForProbe().Count == 1 && view.PointedEventsForProbe()[0] == byTitle("Le livre des marées"), "…et l'événement de cette année s'éclaire");
+                    Shot(view, "frises-23-survol.png");
+                    view.PointAtForProbe(800 + 440.2);
+                    await Settle();
+                    Check(view.PointedLabelForProbe == "E2.441" && view.PointedEventsForProbe().Contains(byTitle("Les Quarante Hivers")), "une année au milieu d'une période éclaire la période (" + view.PointedLabelForProbe + ")");
+                    view.PointAtForProbe(800 + 300.5);
+                    await Settle();
+                    Check(view.PointedLabelForProbe == "E2.301" && view.PointedEventsForProbe().Count == 0, "une année sans rien : le repère seul");
+                    Check(!view.SurfaceHasTipForProbe, "…une étiquette dessinée, pas une infobulle à flèche");
+                    view.PointAtForProbe(null);
+                    await Settle();
+                }
+
+                // — Lot 4 : le calculateur de dates.
+                {
+                    TimePoint clicked;
+                    view.System.TryParse("14 Noroît E3.30", out clicked);
+                    var menu = view.MenuForProbe(clicked);
+                    Check(menu.Items.OfType<MenuItem>().Any(delegate(MenuItem m) { return Equals(m.Tag, "timeline-menu-calculator"); }), "clic droit sur un point de la frise : « Calculateur de dates… »");
+                    var calculator = DateCalculatorDialog.Open(shell, view.System, clicked);
+                    await Settle();
+                    Check(calculator != null && calculator.IsVisible && (calculator.Title ?? "").StartsWith("Calculateur de dates") && calculator.FromForProbe == "14 Noroît E3.30", "il s'ouvre à la date pointée (" + (calculator == null ? "-" : calculator.FromForProbe) + ")");
+                    if (calculator != null)
+                    {
+                        calculator.SetSumForProbe("1 Aubemer E3.1", false, "", "", "", "36");
+                        await Settle();
+                        Check(calculator.SumForProbe == "1 Vent-Neuf E3.1", "1 Aubemer + 36 jours = 1 Vent-Neuf (" + calculator.SumForProbe + ")");
+                        calculator.SetSumForProbe("1 Aubemer E3.1", false, "2", "1", "1", "3");
+                        await Settle();
+                        Check(calculator.SumForProbe == "10 Vent-Neuf E3.3", "+ 2 ans, 1 mois, 1 semaine (6 jours) et 3 jours = 10 Vent-Neuf E3.3 (" + calculator.SumForProbe + ")");
+                        Check(calculator.SumDetailForProbe.Contains("Ère des Grandes Marées") && calculator.SumDetailForProbe.Contains("jour 46 de l'année"), "…avec le jour de la semaine, l'ère et le rang du jour (" + calculator.SumDetailForProbe + ")");
+                        calculator.SetSumForProbe("1 Aubemer E3.1", true, "", "", "", "1");
+                        await Settle();
+                        Check(calculator.SumForProbe == "36 Longue-Nuit E2.1200", "retirer un jour au premier jour d'une ère : la veille, dans l'ère d'avant (" + calculator.SumForProbe + ")");
+                        calculator.SetBetweenForProbe("3 Brisants E3.30", "20 Noroît E3.30");
+                        await Settle();
+                        Check(calculator.BetweenForProbe == "4 mois et 17 jours" && calculator.BetweenDetailForProbe.Contains("161 jours") && calculator.BetweenDetailForProbe.Contains("26 semaines et 5 jours"),
+                            "du 3 Brisants au 20 Noroît : 4 mois et 17 jours, 161 jours (" + calculator.BetweenForProbe + " — " + calculator.BetweenDetailForProbe + ")");
+                        calculator.SetSumForProbe("n'importe quoi", false, "", "", "", "1");
+                        await Settle();
+                        Check(calculator.SumForProbe == "—", "une date illisible : pas de résultat");
+                        calculator.SetSumForProbe("1 Aubemer E3.1", false, "2", "1", "1", "3");
+                        await Settle();
+                        Shot((Control)calculator.Content, "frises-24-calculateur.png");
+                        calculator.Close();
+                        await Settle();
+                    }
+                }
+
+                // — Lot 4 : la vue Calendrier et ses orphelins.
+                {
+                    var calendar = view.CalendarForProbe;
+                    Func<string, TimePoint> date = delegate(string notation) { TimePoint point; view.System.TryParse(notation, out point); return point; };
+                    view.SetCalendarMode(true);
+                    await Settle();
+                    Check(view.CalendarMode && calendar.IsVisible && !view.SurfaceShownForProbe, "« Calendrier » remplace la frise et sa minimap");
+                    Check(calendar.TitleForProbe == "Aubemer · E2.1" && calendar.EventsOfDayForProbe(1).Contains("Serment des Gardiens"), "il s'ouvre au premier événement daté au jour (" + calendar.TitleForProbe + ")");
+                    Check(calendar.ColumnsForProbe == 6 && calendar.DayCellsForProbe == 36, "une colonne par jour de la semaine (6), une case par jour du mois (36)");
+                    Check(calendar.OrphansForProbe("calendar-orphans-month").Count == 0 && calendar.OrphansForProbe("calendar-orphans-elsewhere").Contains("Guerre des Brumes")
+                        && calendar.OrphansForProbe("calendar-orphans-elsewhere").Contains("Le livre des marées"), "les événements datés à l'année sont des orphelins, rangés « ailleurs dans la frise »");
+                    calendar.JumpForProbe(1);
+                    await Settle();
+                    Check(calendar.TitleForProbe == "Aubemer · E2.430" && calendar.OrphansForProbe("calendar-orphans-year").Contains("Les Quarante Hivers"), "« Événement suivant » mène à l'année du prochain ; l'orphelin y est « cette année » (" + calendar.TitleForProbe + ")");
+                    view.GoTo(date("14 Noroît E3.30"));
+                    await Settle();
+                    Check(calendar.TitleForProbe == "Noroît · E3.30", "« Aller à » déplace le calendrier (" + calendar.TitleForProbe + ")");
+                    Check(calendar.EventsOfDayForProbe(14).Contains("La grande marée") && calendar.EventsOfDayForProbe(14).Contains("Le marabout et la mer"), "le 14 Noroît : l'événement du jour et la période qui le couvre");
+                    Check(calendar.EventsOfDayForProbe(20).Contains("Le marabout et la mer") && calendar.EventsOfDayForProbe(21).Count == 0, "la période s'arrête à son dernier jour (le 20)");
+                    Check(calendar.ColumnOfDayForProbe(14) == view.System.WeekDays.IndexOf(view.System.WeekDayOf(date("14 Noroît E3.30"))), "chaque jour tombe dans la colonne de son jour de semaine");
+                    Check(calendar.OrphansForProbe("calendar-orphans-year").Count == 0 && calendar.OrphansForProbe("calendar-orphans-month").Count == 0, "rien d'orphelin en E3.30");
+                    Shot(view, "frises-25-calendrier.png");
+                    calendar.ShiftMonthForProbe(1);
+                    await Settle();
+                    Check(calendar.TitleForProbe == "Longue-Nuit · E3.30" && calendar.DayCellsForProbe == 41, "le mois suivant : Longue-Nuit, 41 jours cette année bissextile (" + calendar.DayCellsForProbe + ")");
+                    calendar.ShiftMonthForProbe(1);
+                    await Settle();
+                    Check(calendar.TitleForProbe == "Aubemer · E3.31", "…puis l'année suivante (" + calendar.TitleForProbe + ")");
+                    view.GoTo(date("12 Sel E3.8"));
+                    await Settle();
+                    Check(calendar.EventsOfDayForProbe(12).Any(delegate(string title) { return title.Contains("Keira"); }), "une naissance née d'une fiche a sa case (12 Sel E3.8)");
+                    view.GoTo(date("E2.1141"));
+                    await Settle();
+                    Check(calendar.OrphansForProbe("calendar-orphans-year").Any(delegate(string title) { return title.Contains("marabout"); }), "…et une naissance datée à l'année est orpheline");
+                    Shot(view, "frises-26-calendrier-orphelins.png");
+                    view.SetCalendarMode(false);
+                    await Settle();
+                    Check(!view.CalendarMode && view.SurfaceShownForProbe && !calendar.IsVisible, "« Frise » ramène la frise");
+                }
 
                 // — Un onglet d'ère.
                 view.SelectTabForProbe(2);
@@ -192,20 +290,37 @@ namespace Marabook.App
                     systemDialog.SetSegmentYearZeroForProbe(false);
                     systemDialog.TryForProbe("12 Sel E3.8");
                     await Settle();
-                    Check(systemDialog.DayChipsForProbe == 6 && systemDialog.PendingDayForProbe == "", "les six jours de la semaine sont des pastilles, la zone de saisie est vide");
+                    Check(systemDialog.DayRowsForProbe == 6 && systemDialog.PendingDayForProbe == "", "les six jours de la semaine sont une liste, la zone d'ajout est vide");
+                    Check(!systemDialog.DayArrowEnabledForProbe(0, true) && systemDialog.DayArrowEnabledForProbe(0, false) && !systemDialog.DayArrowEnabledForProbe(5, false),
+                        "le premier jour ne monte pas, le dernier ne descend pas");
                     systemDialog.TypeDayForProbe("septième");
                     await Settle();
-                    Check(systemDialog.DayChipsForProbe == 6 && systemDialog.PendingDayForProbe == "septième", "un nom sans virgule reste dans la zone");
+                    Check(systemDialog.DayRowsForProbe == 6 && systemDialog.PendingDayForProbe == "septième", "un nom sans virgule reste dans la zone");
                     systemDialog.TypeDayForProbe("septième, huitième,");
                     await Settle();
-                    Check(systemDialog.DayChipsForProbe == 8 && systemDialog.PendingDayForProbe == "" && systemDialog.DaysForProbe.EndsWith("|septième|huitième"),
-                        "la virgule fait la pastille (deux d'un coup) et vide la zone (" + systemDialog.DaysForProbe + ")");
-                    systemDialog.MoveDayForProbe(7, 0);
+                    Check(systemDialog.DayRowsForProbe == 8 && systemDialog.PendingDayForProbe == "" && systemDialog.DaysForProbe.EndsWith("|septième|huitième"),
+                        "la virgule ajoute à la liste (deux d'un coup) et vide la zone (" + systemDialog.DaysForProbe + ")");
+                    systemDialog.ClickDayArrowForProbe(7, true);
                     await Settle();
-                    Check(systemDialog.DaysForProbe.StartsWith("huitième|") && systemDialog.DaysForProbe.EndsWith("|septième") && systemDialog.DayChipsForProbe == 8, "une pastille déplacée change l'ordre des jours (" + systemDialog.DaysForProbe + ")");
+                    Check(systemDialog.DaysForProbe.EndsWith("|huitième|septième"), "la flèche haut monte le jour d'un rang (" + systemDialog.DaysForProbe + ")");
+                    systemDialog.ClickDayArrowForProbe(0, false);
+                    await Settle();
+                    Check(systemDialog.DaysForProbe.StartsWith("flot|lunemer|"), "la flèche bas le descend (" + systemDialog.DaysForProbe + ")");
+                    systemDialog.RemoveDayForProbe(7);
+                    await Settle();
+                    Check(systemDialog.DayRowsForProbe == 7 && systemDialog.DaysForProbe.EndsWith("|huitième"), "la croix efface le jour (" + systemDialog.DaysForProbe + ")");
+                    // Répartir automatiquement : 5 semaines de 7 jours = 35 jours par mois.
+                    Check(systemDialog.DistributeEnabledForProbe, "avec une semaine, « Répartir » est offert");
+                    systemDialog.DistributeForProbe("5");
+                    await Settle();
+                    Check(systemDialog.MonthDaysForProbe == "35,35,35,35,35,35,35,35,35,35" && systemDialog.DistributeEchoForProbe.Contains("35 jours par mois") && systemDialog.DistributeEchoForProbe.Contains("350 par an"),
+                        "« Répartir automatiquement les jours » : 5 semaines de 7 jours, 35 jours par mois (" + systemDialog.MonthDaysForProbe + " — " + systemDialog.DistributeEchoForProbe + ")");
+                    systemDialog.ShowTabForProbe(1);
+                    await Settle();
+                    Shot(systemDialog, "frises-22-repartir-les-jours.png");
                     systemDialog.ShowTabForProbe(2);
                     await Settle();
-                    Shot(systemDialog, "frises-19-semaine-pastilles.png");
+                    Shot(systemDialog, "frises-19-semaine-liste.png");
                     systemDialog.ShowTabForProbe(0);
                     await Settle();
                     Shot(systemDialog, "frises-6-temporalite-par-segments.png");
@@ -228,18 +343,26 @@ namespace Marabook.App
                 Check(draftDialog != null, "la fenêtre d'un nouveau système s'ouvre");
                 if (draftDialog != null)
                 {
-                    Check(!draftDialog.SegmentedForProbe && draftDialog.WordForProbe == "Âge" && draftDialog.YearPatternForProbe == "A{s}-{a}",
-                        "un système neuf : pas de découpage, segment « Âge », notation A{s}-{a} (" + draftDialog.WordForProbe + ", " + draftDialog.YearPatternForProbe + ")");
+                    Check(!draftDialog.SegmentedForProbe && draftDialog.WordForProbe == "Âge" && draftDialog.YearPatternForProbe == "{a}" && draftDialog.DatePatternForProbe == "{j}/{M}/{année}",
+                        "un système neuf : pas de découpage, année « {a} », date « {j}/{M}/{année} » (" + draftDialog.YearPatternForProbe + ", " + draftDialog.DatePatternForProbe + ")");
                     Check(!draftDialog.SegmentYearZeroEnabledForProbe, "…sans découpage, la case « an 0 de chaque segment » est grisée");
-                    Check(draftDialog.ExampleForProbe.Contains("A1-880") && !draftDialog.ExampleForProbe.Contains("--") && !draftDialog.ProblemShownForProbe, "…l'exemple se lit sans erreur (" + draftDialog.ExampleForProbe + ")");
+                    Check(draftDialog.ExampleForProbe.Contains("880") && !draftDialog.ExampleForProbe.Contains("A1") && draftDialog.DateExampleForProbe == "→ 12/Mois 3/880" && !draftDialog.ProblemShownForProbe,
+                        "…l'exemple se lit sans erreur (" + draftDialog.ExampleForProbe + " ; " + draftDialog.DateExampleForProbe + ")");
                     Shot(draftDialog, "frises-20-nouveau-systeme.png");
                     draftDialog.SegmentedForProbe = true;
                     await Settle();
-                    Check(draftDialog.ExampleForProbe.Contains("A1-1000 puis A2-1") && draftDialog.SegmentYearZeroEnabledForProbe, "…découpage coché : A1-1000 puis A2-1, la case devient active (" + draftDialog.ExampleForProbe + ")");
+                    Check(draftDialog.YearPatternForProbe == "A{s}.{a}" && draftDialog.ExampleForProbe.Contains("A1.1000 puis A2.1") && draftDialog.SegmentYearZeroEnabledForProbe && !draftDialog.ProblemShownForProbe,
+                        "…découpage coché : la notation passe à A{s}.{a}, A1.1000 puis A2.1 (" + draftDialog.YearPatternForProbe + " — " + draftDialog.ExampleForProbe + ")");
                     draftDialog.SetSegmentYearZeroForProbe(true);
                     await Settle();
-                    Check(draftDialog.ExampleForProbe.Contains("A1-1000 puis A2-0"), "…le cas de Rémi : A1-1 … A1-1000 puis A2-0 (" + draftDialog.ExampleForProbe + ")");
+                    Check(draftDialog.ExampleForProbe.Contains("A1.1000 puis A2.0") && draftDialog.DateExampleForProbe == "→ 12/Mois 3/A2.879", "…an 0 par segment : A1.1000 puis A2.0 (" + draftDialog.ExampleForProbe + " ; " + draftDialog.DateExampleForProbe + ")");
+                    draftDialog.TryForProbe("3/Mois 2/A1.5");
+                    await Settle();
+                    Check(draftDialog.TryEchoForProbe.Contains("3/Mois 2/A1.5"), "…une date jour/mois/année se relit (" + draftDialog.TryEchoForProbe + ")");
                     Shot(draftDialog, "frises-21-nouveau-systeme-ages.png");
+                    draftDialog.SegmentedForProbe = false;
+                    await Settle();
+                    Check(draftDialog.YearPatternForProbe == "{a}", "…découpage décoché : la notation revient à {a}");
                     draftDialog.CancelForProbe();
                 }
                 Check(await draftTask == null && project.TimeSystems.Count == 2, "annulé : le projet garde ses deux systèmes");

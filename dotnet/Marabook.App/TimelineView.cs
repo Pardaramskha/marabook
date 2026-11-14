@@ -65,6 +65,15 @@ namespace Marabook.App
         private double _rangeMin, _rangeMax = 10;
         private bool _fitPending = true;
         private TimePoint _flash;                    // la date d'un « aller à » (un trait qui s'éteint)
+
+        // LA VUE CALENDRIER (14/11, Rémi) : la même frise, un mois à la fois, en cases
+        // (TimelineCalendar). Les boutons de zoom, les onglets d'ère et la minimap
+        // n'y ont pas de sens : ils se cachent.
+        private readonly TimelineCalendar _calendar;
+        private readonly ToggleButton _modeTimeline, _modeCalendar;
+        private readonly List<Control> _timelineOnly = new List<Control>();
+        private bool _calendarMode;
+        private bool _calendarPlaced;                // le calendrier a déjà son mois pour cette frise
         private DispatcherTimer _flashTimer;
 
         public event Action Edited;
@@ -112,6 +121,9 @@ namespace Marabook.App
             right.Children.Add(zoomOut);
             right.Children.Add(zoomIn);
             right.Children.Add(fit);
+            _timelineOnly.Add(zoomOut);
+            _timelineOnly.Add(zoomIn);
+            _timelineOnly.Add(fit);
             var add = Buttons.IconText("plus-bold", "Nouvel événement", "Poser un événement sur la frise (ou double-clic sur la frise, à la date voulue)", Buttons.Compact, Buttons.Look.Primary);
             add.Tag = "timeline-add";
             add.Click += delegate { NewEvent(null); };
@@ -125,7 +137,7 @@ namespace Marabook.App
                 Content = Icons.Make("arrow-left-bold", 12, Chrome.Ink),
                 Padding = new Thickness(8, 3, 8, 3),
                 Margin = new Thickness(0, 0, 12, 0),
-                [ToolTip.TipProperty] = "Revenir aux frises",
+                [ToolTip.TipProperty] = "Revenir à l'Astrolabe",
                 VerticalAlignment = VerticalAlignment.Center
             };
             back.Click += delegate { var h = BackRequested; if (h != null) h(); };
@@ -146,6 +158,14 @@ namespace Marabook.App
             _systemButton.Tag = "timeline-system";
             _systemButton.Click += delegate { var h = SystemEditRequested; if (h != null && _item != null) h(_system); };
             left.Children.Add(_systemButton);
+            _modeTimeline = Buttons.TextToggle("Frise", null, Buttons.Compact, Buttons.Look.Outline);
+            _modeTimeline.Tag = "timeline-mode-timeline";
+            _modeTimeline.Click += delegate { SetCalendarMode(false); };
+            _modeCalendar = Buttons.TextToggle("Calendrier", null, Buttons.Compact, Buttons.Look.Outline);
+            _modeCalendar.Margin = new Thickness(4, 0, 0, 0);
+            _modeCalendar.Tag = "timeline-mode-calendar";
+            _modeCalendar.Click += delegate { SetCalendarMode(true); };
+            _modeTimeline.IsChecked = true;
             row.Children.Add(left);
             head.Child = row;
             Children.Add(head);
@@ -167,7 +187,16 @@ namespace Marabook.App
 
             // ================================================== filtres (les types)
             _filters = new WrapPanel { Orientation = Orientation.Horizontal };
-            var filterBar = new Border { Padding = new Thickness(16, 6, 16, 2), Child = _filters };
+            // Frise | Calendrier : au bout de la ligne des types, visible dans les deux vues
+            // (dans l'en-tête, les boutons se chevauchaient dès que la page était étroite).
+            var modes = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(12, 0, 0, 0) };
+            modes.Children.Add(_modeTimeline);
+            modes.Children.Add(_modeCalendar);
+            DockPanel.SetDock(modes, Dock.Right);
+            var filterRow = new DockPanel();
+            filterRow.Children.Add(modes);
+            filterRow.Children.Add(_filters);
+            var filterBar = new Border { Padding = new Thickness(16, 6, 16, 2), Child = filterRow };
             SetDock(filterBar, Dock.Top);
             Children.Add(filterBar);
 
@@ -175,6 +204,7 @@ namespace Marabook.App
             _minimap = new Minimap(this) { Height = 46, Margin = new Thickness(16, 0, 16, 12) };
             SetDock(_minimap, Dock.Bottom);
             Children.Add(_minimap);
+            _timelineOnly.Add(_minimap);
 
             // ================================================== la frise
             _surface = new Surface(this) { Margin = new Thickness(16, 8, 16, 8) };
@@ -185,9 +215,23 @@ namespace Marabook.App
                 HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible = false, Margin = new Thickness(0, 60, 0, 0)
             };
+            _calendar = new TimelineCalendar { IsVisible = false };
+            _calendar.Events = delegate
+            {
+                var shown = new List<TimelineEvent>();
+                foreach (var entry in _events) if (ShownByType(entry)) shown.Add(entry);
+                return shown;
+            };
+            _calendar.ColorOf = delegate(TimelineEvent entry) { return _item == null ? Chrome.Accent.Color : ColorOf(_item.Timeline.FindType(entry.TypeId)); };
+            _calendar.Selected = delegate { return _selected; };
+            _calendar.Select = delegate(TimelineEvent entry) { _selected = entry; RefreshInspector(); _calendar.Refresh(); };
+            _calendar.Edit = delegate(TimelineEvent entry) { if (!entry.Derived) EditEvent(entry); else OpenAssigned(entry); };
+            _calendar.Create = delegate(TimePoint at) { NewEvent(at); };
+            _calendar.Menu = MenuFor;
             var center = new Grid();
             center.Children.Add(_surface);
             center.Children.Add(_empty);
+            center.Children.Add(_calendar);
             Children.Add(center);
             Ui.OnSizeChanged(_surface, delegate
             {
@@ -220,6 +264,7 @@ namespace Marabook.App
                 _selected = null;
                 _scrollY = 0;
                 _fitPending = true;
+                _calendarPlaced = false;
             }
             Refresh();
             if (_fitPending && _surface.Bounds.Width > 0) FitAll();
@@ -265,6 +310,63 @@ namespace Marabook.App
             ClampView();
             Redraw();
             RefreshInspector();
+            _calendar.SetSystem(_system);
+            if (_calendarMode)
+            {
+                if (!_calendarPlaced) PlaceCalendar();
+                else _calendar.Refresh();
+            }
+            ApplyMode();
+        }
+
+        // ================================================== frise ou calendrier
+
+        public bool CalendarMode { get { return _calendarMode; } }
+
+        public void SetCalendarMode(bool on)
+        {
+            _calendarMode = on;
+            if (on && _item != null)
+            {
+                _calendar.SetSystem(_system);
+                if (!_calendarPlaced) PlaceCalendar();
+                else _calendar.Refresh();
+            }
+            ApplyMode();
+            Redraw();
+        }
+
+        /// <summary>Le premier mois montré : celui de la brique choisie, sinon
+        /// du premier événement daté au jour, sinon le milieu de ce que la frise regarde.</summary>
+        private void PlaceCalendar()
+        {
+            _calendarPlaced = true;
+            TimePoint at = _selected != null ? _selected.Start : null;
+            if (at == null)
+            {
+                TimelineEvent first = null;
+                foreach (var entry in _events)
+                    if (TimeMath.IsDayPrecise(entry) && (first == null || _system.Compare(entry.Start, first.Start) < 0)) first = entry;
+                if (first != null) at = first.Start;
+            }
+            if (at == null && _events.Count > 0) at = _system.FromAxis(_surface.Bounds.Width > 0 ? _viewStart + _surface.Bounds.Width / 2 / _scale : _rangeMin, 1);
+            _calendar.Show(at ?? new TimePoint(0, 1, 1));
+        }
+
+        private void ApplyMode()
+        {
+            _modeTimeline.IsChecked = !_calendarMode;
+            _modeCalendar.IsChecked = _calendarMode;
+            _calendar.IsVisible = _calendarMode;
+            _surface.IsVisible = !_calendarMode;
+            foreach (var control in _timelineOnly) control.IsVisible = !_calendarMode;
+            _tabsBar.IsVisible = !_calendarMode && _system.HasSegments;
+        }
+
+        /// <summary>Le filtre des types seul (le calendrier ignore l'onglet d'ère : il a sa propre navigation).</summary>
+        private bool ShownByType(TimelineEvent entry)
+        {
+            return entry.TypeId == null || !_hidden.Contains(entry.TypeId);
         }
 
         public void OnThemeChanged() { Redraw(); if (_item != null) { RebuildFilters(); RefreshInspector(); } }
@@ -282,7 +384,7 @@ namespace Marabook.App
 
         private void Redraw()
         {
-            _empty.IsVisible = _item != null && _events.Count == 0;
+            _empty.IsVisible = _item != null && _events.Count == 0 && !_calendarMode;
             _surface.Relayout();
             _surface.InvalidateVisual();
             _minimap.InvalidateVisual();
@@ -504,6 +606,7 @@ namespace Marabook.App
         public void GoTo(TimePoint point)
         {
             if (_item == null || point == null) return;
+            if (_calendarMode) { _calendarPlaced = true; _calendar.Show(point); return; }
             var axis = _system.AxisMid(point);
             if (SegmentOnly)
             {
@@ -645,6 +748,7 @@ namespace Marabook.App
                     open.Click += delegate { OpenAssigned(entry); };
                     menu.Items.Add(open);
                 }
+                AddCalculator(menu, entry.Start);
                 if (entry.Derived) return menu;
                 var copy = new MenuItem { Header = "Dupliquer" };
                 copy.Click += delegate { DuplicateEvent(entry); };
@@ -658,10 +762,20 @@ namespace Marabook.App
             var create = new MenuItem { Header = "Nouvel événement ici (" + _system.Format(at) + ")…" };
             create.Click += delegate { NewEvent(at); };
             menu.Items.Add(create);
+            AddCalculator(menu, at);
+            if (_calendarMode) return menu;
             var fit = new MenuItem { Header = "Tout voir" };
             fit.Click += delegate { FitAll(); };
             menu.Items.Add(fit);
             return menu;
+        }
+
+        /// <summary>« Calculateur de dates » depuis un point de la frise (14/11, Rémi) : il s'ouvre à cette date.</summary>
+        private void AddCalculator(ContextMenu menu, TimePoint at)
+        {
+            var item = new MenuItem { Header = "Calculateur de dates…", Tag = "timeline-menu-calculator" };
+            item.Click += delegate { DateCalculatorDialog.Open(TopLevel.GetTopLevel(this) as Window, _system, at); };
+            menu.Items.Add(item);
         }
 
         // ================================================== le Général du rail
@@ -861,6 +975,13 @@ namespace Marabook.App
         internal void MinimapClickForProbe(double fraction) { _minimap.MoveTo(fraction * _minimap.Bounds.Width); }
         internal List<string> RulerLabelsForProbe() { return _surface.RulerLabels(); }
         internal int PendingCountForProbe { get { return _pending.Count; } }
+        internal TimelineCalendar CalendarForProbe { get { return _calendar; } }
+        internal bool SurfaceShownForProbe { get { return _surface.IsVisible && _minimap.IsVisible; } }
+        /// <summary>Sonde : le curseur posé sur une année de l'axe (null : il sort).</summary>
+        internal void PointAtForProbe(double? axis) { _surface.PointForProbe(axis == null ? (Point?)null : new Point(_surface.XOfForProbe(axis.Value), 120)); }
+        internal string PointedLabelForProbe { get { return _surface.PointedLabel(); } }
+        internal List<string> PointedEventsForProbe() { return _surface.PointedEvents(); }
+        internal ContextMenu MenuForProbe(TimePoint at) { return MenuFor(null, at); }
         internal bool SurfaceHasTipForProbe { get { return ToolTip.GetTip(_surface) != null; } }
         internal void SelectForProbe(string eventId) { SelectEvent(eventId); }
         internal void DeleteSelectedForProbe() { if (_selected != null) DeleteEvent(_selected); }
@@ -1021,6 +1142,9 @@ namespace Marabook.App
             private bool _panning, _moved;
             private Point _last;
             private TimelineEvent _hover;
+            // LE REPÈRE DU SURVOL (14/11, Rémi) : sous le curseur, l'année pointée ;
+            // un trait vertical à cet endroit ; les briques de cette année s'éclairent.
+            private Point? _cursor;
 
             public double MaxScroll;
             public int PlacedCount { get { return _placed.Count; } }
@@ -1298,12 +1422,14 @@ namespace Marabook.App
                         var reach = double.IsNaN(placed.LifeTo) ? placed.Bounds.Right : Math.Max(placed.Bounds.Right, placed.LifeTo);
                         if (top > height || top + LaneH < RulerH || reach < 0 || placed.Bounds.X > width) continue;
                         var selected = owner._selected != null && owner._selected.Id == placed.Event.Id;
-                        var hovered = _hover == placed.Event;
+                        var pointed = _cursor != null && TimeMath.TouchesYear(placed.Event, PointedYear());
+                        var hovered = _hover == placed.Event || pointed;
                         var color = placed.Color;
                         var middle = top + (LaneH - 6) / 2;
                         if (placed.Event.IsSpan)
                         {
                             var bar = new Rect(placed.X1, top + 2, Math.Max(8, placed.X2 - placed.X1), LaneH - 10);
+                            if (pointed) context.DrawRectangle(null, new Pen(new SolidColorBrush(color, 0.45), 3), bar.Inflate(2.5), 8, 8);
                             context.DrawRectangle(new SolidColorBrush(color, hovered ? 0.42 : 0.28), new Pen(selected ? (IBrush)Chrome.Ink : new SolidColorBrush(color), selected ? 2 : 1.3), bar, 6, 6);
                             if (placed.LabelInside)
                             {
@@ -1320,6 +1446,7 @@ namespace Marabook.App
                             if (!double.IsNaN(placed.LifeTo))
                                 context.DrawLine(new Pen(new SolidColorBrush(color, 0.55), 2), new Point(placed.X1, middle), new Point(placed.LifeTo, middle));
                             context.DrawLine(new Pen(new SolidColorBrush(color, 0.45), 1), new Point(placed.X1, RulerH), new Point(placed.X1, middle));
+                            if (pointed) context.DrawEllipse(new SolidColorBrush(color, 0.28), null, new Point(placed.X1, middle), 12, 12);
                             context.DrawEllipse(new SolidColorBrush(color), new Pen(selected ? (IBrush)Chrome.Ink : Chrome.CanvasBg, selected ? 2 : 1.5), new Point(placed.X1, middle), hovered ? 7 : 6, hovered ? 7 : 6);
                             if (placed.Label != null)
                             {
@@ -1342,7 +1469,48 @@ namespace Marabook.App
                 var epoch = Epochs.Current(owner._project, out epochSystem, out epochTimeline);
                 if (epoch != null && epochSystem.Id == system.Id) Marker(context, system.AxisMid(epoch), "Époque · " + system.Format(epoch), Chrome.Warn, width, height);
                 if (owner._flash != null) Marker(context, system.AxisMid(owner._flash), system.Format(owner._flash), Chrome.Time, width, height);
+
+                // — Le repère du survol : le trait, puis l'année sous le curseur (une étiquette sans flèche).
+                if (_cursor != null && !_panning)
+                {
+                    var at = _cursor.Value;
+                    var x = Math.Round(at.X) + 0.5;
+                    context.DrawLine(new Pen(new SolidColorBrush(Chrome.Ink.Color, 0.55), 1), new Point(x, 0), new Point(x, height));
+                    var caption = Text(PointedLabel(), 11.5, Chrome.PaperBg, FontWeight.SemiBold);
+                    var boxWidth = caption.Width + 14;
+                    var boxHeight = caption.Height + 8;
+                    var left = at.X + 12;
+                    if (left + boxWidth > width - 2) left = at.X - 12 - boxWidth; // au bord droit : de l'autre côté du trait
+                    var top = at.Y + 20;
+                    if (top + boxHeight > height - 2) top = at.Y - 12 - boxHeight;
+                    context.DrawRectangle(Chrome.Ink, null, new Rect(Math.Max(2, left), Math.Max(2, top), boxWidth, boxHeight), 5, 5);
+                    context.DrawText(caption, new Point(Math.Max(2, left) + 7, Math.Max(2, top) + 4));
+                }
             }
+
+            /// <summary>L'année absolue sous le curseur.</summary>
+            private long PointedYear()
+            {
+                return _cursor == null ? long.MinValue : (long)Math.Floor(AxisAt(_cursor.Value.X));
+            }
+
+            /// <summary>Ce que dit l'étiquette : l'année pointée — le mois ou le jour quand le zoom les distingue.</summary>
+            public string PointedLabel()
+            {
+                if (_cursor == null) return null;
+                return _owner._system.Format(_owner._system.FromAxis(AxisAt(_cursor.Value.X), _owner.PrecisionForScale()));
+            }
+
+            public List<string> PointedEvents()
+            {
+                var ids = new List<string>();
+                if (_cursor == null) return ids;
+                foreach (var placed in _placed) if (TimeMath.TouchesYear(placed.Event, PointedYear())) ids.Add(placed.Event.Id);
+                return ids;
+            }
+
+            public void PointForProbe(Point? at) { _cursor = at; InvalidateVisual(); }
+            public double XOfForProbe(double axis) { return X(axis); }
 
             private void Marker(DrawingContext context, double axis, string caption, IBrush brush, double width, double height)
             {
@@ -1433,6 +1601,8 @@ namespace Marabook.App
                     Cursor = new Cursor(StandardCursorType.SizeAll);
                     return;
                 }
+                _cursor = _owner._item == null ? (Point?)null : point;
+                InvalidateVisual(); // le repère suit le curseur
                 // Le survol marque la brique (curseur, marque grossie) — sans infobulle (lot 2, Rémi).
                 var hit = Hit(point);
                 var over = hit == null ? null : hit.Event;
@@ -1456,8 +1626,9 @@ namespace Marabook.App
             protected override void OnPointerExited(PointerEventArgs e)
             {
                 base.OnPointerExited(e);
-                if (_hover == null) return;
+                if (_hover == null && _cursor == null) return;
                 _hover = null;
+                _cursor = null;
                 InvalidateVisual();
             }
 
