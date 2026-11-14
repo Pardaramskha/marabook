@@ -51,6 +51,8 @@ namespace Marabook.App
                 var general = view.InspectorTextsForProbe();
                 Check(general.Any(delegate(string s) { return s.Contains("15 événements"); }), "Général du rail : le nombre d'événements");
                 Check(general.Any(delegate(string s) { return s.Contains("Durée totale de la temporalité") && s.Replace(' ', ' ').Replace(' ', ' ').Contains("2 154 ans"); }), "…la durée totale de la temporalité (2 154 ans)");
+                Check(general.Any(delegate(string s) { return s.Contains("Années dans les segments") && s.Replace(' ', ' ').Replace(' ', ' ').Contains("2 034 ans"); }),
+                    "…les années dans les segments seuls, sans les années négatives (2 034 ans : 800 + 1 200 + 34)");
                 Check(general.Any(delegate(string s) { return s.Contains("Ère des Phares") && s.Replace(' ', ' ').Replace(' ', ' ').Contains("1 200 ans"); }), "…et la durée de chaque ère");
                 Check(shell.InspectorKindForProbe.StartsWith("Frise"), "…sous le genre « Frise — son système » (" + shell.InspectorKindForProbe + ")");
                 Shot(view, "frises-2-tout.png");
@@ -177,9 +179,39 @@ namespace Marabook.App
                     systemDialog.TryForProbe("12 Sel E3.8");
                     await Settle();
                     Check(systemDialog.TryEchoForProbe.Contains("Ère des Grandes Marées") && systemDialog.TryEchoForProbe.Contains("jusant") == false || systemDialog.TryEchoForProbe.Contains("12 Sel E3.8"), "« essayer une date » relit la notation (" + systemDialog.TryEchoForProbe + ")");
+                    // Lot 3 (14/11) : la date d'exemple, le testeur encadré, l'an 0 des segments, les jours en pastilles.
+                    Check(systemDialog.DateExampleForProbe.StartsWith("→ 12 ") && systemDialog.DateExampleForProbe.Contains("E2.880"), "sous la notation d'une date, une date d'exemple mise en forme (" + systemDialog.DateExampleForProbe + ")");
+                    Check(systemDialog.TryBoxFramedForProbe, "le testeur de dates est dans un cadre aux bords arrondis");
+                    Check(systemDialog.SegmentYearZeroEnabledForProbe, "découpé et chaque segment repart de zéro : la case « an 0 de chaque segment » est active");
+                    systemDialog.SetSegmentYearZeroForProbe(true);
+                    await Settle();
+                    Check(systemDialog.ExampleForProbe.Contains("E1.800 puis E2.0"), "…cochée : E1.800 puis E2.0 (" + systemDialog.ExampleForProbe + ")");
+                    systemDialog.TryForProbe("3 Sel E2.0");
+                    await Settle();
+                    Check(systemDialog.TryEchoForProbe.Contains("3 Sel E2.0"), "…et « E2.0 » se lit (" + systemDialog.TryEchoForProbe + ")");
+                    systemDialog.SetSegmentYearZeroForProbe(false);
+                    systemDialog.TryForProbe("12 Sel E3.8");
+                    await Settle();
+                    Check(systemDialog.DayChipsForProbe == 6 && systemDialog.PendingDayForProbe == "", "les six jours de la semaine sont des pastilles, la zone de saisie est vide");
+                    systemDialog.TypeDayForProbe("septième");
+                    await Settle();
+                    Check(systemDialog.DayChipsForProbe == 6 && systemDialog.PendingDayForProbe == "septième", "un nom sans virgule reste dans la zone");
+                    systemDialog.TypeDayForProbe("septième, huitième,");
+                    await Settle();
+                    Check(systemDialog.DayChipsForProbe == 8 && systemDialog.PendingDayForProbe == "" && systemDialog.DaysForProbe.EndsWith("|septième|huitième"),
+                        "la virgule fait la pastille (deux d'un coup) et vide la zone (" + systemDialog.DaysForProbe + ")");
+                    systemDialog.MoveDayForProbe(7, 0);
+                    await Settle();
+                    Check(systemDialog.DaysForProbe.StartsWith("huitième|") && systemDialog.DaysForProbe.EndsWith("|septième") && systemDialog.DayChipsForProbe == 8, "une pastille déplacée change l'ordre des jours (" + systemDialog.DaysForProbe + ")");
+                    systemDialog.ShowTabForProbe(2);
+                    await Settle();
+                    Shot(systemDialog, "frises-19-semaine-pastilles.png");
+                    systemDialog.ShowTabForProbe(0);
+                    await Settle();
                     Shot(systemDialog, "frises-6-temporalite-par-segments.png");
                     systemDialog.SetCumulativeForProbe(true);
                     await Settle();
+                    Check(!systemDialog.SegmentYearZeroEnabledForProbe, "années cumulatives : la case « an 0 de chaque segment » est grisée");
                     Check(systemDialog.ExampleForProbe.Contains("E1.800 puis E2.801"), "années cumulatives entre segments : E1.800 puis E2.801 (" + systemDialog.ExampleForProbe + ")");
                     systemDialog.SetCumulativeForProbe(false);
                     systemDialog.SetYearPatternForProbe("an {a}");
@@ -187,7 +219,30 @@ namespace Marabook.App
                     Check(systemDialog.ProblemShownForProbe, "une notation qui ne dit pas le segment est signalée");
                     systemDialog.CancelForProbe();
                 }
-                Check(await systemTask == null && view.System.YearPattern == "E{s}.{a}" && !view.System.Cumulative, "annuler laisse le système tel quel");
+                Check(await systemTask == null && view.System.YearPattern == "E{s}.{a}" && !view.System.Cumulative && view.System.WeekDays.Count == 6, "annuler laisse le système tel quel");
+
+                // — Lot 3 : un système NEUF — pas de découpage, « Âge », A{s}-{a}.
+                var draftTask = TimeSystemDialog.Edit(shell, project, TimeSystemDialog.Template(project), true);
+                await Settle();
+                var draftDialog = OpenWindow<TimeSystemDialog>();
+                Check(draftDialog != null, "la fenêtre d'un nouveau système s'ouvre");
+                if (draftDialog != null)
+                {
+                    Check(!draftDialog.SegmentedForProbe && draftDialog.WordForProbe == "Âge" && draftDialog.YearPatternForProbe == "A{s}-{a}",
+                        "un système neuf : pas de découpage, segment « Âge », notation A{s}-{a} (" + draftDialog.WordForProbe + ", " + draftDialog.YearPatternForProbe + ")");
+                    Check(!draftDialog.SegmentYearZeroEnabledForProbe, "…sans découpage, la case « an 0 de chaque segment » est grisée");
+                    Check(draftDialog.ExampleForProbe.Contains("A1-880") && !draftDialog.ExampleForProbe.Contains("--") && !draftDialog.ProblemShownForProbe, "…l'exemple se lit sans erreur (" + draftDialog.ExampleForProbe + ")");
+                    Shot(draftDialog, "frises-20-nouveau-systeme.png");
+                    draftDialog.SegmentedForProbe = true;
+                    await Settle();
+                    Check(draftDialog.ExampleForProbe.Contains("A1-1000 puis A2-1") && draftDialog.SegmentYearZeroEnabledForProbe, "…découpage coché : A1-1000 puis A2-1, la case devient active (" + draftDialog.ExampleForProbe + ")");
+                    draftDialog.SetSegmentYearZeroForProbe(true);
+                    await Settle();
+                    Check(draftDialog.ExampleForProbe.Contains("A1-1000 puis A2-0"), "…le cas de Rémi : A1-1 … A1-1000 puis A2-0 (" + draftDialog.ExampleForProbe + ")");
+                    Shot(draftDialog, "frises-21-nouveau-systeme-ages.png");
+                    draftDialog.CancelForProbe();
+                }
+                Check(await draftTask == null && project.TimeSystems.Count == 2, "annulé : le projet garde ses deux systèmes");
 
                 // — Lot 2 : changer la durée d'une ère. Les briques gardent leur date ; celles qui n'en ont plus attendent.
                 var longer = view.System.Clone();
@@ -295,7 +350,7 @@ namespace Marabook.App
                 project.Epoch.Notation = "E3.40";
                 library.RefreshEpoch();
                 await Settle();
-                Check(tagged(maraboutSheet, "epoch-dimmed") && tagged(maraboutSheet, "epoch-skull") && cardTexts(maraboutSheet).Any(delegate(string s) { return s.StartsWith("Mort·e à 93 ans"); }),
+                Check(tagged(maraboutSheet, "epoch-dimmed") && tagged(maraboutSheet, "epoch-skull") && cardTexts(maraboutSheet).Any(delegate(string s) { return s.StartsWith("Décédé·e à 93 ans"); }),
                     "en E3.40, la tuile du marabout est grisée, porte le crâne et dit son âge de mort");
                 Check(cardTexts(keiraSheet).Contains("32 ans"), "…Keira a 32 ans");
                 Check(Epochs.AgeNote(project, keiraSheet) == "(32 ans en E3.40)", "vue wiki : à côté de l'âge, « (32 ans en E3.40) » (" + Epochs.AgeNote(project, keiraSheet) + ")");
@@ -309,7 +364,7 @@ namespace Marabook.App
                 {
                     shell.Binder.SelectItem(maraboutSheet.Id);
                     await Settle();
-                    Check(shell.Sheet.EpochSkullShownForProbe && (shell.Sheet.EpochNoteForProbe ?? "").Contains("Mort·e à 93 ans"), "la fiche d'un mort porte le crâne dans son titre (" + shell.Sheet.EpochNoteForProbe + ")");
+                    Check(shell.Sheet.EpochSkullShownForProbe && (shell.Sheet.EpochNoteForProbe ?? "").Contains("Décédé·e à 93 ans"), "la fiche d'un mort porte le crâne dans son titre (" + shell.Sheet.EpochNoteForProbe + ")");
                     Shot(shell.Sheet, "frises-11-fiche-mort.png");
                 }
                 if (keiraSheet != null)
@@ -337,6 +392,28 @@ namespace Marabook.App
                     dissonances.Show();
                     await Settle();
                     Shot((Control)dissonances.Content, "frises-13-dissonances.png");
+                    {
+                        // Lot 3 (14/11) : en sombre avec « papier blanc », les cartes restaient blanches sous une encre claire.
+                        var cards = ((Control)dissonances.Content).GetVisualDescendants().OfType<Border>().Where(delegate(Border b) { return Equals(b.Tag, "dissonance-row"); }).ToList();
+                        var darkBefore = Chrome.Dark;
+                        var whiteBefore = AppSettings.WhitePaperInDark;
+                        AppSettings.WhitePaperInDark = true;
+                        Chrome.Toggle(true);
+                        App.ApplyTheme(true);
+                        await Settle();
+                        Func<Avalonia.Media.IBrush, double> light = delegate(Avalonia.Media.IBrush brush)
+                        {
+                            var solid = brush as Avalonia.Media.ISolidColorBrush;
+                            return solid == null ? -1 : (0.299 * solid.Color.R + 0.587 * solid.Color.G + 0.114 * solid.Color.B) / 255.0;
+                        };
+                        Check(cards.Count == 2 && cards.All(delegate(Border b) { return light(b.Background) >= 0 && light(b.Background) < 0.35; }) && light(Chrome.Ink) > 0.7,
+                            "mode sombre (papier blanc compris) : les cartes des dissonances sont sombres sous leur encre claire");
+                        Shot((Control)dissonances.Content, "frises-13-dissonances-sombre.png");
+                        AppSettings.WhitePaperInDark = whiteBefore;
+                        Chrome.Toggle(darkBefore);
+                        App.ApplyTheme(darkBefore);
+                        await Settle();
+                    }
                     Check(dissonances.AcceptForProbe() && keiraSheet.Dissonances.Count == 2, "une période d'exclusion et un point de référence validés");
                     await Settle();
                     shell.Sheet.RefreshEpoch();
@@ -364,6 +441,54 @@ namespace Marabook.App
                 await Settle();
                 Check(!library.EpochOnForProbe && !tagged(maraboutSheet, "epoch-dimmed") && !cardTexts(keiraSheet).Contains("32 ans"), "éteinte : plus d'âge ni de tuile grisée");
                 project.Epoch.Notation = "E3.30";
+
+                // — Lot 3 (14/11) : le Carnet, toujours au rail, sous le Lexique.
+                {
+                    var panelBefore = AppSettings.RightPanel;
+                    var notebook = shell.NotebookPanelForProbe;
+                    Check(Icons.Has("notebook") && shell.RailHasTabForProbe(RightPanel.Notebook), "le rail a l'onglet du Carnet (icône « notebook »)");
+                    Check(!shell.RailHasTabForProbe(RightPanel.Lexicon) || shell.RailTabRankForProbe(RightPanel.Notebook) == shell.RailTabRankForProbe(RightPanel.Lexicon) + 1, "…juste sous le Lexique");
+                    shell.SetRightPanelForProbe(RightPanel.Notebook);
+                    await Settle();
+                    Check(AppSettings.RightPanel == RightPanel.Notebook && notebook.IsEffectivelyVisible, "un clic : le Carnet occupe la colonne de droite");
+                    Check(notebook.WritingForProbe && notebook.NoteCountForProbe == 1 && notebook.TitleForProbe == Notebook.Untitled, "un carnet neuf : une page vide, la plume prête");
+                    notebook.TypeForProbe("# Courses du marabout\n\nNe pas oublier :\n\n- [ ] du **sel**\n- [x] des *plumes*\n\n> Voir [[Keira]].");
+                    await Settle();
+                    notebook.ReadForProbe();
+                    await Settle();
+                    var rendered = notebook.RenderedForProbe;
+                    var renderedTexts = rendered == null ? new List<TextBlock>() : rendered.GetVisualDescendants().OfType<TextBlock>().ToList();
+                    Check(notebook.ReadingForProbe && !notebook.WritingForProbe && notebook.TitleForProbe == "Courses du marabout", "la plume posée, la note se montre mise en forme ; son titre est sa première ligne (" + notebook.TitleForProbe + ")");
+                    Check(renderedTexts.Any(delegate(TextBlock b) { return b.FontSize >= 20; }) && !renderedTexts.Any(delegate(TextBlock b) { return (b.Text ?? "").Contains("**") || (b.Text ?? "").StartsWith("#"); }),
+                        "…le titre est un vrai titre, plus de marques Markdown à l'écran");
+                    notebook.ToggleTaskForProbe(0);
+                    await Settle();
+                    Check(Notebook.Current.Text.Contains("- [x] du **sel**"), "une case cochée dans la note mise en forme s'écrit dans la note");
+                    Shot(notebook, "carnet-1-lecture.png");
+                    notebook.Flush();
+                    Check(System.IO.File.Exists(Notebook.FilePath()) && !notebook.SaveProblemForProbe, "le carnet s'enregistre à côté des réglages (carnet.json)");
+                    notebook.WriteForProbe();
+                    await Settle();
+                    Check(notebook.WritingForProbe, "un clic dans la note rend la plume");
+                    Shot(notebook, "carnet-2-ecriture.png");
+                    notebook.AddForProbe();
+                    await Settle();
+                    Check(notebook.NoteCountForProbe == 2 && notebook.WritingForProbe && notebook.TitleForProbe == Notebook.Untitled, "une nouvelle note : deux pages, la neuve sous les yeux");
+                    notebook.SelectForProbe(0);
+                    await Settle();
+                    Check(notebook.ReadingForProbe && notebook.TitleForProbe == "Courses du marabout", "le sélecteur ramène la première note");
+                    shell.Binder.SelectItem(sheetsRoot.Id);
+                    await Settle();
+                    Check(AppSettings.RightPanel == RightPanel.Notebook && notebook.IsEffectivelyVisible && notebook.TitleForProbe == "Courses du marabout", "le Carnet reste sous les yeux quand on change d'élément");
+                    notebook.SelectForProbe(1);
+                    notebook.RemoveForProbe();
+                    notebook.RemoveForProbe();
+                    await Settle();
+                    notebook.Flush();
+                    Check(notebook.NoteCountForProbe == 1 && Notebook.Current.Text == "", "les notes retirées, le carnet garde une page vide");
+                    shell.SetRightPanelForProbe(panelBefore);
+                    await Settle();
+                }
 
                 // — Le thème sombre.
                 shell.Binder.SelectItem(timeline.Id);

@@ -717,6 +717,13 @@ namespace Marabook.App
             var total = Line("Durée totale de la temporalité :", TimeSystem.YearsLabel(_stats.TotalYears));
             total.Tag = "timeline-stat-total";
             _inspector.Children.Add(total);
+            if (_system.HasSegments)
+            {
+                // Les années DANS les segments seulement : rien d'avant l'origine (14/11, Rémi).
+                var inSegments = Line("Années dans les segments :", TimeSystem.YearsLabel(_stats.SegmentYears));
+                inSegments.Tag = "timeline-stat-segment-years";
+                _inspector.Children.Add(inSegments);
+            }
             _inspector.Children.Add(Line("Système :", _system.Name));
             _inspector.Children.Add(Line("Notation :", _system.Example()));
             if (_system.HasSegments)
@@ -968,7 +975,7 @@ namespace Marabook.App
                     var from = Math.Max(start, firstYear);
                     var to = Math.Min(end, lastYear);
                     if (from > to) continue;
-                    AddYearTicks(ticks, from, to, (system.Cumulative ? 0 : start) - first, step, true);
+                    AddYearTicks(ticks, from, to, system.Cumulative ? -first : start - system.FirstYearOf(i), step, true);
                     if (start >= firstYear && start <= lastYear) AddBoundary(ticks, start);
                 }
             }

@@ -39,18 +39,18 @@ namespace Marabook.Tests
             t.Equal(RightPanel.Inspector, RightPanels.Parse(null), "un nom absent vaut l'inspecteur");
 
             // — Les onglets offerts selon la nature de l'élément courant.
-            t.Equal("inspector,correction,search,versions,pinned", Join(RightPanels.Offered(ItemKind.Text)), "un écrit : Général, Correction, Recherche, Versions, Épinglé");
-            t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Book)), "un livre : Général, Recherche, Épinglé — Édition, Métadonnées et Publication sont des onglets de la page livre (22/09)");
-            t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Sheet)), "une fiche : Général et Recherche (plus de Versions, b43), Épinglé");
+            t.Equal("inspector,correction,search,versions,pinned,notebook", Join(RightPanels.Offered(ItemKind.Text)), "un écrit : Général, Correction, Recherche, Versions, Épinglé");
+            t.Equal("inspector,search,pinned,notebook", Join(RightPanels.Offered(ItemKind.Book)), "un livre : Général, Recherche, Épinglé — Édition, Métadonnées et Publication sont des onglets de la page livre (22/09)");
+            t.Equal("inspector,search,pinned,notebook", Join(RightPanels.Offered(ItemKind.Sheet)), "une fiche : Général et Recherche (plus de Versions, b43), Épinglé");
             foreach (var kind in new[] { ItemKind.Media, ItemKind.Plan, ItemKind.Folder, ItemKind.PageTemplate })
-                t.Equal("inspector,search,pinned", Join(RightPanels.Offered(kind)), kind + " : Général et Recherche seulement (et l'épinglé)");
-            t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Category)), "une racine de la Pile : Général offert mais grisé (30/09), Recherche, l'épinglé");
-            t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Category, true)), "l'Accueil garde son Général (les raccourcis)");
-            t.Equal("inspector,search,pinned", Join(RightPanels.Offered(null)), "rien de sélectionné : Général et Recherche");
+                t.Equal("inspector,search,pinned,notebook", Join(RightPanels.Offered(kind)), kind + " : Général et Recherche seulement (et l'épinglé)");
+            t.Equal("inspector,search,pinned,notebook", Join(RightPanels.Offered(ItemKind.Category)), "une racine de la Pile : Général offert mais grisé (30/09), Recherche, l'épinglé");
+            t.Equal("inspector,search,pinned,notebook", Join(RightPanels.Offered(ItemKind.Category, true)), "l'Accueil garde son Général (les raccourcis)");
+            t.Equal("inspector,search,pinned,notebook", Join(RightPanels.Offered(null)), "rien de sélectionné : Général et Recherche");
             // Le Bilan de style (09/10) : un onglet en queue, le temps du bilan, pour un écrit seulement.
-            t.Equal("inspector,correction,search,versions,pinned,style-report", Join(RightPanels.Offered(ItemKind.Text, false, false, true)), "un écrit avec un bilan ouvert : l'onglet Bilan en queue");
-            t.Equal("inspector,correction,search,versions,pinned,lexicon,style-report", Join(RightPanels.Offered(ItemKind.Text, false, true, true)), "…après le Lexique s'il est là");
-            t.Equal("inspector,search,pinned", Join(RightPanels.Offered(ItemKind.Sheet, false, false, true)), "une fiche n'a pas de bilan");
+            t.Equal("inspector,correction,search,versions,pinned,notebook,style-report", Join(RightPanels.Offered(ItemKind.Text, false, false, true)), "un écrit avec un bilan ouvert : l'onglet Bilan en queue");
+            t.Equal("inspector,correction,search,versions,pinned,lexicon,notebook,style-report", Join(RightPanels.Offered(ItemKind.Text, false, true, true)), "…après le Lexique s'il est là");
+            t.Equal("inspector,search,pinned,notebook", Join(RightPanels.Offered(ItemKind.Sheet, false, false, true)), "une fiche n'a pas de bilan");
             t.Check(ReferenceEquals(RightPanels.Offered(ItemKind.Text, false, false, true), RightPanels.Offered(ItemKind.Text, false, false, true)), "des instances fixes (le rail compare par référence)");
             t.Check(!RightPanels.Available(RightPanel.StyleReport, false, true, ItemKind.Text), "Bilan sans bilan ouvert : indisponible");
             t.Check(RightPanels.Available(RightPanel.StyleReport, false, true, ItemKind.Text, false, false, false, true), "…disponible le temps du bilan");
@@ -93,9 +93,9 @@ namespace Marabook.Tests
 
             // — Le Lexique (18/09) : un onglet seulement quand il est demandé
             //   (épinglé ou ouvert pour une définition), en queue, partout.
-            t.Equal("inspector,correction,search,versions,pinned,lexicon", Join(RightPanels.Offered(ItemKind.Text, false, true)), "un écrit, Lexique demandé : l'onglet en queue");
-            t.Equal("inspector,search,pinned,lexicon", Join(RightPanels.Offered(ItemKind.Category, false, true)), "une racine, Lexique demandé");
-            t.Equal("inspector,search,pinned,lexicon", Join(RightPanels.Offered(null, false, true)), "rien de sélectionné, Lexique demandé");
+            t.Equal("inspector,correction,search,versions,pinned,lexicon,notebook", Join(RightPanels.Offered(ItemKind.Text, false, true)), "un écrit, Lexique demandé : l'onglet en queue");
+            t.Equal("inspector,search,pinned,lexicon,notebook", Join(RightPanels.Offered(ItemKind.Category, false, true)), "une racine, Lexique demandé");
+            t.Equal("inspector,search,pinned,lexicon,notebook", Join(RightPanels.Offered(null, false, true)), "rien de sélectionné, Lexique demandé");
             t.Check(ReferenceEquals(RightPanels.Offered(ItemKind.Text, false, true), RightPanels.Offered(ItemKind.Text, false, true)), "le tableau est le même d'un appel à l'autre (le rail compare par référence)");
             t.Check(!RightPanels.Available(RightPanel.Lexicon, false, true, ItemKind.Text), "Lexique sans épingle ni définition : indisponible");
             t.Check(RightPanels.Available(RightPanel.Lexicon, false, true, ItemKind.Text, false, false, true), "Lexique demandé, sur un écrit");

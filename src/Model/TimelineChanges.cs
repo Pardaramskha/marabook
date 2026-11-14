@@ -95,7 +95,7 @@ namespace Marabook.Model
                 case LifeState.Absent: return "(" + Word(project, sheet, "absent", "absente", "absent·e") + " en " + when + ")";
                 case LifeState.OutOfTime: return "(hors-temps en " + when + (status.Detail.Length > 0 ? ", " + status.Detail : "") + ")";
                 case LifeState.Dead:
-                    return "(" + Word(project, sheet, "mort", "morte", "mort·e") + (status.HasAge ? " à " + TimeSystem.YearsLabel(status.Age) : "") + ", avant " + when + ")";
+                    return "(" + Word(project, sheet, "décédé", "décédée", "décédé·e") + (status.HasAge ? " à " + TimeSystem.YearsLabel(status.Age) : "") + ", avant " + when + ")";
                 case LifeState.Unborn: return "(pas encore " + Word(project, sheet, "né", "née", "né·e") + " en " + when + ")";
                 default: return null;
             }
@@ -137,7 +137,7 @@ namespace Marabook.Model
                 if (segment >= to.Segments.Count) return null;
                 var offset = year - from.SegmentStart(segment);
                 // L'an zéro ajouté ou retiré : l'année LUE reste la même.
-                offset += from.FirstYear - to.FirstYear;
+                offset += from.FirstYearOf(segment) - to.FirstYearOf(segment);
                 if (offset < 0) return null;
                 year = to.SegmentStart(segment) + offset;
                 if (to.SegmentIndexOf(year) != segment) return null;

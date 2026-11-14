@@ -163,7 +163,8 @@ namespace Marabook.App
             row.Card = new Border
             {
                 Child = body, Padding = new Thickness(12, 8, 12, 12), Margin = new Thickness(0, 8, 0, 0), CornerRadius = new CornerRadius(6),
-                BorderBrush = Chrome.Border, BorderThickness = new Thickness(1), Background = Chrome.PaperBg, Tag = "dissonance-row"
+                // FieldBg, pas PaperBg : le papier reste blanc en mode sombre (« papier blanc »), l'encre y devenait illisible (14/11).
+                BorderBrush = Chrome.Border, BorderThickness = new Thickness(1), Background = Chrome.FieldBg, Tag = "dissonance-row"
             };
             _rows.Add(row);
             _list.Children.Add(row.Card);

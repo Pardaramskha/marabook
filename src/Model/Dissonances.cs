@@ -128,7 +128,7 @@ namespace Marabook.Model
             if (death != null && system.AxisStart(at) >= system.AxisEnd(death))
             {
                 status.State = LifeState.Dead;
-                status.Label = Word(project, sheet, "Mort", "Morte", "Mort·e");
+                status.Label = Word(project, sheet, "Décédé", "Décédée", "Décédé·e");
                 if (AgeOn(system, anchors, gaps, death, out age, out excluded, out within))
                 {
                     status.HasAge = true;

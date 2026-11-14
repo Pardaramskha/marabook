@@ -143,6 +143,9 @@ namespace Marabook.Model
         public string NegativePattern = "";  // vide : la notation de l'année avec un nombre négatif
         public string DatePattern = "{j} {M} {année}";
         public bool YearZero;                // vrai : la première année est l'an 0
+        // Les segments SUIVANTS, quand chacun repart de zéro (14/11, Rémi) :
+        // vrai, leur première année est l'an 0 — « A1-1 … puis A2-0 ».
+        public bool SegmentYearZero;
 
         // — Le calendrier.
         public List<TimeMonth> Months = new List<TimeMonth>();
@@ -170,7 +173,7 @@ namespace Marabook.Model
             var copy = new TimeSystem
             {
                 Id = Id, Name = Name, Segmented = Segmented, SegmentWord = SegmentWord, Cumulative = Cumulative,
-                YearPattern = YearPattern, NegativePattern = NegativePattern, DatePattern = DatePattern, YearZero = YearZero,
+                YearPattern = YearPattern, NegativePattern = NegativePattern, DatePattern = DatePattern, YearZero = YearZero, SegmentYearZero = SegmentYearZero,
                 HoursPerDay = HoursPerDay, MinutesPerHour = MinutesPerHour
             };
             foreach (var segment in Segments)
@@ -186,6 +189,16 @@ namespace Marabook.Model
 
         public bool HasSegments { get { return Segmented && Segments.Count > 0; } }
         public int FirstYear { get { return YearZero ? 0 : 1; } }
+
+        /// <summary>La première année LUE d'un segment : celle du système pour
+        /// le premier (et pour tous quand les années se cumulent) ; pour les
+        /// suivants d'un système où chaque segment repart de zéro, l'an 0 ou
+        /// l'an 1 selon SegmentYearZero.</summary>
+        public int FirstYearOf(int segment)
+        {
+            if (segment > 0 && HasSegments && !Cumulative) return SegmentYearZero ? 0 : 1;
+            return FirstYear;
+        }
 
         public string SegmentLabel
         {
@@ -221,8 +234,9 @@ namespace Marabook.Model
         public long DisplayYear(long year)
         {
             if (year < 0) return year;
-            var local = HasSegments && !Cumulative ? year - SegmentStart(SegmentIndexOf(year)) : year;
-            return local + FirstYear;
+            if (!HasSegments || Cumulative) return year + FirstYear;
+            var segment = SegmentIndexOf(year);
+            return year - SegmentStart(segment) + FirstYearOf(segment);
         }
 
         /// <summary>L'inverse : l'année absolue d'une année lue dans un segment.</summary>
@@ -230,8 +244,9 @@ namespace Marabook.Model
         {
             var reset = HasSegments && !Cumulative;
             if (shown < 0) return reset && segment > 0 ? SegmentStart(segment) + shown : shown;
-            var local = Math.Max(0, shown - FirstYear);
-            return reset ? SegmentStart(Math.Max(0, Math.Min(segment, Segments.Count - 1))) + local : local;
+            if (!reset) return Math.Max(0, shown - FirstYear);
+            var index = Math.Max(0, Math.Min(segment, Segments.Count - 1));
+            return SegmentStart(index) + Math.Max(0, shown - FirstYearOf(index));
         }
 
         // ---------------------------------------------------------- calendrier
@@ -627,12 +642,12 @@ namespace Marabook.Model
             else if (match.Groups["c"].Success) segment = IndexOfName(SegmentNames(true), match.Groups["c"].Value);
             var named = match.Groups["s"].Success || match.Groups["n"].Success || match.Groups["c"].Success;
             if (named && HasSegments && (segment < 0 || segment >= Segments.Count)) return null;
-            if (shown == 0 && !YearZero) return null; // pas d'an zéro dans ce système
+            if (shown == 0 && FirstYearOf(Math.Max(0, segment)) != 0) return null; // pas d'an zéro ici
 
             var year = AbsoluteYear(Math.Max(0, segment), shown);
             // Une année au-delà de son segment (« E1.5000 » quand la première
             // ère dure 1 200 ans) n'existe pas.
-            if (named && HasSegments && !Cumulative && shown > 0 && SegmentIndexOf(year) != segment) return null;
+            if (named && HasSegments && !Cumulative && shown >= 0 && SegmentIndexOf(year) != segment) return null;
             var point = new TimePoint(year);
 
             if (match.Groups["m"].Success || match.Groups["M"].Success)
@@ -897,6 +912,7 @@ namespace Marabook.Model
         public int Events, Points, Spans;
         public double Min, Max;       // l'étendue de l'axe (segments et événements)
         public long TotalYears;
+        public long SegmentYears;     // les années DANS les segments, sans celles d'avant l'origine (14/11)
         public List<TimelineSegmentStats> Segments = new List<TimelineSegmentStats>();
     }
 
@@ -1008,6 +1024,7 @@ namespace Marabook.Model
                         foreach (var entry in events)
                             if (entry.Start != null && SegmentOf(system, entry) == i) segment.Events++;
                     stats.Segments.Add(segment);
+                    stats.SegmentYears += length;
                     if (open) break; // rien après un segment ouvert
                 }
                 var last = stats.Segments[stats.Segments.Count - 1];

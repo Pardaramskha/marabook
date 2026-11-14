@@ -1264,6 +1264,7 @@ namespace Marabook.App
             // Le LEXIQUE (18/09) : la définition d'un mot du dictionnaire
             // personnel, même colonne (MainWindow.Lexicon.cs).
             BuildLexiconPanel(grid);
+            BuildNotebookPanel(grid); // le Carnet (14/11) : toujours au rail, sous le Lexique
             BuildStyleReportPanel(grid); // le Bilan de style au rail (09/10)
             _pinTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
             _pinTimer.Tick += delegate { _pinTimer.Stop(); RefreshSidePin(); };
@@ -3214,6 +3215,7 @@ namespace Marabook.App
                 Close();
                 return;
             }
+            if (_notebookPanel != null) _notebookPanel.Flush(); // le carnet part avec ce qui vient d'être écrit (14/11)
             // L'accueil se ferme avec l'app (c'est sa seule autre sortie).
             if (_welcome != null) _welcome.Release();
             // Quitter n'attend jamais la correction différée (batch 29).
@@ -5747,8 +5749,8 @@ namespace Marabook.App
         /// la colonne (il ne déborde pas pendant la course).</summary>
         private void ShowRightHost(RightPanel shown)
         {
-            var hosts = new[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _styleReportHost };
-            var panels = new[] { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned, RightPanel.Lexicon, RightPanel.StyleReport };
+            var hosts = new[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _styleReportHost };
+            var panels = new[] { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned, RightPanel.Lexicon, RightPanel.Notebook, RightPanel.StyleReport };
             for (var i = 0; i < hosts.Length; i++)
             {
                 if (hosts[i] == null) continue;
@@ -5814,7 +5816,7 @@ namespace Marabook.App
         /// de la course) ou libre (NaN).</summary>
         private void FreezeRightHosts(double width)
         {
-            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _styleReportHost };
+            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _styleReportHost };
             foreach (var host in hosts)
             {
                 if (host == null) continue;
@@ -6047,6 +6049,8 @@ namespace Marabook.App
                     icon = "push-pin-bold"; name = "Épinglé au rail"; break;
                 case RightPanel.Lexicon:
                     icon = "pile-dictionnaire"; name = "Lexique — la définition d'un mot du dictionnaire personnel"; break;
+                case RightPanel.Notebook:
+                    icon = "notebook"; name = "Carnet — vos notes, gardées d'un projet à l'autre"; break;
                 case RightPanel.StyleReport:
                     icon = "exam-bold"; name = "Bilan de style de l'écrit ouvert"; break;
                 default:

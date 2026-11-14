@@ -20,6 +20,7 @@ namespace Marabook.Settings
         // le 22/09 : ce sont les onglets de la page livre (BookView).
         Pinned,      // l'écrit ou la fiche ÉPINGLÉ SUR LE CÔTÉ, lu en miroir (b47)
         Lexicon,     // la définition d'un mot du dictionnaire personnel (18/09) — épinglable au rail
+        Notebook,    // le CARNET (14/11) : des notes en Markdown à l'échelle de l'application — toujours au rail, sous le Lexique
         StyleReport  // le BILAN DE STYLE de l'écrit ouvert (09/10) : un onglet le temps du bilan, fermé avec le rail ou au changement d'écrit
     }
 
@@ -41,11 +42,10 @@ namespace Marabook.Settings
         // Le Lexique (18/09) n'a d'onglet que demandé : épinglé au rail, ou
         // ouvert le temps d'une définition. Mêmes tableaux, un onglet de plus
         // en queue — des instances fixes, le rail compare par référence.
-        private static readonly RightPanel[] ForTextLexicon = Append(ForText, RightPanel.Lexicon);
-        private static readonly RightPanel[] ForBookLexicon = Append(ForBook, RightPanel.Lexicon);
-        private static readonly RightPanel[] ForOthersLexicon = Append(ForOthers, RightPanel.Lexicon);
-        private static readonly RightPanel[] ForCategoryLexicon = Append(ForCategory, RightPanel.Lexicon);
-
+        //
+        // Le Carnet (14/11, Rémi) est TOUJOURS au rail, sous le Lexique : il
+        // ferme la marche des outils permanents. Le Bilan de style (09/10),
+        // un onglet le temps du bilan, reste en queue.
         private static RightPanel[] Append(RightPanel[] source, RightPanel extra)
         {
             var result = new RightPanel[source.Length + 1];
@@ -54,10 +54,19 @@ namespace Marabook.Settings
             return result;
         }
 
-        // Le Bilan de style (09/10) : un onglet de plus, en queue, le temps du
-        // bilan — des instances fixes aussi (le rail compare par référence).
-        private static readonly RightPanel[] ForTextReport = Append(ForText, RightPanel.StyleReport);
-        private static readonly RightPanel[] ForTextLexiconReport = Append(ForTextLexicon, RightPanel.StyleReport);
+        /// <summary>Les variantes d'un tableau de base : [lexique ? 1 : 0] —
+        /// chacune avec le Carnet en queue. Des instances fixes.</summary>
+        private static RightPanel[][] WithTools(RightPanel[] source)
+        {
+            return new[] { Append(source, RightPanel.Notebook), Append(Append(source, RightPanel.Lexicon), RightPanel.Notebook) };
+        }
+
+        private static readonly RightPanel[][] TextTools = WithTools(ForText);
+        private static readonly RightPanel[][] BookTools = WithTools(ForBook);
+        private static readonly RightPanel[][] OthersTools = WithTools(ForOthers);
+        private static readonly RightPanel[][] CategoryTools = WithTools(ForCategory);
+        private static readonly RightPanel[][] TextReportTools =
+            { Append(TextTools[0], RightPanel.StyleReport), Append(TextTools[1], RightPanel.StyleReport) };
 
         /// <summary>Le nom persisté dans settings.json (« rightPanel »).</summary>
         public static string Name(RightPanel panel)
@@ -70,6 +79,7 @@ namespace Marabook.Settings
                 case RightPanel.Versions: return "versions";
                 case RightPanel.Pinned: return "pinned";
                 case RightPanel.Lexicon: return "lexicon";
+                case RightPanel.Notebook: return "notebook";
                 case RightPanel.StyleReport: return "style-report";
                 default: return "none";
             }
@@ -87,6 +97,7 @@ namespace Marabook.Settings
                 case "versions": return RightPanel.Versions;
                 case "pinned": return RightPanel.Pinned;
                 case "lexicon": return RightPanel.Lexicon;
+                case "notebook": return RightPanel.Notebook;
                 case "style-report": return RightPanel.StyleReport; // sans bilan au lancement : indisponible, donc grisé
                 default: return RightPanel.Inspector;
             }
@@ -114,11 +125,12 @@ namespace Marabook.Settings
         /// plans, dossiers, niveau projet) a Général et Recherche.</summary>
         public static RightPanel[] Offered(ItemKind? kind, bool homeRoot = false, bool lexicon = false, bool report = false)
         {
-            if (kind == ItemKind.Text && report) return lexicon ? ForTextLexiconReport : ForTextReport; // le bilan ne vaut que pour un écrit
-            if (kind == ItemKind.Text) return lexicon ? ForTextLexicon : ForText;
-            if (kind == ItemKind.Book) return lexicon ? ForBookLexicon : ForBook;
-            if (kind == ItemKind.Category && !homeRoot) return lexicon ? ForCategoryLexicon : ForCategory;
-            return lexicon ? ForOthersLexicon : ForOthers;
+            var variant = lexicon ? 1 : 0;
+            if (kind == ItemKind.Text && report) return TextReportTools[variant]; // le bilan ne vaut que pour un écrit
+            if (kind == ItemKind.Text) return TextTools[variant];
+            if (kind == ItemKind.Book) return BookTools[variant];
+            if (kind == ItemKind.Category && !homeRoot) return CategoryTools[variant];
+            return OthersTools[variant];
         }
 
         public static bool Offers(ItemKind? kind, RightPanel panel, bool homeRoot = false, bool lexicon = false, bool report = false)
@@ -152,6 +164,8 @@ namespace Marabook.Settings
             // Le Lexique (18/09) : épinglé au rail ou ouvert pour une
             // définition — élément courant ou non, comme l'épinglé.
             if (panel == RightPanel.Lexicon) return hasLexicon;
+            // Le Carnet (14/11) appartient à l'application : aucun élément courant requis.
+            if (panel == RightPanel.Notebook) return true;
             return panel == RightPanel.Search || kind != null;
         }
 

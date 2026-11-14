@@ -42,6 +42,8 @@ namespace Marabook.Persistence
                 if (!string.IsNullOrEmpty(system.NegativePattern)) o["negativePattern"] = system.NegativePattern;
                 o["datePattern"] = system.DatePattern ?? "";
                 if (system.YearZero) o["yearZero"] = true;
+                // Absent : comme l'an zéro du système (ce que faisait la v46 du premier lot).
+                if (system.SegmentYearZero != system.YearZero) o["segmentYearZero"] = system.SegmentYearZero;
                 var months = new List<object>();
                 foreach (var month in system.Months)
                 {
@@ -109,6 +111,7 @@ namespace Marabook.Persistence
                 system.NegativePattern = Json.AsString(Json.Field(o, "negativePattern")) ?? "";
                 system.DatePattern = Json.AsString(Json.Field(o, "datePattern")) ?? "{j} {M} {année}";
                 system.YearZero = Json.AsBool(Json.Field(o, "yearZero"), false);
+                system.SegmentYearZero = Json.AsBool(Json.Field(o, "segmentYearZero"), system.YearZero);
                 var months = Json.AsList(Json.Field(o, "months"));
                 if (months != null)
                     foreach (var monthNode in months)

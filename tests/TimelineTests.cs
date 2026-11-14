@@ -129,6 +129,7 @@ namespace Marabook.Tests
             // L'an zéro.
             tides.Cumulative = false;
             tides.YearZero = true;
+            tides.SegmentYearZero = true; // l'an 0 des segments suivants a sa propre case depuis le 14/11
             t.Equal("E2.0", tides.FormatYear(800), "avec l'an zéro : la deuxième ère commence à E2.0");
             t.Equal(800L, Parse(t, tides, "E2.0").Year, "…et E2.0 se relit");
         }
@@ -307,7 +308,7 @@ namespace Marabook.Tests
             t.Check(status.State == LifeState.Unborn && status.Label == "Naît dans 6 ans", "en E3.2, elle n'est pas née (" + status.Label + ")");
             project.Epoch.Notation = "E3.40";
             status = Epochs.Evaluate(project, marabout);
-            t.Check(status.State == LifeState.Dead && status.Age == 93 && status.Label.StartsWith("Mort·e à 93 ans"), "en E3.40, le marabout est mort, à 93 ans (" + status.Label + ")");
+            t.Check(status.State == LifeState.Dead && status.Age == 93 && status.Label.StartsWith("Décédé·e à 93 ans"), "en E3.40, le marabout est mort, à 93 ans (" + status.Label + ")");
             t.Check(Epochs.Evaluate(project, keira).State == LifeState.Alive, "…Keira vit toujours");
             // L'année même de la mort, à l'année près : encore en vie.
             project.Epoch.Notation = "E3.34";

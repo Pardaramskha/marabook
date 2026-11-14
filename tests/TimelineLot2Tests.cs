@@ -115,11 +115,11 @@ namespace Marabook.Tests
             SetField(project, keira, SheetDefaults.FieldDeathDate, TimeLinks.Markup(TimelineSamples.TimelineTitle, "E3.71", null));
             project.Epoch.Enabled = true;
             project.Epoch.Notation = "E3.80";
-            t.Check(Epochs.Evaluate(project, marabout).Label.StartsWith("Mort·e à 93 ans"), "sans genre renseigné : « Mort·e » (" + Epochs.Evaluate(project, marabout).Label + ")");
+            t.Check(Epochs.Evaluate(project, marabout).Label.StartsWith("Décédé·e à 93 ans"), "sans genre renseigné : « Décédé·e » (" + Epochs.Evaluate(project, marabout).Label + ")");
             SetField(project, marabout, SheetDefaults.FieldBirthGender, "Masculin");
             SetField(project, keira, SheetDefaults.FieldBirthGender, "Féminin");
-            t.Check(Epochs.Evaluate(project, marabout).Label.StartsWith("Mort à 93 ans"), "un homme : « Mort » (" + Epochs.Evaluate(project, marabout).Label + ")");
-            t.Check(Epochs.Evaluate(project, keira).Label.StartsWith("Morte à 63 ans"), "une femme : « Morte » (" + Epochs.Evaluate(project, keira).Label + ")");
+            t.Check(Epochs.Evaluate(project, marabout).Label.StartsWith("Décédé à 93 ans"), "un homme : « Décédé » (" + Epochs.Evaluate(project, marabout).Label + ")");
+            t.Check(Epochs.Evaluate(project, keira).Label.StartsWith("Décédée à 63 ans"), "une femme : « Décédée » (" + Epochs.Evaluate(project, keira).Label + ")");
             project.Epoch.Notation = "E3.2";
             t.Equal("Naît dans 6 ans", Epochs.Evaluate(project, keira).Label, "pas encore née : « Naît dans 6 ans »");
         }
@@ -133,7 +133,7 @@ namespace Marabook.Tests
             project.Epoch.Notation = "E3.41";
             t.Equal("(33 ans en E3.41)", Epochs.AgeNote(project, keira), "époque E3.41 : « (33 ans en E3.41) » à côté de l'âge de Keira");
             SetField(project, marabout, SheetDefaults.FieldBirthGender, "Masculin");
-            t.Equal("(mort à 93 ans, avant E3.41)", Epochs.AgeNote(project, marabout), "…et pour un mort : « (mort à 93 ans, avant E3.41) »");
+            t.Equal("(décédé à 93 ans, avant E3.41)", Epochs.AgeNote(project, marabout), "…et pour un mort : « (décédé à 93 ans, avant E3.41) »");
             project.Epoch.Notation = "E3.2";
             SetField(project, keira, SheetDefaults.FieldBirthGender, "Féminin");
             t.Equal("(pas encore née en E3.2)", Epochs.AgeNote(project, keira), "…pas encore née : « (pas encore née en E3.2) »");
@@ -179,6 +179,7 @@ namespace Marabook.Tests
             // L'an zéro ajouté : l'année lue reste la même.
             var zero = before.Clone();
             zero.YearZero = true;
+            zero.SegmentYearZero = true;
             t.Equal("E2.905", zero.Format(TimeSystemChange.Convert(before, zero, At(before, "E2.905"))), "avec l'an zéro : E2.905 reste E2.905");
         }
 

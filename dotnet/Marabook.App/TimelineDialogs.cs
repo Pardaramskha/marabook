@@ -558,27 +558,33 @@ namespace Marabook.App
         private readonly Project _project;
         private readonly TimeSystem _system;
         private readonly TextBox _name, _word, _yearPattern, _negativePattern, _datePattern, _try, _weekDays, _hours, _minutes;
-        private readonly CheckBox _segmented, _yearZero;
+        private readonly CheckBox _segmented, _yearZero, _segmentYearZero;
         private readonly RadioButton _reset, _cumulative;
         private readonly StackPanel _segments, _months, _leaps, _segmentBlock;
-        private readonly TextBlock _example, _tryEcho, _problem, _yearLength;
+        private readonly TextBlock _example, _dateExample, _tryEcho, _problem, _yearLength;
+        // Les jours de la semaine en pastilles (14/11, Rémi) : un nom puis « , ».
+        private readonly List<string> _days = new List<string>();
+        private readonly WrapPanel _dayChips;
         private bool _accepted;
         private bool _building;
 
-        /// <summary>Le brouillon d'un système personnalisé : trois ères, douze mois de trente jours.</summary>
+        /// <summary>Le brouillon d'un système personnalisé : douze mois de trente
+        /// jours, pas de découpage (14/11, Rémi) — trois âges attendent, prêts,
+        /// que la case soit cochée ; la notation est déjà la leur.</summary>
         public static TimeSystem Template(Project project)
         {
             var system = new TimeSystem
             {
-                Name = "Nouveau système", Segmented = true, SegmentWord = "Ère", Cumulative = false,
-                YearPattern = "E{s}.{a}", DatePattern = "{j} {M} {année}"
+                Name = "Nouveau système", Segmented = false, SegmentWord = "Âge", Cumulative = false,
+                // « -{a} » avant l'origine : sans cela le trait d'union de la notation donnerait « A1--320 ».
+                YearPattern = "A{s}-{a}", NegativePattern = "-{a}", DatePattern = "{j} {M} {année}"
             };
             var number = 2;
             while (project != null && project.TimeSystems.Exists(delegate(TimeSystem s) { return s.Name == system.Name; }))
                 system.Name = "Nouveau système " + number++;
-            system.Segments.Add(new TimeSegment { Name = "Première ère", Length = 1000 });
-            system.Segments.Add(new TimeSegment { Name = "Deuxième ère", Length = 1000 });
-            system.Segments.Add(new TimeSegment { Name = "Troisième ère", Length = 0 });
+            system.Segments.Add(new TimeSegment { Name = "Premier âge", Length = 1000 });
+            system.Segments.Add(new TimeSegment { Name = "Deuxième âge", Length = 1000 });
+            system.Segments.Add(new TimeSegment { Name = "Troisième âge", Length = 0 });
             for (var i = 1; i <= 12; i++) system.Months.Add(new TimeMonth { Name = "Mois " + i, Days = 30 });
             system.WeekDays.AddRange(new[] { "premier jour", "deuxième jour", "troisième jour", "quatrième jour", "cinquième jour", "sixième jour", "septième jour" });
             return system;
@@ -612,20 +618,22 @@ namespace Marabook.App
             _name = new TextBox { Text = system.Name };
             root.Children.Add(_name);
 
-            var tabs = new TabControl { Margin = new Thickness(0, 12, 0, 0), Height = 430 };
+            var tabs = new TabControl { Margin = new Thickness(0, 12, 0, 0), Height = 600 }; // 430 avant le 14/11 : la date d'exemple, la case des segments et le testeur encadré tiennent sans défiler
 
             // ---------------------------------------------- segments et notation
             var first = new StackPanel { Margin = new Thickness(4, 10, 4, 4) };
-            _segmented = new CheckBox { Content = "Découper le temps en segments (ères, âges, cycles…)", IsChecked = system.Segmented };
+            _yearZero = new CheckBox { Content = "La première année est l'an 0 (sinon l'an 1)", IsChecked = system.YearZero };
+            first.Children.Add(_yearZero);
+            _segmented = new CheckBox { Content = "Découper le temps en segments (âges, ères, cycles…)", IsChecked = system.Segmented, Margin = new Thickness(0, 4, 0, 0) };
             first.Children.Add(_segmented);
             _segmentBlock = new StackPanel();
             var wordRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
             wordRow.Children.Add(new TextBlock { Text = "Un segment s'appelle :", Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
-            _word = new TextBox { Text = system.SegmentWord, Width = 140, Watermark = "ère, âge, cycle…" };
+            _word = new TextBox { Text = system.SegmentWord, Width = 140, Watermark = "âge, ère, cycle…" };
             wordRow.Children.Add(_word);
             _segmentBlock.Children.Add(wordRow);
-            _reset = new RadioButton { Content = "Chaque segment repart de zéro (E2.1 suit E1.1000)", GroupName = "cumul", IsChecked = !system.Cumulative, Margin = new Thickness(0, 8, 0, 0) };
-            _cumulative = new RadioButton { Content = "Années cumulatives entre segments (E2.1001 suit E1.1000)", GroupName = "cumul", IsChecked = system.Cumulative };
+            _reset = new RadioButton { Content = ResetLabel, GroupName = "cumul", IsChecked = !system.Cumulative, Margin = new Thickness(0, 8, 0, 0) };
+            _cumulative = new RadioButton { Content = CumulativeLabel, GroupName = "cumul", IsChecked = system.Cumulative };
             _segmentBlock.Children.Add(_reset);
             _segmentBlock.Children.Add(_cumulative);
             var segmentHead = new Grid { ColumnDefinitions = new ColumnDefinitions("*,8,70,8,110,8,26"), Margin = new Thickness(0, 10, 0, 2) };
@@ -656,27 +664,41 @@ namespace Marabook.App
             first.Children.Add(_segmentBlock);
 
             first.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 10, 0, 0) });
-            var notation = new Grid { ColumnDefinitions = new ColumnDefinitions("190,8,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto"), Margin = new Thickness(0, 8, 0, 0) };
+            var notation = new Grid { ColumnDefinitions = new ColumnDefinitions("190,8,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"), Margin = new Thickness(0, 8, 0, 0) };
             _yearPattern = new TextBox { Text = system.YearPattern };
-            _negativePattern = new TextBox { Text = system.NegativePattern, Watermark = "vide : E1.-320" };
+            _negativePattern = new TextBox { Text = system.NegativePattern };
             _datePattern = new TextBox { Text = system.DatePattern };
             AddRow(notation, 0, "Notation d'une année :", _yearPattern);
             AddRow(notation, 1, "Années négatives :", _negativePattern);
             AddRow(notation, 2, "Notation d'une date :", _datePattern);
+            // Sous la notation d'une date : une date d'exemple, mise en forme (14/11, Rémi).
+            _dateExample = new TextBlock { Foreground = Chrome.Ink, FontWeight = FontWeight.SemiBold, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 1, 0, 3), Tag = "system-date-example" };
+            Grid.SetRow(_dateExample, 3);
+            Grid.SetColumn(_dateExample, 2);
+            notation.Children.Add(_dateExample);
             first.Children.Add(notation);
             first.Children.Add(TimelineUi.Hint("{a} l'année · {s} le numéro du segment · {c} son abréviation · {n} son nom · {j} le jour · {m} le numéro du mois · {M} son nom · {année} la notation de l'année."));
-            _yearZero = new CheckBox { Content = "La première année est l'an 0 (sinon l'an 1)", IsChecked = system.YearZero, Margin = new Thickness(0, 6, 0, 0) };
-            first.Children.Add(_yearZero);
-            _example = new TextBlock { Foreground = Chrome.Time, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), Tag = "system-example" };
+            // L'an 0 des segments suivants : « A1-1 … puis A2-0 ». Ne vaut que
+            // découpé, et quand chaque segment repart de zéro — grisée sinon.
+            _segmentYearZero = new CheckBox { Content = "La première année de chaque segment est l'an 0", IsChecked = system.SegmentYearZero, Margin = new Thickness(0, 6, 0, 0), Tag = "system-segment-year-zero" };
+            first.Children.Add(_segmentYearZero);
+            _example = new TextBlock { Foreground = Chrome.Ink, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), Tag = "system-example" };
             first.Children.Add(_example);
-            var tryRow = new Grid { ColumnDefinitions = new ColumnDefinitions("190,8,*"), Margin = new Thickness(0, 6, 0, 0) };
+            // Le testeur dans son cadre arrondi : ce n'est pas un champ de configuration.
+            var tryBody = new StackPanel();
+            var tryRow = new Grid { ColumnDefinitions = new ColumnDefinitions("180,8,*") };
             tryRow.Children.Add(new TextBlock { Text = "Essayer une date :", Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center });
             _try = new TextBox { Watermark = "écrivez une date pour la vérifier" };
             Grid.SetColumn(_try, 2);
             tryRow.Children.Add(_try);
-            first.Children.Add(tryRow);
-            _tryEcho = new TextBlock { FontSize = 11.5, Margin = new Thickness(198, 3, 0, 0), TextWrapping = TextWrapping.Wrap };
-            first.Children.Add(_tryEcho);
+            tryBody.Children.Add(tryRow);
+            _tryEcho = new TextBlock { FontSize = 11.5, Margin = new Thickness(188, 3, 0, 0), TextWrapping = TextWrapping.Wrap, IsVisible = false };
+            tryBody.Children.Add(_tryEcho);
+            first.Children.Add(new Border
+            {
+                Child = tryBody, Padding = new Thickness(10, 9, 10, 9), Margin = new Thickness(0, 10, 0, 2), CornerRadius = new CornerRadius(8),
+                BorderBrush = Chrome.BorderStrong, BorderThickness = new Thickness(1), Background = Chrome.FieldBg, Tag = "system-try-box"
+            });
             tabs.Items.Add(new TabItem { Header = "Segments et notation", Content = new ScrollViewer { VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, Content = first } });
 
             // ----------------------------------------------------------- calendrier
@@ -705,10 +727,22 @@ namespace Marabook.App
 
             // ------------------------------------------------------ semaine, horloge
             var third = new StackPanel { Margin = new Thickness(4, 10, 4, 4) };
-            third.Children.Add(new TextBlock { Text = "Les jours de la semaine, séparés par des virgules :", Foreground = Chrome.Ink });
-            _weekDays = new TextBox { Text = string.Join(", ", system.WeekDays.ToArray()), Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap, AcceptsReturn = false };
+            third.Children.Add(new TextBlock { Text = "Les jours de la semaine, dans l'ordre :", Foreground = Chrome.Ink });
+            _days.AddRange(system.WeekDays);
+            _dayChips = new WrapPanel { Margin = new Thickness(0, 8, 0, 0), Tag = "system-week-days" };
+            third.Children.Add(_dayChips);
+            _weekDays = new TextBox { Watermark = "Un nom de jour, puis une virgule", Margin = new Thickness(0, 2, 0, 0), AcceptsReturn = false };
+            _weekDays.KeyDown += delegate(object sender, Avalonia.Input.KeyEventArgs e)
+            {
+                if (e.Key == Avalonia.Input.Key.Enter && e.KeyModifiers == Avalonia.Input.KeyModifiers.None && (_weekDays.Text ?? "").Trim().Length > 0)
+                {
+                    e.Handled = true; // sinon Entrée validait toute la fenêtre
+                    _weekDays.Text = _weekDays.Text + ",";
+                }
+            };
             third.Children.Add(_weekDays);
-            third.Children.Add(TimelineUi.Hint("Autant de jours que vous voulez : une semaine de cinq, de dix jours… Vide : pas de semaine."));
+            third.Children.Add(TimelineUi.Hint("Écrivez un nom puis une virgule : le jour devient une pastille. Glissez une pastille pour changer l'ordre, sa croix la retire. Autant de jours que vous voulez ; aucun : pas de semaine."));
+            RebuildDays();
             var clock = new Grid { ColumnDefinitions = new ColumnDefinitions("190,8,90"), RowDefinitions = new RowDefinitions("Auto,Auto"), Margin = new Thickness(0, 14, 0, 0) };
             _hours = new TextBox { Text = system.HoursPerDay.ToString(CultureInfo.InvariantCulture) };
             _minutes = new TextBox { Text = system.MinutesPerHour.ToString(CultureInfo.InvariantCulture) };
@@ -738,12 +772,134 @@ namespace Marabook.App
             _building = false;
             EventHandler<TextChangedEventArgs> changed = delegate { Preview(); };
             foreach (var box in new[] { _word, _yearPattern, _negativePattern, _datePattern, _try, _hours, _minutes, _weekDays }) box.TextChanged += changed;
+            _weekDays.TextChanged += delegate { TakeDays(); };
             _segmented.IsCheckedChanged += delegate { Preview(); };
             _yearZero.IsCheckedChanged += delegate { Preview(); };
+            _segmentYearZero.IsCheckedChanged += delegate { Preview(); };
             _reset.IsCheckedChanged += delegate { Preview(); };
             _cumulative.IsCheckedChanged += delegate { Preview(); };
             Preview();
             Loaded += delegate { Dialogs.FitToScreen(this, owner); _name.Focus(); _name.SelectAll(); };
+        }
+
+        private const string ResetLabel = "Chaque segment repart de zéro";
+        private const string CumulativeLabel = "Années cumulatives entre segments";
+
+        // ------------------------------------------------- les jours en pastilles
+
+        /// <summary>Une virgule dans la zone : ce qui la précède devient une
+        /// pastille (plusieurs d'un coup si l'on colle « lundi, mardi, »).</summary>
+        private void TakeDays()
+        {
+            var text = _weekDays.Text ?? "";
+            var comma = text.LastIndexOf(',');
+            if (comma < 0) return;
+            foreach (var part in text.Substring(0, comma).Split(','))
+                if (part.Trim().Length > 0) _days.Add(part.Trim());
+            _weekDays.Text = text.Substring(comma + 1).TrimStart();
+            RebuildDays();
+            Preview();
+        }
+
+        private void MoveDay(int from, int to)
+        {
+            if (from < 0 || from >= _days.Count) return;
+            to = Math.Max(0, Math.Min(_days.Count - 1, to));
+            if (from == to) return;
+            var day = _days[from];
+            _days.RemoveAt(from);
+            _days.Insert(to, day);
+            RebuildDays();
+            Preview();
+        }
+
+        private void RebuildDays()
+        {
+            _dayChips.Children.Clear();
+            for (var i = 0; i < _days.Count; i++) _dayChips.Children.Add(DayChip(i));
+            _dayChips.IsVisible = _days.Count > 0;
+        }
+
+        /// <summary>La pastille d'un jour : son rang, son nom, sa croix. On la
+        /// glisse sur une autre pour prendre sa place.</summary>
+        private Border DayChip(int index)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(new TextBlock { Text = (index + 1) + ".", FontSize = 11, Foreground = Chrome.AccentStrong, Opacity = 0.6, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center });
+            row.Children.Add(new TextBlock { Text = _days[index], FontSize = 12.5, Foreground = Chrome.AccentStrong, VerticalAlignment = VerticalAlignment.Center });
+            var cross = new TextBlock
+            {
+                Text = "×", FontSize = 14, Foreground = Chrome.AccentStrong, Margin = new Thickness(7, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center, Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+            };
+            row.Children.Add(cross);
+            var chip = new Border
+            {
+                Child = row, Background = Chrome.AccentTint, CornerRadius = new CornerRadius(11), Padding = new Thickness(10, 3, 8, 4),
+                Margin = new Thickness(0, 0, 6, 6), Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeAll), Tag = "system-week-day"
+            };
+            cross.PointerPressed += delegate(object sender, Avalonia.Input.PointerPressedEventArgs e)
+            {
+                if (!e.GetCurrentPoint(cross).Properties.IsLeftButtonPressed) return;
+                e.Handled = true;
+                if (index < _days.Count) _days.RemoveAt(index);
+                RebuildDays();
+                Preview();
+            };
+            var pressed = false;
+            var dragging = false;
+            var origin = new Point();
+            chip.PointerPressed += delegate(object sender, Avalonia.Input.PointerPressedEventArgs e)
+            {
+                if (!e.GetCurrentPoint(chip).Properties.IsLeftButtonPressed) return;
+                pressed = true;
+                dragging = false;
+                origin = e.GetPosition(_dayChips);
+                e.Pointer.Capture(chip);
+                e.Handled = true;
+            };
+            chip.PointerMoved += delegate(object sender, Avalonia.Input.PointerEventArgs e)
+            {
+                if (!pressed) return;
+                var at = e.GetPosition(_dayChips);
+                if (!dragging && Math.Abs(at.X - origin.X) + Math.Abs(at.Y - origin.Y) < 5) return;
+                dragging = true;
+                chip.Opacity = 0.45;
+                // La pastille survolée s'éclaire : c'est là que le jour ira.
+                var target = DayIndexAt(at);
+                for (var i = 0; i < _dayChips.Children.Count; i++)
+                {
+                    var other = _dayChips.Children[i] as Border;
+                    if (other != null && other != chip) other.Background = i == target ? Chrome.Border : Chrome.AccentTint;
+                }
+            };
+            chip.PointerReleased += delegate(object sender, Avalonia.Input.PointerReleasedEventArgs e)
+            {
+                if (!pressed) return;
+                pressed = false;
+                e.Pointer.Capture(null);
+                if (!dragging) return;
+                dragging = false;
+                var target = DayIndexAt(e.GetPosition(_dayChips));
+                if (target < 0 || target == index) { RebuildDays(); return; }
+                MoveDay(index, target);
+            };
+            return chip;
+        }
+
+        /// <summary>La pastille sous ce point de la rangée (la plus proche sur sa ligne), -1 hors de la rangée.</summary>
+        private int DayIndexAt(Point at)
+        {
+            var best = -1;
+            var bestDistance = double.MaxValue;
+            for (var i = 0; i < _dayChips.Children.Count; i++)
+            {
+                var bounds = _dayChips.Children[i].Bounds;
+                if (at.Y < bounds.Top - 3 || at.Y > bounds.Bottom + 3) continue;
+                var distance = at.X < bounds.Left ? bounds.Left - at.X : at.X > bounds.Right ? at.X - bounds.Right : 0;
+                if (distance < bestDistance) { bestDistance = distance; best = i; }
+            }
+            return bestDistance <= 60 ? best : -1;
         }
 
         private static void AddRow(Grid grid, int row, string label, Control field)
@@ -877,6 +1033,7 @@ namespace Marabook.App
             _system.NegativePattern = (_negativePattern.Text ?? "").Trim();
             _system.DatePattern = (_datePattern.Text ?? "").Trim();
             _system.YearZero = _yearZero.IsChecked == true;
+            _system.SegmentYearZero = _segmentYearZero.IsChecked == true;
             for (var i = 0; i < _segments.Children.Count && i < _system.Segments.Count; i++)
             {
                 var row = _segments.Children[i] as Grid;
@@ -906,8 +1063,9 @@ namespace Marabook.App
                 leap.Month = Math.Max(0, ((ComboBox)parts[5]).SelectedIndex);
             }
             _system.WeekDays.Clear();
-            foreach (var day in (_weekDays.Text ?? "").Split(','))
-                if (day.Trim().Length > 0) _system.WeekDays.Add(day.Trim());
+            _system.WeekDays.AddRange(_days);
+            // Un nom écrit sans sa virgule compte aussi : rien ne se perd à l'enregistrement.
+            if ((_weekDays.Text ?? "").Trim().Length > 0) _system.WeekDays.Add(_weekDays.Text.Trim());
             _system.HoursPerDay = Math.Max(1, Math.Min(1000, TimelineUi.ParseInt(_hours.Text, 24)));
             _system.MinutesPerHour = Math.Max(1, Math.Min(1000, TimelineUi.ParseInt(_minutes.Text, 60)));
         }
@@ -927,6 +1085,7 @@ namespace Marabook.App
             if (_building) return;
             Collect();
             _segmentBlock.IsVisible = _system.Segmented;
+            _segmentYearZero.IsEnabled = _system.Segmented && !_system.Cumulative;
             var problem = Problem();
             _problem.Text = problem ?? "";
             _problem.IsVisible = problem != null;
@@ -938,7 +1097,20 @@ namespace Marabook.App
                 leapYears = " · bissextile : " + _system.DaysInYear(sample) + " jours (" + _system.FormatYear(sample) + ")";
             }
             _yearLength.Text = "Une année : " + _system.BaseDays + " jours" + leapYears;
-            if (problem != null && _system.NotationProblem() != null) { _example.Text = ""; _tryEcho.Text = ""; return; }
+            if (problem != null && _system.NotationProblem() != null)
+            {
+                _example.Text = ""; _dateExample.Text = ""; _tryEcho.Text = ""; _tryEcho.IsVisible = false;
+                _reset.Content = ResetLabel; _cumulative.Content = CumulativeLabel;
+                return;
+            }
+            _negativePattern.Watermark = "vide : " + NegativeSample();
+            // Les deux choix se disent dans la notation en cours : « A2-1 suit A1-1000 ».
+            if (_system.HasSegments && _system.Segments.Count > 1)
+            {
+                _reset.Content = ResetLabel + " (" + Boundary(false) + ")";
+                _cumulative.Content = CumulativeLabel + " (" + Boundary(true) + ")";
+            }
+            else { _reset.Content = ResetLabel; _cumulative.Content = CumulativeLabel; }
             TimePoint sampleYear;
             var year0 = _system.TryParse(_system.Example(), out sampleYear) ? sampleYear.Year : 0;
             var parts = new List<string>();
@@ -949,14 +1121,17 @@ namespace Marabook.App
                 parts.Add(_system.FormatYear(boundary - 1) + " puis " + _system.FormatYear(boundary));
             }
             parts.Add(_system.FormatYear(-320));
-            if (_system.Months.Count > 0) parts.Add(_system.Format(new TimePoint(year0, Math.Min(3, _system.Months.Count), 12)));
             _example.Text = "Exemples : " + string.Join("   ·   ", parts.ToArray());
+            var sampleMonth = Math.Min(3, _system.Months.Count);
+            _dateExample.Text = _system.Months.Count == 0 ? ""
+                : "→ " + _system.Format(new TimePoint(year0, sampleMonth, Math.Min(12, _system.DaysInMonth(year0, sampleMonth))));
             var tried = (_try.Text ?? "").Trim();
+            _tryEcho.IsVisible = tried.Length > 0;
             if (tried.Length == 0) { _tryEcho.Text = ""; return; }
             TimePoint point;
             if (_system.TryParse(tried, out point))
             {
-                _tryEcho.Foreground = Chrome.Time;
+                _tryEcho.Foreground = Chrome.Ink;
                 var weekDay = _system.WeekDayOf(point);
                 _tryEcho.Text = "→ " + (_system.HasSegments ? _system.SegmentName(_system.SegmentIndexOf(point.Year)) + " · " : "") + _system.Format(point) + (weekDay != null ? " (" + weekDay + ")" : "");
             }
@@ -965,6 +1140,24 @@ namespace Marabook.App
                 _tryEcho.Foreground = Chrome.Danger;
                 _tryEcho.Text = "Cette date ne se lit pas dans la notation.";
             }
+        }
+
+        /// <summary>Le passage du premier segment au deuxième, lu dans l'un des
+        /// deux modes : « A2-1 suit A1-1000 ».</summary>
+        private string Boundary(bool cumulative)
+        {
+            var probe = _system.Clone();
+            probe.Cumulative = cumulative;
+            var boundary = probe.SegmentStart(1);
+            return probe.FormatYear(boundary) + " suit " + probe.FormatYear(boundary - 1);
+        }
+
+        /// <summary>Une année négative telle qu'elle s'écrit quand sa notation est laissée vide.</summary>
+        private string NegativeSample()
+        {
+            var probe = _system.Clone();
+            probe.NegativePattern = "";
+            return probe.FormatYear(-320);
         }
 
         private void Accept()
@@ -989,6 +1182,26 @@ namespace Marabook.App
         internal string ExampleForProbe { get { return _example.Text ?? ""; } }
         internal void SetCumulativeForProbe(bool on) { _cumulative.IsChecked = on; _reset.IsChecked = !on; }
         internal void SetYearPatternForProbe(string pattern) { _yearPattern.Text = pattern; }
+        internal void ShowTabForProbe(int index)
+        {
+            foreach (var tabs in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(this))
+                if (tabs is TabControl) { ((TabControl)tabs).SelectedIndex = index; return; }
+        }
+        internal string DateExampleForProbe { get { return _dateExample.Text ?? ""; } }
+        internal bool SegmentedForProbe { get { return _segmented.IsChecked == true; } set { _segmented.IsChecked = value; } }
+        internal bool SegmentYearZeroEnabledForProbe { get { return _segmentYearZero.IsEnabled; } }
+        internal void SetSegmentYearZeroForProbe(bool on) { _segmentYearZero.IsChecked = on; }
+        internal string YearPatternForProbe { get { return _yearPattern.Text ?? ""; } }
+        internal string WordForProbe { get { return _word.Text ?? ""; } }
+        internal void TypeDayForProbe(string text) { _weekDays.Text = text; }
+        internal string DaysForProbe { get { return string.Join("|", _days.ToArray()); } }
+        internal int DayChipsForProbe { get { return _dayChips.Children.Count; } }
+        internal void MoveDayForProbe(int from, int to) { MoveDay(from, to); }
+        internal string PendingDayForProbe { get { return _weekDays.Text ?? ""; } }
+        internal bool TryBoxFramedForProbe
+        {
+            get { var box = _try.Parent == null ? null : _try.Parent.Parent == null ? null : _try.Parent.Parent.Parent as Border; return box != null && box.CornerRadius.TopLeft > 0 && box.BorderThickness.Left > 0; }
+        }
         internal void TryForProbe(string text) { _try.Text = text; }
         internal string TryEchoForProbe { get { return _tryEcho.Text ?? ""; } }
         internal bool ProblemShownForProbe { get { return _problem.IsVisible; } }
