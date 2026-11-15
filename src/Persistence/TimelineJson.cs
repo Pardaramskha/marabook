@@ -105,6 +105,21 @@ namespace Marabook.Persistence
                     }
                     o["seasons"] = seasons;
                 }
+                if (!string.IsNullOrEmpty(world.ReferenceSystemId)) o["referenceSystemId"] = world.ReferenceSystemId;
+                if (world.Suns.Count > 0)
+                {
+                    var suns = new List<object>();
+                    foreach (var sun in world.Suns)
+                    {
+                        var u = new Dictionary<string, object>();
+                        u["id"] = sun.Id;
+                        u["name"] = sun.Name ?? "";
+                        if (sun.Period > 0) { u["period"] = sun.Period; u["highAt"] = sun.HighAt; }
+                        if (!string.IsNullOrEmpty(sun.Color)) u["color"] = sun.Color;
+                        suns.Add(u);
+                    }
+                    o["suns"] = suns;
+                }
                 if (world.Moons.Count > 0)
                 {
                     var moons = new List<object>();
@@ -151,6 +166,23 @@ namespace Marabook.Persistence
                         var seasonId = Json.AsString(Json.Field(s, "id"));
                         if (!string.IsNullOrEmpty(seasonId)) season.Id = seasonId;
                         world.Seasons.Add(season);
+                    }
+                var reference = Json.AsString(Json.Field(o, "referenceSystemId"));
+                world.ReferenceSystemId = string.IsNullOrEmpty(reference) ? null : reference;
+                var suns = Json.AsList(Json.Field(o, "suns"));
+                if (suns != null)
+                    foreach (var sunNode in suns)
+                    {
+                        var u = Json.AsObject(sunNode);
+                        if (u == null) continue;
+                        var sun = new Sun
+                        {
+                            Name = Json.AsString(Json.Field(u, "name")) ?? "", Period = Math.Max(0, Json.AsDouble(Json.Field(u, "period"), 0)),
+                            HighAt = Json.AsDouble(Json.Field(u, "highAt"), 0), Color = Json.AsString(Json.Field(u, "color"))
+                        };
+                        var sunId = Json.AsString(Json.Field(u, "id"));
+                        if (!string.IsNullOrEmpty(sunId)) sun.Id = sunId;
+                        world.Suns.Add(sun);
                     }
                 var moons = Json.AsList(Json.Field(o, "moons"));
                 if (moons != null)

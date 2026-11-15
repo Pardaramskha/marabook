@@ -276,6 +276,34 @@ namespace Marabook.App
             }
         }
 
+        /// <summary>Le petit soleil d'un compagnon : un disque plein et ses huit rayons.</summary>
+        private sealed class SunGlyph : Control
+        {
+            private readonly Color _color;
+
+            public SunGlyph(Color color)
+            {
+                _color = color;
+                Width = 13;
+                Height = 13;
+                Margin = new Thickness(3, 0, 0, 0);
+                VerticalAlignment = VerticalAlignment.Center;
+            }
+
+            public override void Render(DrawingContext context)
+            {
+                var center = new Point(6.5, 6.5);
+                var brush = new SolidColorBrush(_color);
+                var pen = new Pen(brush, 1.1);
+                context.DrawEllipse(brush, null, center, 2.8, 2.8);
+                for (var i = 0; i < 8; i++)
+                {
+                    var angle = i * Math.PI / 4;
+                    context.DrawLine(pen, new Point(center.X + Math.Cos(angle) * 4.3, center.Y + Math.Sin(angle) * 4.3), new Point(center.X + Math.Cos(angle) * 6.2, center.Y + Math.Sin(angle) * 6.2));
+                }
+            }
+        }
+
         private bool SameMonths()
         {
             var names = _months.ItemsSource as List<string>;
@@ -301,6 +329,12 @@ namespace Marabook.App
                     var phase = Astro.MainPhaseOn(_world.Moons[i], dayNumber);
                     Color tint;
                     if (phase >= 0 && Color.TryParse(Astro.ColorOf(_world.Moons[i], i), out tint)) moons.Children.Add(new MoonGlyph(tint, phase));
+                }
+                // Un soleil compagnon qui culmine à minuit ce jour-là (15/11) : son disque rayonnant.
+                for (var i = 1; i < _world.Suns.Count; i++)
+                {
+                    Color tint;
+                    if (Astro.SunHighOn(_world.Suns[i], dayNumber) && Color.TryParse(Astro.ColorOf(_world.Suns[i], i), out tint)) moons.Children.Add(new SunGlyph(tint));
                 }
                 if (moons.Children.Count > 0) { DockPanel.SetDock(moons, Dock.Right); top.Children.Add(moons); }
                 var seasonIndex = Astro.SeasonIndexAt(_world, _system, date);
@@ -521,6 +555,26 @@ namespace Marabook.App
                 }
             }
             return phases;
+        }
+        /// <summary>Sonde : le nombre de soleils compagnons dessinés dans la case d'un jour (ils y culminent à minuit).</summary>
+        internal int SunsOfDayForProbe(int day)
+        {
+            var count = 0;
+            var n = 0;
+            foreach (var child in _grid.Children)
+            {
+                var cell = child as Border;
+                if (cell == null || ++n != day) continue;
+                var top = ((StackPanel)cell.Child).Children[0] as DockPanel;
+                if (top == null) continue;
+                foreach (var item in top.Children)
+                {
+                    var sky = item as StackPanel;
+                    if (sky == null) continue;
+                    foreach (var glyph in sky.Children) if (glyph is SunGlyph) count++;
+                }
+            }
+            return count;
         }
         internal bool DayHasSeasonForProbe(int day)
         {

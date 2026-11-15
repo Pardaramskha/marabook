@@ -89,6 +89,27 @@ namespace Marabook.App
             return new TextBlock { Text = text, Foreground = Chrome.SoftText, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
         }
 
+        /// <summary>LE BANDEAU « NOTRE MONDE » (15/11, Rémi) : en tête d'une
+        /// fenêtre de création préremplie, une alerte verte, informative — le
+        /// dessin d'une snackbar (coins ronds, liseré), mais posée là, immobile.</summary>
+        public static Border OurWorldNotice(string text)
+        {
+            var badge = new Border
+            {
+                Width = 18, Height = 18, CornerRadius = new CornerRadius(9), Background = Chrome.Ok, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 10, 0),
+                Child = new TextBlock { Text = "i", Foreground = Brushes.White, FontWeight = FontWeight.Bold, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+            };
+            var row = new DockPanel();
+            DockPanel.SetDock(badge, Dock.Left);
+            row.Children.Add(badge);
+            row.Children.Add(new TextBlock { Text = text, Foreground = Chrome.Ink, FontSize = 12.5, TextWrapping = TextWrapping.Wrap });
+            return new Border
+            {
+                Child = row, Background = new SolidColorBrush(Chrome.Ok.Color, 0.13), BorderBrush = Chrome.Ok, BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 9, 14, 10), Margin = new Thickness(0, 0, 0, 12), Tag = "our-world-notice"
+            };
+        }
+
         public static void Dress(Window window, Window owner, string title)
         {
             window.Title = title;
@@ -571,12 +592,17 @@ namespace Marabook.App
         private readonly Button _distribute;
         private bool _accepted;
         private bool _building;
+        private readonly Border _notice; // le bandeau « notre monde », à la création seulement
+        internal bool NoticeShownForProbe { get { return _notice != null && _notice.IsVisible; } }
+        internal int LeapCountForProbe { get { return _system.Leaps.Count; } }
 
-        /// <summary>Le brouillon d'un système personnalisé : douze mois de trente
-        /// jours, pas de découpage, donc l'année seule : « {a} » (14/11, Rémi) —
-        /// trois âges attendent, prêts, que la case soit cochée ; la notation
-        /// passe alors à « A{s}.{a} » (SegmentedPattern). Une date s'écrit comme
-        /// chez nous : jour/mois/année.</summary>
+        /// <summary>Le brouillon d'un système personnalisé : pas de découpage,
+        /// donc l'année seule : « {a} » (14/11, Rémi) — trois âges attendent,
+        /// prêts, que la case soit cochée ; la notation passe alors à
+        /// « A{s}.{a} » (SegmentedPattern). Une date s'écrit jour/mois/année.
+        /// 15/11 (Rémi) : mois, bissextiles, semaine et horloge sont ceux de
+        /// NOTRE monde (TimeSystem.Gregorian) — un point de départ que chacun
+        /// sait lire, et la symétrie avec notre calendrier en un clic.</summary>
         public static TimeSystem Template(Project project)
         {
             var system = new TimeSystem
@@ -590,8 +616,12 @@ namespace Marabook.App
             system.Segments.Add(new TimeSegment { Name = "Premier âge", Length = 1000 });
             system.Segments.Add(new TimeSegment { Name = "Deuxième âge", Length = 1000 });
             system.Segments.Add(new TimeSegment { Name = "Troisième âge", Length = 0 });
-            for (var i = 1; i <= 12; i++) system.Months.Add(new TimeMonth { Name = "Mois " + i, Days = 30 });
-            system.WeekDays.AddRange(new[] { "premier jour", "deuxième jour", "troisième jour", "quatrième jour", "cinquième jour", "sixième jour", "septième jour" });
+            var ours = TimeSystem.Gregorian().Clone();
+            system.Months.AddRange(ours.Months);
+            system.Leaps.AddRange(ours.Leaps);
+            system.WeekDays.AddRange(ours.WeekDays);
+            system.HoursPerDay = ours.HoursPerDay;
+            system.MinutesPerHour = ours.MinutesPerHour;
             return system;
         }
 
@@ -619,6 +649,11 @@ namespace Marabook.App
             CanResize = false;
 
             var root = new StackPanel { Margin = new Thickness(18, 14, 18, 14) };
+            if (creating)
+            {
+                _notice = TimelineUi.OurWorldNotice("Les données préremplies sont celles de notre monde : ses mois, ses années bissextiles, sa semaine et son horloge. Gardez ce qui vous convient, changez le reste.");
+                root.Children.Add(_notice);
+            }
             root.Children.Add(TimelineUi.Label("Nom du système :", 0));
             _name = new TextBox { Text = system.Name };
             root.Children.Add(_name);

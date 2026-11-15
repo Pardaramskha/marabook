@@ -34,6 +34,21 @@ namespace Marabook.Model
         public string Color;
     }
 
+    /// <summary>Un soleil (15/11, Rémi : des systèmes planétaires autres que le
+    /// nôtre). Le PREMIER soleil d'un monde fait le jour et les saisons ; les
+    /// suivants sont ses compagnons. Un compagnon sans période partage le ciel
+    /// de jour du premier (deux soleils serrés) ; avec une période (en jours),
+    /// il fait le tour du ciel : au plus haut à minuit le jour HighAt — la nuit
+    /// reste claire —, puis de retour auprès du premier une demi-période plus tard.</summary>
+    public class Sun
+    {
+        public string Id = Guid.NewGuid().ToString("N");
+        public string Name = "";
+        public double Period;   // jours ; 0 = suit le premier soleil
+        public double HighAt;   // le numéro d'un jour où il culmine à minuit
+        public string Color;
+    }
+
     public class World
     {
         public string Id = Guid.NewGuid().ToString("N");
@@ -43,27 +58,36 @@ namespace Marabook.Model
         public double SolarYear;       // la durée réelle de l'année, en jours ; 0 = celle du calendrier (aucune dérive)
         public List<Season> Seasons = new List<Season>();
         public List<Moon> Moons = new List<Moon>();
+        // Les soleils (15/11) ; vide = un soleil dont on ne dit rien (les mondes d'avant).
+        public List<Sun> Suns = new List<Sun>();
+        // Le calendrier dans lequel la fenêtre du monde compte les jours et écrit
+        // les dates (15/11) ; null = le premier calendrier du monde.
+        public string ReferenceSystemId;
 
         public bool HasSize { get { return Circumference > 0; } }
         public bool HasTilt { get { return AxialTilt >= 0; } }
 
         public World Clone()
         {
-            var copy = new World { Id = Id, Name = Name, Circumference = Circumference, AxialTilt = AxialTilt, SolarYear = SolarYear };
+            var copy = new World { Id = Id, Name = Name, Circumference = Circumference, AxialTilt = AxialTilt, SolarYear = SolarYear, ReferenceSystemId = ReferenceSystemId };
+            foreach (var sun in Suns) copy.Suns.Add(new Sun { Id = sun.Id, Name = sun.Name, Period = sun.Period, HighAt = sun.HighAt, Color = sun.Color });
             foreach (var season in Seasons) copy.Seasons.Add(new Season { Id = season.Id, Name = season.Name, StartDay = season.StartDay, Color = season.Color });
             foreach (var moon in Moons) copy.Moons.Add(new Moon { Id = moon.Id, Name = moon.Name, Period = moon.Period, FullAt = moon.FullAt, Color = moon.Color });
             return copy;
         }
 
-        /// <summary>Notre monde, pour partir de quelque chose : la Terre, ses quatre saisons, la Lune.</summary>
+        /// <summary>Notre monde, pour partir de quelque chose : la Terre, ses
+        /// quatre saisons, le Soleil, la Lune. C'est aussi le brouillon de tout
+        /// monde neuf (15/11, Rémi) : des valeurs qu'on sait mesurer, à changer.</summary>
         public static World Earth()
         {
-            var world = new World { Name = "Notre monde", Circumference = 40075, AxialTilt = 23.44, SolarYear = 365.2422 };
-            // Les saisons de l'hémisphère nord, au jour de l'année (21 décembre = jour 355).
-            world.Seasons.Add(new Season { Name = "Hiver", StartDay = 355 });
+            var world = new World { Name = "Notre monde", Circumference = Astro.EarthCircumference, AxialTilt = 23.44, SolarYear = 365.2422 };
+            // Les saisons de l'hémisphère nord, au jour de l'année (20 mars = jour 79, 21 décembre = jour 355).
             world.Seasons.Add(new Season { Name = "Printemps", StartDay = 79 });
             world.Seasons.Add(new Season { Name = "Été", StartDay = 172 });
             world.Seasons.Add(new Season { Name = "Automne", StartDay = 266 });
+            world.Seasons.Add(new Season { Name = "Hiver", StartDay = 355 });
+            world.Suns.Add(new Sun { Name = "Soleil" });
             world.Moons.Add(new Moon { Name = "Lune", Period = 29.530588, FullAt = 0 });
             return world;
         }
@@ -100,6 +124,16 @@ namespace Marabook.Model
         public static string ColorOf(Moon moon, int index)
         {
             return string.IsNullOrEmpty(moon.Color) ? MoonColors[Math.Abs(index) % MoonColors.Length] : moon.Color;
+        }
+
+        public static readonly string[] SunColors = { "#E0A526", "#D9603A", "#5B9BD5", "#B86FC2" };
+
+        /// <summary>La circonférence de la Terre à l'équateur, en kilomètres.</summary>
+        public const double EarthCircumference = 40075;
+
+        public static string ColorOf(Sun sun, int index)
+        {
+            return string.IsNullOrEmpty(sun.Color) ? SunColors[Math.Abs(index) % SunColors.Length] : sun.Color;
         }
 
         private static double Mod(double a, double b)
@@ -184,14 +218,76 @@ namespace Marabook.Model
             return Math.Abs(DriftPerYear(world, system) * years);
         }
 
-        /// <summary>Quatre saisons égales, pour partir de quelque chose.</summary>
-        public static List<Season> FourSeasons(int daysInYear)
+        /// <summary>Quatre saisons égales, pour partir de quelque chose : la
+        /// première commence le jour firstDay, les suivantes un quart d'année
+        /// plus loin chacune (en repassant par le début de l'année au besoin).</summary>
+        public static List<Season> FourSeasons(int daysInYear, int firstDay = 1)
         {
             var names = new[] { "Printemps", "Été", "Automne", "Hiver" };
+            var year = Math.Max(4, daysInYear);
             var seasons = new List<Season>();
             for (var i = 0; i < 4; i++)
-                seasons.Add(new Season { Name = names[i], StartDay = 1 + (int)Math.Round(i * Math.Max(4, daysInYear) / 4.0) });
+                seasons.Add(new Season { Name = names[i], StartDay = 1 + (int)Mod(Math.Max(1, firstDay) - 1 + (int)Math.Round(i * year / 4.0), year) });
             return seasons;
+        }
+
+        /// <summary>Le jour où commence NOTRE printemps (le 20 mars, jour 79 sur
+        /// 365), rapporté à une année de cette longueur : le 78 d'une année de 360 jours.</summary>
+        public static int SpringDay(int daysInYear)
+        {
+            var year = Math.Max(4, daysInYear);
+            return 1 + (int)Mod(Math.Round(78 / 365.0 * year), year);
+        }
+
+        // ---------------------------------------------------------------- soleils
+
+        /// <summary>Les compagnons du premier soleil qui font le tour du ciel (ceux qui ont une période).</summary>
+        public static List<Sun> Wanderers(World world)
+        {
+            var suns = new List<Sun>();
+            if (world == null) return suns;
+            for (var i = 1; i < world.Suns.Count; i++) if (world.Suns[i].Period > 0) suns.Add(world.Suns[i]);
+            return suns;
+        }
+
+        /// <summary>Où en est un soleil compagnon : 0 = au plus haut à minuit (à
+        /// l'opposé du premier soleil), 0,5 = auprès de lui, dans le ciel de jour.</summary>
+        public static double SunPhase(Sun sun, double day)
+        {
+            var period = Math.Max(0.01, sun.Period);
+            return Mod(day - sun.HighAt, period) / period;
+        }
+
+        /// <summary>La part de la nuit qu'un compagnon éclaire : 1 quand il
+        /// culmine à minuit, 0 quand il accompagne le premier soleil.</summary>
+        public static double NightShare(double phase)
+        {
+            var p = Mod(phase, 1);
+            return 1 - 2 * Math.Min(p, 1 - p);
+        }
+
+        /// <summary>Ce que le compagnon fait du ciel : « nuits claires » autour
+        /// de minuit, puis « soleil du soir » (il se couche de plus en plus tôt),
+        /// « de jour » auprès du premier soleil, « soleil du matin » avant de revenir.</summary>
+        public static string SunStateName(double phase)
+        {
+            var names = new[] { "nuits claires", "soleil du soir", "de jour", "soleil du matin" };
+            return names[(int)Math.Floor(Mod(phase + 1.0 / 8, 1) * 4) % 4];
+        }
+
+        /// <summary>Vrai le jour où ce compagnon culmine à minuit.</summary>
+        public static bool SunHighOn(Sun sun, long dayNumber)
+        {
+            if (sun == null || sun.Period <= 0) return false;
+            return Math.Floor((dayNumber + 1 - sun.HighAt) / sun.Period - 1e-9) > Math.Floor((dayNumber - sun.HighAt) / sun.Period - 1e-9);
+        }
+
+        /// <summary>Le prochain jour où ce compagnon culmine à minuit, ce jour compris.</summary>
+        public static long NextHigh(Sun sun, long dayNumber)
+        {
+            var period = Math.Max(0.01, sun.Period);
+            var k = Math.Ceiling((dayNumber - sun.HighAt) / period - 1e-9);
+            return (long)Math.Floor(sun.HighAt + k * period + 1e-9);
         }
 
         // ------------------------------------------------------------------ lunes
@@ -276,6 +372,14 @@ namespace Marabook.Model
 
         // ----------------------------------------------------------------- taille
 
+        /// <summary>Le calculateur de circonférence (15/11, Rémi) : tant de fois
+        /// la Terre — 1,2 donne 48 090 km. Zéro pour un facteur qui n'en est pas un.</summary>
+        public static double ScaledCircumference(double factor)
+        {
+            if (double.IsNaN(factor) || double.IsInfinity(factor) || factor <= 0) return 0;
+            return Math.Round(EarthCircumference * factor);
+        }
+
         public static double Radius(World world) { return world.Circumference / (2 * Math.PI); }
         public static double Surface(World world) { var r = Radius(world); return 4 * Math.PI * r * r; }
 
@@ -354,6 +458,7 @@ namespace Marabook.Model
             var parts = new List<string>();
             if (world.HasSize) parts.Add(Number(world.Circumference, 0) + " km de tour");
             if (world.Seasons.Count > 0) parts.Add(TimeSystem.Count(world.Seasons.Count, "saison", "saisons"));
+            if (world.Suns.Count > 1) parts.Add(world.Suns.Count + " soleils"); // un seul soleil va sans dire
             if (world.Moons.Count > 0) parts.Add(TimeSystem.Count(world.Moons.Count, "lune", "lunes"));
             return parts.Count == 0 ? "Rien de renseigné pour l'instant." : string.Join(" · ", parts.ToArray());
         }
@@ -373,6 +478,8 @@ namespace Marabook.Model
             if (point.HasDay)
             {
                 var day = system.DayNumber(point);
+                foreach (var sun in Wanderers(world))
+                    parts.Add((string.IsNullOrEmpty(sun.Name) ? "Second soleil" : sun.Name) + " : " + SunStateName(SunPhase(sun, day + 0.5)));
                 foreach (var moon in world.Moons)
                 {
                     var main = MainPhaseOn(moon, day);

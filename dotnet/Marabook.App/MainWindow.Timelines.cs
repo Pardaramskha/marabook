@@ -111,11 +111,13 @@ namespace Marabook.App
             ApplyWorld(creating ? null : world, choice);
         }
 
-        /// <summary>Le brouillon d'un monde : nommé, vide — et, s'il est le premier
-        /// d'un projet sans autre monde, déjà lié au système de la frise ouverte.</summary>
+        /// <summary>Le brouillon d'un monde : nommé, et prérempli des données du
+        /// NÔTRE (15/11, Rémi) — taille, inclinaison, année, saisons, Soleil, Lune :
+        /// des valeurs qu'on sait mesurer, à garder ou à changer.</summary>
         private World NewWorldDraft()
         {
-            var draft = new World { Name = "Nouveau monde" };
+            var draft = World.Earth();
+            draft.Name = "Nouveau monde";
             var number = 2;
             while (_project.Worlds.Exists(delegate(World w) { return w.Name == draft.Name; })) draft.Name = "Nouveau monde " + number++;
             return draft;

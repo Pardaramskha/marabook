@@ -22,6 +22,87 @@ namespace Marabook.Tests
             Size(t);
             Lifecycle(t);
             Rail(t);
+            t.Suite("C69 — mondes : notre monde en brouillon, calculateur de circonférence, soleils, calendrier de référence");
+            OurWorld(t);
+            Suns(t);
+        }
+
+        /// <summary>15/11 : un monde neuf part des données du nôtre ; le
+        /// calculateur de circonférence ; les quatre saisons égales calées sur
+        /// notre printemps.</summary>
+        private static void OurWorld(Harness t)
+        {
+            var earth = World.Earth();
+            t.Check(earth.Circumference == 40075 && earth.AxialTilt == 23.44 && earth.SolarYear == 365.2422, "notre monde : 40 075 km, 23,44°, 365,2422 jours");
+            t.Check(earth.Seasons.Count == 4 && earth.Seasons[0].Name == "Printemps" && earth.Seasons[0].StartDay == 79 && earth.Seasons[1].StartDay == 172 && earth.Seasons[2].StartDay == 266 && earth.Seasons[3].Name == "Hiver" && earth.Seasons[3].StartDay == 355,
+                "…ses saisons dans l'ordre de l'année : printemps le jour 79, été 172, automne 266, hiver 355");
+            t.Check(earth.Suns.Count == 1 && earth.Suns[0].Name == "Soleil" && earth.Moons.Count == 1 && earth.Moons[0].Name == "Lune", "…un Soleil, une Lune");
+
+            t.Check(Astro.ScaledCircumference(1) == 40075 && Astro.ScaledCircumference(1.2) == 48090 && Astro.ScaledCircumference(0.5) == 20038, "le calculateur : 1 × la Terre = 40 075 km, 1,2 × = 48 090 km, 0,5 × = 20 038 km (" + Astro.ScaledCircumference(0.5) + ")");
+            t.Check(Astro.ScaledCircumference(0) == 0 && Astro.ScaledCircumference(-2) == 0 && Astro.ScaledCircumference(double.NaN) == 0, "…zéro, un négatif, un non-nombre : rien");
+
+            t.Check(Astro.SpringDay(365) == 79 && Astro.SpringDay(360) == 78 && Astro.SpringDay(4) >= 1 && Astro.SpringDay(4) <= 4, "notre printemps rapporté à l'année : jour 79 sur 365, jour 78 sur 360");
+            var ours = Astro.FourSeasons(365, Astro.SpringDay(365));
+            t.Check(ours[0].Name == "Printemps" && ours[0].StartDay == 79 && ours[1].StartDay == 170 && ours[2].StartDay == 261 && ours[3].StartDay == 353,
+                "quatre saisons égales calées sur notre printemps : jours 79, 170, 261, 353 (" + ours[1].StartDay + ", " + ours[2].StartDay + ", " + ours[3].StartDay + ")");
+            var wrapped = Astro.FourSeasons(360, 300);
+            t.Check(wrapped[0].StartDay == 300 && wrapped[1].StartDay == 30 && wrapped[2].StartDay == 120 && wrapped[3].StartDay == 210, "une première saison tardive : les suivantes repassent par le début de l'année (300, 30, 120, 210)");
+            // Calées sur le printemps, la saison de janvier est la dernière de la liste.
+            var calendar = TimeSystem.Gregorian();
+            var world = new World();
+            world.Seasons.AddRange(ours);
+            t.Equal("Hiver", Astro.SeasonAt(world, calendar, At(calendar, "15 janvier 2026")).Name, "…et la mi-janvier reste en hiver");
+        }
+
+        /// <summary>15/11 : d'autres systèmes planétaires — le premier soleil
+        /// fait le jour, ses compagnons partagent son ciel ou font le tour du leur.</summary>
+        private static void Suns(Harness t)
+        {
+            var sun = new Sun { Name = "Brasier", Period = 400, HighAt = 100 };
+            t.Check(Near(Astro.SunPhase(sun, 100), 0, 1e-9) && Near(Astro.SunPhase(sun, 300), 0.5, 1e-9) && Near(Astro.SunPhase(sun, -100), 0.5, 1e-9), "un compagnon : 0 quand il culmine à minuit, 0,5 auprès du premier soleil — avant la référence aussi");
+            t.Check(Near(Astro.NightShare(0), 1, 1e-9) && Near(Astro.NightShare(0.5), 0, 1e-9) && Near(Astro.NightShare(0.25), 0.5, 1e-9) && Near(Astro.NightShare(0.75), 0.5, 1e-9), "la part de nuit éclairée : toute, aucune, la moitié");
+            t.Equal("nuits claires", Astro.SunStateName(0), "à minuit : nuits claires");
+            t.Equal("nuits claires", Astro.SunStateName(0.95), "…un peu avant aussi");
+            t.Equal("soleil du soir", Astro.SunStateName(0.25), "un quart de tour plus tard : soleil du soir");
+            t.Equal("de jour", Astro.SunStateName(0.5), "à mi-tour : de jour, auprès du premier");
+            t.Equal("soleil du matin", Astro.SunStateName(0.75), "puis soleil du matin");
+            t.Check(Astro.SunHighOn(sun, 100) && !Astro.SunHighOn(sun, 101) && !Astro.SunHighOn(sun, 99) && Astro.SunHighOn(sun, 500) && Astro.SunHighOn(sun, -300), "il culmine à minuit le jour 100, puis tous les 400 jours");
+            t.Check(!Astro.SunHighOn(new Sun { HighAt = 100 }, 100) && !Astro.SunHighOn(null, 100), "un compagnon sans période ne culmine jamais seul");
+            t.Check(Astro.NextHigh(sun, 100) == 100 && Astro.NextHigh(sun, 101) == 500 && Astro.NextHigh(sun, -500) == -300, "le prochain minuit clair, ce jour compris");
+
+            var project = Project.CreateNew();
+            var timeline = TimelineSamples.Seed(project);
+            project.RelinkParents();
+            var tides = Timelines.SystemOf(project, timeline);
+            var start = tides.DayNumber(At(tides, "1 Aubemer E3.1"));
+            var world = new World { Name = "Deux soleils", ReferenceSystemId = tides.Id };
+            world.Suns.Add(new Sun { Name = "Hélios" });
+            world.Suns.Add(new Sun { Name = "Jumeau" });
+            world.Suns.Add(new Sun { Name = "Brasier", Period = 360, HighAt = start, Color = "#D9603A" });
+            project.Worlds.Add(world);
+            tides.WorldId = world.Id;
+            t.Check(Astro.Wanderers(world).Count == 1 && Astro.Wanderers(world)[0].Name == "Brasier" && Astro.Wanderers(null).Count == 0, "seuls les compagnons à période font le tour du ciel");
+            t.Equal("3 soleils", Astro.Summary(world), "un monde à plusieurs soleils le dit");
+            t.Check(!Astro.Summary(World.Earth()).Contains("soleil"), "…un seul soleil va sans dire");
+            t.Equal("Brasier : nuits claires", Astro.DayLabel(project, tides, At(tides, "1 Aubemer E3.1")), "le ciel d'un jour dit où en est le compagnon");
+            t.Equal("Brasier : de jour", Astro.DayLabel(project, tides, TimeMath.FromDayNumber(tides, start + 180)), "…une demi-période plus tard, il accompagne le premier soleil");
+            t.Check(Astro.ColorOf(world.Suns[2], 2) == "#D9603A" && Astro.ColorOf(world.Suns[0], 0) == Astro.SunColors[0], "un soleil a la teinte de son rang, sauf couleur choisie");
+
+            var dir = Path.Combine(Path.GetTempPath(), "marabook-c69-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var path = Path.Combine(dir, "soleils.plot");
+                PlotFile.Save(project, path);
+                var back = PlotFile.Load(path).Worlds[0];
+                t.Check(back.Suns.Count == 3 && back.Suns[0].Name == "Hélios" && back.Suns[1].Period == 0 && back.Suns[2].Id == world.Suns[2].Id && back.Suns[2].Period == 360 && back.Suns[2].HighAt == start && back.Suns[2].Color == "#D9603A",
+                    "le .plot rend les soleils : nom, période, minuit clair, couleur");
+                t.Check(back.ReferenceSystemId == tides.Id, "…et le calendrier de référence du monde");
+            }
+            finally { try { Directory.Delete(dir, true); } catch (Exception) { } }
+            var copy = world.Clone();
+            t.Check(copy.Suns.Count == 3 && copy.Suns[2].HighAt == start && !ReferenceEquals(copy.Suns[2], world.Suns[2]) && copy.ReferenceSystemId == tides.Id, "le clone recopie les soleils et la référence");
+            t.Check(TimelineJson.ReadWorlds(TimelineJson.BuildWorlds(new List<World> { new World() }))[0].Suns.Count == 0, "un monde d'avant, sans soleils : rien d'écrit, rien de lu");
         }
 
         private static TimePoint At(TimeSystem system, string notation)
