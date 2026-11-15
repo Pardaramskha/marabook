@@ -51,10 +51,10 @@ namespace Marabook.App
             // ---- la barre de navigation
             var bar = new DockPanel { Margin = new Thickness(16, 10, 16, 2) };
             var jumps = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
-            _previous = Buttons.Text("◂ Événement précédent", null, Buttons.Compact, Buttons.Look.Outline);
+            _previous = Buttons.Text("◂ Précédent", "Événement précédent", Buttons.Compact, Buttons.Look.Outline);
             _previous.Tag = "calendar-previous-event";
             _previous.Click += delegate { Jump(-1); };
-            _next = Buttons.Text("Événement suivant ▸", null, Buttons.Compact, Buttons.Look.Outline);
+            _next = Buttons.Text("Suivant ▸", "Événement suivant", Buttons.Compact, Buttons.Look.Outline);
             _next.Tag = "calendar-next-event";
             _next.Click += delegate { Jump(1); };
             jumps.Children.Add(_previous);
@@ -62,21 +62,60 @@ namespace Marabook.App
             DockPanel.SetDock(jumps, Dock.Right);
             bar.Children.Add(jumps);
             var nav = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+            // L'ANNÉE EN DAMIERS (16/11, Rémi) : l'icône du mode Calendrier, à gauche du
+            // sélecteur de mois, bascule entre le mois en grandes cases et l'année entière.
+            _yearToggle = Buttons.IconToggle("fiche-evenement", "Toute l'année : un damier par mois", Buttons.Compact, Buttons.Look.Outline);
+            _yearToggle.Tag = "calendar-year-mode";
+            _yearToggle.Margin = new Thickness(0, 0, 6, 0);
+            _yearToggle.IsCheckedChanged += delegate { if (_filling) return; _yearMode = _yearToggle.IsChecked == true; Rebuild(); };
+            nav.Children.Add(_yearToggle);
             nav.Children.Add(Step("«", "Année précédente", delegate { Show(Year - 1, Month); }));
-            nav.Children.Add(Step("‹", "Mois précédent", delegate { ShiftMonth(-1); }));
+            _previousMonth = Step("‹", "Mois précédent", delegate { ShiftMonth(-1); });
+            nav.Children.Add(_previousMonth);
             _months = new ComboBox { MinWidth = 150, Margin = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center, Tag = "calendar-months" };
-            _months.SelectionChanged += delegate { if (!_filling && _months.SelectedIndex >= 0) Show(Year, _months.SelectedIndex + 1); };
+            _months.SelectionChanged += delegate
+            {
+                if (_filling || _months.SelectedIndex < 0) return;
+                LeaveYearMode(); // choisir un mois depuis l'année y mène
+                Show(Year, _months.SelectedIndex + 1);
+            };
             nav.Children.Add(_months);
-            nav.Children.Add(Step("›", "Mois suivant", delegate { ShiftMonth(1); }));
+            _nextMonth = Step("›", "Mois suivant", delegate { ShiftMonth(1); });
+            nav.Children.Add(_nextMonth);
             nav.Children.Add(Step("»", "Année suivante", delegate { Show(Year + 1, Month); }));
+            // Le titre : « Aubemer (1) · » puis l'année, qui se clique et se réécrit (16/11, Rémi).
             _title = new TextBlock { Foreground = Chrome.Ink, FontSize = 17, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0), Tag = "calendar-title" };
+            _yearLabel = new TextBlock { Foreground = Chrome.Ink, FontSize = 17, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            _yearButton = new Border
+            {
+                Child = _yearLabel, Padding = new Thickness(5, 1, 5, 2), CornerRadius = new CornerRadius(5), Background = Brushes.Transparent,
+                BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1), Cursor = new Cursor(StandardCursorType.Hand), VerticalAlignment = VerticalAlignment.Center, Tag = "calendar-year"
+            };
+            ToolTip.SetTip(_yearButton, "Changer d'année");
+            _yearButton.PointerEntered += delegate { _yearButton.Background = Chrome.FieldBg; _yearButton.BorderBrush = Chrome.BorderStrong; };
+            _yearButton.PointerExited += delegate { _yearButton.Background = Brushes.Transparent; _yearButton.BorderBrush = Brushes.Transparent; };
+            _yearButton.PointerPressed += delegate(object sender, PointerPressedEventArgs e) { e.Handled = true; BeginYearEdit(); };
+            _yearBox = new TextBox { MinWidth = 110, FontSize = 15, VerticalAlignment = VerticalAlignment.Center, IsVisible = false, Tag = "calendar-year-box" };
+            _yearBox.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key == Avalonia.Input.Key.Enter) { e.Handled = true; CommitYear(false); }
+                else if (e.Key == Avalonia.Input.Key.Escape) { e.Handled = true; EndYearEdit(); }
+            };
+            _yearBox.LostFocus += delegate { CommitYear(true); };
             // Le segment et la longueur du mois : sous la barre (à côté du titre, ils passaient sous les boutons d'une page étroite).
-            _subtitle = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(18, 0, 16, 8), TextTrimming = TextTrimming.CharacterEllipsis };
+            _subtitle = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            // Les saisons du mois, chacune avec la pastille de sa couleur — celle du liseré des cases (16/11, Rémi).
+            _seasonLegend = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Tag = "calendar-seasons" };
+            var under = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(18, 0, 16, 8) };
+            under.Children.Add(_subtitle);
+            under.Children.Add(_seasonLegend);
             nav.Children.Add(_title);
+            nav.Children.Add(_yearButton);
+            nav.Children.Add(_yearBox);
             bar.Children.Add(nav);
             var top = new StackPanel();
             top.Children.Add(bar);
-            top.Children.Add(_subtitle);
+            top.Children.Add(under);
             SetDock(top, Dock.Top);
             Children.Add(top);
 
@@ -93,7 +132,69 @@ namespace Marabook.App
 
             // ---- le mois
             _grid = new Grid { Margin = new Thickness(14, 0, 10, 12) };
-            Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = _grid });
+            // ---- l'année : un petit damier par mois
+            _yearPanel = new WrapPanel { Margin = new Thickness(10, 0, 6, 12), IsVisible = false, Tag = "calendar-year-grid" };
+            var surface = new Panel();
+            surface.Children.Add(_grid);
+            surface.Children.Add(_yearPanel);
+            Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = surface });
+        }
+
+        private readonly ToggleButton _yearToggle;
+        private readonly Button _previousMonth, _nextMonth;
+        private readonly TextBlock _yearLabel;
+        private readonly Border _yearButton;
+        private readonly TextBox _yearBox;
+        private readonly StackPanel _seasonLegend;
+        private readonly WrapPanel _yearPanel;
+        private readonly List<string> _seasonNames = new List<string>(); // la légende, pour la sonde
+        private bool _yearMode;
+
+        private void LeaveYearMode()
+        {
+            if (!_yearMode) return;
+            _yearMode = false;
+            var was = _filling;
+            _filling = true;
+            _yearToggle.IsChecked = false;
+            _filling = was;
+        }
+
+        // ------------------------------------------------------- l'année réécrite
+
+        private void BeginYearEdit()
+        {
+            if (_system == null) return;
+            _yearBox.Text = _system.FormatYear(Year);
+            _yearBox.Foreground = Chrome.Ink;
+            _yearButton.IsVisible = false;
+            _yearBox.IsVisible = true;
+            _yearBox.Focus();
+            _yearBox.SelectAll();
+        }
+
+        private void EndYearEdit()
+        {
+            if (!_yearBox.IsVisible) return;
+            _yearBox.IsVisible = false;
+            _yearButton.IsVisible = true;
+        }
+
+        /// <summary>Lit l'année écrite (dans la notation du calendrier ; une date
+        /// entière mène aussi à son mois) et y va. Illisible : le champ rougit et
+        /// attend — sauf si l'on en sort (leaving), où l'année d'avant reste.</summary>
+        private void CommitYear(bool leaving)
+        {
+            if (!_yearBox.IsVisible || _system == null) return;
+            var text = (_yearBox.Text ?? "").Trim();
+            TimePoint point;
+            if (text.Length > 0 && _system.TryParse(text, out point))
+            {
+                EndYearEdit();
+                Show(point.Year, point.HasMonth && !_yearMode ? point.Month : Month);
+            }
+            else if (leaving || text.Length == 0) EndYearEdit();
+            else _yearBox.Foreground = Chrome.Danger;
         }
 
         private static Button Step(string glyph, string tip, Action click)
@@ -183,14 +284,35 @@ namespace Marabook.App
             }
             _months.SelectedIndex = Month - 1;
             _filling = false;
-            _title.Text = (_system.Months.Count > 0 ? _system.Months[Month - 1].Name + " · " : "") + _system.FormatYear(Year);
+            // Le mois, son numéro entre parenthèses, puis l'année ; en vue d'année, l'année seule.
+            _title.Text = _system.Months.Count > 0 ? _system.Months[Month - 1].Name + " (" + Month + ") · " : "";
+            _title.IsVisible = !_yearMode && _system.Months.Count > 0;
+            _yearLabel.Text = _system.FormatYear(Year);
+            _yearButton.Margin = new Thickness(_title.IsVisible ? 0 : 9, 0, 0, 0);
+            EndYearEdit();
+            _previousMonth.IsVisible = !_yearMode;
+            _nextMonth.IsVisible = !_yearMode;
+            _grid.IsVisible = !_yearMode;
+            _yearPanel.IsVisible = _yearMode;
             _world = World == null ? null : World();
+            var yearDays = 0;
+            for (var m = 1; m <= MonthCount; m++) yearDays += Math.Max(1, _system.DaysInMonth(Year, m));
             _subtitle.Text = (_system.HasSegments && Year >= 0 ? _system.SegmentName(_system.SegmentIndexOf(Year)) + " · " : "")
-                + TimeSystem.Count(_system.DaysInMonth(Year, Month), "jour", "jours") + SeasonsOfMonth();
+                + (_yearMode ? TimeSystem.Count(MonthCount, "mois", "mois") + ", " + TimeSystem.Count(yearDays, "jour", "jours") : TimeSystem.Count(_system.DaysInMonth(Year, Month), "jour", "jours"));
+            RebuildSeasonLegend();
             long ignoredYear;
             int ignoredMonth;
             _previous.IsEnabled = Neighbour(-1, out ignoredYear, out ignoredMonth);
             _next.IsEnabled = Neighbour(1, out ignoredYear, out ignoredMonth);
+
+            _yearPanel.Children.Clear();
+            if (_yearMode)
+            {
+                _grid.Children.Clear();
+                RebuildYear(events);
+                RebuildOrphans(events, selected);
+                return;
+            }
 
             // — Les cases : une colonne par jour de la semaine (sept sans semaine).
             var week = _system.WeekDays.Count;
@@ -230,18 +352,141 @@ namespace Marabook.App
 
         private World _world;
 
-        /// <summary>Les saisons du mois affiché : « · Hiver », ou « · Hiver → Printemps » s'il en change.</summary>
-        private string SeasonsOfMonth()
+        /// <summary>Les saisons du mois affiché, dans l'ordre où il les traverse
+        /// (leur index dans le monde) ; en vue d'année, celles de toute l'année.</summary>
+        private List<int> SeasonsShown()
         {
-            if (_world == null || _world.Seasons.Count == 0) return "";
-            var names = new List<string>();
-            var days = Math.Max(1, _system.DaysInMonth(Year, Month));
-            for (var day = 1; day <= days; day++)
+            var indexes = new List<int>();
+            if (_world == null || _world.Seasons.Count == 0) return indexes;
+            for (var month = _yearMode ? 1 : Month; month <= (_yearMode ? MonthCount : Month); month++)
             {
-                var season = Astro.SeasonAt(_world, _system, new TimePoint(Year, Month, day));
-                if (season != null && (names.Count == 0 || names[names.Count - 1] != season.Name)) names.Add(season.Name);
+                var days = Math.Max(1, _system.DaysInMonth(Year, month));
+                for (var day = 1; day <= days; day++)
+                {
+                    var index = Astro.SeasonIndexAt(_world, _system, new TimePoint(Year, month, day));
+                    if (index >= 0 && (indexes.Count == 0 || indexes[indexes.Count - 1] != index)) indexes.Add(index);
+                }
             }
-            return names.Count == 0 ? "" : " · " + string.Join(" → ", names.ToArray());
+            return indexes;
+        }
+
+        /// <summary>La légende des saisons, à la suite du sous-titre : pour
+        /// chacune, la pastille de sa couleur (celle du liseré des cases) et son
+        /// nom ; une flèche de l'une à l'autre quand le mois en change.</summary>
+        private void RebuildSeasonLegend()
+        {
+            _seasonLegend.Children.Clear();
+            _seasonNames.Clear();
+            var indexes = SeasonsShown();
+            for (var i = 0; i < indexes.Count; i++)
+            {
+                var season = _world.Seasons[indexes[i]];
+                _seasonLegend.Children.Add(new TextBlock { Text = i == 0 ? "  ·  " : "  →  ", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
+                Color tint;
+                if (Color.TryParse(Astro.ColorOf(season, indexes[i]), out tint))
+                    _seasonLegend.Children.Add(new Border { Width = 10, Height = 10, CornerRadius = new CornerRadius(5), Background = new SolidColorBrush(tint), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 1, 5, 0), Tag = "calendar-season-dot" });
+                var name = string.IsNullOrEmpty(season.Name) ? "Saison " + (indexes[i] + 1) : season.Name;
+                _seasonNames.Add(name);
+                _seasonLegend.Children.Add(new TextBlock { Text = name, Foreground = Chrome.Ink, FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
+            }
+        }
+
+        // ---------------------------------------------------------------- l'année
+
+        /// <summary>L'ANNÉE EN DAMIERS (16/11, Rémi) : un petit calendrier par
+        /// mois — son nom et son numéro, ses jours en cases serrées. Un jour qui
+        /// porte un événement est teinté ; la saison garde son liseré. Un clic
+        /// sur un mois ou sur l'un de ses jours l'ouvre en grand.</summary>
+        private void RebuildYear(List<TimelineEvent> events)
+        {
+            var week = _system.WeekDays.Count;
+            var columns = week > 0 ? week : 7;
+            var dated = events.FindAll(delegate(TimelineEvent e) { return e.Start != null && TimeMath.IsDayPrecise(e); });
+            for (var month = 1; month <= MonthCount; month++)
+            {
+                var days = Math.Max(1, _system.DaysInMonth(Year, month));
+                var firstNumber = _system.DayNumber(new TimePoint(Year, month, 1));
+                var offset = week > 0 ? (int)LeapRule.Mod(firstNumber, week) : 0;
+                var grid = new Grid();
+                for (var c = 0; c < columns; c++) grid.ColumnDefinitions.Add(new ColumnDefinition(26, GridUnitType.Pixel));
+                var rows = (int)Math.Ceiling((offset + days) / (double)columns);
+                for (var r = 0; r <= rows; r++) grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+                if (week > 0)
+                    for (var c = 0; c < columns; c++)
+                    {
+                        var name = _system.WeekDays[c] ?? "";
+                        var head = new TextBlock { Text = name.Length == 0 ? "" : name.Substring(0, 1).ToUpper(CultureInfo.CurrentCulture), Foreground = Chrome.FaintText, FontSize = 10, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 2) };
+                        Grid.SetColumn(head, c);
+                        grid.Children.Add(head);
+                    }
+                var captured = month;
+                for (var day = 1; day <= days; day++)
+                {
+                    var dayNumber = firstNumber + day - 1;
+                    var busy = dated.Exists(delegate(TimelineEvent e) { return TimeMath.CoversDay(_system, e, dayNumber); });
+                    var cell = new Border
+                    {
+                        Width = 24, Height = 22, Margin = new Thickness(1), CornerRadius = new CornerRadius(4), Cursor = new Cursor(StandardCursorType.Hand), Tag = "calendar-mini-day",
+                        Background = busy ? new SolidColorBrush(Chrome.Accent.Color, 0.30) : Chrome.CanvasBg,
+                        Child = new TextBlock
+                        {
+                            Text = day.ToString(CultureInfo.InvariantCulture), FontSize = 10.5, Foreground = busy ? Chrome.Ink : Chrome.SoftText, FontWeight = busy ? FontWeight.SemiBold : FontWeight.Normal,
+                            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+                        }
+                    };
+                    Color tint;
+                    var seasonIndex = _world == null ? -1 : Astro.SeasonIndexAt(_world, _system, new TimePoint(Year, month, day));
+                    if (seasonIndex >= 0 && Color.TryParse(Astro.ColorOf(_world.Seasons[seasonIndex], seasonIndex), out tint))
+                    {
+                        cell.BorderBrush = new SolidColorBrush(tint, 0.85);
+                        cell.BorderThickness = new Thickness(0, 2, 0, 0);
+                    }
+                    cell.PointerPressed += delegate(object sender, PointerPressedEventArgs e) { e.Handled = true; OpenMonth(captured); };
+                    var slot = offset + day - 1;
+                    Grid.SetColumn(cell, slot % columns);
+                    Grid.SetRow(cell, 1 + slot / columns);
+                    grid.Children.Add(cell);
+                }
+                var title = new TextBlock
+                {
+                    Text = (_system.Months.Count > 0 ? _system.Months[month - 1].Name : "Mois") + " (" + month + ")", Foreground = Chrome.Ink, FontSize = 13, FontWeight = FontWeight.SemiBold,
+                    Margin = new Thickness(2, 0, 0, 6), Cursor = new Cursor(StandardCursorType.Hand), TextTrimming = TextTrimming.CharacterEllipsis, Tag = "calendar-mini-title"
+                };
+                title.PointerPressed += delegate(object sender, PointerPressedEventArgs e) { e.Handled = true; OpenMonth(captured); };
+                var body = new StackPanel();
+                body.Children.Add(title);
+                body.Children.Add(grid);
+                _yearPanel.Children.Add(new Border
+                {
+                    Child = body, Padding = new Thickness(10, 8, 10, 10), Margin = new Thickness(4), CornerRadius = new CornerRadius(8), VerticalAlignment = VerticalAlignment.Top,
+                    Background = Chrome.CardBg, BorderBrush = month == Month ? Chrome.BorderStrong : Chrome.Border, BorderThickness = new Thickness(1), Tag = "calendar-mini-month"
+                });
+            }
+        }
+
+        private void OpenMonth(int month)
+        {
+            LeaveYearMode();
+            Show(Year, month);
+        }
+
+        // ------------------------------------------------------------ les astres
+
+        /// <summary>L'infobulle d'une lune du calendrier (16/11, Rémi) : sa phase,
+        /// la dernière et la prochaine fois, en notation abrégée (jour/mois/année).</summary>
+        private string MoonTip(Moon moon, int phase, long dayNumber)
+        {
+            var feminine = phase == Astro.Full || phase == Astro.New;
+            return (string.IsNullOrEmpty(moon.Name) ? "Lune" : moon.Name) + " : " + Astro.MainPhaseName(phase)
+                + "\n" + (feminine ? "Précédente : " : "Précédent : ") + TimeMath.ShortDate(_system, TimeMath.FromDayNumber(_system, Astro.MainPhaseDay(moon, dayNumber, -1)))
+                + "\n" + (feminine ? "Prochaine : " : "Prochain : ") + TimeMath.ShortDate(_system, TimeMath.FromDayNumber(_system, Astro.MainPhaseDay(moon, dayNumber, 1)));
+        }
+
+        private string SunTip(Sun sun, long dayNumber)
+        {
+            return (string.IsNullOrEmpty(sun.Name) ? "Second soleil" : sun.Name) + " : au plus haut à minuit"
+                + "\nPrécédent : " + TimeMath.ShortDate(_system, TimeMath.FromDayNumber(_system, Astro.HighDay(sun, dayNumber, -1)))
+                + "\nProchain : " + TimeMath.ShortDate(_system, TimeMath.FromDayNumber(_system, Astro.HighDay(sun, dayNumber, 1)));
         }
 
         /// <summary>Le petit disque d'une lune, à l'une de ses quatre phases principales.</summary>
@@ -328,13 +573,19 @@ namespace Marabook.App
                 {
                     var phase = Astro.MainPhaseOn(_world.Moons[i], dayNumber);
                     Color tint;
-                    if (phase >= 0 && Color.TryParse(Astro.ColorOf(_world.Moons[i], i), out tint)) moons.Children.Add(new MoonGlyph(tint, phase));
+                    if (phase < 0 || !Color.TryParse(Astro.ColorOf(_world.Moons[i], i), out tint)) continue;
+                    var glyph = new MoonGlyph(tint, phase);
+                    ToolTip.SetTip(glyph, MoonTip(_world.Moons[i], phase, dayNumber));
+                    moons.Children.Add(glyph);
                 }
                 // Un soleil compagnon qui culmine à minuit ce jour-là (15/11) : son disque rayonnant.
                 for (var i = 1; i < _world.Suns.Count; i++)
                 {
                     Color tint;
-                    if (Astro.SunHighOn(_world.Suns[i], dayNumber) && Color.TryParse(Astro.ColorOf(_world.Suns[i], i), out tint)) moons.Children.Add(new SunGlyph(tint));
+                    if (!Astro.SunHighOn(_world.Suns[i], dayNumber) || !Color.TryParse(Astro.ColorOf(_world.Suns[i], i), out tint)) continue;
+                    var glyph = new SunGlyph(tint);
+                    ToolTip.SetTip(glyph, SunTip(_world.Suns[i], dayNumber));
+                    moons.Children.Add(glyph);
                 }
                 if (moons.Children.Count > 0) { DockPanel.SetDock(moons, Dock.Right); top.Children.Add(moons); }
                 var seasonIndex = Astro.SeasonIndexAt(_world, _system, date);
@@ -438,7 +689,7 @@ namespace Marabook.App
             foreach (var entry in events)
             {
                 if (entry.Start == null || TimeMath.IsDayPrecise(entry)) continue;
-                if (TimeMath.OrphanIn(entry, Year, Month)) inMonth.Add(entry);
+                if (!_yearMode && TimeMath.OrphanIn(entry, Year, Month)) inMonth.Add(entry); // en vue d'année, ceux du mois sont « cette année »
                 else if (TimeMath.OrphanIn(entry, Year, 0) || TimeMath.TouchesYear(entry, Year)) inYear.Add(entry);
                 else elsewhere.Add(entry);
             }
@@ -456,7 +707,7 @@ namespace Marabook.App
                 return;
             }
             var monthName = _system.Months.Count > 0 ? _system.Months[Month - 1].Name : "Ce mois";
-            Group("CE MOIS — " + monthName.ToUpper(CultureInfo.CurrentCulture), inMonth, selected, false, "Aucun ce mois-ci.", "calendar-orphans-month");
+            if (!_yearMode) Group("CE MOIS — " + monthName.ToUpper(CultureInfo.CurrentCulture), inMonth, selected, false, "Aucun ce mois-ci.", "calendar-orphans-month");
             Group("CETTE ANNÉE — " + _system.FormatYear(Year), inYear, selected, false, "Aucun cette année.", "calendar-orphans-year");
             if (elsewhere.Count > 0) Group("AILLEURS DANS LA FRISE", elsewhere, selected, true, null, "calendar-orphans-elsewhere");
         }
@@ -496,7 +747,45 @@ namespace Marabook.App
         }
 
         // ---- sonde
-        internal string TitleForProbe { get { return _title.Text ?? ""; } }
+        internal string TitleForProbe { get { return (_title.IsVisible ? _title.Text ?? "" : "") + (_yearLabel.Text ?? ""); } }
+        internal bool YearModeForProbe { get { return _yearMode; } }
+        internal void SetYearModeForProbe(bool on) { _yearToggle.IsChecked = on; }
+        internal int MiniMonthsForProbe { get { return _yearPanel.IsVisible ? _yearPanel.Children.Count : 0; } }
+        internal string MiniTitleForProbe(int month) { return ((TextBlock)((StackPanel)((Border)_yearPanel.Children[month - 1]).Child).Children[0]).Text; }
+        internal int MiniBusyDaysForProbe(int month)
+        {
+            var n = 0;
+            foreach (var child in ((Grid)((StackPanel)((Border)_yearPanel.Children[month - 1]).Child).Children[1]).Children)
+            {
+                var cell = child as Border;
+                if (cell != null && ((TextBlock)cell.Child).FontWeight == FontWeight.SemiBold) n++;
+            }
+            return n;
+        }
+        internal void OpenMiniMonthForProbe(int month) { OpenMonth(month); }
+        internal bool MonthStepsShownForProbe { get { return _previousMonth.IsVisible && _nextMonth.IsVisible; } }
+        internal bool EditingYearForProbe { get { return _yearBox.IsVisible; } }
+        internal void EditYearForProbe(string text) { BeginYearEdit(); _yearBox.Text = text; CommitYear(false); }
+        internal void CancelYearEditForProbe() { EndYearEdit(); }
+        internal int SeasonDotsForProbe { get { var n = 0; foreach (var child in _seasonLegend.Children) if (child is Border) n++; return n; } }
+        /// <summary>Sonde : l'infobulle de la première lune (ou du premier soleil) dessinée dans la case d'un jour.</summary>
+        internal string SkyTipForProbe(int day)
+        {
+            var n = 0;
+            foreach (var child in _grid.Children)
+            {
+                var cell = child as Border;
+                if (cell == null || ++n != day) continue;
+                var top = ((StackPanel)cell.Child).Children[0] as DockPanel;
+                if (top == null) continue;
+                foreach (var item in top.Children)
+                {
+                    var sky = item as StackPanel;
+                    if (sky != null && sky.Children.Count > 0) return ToolTip.GetTip(sky.Children[0]) as string;
+                }
+            }
+            return null;
+        }
         internal int ColumnsForProbe { get { return _grid.ColumnDefinitions.Count; } }
         internal int DayCellsForProbe { get { var n = 0; foreach (var child in _grid.Children) if (child is Border) n++; return n; } }
         internal int ColumnOfDayForProbe(int day)
@@ -535,7 +824,7 @@ namespace Marabook.App
             }
             return titles;
         }
-        internal string SubtitleForProbe { get { return _subtitle.Text ?? ""; } }
+        internal string SubtitleForProbe { get { return (_subtitle.Text ?? "") + (_seasonNames.Count == 0 ? "" : " · " + string.Join(" → ", _seasonNames.ToArray())); } }
         /// <summary>Sonde : les phases des lunes dessinées dans la case d'un jour (Astro.Full…), dans l'ordre.</summary>
         internal List<int> MoonsOfDayForProbe(int day)
         {

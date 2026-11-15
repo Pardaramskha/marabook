@@ -324,6 +324,24 @@ namespace Marabook.Model
             return (int)Mod(before + 1, 4);
         }
 
+        /// <summary>Le jour où revient la phase principale qui tombe ce jour-là
+        /// (MainPhaseOn) : « cycles » lunaisons plus tard — ou plus tôt, en
+        /// négatif. La dernière pleine lune avant celle du jour : -1.</summary>
+        public static long MainPhaseDay(Moon moon, long dayNumber, int cycles)
+        {
+            var period = Math.Max(0.01, moon.Period);
+            var quarter = Math.Floor((dayNumber - moon.FullAt) / period * 4 - 1e-9) + 1 + 4.0 * cycles;
+            return (long)Math.Floor(moon.FullAt + quarter * period / 4 + 1e-9);
+        }
+
+        /// <summary>Le jour où un compagnon culmine de nouveau à minuit, « cycles » tours après (ou avant) celui de ce jour.</summary>
+        public static long HighDay(Sun sun, long dayNumber, int cycles)
+        {
+            var period = Math.Max(0.01, sun.Period);
+            var turn = Math.Floor((dayNumber + 1 - sun.HighAt) / period - 1e-9) + cycles;
+            return (long)Math.Floor(sun.HighAt + turn * period + 1e-9);
+        }
+
         public static string MainPhaseName(int phase)
         {
             switch (phase)

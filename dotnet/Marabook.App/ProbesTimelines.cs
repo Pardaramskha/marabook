@@ -155,16 +155,16 @@ namespace Marabook.App
                     view.SetCalendarMode(true);
                     await Settle();
                     Check(view.CalendarMode && calendar.IsVisible && !view.SurfaceShownForProbe && view.ModeLabelForProbe == "Calendrier", "« Calendrier » remplace la frise et sa minimap ; le bouton dit le mode");
-                    Check(calendar.TitleForProbe == "Aubemer · E2.1" && calendar.EventsOfDayForProbe(1).Contains("Serment des Gardiens"), "il s'ouvre au premier événement daté au jour (" + calendar.TitleForProbe + ")");
+                    Check(calendar.TitleForProbe == "Aubemer (1) · E2.1" && calendar.EventsOfDayForProbe(1).Contains("Serment des Gardiens"), "il s'ouvre au premier événement daté au jour (" + calendar.TitleForProbe + ")");
                     Check(calendar.ColumnsForProbe == 6 && calendar.DayCellsForProbe == 36, "une colonne par jour de la semaine (6), une case par jour du mois (36)");
                     Check(calendar.OrphansForProbe("calendar-orphans-month").Count == 0 && calendar.OrphansForProbe("calendar-orphans-elsewhere").Contains("Guerre des Brumes")
                         && calendar.OrphansForProbe("calendar-orphans-elsewhere").Contains("Le livre des marées"), "les événements datés à l'année sont des orphelins, rangés « ailleurs dans la frise »");
                     calendar.JumpForProbe(1);
                     await Settle();
-                    Check(calendar.TitleForProbe == "Aubemer · E2.430" && calendar.OrphansForProbe("calendar-orphans-year").Contains("Les Quarante Hivers"), "« Événement suivant » mène à l'année du prochain ; l'orphelin y est « cette année » (" + calendar.TitleForProbe + ")");
+                    Check(calendar.TitleForProbe == "Aubemer (1) · E2.430" && calendar.OrphansForProbe("calendar-orphans-year").Contains("Les Quarante Hivers"), "« Événement suivant » mène à l'année du prochain ; l'orphelin y est « cette année » (" + calendar.TitleForProbe + ")");
                     view.GoTo(date("14 Noroît E3.30"));
                     await Settle();
-                    Check(calendar.TitleForProbe == "Noroît · E3.30", "« Aller à » déplace le calendrier (" + calendar.TitleForProbe + ")");
+                    Check(calendar.TitleForProbe.StartsWith("Noroît (") && calendar.TitleForProbe.EndsWith(") · E3.30"), "« Aller à » déplace le calendrier (" + calendar.TitleForProbe + ")");
                     Check(calendar.EventsOfDayForProbe(14).Contains("La grande marée") && calendar.EventsOfDayForProbe(14).Contains("Le marabout et la mer"), "le 14 Noroît : l'événement du jour et la période qui le couvre");
                     Check(calendar.EventsOfDayForProbe(20).Contains("Le marabout et la mer") && calendar.EventsOfDayForProbe(21).Count == 0, "la période s'arrête à son dernier jour (le 20)");
                     Check(calendar.ColumnOfDayForProbe(14) == view.System.WeekDays.IndexOf(view.System.WeekDayOf(date("14 Noroît E3.30"))), "chaque jour tombe dans la colonne de son jour de semaine");
@@ -172,10 +172,33 @@ namespace Marabook.App
                     Shot(view, "frises-25-calendrier.png");
                     calendar.ShiftMonthForProbe(1);
                     await Settle();
-                    Check(calendar.TitleForProbe == "Longue-Nuit · E3.30" && calendar.DayCellsForProbe == 41, "le mois suivant : Longue-Nuit, 41 jours cette année bissextile (" + calendar.DayCellsForProbe + ")");
+                    Check(calendar.TitleForProbe == "Longue-Nuit (10) · E3.30" && calendar.DayCellsForProbe == 41, "le mois suivant : Longue-Nuit, 41 jours cette année bissextile (" + calendar.DayCellsForProbe + ")");
                     calendar.ShiftMonthForProbe(1);
                     await Settle();
-                    Check(calendar.TitleForProbe == "Aubemer · E3.31", "…puis l'année suivante (" + calendar.TitleForProbe + ")");
+                    Check(calendar.TitleForProbe == "Aubemer (1) · E3.31", "…puis l'année suivante (" + calendar.TitleForProbe + ")");
+                    // — 16/11 : l'année se clique et se réécrit.
+                    calendar.EditYearForProbe("E3.30");
+                    await Settle();
+                    Check(calendar.TitleForProbe == "Aubemer (1) · E3.30" && !calendar.EditingYearForProbe, "l'année réécrite (E3.30) : le calendrier y va, le mois ne bouge pas (" + calendar.TitleForProbe + ")");
+                    calendar.EditYearForProbe("n'importe quoi");
+                    await Settle();
+                    Check(calendar.EditingYearForProbe && calendar.TitleForProbe == "Aubemer (1) · E3.30", "une année illisible : le champ attend, le calendrier ne bouge pas");
+                    calendar.CancelYearEditForProbe();
+                    calendar.EditYearForProbe("14 Noroît E3.30");
+                    await Settle();
+                    Check(calendar.TitleForProbe.StartsWith("Noroît (") && calendar.TitleForProbe.EndsWith(") · E3.30"), "une date entière écrite à la place de l'année mène aussi à son mois (" + calendar.TitleForProbe + ")");
+                    // — 16/11 : l'année en damiers, un par mois.
+                    calendar.SetYearModeForProbe(true);
+                    await Settle();
+                    var busyDays = 0;
+                    for (var m = 1; m <= calendar.MiniMonthsForProbe; m++) busyDays += calendar.MiniBusyDaysForProbe(m);
+                    Check(calendar.YearModeForProbe && calendar.MiniMonthsForProbe == 10 && calendar.MiniTitleForProbe(1) == "Aubemer (1)" && calendar.TitleForProbe == "E3.30" && !calendar.MonthStepsShownForProbe && calendar.DayCellsForProbe == 0,
+                        "l'icône Calendrier : dix damiers, « Aubemer (1) » en tête du premier ; l'en-tête ne dit plus que l'année (" + calendar.TitleForProbe + ")");
+                    Check(busyDays >= 7 && busyDays < 365, "…les jours que couvre « Le marabout et la mer » (jusqu'au 20 Noroît) y sont teintés, pas les autres (" + busyDays + ")");
+                    Shot(view, "frises-27-calendrier-annee.png");
+                    calendar.OpenMiniMonthForProbe(10);
+                    await Settle();
+                    Check(!calendar.YearModeForProbe && calendar.TitleForProbe == "Longue-Nuit (10) · E3.30" && calendar.MonthStepsShownForProbe && calendar.DayCellsForProbe == 41, "un clic sur un damier ouvre son mois en grand (" + calendar.TitleForProbe + ")");
                     view.GoTo(date("12 Sel E3.8"));
                     await Settle();
                     Check(calendar.EventsOfDayForProbe(12).Any(delegate(string title) { return title.Contains("Keira"); }), "une naissance née d'une fiche a sa case (12 Sel E3.8)");
@@ -335,10 +358,21 @@ namespace Marabook.App
                         Check(calendar.MoonsOfDayForProbe(1).Count == 2 && calendar.MoonsOfDayForProbe(1).TrueForAll(delegate(int phase) { return phase == Astro.Full; }), "1 Aubemer E3.1 : les deux lunes sont pleines");
                         Check(calendar.MoonsOfDayForProbe(16).Count == 1 && calendar.MoonsOfDayForProbe(16)[0] == Astro.New && calendar.MoonsOfDayForProbe(2).Count == 0, "le 16 : la nouvelle lune de Sélène ; le 2 : rien");
                         Check(calendar.MoonsOfDayForProbe(31).Contains(Astro.Full), "le 31 : Sélène de nouveau pleine");
+                        // — 16/11 : l'infobulle d'une lune, la pastille de la saison.
+                        var moonTip = calendar.SkyTipForProbe(1) ?? "";
+                        Check(moonTip.StartsWith("Sélène : pleine lune") && moonTip.Contains("Précédente : ") && moonTip.Contains("Prochaine : 31/1/E3.1"), "l'infobulle d'une lune : sa phase, la précédente, la prochaine en notation abrégée (" + moonTip.Replace("\n", " / ") + ")");
+                        Check((calendar.SkyTipForProbe(16) ?? "").StartsWith("Sélène : nouvelle lune") && (calendar.SkyTipForProbe(16) ?? "").Contains("Prochaine : 10/2/E3.1"), "…celle du 16 dit la nouvelle lune, la prochaine le 10 du mois suivant (" + (calendar.SkyTipForProbe(16) ?? "").Replace("\n", " / ") + ")");
+                        Check(calendar.SeasonDotsForProbe == 1, "la saison du mois a sa pastille de couleur à côté de son nom");
                         Shot(view, "astrolabe-4-calendrier-saisons-lunes.png");
+                        calendar.SetYearModeForProbe(true);
+                        await Settle();
+                        Check(calendar.SeasonDotsForProbe == 5 && calendar.SubtitleForProbe.Contains("Hiver → Printemps → Été → Automne → Hiver"), "en vue d'année, la légende suit les saisons de toute l'année (" + calendar.SubtitleForProbe + ")");
+                        Shot(view, "astrolabe-8-calendrier-annee-saisons.png");
+                        calendar.SetYearModeForProbe(false);
+                        await Settle();
                         calendar.ShiftMonthForProbe(2);
                         await Settle();
-                        Check(calendar.SubtitleForProbe.Contains("Hiver → Printemps"), "un mois à cheval sur deux saisons le dit (" + calendar.SubtitleForProbe + ")");
+                        Check(calendar.SubtitleForProbe.Contains("Hiver → Printemps") && calendar.SeasonDotsForProbe == 2, "un mois à cheval sur deux saisons le dit, chacune avec sa pastille (" + calendar.SubtitleForProbe + ")");
                         view.SetCalendarMode(false);
                         await Settle();
                         // Le Calculateur dit aussi le ciel du jour.

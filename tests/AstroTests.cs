@@ -70,10 +70,23 @@ namespace Marabook.Tests
             t.Check(!Astro.SunHighOn(new Sun { HighAt = 100 }, 100) && !Astro.SunHighOn(null, 100), "un compagnon sans période ne culmine jamais seul");
             t.Check(Astro.NextHigh(sun, 100) == 100 && Astro.NextHigh(sun, 101) == 500 && Astro.NextHigh(sun, -500) == -300, "le prochain minuit clair, ce jour compris");
 
+            t.Check(Astro.HighDay(sun, 100, -1) == -300 && Astro.HighDay(sun, 100, 1) == 500 && Astro.HighDay(sun, 500, 0) == 500, "le minuit clair d'avant et d'après celui du jour (-300, 500)");
+
+            // 16/11 : la phase d'un jour, la fois d'avant et la fois d'après (les infobulles du calendrier).
+            var moon = new Moon { Name = "Sélène", Period = 30, FullAt = 100 };
+            t.Check(Astro.MainPhaseDay(moon, 100, 0) == 100 && Astro.MainPhaseDay(moon, 100, -1) == 70 && Astro.MainPhaseDay(moon, 100, 1) == 130, "pleine le jour 100 : la précédente le 70, la prochaine le 130");
+            t.Check(Astro.MainPhaseDay(moon, 107, 0) == 107 && Astro.MainPhaseDay(moon, 107, -1) == 77 && Astro.MainPhaseDay(moon, 107, 1) == 137, "dernier quartier le 107 (à 7,5 jours) : le précédent le 77, le prochain le 137");
+            var real = new Moon { Period = 29.530588, FullAt = 0 };
+            t.Check(Astro.MainPhaseOn(real, 29) == Astro.Full && Astro.MainPhaseDay(real, 29, 1) == 59 && Astro.MainPhaseDay(real, 59, -1) == 29 && Astro.MainPhaseDay(real, 29, -1) == 0, "une période à virgule : pleines lunes aux jours 0, 29, 59");
+            var calendar = TimeSystem.Gregorian();
+            t.Equal("12/3/2026", TimeMath.ShortDate(calendar, At(calendar, "12 mars 2026")), "la notation abrégée d'une date : jour/mois/année");
+            t.Check(TimeMath.ShortDate(calendar, At(calendar, "mars 2026")) == "3/2026" && TimeMath.ShortDate(calendar, At(calendar, "2026")) == "2026" && TimeMath.ShortDate(null, null) == "", "…au mois, à l'année, sans rien (" + TimeMath.ShortDate(calendar, At(calendar, "mars 2026")) + " ; " + TimeMath.ShortDate(calendar, At(calendar, "2026")) + ")");
+
             var project = Project.CreateNew();
             var timeline = TimelineSamples.Seed(project);
             project.RelinkParents();
             var tides = Timelines.SystemOf(project, timeline);
+            t.Equal("1/1/E3.1", TimeMath.ShortDate(tides, At(tides, "1 Aubemer E3.1")), "…dans la notation du calendrier pour l'année (1/1/E3.1)");
             var start = tides.DayNumber(At(tides, "1 Aubemer E3.1"));
             var world = new World { Name = "Deux soleils", ReferenceSystemId = tides.Id };
             world.Suns.Add(new Sun { Name = "Hélios" });

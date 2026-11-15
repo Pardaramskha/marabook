@@ -37,6 +37,17 @@ namespace Marabook.Model
         }
 
         /// <summary>L'inverse de TimeSystem.DayNumber : la date d'un numéro de jour.</summary>
+        /// <summary>Une date en notation ABRÉGÉE (16/11, les infobulles du
+        /// calendrier) : jour/numéro du mois/année — « 12/3/E3.1 » ; « 3/E3.1 »
+        /// pour un mois, l'année seule sinon.</summary>
+        public static string ShortDate(TimeSystem system, TimePoint point)
+        {
+            if (system == null || point == null) return "";
+            var year = system.FormatYear(point.Year);
+            if (!point.HasMonth) return year;
+            return (point.HasDay ? point.Day + "/" : "") + point.Month + "/" + year;
+        }
+
         public static TimePoint FromDayNumber(TimeSystem system, long dayNumber)
         {
             var year = (long)Math.Floor(dayNumber / MeanYearDays(system));
