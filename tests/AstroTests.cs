@@ -30,6 +30,8 @@ namespace Marabook.Tests
             LifeDates(t);
             t.Suite("C71 — orbites, éclipses et lunes rousses, lunes bleues, phénomènes ; Répartiteur ; secondes");
             Sky(t);
+            t.Suite("C72 — placement stellaire, orbite rapprochée, éclipses solaires pures, planètes ; quotient du Répartiteur ; cadran");
+            Placement(t);
         }
 
         /// <summary>16/11 : ce que dure chaque saison, la moyenne équivalente, et le rapport de glissement.</summary>
@@ -384,13 +386,14 @@ namespace Marabook.Tests
             binary.Suns.Add(new Sun { Name = "Hélios" });
             binary.Suns[0].OrbitId = binary.Suns[1].Id;
             binary.Suns[0].Period = 400;
+            Astro.SetInner(binary, binary.Suns[0], false); // au-delà du monde : il fait le tour du ciel
             t.Check(Astro.MainSun(binary) == binary.Suns[1] && Astro.Wanderers(binary).Count == 1 && Astro.Wanderers(binary)[0].Name == "Braise", "un premier soleil qui orbite le second : c'est le second, centrique, qui fait le jour");
             t.Check(!Astro.OrbitLoops(binary, binary.Suns[0]), "une orbite simple ne boucle pas");
             binary.Suns[1].OrbitId = binary.Suns[0].Id;
             t.Check(Astro.OrbitLoops(binary, binary.Suns[0]) && Astro.OrbitLoops(binary, binary.Suns[1]), "A autour de B autour de A : la boucle est vue");
             binary.Suns[1].OrbitId = null;
             var behaviors = Astro.SunBehaviors(binary, calendar);
-            t.Check(behaviors.Count == 1 && behaviors[0].Notable && behaviors[0].Title == "Braise tourne autour de Hélios" && behaviors[0].Text.Contains("Nuits claires pendant environ 100 jours"), "ce que deux soleils déclenchent : le compagnon, ses nuits claires (" + behaviors[0].Title + ")");
+            t.Check(behaviors.Count == 1 && behaviors[0].Notable && behaviors[0].Title == "Braise tourne autour de Hélios, au-delà du monde" && behaviors[0].Text.Contains("Nuits claires pendant environ 100 jours"), "ce que deux soleils déclenchent : le compagnon, ses nuits claires (" + behaviors[0].Title + ")");
             t.Check(Astro.SunBehaviors(earth, calendar).Count == 1 && !Astro.SunBehaviors(earth, calendar)[0].Notable && Astro.SunBehaviors(earth, calendar)[0].Title == "Un seul soleil", "un soleil seul : rien de particulier");
             binary.Suns.Add(new Sun { Name = "Jumeau" });
             t.Check(Astro.SunBehaviors(binary, calendar).Exists(delegate(SkyBehavior b) { return b.Title == "Étoile double au centre"; }) && Astro.SunBehaviors(binary, calendar).Exists(delegate(SkyBehavior b) { return b.Title == "Trois soleils ou plus"; }),
@@ -483,7 +486,7 @@ namespace Marabook.Tests
             t.Equal("30,30,31,30,31,30,30,31,30,31,30,31", Days(TimeMath.Spread(12, 365, false)), "…uniformément : les cinq jours de plus étalés sur l'année");
             t.Equal("30,30,30,30,30,30,30,30,30,30,30,30", Days(TimeMath.Spread(12, 360, true)), "360 jours : douze mois égaux, quelle que soit la méthode");
             t.Equal("31,32,31,32,31,31,31", Days(TimeMath.Spread(7, 219, true)), "219 jours en sept mois : la bascule sert d'abord un mois sur deux");
-            t.Equal("33,33,32,33,32,33,32", Days(TimeMath.Spread(7, 228, true)), "…et, quand il reste plus de jours que de mois pairs, les autres à leur tour");
+            t.Equal("32,33,32,33,32,33,33", Days(TimeMath.Spread(7, 228, true)), "…et un jour qui manque va à un mois court");
             t.Check(TimeMath.Spread(12, 11, false) == null && TimeMath.Spread(0, 100, false) == null, "moins d'un jour par mois, ou pas de mois : pas de répartition");
             var spread = TimeSystem.Gregorian();
             t.Check(TimeMath.Distribute(spread, 400, false) && spread.BaseDays == 400 && !TimeMath.Distribute(spread, 5, true) && spread.BaseDays == 400, "appliqué au système : l'année fait le compte demandé ; un compte impossible ne change rien");
@@ -502,6 +505,101 @@ namespace Marabook.Tests
             var systems = TimelineJson.ReadSystems(Json.Parse(Json.Write(TimelineJson.BuildSystems(new List<TimeSystem> { clock, calendar }))));
             t.Check(systems[0].SecondsPerMinute == 100 && systems[1].SecondsPerMinute == 60, "le .plot garde les secondes par minute (60 par défaut)");
             t.Check(calendar.DurationLabel(1.0 / 365 / 24 / 60 / 2) == "30 secondes", "une demi-minute se dit en secondes (" + calendar.DurationLabel(1.0 / 365 / 24 / 60 / 2) + ")");
+        }
+
+        /// <summary>C72 (16/11 soir) : l'ordre des astres, le soleil en orbite
+        /// rapprochée (pas de nuits claires), les éclipses solaires pures, les
+        /// planètes voisines, le quotient du Répartiteur, le dessin du cadran.</summary>
+        private static void Placement(Harness t)
+        {
+            var calendar = TimeSystem.Gregorian();
+            var world = new World { Name = "Ehnmir" };
+            var first = new Sun { Name = "Hélios" };
+            var second = new Sun { Name = "Braise", Period = 40, HighAt = 100, Size = 0.5 };
+            world.Suns.Add(first);
+            world.Suns.Add(second);
+            second.OrbitId = first.Id;
+
+            // — Le placement : par défaut, un soleil qui orbite est en deçà du monde.
+            var layout = Astro.Layout(world);
+            t.Check(layout.Count == 3 && layout[0].Name == "Hélios" && layout[0].Rank == 0 && !layout[0].Movable && layout[1].Name == "Braise" && layout[1].Rank == 1 && layout[2].Kind == SkyBody.WorldKind && layout[2].Rank == 2 && layout[2].Name == "Ehnmir",
+                "le système, du centre vers le dehors : 0 le soleil centrique, 1 son compagnon, 2 le monde");
+            t.Check(Astro.IsInner(world, second) && !Astro.IsInner(world, first) && Astro.Wanderers(world).Count == 0 && Astro.CloseCompanions(world).Count == 1, "un compagnon en orbite rapprochée ne fait pas le tour du ciel : aucune nuit claire");
+            var project = Project.CreateNew();
+            project.TimeSystems.Add(calendar);
+            project.Worlds.Add(world);
+            calendar.WorldId = world.Id;
+            t.Check(Astro.DayLabel(project, calendar, TimeMath.FromDayNumber(calendar, 55)) == null, "…le ciel d'un jour ordinaire ne dit rien de lui");
+            t.Check(Astro.SunBehaviors(world, calendar).Exists(delegate(SkyBehavior b) { return b.Title == "Braise : orbite rapprochée autour de Hélios" && b.Text.Contains("les nuits restent noires") && b.Text.Contains("annulaire, 25 % du disque") && b.Text.Contains("(totale)"); }),
+                "…et la fenêtre du monde le dit : nuits noires, éclipses solaires pures");
+
+            // — Les éclipses solaires pures.
+            t.Check(Astro.SunEclipseOn(world, second, 100) == Astro.SunInFront && Astro.SunEclipseOn(world, second, 120) == Astro.SunBehind && Astro.SunEclipseOn(world, second, 140) == Astro.SunInFront && Astro.SunEclipseOn(world, second, 110) == Astro.NoSunEclipse,
+                "le compagnon passe devant son soleil à chaque période, derrière lui à mi-chemin");
+            t.Check(Near(Astro.SunEclipseCover(world, second, Astro.SunInFront), 0.25, 1e-9) && Near(Astro.SunEclipseCover(world, second, Astro.SunBehind), 1, 1e-9), "moitié moins large : il cache un quart du disque ; passé derrière, il disparaît");
+            t.Equal("Éclipse solaire pure : Braise passe devant Hélios et cache 25 % de son disque (annulaire)", Astro.SunEclipseLabel(world, second, Astro.SunInFront), "une éclipse annulaire se dit");
+            t.Equal("Éclipse solaire pure : Hélios cache entièrement Braise (totale)", Astro.SunEclipseLabel(world, second, Astro.SunBehind), "…une totale aussi");
+            second.Size = 1.2;
+            t.Equal("Éclipse solaire pure : Braise cache entièrement Hélios (totale)", Astro.SunEclipseLabel(world, second, Astro.SunInFront), "un compagnon plus large que son soleil : il le cache tout entier");
+            second.Size = 0.5;
+            var note = Astro.NotesOn(world, calendar, 100).Find(delegate(SkyNote n) { return n.Text.StartsWith("Éclipse solaire pure"); });
+            t.Check(note != null && note.Detail.StartsWith("Prochaine : ") && Astro.NextSunEclipse(second, 101, Astro.SunInFront) == 140 && Astro.NextSunEclipse(second, 101, Astro.SunBehind) == 120, "le ciel du jour dit l'éclipse, et la prochaine (jour 140)");
+            t.Check(Astro.NotesOn(world, calendar, 110).Count == 0, "…rien entre deux passages");
+
+            // — Au-delà du monde : le compagnon redevient un soleil qui fait le tour du ciel.
+            Astro.SetInner(world, second, false);
+            layout = Astro.Layout(world);
+            t.Check(layout[1].Kind == SkyBody.WorldKind && layout[1].Rank == 1 && layout[2].Name == "Braise" && layout[2].Rank == 2 && !Astro.IsInner(world, second) && Astro.Wanderers(world).Count == 1 && Astro.SunEclipseOn(world, second, 100) == Astro.NoSunEclipse,
+                "placé au-delà du monde : il fait le tour du ciel (nuits claires), et ne donne plus d'éclipse solaire pure");
+            t.Check(Astro.MoveBody(world, second.Id, -1) && Astro.IsInner(world, second) && !Astro.MoveBody(world, second.Id, -1) && Astro.MoveBody(world, Astro.WorldToken, -1) && !Astro.IsInner(world, second),
+                "monter et descendre un astre d'un rang ; au bout, rien ne bouge");
+            Astro.SetInner(world, second, true);
+
+            // — Les planètes voisines.
+            var inner = new Planet { Name = "Mercure", Period = 88, At = 10 };
+            var outer = new Planet { Name = "Mars", Period = 687, At = 10 };
+            var still = new Planet { Name = "Lointaine" };
+            world.Planets.Add(inner);
+            world.Planets.Add(outer);
+            world.Planets.Add(still);
+            Astro.MoveBody(world, inner.Id, -1); // Mercure passe devant le monde
+            layout = Astro.Layout(world);
+            t.Equal("Hélios 0, Braise 1, Mercure 2, Ehnmir 3, Mars 4, Lointaine 5", string.Join(", ", layout.ConvertAll(delegate(SkyBody b) { return b.Name + " " + b.Rank; }).ToArray()), "le placement stellaire, planètes comprises");
+            t.Check(Astro.IsInside(world, inner.Id) && !Astro.IsInside(world, outer.Id), "une planète est en deçà ou au-delà du monde");
+            t.Check(Near(Astro.SynodicPeriod(world, calendar, outer), 779.9, 1) && Near(Astro.SynodicPeriod(world, calendar, inner), 115.9, 0.5) && Astro.SynodicPeriod(world, calendar, still) == 0, "le temps entre deux alignements : 780 jours pour Mars, 116 pour Mercure ; rien sans année");
+            t.Check(Astro.PlanetAlignedOn(world, calendar, outer, 10) && !Astro.PlanetAlignedOn(world, calendar, outer, 11) && !Astro.PlanetAlignedOn(world, calendar, still, 10), "une planète s'aligne le jour dit, puis à chaque période");
+            var texts = Astro.NotesOn(world, calendar, 10).ConvertAll(delegate(SkyNote n) { return n.Text; });
+            t.Check(texts.Contains("Mars au plus près du monde : visible toute la nuit") && texts.Contains("Mercure passe entre le monde et le soleil"), "le ciel du jour dit l'opposition de l'une, le passage de l'autre");
+            t.Check(Astro.Summary(world).Contains("3 planètes voisines"), "le monde en une phrase compte ses planètes");
+
+            // — Le .plot.
+            var round = TimelineJson.ReadWorlds(Json.Parse(Json.Write(TimelineJson.BuildWorlds(new List<World> { world }))))[0];
+            t.Check(round.Planets.Count == 3 && round.Planets[0].Name == "Mercure" && round.Planets[0].Period == 88 && round.Planets[2].Period == 0 && round.Suns[1].Size == 0.5 && round.Suns[0].Size == 1, "le .plot garde les planètes et la taille des soleils");
+            t.Equal(string.Join(",", Astro.NormalOrder(world).ToArray()), string.Join(",", Astro.NormalOrder(round).ToArray()), "…et l'ordre des astres");
+            t.Check(ReferenceEquals(world.Clone().Order, world.Order) == false && world.Clone().Planets.Count == 3 && world.Clone().Suns[1].Size == 0.5 && string.Join(",", Astro.NormalOrder(world.Clone()).ToArray()) == string.Join(",", Astro.NormalOrder(world).ToArray()), "la copie d'un monde garde placement, planètes et tailles");
+            world.Suns.Remove(second);
+            t.Check(!Astro.NormalOrder(world).Contains(second.Id), "un soleil retiré quitte l'ordre");
+
+            // — Le quotient du Répartiteur.
+            t.Equal("29,30,30,30,30,30,30,30,30,30,30,30", Days(TimeMath.Spread(12, 359, true, 1)), "359 jours en bascule, quotient 1 : onze mois de 30, un de 29 (le cas de Rémi)");
+            t.Equal("29,31,29,31,29,31,29,31,29,31,29,30", Days(TimeMath.Spread(12, 359, true, 2)), "…quotient 2 : 29, 31, 29, 31… et un dernier mois de 30");
+            t.Equal("28,32,28,32,28,32,28,32,28,32,28,31", Days(TimeMath.Spread(12, 359, true, 4)), "…quotient 4 : 28, 32, 28, 32…");
+            var total = 0;
+            foreach (var day in TimeMath.Spread(12, 359, true, 4)) total += day;
+            t.Check(total == 359 && TimeMath.Spread(12, 20, true, 5) == null, "le compte est toujours tenu ; un quotient qui mange l'année est refusé");
+            t.Equal("31,28,30,30,30,30,30,30,30,30,30,30", Days(TimeMath.SpreadKeepingRatios(new List<int> { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 }, 359)), "359 jours en gardant les proportions de nos mois");
+            t.Equal("62,56,62,60,62,60,62,62,60,62,60,62", Days(TimeMath.SpreadKeepingRatios(new List<int> { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 }, 730)), "…le double de jours : chaque mois double");
+            t.Check(TimeMath.SpreadKeepingRatios(new List<int> { 30, 30 }, 1) == null, "…moins d'un jour par mois : refusé");
+            var scaled = TimeSystem.Gregorian();
+            t.Check(TimeMath.DistributeKeepingRatios(scaled, 730) && scaled.BaseDays == 730 && TimeMath.Distribute(scaled, 359, true, 2) && scaled.BaseDays == 359 && scaled.Months[1].Days == 31, "appliqué au système, par l'une ou l'autre méthode");
+
+            // — Le dessin du cadran.
+            var dial = TimeSystem.Gregorian();
+            dial.DialTurns = 2; dial.DialHourStep = 3; dial.DialMinuteStep = 15; dial.DialNumerals = 1;
+            var copy = dial.Clone();
+            var read = TimelineJson.ReadSystems(Json.Parse(Json.Write(TimelineJson.BuildSystems(new List<TimeSystem> { dial, calendar }))));
+            t.Check(copy.DialTurns == 2 && copy.DialNumerals == 1 && read[0].DialTurns == 2 && read[0].DialHourStep == 3 && read[0].DialMinuteStep == 15 && read[0].DialNumerals == 1 && read[1].DialTurns == 1 && read[1].DialNumerals == 0,
+                "le dessin du cadran (tours, pas des chiffres, style) suit la copie et le .plot");
         }
 
         private static string Days(int[] days)

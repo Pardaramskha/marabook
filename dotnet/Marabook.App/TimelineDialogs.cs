@@ -638,6 +638,13 @@ namespace Marabook.App
         private readonly Control _spreadDaysLabel, _weeksLabel;
         private readonly Accordion _spreadAccordion;
         private readonly ClockDial _dial;
+        // 16/11 soir : le quotient du Répartiteur ; le dessin du cadran (tours, pas des chiffres, style) et ses astuces.
+        private readonly TextBox _spreadGap;
+        private readonly Control _spreadGapLabel;
+        private readonly ComboBox _dialTurns, _dialHourStep, _dialMinuteStep, _dialNumerals;
+        private readonly StackPanel _dialTips;
+        private List<int> _turnChoices = new List<int>(), _hourStepChoices = new List<int>(), _minuteStepChoices = new List<int>();
+        private string _dialKey;
         private bool _accepted;
         private bool _building;
         private readonly Border _notice; // le bandeau « notre monde », à la création seulement
@@ -646,6 +653,15 @@ namespace Marabook.App
         internal bool NoticeShownForProbe { get { return _notice != null && _notice.IsVisible; } }
         internal bool SpreadOpenForProbe { get { return _spreadAccordion.IsOpen; } set { _spreadAccordion.IsOpen = value; } }
         internal void SpreadForProbe(int mode, string days) { _spreadMode.SelectedIndex = mode; _spreadDays.Text = days; Distribute(); }
+        internal void SpreadGapForProbe(string gap, string days) { _spreadMode.SelectedIndex = SpreadAlternate; _spreadGap.Text = gap; _spreadDays.Text = days; Distribute(); }
+        internal void SpreadRatiosForProbe(string days) { _spreadMode.SelectedIndex = SpreadRatios; _spreadDays.Text = days; Distribute(); }
+        internal bool SpreadGapShownForProbe { get { return _spreadGap.IsVisible; } }
+        internal string DialForProbe { get { return _dial.DesignForProbe; } }
+        internal int DialTurnChoicesForProbe { get { return _dialTurns.Items.Count; } }
+        internal int DialHourChoicesForProbe { get { return _dialHourStep.Items.Count; } }
+        internal void SetDialForProbe(int turns, int hourStep, int minuteStep, int numerals) { _dialTurns.SelectedIndex = turns; _dialHourStep.SelectedIndex = hourStep; _dialMinuteStep.SelectedIndex = minuteStep; _dialNumerals.SelectedIndex = numerals; }
+        internal void SetHoursForProbe(string hours) { _hours.Text = hours; }
+        internal string DialTipsForProbe { get { var tips = new List<string>(); foreach (var row in _dialTips.Children) foreach (var child in ((DockPanel)row).Children) { var text = child as TextBlock; if (text != null) tips.Add(text.Text); } return string.Join(" | ", tips.ToArray()); } }
         internal string ClockForProbe { get { return _dial.MetricsForProbe + " " + (_clockEcho.Text ?? ""); } }
         internal void SetSecondsForProbe(string seconds) { _seconds.Text = seconds; }
         internal string LeapEchoForProbe(int index) { return ((TextBlock)((object[])((Control)_leaps.Children[index]).Tag)[6]).Text ?? ""; }
@@ -854,11 +870,12 @@ namespace Marabook.App
             // dans son accordéon. Trois méthodes : tant de jours dans l'année, partagés
             // uniformément ou en bascule (+0 j, +1 j, +0 j…) ; ou des semaines entières par mois.
             var spread = new StackPanel();
-            var spreadGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("190,8,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto") };
+            var spreadGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("190,8,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto") };
             _spreadMode = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "system-spread-mode" };
             _spreadMode.Items.Add("Uniformément");
             _spreadMode.Items.Add("En bascule (+0 j, +1 j, +0 j…)");
             _spreadMode.Items.Add("Par semaines entières");
+            _spreadMode.Items.Add("En gardant les proportions actuelles");
             _spreadMode.SelectedIndex = 0;
             AddRow(spreadGrid, 0, "Méthode :", _spreadMode);
             _spreadDays = new TextBox { Text = system.BaseDays.ToString(CultureInfo.InvariantCulture), Width = 90, HorizontalAlignment = HorizontalAlignment.Left, Tag = "system-spread-days" };
@@ -867,6 +884,11 @@ namespace Marabook.App
             _weeksPerMonth = new TextBox { Text = "4", Width = 90, HorizontalAlignment = HorizontalAlignment.Left, Tag = "system-weeks-per-month" };
             AddRow(spreadGrid, 2, "Semaines par mois :", _weeksPerMonth);
             _weeksLabel = (Control)spreadGrid.Children[spreadGrid.Children.Count - 2];
+            // LE QUOTIENT DE RÉPARTITION (16/11 soir, Rémi) : en bascule, de combien de jours les mois longs dépassent les courts.
+            _spreadGap = new TextBox { Text = "1", Width = 90, HorizontalAlignment = HorizontalAlignment.Left, Tag = "system-spread-gap" };
+            ToolTip.SetTip(_spreadGap, "L'écart, en jours, entre un mois long et un mois court : 1 donne 30 / 31, 2 donne 29 / 31, 4 donne 28 / 32…");
+            AddRow(spreadGrid, 3, "Quotient de répartition :", _spreadGap);
+            _spreadGapLabel = (Control)spreadGrid.Children[spreadGrid.Children.Count - 2];
             spread.Children.Add(spreadGrid);
             _distributeEcho = new TextBlock { FontSize = 12, Tag = "system-distribute-echo" };
             var distributeBox = AstrolabeUi.Example(_distributeEcho);
@@ -926,12 +948,31 @@ namespace Marabook.App
             clockLeft.Children.Add(clockEchoBox);
             _clockHint = TimelineUi.Hint("");
             clockLeft.Children.Add(_clockHint);
+            // LE DESSIN DU CADRAN (16/11 soir, Rémi) : hors de 24/60/60, la symétrie se compose.
+            var design = new Grid { ColumnDefinitions = new ColumnDefinitions("190,8,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto") };
+            _dialTurns = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "system-dial-turns" };
+            _dialHourStep = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "system-dial-hour-step" };
+            _dialMinuteStep = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "system-dial-minute-step" };
+            _dialNumerals = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "system-dial-numerals" };
+            _dialNumerals.Items.Add("Chiffres arabes");
+            _dialNumerals.Items.Add("Chiffres romains");
+            _dialNumerals.Items.Add("Points");
+            _dialNumerals.SelectedIndex = Math.Max(0, Math.Min(2, system.DialNumerals));
+            AddRow(design, 0, "Tours du cadran par jour :", _dialTurns);
+            AddRow(design, 1, "Heures chiffrées :", _dialHourStep);
+            AddRow(design, 2, "Minutes chiffrées :", _dialMinuteStep);
+            AddRow(design, 3, "Style des repères :", _dialNumerals);
+            _dialTips = new StackPanel { Margin = new Thickness(0, 10, 0, 0), Tag = "system-dial-tips" };
+            var designBody = new StackPanel();
+            designBody.Children.Add(design);
+            designBody.Children.Add(_dialTips);
             _dial = new ClockDial { Tag = "system-clock-dial", VerticalAlignment = VerticalAlignment.Center };
             var clockBody = new Grid { ColumnDefinitions = new ColumnDefinitions("*,18,Auto") };
             Grid.SetColumn(_dial, 2);
             clockBody.Children.Add(clockLeft);
             clockBody.Children.Add(_dial);
-            third.Children.Add(AstrolabeUi.Section("L'horloge", "Ce que dure un jour. Le cadran fait un tour par jour : les heures au bord, les minutes au milieu, les secondes au centre.", clockBody, "system-section-clock"));
+            third.Children.Add(AstrolabeUi.Section("L'horloge", "Ce que dure un jour. Sur le cadran : les heures au bord, les minutes au milieu, les secondes au centre.", clockBody, "system-section-clock"));
+            third.Children.Add(AstrolabeUi.Section("Le dessin du cadran", "Rien ici ne change le compte du temps : seulement l'allure de l'horloge. Les pas proposés sont les diviseurs de vos nombres — ceux qui donnent des repères à intervalles égaux.", designBody, "system-section-dial"));
             tabs.Items.Add(new TabItem { Header = "Semaine et horloge", Content = new ScrollViewer { VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, Content = third } });
 
             root.Children.Add(tabs);
@@ -955,6 +996,8 @@ namespace Marabook.App
             EventHandler<TextChangedEventArgs> changed = delegate { Preview(); };
             foreach (var box in new[] { _word, _yearPattern, _negativePattern, _datePattern, _try, _hours, _minutes, _seconds, _weekDays, _spreadDays }) box.TextChanged += changed;
             _spreadMode.SelectionChanged += delegate { Preview(); };
+            _spreadGap.TextChanged += changed;
+            foreach (var combo in new[] { _dialTurns, _dialHourStep, _dialMinuteStep, _dialNumerals }) combo.SelectionChanged += delegate { if (!_building && !_fillingDial) Preview(); };
             _weekDays.TextChanged += delegate { TakeDays(); };
             _weeksPerMonth.TextChanged += changed;
             _segmented.IsCheckedChanged += delegate
@@ -989,13 +1032,58 @@ namespace Marabook.App
         {
             Collect();
             var mode = _spreadMode.SelectedIndex;
-            var done = mode == SpreadWeeks ? TimeMath.Distribute(_system, WeeksPerMonth()) : TimeMath.Distribute(_system, SpreadDays(), mode == SpreadAlternate);
+            var done = mode == SpreadWeeks ? TimeMath.Distribute(_system, WeeksPerMonth())
+                : mode == SpreadRatios ? TimeMath.DistributeKeepingRatios(_system, SpreadDays())
+                : TimeMath.Distribute(_system, SpreadDays(), mode == SpreadAlternate, SpreadGap());
             if (!done) return;
             RebuildMonths();
             Preview();
         }
 
-        private const int SpreadEven = 0, SpreadAlternate = 1, SpreadWeeks = 2;
+        private const int SpreadEven = 0, SpreadAlternate = 1, SpreadWeeks = 2, SpreadRatios = 3;
+
+        private int SpreadGap() { return Math.Max(1, Math.Min(10000, TimelineUi.ParseInt(_spreadGap.Text, 1))); }
+
+        private bool _fillingDial;
+        private int _turnsKey = -1;
+
+        /// <summary>Les listes du dessin du cadran dépendent des nombres de l'horloge : regarnies quand
+        /// ils changent (les diviseurs de 20 ne sont pas ceux de 24), en gardant le choix s'il vaut encore.</summary>
+        private void FillDial()
+        {
+            var turns = ClockDial.ValidTurns(_system.HoursPerDay, _system.DialTurns);
+            var key = _system.HoursPerDay + "/" + _system.MinutesPerHour + "/" + turns;
+            if (key == _dialKey) return;
+            _dialKey = key;
+            _fillingDial = true;
+            // La liste des tours ne dépend que des heures du jour : on ne la regarnit pas quand c'est
+            // ELLE qui vient de changer (vider une liste depuis son propre SelectionChanged fait lever Avalonia).
+            if (_turnsKey != _system.HoursPerDay)
+            {
+                _turnsKey = _system.HoursPerDay;
+                _turnChoices = ClockDial.TurnChoices(_system.HoursPerDay);
+                _dialTurns.Items.Clear();
+                foreach (var choice in _turnChoices)
+                    _dialTurns.Items.Add(choice == 1 ? "Un tour (" + _system.HoursPerDay + " heures au cadran)" : choice + " tours (" + (_system.HoursPerDay / choice) + " heures au cadran)");
+                _dialTurns.SelectedIndex = Math.Max(0, _turnChoices.IndexOf(turns));
+            }
+            var perTurn = _system.HoursPerDay / turns;
+            _hourStepChoices = ClockDial.StepChoices(perTurn);
+            _dialHourStep.Items.Clear();
+            _dialHourStep.Items.Add("Au mieux (toutes les " + ClockDial.AutoStep(perTurn) + ")");
+            foreach (var step in _hourStepChoices) _dialHourStep.Items.Add("Toutes les " + step + " — " + (perTurn / step) + " repères");
+            _dialHourStep.SelectedIndex = _hourStepChoices.IndexOf(_system.DialHourStep) + 1;
+            _minuteStepChoices = ClockDial.StepChoices(_system.MinutesPerHour);
+            _dialMinuteStep.Items.Clear();
+            _dialMinuteStep.Items.Add("Au mieux (toutes les " + ClockDial.AutoStep(_system.MinutesPerHour) + ")");
+            foreach (var step in _minuteStepChoices) _dialMinuteStep.Items.Add("Toutes les " + step + " — " + (_system.MinutesPerHour / step) + " repères");
+            _dialMinuteStep.SelectedIndex = _minuteStepChoices.IndexOf(_system.DialMinuteStep) + 1;
+            // Un pas qui ne divise plus le nouveau compte retombe sur « Au mieux ».
+            _system.DialTurns = turns;
+            if (_hourStepChoices.IndexOf(_system.DialHourStep) < 0) _system.DialHourStep = 0;
+            if (_minuteStepChoices.IndexOf(_system.DialMinuteStep) < 0) _system.DialMinuteStep = 0;
+            _fillingDial = false;
+        }
 
         private int SpreadDays() { return Math.Max(0, Math.Min(10000000, TimelineUi.ParseInt(_spreadDays.Text, 0))); }
 
@@ -1014,7 +1102,14 @@ namespace Marabook.App
                     : TimeSystem.Count(weeks, "semaine", "semaines") + " de " + TimeSystem.Count(weekLength, "jour", "jours") + " : "
                         + (weeks * weekLength) + " jours par mois, " + (weeks * weekLength * months) + " par an sur " + TimeSystem.Count(months, "mois", "mois") + ".";
             }
-            var days = TimeMath.Spread(months, SpreadDays(), mode == SpreadAlternate);
+            var current = new List<int>();
+            foreach (var month in _system.Months) current.Add(month.Days);
+            var days = mode == SpreadRatios ? TimeMath.SpreadKeepingRatios(current, SpreadDays()) : TimeMath.Spread(months, SpreadDays(), mode == SpreadAlternate, SpreadGap());
+            if (days == null && mode == SpreadAlternate && TimeMath.Spread(months, SpreadDays(), true, 1) != null)
+            {
+                possible = false;
+                return "Ce quotient est trop grand pour " + TimeSystem.Count(SpreadDays(), "jour", "jours") + " : les mois courts n'auraient plus de jours.";
+            }
             possible = days != null;
             if (days == null) return "Indiquez le nombre de jours de l'année : au moins un par mois (" + months + ").";
             var shown = new List<string>();
@@ -1308,6 +1403,14 @@ namespace Marabook.App
             _system.HoursPerDay = Math.Max(1, Math.Min(1000, TimelineUi.ParseInt(_hours.Text, 24)));
             _system.MinutesPerHour = Math.Max(1, Math.Min(1000, TimelineUi.ParseInt(_minutes.Text, 60)));
             _system.SecondsPerMinute = Math.Max(1, Math.Min(1000, TimelineUi.ParseInt(_seconds.Text, 60)));
+            // Le dessin du cadran : lu dans ses listes tant qu'elles valent pour ces nombres.
+            if (!_fillingDial && _dialKey != null)
+            {
+                if (_dialTurns.SelectedIndex >= 0 && _dialTurns.SelectedIndex < _turnChoices.Count) _system.DialTurns = _turnChoices[_dialTurns.SelectedIndex];
+                if (_dialHourStep.SelectedIndex >= 0) _system.DialHourStep = _dialHourStep.SelectedIndex == 0 || _dialHourStep.SelectedIndex > _hourStepChoices.Count ? 0 : _hourStepChoices[_dialHourStep.SelectedIndex - 1];
+                if (_dialMinuteStep.SelectedIndex >= 0) _system.DialMinuteStep = _dialMinuteStep.SelectedIndex == 0 || _dialMinuteStep.SelectedIndex > _minuteStepChoices.Count ? 0 : _minuteStepChoices[_dialMinuteStep.SelectedIndex - 1];
+                if (_dialNumerals.SelectedIndex >= 0) _system.DialNumerals = _dialNumerals.SelectedIndex;
+            }
         }
 
         private string Problem()
@@ -1341,13 +1444,26 @@ namespace Marabook.App
             var byWeeks = _spreadMode.SelectedIndex == SpreadWeeks;
             _spreadDays.IsVisible = !byWeeks;
             _spreadDaysLabel.IsVisible = !byWeeks;
+            _spreadGap.IsVisible = _spreadMode.SelectedIndex == SpreadAlternate;
+            _spreadGapLabel.IsVisible = _spreadMode.SelectedIndex == SpreadAlternate;
             _weeksPerMonth.IsVisible = byWeeks;
             _weeksLabel.IsVisible = byWeeks;
             bool spreadable;
             _distributeEcho.Text = SpreadPreview(out spreadable);
             _distribute.IsEnabled = spreadable;
             // L'horloge : le cadran et ce qu'un jour contient.
-            _dial.Set(_system.HoursPerDay, _system.MinutesPerHour, _system.SecondsPerMinute);
+            FillDial();
+            _dial.Set(_system.HoursPerDay, _system.MinutesPerHour, _system.SecondsPerMinute, _system.DialTurns, _system.DialHourStep, _system.DialMinuteStep, _system.DialNumerals);
+            _dialTips.Children.Clear();
+            foreach (var tip in ClockDial.Tips(_system.HoursPerDay, _system.MinutesPerHour, _system.SecondsPerMinute, _system.DialTurns))
+            {
+                var row = new DockPanel { Margin = new Thickness(0, 0, 0, 5) };
+                var dot = new Border { Width = 6, Height = 6, CornerRadius = new CornerRadius(3), Background = Chrome.Accent, Margin = new Thickness(1, 6, 8, 0), VerticalAlignment = VerticalAlignment.Top };
+                DockPanel.SetDock(dot, Dock.Left);
+                row.Children.Add(dot);
+                row.Children.Add(new TextBlock { Text = tip, Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap });
+                _dialTips.Children.Add(row);
+            }
             var perDay = (long)_system.HoursPerDay * _system.MinutesPerHour * _system.SecondsPerMinute;
             _clockEcho.Text = "Un jour : " + TimeSystem.Count((long)_system.HoursPerDay * _system.MinutesPerHour, "minute", "minutes") + ", " + TimeSystem.Count(perDay, "seconde", "secondes")
                 + (perDay == 86400 ? "" : " (notre monde : 86 400)") + "\nLes aiguilles marquent " + ClockDial.Sample(_system.HoursPerDay, _system.MinutesPerHour, _system.SecondsPerMinute) + ".";

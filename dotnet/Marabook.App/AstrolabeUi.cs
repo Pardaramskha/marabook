@@ -177,13 +177,22 @@ namespace Marabook.App
         }
     }
 
-    /// <summary>LE CADRAN DE L'HORLOGE (16/11, Rémi) : un tour = un jour. La
-    /// couronne extérieure porte les heures du jour, la suivante les minutes
-    /// d'une heure, la plus petite les secondes d'une minute ; trois aiguilles
-    /// montrent une heure d'exemple. Tout se redessine quand un nombre change.</summary>
+    /// <summary>LE CADRAN DE L'HORLOGE (16/11, Rémi) : la couronne extérieure
+    /// porte les heures, la suivante les minutes d'une heure, la plus petite
+    /// les secondes d'une minute ; trois aiguilles montrent une heure d'exemple.
+    ///
+    /// 16/11 soir (Rémi : « quand on sort de la norme 24/60/60, il est difficile
+    /// d'envisager une esthétique symétrique ») : le DESSIN se règle — le nombre
+    /// de tours du cadran par jour (deux tours de douze heures, comme chez
+    /// nous), le pas des chiffres sur les heures et sur les minutes, le style
+    /// des chiffres (arabes, romains, points). Au mieux, le pas est un DIVISEUR
+    /// du compte : les repères tombent alors à intervalles égaux, et le cadran
+    /// est symétrique. Tips() dit ce que les nombres choisis permettent.</summary>
     internal sealed class ClockDial : Control
     {
-        private int _hours = 24, _minutes = 60, _seconds = 60;
+        private int _hours = 24, _minutes = 60, _seconds = 60, _turns = 1, _hourStep, _minuteStep, _numerals;
+
+        public const int Arabic = 0, Roman = 1, Dots = 2;
 
         public ClockDial()
         {
@@ -191,22 +200,128 @@ namespace Marabook.App
             Height = 210;
         }
 
-        public void Set(int hours, int minutes, int seconds)
+        public void Set(int hours, int minutes, int seconds, int turns = 1, int hourStep = 0, int minuteStep = 0, int numerals = 0)
         {
             _hours = Math.Max(1, hours);
             _minutes = Math.Max(1, minutes);
             _seconds = Math.Max(1, seconds);
+            _turns = ValidTurns(_hours, turns);
+            _hourStep = Math.Max(0, hourStep);
+            _minuteStep = Math.Max(0, minuteStep);
+            _numerals = numerals;
             InvalidateVisual();
         }
 
         internal string MetricsForProbe { get { return _hours + "/" + _minutes + "/" + _seconds; } }
+        internal string DesignForProbe { get { return _turns + " tour(s), heures toutes les " + StepFor(_hours / _turns, _hourStep) + ", minutes toutes les " + StepFor(_minutes, _minuteStep) + ", style " + _numerals; } }
 
-        /// <summary>Le pas des graduations chiffrées : au plus une douzaine de nombres autour du cadran.</summary>
-        private static int LabelStep(int count)
+        /// <summary>Les diviseurs d'un nombre, du plus petit au plus grand (1 et lui-même compris).</summary>
+        public static List<int> Divisors(int count)
         {
-            foreach (var step in new[] { 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 25, 30, 50, 60, 100, 200, 250, 500 })
+            var list = new List<int>();
+            for (var d = 1; d <= count; d++) if (count % d == 0) list.Add(d);
+            return list;
+        }
+
+        /// <summary>Le nombre de tours retenu : celui demandé s'il partage le jour en tours égaux d'au moins deux heures ; sinon un seul.</summary>
+        public static int ValidTurns(int hours, int turns)
+        {
+            return turns > 1 && hours % turns == 0 && hours / turns >= 2 ? turns : 1;
+        }
+
+        /// <summary>Le pas des chiffres « au mieux » : le plus petit DIVISEUR du
+        /// compte qui laisse au plus douze repères (des intervalles égaux, donc un
+        /// cadran symétrique). Pour un nombre premier trop grand, aucun diviseur
+        /// ne convient : un pas rond, et un dernier intervalle plus court.</summary>
+        public static int AutoStep(int count)
+        {
+            foreach (var d in Divisors(count)) if (d < count && count / d <= 12) return d;
+            if (count <= 12) return 1;
+            foreach (var step in new[] { 2, 3, 4, 5, 6, 10, 12, 15, 20, 25, 30, 50, 60, 100, 200, 250, 500 })
                 if (count / (double)step <= 12) return step;
             return Math.Max(1, count / 10);
+        }
+
+        public static int StepFor(int count, int asked)
+        {
+            return asked > 0 && asked < count ? asked : AutoStep(count);
+        }
+
+        /// <summary>Les pas qu'on peut proposer pour chiffrer une couronne : les diviseurs qui laissent de 2 à 24 repères.</summary>
+        public static List<int> StepChoices(int count)
+        {
+            var list = new List<int>();
+            foreach (var d in Divisors(count)) if (count / d >= 2 && count / d <= 24) list.Add(d);
+            return list;
+        }
+
+        /// <summary>Les nombres de tours qu'on peut proposer : 1, puis les diviseurs du jour jusqu'à 4 tours.</summary>
+        public static List<int> TurnChoices(int hours)
+        {
+            var list = new List<int> { 1 };
+            for (var t = 2; t <= 4; t++) if (ValidTurns(hours, t) == t) list.Add(t);
+            return list;
+        }
+
+        public static string RomanNumeral(int value)
+        {
+            if (value <= 0 || value >= 4000) return value.ToString(CultureInfo.InvariantCulture);
+            var numbers = new[] { 1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1 };
+            var letters = new[] { "M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I" };
+            var text = "";
+            for (var i = 0; i < numbers.Length; i++) while (value >= numbers[i]) { text += letters[i]; value -= numbers[i]; }
+            return text;
+        }
+
+        private static string Parts(int count, string unit)
+        {
+            var parts = new List<string>();
+            foreach (var d in Divisors(count))
+            {
+                if (d == 1 || d == count) continue;
+                parts.Add(d + " × " + (count / d));
+                if (parts.Count >= 5) break;
+            }
+            return parts.Count == 0 ? null : string.Join(", ", parts.ToArray());
+        }
+
+        /// <summary>Le voisin le plus riche en diviseurs d'un nombre (à deux près) : ce vers quoi pousser un compte ingrat.</summary>
+        private static int RichNeighbour(int count)
+        {
+            var best = count;
+            for (var n = Math.Max(2, count - 2); n <= count + 2; n++)
+                if (Divisors(n).Count > Divisors(best).Count) best = n;
+            return best;
+        }
+
+        /// <summary>LES ASTUCES DU CADRAN (16/11 soir) : ce que les nombres choisis permettent, ligne à ligne.</summary>
+        public static List<string> Tips(int hours, int minutes, int seconds, int turns)
+        {
+            hours = Math.Max(1, hours); minutes = Math.Max(1, minutes); seconds = Math.Max(1, seconds);
+            var tips = new List<string>();
+            var hourParts = Parts(hours, "heures");
+            if (hourParts == null && hours > 3)
+            {
+                var better = RichNeighbour(hours);
+                tips.Add(hours + " heures est un nombre premier : le jour ne se coupe ni en moitiés ni en quarts, le cadran ne peut pas être symétrique."
+                    + (better != hours ? " Avec " + better + " heures (" + Parts(better, "heures") + "), il le deviendrait." : ""));
+            }
+            else if (hourParts != null)
+            {
+                tips.Add(hours + " heures se partagent en parts égales : " + hourParts + ". Chiffrez à l'un de ces pas pour des repères réguliers."
+                    + (hours % 4 == 0 ? " Divisible par 4 : le cadran a ses quatre points cardinaux, comme le nôtre." : hours % 2 == 0 ? " Pair mais pas divisible par 4 : un haut et un bas, pas de quarts." : " Impair : pas de repère en bas du cadran, face au zéro."));
+                if (TurnChoices(hours).Count > 1 && ValidTurns(hours, turns) == 1 && hours > 12)
+                    tips.Add("Un cadran de " + hours + " heures est chargé : faites-lui faire deux tours par jour (" + (hours / 2) + " heures par tour, comme nos horloges de douze heures)." );
+            }
+            var minuteParts = Parts(minutes, "minutes");
+            if (minuteParts == null && minutes > 3)
+                tips.Add(minutes + " minutes par heure est un nombre premier : pas de demi-heure ni de quart d'heure. " + RichNeighbour(minutes) + " en aurait.");
+            else if (minuteParts != null)
+                tips.Add(minutes + " minutes : " + minuteParts + (minutes % 4 == 0 ? " — le quart d'heure existe (" + (minutes / 4) + " min)." : minutes % 2 == 0 ? " — une demi-heure (" + (minutes / 2) + " min), mais pas de quart d'heure rond." : " — ni demi-heure ni quart d'heure ronds."));
+            if (seconds != minutes)
+                tips.Add("Minutes et secondes n'ont pas le même compte (" + minutes + " et " + seconds + ") : les deux petites couronnes ne se répondent pas. À l'identique, le cadran gagne en unité.");
+            tips.Add("Les nombres riches en diviseurs font les plus beaux cadrans : 12, 24, 36, 48, 60, 72, 120.");
+            return tips;
         }
 
         private static Point At(Point center, double radius, double turn)
@@ -215,12 +330,12 @@ namespace Marabook.App
             return new Point(center.X + Math.Cos(angle) * radius, center.Y + Math.Sin(angle) * radius);
         }
 
-        private void Ring(DrawingContext context, Point center, double radius, int count, IBrush ink, double tick, double fontSize, bool labels)
+        private void Ring(DrawingContext context, Point center, double radius, int count, int step, IBrush ink, double tick, double fontSize, bool labels, int numerals, bool topIsCount)
         {
             var pen = new Pen(Chrome.BorderStrong, 1);
             var strong = new Pen(ink, 1.3);
+            var cardinal = new Pen(ink, 2.2);
             context.DrawEllipse(null, new Pen(Chrome.Border, 1), center, radius, radius);
-            var step = LabelStep(count);
             // Trop de graduations pour le périmètre : une sur « thin » seulement.
             var thin = Math.Max(1, (int)Math.Ceiling(count / (radius * 2 * Math.PI / 3.5)));
             for (var i = 0; i < count; i++)
@@ -228,10 +343,20 @@ namespace Marabook.App
                 var major = i % step == 0;
                 if (!major && i % thin != 0) continue;
                 var turn = i / (double)count;
-                context.DrawLine(major ? strong : pen, At(center, radius, turn), At(center, radius - (major ? tick : tick * 0.55), turn));
+                // Les quarts du cadran (quand le compte s'y prête) : un trait plus fort — l'ossature de la symétrie.
+                var quarter = count % 4 == 0 && i % (count / 4) == 0;
+                context.DrawLine(quarter && labels ? cardinal : major ? strong : pen, At(center, radius, turn), At(center, radius - (major ? tick : tick * 0.55), turn));
                 if (!major || !labels) continue;
-                var text = new FormattedText(i.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, fontSize, ink);
-                var spot = At(center, radius - tick - fontSize * 0.85, turn);
+                if (numerals == Dots)
+                {
+                    context.DrawEllipse(ink, null, At(center, radius - tick - 4.5, turn), quarter ? 2.4 : 1.5, quarter ? 2.4 : 1.5);
+                    continue;
+                }
+                var number = i == 0 && topIsCount ? count : i;
+                var label = numerals == Roman ? (number == 0 ? "·" : RomanNumeral(number)) : number.ToString(CultureInfo.InvariantCulture);
+                var size = numerals == Roman && label.Length > 3 ? fontSize * 0.82 : fontSize;
+                var text = new FormattedText(label, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, size, ink);
+                var spot = At(center, radius - tick - size * 0.85 - (numerals == Roman ? 2 : 0), turn);
                 context.DrawText(text, new Point(spot.X - text.Width / 2, spot.Y - text.Height / 2));
             }
         }
@@ -242,15 +367,16 @@ namespace Marabook.App
             if (size < 40) return;
             var center = new Point(Bounds.Width / 2, Bounds.Height / 2);
             var outer = size / 2 - 2;
+            var perTurn = _hours / _turns;
             context.DrawEllipse(Chrome.FieldBg, new Pen(Chrome.BorderStrong, 1.5), center, outer, outer);
-            Ring(context, center, outer - 3, _hours, Chrome.Ink, 8, 10.5, true);
-            Ring(context, center, outer * 0.62, _minutes, Chrome.Time, 6, 8.5, true);
-            Ring(context, center, outer * 0.30, _seconds, Chrome.Accent, 4, 7, false);
+            Ring(context, center, outer - 3, perTurn, StepFor(perTurn, _hourStep), Chrome.Ink, 8, 10.5, true, _numerals, _turns > 1);
+            Ring(context, center, outer * 0.62, _minutes, StepFor(_minutes, _minuteStep), Chrome.Time, 6, 8.5, true, _numerals == Dots ? Dots : Arabic, false);
+            Ring(context, center, outer * 0.30, _seconds, StepFor(_seconds, 0), Chrome.Accent, 4, 7, false, Arabic, false);
             // L'heure d'exemple : un peu après la mi-journée, à la demie, aux trois quarts de la minute.
             var hour = Math.Min(_hours - 1, (int)Math.Floor(_hours * 14 / 24.0));
             var minute = _minutes / 2;
             var second = _seconds * 3 / 4;
-            var hourTurn = (hour + minute / (double)_minutes) / _hours;
+            var hourTurn = (hour % perTurn + minute / (double)_minutes) / perTurn;
             context.DrawLine(new Pen(Chrome.Ink, 3, lineCap: PenLineCap.Round), center, At(center, outer * 0.80, hourTurn));
             context.DrawLine(new Pen(Chrome.Time, 2, lineCap: PenLineCap.Round), center, At(center, outer * 0.58, minute / (double)_minutes));
             context.DrawLine(new Pen(Chrome.Accent, 1.2, lineCap: PenLineCap.Round), center, At(center, outer * 0.28, second / (double)_seconds));

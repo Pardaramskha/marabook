@@ -165,30 +165,106 @@ namespace Marabook.Model
         /// à partir du deuxième — puis les autres s'il en reste). 365 jours en
         /// douze mois : 30, 31, 30, 31, 30, 31, 30, 31, 30, 31, 30, 30 en bascule.
         /// Null si le compte ne tient pas (moins d'un jour par mois).</summary>
-        public static int[] Spread(int months, int yearDays, bool alternate)
+        public static int[] Spread(int months, int yearDays, bool alternate, int gap = 1)
         {
             if (months < 1 || yearDays < months || yearDays > 10000L * months) return null;
             var days = new int[months];
-            var whole = yearDays / months;
-            var rest = yearDays % months;
-            for (var i = 0; i < months; i++) days[i] = whole;
-            if (alternate)
+            if (!alternate)
             {
-                var order = new List<int>();
-                for (var i = 1; i < months; i += 2) order.Add(i);
-                for (var i = 0; i < months; i += 2) order.Add(i);
-                for (var k = 0; k < rest; k++) days[order[k]]++;
+                var whole = yearDays / months;
+                var rest = yearDays % months;
+                for (var i = 0; i < months; i++) days[i] = whole + (int)((long)(i + 1) * rest / months - (long)i * rest / months);
+                return days;
             }
-            else
-                for (var i = 0; i < months; i++) days[i] += (int)((long)(i + 1) * rest / months - (long)i * rest / months);
+            // EN BASCULE, avec son QUOTIENT (16/11 soir, Rémi) : un mois sur deux, à partir du deuxième,
+            // est LONG — « gap » jours de plus que les courts. La base est celle qui tombe le plus
+            // près du compte ; ce qui manque s'ajoute aux mois courts, ce qui dépasse se retire des
+            // mois longs, étalé dans l'année. 359 jours en douze mois : quotient 1 → onze mois de 30
+            // et un de 29 (on ne peut pas mieux) ; quotient 2 → 29, 31, 29, 31… et un dernier de 30.
+            gap = Math.Max(1, gap);
+            var longs = new List<int>();
+            var shorts = new List<int>();
+            for (var i = 0; i < months; i++) (i % 2 == 1 ? longs : shorts).Add(i);
+            var extra = (long)gap * longs.Count;
+            if (yearDays - extra < months) return null; // le quotient mange toute l'année
+            var low = (int)((yearDays - extra) / months);
+            var rest0 = (int)(yearDays - extra - (long)low * months); // 0 ≤ rest0 < months
+            var rest1 = rest0 - months;                                // avec une base d'un jour de plus
+            var up = rest0 <= -rest1;
+            var small = up ? low : low + 1;
+            var left = up ? rest0 : rest1;
+            foreach (var i in shorts) days[i] = small;
+            foreach (var i in longs) days[i] = small + gap;
+            // Le reste, un jour par mois : d'abord sur les courts (s'il manque) ou les longs (s'il dépasse).
+            var groups = left >= 0 ? new[] { shorts, longs } : new[] { longs, shorts };
+            var count = Math.Abs(left);
+            foreach (var group in groups)
+            {
+                if (count == 0 || group.Count == 0) continue;
+                var take = Math.Min(count, group.Count);
+                for (var j = 0; j < group.Count; j++)
+                    if ((long)(j + 1) * take / group.Count - (long)j * take / group.Count == 1) days[group[j]] += left >= 0 ? 1 : -1;
+                count -= take;
+            }
+            foreach (var day in days) if (day < 1) return null;
+            return days;
+        }
+
+        /// <summary>EN GARDANT LES PROPORTIONS (16/11 soir) : les mois gardent leur
+        /// poids relatif (un mois deux fois plus long le reste), mis à l'échelle
+        /// d'une année de yearDays jours — chacun au moins un jour, les jours qui
+        /// restent allant aux plus grosses fractions. Null si le compte ne tient pas.</summary>
+        public static int[] SpreadKeepingRatios(IList<int> current, int yearDays)
+        {
+            var months = current == null ? 0 : current.Count;
+            if (months < 1 || yearDays < months || yearDays > 10000L * months) return null;
+            long total = 0;
+            foreach (var day in current) total += Math.Max(1, day);
+            var days = new int[months];
+            var fractions = new double[months];
+            var given = 0;
+            for (var i = 0; i < months; i++)
+            {
+                var exact = (double)Math.Max(1, current[i]) * yearDays / total;
+                days[i] = Math.Max(1, (int)Math.Floor(exact));
+                fractions[i] = exact - days[i];
+                given += days[i];
+            }
+            while (given != yearDays)
+            {
+                var best = -1;
+                for (var i = 0; i < months; i++)
+                {
+                    if (given > yearDays && days[i] <= 1) continue;
+                    if (best < 0 || (given < yearDays ? fractions[i] > fractions[best] : fractions[i] < fractions[best])) best = i;
+                }
+                if (best < 0) return null;
+                var step = given < yearDays ? 1 : -1;
+                days[best] += step;
+                fractions[best] -= step;
+                given += step;
+            }
             return days;
         }
 
         /// <summary>Applique Spread aux mois du système ; faux (rien ne change) si le compte ne tient pas.</summary>
-        public static bool Distribute(TimeSystem system, int yearDays, bool alternate)
+        public static bool Distribute(TimeSystem system, int yearDays, bool alternate, int gap = 1)
         {
             if (system == null) return false;
-            var days = Spread(system.Months.Count, yearDays, alternate);
+            return Apply(system, Spread(system.Months.Count, yearDays, alternate, gap));
+        }
+
+        /// <summary>Met les mois du système à l'échelle d'une année de yearDays jours, en gardant leurs proportions.</summary>
+        public static bool DistributeKeepingRatios(TimeSystem system, int yearDays)
+        {
+            if (system == null) return false;
+            var current = new List<int>();
+            foreach (var month in system.Months) current.Add(month.Days);
+            return Apply(system, SpreadKeepingRatios(current, yearDays));
+        }
+
+        private static bool Apply(TimeSystem system, int[] days)
+        {
             if (days == null) return false;
             for (var i = 0; i < days.Length; i++) system.Months[i].Days = days[i];
             return true;

@@ -50,6 +50,35 @@ namespace Marabook.Model
         public double HighAt;   // le numéro d'un jour où il culmine à minuit
         public string Color;
         public string OrbitId;  // 16/11 : le soleil autour duquel il tourne ; null = « centrique », au milieu du système
+        // Sa taille, en « fois notre Soleil » (son diamètre ; 16/11 soir) : ce qui décide, quand deux
+        // soleils passent l'un devant l'autre, si l'éclipse est totale ou annulaire.
+        public double Size = 1;
+    }
+
+    /// <summary>UNE PLANÈTE VOISINE (16/11 soir, Rémi : le Planétarium) : un astre du
+    /// système qui n'a ni calendrier ni récit — on le voit depuis le monde. Un
+    /// nom ; au besoin la durée de son année (en jours du calendrier de
+    /// référence) et le jour d'un alignement avec le monde, pour dater ses retours.</summary>
+    public class Planet
+    {
+        public string Id = Guid.NewGuid().ToString("N");
+        public string Name = "";
+        public double Period;   // jours ; 0 = non renseignée (elle n'est que placée)
+        public double At;       // le numéro d'un jour où elle est alignée avec le monde et le soleil
+        public string Color;
+    }
+
+    /// <summary>Un astre à sa place dans le système (Astro.Layout) : un soleil, le monde, une planète.</summary>
+    public class SkyBody
+    {
+        public const int SunKind = 0, WorldKind = 1, PlanetKind = 2;
+        public int Kind;
+        public string Id;       // l'identifiant du soleil ou de la planète ; Astro.WorldToken pour le monde
+        public string Name;
+        public int Rank;        // 0 = au centre ; 1, 2, 3… en s'éloignant
+        public Sun Sun;
+        public Planet Planet;
+        public bool Movable;    // un soleil centrique ne quitte pas le centre
     }
 
     /// <summary>Un PHÉNOMÈNE PERSONNALISÉ (16/11, Rémi) : ce qui revient dans le
@@ -110,6 +139,11 @@ namespace Marabook.Model
         public string ReferenceSystemId;
         // Les phénomènes personnalisés (16/11) : une comète, une pluie d'étoiles, la lune rousse des légendes.
         public List<SkyEvent> Phenomena = new List<SkyEvent>();
+        // LE PLACEMENT STELLAIRE (16/11 soir, Rémi) : les planètes voisines, et l'ordre des astres en
+        // s'éloignant du centre — les identifiants des soleils qui orbitent, des planètes, et
+        // Astro.WorldToken pour le monde. Les soleils centriques, au centre, n'y figurent pas.
+        public List<Planet> Planets = new List<Planet>();
+        public List<string> Order = new List<string>();
 
         public bool HasSize { get { return Circumference > 0; } }
         public bool HasTilt { get { return AxialTilt >= 0; } }
@@ -117,10 +151,12 @@ namespace Marabook.Model
         public World Clone()
         {
             var copy = new World { Id = Id, Name = Name, Circumference = Circumference, AxialTilt = AxialTilt, SolarYear = SolarYear, ReferenceSystemId = ReferenceSystemId };
-            foreach (var sun in Suns) copy.Suns.Add(new Sun { Id = sun.Id, Name = sun.Name, Period = sun.Period, HighAt = sun.HighAt, Color = sun.Color, OrbitId = sun.OrbitId });
+            foreach (var sun in Suns) copy.Suns.Add(new Sun { Id = sun.Id, Name = sun.Name, Period = sun.Period, HighAt = sun.HighAt, Color = sun.Color, OrbitId = sun.OrbitId, Size = sun.Size });
             foreach (var season in Seasons) copy.Seasons.Add(new Season { Id = season.Id, Name = season.Name, StartDay = season.StartDay, Color = season.Color });
             foreach (var moon in Moons) copy.Moons.Add(new Moon { Id = moon.Id, Name = moon.Name, Period = moon.Period, FullAt = moon.FullAt, Color = moon.Color, OrbitId = moon.OrbitId, Eclipses = moon.Eclipses });
             foreach (var item in Phenomena) copy.Phenomena.Add(new SkyEvent { Id = item.Id, Name = item.Name, Period = item.Period, At = item.At, Color = item.Color });
+            foreach (var planet in Planets) copy.Planets.Add(new Planet { Id = planet.Id, Name = planet.Name, Period = planet.Period, At = planet.At, Color = planet.Color });
+            copy.Order.AddRange(Order);
             return copy;
         }
 
@@ -363,14 +399,206 @@ namespace Marabook.Model
             return world.Suns[0];
         }
 
-        /// <summary>Les soleils qui font le tour du ciel : tous sauf le principal, dès qu'ils ont une période.</summary>
+        /// <summary>Les soleils qui font le tour du ciel du monde : tous sauf le principal, dès
+        /// qu'ils ont une période — et que leur orbite passe AU-DELÀ du monde (16/11 soir). Un
+        /// compagnon en orbite rapprochée ne quitte jamais son soleil : voir CloseCompanions.</summary>
         public static List<Sun> Wanderers(World world)
         {
             var suns = new List<Sun>();
             if (world == null) return suns;
             var main = MainSun(world);
-            foreach (var sun in world.Suns) if (sun != main && sun.Period > 0) suns.Add(sun);
+            foreach (var sun in world.Suns) if (sun != main && sun.Period > 0 && !IsInner(world, sun)) suns.Add(sun);
             return suns;
+        }
+
+        // ------------------------------------------------------ placement stellaire
+
+        public const string WorldToken = "@world";
+
+        /// <summary>L'ORDRE DES ASTRES en s'éloignant du centre (16/11 soir, Rémi) :
+        /// world.Order nettoyé et complété. Ce qui n'y figure pas encore prend sa
+        /// place par défaut — un soleil qui orbite, juste avant le monde (orbite
+        /// rapprochée : c'est le cas courant d'une étoile double) ; le monde, après
+        /// les soleils ; une planète, tout au bout.</summary>
+        public static List<string> NormalOrder(World world)
+        {
+            var order = new List<string>();
+            if (world == null) return order;
+            foreach (var id in world.Order)
+            {
+                if (order.Contains(id)) continue;
+                var sun = FindSun(world, id);
+                if (id == WorldToken || (sun != null && sun.OrbitId != null) || FindPlanet(world, id) != null) order.Add(id);
+            }
+            if (!order.Contains(WorldToken)) order.Add(WorldToken);
+            foreach (var sun in world.Suns)
+                if (sun.OrbitId != null && !order.Contains(sun.Id)) order.Insert(order.IndexOf(WorldToken), sun.Id);
+            foreach (var planet in world.Planets) if (!order.Contains(planet.Id)) order.Add(planet.Id);
+            return order;
+        }
+
+        public static Planet FindPlanet(World world, string id)
+        {
+            if (world == null || id == null) return null;
+            foreach (var planet in world.Planets) if (planet.Id == id) return planet;
+            return null;
+        }
+
+        /// <summary>Le système, du centre vers le dehors : les soleils centriques (rang 0), puis chaque astre à son rang.</summary>
+        public static List<SkyBody> Layout(World world)
+        {
+            var bodies = new List<SkyBody>();
+            if (world == null) return bodies;
+            for (var i = 0; i < world.Suns.Count; i++)
+                if (world.Suns[i].OrbitId == null) bodies.Add(new SkyBody { Kind = SkyBody.SunKind, Id = world.Suns[i].Id, Name = SunLabel(world.Suns[i]), Rank = 0, Sun = world.Suns[i] });
+            var rank = 1;
+            foreach (var id in NormalOrder(world))
+            {
+                if (id == WorldToken) { bodies.Add(new SkyBody { Kind = SkyBody.WorldKind, Id = id, Name = string.IsNullOrEmpty(world.Name) ? "Le monde" : world.Name, Rank = rank++, Movable = true }); continue; }
+                var sun = FindSun(world, id);
+                if (sun != null) { bodies.Add(new SkyBody { Kind = SkyBody.SunKind, Id = id, Name = SunLabel(sun), Rank = rank++, Sun = sun, Movable = true }); continue; }
+                var planet = FindPlanet(world, id);
+                bodies.Add(new SkyBody { Kind = SkyBody.PlanetKind, Id = id, Name = string.IsNullOrEmpty(planet.Name) ? "Planète" : planet.Name, Rank = rank++, Planet = planet, Movable = true });
+            }
+            return bodies;
+        }
+
+        /// <summary>Vrai si cet astre est plus près du centre que le monde.</summary>
+        public static bool IsInside(World world, string id)
+        {
+            var order = NormalOrder(world);
+            var at = order.IndexOf(id);
+            return at >= 0 && at < order.IndexOf(WorldToken);
+        }
+
+        /// <summary>Vrai pour un soleil en ORBITE RAPPROCHÉE : il tourne autour d'un
+        /// autre soleil, plus près du centre que le monde. Vu du monde, il ne
+        /// quitte jamais son soleil — pas de nuits claires.</summary>
+        public static bool IsInner(World world, Sun sun)
+        {
+            return world != null && sun != null && sun.OrbitId != null && IsInside(world, sun.Id);
+        }
+
+        /// <summary>Place un soleil qui orbite en deçà (orbite rapprochée) ou au-delà (orbite lointaine) du monde.</summary>
+        public static void SetInner(World world, Sun sun, bool inner)
+        {
+            if (world == null || sun == null || sun.OrbitId == null) return;
+            var order = NormalOrder(world);
+            if (order.IndexOf(sun.Id) < order.IndexOf(WorldToken) != inner)
+            {
+                order.Remove(sun.Id);
+                order.Insert(order.IndexOf(WorldToken) + (inner ? 0 : 1), sun.Id);
+            }
+            world.Order = order;
+        }
+
+        /// <summary>Déplace un astre d'un rang vers le centre (-1) ou vers le dehors (+1) ; faux s'il est au bout.</summary>
+        public static bool MoveBody(World world, string id, int delta)
+        {
+            var order = NormalOrder(world);
+            var at = order.IndexOf(id);
+            var to = at + (delta < 0 ? -1 : 1);
+            if (at < 0 || to < 0 || to >= order.Count) return false;
+            order.RemoveAt(at);
+            order.Insert(to, id);
+            world.Order = order;
+            return true;
+        }
+
+        /// <summary>Les compagnons en orbite rapprochée qui ont une période : ceux qui donnent des éclipses solaires pures.</summary>
+        public static List<Sun> CloseCompanions(World world)
+        {
+            var suns = new List<Sun>();
+            if (world == null) return suns;
+            foreach (var sun in world.Suns) if (sun.Period > 0 && IsInner(world, sun) && FindSun(world, sun.OrbitId) != null) suns.Add(sun);
+            return suns;
+        }
+
+        // --------------------------------------------------- éclipses solaires pures
+
+        public const int NoSunEclipse = 0, SunInFront = 1, SunBehind = 2;
+        /// <summary>Le diamètre et la superficie de notre Soleil : l'unité de taille des soleils.</summary>
+        public const double SunDiameter = 1392700, SunSurface = 6.09e12;
+
+        /// <summary>L'ÉCLIPSE SOLAIRE PURE (16/11 soir, Rémi) : un soleil qui en cache un
+        /// autre. Un compagnon en orbite rapprochée passe DEVANT son soleil le jour
+        /// HighAt, puis à chaque période ; DERRIÈRE lui une demi-période plus tard.
+        /// (Les orbites sont supposées alignées avec le monde : chaque passage est une éclipse.)</summary>
+        public static int SunEclipseOn(World world, Sun sun, long dayNumber)
+        {
+            if (sun == null || sun.Period <= 0 || !IsInner(world, sun) || FindSun(world, sun.OrbitId) == null) return NoSunEclipse;
+            if (Math.Floor((dayNumber + 1 - sun.HighAt) / sun.Period - 1e-9) > Math.Floor((dayNumber - sun.HighAt) / sun.Period - 1e-9)) return SunInFront;
+            var back = sun.HighAt + sun.Period / 2;
+            if (Math.Floor((dayNumber + 1 - back) / sun.Period - 1e-9) > Math.Floor((dayNumber - back) / sun.Period - 1e-9)) return SunBehind;
+            return NoSunEclipse;
+        }
+
+        /// <summary>La part du disque du soleil de derrière que cache celui de devant : 1 = éclipse totale.</summary>
+        public static double SunEclipseCover(World world, Sun sun, int eclipse)
+        {
+            var parent = FindSun(world, sun.OrbitId);
+            if (parent == null || eclipse == NoSunEclipse) return 0;
+            var front = Math.Max(0.0001, eclipse == SunInFront ? sun.Size : parent.Size);
+            var back = Math.Max(0.0001, eclipse == SunInFront ? parent.Size : sun.Size);
+            return Math.Min(1, front / back * (front / back));
+        }
+
+        /// <summary>« Éclipse solaire pure : Braise passe devant Hélios et cache 25 % de son disque (annulaire) ».</summary>
+        public static string SunEclipseLabel(World world, Sun sun, int eclipse)
+        {
+            var parent = FindSun(world, sun.OrbitId);
+            if (parent == null || eclipse == NoSunEclipse) return "";
+            var front = eclipse == SunInFront ? sun : parent;
+            var back = eclipse == SunInFront ? parent : sun;
+            var cover = SunEclipseCover(world, sun, eclipse);
+            return "Éclipse solaire pure : " + SunLabel(front) + (cover >= 1 - 1e-9
+                ? " cache entièrement " + SunLabel(back) + " (totale)"
+                : " passe devant " + SunLabel(back) + " et cache " + Number(cover * 100, cover < 0.1 ? 1 : 0) + " % de son disque (annulaire)");
+        }
+
+        /// <summary>Le prochain jour d'une éclipse solaire pure de ce compagnon, ce jour compris.</summary>
+        public static long NextSunEclipse(Sun sun, long dayNumber, int eclipse)
+        {
+            var period = Math.Max(0.01, sun.Period);
+            var at = sun.HighAt + (eclipse == SunBehind ? period / 2 : 0);
+            var k = Math.Ceiling((dayNumber - at) / period - 1e-9);
+            return (long)Math.Floor(at + k * period + 1e-9);
+        }
+
+        // ---------------------------------------------------------------- planètes
+
+        /// <summary>Le temps entre deux alignements d'une planète avec le monde et
+        /// le soleil (sa période synodique), en jours ; 0 si elle n'a pas d'année
+        /// renseignée, ou la même que le monde.</summary>
+        public static double SynodicPeriod(World world, TimeSystem system, Planet planet)
+        {
+            if (planet == null || planet.Period <= 0) return 0;
+            var year = SolarYear(world, system);
+            var gap = Math.Abs(1 / year - 1 / planet.Period);
+            return gap < 1e-9 ? 0 : 1 / gap;
+        }
+
+        /// <summary>Vrai le jour où cette planète s'aligne avec le monde et le soleil.</summary>
+        public static bool PlanetAlignedOn(World world, TimeSystem system, Planet planet, long dayNumber)
+        {
+            var period = SynodicPeriod(world, system, planet);
+            if (period <= 0) return false;
+            return Math.Floor((dayNumber + 1 - planet.At) / period - 1e-9) > Math.Floor((dayNumber - planet.At) / period - 1e-9);
+        }
+
+        /// <summary>Ce que donne l'alignement : une planète du dehors est en opposition (au plus près,
+        /// visible toute la nuit) ; une planète du dedans passe entre le monde et le soleil.</summary>
+        public static string PlanetAlignmentLabel(World world, Planet planet)
+        {
+            var name = string.IsNullOrEmpty(planet.Name) ? "Planète" : planet.Name;
+            return IsInside(world, planet.Id) ? name + " passe entre le monde et le soleil" : name + " au plus près du monde : visible toute la nuit";
+        }
+
+        public static readonly string[] PlanetColors = { "#6E8FB5", "#C8703A", "#3E9C7A", "#B5843A", "#8E6BBF", "#C08497" };
+
+        public static string ColorOf(Planet planet, int index)
+        {
+            return string.IsNullOrEmpty(planet.Color) ? PlanetColors[Math.Abs(index) % PlanetColors.Length] : planet.Color;
         }
 
         public static Sun FindSun(World world, string id)
@@ -688,6 +916,19 @@ namespace Marabook.Model
             }
             if (freeMoons > 1 && fullTogether == freeMoons)
                 notes.Add(new SkyNote { Text = "Toutes les lunes sont pleines ensemble", Color = "#8E6BBF" });
+            for (var i = 0; i < world.Suns.Count; i++)
+            {
+                var pure = SunEclipseOn(world, world.Suns[i], dayNumber);
+                if (pure == NoSunEclipse) continue;
+                notes.Add(new SkyNote
+                {
+                    Text = SunEclipseLabel(world, world.Suns[i], pure), Color = ColorOf(world.Suns[i], i),
+                    Detail = "Prochaine : " + date(NextSunEclipse(world.Suns[i], dayNumber + 1, pure))
+                });
+            }
+            for (var i = 0; i < world.Planets.Count; i++)
+                if (PlanetAlignedOn(world, system, world.Planets[i], dayNumber))
+                    notes.Add(new SkyNote { Text = PlanetAlignmentLabel(world, world.Planets[i]), Color = ColorOf(world.Planets[i], i) });
             for (var i = 0; i < world.Phenomena.Count; i++)
             {
                 var item = world.Phenomena[i];
@@ -739,13 +980,26 @@ namespace Marabook.Model
                 var center = around == null ? "un soleil disparu" : SunLabel(around);
                 if (sun.Period <= 0)
                 {
-                    list.Add(new SkyBehavior { Title = SunLabel(sun) + " reste auprès de " + center, Notable = true, Text = "Sans période, il ne quitte pas son soleil dans le ciel : un second disque de jour, jamais de nuit claire." });
+                    list.Add(new SkyBehavior { Title = SunLabel(sun) + " reste auprès de " + center, Notable = true, Text = "Sans période, il ne quitte pas son soleil dans le ciel : un second disque de jour, jamais de nuit claire. Donnez-lui une période pour dater leurs éclipses solaires pures." });
+                    continue;
+                }
+                if (IsInner(world, sun))
+                {
+                    var front = SunEclipseCover(world, sun, SunInFront);
+                    var behind = SunEclipseCover(world, sun, SunBehind);
+                    Func<double, string> kind = delegate(double cover) { return cover >= 1 - 1e-9 ? "totale" : "annulaire, " + Number(cover * 100, cover < 0.1 ? 1 : 0) + " % du disque"; };
+                    list.Add(new SkyBehavior
+                    {
+                        Title = SunLabel(sun) + " : orbite rapprochée autour de " + center, Notable = true,
+                        Text = "Le monde est plus loin dans le système : vu de lui, " + SunLabel(sun) + " ne quitte jamais " + center + ". Les deux se couchent ensemble : les nuits restent noires, la durée du jour ne change pas. "
+                            + "Tous les " + Number(sun.Period, 2) + " jours, il passe devant lui (éclipse solaire pure " + kind(front) + "), puis derrière lui à mi-chemin (" + kind(behind) + ")."
+                    });
                     continue;
                 }
                 var clear = Math.Max(1, (long)Math.Round(sun.Period / 4));
                 list.Add(new SkyBehavior
                 {
-                    Title = SunLabel(sun) + " tourne autour de " + center, Notable = true,
+                    Title = SunLabel(sun) + " tourne autour de " + center + ", au-delà du monde", Notable = true,
                     Text = "Vu du monde, il fait le tour du ciel en " + Number(sun.Period, 2) + " jours"
                         + (system != null && sun.Period >= TimeMath.MeanYearDays(system) ? " (" + system.DurationLabel(sun.Period / TimeMath.MeanYearDays(system)) + ")" : "")
                         + ". Nuits claires pendant environ " + TimeSystem.Count(clear, "jour", "jours") + " autour de son passage à minuit (pas de vraie nuit), puis soleil du soir, second disque de jour, soleil du matin."
@@ -948,6 +1202,7 @@ namespace Marabook.Model
             if (world.Seasons.Count > 0) parts.Add(TimeSystem.Count(world.Seasons.Count, "saison", "saisons"));
             if (world.Suns.Count > 1) parts.Add(world.Suns.Count + " soleils"); // un seul soleil va sans dire
             if (world.Moons.Count > 0) parts.Add(TimeSystem.Count(world.Moons.Count, "lune", "lunes"));
+            if (world.Planets.Count > 0) parts.Add(TimeSystem.Count(world.Planets.Count, "planète voisine", "planètes voisines"));
             if (world.Phenomena.Count > 0) parts.Add(TimeSystem.Count(world.Phenomena.Count, "phénomène", "phénomènes"));
             return parts.Count == 0 ? "Rien de renseigné pour l'instant." : string.Join(" · ", parts.ToArray());
         }

@@ -396,6 +396,37 @@ namespace Marabook.App
                         worldDialog.SetSunOrbitForProbe(0, 0);
                         await Settle();
                         Check(worldDialog.ProblemForProbe == null, "…Soleil redevenu centrique : plus de problème");
+                        // — 16/11 soir : l'orbite rapprochée (le cas d'Ehnmir), la taille des soleils, les éclipses solaires pures.
+                        Check(worldDialog.SunPlacementForProbe(1) == 1 && worldDialog.SunWordsForProbe(1).StartsWith("Tour du ciel en"), "Brasier est en orbite lointaine : il fait le tour du ciel");
+                        worldDialog.SetSunPlacementForProbe(1, true);
+                        await Settle();
+                        Check(worldDialog.SunBehaviorsForProbe.Contains("Brasier : orbite rapprochée autour de Soleil") && worldDialog.SunBehaviorsForProbe.Contains("les nuits restent noires") && !worldDialog.SunBehaviorsForProbe.Contains("Nuits claires")
+                            && worldDialog.SunWordsForProbe(1).StartsWith("Tour autour de son soleil en") && plain(worldDialog.SunsEchoForProbe).Contains("Brasier : devant Soleil le 1 Aubemer E3.1"),
+                            "placé en orbite rapprochée : plus de nuits claires, des éclipses solaires pures datées (" + plain(worldDialog.SunsEchoForProbe).Replace("\n", " / ") + ")");
+                        Check(string.Join(" | ", worldDialog.BodiesForProbe().ToArray()) == "0 Soleil | 0 Jumeau | 1 Brasier | 2 Nouveau monde", "le placement stellaire : 0 les soleils centriques, 1 Brasier, 2 le monde (" + string.Join(" | ", worldDialog.BodiesForProbe().ToArray()) + ")");
+                        Check(worldDialog.SunBehaviorsForProbe.Contains("éclipse solaire pure totale"), "deux soleils de même taille : le compagnon cache son soleil en entier");
+                        worldDialog.SetSunSizeForProbe(1, "0,5");
+                        await Settle();
+                        Check(worldDialog.SunBehaviorsForProbe.Contains("annulaire, 25 % du disque"), "…moitié moins large : l'éclipse devient annulaire, un quart du disque caché");
+                        // — 16/11 soir : le Planétarium — une planète voisine, l'ordre des astres, la vue des orbites.
+                        worldDialog.AddPlanetForProbe("Vesper", "120", "1 Aubemer E3.1");
+                        await Settle();
+                        Check(worldDialog.BodyRowsForProbe == 5 && worldDialog.BodiesForProbe()[4] == "3 Vesper" && worldDialog.ProblemForProbe == null, "une planète voisine s'ajoute au bout du système, sans calendrier (" + string.Join(" | ", worldDialog.BodiesForProbe().ToArray()) + ")");
+                        worldDialog.MoveBodyForProbe(3, -1);
+                        await Settle();
+                        Check(worldDialog.BodiesForProbe()[3] == "2 Vesper" && worldDialog.BodiesForProbe()[4] == "3 Nouveau monde" && worldDialog.SunPlacementForProbe(1) == 0, "…montée d'un rang : elle passe en deçà du monde ; Brasier reste en orbite rapprochée");
+                        worldDialog.ShowTabForProbe(4);
+                        await Settle();
+                        var drawn = worldDialog.PlanetariumForProbe.BodiesForProbe();
+                        Check(drawn.Count == 7 && drawn[0].StartsWith("Soleil@") && drawn.Exists(delegate(string b) { return b.StartsWith("Vesper@"); }) && drawn.Exists(delegate(string b) { return b.StartsWith("Sélène@"); }),
+                            "le planétarium dessine les soleils, le compagnon, la planète, le monde et ses lunes (" + string.Join(" ", drawn.ToArray()) + ")");
+                        Check(worldDialog.PlanetDateForProbe.StartsWith("1 Aubemer E3.1") && worldDialog.PlanetNotesForProbe.Contains("Éclipse solaire pure : Brasier passe devant Soleil et cache 25 % de son disque (annulaire)") && worldDialog.PlanetYearForProbe == 360,
+                            "…ouvert sur l'année des dates saisies, il dit ce que le ciel y fait (" + worldDialog.PlanetDateForProbe + " — " + worldDialog.PlanetNotesForProbe.Replace("\n", " / ") + ")");
+                        Shot(worldDialog, "astrolabe-12-planetarium.png");
+                        worldDialog.SetPlanetDayForProbe(90);
+                        await Settle();
+                        Check(worldDialog.PlanetDateForProbe.StartsWith("19 Hautes-Eaux E3.1") && worldDialog.PlanetariumForProbe.DayForProbe > 0, "le curseur avance le jour montré (" + worldDialog.PlanetDateForProbe + ")");
+                        worldDialog.SetPlanetDayForProbe(0);
                         worldDialog.ShowTabForProbe(2);
                         await Settle();
                         Shot(worldDialog, "astrolabe-7-monde-soleils.png");
@@ -403,7 +434,7 @@ namespace Marabook.App
                         worldDialog.AddPhenomenonForProbe("Comète de Vaire", "90", "1 Aubemer E3.1");
                         await Settle();
                         Check(worldDialog.PhenomenonRowsForProbe == 1 && plain(worldDialog.PhenomenaEchoForProbe).Contains("Comète de Vaire : passage suivant le 19 Hautes-Eaux E3.1"), "un phénomène personnalisé : son prochain passage est daté (" + plain(worldDialog.PhenomenaEchoForProbe) + ")");
-                        worldDialog.ShowTabForProbe(4);
+                        worldDialog.ShowTabForProbe(5);
                         await Settle();
                         Shot(worldDialog, "astrolabe-9-monde-phenomenes.png");
                         worldDialog.ShowTabForProbe(2);
@@ -465,6 +496,7 @@ namespace Marabook.App
                         Check(calendar.StarTipsForProbe(1).Count == 1 && stars.Contains("Sélène : éclipse totale de lune (lune rousse)") && stars.Contains("Toutes les lunes sont pleines ensemble") && stars.Contains("Comète de Vaire"),
                             "le 1er Aubemer : une étoile dit tout ce que le ciel fait — lunes rousses, lunes pleines ensemble, la comète (" + stars + ")");
                         Check(calendar.StarTipsForProbe(2).Count == 0, "…le 2 : rien de particulier, pas d'étoile");
+                        Check(calendar.SkyGlyphBoxForProbe(1) >= 19, "un glyphe du ciel répond sur toute sa case de 19 pixels, plus seulement sur son dessin (16/11 soir) (" + calendar.SkyGlyphBoxForProbe(1) + ")");
                         Check(view.FilterRowSingleLineForProbe && (view.TypesLabelForProbe ?? "").StartsWith("Types  ") && view.TypesMenuCountForProbe() == view.FilterChipsForProbe && view.FilterChipsForProbe >= 2,
                             "la ligne des filtres : le Mode en tête, les types sur une seule ligne, et un bouton « Types » qui les liste tous (" + view.TypesLabelForProbe + ", " + view.FilterChipsForProbe + " types)");
                         var typesBefore = view.TypesLabelForProbe;
@@ -683,6 +715,14 @@ namespace Marabook.App
                     if (systemDialog.LeapCountForProbe > 0)
                         Check(systemDialog.LeapEchoForProbe(0).StartsWith("→ Bissextiles : les années ") && systemDialog.LeapRemoveAlignedForProbe(0),
                             "une règle de bissextile est une carte : ce qu'elle donne est dit dessous, sa croix reste en haut à droite (" + systemDialog.LeapEchoForProbe(0) + ")");
+                    // — 16/11 soir : le quotient de répartition, et la répartition qui garde les proportions.
+                    systemDialog.SpreadGapForProbe("2", "359");
+                    await Settle();
+                    Check(systemDialog.SpreadGapShownForProbe && systemDialog.MonthDaysForProbe == "35,37,35,37,35,37,35,37,35,36",
+                        "le quotient de répartition, en bascule : 359 jours, deux jours d'écart entre mois courts et longs (" + systemDialog.MonthDaysForProbe + ")");
+                    systemDialog.SpreadRatiosForProbe("718");
+                    await Settle();
+                    Check(!systemDialog.SpreadGapShownForProbe && systemDialog.MonthDaysForProbe == "70,74,70,74,70,74,70,74,70,72", "« En gardant les proportions actuelles » : le double de jours, chaque mois double (" + systemDialog.MonthDaysForProbe + ")");
                     systemDialog.DistributeForProbe("5"); // la suite repart des mois de 35 jours
                     await Settle();
                     systemDialog.ShowTabForProbe(2);
@@ -693,6 +733,24 @@ namespace Marabook.App
                     systemDialog.SetSecondsForProbe("80");
                     await Settle();
                     Check(systemDialog.ClockForProbe.StartsWith("20/50/80 ") && systemDialog.ClockForProbe.Replace(' ', ' ').Replace(' ', ' ').Contains("80 000 secondes"), "…des minutes de 80 secondes : le cadran et le compte suivent");
+                    systemDialog.SetSecondsForProbe("60");
+                    await Settle();
+                    // — 16/11 soir : le dessin du cadran — tours, pas des chiffres, style, astuces.
+                    Check(systemDialog.DialTurnChoicesForProbe == 3 && systemDialog.DialForProbe.StartsWith("1 tour(s), heures toutes les 2, minutes toutes les 5"),
+                        "le cadran d'un jour de 20 heures : un, deux ou quatre tours ; au mieux, les chiffres tombent sur des diviseurs (" + systemDialog.DialForProbe + ")");
+                    Check(systemDialog.DialTipsForProbe.Contains("20 heures se partagent en parts égales") && systemDialog.DialTipsForProbe.Contains("50 minutes"), "les astuces disent ce que 20 heures et 50 minutes permettent (" + systemDialog.DialTipsForProbe + ")");
+                    systemDialog.SetDialForProbe(1, 0, 0, 1);
+                    await Settle();
+                    Check(systemDialog.DialForProbe.StartsWith("2 tour(s), heures toutes les 1,") && systemDialog.DialForProbe.EndsWith("style 1"), "deux tours par jour, en chiffres romains : dix heures au cadran (" + systemDialog.DialForProbe + ")");
+                    Shot(systemDialog, "astrolabe-11-cadran.png");
+                    systemDialog.SetHoursForProbe("23");
+                    await Settle();
+                    Check(systemDialog.DialTurnChoicesForProbe == 1 && systemDialog.DialTipsForProbe.Contains("23 heures est un nombre premier") && systemDialog.DialTipsForProbe.Contains("Avec 24 heures"),
+                        "23 heures : un nombre premier, pas de cadran symétrique — et l'astuce propose 24 (" + systemDialog.DialTipsForProbe + ")");
+                    systemDialog.SetHoursForProbe("20");
+                    await Settle();
+                    systemDialog.SetDialForProbe(0, 0, 0, 0);
+                    await Settle();
                     systemDialog.SetSecondsForProbe("60");
                     await Settle();
                     systemDialog.ShowTabForProbe(0);

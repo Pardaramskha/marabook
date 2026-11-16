@@ -43,6 +43,15 @@ namespace Marabook.App
         private readonly Control _moonHead, _phenomenonHead;
         private readonly Border _noCalendar;
         private readonly Accordion _factorAccordion;
+        // LE PLANÉTARIUM (16/11 soir) : la liste du placement stellaire, la vue des orbites, son jour.
+        private readonly StackPanel _bodies;
+        private readonly PlanetariumView _planetarium;
+        private readonly Slider _planetSlider;
+        private readonly TextBlock _planetDate, _planetNotes;
+        private readonly ToggleButton _planetPlay;
+        private Avalonia.Threading.DispatcherTimer _planetTimer;
+        private long _planetStart;      // le numéro de jour du début de l'année montrée
+        private bool _planetNavigated;  // l'auteur a changé d'année : on ne recale plus la vue sur les dates saisies
         private readonly TextBlock _driftEcho, _moonEcho, _sunEcho, _seasonHint, _problem, _reference, _factorEcho;
         private readonly Button _addSystem, _useFactor, _fixDrift;
         private readonly TextBlock _seasonEven, _fixDriftHint;
@@ -290,6 +299,53 @@ namespace Marabook.App
             phenomenaBody.Children.Add(_phenomenonEcho);
             phenomena.Children.Add(AstrolabeUi.Section("Phénomènes personnalisés", "Une comète, une pluie d'étoiles, la lune rousse d'une légende, un astre errant : un nom, le temps entre deux passages, et la date d'un passage. Le calendrier les marque d'une étoile.", phenomenaBody, "world-section-phenomena"));
             phenomena.Children.Add(TimelineUi.Hint("Les éclipses, les lunes rousses (éclipses totales de lune), les lunes bleues et les lunes pleines ensemble sont calculées d'office à partir de vos lunes : inutile de les ajouter ici."));
+            // ------------------------------------------------------- planétarium
+            // LE PLACEMENT STELLAIRE ET LE PLANÉTARIUM (16/11 soir, Rémi) : l'ordre des astres en
+            // s'éloignant du centre (0 les soleils centriques, puis 1, 2, 3…), les planètes
+            // voisines — sans calendrier : tout est vu depuis le monde — et la vue des orbites.
+            var planetTab = new StackPanel { Margin = new Thickness(4, 10, 4, 4) };
+            _planetarium = new PlanetariumView { Tag = "world-planetarium" };
+            _planetDate = new TextBlock { Foreground = Chrome.Ink, FontSize = 14, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap, Tag = "world-planet-date" };
+            _planetNotes = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0), Tag = "world-planet-notes" };
+            _planetSlider = new Slider { Minimum = 0, Maximum = 360, Value = 0, Margin = new Thickness(0, 4, 0, 0), Tag = "world-planet-slider" };
+            _planetSlider.PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs e) { if (e.Property == Slider.ValueProperty && !_building) ShowPlanetarium(); };
+            _planetPlay = Buttons.TextToggle("Faire tourner", "Laisser les jours défiler : une année en une vingtaine de secondes", Buttons.Compact, Buttons.Look.Outline);
+            _planetPlay.Tag = "world-planet-play";
+            _planetPlay.HorizontalAlignment = HorizontalAlignment.Left;
+            _planetPlay.IsCheckedChanged += delegate { PlayPlanetarium(_planetPlay.IsChecked == true); };
+            var nextYear = Buttons.Text("Année suivante", null, Buttons.Compact, Buttons.Look.Calm);
+            nextYear.Click += delegate { _planetNavigated = true; _planetStart += Math.Max(1, (long)Math.Round(_planetSlider.Maximum)); ShowPlanetarium(); };
+            var previousYear = Buttons.Text("Année précédente", null, Buttons.Compact, Buttons.Look.Calm);
+            previousYear.Click += delegate { _planetNavigated = true; _planetStart -= Math.Max(1, (long)Math.Round(_planetSlider.Maximum)); ShowPlanetarium(); };
+            var playRow = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
+            playRow.Children.Add(_planetPlay);
+            playRow.Children.Add(previousYear);
+            playRow.Children.Add(nextYear);
+            var watch = new StackPanel { Margin = new Thickness(16, 0, 0, 0) };
+            watch.Children.Add(new TextBlock { Text = "LE JOUR MONTRÉ", Foreground = Chrome.FaintText, FontSize = 11, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 2, 0, 4) });
+            watch.Children.Add(_planetDate);
+            watch.Children.Add(_planetSlider);
+            watch.Children.Add(playRow);
+            watch.Children.Add(_planetNotes);
+            watch.Children.Add(TimelineUi.Hint("Vu de dessus. Les distances ne sont pas à l'échelle : seul l'ordre compte. Une lune est pleine quand elle est à l'opposé du soleil ; un soleil proche s'éclipse quand il s'aligne avec le monde."));
+            var sky = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+            Grid.SetColumn(watch, 1);
+            sky.Children.Add(_planetarium);
+            sky.Children.Add(watch);
+            planetTab.Children.Add(AstrolabeUi.Section("Le planétarium", "Le système, un jour donné : chaque astre à la place que lui donnent sa période et sa date de référence.", sky, "world-section-planetarium"));
+            var placement = new StackPanel();
+            _bodies = new StackPanel { Spacing = 4, Tag = "world-bodies" };
+            placement.Children.Add(_bodies);
+            var addPlanet = Buttons.IconText("plus-bold", "Ajouter une planète voisine", null, Buttons.Compact, Buttons.Look.Outline);
+            addPlanet.HorizontalAlignment = HorizontalAlignment.Left;
+            addPlanet.Margin = new Thickness(0, 8, 0, 0);
+            addPlanet.Tag = "world-add-planet";
+            addPlanet.Click += delegate { Collect(); _world.Planets.Add(new Planet { Name = "" }); RebuildBodies(); Preview(); };
+            placement.Children.Add(addPlanet);
+            placement.Children.Add(TimelineUi.Hint("Un soleil centrique reste au rang 0. Un soleil qui orbite AVANT le monde est en orbite rapprochée : vu du monde, il ne quitte jamais son soleil (pas de nuits claires, mais des éclipses solaires pures). APRÈS le monde, il fait le tour du ciel. Une planète voisine n'a pas besoin de calendrier : son année et la date d'un alignement suffisent à dater ses retours — ou rien, si elle n'est là que pour le décor."));
+            planetTab.Children.Add(AstrolabeUi.Section("Placement stellaire", "Du centre vers le dehors. Les flèches montent ou descendent un astre d'un rang.", placement, "world-section-placement"));
+            tabs.Items.Add(new TabItem { Header = "Planétarium", Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = planetTab } });
+
             tabs.Items.Add(new TabItem { Header = "Phénomènes", Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = phenomena } });
 
             root.Children.Add(tabs);
@@ -313,6 +369,9 @@ namespace Marabook.App
             RebuildPhenomena();
             _building = false;
             foreach (var box in new[] { _name, _circumference, _tilt, _solarYear, _factor }) box.TextChanged += delegate { Preview(); };
+            _name.TextChanged += delegate { if (!_building) RebuildBodies(); }; // le nom du monde figure au placement stellaire
+            RebuildBodies();
+            Closed += delegate { PlayPlanetarium(false); };
             Preview();
             Loaded += delegate { Dialogs.FitToScreen(this, owner); _name.Focus(); _name.SelectAll(); };
         }
@@ -373,6 +432,7 @@ namespace Marabook.App
             RebuildSuns();
             RebuildMoons();
             RebuildPhenomena();
+            RebuildBodies();
             Preview();
         }
 
@@ -565,6 +625,8 @@ namespace Marabook.App
                 foreach (var other in others) combo.Items.Add("Orbite " + SunName(other, _world.Suns.IndexOf(other)));
                 var around = others.FindIndex(delegate(Sun s) { return s.Id == sun.OrbitId; });
                 combo.SelectedIndex = around >= 0 ? around + 1 : 0;
+                // Rapprochée par défaut : un centrique qui se met à orbiter se place d'abord en deçà du monde.
+                ((ComboBox)cells[8]).SelectedIndex = sun.OrbitId == null || Astro.IsInner(_world, sun) ? 0 : 1;
             }
             _building = was;
         }
@@ -599,25 +661,42 @@ namespace Marabook.App
             {
                 var sun = _world.Suns[i];
                 var name = new TextBox { Text = sun.Name, Watermark = "Nom du soleil" };
+                // SA TAILLE (16/11 soir, Rémi) : en « fois notre Soleil » — ce qui décide de ses éclipses solaires pures.
+                var sizeWord = Word("Taille ×");
+                sizeWord.Margin = new Thickness(0);
+                Grid.SetColumn(sizeWord, 2);
+                var size = new TextBox { Text = Show(sun.Size), Tag = "world-sun-size" };
+                ToolTip.SetTip(size, "Sa largeur, en nombre de fois notre Soleil (1 = 1 392 700 km de diamètre). Entre deux soleils qui se croisent, le plus large cache l'autre en entier.");
+                Grid.SetColumn(size, 4);
                 var orbit = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "world-sun-orbit" };
-                Grid.SetColumn(orbit, 2);
+                Grid.SetColumn(orbit, 6);
                 var remove = Buttons.Icon("x-bold", null, Buttons.Compact, Buttons.Look.Calm);
-                Grid.SetColumn(remove, 4);
+                Grid.SetColumn(remove, 8);
                 var period = new TextBox { Text = sun.Period > 0 ? Show(sun.Period) : "", Watermark = "aucune", Width = 84, Margin = new Thickness(0, 0, 7, 0) };
                 var high = new TextBox { Text = sun.Period > 0 ? reference.Format(TimeMath.FromDayNumber(reference, (long)Math.Floor(sun.HighAt))) : "", Watermark = reference.Format(new TimePoint(0, 1, 1)), Width = 180 };
-                // Sous le nom : pour un soleil qui orbite, son tour du ciel ; pour un centrique, son rôle.
-                var orbiting = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 7, 0, 0) };
-                orbiting.Children.Add(Word("Tour du ciel en"));
-                orbiting.Children.Add(period);
-                orbiting.Children.Add(Word("jours · au plus haut à minuit le"));
-                orbiting.Children.Add(high);
+                // Sous le nom, pour un soleil qui orbite : OÙ (en deçà ou au-delà du monde), puis son tour.
+                var placement = new ComboBox { Width = 380, HorizontalAlignment = HorizontalAlignment.Left, Tag = "world-sun-placement" };
+                placement.Items.Add("Orbite rapprochée — plus près du centre que le monde");
+                placement.Items.Add("Orbite lointaine — au-delà du monde");
+                var wordA = Word("");
+                var wordB = Word("");
+                var turn = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 7, 0, 0) };
+                turn.Children.Add(wordA);
+                turn.Children.Add(period);
+                turn.Children.Add(wordB);
+                turn.Children.Add(high);
+                var orbiting = new StackPanel { Margin = new Thickness(0, 7, 0, 0) };
+                orbiting.Children.Add(placement);
+                orbiting.Children.Add(turn);
                 Grid.SetRow(orbiting, 1);
-                Grid.SetColumnSpan(orbiting, 5);
+                Grid.SetColumnSpan(orbiting, 9);
                 var role = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(1, 6, 0, 0) };
                 Grid.SetRow(role, 1);
-                Grid.SetColumnSpan(role, 5);
-                var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,8,250,8,26"), RowDefinitions = new RowDefinitions("Auto,Auto") };
+                Grid.SetColumnSpan(role, 9);
+                var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,10,Auto,6,62,8,240,8,26"), RowDefinitions = new RowDefinitions("Auto,Auto") };
                 grid.Children.Add(name);
+                grid.Children.Add(sizeWord);
+                grid.Children.Add(size);
                 grid.Children.Add(orbit);
                 grid.Children.Add(remove);
                 grid.Children.Add(orbiting);
@@ -631,15 +710,177 @@ namespace Marabook.App
                     RebuildSuns();
                     Preview();
                 };
-                name.TextChanged += delegate { if (_building) return; Collect(); FillSunOrbits(); Preview(); };
-                orbit.SelectionChanged += delegate { if (!_building) Preview(); };
+                name.TextChanged += delegate { if (_building) return; Collect(); FillSunOrbits(); RebuildBodies(); Preview(); };
+                // Sans regarnir la liste des orbites depuis son propre SelectionChanged (Avalonia lève).
+                orbit.SelectionChanged += delegate { if (_building) return; Collect(); RebuildBodies(); Preview(); };
+                placement.SelectionChanged += delegate { if (_building) return; Collect(); RebuildBodies(); Preview(); };
+                size.TextChanged += delegate { Preview(); };
                 period.TextChanged += delegate { Preview(); };
                 high.TextChanged += delegate { Preview(); };
-                _suns.Children.Add(Card(grid, new object[] { sun, name, orbit, period, high, orbiting, role }, "sun"));
+                _suns.Children.Add(Card(grid, new object[] { sun, name, orbit, period, high, orbiting, role, size, placement, wordA, wordB }, "sun"));
             }
             if (_world.Suns.Count == 0) _suns.Children.Add(new TextBlock { Text = "Aucun soleil renseigné.", Foreground = Chrome.SoftText, FontSize = 12 });
             _building = was;
             FillSunOrbits();
+            if (_bodies != null) RebuildBodies();
+        }
+
+        // ------------------------------------------------------- le planétarium
+
+        /// <summary>LA LISTE DU PLACEMENT STELLAIRE : un astre par ligne, du centre
+        /// vers le dehors — son rang, sa couleur, son nom, ce qu'il est, et les
+        /// flèches qui le montent ou le descendent d'un rang. Une planète voisine
+        /// s'y nomme et s'y date ; soleils et monde se règlent dans leurs onglets.</summary>
+        private void RebuildBodies()
+        {
+            if (_bodies == null) return;
+            var was = _building;
+            _building = true;
+            _bodies.Children.Clear();
+            var reference = Reference();
+            var layout = Astro.Layout(_world);
+            var movable = layout.FindAll(delegate(SkyBody b) { return b.Movable; });
+            foreach (var body in layout)
+            {
+                var captured = body;
+                var row = new Grid { ColumnDefinitions = new ColumnDefinitions("26,8,14,8,*,8,26,2,26,8,26"), Tag = "world-body" };
+                row.Children.Add(new Border
+                {
+                    Width = 24, Height = 24, CornerRadius = new CornerRadius(12), Background = body.Kind == SkyBody.WorldKind ? Chrome.Accent : Brushes.Transparent,
+                    BorderBrush = body.Kind == SkyBody.WorldKind ? Chrome.Accent : Chrome.BorderStrong, BorderThickness = new Thickness(1.5), VerticalAlignment = VerticalAlignment.Center,
+                    Child = new TextBlock { Text = body.Rank.ToString(CultureInfo.InvariantCulture), Foreground = body.Kind == SkyBody.WorldKind ? Brushes.White : Chrome.SoftText, FontSize = 12, FontWeight = FontWeight.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                });
+                Color tint;
+                var hex = body.Kind == SkyBody.SunKind ? Astro.ColorOf(body.Sun, _world.Suns.IndexOf(body.Sun)) : body.Kind == SkyBody.PlanetKind ? Astro.ColorOf(body.Planet, _world.Planets.IndexOf(body.Planet)) : null;
+                if (hex == null || !Color.TryParse(hex, out tint)) tint = Chrome.Accent.Color;
+                var dot = new Border { Width = 12, Height = 12, CornerRadius = new CornerRadius(6), Background = new SolidColorBrush(tint), VerticalAlignment = VerticalAlignment.Center };
+                Grid.SetColumn(dot, 2);
+                row.Children.Add(dot);
+                Control middle;
+                if (body.Kind == SkyBody.PlanetKind)
+                {
+                    var planet = body.Planet;
+                    var name = new TextBox { Text = planet.Name, Watermark = "Nom de la planète", Width = 170, Margin = new Thickness(0, 0, 8, 0) };
+                    var period = new TextBox { Text = planet.Period > 0 ? Show(planet.Period) : "", Watermark = "—", Width = 74, Margin = new Thickness(0, 0, 7, 0) };
+                    ToolTip.SetTip(period, "La durée de son année, en jours du calendrier de référence. Vide : elle est seulement placée.");
+                    var at = new TextBox { Text = planet.Period > 0 ? reference.Format(TimeMath.FromDayNumber(reference, (long)Math.Floor(planet.At))) : "", Watermark = reference.Format(new TimePoint(0, 1, 1)), Width = 150 };
+                    ToolTip.SetTip(at, "Un jour où elle est alignée avec le monde et le soleil : au plus près si elle est au-delà du monde, devant le soleil si elle est en deçà.");
+                    var fields = new StackPanel { Orientation = Orientation.Horizontal };
+                    fields.Children.Add(name);
+                    fields.Children.Add(Word("année :"));
+                    fields.Children.Add(period);
+                    fields.Children.Add(Word("j · alignée le"));
+                    fields.Children.Add(at);
+                    name.TextChanged += delegate { Preview(); };
+                    period.TextChanged += delegate { Preview(); };
+                    at.TextChanged += delegate { Preview(); };
+                    row.Tag = new object[] { planet, name, period, at };
+                    middle = fields;
+                }
+                else
+                {
+                    var what = body.Kind == SkyBody.WorldKind ? "votre monde — tout est vu d'ici"
+                        : body.Sun.OrbitId == null ? "soleil centrique"
+                        : "soleil · orbite " + (Astro.FindSun(_world, body.Sun.OrbitId) == null ? "?" : SunName(Astro.FindSun(_world, body.Sun.OrbitId), _world.Suns.IndexOf(Astro.FindSun(_world, body.Sun.OrbitId))))
+                            + (Astro.IsInner(_world, body.Sun) ? " · rapprochée" : " · lointaine");
+                    var label = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                    label.Children.Add(new TextBlock { Text = body.Kind == SkyBody.SunKind ? SunName(body.Sun, _world.Suns.IndexOf(body.Sun)) : body.Name, Foreground = Chrome.Ink, FontSize = 13, FontWeight = body.Kind == SkyBody.WorldKind ? FontWeight.SemiBold : FontWeight.Normal, VerticalAlignment = VerticalAlignment.Center });
+                    label.Children.Add(new TextBlock { Text = "   " + what, Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
+                    middle = label;
+                }
+                Grid.SetColumn(middle, 4);
+                row.Children.Add(middle);
+                if (body.Movable)
+                {
+                    var at = movable.IndexOf(body);
+                    var up = Buttons.Icon("caret-up-bold", "Rapprocher du centre", Buttons.Compact, Buttons.Look.Calm);
+                    up.IsEnabled = at > 0;
+                    up.Click += delegate { MoveBody(captured.Id, -1); };
+                    Grid.SetColumn(up, 6);
+                    var down = Buttons.Icon("caret-down-bold", "Éloigner du centre", Buttons.Compact, Buttons.Look.Calm);
+                    down.IsEnabled = at < movable.Count - 1;
+                    down.Click += delegate { MoveBody(captured.Id, 1); };
+                    Grid.SetColumn(down, 8);
+                    row.Children.Add(up);
+                    row.Children.Add(down);
+                }
+                if (body.Kind == SkyBody.PlanetKind)
+                {
+                    var remove = Buttons.Icon("x-bold", null, Buttons.Compact, Buttons.Look.Calm);
+                    Grid.SetColumn(remove, 10);
+                    remove.Click += delegate { Collect(); _world.Planets.Remove(captured.Planet); RebuildBodies(); Preview(); };
+                    row.Children.Add(remove);
+                }
+                _bodies.Children.Add(row);
+            }
+            _building = was;
+        }
+
+        private void MoveBody(string id, int delta)
+        {
+            Collect();
+            if (!Astro.MoveBody(_world, id, delta)) return;
+            FillSunOrbits(); // le placement d'un soleil a pu changer de côté du monde
+            RebuildBodies();
+            Preview();
+        }
+
+        /// <summary>Le planétarium au jour du curseur : la vue, la date, ce que le ciel fait ce jour-là.</summary>
+        private void ShowPlanetarium()
+        {
+            if (_planetarium == null) return;
+            var reference = Reference();
+            var year = Math.Max(1, reference.BaseDays);
+            if (!_planetNavigated)
+            {
+                // L'année montrée d'abord : celle des dates que l'auteur a saisies — la date de référence du
+                // premier soleil qui orbite, sinon la pleine lune de la première lune — depuis son premier jour.
+                // (Tant qu'il n'a pas changé d'année lui-même, la vue suit ces dates.)
+                var anchor = 0.0;
+                var orbiting = _world.Suns.Find(delegate(Sun s) { return s.OrbitId != null && s.Period > 0; });
+                if (orbiting != null) anchor = orbiting.HighAt;
+                else if (_world.Moons.Count > 0) anchor = _world.Moons[0].FullAt;
+                _planetStart = reference.DayNumber(new TimePoint(TimeMath.FromDayNumber(reference, (long)Math.Floor(anchor)).Year, 1, 1));
+            }
+            if (Math.Abs(_planetSlider.Maximum - year) > 0.5)
+            {
+                var was = _building;
+                _building = true;
+                _planetSlider.Maximum = year;
+                if (_planetSlider.Value > year) _planetSlider.Value = 0;
+                _building = was;
+            }
+            var day = _planetStart + _planetSlider.Value;
+            _planetarium.Show(_world, reference, day);
+            var whole = (long)Math.Floor(day);
+            var date = TimeMath.FromDayNumber(reference, whole);
+            var season = Astro.SeasonAt(_world, reference, date);
+            _planetDate.Text = reference.Format(date) + (season != null && !string.IsNullOrEmpty(season.Name) ? "  ·  " + season.Name : "");
+            var notes = new List<string>();
+            foreach (var sun in Astro.Wanderers(_world)) notes.Add(SunName(sun, _world.Suns.IndexOf(sun)) + " : " + Astro.SunStateName(Astro.SunPhase(sun, whole + 0.5)));
+            foreach (var note in Astro.NotesOn(_world, reference, whole)) notes.Add(note.Text);
+            _planetNotes.Text = notes.Count == 0 ? "Rien de particulier dans le ciel ce jour-là." : string.Join("\n", notes.ToArray());
+        }
+
+        private void PlayPlanetarium(bool on)
+        {
+            if (!on)
+            {
+                if (_planetTimer != null) _planetTimer.Stop();
+                return;
+            }
+            if (_planetTimer == null)
+            {
+                _planetTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+                _planetTimer.Tick += delegate
+                {
+                    var year = Math.Max(1, _planetSlider.Maximum);
+                    var next = _planetSlider.Value + year / 500.0;
+                    if (next > year) { next -= year; _planetStart += (long)Math.Round(year); _planetNavigated = true; } // l'année suivante, sans à-coup
+                    _planetSlider.Value = next;
+                };
+            }
+            _planetTimer.Start();
         }
 
         private void RebuildMoons()
@@ -819,7 +1060,13 @@ namespace Marabook.App
                 var others = OtherSuns(sun);
                 var orbit = ((ComboBox)cells[2]).SelectedIndex;
                 if (orbit >= 0) sun.OrbitId = orbit >= 1 && orbit - 1 < others.Count ? others[orbit - 1].Id : null;
+                var sizeText = (((TextBox)cells[7]).Text ?? "").Trim();
+                if (sizeText.Length == 0) sun.Size = 1;
+                else if (ReadNumber(sizeText, out value) && value >= 0.001 && value <= 100000) sun.Size = value;
+                else _fieldProblem = "La taille d'un soleil se donne en « fois notre Soleil » : 1, 0,5, 12…";
                 if (sun.OrbitId == null) { sun.Period = 0; sun.HighAt = 0; continue; } // centrique : ni période ni date
+                var placed = ((ComboBox)cells[8]).SelectedIndex;
+                if (placed >= 0) Astro.SetInner(_world, sun, placed == 0);
                 var label = SunName(sun, _world.Suns.IndexOf(sun));
                 var period = (((TextBox)cells[3]).Text ?? "").Trim();
                 if (period.Length == 0) { sun.Period = 0; sun.HighAt = 0; continue; }
@@ -829,7 +1076,7 @@ namespace Marabook.App
                 var written = ((TextBox)cells[4]).Text ?? "";
                 if (written.Trim().Length == 0) sun.HighAt = 0;
                 else if (reference.TryParse(written, out high)) sun.HighAt = reference.DayNumber(TimeMath.Full(high));
-                else _fieldProblem = "La date où « " + label + " » culmine à minuit ne se lit pas dans « " + reference.Name + " » (ex. " + reference.Format(new TimePoint(0, 1, 1)) + ").";
+                else _fieldProblem = "La date de référence de « " + label + " » ne se lit pas dans « " + reference.Name + " » (ex. " + reference.Format(new TimePoint(0, 1, 1)) + ").";
             }
             if (_world.Suns.Count > 0 && !_world.Suns.Exists(delegate(Sun s) { return s.OrbitId == null; }))
                 _fieldProblem = "Il faut un soleil centrique : c'est lui, au milieu du système, qui fait le jour et les saisons.";
@@ -858,6 +1105,23 @@ namespace Marabook.App
             }
             foreach (var moon in _world.Moons)
                 if (Astro.OrbitLoops(_world, moon)) { _fieldProblem = "« " + MoonName(moon, _world.Moons.IndexOf(moon)) + " » finit par tourner autour d'elle-même : l'une des lunes de la boucle doit orbiter le monde."; break; }
+            foreach (var child in _bodies.Children)
+            {
+                var cells = Cells(child);
+                if (cells == null) continue;
+                var planet = (Planet)cells[0];
+                planet.Name = (((TextBox)cells[1]).Text ?? "").Trim();
+                var planetLabel = planet.Name.Length == 0 ? "cette planète" : "« " + planet.Name + " »";
+                var year = (((TextBox)cells[2]).Text ?? "").Trim();
+                if (year.Length == 0) { planet.Period = 0; planet.At = 0; continue; }
+                if (ReadNumber(year, out value) && value >= 0.05 && value <= 100000000) planet.Period = value;
+                else { _fieldProblem = "L'année d'une planète se donne en jours (vide : elle est seulement placée)."; continue; }
+                TimePoint aligned;
+                var written = ((TextBox)cells[3]).Text ?? "";
+                if (written.Trim().Length == 0) planet.At = 0;
+                else if (reference.TryParse(written, out aligned)) planet.At = reference.DayNumber(TimeMath.Full(aligned));
+                else _fieldProblem = "La date d'alignement de " + planetLabel + " ne se lit pas dans « " + reference.Name + " » (ex. " + reference.Format(new TimePoint(0, 1, 1)) + ").";
+            }
             foreach (var child in _phenomena.Children)
             {
                 var cells = Cells(child);
@@ -904,6 +1168,9 @@ namespace Marabook.App
                 if (cells == null) continue;
                 var sun = (Sun)cells[0];
                 var orbits = sun.OrbitId != null;
+                var close = Astro.IsInner(_world, sun);
+                ((TextBlock)cells[9]).Text = close ? "Tour autour de son soleil en" : "Tour du ciel en";
+                ((TextBlock)cells[10]).Text = close ? "jours · passe devant lui le" : "jours · au plus haut à minuit le";
                 ((Control)cells[5]).IsVisible = orbits;
                 var role = (TextBlock)cells[6];
                 role.IsVisible = !orbits;
@@ -919,6 +1186,18 @@ namespace Marabook.App
                     var label = SunName(sun, i);
                     if (sun.OrbitId == null) { sunLines.Add(label + " se lève et se couche avec " + mainName + " : deux soleils dans le même ciel de jour."); continue; }
                     if (sun.Period <= 0) continue; // sans période : dit par les comportements
+                    if (Astro.IsInner(_world, sun))
+                    {
+                        // En orbite rapprochée : ses éclipses solaires pures, datées.
+                        var from = (long)Math.Floor(sun.HighAt);
+                        var around = Astro.FindSun(_world, sun.OrbitId);
+                        var aroundName = around == null ? "son soleil" : SunName(around, _world.Suns.IndexOf(around));
+                        sunLines.Add(label + " : devant " + aroundName + " le " + reference.Format(TimeMath.FromDayNumber(reference, Astro.NextSunEclipse(sun, from, Astro.SunInFront)))
+                            + ", derrière lui le " + reference.Format(TimeMath.FromDayNumber(reference, Astro.NextSunEclipse(sun, from, Astro.SunBehind)))
+                            + ", de nouveau devant le " + reference.Format(TimeMath.FromDayNumber(reference, Astro.NextSunEclipse(sun, from + 1, Astro.SunInFront)))
+                            + ". Taille : " + Show(sun.Size) + " × notre Soleil (" + Show(Math.Round(sun.Size * Astro.SunDiameter)) + " km de large).");
+                        continue;
+                    }
                     var high = (long)Math.Floor(sun.HighAt);
                     var years = sun.Period / TimeMath.MeanYearDays(reference);
                     sunLines.Add(label + " : au plus haut à minuit le " + reference.Format(TimeMath.FromDayNumber(reference, high))
@@ -998,6 +1277,9 @@ namespace Marabook.App
             _moonEcho.IsVisible = lines.Count > 0;
             if (_fieldProblem == null) AstrolabeUi.FillBehaviors(_moonBehaviors, Astro.MoonBehaviors(_world, reference));
 
+            // — Le planétarium : la vue suit tout ce qui vient d'être lu.
+            ShowPlanetarium();
+
             // — Les phénomènes personnalisés : leur prochain passage, leur rythme.
             var passages = new List<string>();
             if (_fieldProblem == null)
@@ -1068,7 +1350,9 @@ namespace Marabook.App
             Collect();
             // Une période : il orbite le soleil principal ; sans : un jumeau centrique.
             var main = Astro.MainSun(_world);
-            _world.Suns.Add(new Sun { Name = name, OrbitId = period.Length > 0 && main != null ? main.Id : null });
+            var added = new Sun { Name = name, OrbitId = period.Length > 0 && main != null ? main.Id : null };
+            _world.Suns.Add(added);
+            Astro.SetInner(_world, added, false); // la sonde des lots 6 à 9 parle d'un compagnon LOINTAIN (nuits claires)
             RebuildSuns();
             var row = Cells(_suns.Children[_suns.Children.Count - 1]);
             ((TextBox)row[3]).Text = period;
@@ -1107,6 +1391,37 @@ namespace Marabook.App
         }
         internal string SunBehaviorsForProbe { get { return BehaviorsText(_sunBehaviors); } }
         internal string MoonBehaviorsForProbe { get { return BehaviorsText(_moonBehaviors); } }
+        internal void SetSunPlacementForProbe(int index, bool inner) { ((ComboBox)Cells(_suns.Children[index])[8]).SelectedIndex = inner ? 0 : 1; }
+        internal int SunPlacementForProbe(int index) { return ((ComboBox)Cells(_suns.Children[index])[8]).SelectedIndex; }
+        internal void SetSunSizeForProbe(int index, string size) { ((TextBox)Cells(_suns.Children[index])[7]).Text = size; }
+        internal string SunWordsForProbe(int index) { var cells = Cells(_suns.Children[index]); return ((TextBlock)cells[9]).Text + " … " + ((TextBlock)cells[10]).Text; }
+        internal List<string> BodiesForProbe()
+        {
+            var names = new List<string>();
+            foreach (var body in Astro.Layout(_world)) names.Add(body.Rank + " " + body.Name);
+            return names;
+        }
+        internal int BodyRowsForProbe { get { return _bodies.Children.Count; } }
+        internal void MoveBodyForProbe(int rank, int delta) { foreach (var body in Astro.Layout(_world)) if (body.Rank == rank && body.Movable) { MoveBody(body.Id, delta); return; } }
+        internal void AddPlanetForProbe(string name, string period, string at)
+        {
+            Collect();
+            _world.Planets.Add(new Planet { Name = name });
+            RebuildBodies();
+            foreach (var child in _bodies.Children)
+            {
+                var cells = Cells(child);
+                if (cells == null || ((Planet)cells[0]).Name != name) continue;
+                ((TextBox)cells[2]).Text = period;
+                ((TextBox)cells[3]).Text = at;
+            }
+            Preview();
+        }
+        internal PlanetariumView PlanetariumForProbe { get { return _planetarium; } }
+        internal string PlanetDateForProbe { get { return _planetDate.Text ?? ""; } }
+        internal string PlanetNotesForProbe { get { return _planetNotes.Text ?? ""; } }
+        internal void SetPlanetDayForProbe(double day) { _planetSlider.Value = day; }
+        internal double PlanetYearForProbe { get { return _planetSlider.Maximum; } }
         internal int PhenomenonRowsForProbe { get { var n = 0; foreach (var child in _phenomena.Children) if (Cells(child) != null) n++; return n; } }
         internal void AddPhenomenonForProbe(string name, string period, string at)
         {

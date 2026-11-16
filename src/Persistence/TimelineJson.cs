@@ -73,6 +73,10 @@ namespace Marabook.Persistence
                 if (system.HoursPerDay != 24) o["hoursPerDay"] = system.HoursPerDay;
                 if (system.MinutesPerHour != 60) o["minutesPerHour"] = system.MinutesPerHour;
                 if (system.SecondsPerMinute != 60) o["secondsPerMinute"] = system.SecondsPerMinute;
+                if (system.DialTurns > 1) o["dialTurns"] = system.DialTurns;
+                if (system.DialHourStep > 0) o["dialHourStep"] = system.DialHourStep;
+                if (system.DialMinuteStep > 0) o["dialMinuteStep"] = system.DialMinuteStep;
+                if (system.DialNumerals != 0) o["dialNumerals"] = system.DialNumerals;
                 list.Add(o);
             }
             return list;
@@ -117,6 +121,7 @@ namespace Marabook.Persistence
                         u["name"] = sun.Name ?? "";
                         if (sun.Period > 0) { u["period"] = sun.Period; u["highAt"] = sun.HighAt; }
                         if (!string.IsNullOrEmpty(sun.OrbitId)) u["orbit"] = sun.OrbitId;
+                        if (Math.Abs(sun.Size - 1) > 1e-9) u["size"] = sun.Size;
                         if (!string.IsNullOrEmpty(sun.Color)) u["color"] = sun.Color;
                         suns.Add(u);
                     }
@@ -139,6 +144,23 @@ namespace Marabook.Persistence
                     }
                     o["moons"] = moons;
                 }
+                if (world.Planets.Count > 0)
+                {
+                    var planets = new List<object>();
+                    foreach (var planet in world.Planets)
+                    {
+                        var p = new Dictionary<string, object>();
+                        p["id"] = planet.Id;
+                        p["name"] = planet.Name ?? "";
+                        if (planet.Period > 0) { p["period"] = planet.Period; p["at"] = planet.At; }
+                        if (!string.IsNullOrEmpty(planet.Color)) p["color"] = planet.Color;
+                        planets.Add(p);
+                    }
+                    o["planets"] = planets;
+                }
+                // L'ordre des astres : écrit dès qu'il y a quelque chose à ordonner (un soleil qui orbite, une planète).
+                var order = Astro.NormalOrder(world);
+                if (order.Count > 1) o["order"] = new List<object>(order.ToArray());
                 if (world.Phenomena.Count > 0)
                 {
                     var phenomena = new List<object>();
@@ -201,6 +223,7 @@ namespace Marabook.Persistence
                         };
                         var sunId = Json.AsString(Json.Field(u, "id"));
                         if (!string.IsNullOrEmpty(sunId)) sun.Id = sunId;
+                        sun.Size = Math.Max(0.0001, Json.AsDouble(Json.Field(u, "size"), 1));
                         var sunOrbit = Json.AsString(Json.Field(u, "orbit"));
                         sun.OrbitId = string.IsNullOrEmpty(sunOrbit) ? null : sunOrbit;
                         // Les mondes d'avant le 16/11 : un compagnon à période tournait déjà autour du premier soleil, sans le dire.
@@ -225,6 +248,25 @@ namespace Marabook.Persistence
                         moon.Eclipses = Math.Max(0, Math.Min(2, Json.AsInt(Json.Field(m, "eclipses"), Astro.EclipseSeasons)));
                         world.Moons.Add(moon);
                     }
+                var planetList = Json.AsList(Json.Field(o, "planets"));
+                if (planetList != null)
+                    foreach (var planetNode in planetList)
+                    {
+                        var p = Json.AsObject(planetNode);
+                        if (p == null) continue;
+                        var planet = new Planet
+                        {
+                            Name = Json.AsString(Json.Field(p, "name")) ?? "", Period = Math.Max(0, Json.AsDouble(Json.Field(p, "period"), 0)),
+                            At = Json.AsDouble(Json.Field(p, "at"), 0), Color = Json.AsString(Json.Field(p, "color"))
+                        };
+                        var planetId = Json.AsString(Json.Field(p, "id"));
+                        if (!string.IsNullOrEmpty(planetId)) planet.Id = planetId;
+                        world.Planets.Add(planet);
+                    }
+                var orderList = Json.AsList(Json.Field(o, "order"));
+                if (orderList != null)
+                    foreach (var entry2 in orderList)
+                        if (entry2 is string) world.Order.Add((string)entry2);
                 var phenomenaList = Json.AsList(Json.Field(o, "phenomena"));
                 if (phenomenaList != null)
                     foreach (var phenomenonNode in phenomenaList)
@@ -318,6 +360,10 @@ namespace Marabook.Persistence
                 system.HoursPerDay = Math.Max(1, Json.AsInt(Json.Field(o, "hoursPerDay"), 24));
                 system.MinutesPerHour = Math.Max(1, Json.AsInt(Json.Field(o, "minutesPerHour"), 60));
                 system.SecondsPerMinute = Math.Max(1, Json.AsInt(Json.Field(o, "secondsPerMinute"), 60));
+                system.DialTurns = Math.Max(1, Json.AsInt(Json.Field(o, "dialTurns"), 1));
+                system.DialHourStep = Math.Max(0, Json.AsInt(Json.Field(o, "dialHourStep"), 0));
+                system.DialMinuteStep = Math.Max(0, Json.AsInt(Json.Field(o, "dialMinuteStep"), 0));
+                system.DialNumerals = Math.Max(0, Math.Min(2, Json.AsInt(Json.Field(o, "dialNumerals"), 0)));
                 systems.Add(system);
             }
             return systems;

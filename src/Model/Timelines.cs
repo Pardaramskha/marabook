@@ -157,6 +157,13 @@ namespace Marabook.Model
         public int HoursPerDay = 24;
         public int MinutesPerHour = 60;
         public int SecondsPerMinute = 60; // 16/11 (Rémi) : l'horloge va jusqu'aux secondes
+        // LE DESSIN DU CADRAN (16/11 soir, Rémi) : rien ici ne change le compte du temps — seulement
+        // l'allure de l'horloge. Tours du cadran par jour (2 = notre cadran de douze heures),
+        // pas des chiffres sur les heures et les minutes (0 = au mieux), style des chiffres.
+        public int DialTurns = 1;
+        public int DialHourStep;
+        public int DialMinuteStep;
+        public int DialNumerals;          // 0 chiffres arabes, 1 chiffres romains, 2 points
 
         public const string GregorianName = "Calendrier de notre monde";
 
@@ -178,7 +185,8 @@ namespace Marabook.Model
             {
                 Id = Id, Name = Name, WorldId = WorldId, Segmented = Segmented, SegmentWord = SegmentWord, Cumulative = Cumulative,
                 YearPattern = YearPattern, NegativePattern = NegativePattern, DatePattern = DatePattern, YearZero = YearZero, SegmentYearZero = SegmentYearZero,
-                HoursPerDay = HoursPerDay, MinutesPerHour = MinutesPerHour, SecondsPerMinute = SecondsPerMinute
+                HoursPerDay = HoursPerDay, MinutesPerHour = MinutesPerHour, SecondsPerMinute = SecondsPerMinute,
+                DialTurns = DialTurns, DialHourStep = DialHourStep, DialMinuteStep = DialMinuteStep, DialNumerals = DialNumerals
             };
             foreach (var segment in Segments)
                 copy.Segments.Add(new TimeSegment { Id = segment.Id, Name = segment.Name, Code = segment.Code, Length = segment.Length, Color = segment.Color });

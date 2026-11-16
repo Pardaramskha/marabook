@@ -595,6 +595,31 @@ namespace Marabook.App
                 + "\nProchain : " + TimeMath.ShortDate(_system, TimeMath.FromDayNumber(_system, Astro.HighDay(sun, dayNumber, 1)));
         }
 
+        /// <summary>LA ZONE D'UN GLYPHE DU CIEL (16/11 soir, Rémi : « il faut être très précis ! ») :
+        /// chaque lune, soleil ou étoile occupe une case de 19 × 19 — toute la hauteur de
+        /// l'en-tête du jour — peinte en transparent : l'infobulle répond sur toute la case,
+        /// et sans délai, plus seulement sur les quelques pixels du dessin.</summary>
+        private static class Sky
+        {
+            public const double Box = 19;
+
+            public static void Dress(Control glyph)
+            {
+                glyph.Width = Box;
+                glyph.Height = Box;
+                glyph.VerticalAlignment = VerticalAlignment.Center;
+                glyph.Cursor = new Cursor(StandardCursorType.Help);
+                ToolTip.SetShowDelay(glyph, 120);
+            }
+
+            /// <summary>Peint la case (transparente : elle reçoit la souris), puis centre le dessin de côté « size ».</summary>
+            public static IDisposable Area(DrawingContext context, Control glyph, double size)
+            {
+                context.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, glyph.Bounds.Width, glyph.Bounds.Height));
+                return context.PushTransform(Matrix.CreateTranslation((glyph.Bounds.Width - size) / 2, (glyph.Bounds.Height - size) / 2));
+            }
+        }
+
         /// <summary>Le petit disque d'une lune, à l'une de ses quatre phases principales.</summary>
         private sealed class MoonGlyph : Control
         {
@@ -605,25 +630,25 @@ namespace Marabook.App
             {
                 _color = color;
                 _phase = phase;
-                Width = 11;
-                Height = 11;
-                Margin = new Thickness(3, 1, 0, 0);
-                VerticalAlignment = VerticalAlignment.Center;
+                Sky.Dress(this);
             }
 
             public int Phase { get { return _phase; } }
 
             public override void Render(DrawingContext context)
             {
-                var center = new Point(5.5, 5.5);
-                var brush = new SolidColorBrush(_color);
-                var pen = new Pen(brush, 1.2);
-                if (_phase == Astro.Full) { context.DrawEllipse(brush, pen, center, 4.4, 4.4); return; }
-                context.DrawEllipse(null, pen, center, 4.4, 4.4);
-                if (_phase == Astro.New) return;
-                // Un quartier : la moitié du disque — la droite pour le premier, la gauche pour le dernier.
-                using (context.PushClip(_phase == Astro.FirstQuarter ? new Rect(5.5, 0, 5.5, 11) : new Rect(0, 0, 5.5, 11)))
-                    context.DrawEllipse(brush, null, center, 4.4, 4.4);
+                using (Sky.Area(context, this, 11))
+                {
+                    var center = new Point(5.5, 5.5);
+                    var brush = new SolidColorBrush(_color);
+                    var pen = new Pen(brush, 1.2);
+                    if (_phase == Astro.Full) { context.DrawEllipse(brush, pen, center, 4.4, 4.4); return; }
+                    context.DrawEllipse(null, pen, center, 4.4, 4.4);
+                    if (_phase == Astro.New) return;
+                    // Un quartier : la moitié du disque — la droite pour le premier, la gauche pour le dernier.
+                    using (context.PushClip(_phase == Astro.FirstQuarter ? new Rect(5.5, 0, 5.5, 11) : new Rect(0, 0, 5.5, 11)))
+                        context.DrawEllipse(brush, null, center, 4.4, 4.4);
+                }
             }
         }
 
@@ -635,22 +660,22 @@ namespace Marabook.App
             public SunGlyph(Color color)
             {
                 _color = color;
-                Width = 13;
-                Height = 13;
-                Margin = new Thickness(3, 0, 0, 0);
-                VerticalAlignment = VerticalAlignment.Center;
+                Sky.Dress(this);
             }
 
             public override void Render(DrawingContext context)
             {
-                var center = new Point(6.5, 6.5);
-                var brush = new SolidColorBrush(_color);
-                var pen = new Pen(brush, 1.1);
-                context.DrawEllipse(brush, null, center, 2.8, 2.8);
-                for (var i = 0; i < 8; i++)
+                using (Sky.Area(context, this, 13))
                 {
-                    var angle = i * Math.PI / 4;
-                    context.DrawLine(pen, new Point(center.X + Math.Cos(angle) * 4.3, center.Y + Math.Sin(angle) * 4.3), new Point(center.X + Math.Cos(angle) * 6.2, center.Y + Math.Sin(angle) * 6.2));
+                    var center = new Point(6.5, 6.5);
+                    var brush = new SolidColorBrush(_color);
+                    var pen = new Pen(brush, 1.1);
+                    context.DrawEllipse(brush, null, center, 2.8, 2.8);
+                    for (var i = 0; i < 8; i++)
+                    {
+                        var angle = i * Math.PI / 4;
+                        context.DrawLine(pen, new Point(center.X + Math.Cos(angle) * 4.3, center.Y + Math.Sin(angle) * 4.3), new Point(center.X + Math.Cos(angle) * 6.2, center.Y + Math.Sin(angle) * 6.2));
+                    }
                 }
             }
         }
@@ -663,10 +688,7 @@ namespace Marabook.App
             public StarGlyph(Color color)
             {
                 _color = color;
-                Width = 12;
-                Height = 12;
-                Margin = new Thickness(3, 0, 0, 0);
-                VerticalAlignment = VerticalAlignment.Center;
+                Sky.Dress(this);
             }
 
             public override void Render(DrawingContext context)
@@ -685,8 +707,27 @@ namespace Marabook.App
                     }
                     path.EndFigure(true);
                 }
-                context.DrawGeometry(new SolidColorBrush(_color), null, geometry);
+                using (Sky.Area(context, this, 12)) context.DrawGeometry(new SolidColorBrush(_color), null, geometry);
             }
+        }
+
+        /// <summary>Sonde : la largeur de la zone sensible du premier glyphe du ciel de la case d'un jour (0 sans glyphe).</summary>
+        internal double SkyGlyphBoxForProbe(int day)
+        {
+            var n = 0;
+            foreach (var child in _grid.Children)
+            {
+                var cell = child as Border;
+                if (cell == null || !Equals(cell.Tag, "calendar-day") || ++n != day) continue;
+                var top = ((StackPanel)cell.Child).Children[0] as DockPanel;
+                if (top == null) continue;
+                foreach (var item in top.Children)
+                {
+                    var sky = item as StackPanel;
+                    if (sky != null && sky.Children.Count > 0) return Math.Min(sky.Children[0].Bounds.Width, sky.Children[0].Bounds.Height);
+                }
+            }
+            return 0;
         }
 
         /// <summary>Sonde : l'infobulle de la case d'un jour (sa date abrégée).</summary>
@@ -754,11 +795,11 @@ namespace Marabook.App
                     moons.Children.Add(glyph);
                 }
                 // Un soleil compagnon qui culmine à minuit ce jour-là (15/11) : son disque rayonnant.
-                var mainSun = Astro.MainSun(_world);
+                var wanderers = Astro.Wanderers(_world); // un compagnon en orbite rapprochée ne culmine pas : ses éclipses sont des étoiles
                 for (var i = 0; i < _world.Suns.Count; i++)
                 {
                     Color tint;
-                    if (_world.Suns[i] == mainSun || !Astro.SunHighOn(_world.Suns[i], dayNumber) || !Color.TryParse(Astro.ColorOf(_world.Suns[i], i), out tint)) continue;
+                    if (!wanderers.Contains(_world.Suns[i]) || !Astro.SunHighOn(_world.Suns[i], dayNumber) || !Color.TryParse(Astro.ColorOf(_world.Suns[i], i), out tint)) continue;
                     var glyph = new SunGlyph(tint);
                     ToolTip.SetTip(glyph, SunTip(_world.Suns[i], dayNumber));
                     moons.Children.Add(glyph);
