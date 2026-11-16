@@ -344,7 +344,11 @@ namespace Marabook.App
             AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e)
             {
                 if (e.GetCurrentPoint(this).Properties.IsXButton1Pressed)
-                { NavigateHistory(true); e.Handled = true; }
+                {
+                    // La vue Calendrier d'une frise défait d'abord ses propres pas (mois ↔ année, 16/11).
+                    if (!(_timelineView != null && _timelineView.IsVisible && _timelineView.TryStepBack())) NavigateHistory(true);
+                    e.Handled = true;
+                }
                 else if (e.GetCurrentPoint(this).Properties.IsXButton2Pressed)
                 { NavigateHistory(false); e.Handled = true; }
             }, RoutingStrategies.Tunnel);
@@ -1473,6 +1477,8 @@ namespace Marabook.App
                 MarkDirty();
                 if (_current == sheetEdit.Item && _sheetView.IsVisible) _sheetView.ReloadAfterHistory();
                 if (_sheetLibrary.IsVisible) _sheetLibrary.Refresh();
+                // Une date de naissance ou de décès changée depuis la frise, puis défaite : la frise ouverte en tire ses briques (16/11).
+                if (_timelineView != null && _timelineView.IsVisible) _timelineView.Refresh();
                 _binder.Rebuild();
                 UpdateInspector();
                 return;

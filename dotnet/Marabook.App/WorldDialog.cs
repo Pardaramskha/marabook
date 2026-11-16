@@ -40,7 +40,9 @@ namespace Marabook.App
         private readonly TextBox _name, _circumference, _tilt, _solarYear, _factor;
         private readonly StackPanel _seasons, _moons, _suns, _facts;
         private readonly TextBlock _driftEcho, _moonEcho, _sunEcho, _seasonHint, _problem, _reference, _factorEcho;
-        private readonly Button _addSystem, _useFactor;
+        private readonly Button _addSystem, _useFactor, _fixDrift;
+        private readonly TextBlock _seasonEven, _fixDriftHint;
+        private readonly Border _driftBox;
         private readonly ComboBox _available, _referenceBox;
         private readonly WrapPanel _chips;
         private readonly Control _referenceRow;
@@ -158,8 +160,12 @@ namespace Marabook.App
             _referenceRow = referenceRow;
             seasons.Children.Add(referenceRow);
             seasons.Children.Add(new TextBlock { Text = "Les saisons, et le jour de l'année où chacune commence :", Foreground = Chrome.Ink });
-            _seasons = new StackPanel { Spacing = 4, Margin = new Thickness(0, 6, 0, 0) };
-            seasons.Children.Add(new ScrollViewer { MaxHeight = 150, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _seasons });
+            // Ce que durerait chaque saison si toutes duraient autant (16/11, Rémi).
+            _seasonEven = TimelineUi.Hint("");
+            _seasonEven.Tag = "world-season-even";
+            seasons.Children.Add(_seasonEven);
+            _seasons = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 0) };
+            seasons.Children.Add(_seasons); // l'onglet défile déjà : pas de second ascenseur
             var seasonButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 6, 0, 0) };
             var addSeason = Buttons.IconText("plus-bold", "Ajouter une saison", null, Buttons.Compact, Buttons.Look.Outline);
             addSeason.Click += delegate { Collect(); _world.Seasons.Add(new Season { Name = "", StartDay = 1 }); RebuildSeasons(); Preview(); };
@@ -172,13 +178,25 @@ namespace Marabook.App
             _seasonHint = TimelineUi.Hint("");
             seasons.Children.Add(_seasonHint);
             seasons.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 10, 0, 8) });
+            // LE GLISSEMENT DES SAISONS (16/11, Rémi) : détecté d'avance, expliqué, corrigible.
+            seasons.Children.Add(new TextBlock { Text = "Glissement des saisons au fil des années", Foreground = Chrome.Ink, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 4) });
             var solar = new Grid { ColumnDefinitions = new ColumnDefinitions("230,8,130,8,*") };
             _solarYear = new TextBox { Text = world.SolarYear > 0 ? Show(world.SolarYear) : "", Watermark = "celle du calendrier", Tag = "world-solar-year" };
             Row(solar, 0, "Durée réelle de l'année :", _solarYear, "jours");
             seasons.Children.Add(solar);
-            _driftEcho = TimelineUi.Hint("");
-            _driftEcho.Tag = "world-drift";
-            seasons.Children.Add(_driftEcho);
+            _driftEcho = new TextBlock { Foreground = Chrome.Ink, FontSize = 12, TextWrapping = TextWrapping.Wrap, Tag = "world-drift" };
+            _fixDrift = Buttons.Text("Supprimer le glissement", null, Buttons.Compact, Buttons.Look.Outline);
+            _fixDrift.Tag = "world-fix-drift";
+            _fixDrift.HorizontalAlignment = HorizontalAlignment.Left;
+            _fixDrift.Margin = new Thickness(0, 8, 0, 0);
+            _fixDrift.Click += delegate { _solarYear.Text = ""; }; // l'année réelle redevient celle du calendrier
+            _fixDriftHint = TimelineUi.Hint("Le bouton cale l'année réelle du monde sur celle du calendrier : les saisons reviennent alors aux mêmes dates chaque année.");
+            var driftBody = new StackPanel();
+            driftBody.Children.Add(_driftEcho);
+            driftBody.Children.Add(_fixDrift);
+            driftBody.Children.Add(_fixDriftHint);
+            _driftBox = new Border { Child = driftBody, Padding = new Thickness(12, 9, 12, 10), Margin = new Thickness(0, 8, 0, 0), CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Tag = "world-drift-box" };
+            seasons.Children.Add(_driftBox);
             tabs.Items.Add(new TabItem { Header = "Saisons", Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = seasons } });
 
             // ------------------------------------------------------------ soleils
@@ -414,7 +432,7 @@ namespace Marabook.App
             for (var i = 0; i < _world.Seasons.Count; i++)
             {
                 var season = _world.Seasons[i];
-                var row = new Grid { ColumnDefinitions = new ColumnDefinitions("14,8,*,8,Auto,6,70,8,150,8,26"), Tag = "world-season" };
+                var row = new Grid { ColumnDefinitions = new ColumnDefinitions("14,8,*,8,Auto,6,70,8,150,8,26"), RowDefinitions = new RowDefinitions("Auto,Auto"), Tag = "world-season" };
                 Color tint;
                 Color.TryParse(Astro.ColorOf(season, i), out tint);
                 row.Children.Add(new Border { Width = 12, Height = 12, CornerRadius = new CornerRadius(6), Background = new SolidColorBrush(tint), VerticalAlignment = VerticalAlignment.Center });
@@ -437,6 +455,12 @@ namespace Marabook.App
                 row.Children.Add(day);
                 row.Children.Add(echo);
                 row.Children.Add(remove);
+                // Sous la saison : ce qu'elle dure, et sa part de l'année (16/11, Rémi) — rempli par Preview.
+                var detail = new TextBlock { Foreground = Chrome.SoftText, FontSize = 11.5, Margin = new Thickness(2, 2, 0, 0), Tag = "world-season-detail" };
+                Grid.SetRow(detail, 1);
+                Grid.SetColumn(detail, 2);
+                Grid.SetColumnSpan(detail, 7);
+                row.Children.Add(detail);
                 _seasons.Children.Add(row);
             }
             if (_world.Seasons.Count == 0) _seasons.Children.Add(new TextBlock { Text = "Aucune saison.", Foreground = Chrome.SoftText, FontSize = 12 });
@@ -648,8 +672,29 @@ namespace Marabook.App
             // — Les saisons et la dérive.
             _seasonHint.Text = _world.Seasons.Count == 0 ? "Le jour 1 est le premier jour de l'année du calendrier de référence."
                 : "Le jour 1 est le premier jour de l'année de « " + reference.Name + " » ; la dernière saison de l'année se poursuit au début de la suivante.";
-            _driftEcho.Text = Astro.DriftLabel(_world, reference)
-                ?? "Vide : l'année solaire dure ce que dure l'année du calendrier (" + Show(TimeMath.MeanYearDays(reference)) + " jours en moyenne), et les saisons reviennent toujours aux mêmes dates. Renseignée, Marabook calcule la dérive du calendrier.";
+            // La durée de chaque saison et sa part de l'année ; la moyenne si toutes duraient autant.
+            var seasonYear = _world.SolarYear > 0 ? _world.SolarYear : reference.BaseDays;
+            var lengths = Astro.SeasonLengths(_world, seasonYear);
+            for (var i = 0; i < _seasons.Children.Count && i < lengths.Length; i++)
+            {
+                var row = _seasons.Children[i] as Grid;
+                if (row != null && row.Children.Count > 6) ((TextBlock)row.Children[6]).Text = "Dure " + Astro.SeasonShare(lengths[i], seasonYear);
+            }
+            _seasonEven.Text = Astro.EvenSeasons(_world.Seasons.Count, seasonYear);
+            _seasonEven.IsVisible = _world.Seasons.Count > 0;
+
+            // Le glissement : ce qui le cause, ce qu'il donne, comment l'ôter.
+            var report = Astro.DriftReport(_world, reference);
+            var drifting = report.Count > 0;
+            _driftEcho.Text = drifting ? Astro.DriftLabel(_world, reference) + "\n" + string.Join("\n", report.ToArray())
+                : _world.SolarYear > 0 ? "Aucun glissement : l'année de « " + reference.Name + " » dure exactement l'année réelle du monde."
+                : "Aucun glissement : sans durée réelle, l'année du monde est celle du calendrier (" + Show(TimeMath.MeanYearDays(reference)) + " jours" + (reference.Leaps.Count > 0 ? " en moyenne" : "")
+                    + ") et les saisons reviennent aux mêmes dates chaque année. Donnez une durée réelle pour voir, d'avance, de combien le calendrier glisserait.";
+            var tone = drifting ? Chrome.Danger.Color : Chrome.Ok.Color;
+            _driftBox.Background = new SolidColorBrush(tone, 0.10);
+            _driftBox.BorderBrush = new SolidColorBrush(tone, 0.55);
+            _fixDrift.IsVisible = drifting;
+            _fixDriftHint.IsVisible = drifting;
 
             // — Les lunes : où elles en sont, quand elles se retrouvent.
             var lines = new List<string>();
@@ -701,6 +746,11 @@ namespace Marabook.App
             Rereference(delegate { if (on) _inWorld.Add(system); else _inWorld.Remove(system); });
         }
         internal bool NoticeShownForProbe { get { return _notice != null && _notice.IsVisible; } }
+        internal string SolarYearForProbe { get { return _solarYear.Text ?? ""; } }
+        internal string SeasonEvenForProbe { get { return _seasonEven.IsVisible ? _seasonEven.Text ?? "" : ""; } }
+        internal string SeasonDetailForProbe(int index) { return ((TextBlock)((Grid)_seasons.Children[index]).Children[6]).Text ?? ""; }
+        internal bool FixDriftShownForProbe { get { return _fixDrift.IsVisible; } }
+        internal void FixDriftForProbe() { _solarYear.Text = ""; }
         internal int ChipCountForProbe { get { var n = 0; foreach (var child in _chips.Children) if (child is Border) n++; return n; } }
         internal int AvailableCountForProbe { get { return _available.Items.Count; } }
         internal bool AddButtonShownForProbe { get { return _addSystem.IsVisible; } }

@@ -138,6 +138,7 @@ namespace Marabook.App
     {
         public TimelineEvent Event;
         public bool Deleted;
+        public bool OpenSheet; // « Aller à la fiche » : rien n'est changé, la fiche s'ouvre
     }
 
     /// <summary>Une brique de la frise : son titre, son type, sa date (ou son
@@ -159,12 +160,17 @@ namespace Marabook.App
         private List<BinderItem> _linkItems = new List<BinderItem>();
         private TimelineEventResult _result;
 
-        private TimelineEventDialog(Window owner, Project project, TimeSystem system, TimelineInfo timeline, TimelineEvent entry, bool creating)
+        // Une brique NÉE D'UNE FICHE (naissance, décès — 16/11, Rémi) : seule sa date
+        // se change ici, et c'est le champ de la fiche qui la reçoit.
+        private readonly BinderItem _lifeSheet;
+
+        private TimelineEventDialog(Window owner, Project project, TimeSystem system, TimelineInfo timeline, TimelineEvent entry, bool creating, BinderItem lifeSheet = null, string lifeField = null)
         {
             _project = project;
             _system = system;
             _timeline = timeline;
             _entry = entry;
+            _lifeSheet = lifeSheet;
             TimelineUi.Dress(this, owner, creating ? "Nouvel événement" : "Modifier l'événement");
             SizeToContent = SizeToContent.WidthAndHeight;
             CanResize = false;
@@ -239,7 +245,32 @@ namespace Marabook.App
             panel.Children.Add(_problem);
 
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
-            if (!creating)
+            if (lifeSheet != null)
+            {
+                // Tout ce qui n'est pas la date appartient à la fiche : montré, pas modifiable.
+                var typeLabel = (Control)panel.Children[panel.Children.IndexOf(_type) - 1];
+                var linkLabel = (Control)panel.Children[panel.Children.IndexOf(linkRow) - 1];
+                var linkHint = (Control)panel.Children[panel.Children.IndexOf(linkRow) + 1];
+                var descriptionLabel = (Control)panel.Children[panel.Children.IndexOf(_description) - 1];
+                foreach (var hidden in new Control[] { typeLabel, _type, _span, linkLabel, linkRow, linkHint, descriptionLabel, _description }) hidden.IsVisible = false;
+                _title.IsReadOnly = true;
+                _title.Focusable = false;
+                _title.Opacity = 0.75;
+                panel.Children.Insert(0, new Border
+                {
+                    Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 0, 0, 12), CornerRadius = new CornerRadius(8),
+                    Background = new SolidColorBrush(Chrome.Ok.Color, 0.13), BorderBrush = Chrome.Ok, BorderThickness = new Thickness(1), Tag = "event-life-notice",
+                    Child = new TextBlock
+                    {
+                        Text = "Cet événement est né de la fiche « " + lifeSheet.Title + " » : sa date vit dans le champ « " + lifeField + " ». La changer ici la change aussi sur la fiche.",
+                        Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap, FontSize = 12
+                    }
+                });
+                var toSheet = new Button { Content = "Aller à la fiche", MinWidth = 80, Tag = "event-go-to-sheet" };
+                toSheet.Click += delegate { _result = new TimelineEventResult { OpenSheet = true }; Close(); };
+                buttons.Children.Add(toSheet);
+            }
+            else if (!creating)
             {
                 var remove = new Button { Content = "Retirer de la frise", MinWidth = 80 };
                 remove.Click += delegate { _result = new TimelineEventResult { Deleted = true }; Close(); };
@@ -258,7 +289,7 @@ namespace Marabook.App
             _end.Changed += Validate;
             Loaded += delegate
             {
-                if (entry.IsPending) { _start.Box.Focus(); _start.Box.SelectAll(); }
+                if (entry.IsPending || lifeSheet != null) { _start.Box.Focus(); _start.Box.SelectAll(); }
                 else { _title.Focus(); _title.SelectAll(); }
             };
         }
@@ -306,6 +337,14 @@ namespace Marabook.App
                 _problem.IsVisible = true;
                 return;
             }
+            if (_lifeSheet != null)
+            {
+                // Née d'une fiche : la date, rien d'autre — l'appelant la réécrit dans le champ.
+                _entry.Start = _start.Point;
+                _result = new TimelineEventResult { Event = _entry };
+                Close();
+                return;
+            }
             _entry.Title = (_title.Text ?? "").Trim();
             if (_entry.Title.Length == 0) _entry.Title = "Événement";
             _entry.TypeId = _type.SelectedIndex >= 0 && _type.SelectedIndex < _timeline.Types.Count ? _timeline.Types[_type.SelectedIndex].Id : null;
@@ -328,9 +367,9 @@ namespace Marabook.App
 
         /// <summary>entry : la brique à remplir (une copie pour une modification).
         /// Null si annulé ; Deleted si l'auteur la retire.</summary>
-        public static async Task<TimelineEventResult> Ask(Window owner, Project project, TimeSystem system, TimelineInfo timeline, TimelineEvent entry, bool creating)
+        public static async Task<TimelineEventResult> Ask(Window owner, Project project, TimeSystem system, TimelineInfo timeline, TimelineEvent entry, bool creating, BinderItem lifeSheet = null, string lifeField = null)
         {
-            var dialog = new TimelineEventDialog(owner, project, system, timeline, entry, creating);
+            var dialog = new TimelineEventDialog(owner, project, system, timeline, entry, creating, lifeSheet, lifeField);
             await Dialogs.ShowModal(dialog, owner);
             return dialog._result;
         }
@@ -348,6 +387,9 @@ namespace Marabook.App
             _linkKind.SelectedIndex = Array.IndexOf(TimelineLinks.Kinds, kind) + 1;
             _linkItem.SelectedIndex = _linkItems.FindIndex(delegate(BinderItem b) { return b.Id == itemId; });
         }
+        internal bool LifeModeForProbe { get { return _lifeSheet != null && !_type.IsVisible && !_description.IsVisible && _title.IsReadOnly; } }
+        internal void GoToSheetForProbe() { _result = new TimelineEventResult { OpenSheet = true }; Close(); }
+        internal void SetStartForProbe(string start) { _start.Text = start; }
         internal int LinkKindCountForProbe { get { return _linkKind.Items.Count; } }
         internal int LinkItemCountForProbe { get { return _linkItem.Items.Count; } }
         internal bool LinkItemEnabledForProbe { get { return _linkItem.IsEnabled; } }

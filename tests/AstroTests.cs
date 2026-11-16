@@ -25,6 +25,79 @@ namespace Marabook.Tests
             t.Suite("C69 — mondes : notre monde en brouillon, calculateur de circonférence, soleils, calendrier de référence");
             OurWorld(t);
             Suns(t);
+            t.Suite("C70 — durée des saisons, glissement expliqué, date d'une naissance changée depuis la frise");
+            SeasonDetails(t);
+            LifeDates(t);
+        }
+
+        /// <summary>16/11 : ce que dure chaque saison, la moyenne équivalente, et le rapport de glissement.</summary>
+        private static void SeasonDetails(Harness t)
+        {
+            var earth = World.Earth();
+            var lengths = Astro.SeasonLengths(earth, 365);
+            t.Check(lengths.Length == 4 && lengths[0] == 93 && lengths[1] == 94 && lengths[2] == 89 && lengths[3] == 89, "nos saisons sur 365 jours : 93, 94, 89 et 89 jours (" + string.Join(", ", Array.ConvertAll(lengths, delegate(double d) { return d.ToString(); })) + ")");
+            var custom = new World();
+            custom.Seasons.Add(new Season { Name = "Hiver", StartDay = 264 });   // dans le désordre : la durée suit le jour, pas le rang
+            custom.Seasons.Add(new Season { Name = "Printemps", StartDay = 1 });
+            custom.Seasons.Add(new Season { Name = "Été", StartDay = 92 });
+            custom.Seasons.Add(new Season { Name = "Automne", StartDay = 178 });
+            var mine = Astro.SeasonLengths(custom, 360);
+            t.Check(mine[1] == 91 && mine[2] == 86 && mine[3] == 86 && mine[0] == 97, "des saisons aux jours 1, 92, 178, 264 d'une année de 360 : 91, 86, 86 et 97 jours — la dernière court jusqu'au retour de la première");
+            var alone = new World();
+            alone.Seasons.Add(new Season { Name = "Toujours", StartDay = 40 });
+            t.Check(Astro.SeasonLengths(alone, 360)[0] == 360 && Astro.SeasonLengths(new World(), 360).Length == 0, "une seule saison dure toute l'année ; sans saison, rien");
+            t.Equal("100 jours  ·  25 % de l'année", Plain(Astro.SeasonShare(100, 400)), "le détail d'une saison : sa durée et sa part de l'année");
+            t.Check(Plain(Astro.SeasonShare(91, 360)).Contains("25,3 %"), "…à une décimale (" + Plain(Astro.SeasonShare(91, 360)) + ")");
+            t.Check(Plain(Astro.EvenSeasons(4, 400)).StartsWith("Moyenne équivalente : 100 jours par saison") && Astro.EvenSeasons(0, 400) == "", "quatre saisons sur une année de 400 jours : « Moyenne équivalente : 100 jours » (" + Plain(Astro.EvenSeasons(4, 400)) + ")");
+
+            // Le glissement : l'année de la Terre posée sur un calendrier de 360 jours (le projet de Rémi).
+            var calendar = new TimeSystem { Name = "Douze mois de trente" };
+            for (var i = 1; i <= 12; i++) calendar.Months.Add(new TimeMonth { Name = "Mois " + i, Days = 30 });
+            var report = Astro.DriftReport(earth, calendar).ConvertAll(Plain);
+            t.Check(report.Count == 3 && report[0].Contains("dure 360 jours") && report[0].Contains("365,2422") && report[0].Contains("5,24 jours plus tard"), "la cause du glissement : 360 jours contre 365,2422, 5,24 jours plus tard chaque année (" + (report.Count > 0 ? report[0] : "-") + ")");
+            t.Check(report.Count == 3 && report[1].Contains("10 ans : 52 jours") && report[1].Contains("100 ans : 524 jours (1,5 tour de calendrier)"), "…l'écart après 10, 100 et 1 000 ans (" + (report.Count > 1 ? report[1] : "-") + ")");
+            t.Check(report.Count == 3 && report[2].Contains("ajouter 5 jours à ses mois") && report[2].Contains("ajouter un jour tous les 4 ans"), "…et ce que le calendrier devrait gagner pour suivre (" + (report.Count > 2 ? report[2] : "-") + ")");
+            earth.SolarYear = 0;
+            t.Check(Astro.DriftReport(earth, calendar).Count == 0 && Astro.DriftReport(null, calendar).Count == 0, "sans durée réelle de l'année : aucun glissement, aucun rapport");
+            earth.SolarYear = 360;
+            t.Check(Astro.DriftReport(earth, calendar).Count == 0, "une année réelle égale à celle du calendrier : rien non plus");
+            // Sans glissement, le printemps posé au jour 1 commence bien le premier jour de chaque année.
+            custom.SolarYear = 0;
+            t.Equal("Printemps", Astro.SeasonAt(custom, calendar, new TimePoint(4321, 1, 1)).Name, "sans glissement, la saison du jour 1 commence le premier jour de l'an, quelle que soit l'année");
+            custom.SolarYear = 365.2422;
+            t.Check(Astro.SeasonAt(custom, calendar, new TimePoint(4321, 1, 1)).Name != "Printemps", "…avec l'année de la Terre sur ce calendrier, elle a glissé (le bug rapporté le 16/11)");
+        }
+
+        /// <summary>16/11 : la date d'une naissance née d'une fiche se change depuis la frise — dans le champ de la fiche.</summary>
+        private static void LifeDates(Harness t)
+        {
+            var project = Project.CreateNew();
+            var sheet = new BinderItem { Kind = ItemKind.Sheet, Title = "Keira", TemplateId = project.CharacterTemplate().Id };
+            project.Category(Project.KeySheets).Children.Add(sheet);
+            project.RelinkParents();
+            var timeline = TimelineSamples.Seed(project);
+            project.RelinkParents();
+            var tides = Timelines.SystemOf(project, timeline);
+            foreach (var field in project.TemplateOf(sheet).Fields)
+                if (field.Name == SheetDefaults.FieldBirthDate) sheet.FieldValues[field.Id] = TimeLinks.Markup(TimelineSamples.TimelineTitle, "12 Sel E3.8", null);
+            var birth = Timelines.LifeEventsOf(project, timeline, tides).Events.Find(delegate(TimelineEvent e) { return e.Title.Contains("Keira") && e.TypeId == TimelineInfo.BirthTypeId; });
+            t.Check(birth != null && tides.Format(birth.Start) == "12 Sel E3.8" && Timelines.LifeFieldOf(birth) == SheetDefaults.FieldBirthDate, "la naissance de Keira naît du champ « Date de naissance » de sa fiche (12 Sel E3.8)");
+            if (birth == null) return;
+            var keira = project.FindById(birth.LinkId);
+            t.Check(Timelines.SetLifeDate(project, timeline, tides, keira, SheetDefaults.FieldBirthDate, At(tides, "14 Sel E3.8")), "changer sa date depuis la frise réécrit le champ de la fiche");
+            var value = Epochs.FieldValue(project, keira, SheetDefaults.FieldBirthDate) ?? "";
+            t.Equal(TimeLinks.Markup(TimelineSamples.TimelineTitle, "14 Sel E3.8", null), value, "…le lien de date du champ dit la nouvelle date");
+            var moved = Timelines.LifeEventsOf(project, timeline, tides).Events.Find(delegate(TimelineEvent e) { return e.Id == birth.Id; });
+            t.Check(moved != null && tides.Format(moved.Start) == "14 Sel E3.8", "…et la brique suit");
+            t.Check(!Timelines.SetLifeDate(project, timeline, tides, keira, SheetDefaults.FieldDeathDate, At(tides, "1 Sel E3.90")), "une fiche sans date de décès liée : rien à réécrire");
+            // Un lien ordinaire vers la frise (toléré depuis le 12/11) devient un lien de date ; un texte choisi par l'auteur est gardé.
+            Epochs.ReplaceFieldValue(project, keira, SheetDefaults.FieldBirthDate, delegate(string old) { return "née le [[" + TimelineSamples.TimelineTitle + "|12 Sel E3.8]], à l'aube"; });
+            t.Check(Timelines.SetLifeDate(project, timeline, tides, keira, SheetDefaults.FieldBirthDate, At(tides, "E3.9")), "un lien ordinaire vers la frise se réécrit aussi");
+            t.Equal("née le " + TimeLinks.Markup(TimelineSamples.TimelineTitle, "E3.9", null) + ", à l'aube", Epochs.FieldValue(project, keira, SheetDefaults.FieldBirthDate), "…en lien de date, le reste du champ intact");
+            Epochs.ReplaceFieldValue(project, keira, SheetDefaults.FieldBirthDate, delegate(string old) { return TimeLinks.Markup(TimelineSamples.TimelineTitle, "E3.9", "l'an du grand gel"); });
+            Timelines.SetLifeDate(project, timeline, tides, keira, SheetDefaults.FieldBirthDate, At(tides, "E3.10"));
+            t.Equal(TimeLinks.Markup(TimelineSamples.TimelineTitle, "E3.10", "l'an du grand gel"), Epochs.FieldValue(project, keira, SheetDefaults.FieldBirthDate), "un texte affiché choisi par l'auteur est gardé");
+            t.Check(Timelines.LifeFieldOf(timeline.Timeline.Events[0]) == null && Timelines.LifeFieldOf(null) == null, "une brique ordinaire n'a pas de champ de fiche");
         }
 
         /// <summary>15/11 : un monde neuf part des données du nôtre ; le

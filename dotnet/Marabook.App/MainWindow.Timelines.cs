@@ -118,6 +118,10 @@ namespace Marabook.App
         {
             var draft = World.Earth();
             draft.Name = "Nouveau monde";
+            // SAUF la durée réelle de l'année (16/11) : 365,2422 jours posés sur un calendrier de
+            // 360 font glisser les saisons de cinq jours par an sans que l'auteur l'ait voulu (le
+            // projet « TEST SGF » de Rémi). Vide, l'année réelle est celle du calendrier : aucun glissement.
+            draft.SolarYear = 0;
             var number = 2;
             while (_project.Worlds.Exists(delegate(World w) { return w.Name == draft.Name; })) draft.Name = "Nouveau monde " + number++;
             return draft;

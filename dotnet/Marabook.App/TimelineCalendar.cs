@@ -67,7 +67,7 @@ namespace Marabook.App
             _yearToggle = Buttons.IconToggle("fiche-evenement", "Toute l'année : un damier par mois", Buttons.Compact, Buttons.Look.Outline);
             _yearToggle.Tag = "calendar-year-mode";
             _yearToggle.Margin = new Thickness(0, 0, 6, 0);
-            _yearToggle.IsCheckedChanged += delegate { if (_filling) return; _yearMode = _yearToggle.IsChecked == true; Rebuild(); };
+            _yearToggle.IsCheckedChanged += delegate { if (_filling) return; Remember(); _yearMode = _yearToggle.IsChecked == true; Rebuild(); };
             nav.Children.Add(_yearToggle);
             nav.Children.Add(Step("«", "Année précédente", delegate { Show(Year - 1, Month); }));
             _previousMonth = Step("‹", "Mois précédent", delegate { ShiftMonth(-1); });
@@ -76,6 +76,7 @@ namespace Marabook.App
             _months.SelectionChanged += delegate
             {
                 if (_filling || _months.SelectedIndex < 0) return;
+                if (_yearMode) Remember();
                 LeaveYearMode(); // choisir un mois depuis l'année y mène
                 Show(Year, _months.SelectedIndex + 1);
             };
@@ -209,6 +210,7 @@ namespace Marabook.App
 
         public void SetSystem(TimeSystem system)
         {
+            if (!ReferenceEquals(_system, system)) _trail.Clear(); // une autre frise : ses pas ne sont plus les nôtres
             _system = system;
             if (Month < 1 || Month > MonthCount) Month = 1;
         }
@@ -338,16 +340,119 @@ namespace Marabook.App
                     Grid.SetColumn(head, c);
                     _grid.Children.Add(head);
                 }
+            // — LES PÉRIODES (16/11, Rémi) : une brique CONTINUE par ligne de semaine,
+            //   son titre une fois en début de ligne, façon agenda — plus une brique
+            //   par jour. Chaque période prend un couloir libre de la ligne ; au-delà
+            //   de MaxLanes, elle compte dans le « + n autres » des cases qu'elle couvre.
+            var spans = events.FindAll(delegate(TimelineEvent e) { return e.IsSpan && e.Start != null; });
+            spans.Sort(delegate(TimelineEvent a, TimelineEvent b)
+            {
+                var order = _system.AxisStart(a.Start).CompareTo(_system.AxisStart(b.Start));
+                return order != 0 ? order : string.Compare(a.Title, b.Title, StringComparison.CurrentCulture);
+            });
+            var lanesOfRow = new int[rows];
+            var hiddenOfDay = new int[days + 2];
+            var bars = new List<Border>();
+            _dayTitles.Clear();
+            for (var day = 1; day <= days; day++) _dayTitles[day] = new List<string>();
+            for (var r = 0; r < rows; r++)
+            {
+                var firstDay = Math.Max(1, r * columns - offset + 1);
+                var lastDay = Math.Min(days, (r + 1) * columns - offset);
+                var taken = new List<bool[]>(); // par couloir : les jours pris
+                foreach (var entry in spans)
+                {
+                    int from = 0, to = 0;
+                    for (var day = firstDay; day <= lastDay; day++)
+                        if (TimeMath.CoversDay(_system, entry, firstNumber + day - 1)) { if (from == 0) from = day; to = day; }
+                    if (from == 0) continue;
+                    var lane = 0;
+                    for (; lane < taken.Count; lane++)
+                    {
+                        var free = true;
+                        for (var day = from; day <= to && free; day++) free = !taken[lane][day];
+                        if (free) break;
+                    }
+                    if (lane >= MaxLanes)
+                    {
+                        for (var day = from; day <= to; day++) hiddenOfDay[day]++;
+                        continue;
+                    }
+                    if (lane == taken.Count) taken.Add(new bool[days + 2]);
+                    for (var day = from; day <= to; day++) { taken[lane][day] = true; _dayTitles[day].Add(TitleOf(entry)); }
+                    var starts = !TimeMath.CoversDay(_system, entry, firstNumber + from - 2);
+                    var ends = !TimeMath.CoversDay(_system, entry, firstNumber + to);
+                    bars.Add(SpanBar(entry, r, offset + from - 1 - r * columns, to - from + 1, lane, starts, ends, selected, new TimePoint(Year, Month, from)));
+                }
+                lanesOfRow[r] = taken.Count;
+            }
             for (var day = 1; day <= days; day++)
             {
                 var slot = offset + day - 1;
-                var cell = Cell(day, firstNumber + day - 1, events, selected);
+                var cell = Cell(day, firstNumber + day - 1, events, selected, lanesOfRow[slot / columns], hiddenOfDay[day]);
                 Grid.SetColumn(cell, slot % columns);
                 Grid.SetRow(cell, 1 + slot / columns);
                 _grid.Children.Add(cell);
             }
+            foreach (var bar in bars) _grid.Children.Add(bar); // après les cases : par-dessus
 
             RebuildOrphans(events, selected);
+        }
+
+        private const int MaxLanes = 2;
+        private const double LaneHeight = 19, BarTop = 27; // sous le numéro du jour d'une case
+        private readonly Dictionary<int, List<string>> _dayTitles = new Dictionary<int, List<string>>(); // ce que chaque jour montre (sonde)
+
+        /// <summary>La brique d'une période sur une ligne de semaine : d'un bord
+        /// à l'autre de ses jours, arrondie là où elle commence et là où elle
+        /// finit, droite là où elle continue sur la ligne d'avant ou d'après.</summary>
+        private Border SpanBar(TimelineEvent entry, int row, int column, int span, int lane, bool starts, bool ends, TimelineEvent selected, TimePoint date)
+        {
+            var color = ColorOf == null ? Chrome.Accent.Color : ColorOf(entry);
+            var chosen = selected != null && selected.Id == entry.Id;
+            var bar = new Border
+            {
+                Height = LaneHeight - 2, VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(starts ? 7 : 0, BarTop + lane * LaneHeight, ends ? 7 : 0, 0),
+                CornerRadius = new CornerRadius(starts ? 4 : 0, ends ? 4 : 0, ends ? 4 : 0, starts ? 4 : 0),
+                Background = new SolidColorBrush(color, 0.32), BorderBrush = chosen ? (IBrush)Chrome.Ink : new SolidColorBrush(color, 0.9),
+                BorderThickness = chosen ? new Thickness(1.5) : new Thickness(starts ? 3 : 0, 0, 0, 0),
+                Padding = new Thickness(6, 0, 4, 0), Cursor = new Cursor(StandardCursorType.Hand), Tag = "calendar-span",
+                Child = new TextBlock { Text = TitleOf(entry), Foreground = Chrome.Ink, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis }
+            };
+            Grid.SetRow(bar, 1 + row);
+            Grid.SetColumn(bar, column);
+            Grid.SetColumnSpan(bar, span);
+            Wire(bar, entry, date, false);
+            return bar;
+        }
+
+        // ------------------------------------------------ le pas en arrière (souris)
+
+        private struct Step_ { public bool YearMode; public long Year; public int Month; }
+        private readonly List<Step_> _trail = new List<Step_>();
+
+        /// <summary>Retient la vue d'où l'on part (mois ou année) avant d'en changer.</summary>
+        private void Remember()
+        {
+            _trail.Add(new Step_ { YearMode = _yearMode, Year = Year, Month = Month });
+            if (_trail.Count > 30) _trail.RemoveAt(0);
+        }
+
+        /// <summary>Le bouton « précédent » de la souris : revient à la vue
+        /// d'avant (du mois à l'année, de l'année au mois). Faux s'il n'y en a pas.</summary>
+        public bool TryStepBack()
+        {
+            if (_trail.Count == 0 || _system == null) return false;
+            var step = _trail[_trail.Count - 1];
+            _trail.RemoveAt(_trail.Count - 1);
+            _yearMode = step.YearMode;
+            var was = _filling;
+            _filling = true;
+            _yearToggle.IsChecked = _yearMode;
+            _filling = was;
+            Show(step.Year, step.Month);
+            return true;
         }
 
         private World _world;
@@ -466,6 +571,7 @@ namespace Marabook.App
 
         private void OpenMonth(int month)
         {
+            if (_yearMode) Remember();
             LeaveYearMode();
             Show(Year, month);
         }
@@ -557,13 +663,14 @@ namespace Marabook.App
             return true;
         }
 
-        private Border Cell(int day, long dayNumber, List<TimelineEvent> events, TimelineEvent selected)
+        private Border Cell(int day, long dayNumber, List<TimelineEvent> events, TimelineEvent selected, int lanes, int hiddenSpans)
         {
             var date = new TimePoint(Year, Month, day);
             var body = new StackPanel();
             var number = new TextBlock { Text = day.ToString(CultureInfo.InvariantCulture), Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(2, 0, 0, 3) };
             // L'en-tête de la case : le numéro du jour ; à droite, les lunes qui changent de phase ce jour-là.
-            var top = new DockPanel();
+            // Hauteur fixe : les briques des périodes se posent juste dessous, à la même hauteur sur toute la ligne.
+            var top = new DockPanel { Height = 19 };
             Color seasonTint = default(Color);
             var hasSeason = false;
             if (_world != null)
@@ -593,15 +700,24 @@ namespace Marabook.App
             }
             top.Children.Add(number);
             body.Children.Add(top);
+            // La place des périodes de la ligne (leurs briques sont posées par-dessus, d'une case à l'autre).
+            if (lanes > 0) body.Children.Add(new Panel { Height = lanes * LaneHeight });
             var count = 0;
+            var chips = 0;
+            var room = Math.Max(1, MaxChips - lanes);
             foreach (var entry in events)
             {
                 if (!TimeMath.CoversDay(_system, entry, dayNumber)) continue;
                 count++;
-                if (count <= MaxChips) body.Children.Add(Chip(entry, date, selected));
+                if (entry.IsSpan) continue; // dessinée en brique continue
+                chips++;
+                if (chips > room) continue;
+                body.Children.Add(Chip(entry, date, selected));
+                _dayTitles[day].Add(TitleOf(entry));
             }
-            if (count > MaxChips)
-                body.Children.Add(new TextBlock { Text = "+ " + (count - MaxChips) + (count - MaxChips > 1 ? " autres" : " autre"), Foreground = Chrome.SoftText, FontSize = 10.5, Margin = new Thickness(4, 1, 0, 0) });
+            var more = Math.Max(0, chips - room) + hiddenSpans;
+            if (more > 0)
+                body.Children.Add(new TextBlock { Text = "+ " + more + (more > 1 ? " autres" : " autre"), Foreground = Chrome.SoftText, FontSize = 10.5, Margin = new Thickness(4, 1, 0, 0) });
             if (count > 0) { number.Foreground = Chrome.Ink; number.FontWeight = FontWeight.SemiBold; }
             var cell = new Border
             {
@@ -787,7 +903,7 @@ namespace Marabook.App
             return null;
         }
         internal int ColumnsForProbe { get { return _grid.ColumnDefinitions.Count; } }
-        internal int DayCellsForProbe { get { var n = 0; foreach (var child in _grid.Children) if (child is Border) n++; return n; } }
+        internal int DayCellsForProbe { get { var n = 0; foreach (var child in _grid.Children) if (child is Border && Equals(((Border)child).Tag, "calendar-day")) n++; return n; } }
         internal int ColumnOfDayForProbe(int day)
         {
             var n = 0;
@@ -797,20 +913,24 @@ namespace Marabook.App
         }
         internal List<string> EventsOfDayForProbe(int day)
         {
-            var titles = new List<string>();
-            var n = 0;
+            // Ce que le jour montre : les périodes (briques continues de sa ligne) puis ses événements.
+            List<string> titles;
+            return _dayTitles.TryGetValue(day, out titles) ? new List<string>(titles) : new List<string>();
+        }
+        internal int SpanBarsForProbe { get { var n = 0; foreach (var child in _grid.Children) if (child is Border && Equals(((Border)child).Tag, "calendar-span")) n++; return n; } }
+        /// <summary>Sonde : les briques de période du mois — « titre:colonnes » dans l'ordre des lignes.</summary>
+        internal List<string> SpanBarsDetailForProbe()
+        {
+            var bars = new List<string>();
             foreach (var child in _grid.Children)
             {
-                var cell = child as Border;
-                if (cell == null || ++n != day) continue;
-                foreach (var item in ((StackPanel)cell.Child).Children)
-                {
-                    var chip = item as Border;
-                    if (chip != null) titles.Add(((TextBlock)chip.Child).Text);
-                }
+                var bar = child as Border;
+                if (bar != null && Equals(bar.Tag, "calendar-span")) bars.Add(((TextBlock)bar.Child).Text + ":" + Grid.GetColumnSpan(bar));
             }
-            return titles;
+            return bars;
         }
+        internal bool TryStepBackForProbe() { return TryStepBack(); }
+        internal int TrailForProbe { get { return _trail.Count; } }
         internal List<string> OrphansForProbe(string groupTag)
         {
             var titles = new List<string>();

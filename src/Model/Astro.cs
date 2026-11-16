@@ -218,6 +218,71 @@ namespace Marabook.Model
             return Math.Abs(DriftPerYear(world, system) * years);
         }
 
+        /// <summary>Ce qui cause le glissement et ce qu'il donne dans le temps
+        /// (16/11, Rémi), ligne à ligne ; vide sans glissement. La cause
+        /// d'abord, puis l'écart après 10, 100 et 1 000 ans, puis ce qu'il
+        /// faudrait retoucher au CALENDRIER pour garder cette année réelle.</summary>
+        public static List<string> DriftReport(World world, TimeSystem system)
+        {
+            var lines = new List<string>();
+            var drift = DriftPerYear(world, system);
+            if (Math.Abs(drift) < 1e-7) return lines;
+            var mean = TimeMath.MeanYearDays(system);
+            lines.Add("Cause : l'année de « " + system.Name + " » dure " + Number(mean, 4) + " jours" + (system.Leaps.Count > 0 ? " en moyenne" : "") + ", l'année réelle du monde "
+                + Number(world.SolarYear, 4) + ". Chaque année, les saisons arrivent " + Number(Math.Abs(drift), 2) + " jour" + (Math.Abs(drift) >= 2 ? "s" : "") + " plus " + (drift > 0 ? "tôt" : "tard") + " dans le calendrier.");
+            var after = new List<string>();
+            foreach (var years in new[] { 10, 100, 1000 })
+            {
+                var days = DriftOver(world, system, years);
+                after.Add(Number(years, 0) + " ans : " + (days < 1 ? "moins d'un jour" : Number(days, 0) + " jour" + (days >= 1.5 ? "s" : ""))
+                    + (days >= mean ? " (" + Number(days / mean, 1) + " tour" + (days / mean >= 1.95 ? "s" : "") + " de calendrier)" : ""));
+            }
+            lines.Add("Écart après " + string.Join("  ·  ", after.ToArray()) + ".");
+            // Ce que le calendrier devrait gagner (ou perdre) pour suivre : des jours entiers chaque année, puis une bissextile.
+            var missing = world.SolarYear - mean;
+            var whole = Math.Truncate(missing);
+            var rest = missing - whole;
+            var verb = missing > 0 ? "ajouter" : "retirer";
+            var parts = new List<string>();
+            if (whole != 0) parts.Add(verb + " " + TimeSystem.Count((long)Math.Abs(whole), "jour", "jours") + " à ses mois");
+            if (Math.Abs(rest) >= 0.0005) parts.Add(verb + " un jour tous les " + TimeSystem.YearsLabel(Math.Max(2, (long)Math.Round(1 / Math.Abs(rest)))) + " (une règle de bissextile)");
+            if (parts.Count > 0) lines.Add("Pour garder cette année réelle, c'est le calendrier qu'il faut retoucher : " + string.Join(", puis ", parts.ToArray()) + ".");
+            return lines;
+        }
+
+        /// <summary>La durée de chaque saison, en jours, dans une année de cette
+        /// longueur (16/11, Rémi) : du début de l'une au début de la suivante, la
+        /// dernière de l'année se poursuivant jusqu'à la première. Dans l'ordre de world.Seasons.</summary>
+        public static double[] SeasonLengths(World world, double yearDays)
+        {
+            var count = world == null ? 0 : world.Seasons.Count;
+            var lengths = new double[count];
+            if (count == 0 || yearDays <= 0) return lengths;
+            var order = new List<int>();
+            for (var i = 0; i < count; i++) order.Add(i);
+            order.Sort(delegate(int a, int b) { var by = world.Seasons[a].StartDay.CompareTo(world.Seasons[b].StartDay); return by != 0 ? by : a.CompareTo(b); });
+            for (var k = 0; k < count; k++)
+            {
+                var start = Math.Min(world.Seasons[order[k]].StartDay, yearDays + 1);
+                var next = k + 1 < count ? Math.Min(world.Seasons[order[k + 1]].StartDay, yearDays + 1) : world.Seasons[order[0]].StartDay + yearDays;
+                lengths[order[k]] = count == 1 ? yearDays : Math.Max(0, Math.Min(yearDays, next - start));
+            }
+            return lengths;
+        }
+
+        /// <summary>« 90 jours · 25 % de l'année ».</summary>
+        public static string SeasonShare(double days, double yearDays)
+        {
+            return Number(days, 1) + " jour" + (days >= 2 ? "s" : "") + "  ·  " + Number(yearDays <= 0 ? 0 : days / yearDays * 100, 1) + " % de l'année";
+        }
+
+        /// <summary>« Moyenne équivalente : 100 jours » — ce que durerait chaque saison si toutes duraient autant.</summary>
+        public static string EvenSeasons(int seasons, double yearDays)
+        {
+            if (seasons <= 0 || yearDays <= 0) return "";
+            return "Moyenne équivalente : " + Number(yearDays / seasons, 1) + " jour" + (yearDays / seasons >= 2 ? "s" : "") + " par saison (" + TimeSystem.Count(seasons, "saison", "saisons") + " sur une année de " + Number(yearDays, 4) + " jours).";
+        }
+
         /// <summary>Quatre saisons égales, pour partir de quelque chose : la
         /// première commence le jour firstDay, les suivantes un quart d'année
         /// plus loin chacune (en repassant par le début de l'année au besoin).</summary>

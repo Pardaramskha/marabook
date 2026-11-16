@@ -1235,6 +1235,41 @@ namespace Marabook.Model
             return null;
         }
 
+        /// <summary>Réécrit la valeur d'un champ d'une fiche, là où FieldValue la
+        /// lit (même ordre : modèle, champs de sous-catégorie, informations
+        /// libres). rewrite rend la nouvelle valeur, ou null pour ne rien
+        /// changer. Vrai si la fiche a changé.</summary>
+        public static bool ReplaceFieldValue(Project project, BinderItem sheet, string fieldName, Func<string, string> rewrite)
+        {
+            if (sheet == null || rewrite == null) return false;
+            var wanted = Key(fieldName);
+            var ids = new List<string>();
+            var template = project == null ? null : project.TemplateOf(sheet);
+            if (template != null)
+                foreach (var field in template.Fields) if (Key(field.Name) == wanted) ids.Add(field.Id);
+            if (project != null)
+                foreach (var category in project.SheetCategories)
+                    foreach (var field in category.ExtraFields) if (Key(field.Name) == wanted) ids.Add(field.Id);
+            foreach (var id in ids)
+            {
+                string value;
+                if (!sheet.FieldValues.TryGetValue(id, out value) || string.IsNullOrEmpty(value)) continue;
+                var written = rewrite(value);
+                if (written == null || written == value) return false;
+                sheet.FieldValues[id] = written;
+                return true;
+            }
+            foreach (var info in sheet.FreeInfo)
+            {
+                if (Key(info.Title) != wanted || string.IsNullOrEmpty(info.Value)) continue;
+                var written = rewrite(info.Value);
+                if (written == null || written == info.Value) return false;
+                info.Value = written;
+                return true;
+            }
+            return false;
+        }
+
         /// <summary>La date d'époque lue dans le système de sa frise ; null si
         /// l'époque est éteinte, sa frise absente ou sa date illisible.</summary>
         public static TimePoint Current(Project project, out TimeSystem system, out BinderItem timeline)

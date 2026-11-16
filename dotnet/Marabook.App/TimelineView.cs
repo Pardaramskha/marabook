@@ -220,7 +220,7 @@ namespace Marabook.App
             _calendar.ColorOf = delegate(TimelineEvent entry) { return _item == null ? Chrome.Accent.Color : ColorOf(_item.Timeline.FindType(entry.TypeId)); };
             _calendar.Selected = delegate { return _selected; };
             _calendar.Select = delegate(TimelineEvent entry) { _selected = entry; RefreshInspector(); _calendar.Refresh(); };
-            _calendar.Edit = delegate(TimelineEvent entry) { if (!entry.Derived) EditEvent(entry); else OpenAssigned(entry); };
+            _calendar.Edit = delegate(TimelineEvent entry) { EditEvent(entry); };
             _calendar.Create = delegate(TimePoint at) { NewEvent(at); };
             _calendar.Menu = MenuFor;
             _calendar.World = delegate { return Astro.WorldOf(_project, _system); };
@@ -694,10 +694,11 @@ namespace Marabook.App
         private async void EditEvent(TimelineEvent entry)
         {
             if (_item == null || entry == null) return;
-            // Une naissance, un décès : la date vit sur la fiche.
-            if (entry.Derived) { OpenAssigned(entry); return; }
+            // Une naissance, un décès : la date vit sur la fiche — la fenêtre la change LÀ-BAS (16/11, Rémi).
+            if (entry.Derived) { EditLifeEvent(entry); return; }
             var result = await TimelineEventDialog.Ask(Ui.OwnerOf(this), _project, _system, _item.Timeline, entry.Clone(), false);
             if (result == null || _item == null) return;
+            if (result.OpenSheet) { OpenAssigned(entry); return; }
             var index = _item.Timeline.Events.FindIndex(delegate(TimelineEvent e) { return e.Id == entry.Id; });
             if (index < 0) return;
             var before = _item.Timeline.Clone();
@@ -712,6 +713,48 @@ namespace Marabook.App
                 _selected = result.Event;
             }
             Commit(before);
+        }
+
+        /// <summary>Une brique née d'une fiche (naissance, décès) : la fenêtre de
+        /// l'événement, réduite à sa date. Une date changée est RÉÉCRITE DANS LE
+        /// CHAMP DE LA FICHE (Ctrl+Z la rend) ; « Aller à la fiche » y mène.</summary>
+        private async void EditLifeEvent(TimelineEvent entry)
+        {
+            var sheet = _project == null ? null : _project.FindById(entry.LinkId);
+            var field = Timelines.LifeFieldOf(entry);
+            if (sheet == null || field == null) { OpenAssigned(entry); return; }
+            var timeline = _item;
+            var result = await TimelineEventDialog.Ask(Ui.OwnerOf(this), _project, _system, _item.Timeline, entry.Clone(), false, sheet, field);
+            if (result == null || _item == null || !ReferenceEquals(_item, timeline)) return;
+            if (result.OpenSheet) { OpenAssigned(entry); return; }
+            if (result.Event == null || result.Event.Start == null || result.Event.Start.SameAs(entry.Start)) return;
+            ApplyLifeDate(entry, result.Event.Start);
+        }
+
+        private bool ApplyLifeDate(TimelineEvent entry, TimePoint point)
+        {
+            var sheet = _project == null ? null : _project.FindById(entry.LinkId);
+            var field = Timelines.LifeFieldOf(entry);
+            if (sheet == null || field == null || _item == null) return false;
+            var before = SheetSnapshot.Capture(_project, sheet);
+            if (!Timelines.SetLifeDate(_project, _item, _system, sheet, field, point)) return false;
+            if (_history != null) _history.Push(new SheetEditAction(_project, sheet, before, SheetSnapshot.Capture(_project, sheet), "life-date-set"));
+            Refresh();
+            var handler = Edited;
+            if (handler != null) handler();
+            return true;
+        }
+
+        internal bool ApplyLifeDateForProbe(TimelineEvent entry, TimePoint point) { return ApplyLifeDate(entry, point); }
+        internal TimelineEvent DerivedForProbe(string titlePart) { return _events.Find(delegate(TimelineEvent e) { return e.Derived && (e.Title ?? "").Contains(titlePart); }); }
+        internal void EditForProbe(TimelineEvent entry) { EditEvent(entry); }
+
+        /// <summary>Le bouton « précédent » de la souris (16/11, Rémi) : dans la
+        /// vue Calendrier, il revient d'abord de l'année au mois (ou l'inverse)
+        /// avant de quitter la frise. Faux s'il n'y a rien à défaire ici.</summary>
+        public bool TryStepBack()
+        {
+            return _calendarMode && _calendar.TryStepBack();
         }
 
         private void DeleteEvent(TimelineEvent entry)
@@ -751,12 +794,9 @@ namespace Marabook.App
             if (entry != null)
             {
                 var target = _project == null ? null : _project.FindById(entry.LinkId);
-                if (!entry.Derived)
-                {
-                    var edit = new MenuItem { Header = "Modifier…" };
-                    edit.Click += delegate { EditEvent(entry); };
-                    menu.Items.Add(edit);
-                }
+                var edit = new MenuItem { Header = entry.Derived ? "Modifier la date…" : "Modifier…" };
+                edit.Click += delegate { EditEvent(entry); };
+                menu.Items.Add(edit);
                 if (target != null)
                 {
                     var open = new MenuItem { Header = "Ouvrir « " + target.Title + " »" };
@@ -957,7 +997,7 @@ namespace Marabook.App
                 if (entry.Derived)
                     card.Children.Add(new TextBlock
                     {
-                        Text = "Né de la fiche : la date se change dans son champ « " + (entry.TypeId == TimelineInfo.BirthTypeId ? SheetDefaults.FieldBirthDate : SheetDefaults.FieldDeathDate) + " ».",
+                        Text = "Né de la fiche : sa date vit dans le champ « " + (entry.TypeId == TimelineInfo.BirthTypeId ? SheetDefaults.FieldBirthDate : SheetDefaults.FieldDeathDate) + " ». Un double-clic la change, ici comme sur la fiche.",
                         FontSize = 11, Foreground = Chrome.SoftText, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0)
                     });
                 else

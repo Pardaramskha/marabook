@@ -43,6 +43,39 @@ namespace Marabook.Model
             return result;
         }
 
+        /// <summary>Le champ de fiche d'où est née une brique de naissance ou de
+        /// décès (« Date de naissance », « Date de décès ») ; null pour toute autre brique.</summary>
+        public static string LifeFieldOf(TimelineEvent entry)
+        {
+            if (entry == null || !entry.Derived || entry.Id == null) return null;
+            if (entry.Id.EndsWith(":naissance", StringComparison.Ordinal)) return SheetDefaults.FieldBirthDate;
+            if (entry.Id.EndsWith(":deces", StringComparison.Ordinal)) return SheetDefaults.FieldDeathDate;
+            return null;
+        }
+
+        /// <summary>CHANGER LA DATE D'UNE NAISSANCE OU D'UN DÉCÈS DEPUIS LA FRISE
+        /// (16/11, Rémi) : la date vit sur la fiche — c'est donc le lien du
+        /// champ qui est réécrit, dans la notation du système. Un lien ordinaire
+        /// vers la frise devient un lien de date ; un texte affiché choisi par
+        /// l'auteur est gardé. Faux si la fiche n'a pas (plus) ce lien.</summary>
+        public static bool SetLifeDate(Project project, BinderItem timeline, TimeSystem system, BinderItem sheet, string field, TimePoint point)
+        {
+            if (project == null || timeline == null || system == null || sheet == null || field == null || point == null) return false;
+            var written = system.Format(point);
+            return Epochs.ReplaceFieldValue(project, sheet, field, delegate(string value)
+            {
+                foreach (var link in Links.Find(value))
+                {
+                    string title, notation;
+                    if (!TimeLinks.SplitField(project, link, out title, out notation)) continue;
+                    if (!Links.SameTitle(title, (timeline.Title ?? "").Trim())) continue;
+                    var shown = (link.Text ?? "").Trim() == notation ? null : link.Text;
+                    return value.Substring(0, link.Start) + TimeLinks.Markup((timeline.Title ?? "").Trim(), written, shown) + value.Substring(link.End);
+                }
+                return null;
+            });
+        }
+
         private static void AddLife(Project project, BinderItem timeline, TimeSystem system, BinderItem sheet, string field,
             string typeId, string prefix, string suffix, LifeEvents result)
         {

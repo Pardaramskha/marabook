@@ -167,6 +167,13 @@ namespace Marabook.App
                     Check(calendar.TitleForProbe.StartsWith("Noroît (") && calendar.TitleForProbe.EndsWith(") · E3.30"), "« Aller à » déplace le calendrier (" + calendar.TitleForProbe + ")");
                     Check(calendar.EventsOfDayForProbe(14).Contains("La grande marée") && calendar.EventsOfDayForProbe(14).Contains("Le marabout et la mer"), "le 14 Noroît : l'événement du jour et la période qui le couvre");
                     Check(calendar.EventsOfDayForProbe(20).Contains("Le marabout et la mer") && calendar.EventsOfDayForProbe(21).Count == 0, "la période s'arrête à son dernier jour (le 20)");
+                    // — 16/11 : une période = une brique continue par ligne de semaine, plus une brique par jour.
+                    {
+                        var periodBars = calendar.SpanBarsDetailForProbe().FindAll(delegate(string bar) { return bar.StartsWith("Le marabout et la mer:"); });
+                        var covered = 0;
+                        foreach (var bar in periodBars) covered += int.Parse(bar.Substring(bar.LastIndexOf(':') + 1));
+                        Check(periodBars.Count >= 3 && periodBars.Count <= 4 && covered == 20, "la période tient en " + periodBars.Count + " briques continues (une par ligne) couvrant ses 20 jours du mois, son titre une fois par ligne (" + string.Join(", ", periodBars.ToArray()) + ")");
+                    }
                     Check(calendar.ColumnOfDayForProbe(14) == view.System.WeekDays.IndexOf(view.System.WeekDayOf(date("14 Noroît E3.30"))), "chaque jour tombe dans la colonne de son jour de semaine");
                     Check(calendar.OrphansForProbe("calendar-orphans-year").Count == 0 && calendar.OrphansForProbe("calendar-orphans-month").Count == 0, "rien d'orphelin en E3.30");
                     Shot(view, "frises-25-calendrier.png");
@@ -199,9 +206,40 @@ namespace Marabook.App
                     calendar.OpenMiniMonthForProbe(10);
                     await Settle();
                     Check(!calendar.YearModeForProbe && calendar.TitleForProbe == "Longue-Nuit (10) · E3.30" && calendar.MonthStepsShownForProbe && calendar.DayCellsForProbe == 41, "un clic sur un damier ouvre son mois en grand (" + calendar.TitleForProbe + ")");
+                    // — 16/11 : le bouton « précédent » de la souris défait d'abord les pas du calendrier.
+                    Check(view.TryStepBack() && calendar.YearModeForProbe && calendar.TitleForProbe == "E3.30", "« précédent » : du mois ouvert, retour à l'année en damiers (" + calendar.TitleForProbe + ")");
+                    Check(view.TryStepBack() && !calendar.YearModeForProbe && calendar.TitleForProbe.StartsWith("Noroît ("), "…puis de l'année au mois d'où l'on venait (" + calendar.TitleForProbe + ")");
+                    Check(!view.TryStepBack(), "…et plus rien à défaire : le bouton reprend son rôle (quitter la frise)");
                     view.GoTo(date("12 Sel E3.8"));
                     await Settle();
                     Check(calendar.EventsOfDayForProbe(12).Any(delegate(string title) { return title.Contains("Keira"); }), "une naissance née d'une fiche a sa case (12 Sel E3.8)");
+                    // — 16/11 : double-clic sur une naissance née d'une fiche = la fenêtre de l'événement, réduite à sa date.
+                    {
+                        Func<int, bool> keiraOn = delegate(int day) { return calendar.EventsOfDayForProbe(day).Any(delegate(string title) { return title.Contains("Keira"); }); };
+                        var keiraBirth = view.DerivedForProbe("Keira");
+                        var keiraOfBirth = keiraBirth == null ? null : project.FindById(keiraBirth.LinkId);
+                        Check(keiraBirth != null && keiraOfBirth != null, "la brique de naissance mène à sa fiche");
+                        if (keiraBirth != null && keiraOfBirth != null)
+                        {
+                            view.EditForProbe(keiraBirth);
+                            await Settle();
+                            var lifeDialog = OpenWindow<TimelineEventDialog>();
+                            Check(lifeDialog != null && lifeDialog.LifeModeForProbe && lifeDialog.GetVisualDescendants().OfType<Button>().Any(delegate(Button b) { return Equals(b.Tag, "event-go-to-sheet"); }),
+                                "double-clic sur la naissance : la fenêtre de l'événement s'ouvre (plus la fiche), réduite à la date, avec « Aller à la fiche »");
+                            if (lifeDialog != null)
+                            {
+                                Shot(lifeDialog, "frises-28-naissance-depuis-la-frise.png");
+                                lifeDialog.SetStartForProbe("15 Sel E3.8");
+                                lifeDialog.AcceptForProbe();
+                                await Settle();
+                                Check(keiraOn(15) && !keiraOn(12) && (Epochs.FieldValue(project, keiraOfBirth, SheetDefaults.FieldBirthDate) ?? "").Contains("15 Sel E3.8"),
+                                    "la date changée dans la fenêtre : la brique passe au 15, et le champ « Date de naissance » de la fiche aussi (" + Epochs.FieldValue(project, keiraOfBirth, SheetDefaults.FieldBirthDate) + ")");
+                                Check(shell.UndoForProbe(), "…et cela s'annule");
+                                await Settle();
+                                Check(keiraOn(12) && !keiraOn(15) && (Epochs.FieldValue(project, keiraOfBirth, SheetDefaults.FieldBirthDate) ?? "").Contains("12 Sel E3.8"), "Ctrl+Z rend le 12 Sel E3.8, sur la fiche comme sur la frise");
+                            }
+                        }
+                    }
                     view.GoTo(date("E2.1141"));
                     await Settle();
                     Check(calendar.OrphansForProbe("calendar-orphans-year").Any(delegate(string title) { return title.Contains("marabout"); }), "…et une naissance datée à l'année est orpheline");
@@ -227,6 +265,7 @@ namespace Marabook.App
                         Check(worldDialog.NoticeShownForProbe, "un monde neuf : le bandeau vert dit que les données préremplies sont celles de notre monde");
                         Check(worldDialog.CircumferenceForProbe == "40075" && worldDialog.SeasonRowsForProbe == 4 && worldDialog.SeasonDayForProbe(0) == "79" && worldDialog.SunRowsForProbe == 1 && worldDialog.MoonRowsForProbe == 1,
                             "…prérempli : 40 075 km, quatre saisons (le printemps le jour 79), un soleil, une lune (" + worldDialog.CircumferenceForProbe + ")");
+                        Check(worldDialog.SolarYearForProbe == "" && !worldDialog.FixDriftShownForProbe && worldDialog.DriftForProbe.StartsWith("Aucun glissement"), "…sauf la durée réelle de l'année, laissée vide : un monde neuf ne glisse pas (16/11)");
                         Shot(worldDialog, "astrolabe-5-monde-prerempli.png");
                         // — 15/11 : les calendriers en puces — la liste, « Ajouter », la puce.
                         Check(worldDialog.AvailableCountForProbe == 2 && worldDialog.ChipCountForProbe == 0 && !worldDialog.AddButtonShownForProbe, "les calendriers : une liste déroulante de deux, aucune puce, pas encore de bouton « Ajouter »");
@@ -293,7 +332,14 @@ namespace Marabook.App
                         worldDialog.ShowTabForProbe(1);
                         await Settle();
                         Shot(worldDialog, "astrolabe-2-monde-saisons.png");
-                        worldDialog.SetSolarYearForProbe("");
+                        // — 16/11 : le détail des saisons, la moyenne équivalente, le glissement expliqué et corrigé.
+                        Check(plain(worldDialog.SeasonDetailForProbe(0)).Contains("90 jours") && plain(worldDialog.SeasonDetailForProbe(0)).Contains("25 % de l'année") && plain(worldDialog.SeasonEvenForProbe).Contains("Moyenne équivalente : 90,1 jours"),
+                            "sous chaque saison, sa durée et sa part de l'année ; au-dessus, la moyenne équivalente (" + plain(worldDialog.SeasonDetailForProbe(0)) + " — " + plain(worldDialog.SeasonEvenForProbe) + ")");
+                        Check(worldDialog.FixDriftShownForProbe && plain(worldDialog.DriftForProbe).Contains("Cause : ") && plain(worldDialog.DriftForProbe).Contains("Écart après 10 ans"), "le glissement est expliqué : sa cause, l'écart après 10, 100 et 1 000 ans");
+                        worldDialog.FixDriftForProbe();
+                        await Settle();
+                        Check(worldDialog.SolarYearForProbe == "" && !worldDialog.FixDriftShownForProbe && worldDialog.DriftForProbe.StartsWith("Aucun glissement") && plain(worldDialog.SeasonEvenForProbe).Contains("Moyenne équivalente : 90 jours"),
+                            "« Supprimer le glissement » : l'année réelle redevient celle du calendrier, plus de glissement");
                         worldDialog.AddMoonForProbe("Sélène", "30", "1 Aubemer E3.1");
                         worldDialog.AddMoonForProbe("Nyx", "45", "1 Aubemer E3.1");
                         await Settle();
