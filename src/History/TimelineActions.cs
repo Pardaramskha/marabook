@@ -118,3 +118,28 @@ namespace Marabook.History
         }
     }
 }
+
+namespace Marabook.History
+{
+    using Marabook.Model;
+
+    /// <summary>Une modification d'une carte (2.0.0, 16/11) — une zone tracée, un repère
+    /// déplacé, l'échelle posée, le monde lié : l'état d'avant et celui d'après. Les
+    /// tuiles ne sont jamais recopiées (MapInfo.Clone partage leur table).</summary>
+    public class MapEditAction : IUndoableAction
+    {
+        private readonly BinderItem _item;
+        private readonly MapInfo _before, _after;
+
+        public MapEditAction(BinderItem item, MapInfo before, MapInfo after)
+        {
+            _item = item;
+            _before = before;
+            _after = after;
+        }
+
+        public BinderItem Item { get { return _item; } }
+        public void Do() { _item.Map = _after.Clone(); }
+        public void Undo() { _item.Map = _before.Clone(); }
+    }
+}

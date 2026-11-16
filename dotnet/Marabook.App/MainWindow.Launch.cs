@@ -218,6 +218,9 @@ namespace Marabook.App
                 if (_planView != null && _planView.IsVisible) return "plan";
                 if (_timelineView != null && _timelineView.IsVisible) return "timeline";
                 if (_timelineHub != null && _timelineHub.IsVisible) return "timelines";
+                if (_astrolabeHub != null && _astrolabeHub.IsVisible) return "astrolabe";
+                if (_mapView != null && _mapView.IsVisible) return "map";
+                if (_mapsHub != null && _mapsHub.IsVisible) return "maps";
                 if (_mindMapHost != null && _mindMapHost.IsVisible) return "mindmap";
                 if (_corkboard != null && _corkboard.IsVisible) return "corkboard";
                 if (_bookView != null && _bookView.IsVisible) return "book";

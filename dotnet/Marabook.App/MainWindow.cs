@@ -530,6 +530,7 @@ namespace Marabook.App
             help.Items.Add(_updatesMenu);
             help.Items.Add(Entry(null, "Nouveautés…", ShowCurrentNotes)); // les patch notes de la version installée (07/10)
             help.Items.Add(Entry(null, "Rapports de plantage…", ShowCrashReports));
+            help.Items.Add(Entry(null, "Analyseur de .plot…", ShowPlotAnalyzer)); // ce que pèse chaque section du fichier (16/11, Rémi)
             help.Items.Add(Entry(null, "Ouvrir le dossier d'installation", OpenInstallFolder));
             help.Items.Add(Entry(null, "Catalogue de DLC…", delegate { _preferencesTab = "DLC"; OpenPreferences(); })); // les modules disponibles, installés ou non (1/11, Rémi)
             help.Items.Add(new Separator());
@@ -998,6 +999,7 @@ namespace Marabook.App
             };
             center.Children.Add(_planView);
             BuildTimelineViews(center); // les frises (1.2.0)
+            BuildMapViews(center);      // l'Astrolabe sans les frises, les cartes (16/11)
             _mindMapHost = new Grid { IsVisible = false, Background = Chrome.WindowBg };
             // La carte mentale (26/10) a le même curseur de zoom que les pages.
             Ui.OnVisibilityChanged(_mindMapHost, delegate { SyncZoomForView(); });
@@ -1498,6 +1500,13 @@ namespace Marabook.App
             // Un renommage (1.0.5) : les [[liens]] qui visaient l'ancien titre
             // ont suivi — la vue ouverte recharge si elle en portait, et
             // l'auteur est prévenu de ce qui a bougé.
+            // Les cartes (16/11) : une zone, un repère, l'échelle, l'image défaits ou refaits.
+            if (action is History.MapEditAction)
+            {
+                MarkDirty();
+                RefreshMapViews();
+                return;
+            }
             // Les frises (1.2.0, lot 2) : une brique ou un système défait ou refait.
             if (action is History.TimelineEditAction || action is History.TimeSystemEditAction || action is History.WorldsEditAction)
             {
@@ -1513,6 +1522,7 @@ namespace Marabook.App
                 // Une frise renommée : son écran et la page des frises suivent tout de suite (lot 2).
                 if (_timelineView.IsVisible) _timelineView.Refresh();
                 if (_timelineHub.IsVisible) _timelineHub.Refresh();
+                RefreshMapViews(); // une carte renommée aussi
                 MarkDirty();
                 if (rename.Plan == null) return;
                 if (_current != null && rename.Touches(_current)) ReloadCurrentView();
@@ -3439,6 +3449,12 @@ namespace Marabook.App
                 return _timelineView.IsVisible && _timelineView.ShowsItem(item);
             if (item.IsCategory && item.CategoryKey == Project.KeyTimelines)
                 return _timelineHub.IsVisible;
+            if (item.Kind == ItemKind.Map)
+                return _mapView.IsVisible && _mapView.ShowsItem(item);
+            if (item.IsCategory && item.CategoryKey == Project.KeyMaps)
+                return _mapsHub.IsVisible;
+            if (item.IsCategory && item.CategoryKey == Project.KeyAstrolabe)
+                return _astrolabeHub.IsVisible;
             if (item.Kind == ItemKind.Plan)
                 return _planView.IsVisible && _planView.ShowsItem(item);
             // Une carte mentale (1/11, Rémi : « les cartes mentales flickent en
@@ -3546,6 +3562,35 @@ namespace Marabook.App
                 _timelineHub.Focus();
                 return;
             }
+            // L'Astrolabe (16/11) : les systèmes temporels et les mondes — les frises sont en Chronologie.
+            if (item != null && item.IsCategory && item.CategoryKey == Project.KeyAstrolabe)
+            {
+                _editor.Clear();
+                _sheetView.Clear();
+                _astrolabeHub.Load(_project);
+                _astrolabeHub.IsVisible = true;
+                _astrolabeHub.Focus();
+                return;
+            }
+            // Les cartes (2.0.0, 16/11) : la page de la racine, l'écran d'une carte.
+            if (item != null && item.IsCategory && item.CategoryKey == Project.KeyMaps)
+            {
+                _editor.Clear();
+                _sheetView.Clear();
+                _mapsHub.Load(_project);
+                _mapsHub.IsVisible = true;
+                _mapsHub.Focus();
+                return;
+            }
+            if (item != null && item.Kind == ItemKind.Map)
+            {
+                _editor.Clear();
+                _sheetView.Clear();
+                _mapView.Load(item, _project, _history);
+                _mapView.IsVisible = true;
+                _mapView.Focus();
+                return;
+            }
             if (item != null && item.Kind == ItemKind.Plan)
             {
                 _editor.Clear();
@@ -3648,6 +3693,10 @@ namespace Marabook.App
             _timelineView.IsVisible = false;
             _timelineView.Clear();
             _timelineHub.IsVisible = false;
+            _astrolabeHub.IsVisible = false;
+            _mapsHub.IsVisible = false;
+            _mapView.IsVisible = false;
+            _mapView.Clear();
             CommitMindMap(); // la carte quittée rend ses octets (22/09)
             _mindMapHost.IsVisible = false;
             _corkboard.IsVisible = false;
@@ -6361,6 +6410,7 @@ namespace Marabook.App
                                : item.Kind == ItemKind.PageTemplate ? "Gabarit de pages"
                                : item.Kind == ItemKind.Plan ? "Plan"
                                : item.Kind == ItemKind.MindMap ? "Carte mentale"
+                               : item.Kind == ItemKind.Map ? "Carte"
                                : item.Kind == ItemKind.Timeline ? "Frise — " + Timelines.SystemOf(_project, item).Name
                                : "Écrit";
                 _synopsisBox.Text = item.Synopsis ?? "";
@@ -6378,6 +6428,7 @@ namespace Marabook.App
                         && item.Kind != ItemKind.Book // le synopsis d'un livre vit dans Édition (b43)
                         && item.Kind != ItemKind.MindMap // une carte : l'inspecteur du module (26/10 soir)
                         && item.Kind != ItemKind.Timeline // une frise : son propre panneau (1.2.0)
+                        && item.Kind != ItemKind.Map      // une carte : son panneau est dans son écran (16/11)
                         && !item.IsCategory,
                     item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet);
                 RefreshModuleSection(item);
@@ -6893,7 +6944,7 @@ namespace Marabook.App
             // Un plan ne montre pas de liens (batch 43) : ses [[liens]] de
             // briques rendaient la liste confuse. L'Accueil non plus (son
             // Général = les raccourcis, rien d'autre).
-            var hidden = _current != null && (_current.Kind == ItemKind.Plan || _current.Kind == ItemKind.Timeline || _current.IsHomeRoot);
+            var hidden = _current != null && (_current.Kind == ItemKind.Plan || _current.Kind == ItemKind.Timeline || _current.Kind == ItemKind.Map || _current.IsHomeRoot);
             _linksLabel.IsVisible = hidden ? false : true;
             _linksPanel.IsVisible = _linksLabel.IsVisible;
             if (hidden) return;
@@ -7139,6 +7190,11 @@ namespace Marabook.App
                 var summary = MindMaps.Inspect(_current.MapBytes);
                 _statusRight.Text = summary.Label;
                 _inspStats.Text = summary.Label;
+            }
+            else if (_current != null && _current.Kind == ItemKind.Map && _mapView.IsVisible)
+            {
+                _statusRight.Text = _mapView.StatusLabel;
+                _inspStats.Text = _mapView.StatusLabel;
             }
             else if (_current != null && _current.Kind == ItemKind.Timeline && _timelineView.IsVisible)
             {

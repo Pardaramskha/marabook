@@ -386,6 +386,16 @@ namespace Marabook.Persistence
                 // à la différence des médias) — revue 22/09.
                 if (item.Kind == ItemKind.MindMap && item.MapBytes != null) // v29
                     plan.Entries.Add(new SavePlan.Entry { Name = "maps/" + item.Id + ".tea", Bytes = item.MapBytes });
+                // Les tuiles d'une carte (16/11) : déjà compressées (JPEG ou PNG), donc stockées
+                // telles quelles ; inchangées d'un enregistrement à l'autre, elles sont recopiées
+                // par bloc (PlotZip). Comme les médias, hors du secours « textes seuls ».
+                if (item.Kind == ItemKind.Map && item.Map != null && !textsOnly)
+                {
+                    var prefix = MapJson.TilePrefix(item.Id);
+                    foreach (var tile in item.Map.Tiles)
+                        if (tile.Value != null)
+                            plan.Entries.Add(new SavePlan.Entry { Name = prefix + tile.Key + item.Map.Extension, Bytes = tile.Value, Level = CompressionLevel.NoCompression });
+                }
             }
             // Les instantanés (v17) : une entrée chacun, JSON du document
             // écrit tel quel — jamais resérialisé, jamais purgé ici.
@@ -896,6 +906,7 @@ namespace Marabook.Persistence
                          : item.Kind == ItemKind.Plan ? "plan"
                          : item.Kind == ItemKind.MindMap ? "mindmap"
                          : item.Kind == ItemKind.Timeline ? "timeline"
+                         : item.Kind == ItemKind.Map ? "worldmap"
                          : item.Kind == ItemKind.PageTemplate ? "pagetpl" : "text";
             if (item.CategoryKey != null) node["category"] = item.CategoryKey;
             if (item.Page != null) node["page"] = BuildPageSetup(item.Page);
@@ -920,6 +931,7 @@ namespace Marabook.Persistence
                 if (item.FooterHideFirst) node["footerHideFirst"] = true;
             }
             if (item.Kind == ItemKind.Timeline && item.Timeline != null) node["timeline"] = TimelineJson.BuildTimeline(item.Timeline); // v46
+            if (item.Kind == ItemKind.Map && item.Map != null) node["map"] = MapJson.Build(item.Map); // v46 (16/11)
             if (item.Kind == ItemKind.Plan && item.Plan != null)
             {
                 var plan = new Dictionary<string, object>();
@@ -1588,7 +1600,11 @@ namespace Marabook.Persistence
                 EnsureCategory(project, "Plans", Project.KeyPlans, Project.KeyDictionary); // b35, après Fiches
                 EnsureCategory(project, Project.TimelinesRootTitle, Project.KeyTimelines, Project.KeyMindMaps); // 1.2.0, après Plans
                 // « Frises » est devenue « Astrolabe » le 14/11 (Rémi) : la racine d'un projet d'avant suit.
-                if (project.Category(Project.KeyTimelines).Title == "Frises") project.Category(Project.KeyTimelines).Title = Project.TimelinesRootTitle;
+                // …puis « Chronologie » le 16/11 : les frises sortent de l'Astrolabe, qui a sa racine.
+                if (project.Category(Project.KeyTimelines).Title == "Frises" || project.Category(Project.KeyTimelines).Title == "Astrolabe")
+                    project.Category(Project.KeyTimelines).Title = Project.TimelinesRootTitle;
+                EnsureCategory(project, Project.AstrolabeRootTitle, Project.KeyAstrolabe, Project.KeyDictionary); // 16/11
+                EnsureCategory(project, Project.MapsRootTitle, Project.KeyMaps, Project.KeyDictionary);           // 16/11
                 EnsureCategory(project, "Cartes mentales", Project.KeyMindMaps, Project.KeyDictionary); // 22/09, après Plans
                 if (project.Category(Project.KeyMindMaps) != null && project.Roots.IndexOf(project.Category(Project.KeyTimelines)) > project.Roots.IndexOf(project.Category(Project.KeyMindMaps)))
                 {
@@ -1873,6 +1889,7 @@ namespace Marabook.Persistence
                       : kind == "plan" ? ItemKind.Plan
                       : kind == "mindmap" ? ItemKind.MindMap
                       : kind == "timeline" ? ItemKind.Timeline
+                      : kind == "worldmap" ? ItemKind.Map
                       : kind == "pagetpl" ? ItemKind.PageTemplate : ItemKind.Text;
 
             var ownPage = Json.AsObject(Json.Field(obj, "page"));
@@ -2080,6 +2097,30 @@ namespace Marabook.Persistence
                     }
             }
 
+            if (item.Kind == ItemKind.Map) // v46 (16/11) : la carte et ses tuiles
+            {
+                item.Map = MapJson.Read(Json.Field(obj, "map"));
+                var prefix = MapJson.TilePrefix(item.Id);
+                var missing = 0;
+                if (item.Map.HasImage)
+                    for (var z = 0; z < item.Map.Levels; z++)
+                        for (var y = 0; y < Maps.Rows(item.Map, z); y++)
+                            for (var x = 0; x < Maps.Columns(item.Map, z); x++)
+                            {
+                                var key = Maps.TileKey(z, x, y);
+                                var tile = archive.GetEntry(prefix + key + item.Map.Extension);
+                                if (tile == null) { missing++; continue; }
+                                try { item.Map.Tiles[key] = ReadBytes(tile, index); }
+                                catch (Exception) { missing++; }
+                            }
+                if (missing > 0)
+                {
+                    // Comme un média : la carte survit, trouée — et on le dit (un secours « textes seuls » n'a aucune tuile).
+                    item.LoadDamaged = true;
+                    Warn(warnings, "Carte « " + item.Title + " » : " + missing + (missing > 1 ? " tuiles manquent" : " tuile manque")
+                        + " : n'enregistrez pas par-dessus sans l'avoir réimportée.");
+                }
+            }
             if (item.Kind == ItemKind.MindMap) // v29 : le .tea tel quel
             {
                 var map = archive.GetEntry("maps/" + item.Id + ".tea");

@@ -797,6 +797,10 @@ namespace Marabook.Model
         public string SystemId;
         public List<TimelineEventType> Types = new List<TimelineEventType>();
         public List<TimelineEvent> Events = new List<TimelineEvent>();
+        // L'ÉTENDUE (16/11, Rémi) : null des deux = toute la durée du système ; sinon un
+        // FRAGMENT, de From à To compris — une mini-frise plus détaillée que l'histoire générale.
+        public TimePoint From, To;
+        public bool HasFragment { get { return From != null && To != null; } }
 
         public TimelineEventType FindType(string id)
         {
@@ -836,7 +840,7 @@ namespace Marabook.Model
 
         public TimelineInfo Clone()
         {
-            var copy = new TimelineInfo { SystemId = SystemId };
+            var copy = new TimelineInfo { SystemId = SystemId, From = From == null ? null : From.Clone(), To = To == null ? null : To.Clone() };
             foreach (var type in Types) copy.Types.Add(new TimelineEventType { Id = type.Id, Name = type.Name, Color = type.Color });
             foreach (var entry in Events) copy.Events.Add(entry.Clone());
             return copy;
@@ -963,6 +967,45 @@ namespace Marabook.Model
             foreach (var child in root.Children)
                 if (child.Kind == ItemKind.Timeline) list.Add(child);
             return list;
+        }
+
+        /// <summary>« de E2.100 à E2.450 » : l'étendue d'une frise en fragment ; « toute la durée » sinon.</summary>
+        public static string FragmentLabel(TimeSystem system, TimelineInfo timeline)
+        {
+            if (system == null || timeline == null || !timeline.HasFragment) return "toute la durée";
+            return "de " + system.Format(timeline.From) + " à " + system.Format(timeline.To);
+        }
+
+        /// <summary>Les bornes d'un fragment sur l'axe (années) ; faux si la frise couvre tout.
+        /// Un fragment à l'envers est remis à l'endroit ; il fait toujours au moins un an.</summary>
+        public static bool FragmentRange(TimeSystem system, TimelineInfo timeline, out double min, out double max)
+        {
+            min = max = 0;
+            if (system == null || timeline == null || !timeline.HasFragment) return false;
+            min = Math.Min(system.AxisStart(timeline.From), system.AxisStart(timeline.To));
+            max = Math.Max(system.AxisEnd(timeline.From), system.AxisEnd(timeline.To));
+            if (max - min < 1e-9) max = min + 1;
+            return true;
+        }
+
+        /// <summary>Lit les deux bornes d'un fragment dans la notation du système. Null si tout va ;
+        /// sinon ce qui cloche, dit à l'auteur.</summary>
+        public static string ReadFragment(TimeSystem system, string from, string to, out TimePoint start, out TimePoint end)
+        {
+            start = end = null;
+            if (system == null) return "Choisissez d'abord un système temporel.";
+            if (!system.TryParse((from ?? "").Trim(), out start)) return "Le début ne se lit pas dans ce système (exemple : " + system.Example() + ").";
+            if (!system.TryParse((to ?? "").Trim(), out end)) return "La fin ne se lit pas dans ce système (exemple : " + system.Example() + ").";
+            if (system.AxisStart(end) < system.AxisStart(start)) { var swap = start; start = end; end = swap; }
+            return null;
+        }
+
+        /// <summary>Une brique est-elle hors du fragment de sa frise (posée avant, ou après) ?</summary>
+        public static bool OutsideFragment(TimeSystem system, TimelineInfo timeline, TimelineEvent entry)
+        {
+            double min, max;
+            if (entry == null || entry.Start == null || !FragmentRange(system, timeline, out min, out max)) return false;
+            return EndOf(system, entry) <= min || StartOf(system, entry) >= max;
         }
 
         public static BinderItem FindByTitle(Project project, string title)

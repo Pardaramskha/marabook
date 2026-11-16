@@ -470,6 +470,7 @@ namespace Marabook.App
             new PileSection { Name = "Écriture", Keys = new[] { Project.KeyWritings, Project.KeyResearch } },
             new PileSection { Name = "Encyclopédie", Keys = new[] { Project.KeySheets, Project.KeyDictionary } },
             new PileSection { Name = "Structure", Keys = new[] { Project.KeyPlans, Project.KeyTimelines, Project.KeyMindMaps } },
+            new PileSection { Name = "Univers", Keys = new[] { Project.KeyAstrolabe, Project.KeyMaps } }, // 16/11 : le ciel et les cartes
             new PileSection { Name = "Outils", Keys = new string[0] },
             new PileSection { Name = null, Keys = new[] { Project.KeyTrash } }
         };
@@ -1444,6 +1445,14 @@ namespace Marabook.App
                 AddMenu(menu, "Nouveau plan", delegate { NewPlan(item); });
                 return menu;
             }
+            // L'Astrolabe (16/11) n'a pas d'enfants dans la Pile : systèmes et mondes vivent dans sa page.
+            if (item.IsCategory && item.CategoryKey == Project.KeyAstrolabe) return null;
+            // La racine Cartes (16/11) ne reçoit que des cartes : une image importée chacune.
+            if (item.IsCategory && item.CategoryKey == Project.KeyMaps)
+            {
+                AddMenu(menu, "Nouvelle carte…", delegate { NewMap(); });
+                return menu;
+            }
             // La racine Frises (1.2.0) ne reçoit que des frises.
             if (item.IsCategory && item.CategoryKey == Project.KeyTimelines)
             {
@@ -1499,6 +1508,8 @@ namespace Marabook.App
                     AddMenu(menu, "Nouveau plan", delegate { NewPlan(null); });
                 else if (item.Kind == ItemKind.Timeline)
                     AddMenu(menu, "Nouvelle frise…", delegate { NewTimeline(null); });
+                else if (item.Kind == ItemKind.Map)
+                    AddMenu(menu, "Nouvelle carte…", delegate { NewMap(); });
                 else if (item.Kind == ItemKind.MindMap)
                 {
                     AddMenu(menu, "Nouvelle carte mentale", delegate { NewMindMap(null); });
@@ -1665,7 +1676,7 @@ namespace Marabook.App
         {
             if (item == null) return false;
             var what = item.Kind == ItemKind.Book ? "le livre" : item.Kind == ItemKind.Folder ? "le dossier"
-                : item.Kind == ItemKind.Sheet ? "la fiche" : item.Kind == ItemKind.Plan ? "le plan" : item.Kind == ItemKind.MindMap ? "la carte" : item.Kind == ItemKind.Timeline ? "la frise"
+                : item.Kind == ItemKind.Sheet ? "la fiche" : item.Kind == ItemKind.Plan ? "le plan" : item.Kind == ItemKind.MindMap ? "la carte" : item.Kind == ItemKind.Map ? "la carte" : item.Kind == ItemKind.Timeline ? "la frise"
                 : item.Kind == ItemKind.PageTemplate ? "le gabarit" : item.Kind == ItemKind.Media ? "le document" : "l'écrit";
             var answer = MessageDialog.Show(Ui.OwnerOf(this),
                 "Envoyer " + what + " « " + item.Title + " » à la corbeille ?"
@@ -1710,7 +1721,7 @@ namespace Marabook.App
         private static bool IsSpecialRoot(BinderItem item)
         {
             var key = item.RootCategory().CategoryKey;
-            return key == Project.KeyTrash || key == Project.KeyDictionary || key == Project.KeyPlans || key == Project.KeyTimelines
+            return key == Project.KeyTrash || key == Project.KeyDictionary || key == Project.KeyPlans || key == Project.KeyTimelines || key == Project.KeyAstrolabe || key == Project.KeyMaps
                 || key == Project.KeyHome; // l'Accueil (b41) : un point d'entrée, pas un dossier
         }
 
@@ -1738,8 +1749,26 @@ namespace Marabook.App
             var item = new BinderItem
             {
                 Kind = ItemKind.Timeline, Title = choice.Title,
-                Timeline = new TimelineInfo { SystemId = choice.System.Id, Types = TimelineInfo.DefaultTypes() }
+                Timeline = new TimelineInfo { SystemId = choice.System.Id, Types = TimelineInfo.DefaultTypes(), From = choice.From, To = choice.To }
             };
+            RunAndSelect(new AddItemAction(root, item, -1), item.Id, root.Id);
+        }
+
+        /// <summary>Une nouvelle carte (2.0.0, 16/11), toujours dans la racine Cartes : la fenêtre
+        /// demande son image, la découpe en tuiles, et la carte s'ouvre.</summary>
+        public void NewMap()
+        {
+            var handler = NewMapRequested;
+            if (handler != null) handler();
+        }
+
+        public event Action NewMapRequested;
+
+        /// <summary>La carte fabriquée par la fenêtre d'import entre dans la Pile (Ctrl+Z la retire).</summary>
+        public void AddMap(BinderItem item)
+        {
+            var root = _project.Category(Project.KeyMaps);
+            if (root == null || item == null) return;
             RunAndSelect(new AddItemAction(root, item, -1), item.Id, root.Id);
         }
 
@@ -2437,6 +2466,10 @@ namespace Marabook.App
             // Même règle pour les frises (1.2.0).
             if ((target.RootCategory().CategoryKey == Project.KeyTimelines) != (dragged.Kind == ItemKind.Timeline)) return false;
             if (dragged.Kind == ItemKind.Timeline && !target.IsCategory) return false;
+            // Même règle pour les cartes (16/11) ; et rien n'entre dans l'Astrolabe.
+            if ((target.RootCategory().CategoryKey == Project.KeyMaps) != (dragged.Kind == ItemKind.Map)) return false;
+            if (dragged.Kind == ItemKind.Map && !target.IsCategory) return false;
+            if (target.RootCategory().CategoryKey == Project.KeyAstrolabe) return false;
             // Même règle pour les cartes mentales (22/09).
             if ((target.RootCategory().CategoryKey == Project.KeyMindMaps) != (dragged.Kind == ItemKind.MindMap)) return false;
             if (dragged.Kind == ItemKind.MindMap && !target.IsCategory) return false;

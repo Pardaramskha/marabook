@@ -23,9 +23,15 @@ namespace Marabook.Model
         public const string KeyPlans = "plans";           // batch 35 : les plans
         public const string KeyMindMaps = "mindmaps";     // 22/09 : les cartes mentales (module Mental-o)
         public const string KeyTimelines = "timelines";   // 1.2.0 : les frises chronologiques
-        // « Astrolabe » (14/11, Rémi) : la racine des frises portera tout ce qui touche
-        // à l'écoulement du temps — les frises, les calendriers, bientôt les astres.
-        public const string TimelinesRootTitle = "Astrolabe";
+        // 16/11 (Rémi) : les frises SORTENT de l'Astrolabe. La racine « timelines » (la
+        // clé ne change pas : rien à migrer) s'appelle « Chronologie » et ne porte plus
+        // que les frises ; l'Astrolabe a sa propre racine, sans enfants — les systèmes
+        // temporels et les mondes ; les Cartes ont la leur.
+        public const string TimelinesRootTitle = "Chronologie";
+        public const string KeyAstrolabe = "astrolabe";
+        public const string AstrolabeRootTitle = "Astrolabe";
+        public const string KeyMaps = "worldmaps";        // 2.0.0 : les cartes (« maps/ » est déjà le dossier des cartes mentales)
+        public const string MapsRootTitle = "Cartes";
         public const string KeyTrash = "trash";
 
         public string Name = "Sans titre";
@@ -522,6 +528,8 @@ namespace Marabook.Model
             project.Roots.Add(MakeCategory("Plans", KeyPlans));
             project.Roots.Add(MakeCategory(TimelinesRootTitle, KeyTimelines)); // 1.2.0
             project.Roots.Add(MakeCategory("Cartes mentales", KeyMindMaps)); // 22/09
+            project.Roots.Add(MakeCategory(AstrolabeRootTitle, KeyAstrolabe)); // 16/11
+            project.Roots.Add(MakeCategory(MapsRootTitle, KeyMaps));           // 16/11
             project.Roots.Add(MakeCategory("Dictionnaire", KeyDictionary));
             project.Roots.Add(MakeCategory("Corbeille", KeyTrash));
 

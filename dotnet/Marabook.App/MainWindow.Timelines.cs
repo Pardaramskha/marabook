@@ -13,7 +13,7 @@ namespace Marabook.App
     public partial class MainWindow
     {
         private TimelineView _timelineView;       // une frise
-        private TimelineHubView _timelineHub;     // la racine « Astrolabe »
+        private TimelineHubView _timelineHub;     // la racine « Chronologie » (les frises)
         private ContentControl _timelineSection;  // le panneau de la frise dans le Général
 
         private void BuildTimelineViews(Panel center)
@@ -43,7 +43,9 @@ namespace Marabook.App
             _timelineView.CalculatorRequested += ShowCalculator;
             center.Children.Add(_timelineView);
 
-            _timelineHub = new TimelineHubView { IsVisible = false };
+            _timelineHub = new TimelineHubView(true) { IsVisible = false }; // la page « Chronologie » : les frises (16/11)
+            _timelineHub.OtherPageRequested += delegate { SelectRoot(Project.KeyAstrolabe); };
+            _timelineHub.ParallelRequested += delegate { AskParallel(); };
             _timelineHub.OpenRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _timelineHub.NewTimelineRequested += delegate { _binder.NewTimeline(null); };
             _timelineHub.NewSystemRequested += delegate { EditTimeSystem(null); };
@@ -189,6 +191,8 @@ namespace Marabook.App
         {
             if (_timelineView != null && _timelineView.IsVisible) _timelineView.Refresh();
             if (_timelineHub != null && _timelineHub.IsVisible) _timelineHub.Refresh();
+            if (_astrolabeHub != null && _astrolabeHub.IsVisible) _astrolabeHub.Refresh();
+            if (_mapView != null && _mapView.IsVisible) _mapView.Refresh(); // le monde d'une carte a pu changer
             if (_sheetLibrary != null && _sheetLibrary.IsVisible) _sheetLibrary.RefreshEpoch();
             if (_sheetView != null && _sheetView.IsVisible) _sheetView.RefreshEpoch();
             if (_calculatorPanel != null && HasCalculatorPanel) _calculatorPanel.Reload(); // ses systèmes ont pu changer
@@ -229,7 +233,7 @@ namespace Marabook.App
             if (_project == null || (_editor.IsVisible == false && _sheetView.IsVisible == false)) return;
             if (Timelines.All(_project).Count == 0)
             {
-                await MessageDialog.Show(this, "Un lien de date vise une frise : créez-en d'abord une (racine « Astrolabe » de la Pile).",
+                await MessageDialog.Show(this, "Un lien de date vise une frise : créez-en d'abord une (racine « Chronologie » de la Pile).",
                     "Lien vers la temporalité", MessageButtons.OK, MessageIcon.Information);
                 return;
             }
@@ -295,7 +299,7 @@ namespace Marabook.App
             {
                 if (Timelines.All(_project).Count == 0)
                 {
-                    await MessageDialog.Show(this, "L'époque se lit sur une frise : créez-en d'abord une (racine « Astrolabe » de la Pile).",
+                    await MessageDialog.Show(this, "L'époque se lit sur une frise : créez-en d'abord une (racine « Chronologie » de la Pile).",
                         "Époque", MessageButtons.OK, MessageIcon.Information);
                     _sheetLibrary.RefreshEpoch();
                     return;

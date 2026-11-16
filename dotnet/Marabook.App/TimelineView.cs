@@ -78,6 +78,22 @@ namespace Marabook.App
         private bool _calendarPlaced;                // le calendrier a déjà son mois pour cette frise
         private DispatcherTimer _flashTimer;
 
+        // LE PARALLÉLISME (16/11, Rémi) : une seconde frise du même système, sous celle-ci,
+        // « aimantée » — même axe, même zoom, même défilement ; le repère du survol paraît
+        // sur les deux. La compagne est une TimelineView entière, embarquée (ni en-tête, ni
+        // onglets, ni filtres, ni minimap) : on y pose et on y modifie ses événements comme
+        // d'habitude. Le temps d'un parallèle, les deux montrent « Tout » sur l'union de
+        // leurs étendues.
+        private readonly bool _embedded;
+        private TimelineView _peer;                  // la compagne (côté maîtresse) ou la maîtresse (côté compagne)
+        private bool _syncing;
+        private readonly Border _peerHost;
+        private TextBlock _peerTitle;
+        private readonly Grid _centerGrid;
+        private readonly Button _parallelButton, _extentButton;
+        private readonly StackPanel _inspectorStack = new StackPanel();
+        private bool _bounded;                       // un fragment : la vue ne sort pas de ses bornes
+
         public event Action Edited;
         public event Action<BinderItem> NavigateRequested;
         public event Action BackRequested;
@@ -86,8 +102,11 @@ namespace Marabook.App
         public event Action InspectorChanged;
         public event Action<TimeSystem, TimePoint> CalculatorRequested; // le Calculateur de dates du rail, à cette date
 
-        public TimelineView()
+        public TimelineView() : this(false) { }
+
+        private TimelineView(bool embedded)
         {
+            _embedded = embedded;
             Background = Chrome.WindowBg;
             Focusable = true;
 
@@ -140,7 +159,7 @@ namespace Marabook.App
                 Content = Icons.Make("arrow-left-bold", 12, Chrome.Ink),
                 Padding = new Thickness(8, 3, 8, 3),
                 Margin = new Thickness(0, 0, 12, 0),
-                [ToolTip.TipProperty] = "Revenir à l'Astrolabe",
+                [ToolTip.TipProperty] = "Revenir à la Chronologie",
                 VerticalAlignment = VerticalAlignment.Center
             };
             back.Click += delegate { var h = BackRequested; if (h != null) h(); };
@@ -161,6 +180,14 @@ namespace Marabook.App
             _systemButton.Tag = "timeline-system";
             _systemButton.Click += delegate { var h = SystemEditRequested; if (h != null && _item != null) h(_system); };
             left.Children.Add(_systemButton);
+            _extentButton = Buttons.Text("Étendue", "Ce que la frise couvre : toute la durée du système, ou un fragment", Buttons.Compact, Buttons.Look.Outline);
+            _extentButton.Margin = new Thickness(6, 0, 0, 0);
+            _extentButton.Tag = "timeline-extent";
+            _extentButton.Click += delegate { EditExtent(); };
+            _parallelButton = Buttons.IconText("frise", "Parallélisme", "Superposer une autre frise du même système : années alignées, repère du survol sur les deux", Buttons.Compact, Buttons.Look.Outline);
+            _parallelButton.Margin = new Thickness(6, 0, 0, 0);
+            _parallelButton.Tag = "timeline-parallel";
+            _parallelButton.Click += delegate { Ui.ShowMenu(ParallelMenu(), _parallelButton); };
             _mode = new Button { Padding = new Thickness(9, 0, 9, 0), Height = Buttons.Compact, MinHeight = Buttons.Compact, Focusable = false, Tag = "timeline-mode" };
             _mode.Click += delegate { Ui.ShowMenu(ModeMenu(), _mode); };
             row.Children.Add(left);
@@ -202,6 +229,9 @@ namespace Marabook.App
             var modes = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             modes.Children.Add(new TextBlock { Text = "Mode :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
             modes.Children.Add(_mode);
+            // L'étendue et le parallélisme (16/11) : sur la ligne du mode — l'en-tête, lui, déborde vite en fenêtre étroite.
+            modes.Children.Add(_extentButton);
+            modes.Children.Add(_parallelButton);
             modes.Children.Add(new Border { Width = 1, Background = Chrome.Border, Margin = new Thickness(12, 2, 12, 2) });
             _typesButton = new Button { Padding = new Thickness(9, 0, 9, 0), Height = Buttons.Compact, MinHeight = Buttons.Compact, Focusable = false, Tag = "timeline-types", Margin = new Thickness(0, 0, 10, 0) };
             ToolTip.SetTip(_typesButton, "Tous les types d'événement : les montrer, les masquer, les gérer");
@@ -244,11 +274,25 @@ namespace Marabook.App
             _calendar.Create = delegate(TimePoint at) { NewEvent(at); };
             _calendar.Menu = MenuFor;
             _calendar.World = delegate { return Astro.WorldOf(_project, _system); };
-            var center = new Grid();
+            var center = new Grid { RowDefinitions = new RowDefinitions("*,Auto") };
+            _centerGrid = center;
             center.Children.Add(_surface);
             center.Children.Add(_empty);
             center.Children.Add(_calendar);
+            // La compagne du parallélisme : sous la frise, de la même largeur.
+            _peerTitle = new TextBlock { Foreground = Chrome.Ink, FontSize = 13, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            _peerHost = new Border { IsVisible = false, BorderBrush = Chrome.Border, BorderThickness = new Thickness(0, 1, 0, 0), Tag = "timeline-peer" };
+            Grid.SetRow(_peerHost, 1);
+            center.Children.Add(_peerHost);
             Children.Add(center);
+            if (embedded)
+            {
+                head.IsVisible = false;
+                filterBar.IsVisible = false;
+                _tabsBar.IsVisible = false;
+                _minimap.IsVisible = false;
+                _surface.Margin = new Thickness(16, 4, 16, 8);
+            }
             Ui.OnSizeChanged(_surface, delegate
             {
                 if (_fitPending && _surface.Bounds.Width > 0) FitAll();
@@ -264,7 +308,14 @@ namespace Marabook.App
         public TimeSystem System { get { return _system; } }
         public TimelineEvent Selected { get { return _selected; } }
         /// <summary>Le panneau que le Général du rail héberge tant que la frise est ouverte.</summary>
-        public Control Inspector { get { return _inspector; } }
+        public Control Inspector
+        {
+            get
+            {
+                if (_inspectorStack.Children.Count == 0) _inspectorStack.Children.Add(_inspector);
+                return _inspectorStack;
+            }
+        }
 
         public void Load(BinderItem timeline, Project project, HistoryManager history = null)
         {
@@ -273,6 +324,7 @@ namespace Marabook.App
             _project = project;
             _history = history;
             if (timeline.Timeline == null) timeline.Timeline = new TimelineInfo { Types = TimelineInfo.DefaultTypes() };
+            if (!same && !_embedded && _peer != null) SetParallel(null); // une autre frise : le parallèle d'avant n'a plus de sens
             if (!same)
             {
                 _tab = -1;
@@ -319,6 +371,18 @@ namespace Marabook.App
             }
             _title.Text = _item.Title;
             _systemButton.Content = Icons.Label("pile-frises", _system.Name, 13, Chrome.Ink);
+            _extentButton.Content = _item.Timeline.HasFragment ? "Fragment" : "Étendue";
+            ToolTip.SetTip(_extentButton, "Ce que la frise couvre : " + Timelines.FragmentLabel(_system, _item.Timeline) + ". Cliquer pour changer.");
+            if (!_embedded)
+            {
+                // La compagne suit : retirée du projet ou passée sur un autre système, le parallèle s'arrête.
+                if (_peer != null && (_peer._item == null || _project.FindById(_peer._item.Id) == null || Timelines.SystemOf(_project, _peer._item).Id != _system.Id)) ClosePeer();
+                if (_peer != null && !_syncing) { _peer._syncing = true; try { _peer.Refresh(); } finally { _peer._syncing = false; } _peerTitle.Text = _peer._item.Title; }
+                _parallelButton.IsEnabled = ParallelDialog.Companions(_project, _item).Count > 0;
+                ToolTip.SetTip(_parallelButton, _parallelButton.IsEnabled
+                    ? "Superposer une autre frise du même système : années alignées, repère du survol sur les deux"
+                    : "Le parallélisme demande une autre frise posée sur « " + _system.Name + " »");
+            }
             _goTo.Watermark = "Aller à… (" + _system.Example() + ")";
             RebuildTabs();
             RebuildFilters();
@@ -341,6 +405,7 @@ namespace Marabook.App
 
         public void SetCalendarMode(bool on)
         {
+            if (on && _peer != null && !_embedded) SetParallel(null); // le calendrier montre un mois d'UNE frise
             _calendarMode = on;
             if (on && _item != null)
             {
@@ -379,8 +444,152 @@ namespace Marabook.App
             _mode.Content = face;
             _calendar.IsVisible = _calendarMode;
             _surface.IsVisible = !_calendarMode;
-            foreach (var control in _timelineOnly) control.IsVisible = !_calendarMode;
-            _tabsBar.IsVisible = !_calendarMode && _system.HasSegments;
+            foreach (var control in _timelineOnly) control.IsVisible = !_calendarMode && !(_embedded && control == _minimap);
+            _tabsBar.IsVisible = !_calendarMode && _system.HasSegments && !_embedded && _peer == null;
+        }
+
+        // ================================================== l'étendue, le parallélisme
+
+        /// <summary>« Étendue » : toute la durée, ou un fragment. Ctrl+Z rend l'étendue d'avant.</summary>
+        private async void EditExtent()
+        {
+            if (_item == null) return;
+            var answer = await FragmentDialog.Ask(Ui.OwnerOf(this), _system, _item.Timeline);
+            if (!answer.Item1) return;
+            SetExtent(answer.Item2, answer.Item3);
+        }
+
+        internal void SetExtent(TimePoint from, TimePoint to)
+        {
+            if (_item == null) return;
+            var before = _item.Timeline.Clone();
+            _item.Timeline.From = from == null || to == null ? null : from;
+            _item.Timeline.To = from == null || to == null ? null : to;
+            Commit(before);
+            _fitPending = true;
+            Refresh();
+            FitAll();
+        }
+
+        private ContextMenu ParallelMenu()
+        {
+            var menu = new ContextMenu();
+            if (_item == null) return menu;
+            foreach (var other in ParallelDialog.Companions(_project, _item))
+            {
+                var target = other;
+                var entry = new MenuItem { Header = target.Title, Icon = Icons.Make(TimelineIcon, 14, Chrome.Ink), Tag = "timeline-parallel-choice" };
+                if (_peer != null && _peer._item == target) entry.Header = "✓  " + target.Title;
+                entry.Click += delegate { SetParallel(target); };
+                menu.Items.Add(entry);
+            }
+            if (_peer != null)
+            {
+                menu.Items.Add(new Separator());
+                var leave = new MenuItem { Header = "Quitter le parallélisme", Tag = "timeline-parallel-leave" };
+                leave.Click += delegate { SetParallel(null); };
+                menu.Items.Add(leave);
+            }
+            return menu;
+        }
+
+        public BinderItem ParallelItem { get { return _peer == null || _embedded ? null : _peer._item; } }
+        internal TimelineView PeerForProbe { get { return _embedded ? null : _peer; } }
+        internal bool MirrorShownForProbe { get { return _surface.MirrorShownForProbe; } }
+        internal bool BoundedForProbe { get { return Bounded; } }
+
+        /// <summary>Superpose une autre frise du même système sous celle-ci (null : quitte le parallèle).</summary>
+        public void SetParallel(BinderItem other)
+        {
+            if (_embedded || _item == null) return;
+            if (other == null || other == _item || Timelines.SystemOf(_project, other).Id != _system.Id)
+            {
+                if (_peer == null) return;
+                ClosePeer();
+                Refresh();
+                FitAll();
+                return;
+            }
+            if (_calendarMode) SetCalendarMode(false);
+            if (_peer == null)
+            {
+                _peer = new TimelineView(true);
+                _peer._peer = this;
+                _peer.Edited += delegate { var h = Edited; if (h != null) h(); };
+                _peer.NavigateRequested += delegate(BinderItem item) { var h = NavigateRequested; if (h != null) h(item); };
+                _peer.CalculatorRequested += delegate(TimeSystem system, TimePoint point) { var h = CalculatorRequested; if (h != null) h(system, point); };
+                _peer.InspectorChanged += delegate { var h = InspectorChanged; if (h != null) h(); };
+                var strip = new DockPanel { Margin = new Thickness(16, 6, 16, 0) };
+                var close = Buttons.Text("Quitter le parallélisme", null, Buttons.Compact, Buttons.Look.Calm);
+                close.Tag = "timeline-peer-close";
+                close.Click += delegate { SetParallel(null); };
+                DockPanel.SetDock(close, Dock.Right);
+                strip.Children.Add(close);
+                var add = Buttons.IconText("plus-bold", "Nouvel événement", "Poser un événement sur la frise du bas", Buttons.Compact, Buttons.Look.Outline);
+                add.Margin = new Thickness(0, 0, 6, 0);
+                add.Click += delegate { if (_peer != null) _peer.NewEvent(null); };
+                DockPanel.SetDock(add, Dock.Right);
+                strip.Children.Add(add);
+                var name = new StackPanel { Orientation = Orientation.Horizontal };
+                var icon = Icons.Make(TimelineIcon, 14, Chrome.Accent);
+                icon.Margin = new Thickness(0, 0, 8, 0);
+                icon.VerticalAlignment = VerticalAlignment.Center;
+                name.Children.Add(icon);
+                _peerTitle = new TextBlock { Foreground = Chrome.Ink, FontSize = 13, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis }; // un titre neuf à chaque parallèle : l'ancien appartient à la bande fermée
+                name.Children.Add(_peerTitle);
+                strip.Children.Add(name);
+                var box = new DockPanel();
+                DockPanel.SetDock(strip, Dock.Top);
+                box.Children.Add(strip);
+                box.Children.Add(_peer);
+                _peerHost.Child = box;
+                _inspectorStack.Children.Clear();
+                _inspectorStack.Children.Add(_inspector);
+                _inspectorStack.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 12, 0, 10) });
+                _inspectorStack.Children.Add(new TextBlock { Text = "EN PARALLÈLE", Foreground = Chrome.FaintText, FontSize = 11, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 4) });
+                _inspectorStack.Children.Add(_peer._inspector);
+            }
+            _peerHost.IsVisible = true;
+            _centerGrid.RowDefinitions = new RowDefinitions("*,*");
+            _tab = -1;
+            _peer.Load(other, _project, _history);
+            _peerTitle.Text = other.Title;
+            _fitPending = true;
+            Refresh();
+            // Les deux frises prennent leur largeur, puis la vue commune se cale.
+            Ui.Post(DispatcherPriority.Background, delegate { if (_peer != null) FitAll(); });
+        }
+
+        private void ClosePeer()
+        {
+            if (_peer == null) return;
+            _peer.Clear();
+            _peer = null;
+            _peerHost.Child = null;
+            _peerHost.IsVisible = false;
+            _centerGrid.RowDefinitions = new RowDefinitions("*,Auto");
+            _inspectorStack.Children.Clear();
+            _inspectorStack.Children.Add(_inspector);
+            _surface.MirrorAxis = null;
+            _fitPending = true;
+        }
+
+        /// <summary>L'étendue propre de la frise (fragment, ou tout), sans regarder sa compagne.</summary>
+        private void OwnRange(out double min, out double max)
+        {
+            if (Timelines.FragmentRange(_system, _item == null ? null : _item.Timeline, out min, out max)) return;
+            min = _stats.Min;
+            max = _stats.Max;
+            if (max - min < 1) { min = Math.Floor(min); max = min + 10; }
+        }
+
+        /// <summary>Le repère du survol, reporté sur l'autre frise du parallèle.</summary>
+        private void MirrorPointer(double? axis)
+        {
+            if (_peer == null) return;
+            if (_peer._surface.MirrorAxis == axis) return;
+            _peer._surface.MirrorAxis = axis;
+            _peer._surface.InvalidateVisual();
         }
 
         // L'icône d'une frise dans la Pile ; celle des fiches Événement.
@@ -423,6 +632,20 @@ namespace Marabook.App
             _surface.Relayout();
             _surface.InvalidateVisual();
             _minimap.InvalidateVisual();
+            // Aimantées : l'autre frise du parallèle prend la même vue.
+            if (_peer != null && !_syncing && _peer._item != null)
+            {
+                _peer._syncing = true;
+                try
+                {
+                    _peer._viewStart = _viewStart;
+                    _peer._scale = _scale;
+                    _peer._fitPending = false;
+                    _peer.ComputeRange();
+                    _peer.Redraw();
+                }
+                finally { _peer._syncing = false; }
+            }
         }
 
         // ================================================== onglets et filtres
@@ -620,11 +843,21 @@ namespace Marabook.App
             }
             else
             {
-                _rangeMin = _stats.Min;
-                _rangeMax = _stats.Max;
-                if (_rangeMax - _rangeMin < 1) { _rangeMin = Math.Floor(_rangeMin); _rangeMax = _rangeMin + 10; }
+                OwnRange(out _rangeMin, out _rangeMax);
+                _bounded = _item != null && _item.Timeline.HasFragment && _peer == null;
+                if (_peer != null && _peer._item != null)
+                {
+                    // En parallèle : l'union des deux étendues, pour un seul axe.
+                    double min, max;
+                    _peer.OwnRange(out min, out max);
+                    _rangeMin = Math.Min(_rangeMin, min);
+                    _rangeMax = Math.Max(_rangeMax, max);
+                }
             }
         }
+
+        /// <summary>La vue est-elle tenue dans ses bornes (une ère seule, ou un fragment) ?</summary>
+        private bool Bounded { get { return SegmentOnly || _bounded; } }
 
         private double Span { get { return Math.Max(1e-6, _rangeMax - _rangeMin); } }
 
@@ -635,7 +868,7 @@ namespace Marabook.App
             get
             {
                 var width = _surface.Bounds.Width;
-                if (SegmentOnly) return Math.Max(1e-9, Math.Max(40, width - 2 * EdgePad) / Span);
+                if (Bounded) return Math.Max(1e-9, Math.Max(40, width - 2 * EdgePad) / Span);
                 return Math.Max(1e-9, Math.Max(40, width - SidePad - LabelPad) / Span * 0.6);
             }
         }
@@ -647,7 +880,7 @@ namespace Marabook.App
             var width = _surface.Bounds.Width;
             if (width <= 0) { _fitPending = true; return; }
             _fitPending = false;
-            if (SegmentOnly)
+            if (Bounded)
             {
                 _scale = Math.Max(40, width - 2 * EdgePad) / Span;
                 _viewStart = _rangeMin - EdgePad / _scale;
@@ -687,9 +920,9 @@ namespace Marabook.App
             if (_surface.Bounds.Width > 0) _scale = Math.Max(MinScale, Math.Min(MaxScale, _scale));
             var span = width / _scale;
             double min, max;
-            if (SegmentOnly)
+            if (Bounded)
             {
-                // L'ère seule : la vue ne sort jamais de ses bornes.
+                // L'ère seule, le fragment : la vue ne sort jamais de ses bornes.
                 min = _rangeMin - EdgePad / _scale;
                 max = Math.Max(min, _rangeMax + EdgePad / _scale - span);
             }
@@ -1314,6 +1547,17 @@ namespace Marabook.App
             // LE REPÈRE DU SURVOL (14/11, Rémi) : sous le curseur, l'année pointée ;
             // un trait vertical à cet endroit ; les briques de cette année s'éclairent.
             private Point? _cursor;
+            // Le repère venu de l'autre frise du parallèle (16/11) : la même année, pointée là-bas.
+            public double? MirrorAxis;
+            private Point? Pointer
+            {
+                get
+                {
+                    if (_cursor != null) return _cursor;
+                    if (MirrorAxis == null || _owner._item == null) return null;
+                    return new Point(X(MirrorAxis.Value), RulerH + 26);
+                }
+            }
 
             public double MaxScroll;
             public int PlacedCount { get { return _placed.Count; } }
@@ -1591,7 +1835,7 @@ namespace Marabook.App
                         var reach = double.IsNaN(placed.LifeTo) ? placed.Bounds.Right : Math.Max(placed.Bounds.Right, placed.LifeTo);
                         if (top > height || top + LaneH < RulerH || reach < 0 || placed.Bounds.X > width) continue;
                         var selected = owner._selected != null && owner._selected.Id == placed.Event.Id;
-                        var pointed = _cursor != null && TimeMath.TouchesYear(placed.Event, PointedYear());
+                        var pointed = Pointer != null && TimeMath.TouchesYear(placed.Event, PointedYear());
                         var hovered = _hover == placed.Event || pointed;
                         var color = placed.Color;
                         var middle = top + (LaneH - 6) / 2;
@@ -1640,9 +1884,9 @@ namespace Marabook.App
                 if (owner._flash != null) Marker(context, system.AxisMid(owner._flash), system.Format(owner._flash), Chrome.Time, width, height);
 
                 // — Le repère du survol : le trait, puis l'année sous le curseur (une étiquette sans flèche).
-                if (_cursor != null && !_panning)
+                if (Pointer != null && !_panning)
                 {
-                    var at = _cursor.Value;
+                    var at = Pointer.Value;
                     // Toute la largeur de l'année pointée (14/11 soir, Rémi) : une bande — un trait quand l'année fait moins d'un pixel.
                     var yearLeft = X(PointedYear());
                     var yearRight = X(PointedYear() + 1);
@@ -1677,14 +1921,14 @@ namespace Marabook.App
             /// <summary>L'année absolue sous le curseur.</summary>
             private long PointedYear()
             {
-                return _cursor == null ? long.MinValue : (long)Math.Floor(AxisAt(_cursor.Value.X));
+                return Pointer == null ? long.MinValue : (long)Math.Floor(AxisAt(Pointer.Value.X));
             }
 
             /// <summary>Ce que dit l'étiquette : l'année pointée — le mois ou le jour quand le zoom les distingue.</summary>
             public string PointedLabel()
             {
-                if (_cursor == null) return null;
-                var pointed = _owner._system.FromAxis(AxisAt(_cursor.Value.X), _owner.PrecisionForScale());
+                if (Pointer == null) return null;
+                var pointed = _owner._system.FromAxis(AxisAt(Pointer.Value.X), _owner.PrecisionForScale());
                 // Quand le zoom distingue les mois ou les jours, le monde ajoute la saison et les lunes.
                 var sky = _owner._project == null ? null : Astro.DayLabel(_owner._project, _owner._system, pointed);
                 return _owner._system.Format(pointed) + (string.IsNullOrEmpty(sky) ? "" : "  ·  " + sky);
@@ -1693,18 +1937,19 @@ namespace Marabook.App
             public List<string> PointedEvents()
             {
                 var ids = new List<string>();
-                if (_cursor == null) return ids;
+                if (Pointer == null) return ids;
                 foreach (var placed in _placed) if (TimeMath.TouchesYear(placed.Event, PointedYear())) ids.Add(placed.Event.Id);
                 return ids;
             }
 
-            public double PointedBandWidth() { return _cursor == null ? 0 : X(PointedYear() + 1) - X(PointedYear()); }
-            public void PointForProbe(Point? at) { _cursor = at; InvalidateVisual(); }
+            public double PointedBandWidth() { return Pointer == null ? 0 : X(PointedYear() + 1) - X(PointedYear()); }
+            public void PointForProbe(Point? at) { _cursor = at; _owner.MirrorPointer(at == null ? (double?)null : AxisAt(at.Value.X)); InvalidateVisual(); }
+            public bool MirrorShownForProbe { get { return _cursor == null && Pointer != null; } }
             public double XOfForProbe(double axis) { return X(axis); }
 
             private void Marker(DrawingContext context, double axis, string caption, IBrush brush, double width, double height)
             {
-                if (_owner.SegmentOnly && (axis < _owner._rangeMin || axis > _owner._rangeMax)) return;
+                if (_owner.Bounded && (axis < _owner._rangeMin || axis > _owner._rangeMax)) return;
                 var x = Math.Round(X(axis)) + 0.5;
                 if (x < 0 || x > width) return;
                 context.DrawLine(new Pen(brush, 2), new Point(x, RulerH), new Point(x, height));
@@ -1792,6 +2037,7 @@ namespace Marabook.App
                     return;
                 }
                 _cursor = _owner._item == null ? (Point?)null : point;
+                _owner.MirrorPointer(_cursor == null ? (double?)null : AxisAt(point.X));
                 InvalidateVisual(); // le repère suit le curseur
                 // Le survol marque la brique (curseur, marque grossie) — sans infobulle (lot 2, Rémi).
                 var hit = Hit(point);
@@ -1816,6 +2062,7 @@ namespace Marabook.App
             protected override void OnPointerExited(PointerEventArgs e)
             {
                 base.OnPointerExited(e);
+                _owner.MirrorPointer(null);
                 if (_hover == null && _cursor == null) return;
                 _hover = null;
                 _cursor = null;

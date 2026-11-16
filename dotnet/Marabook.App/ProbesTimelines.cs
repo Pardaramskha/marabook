@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.LogicalTree;
 using Avalonia.VisualTree;
 using Marabook.Model;
 using Marabook.Settings;
@@ -26,28 +27,62 @@ namespace Marabook.App
                 var timeline = Timelines.FindByTitle(project, TimelineSamples.TimelineTitle);
                 Check(root != null && timeline != null && Timelines.All(project).Count == 2, "le projet d'exemple a sa racine « Frises » et ses deux frises");
                 if (root == null || timeline == null) return;
-                Check(shell.Binder.TopRowsForProbe().Contains("Astrolabe") && !shell.Binder.TopRowsForProbe().Contains("Frises"), "la Pile montre « Astrolabe » (ex-« Frises », section Structure)");
-                Check(Icons.Has("pile-frises") && Icons.Has("frise") && Icons.Has("death-skull")
-                    && ItemIcons.DefaultSvg(root) == "pile-frises" && ItemIcons.DefaultSvg(timeline) == "frise", "les icônes : l'astrolabe pour la racine, le diagramme pour une frise, le crâne");
+                // 16/11 (lot 11) : les frises sont SORTIES de l'Astrolabe — « Chronologie » (les frises), « Astrolabe » (systèmes et mondes), « Cartes ».
+                var rows = shell.Binder.TopRowsForProbe();
+                var astrolabeRoot = project.Category(Project.KeyAstrolabe);
+                var mapsRoot = project.Category(Project.KeyMaps);
+                Check(rows.Contains("Chronologie") && rows.Contains("Astrolabe") && rows.Contains("Cartes") && !rows.Contains("Frises") && root.Title == "Chronologie",
+                    "la Pile montre « Chronologie » (les frises), « Astrolabe » et « Cartes » (" + string.Join(", ", rows.ToArray()) + ")");
+                Check(BinderView.SectionNames().Contains("Univers") && rows.IndexOf("Univers") >= 0 && rows.IndexOf("Univers") < rows.IndexOf("Astrolabe") && rows.IndexOf("Astrolabe") < rows.IndexOf("Cartes")
+                    && rows.IndexOf("Chronologie") < rows.IndexOf("Univers"), "une section « Univers » porte l'Astrolabe et les Cartes ; la Chronologie reste en Structure");
+                Check(Icons.Has("pile-frises") && Icons.Has("frise") && Icons.Has("death-skull") && Icons.Has("pile-chronologie") && Icons.Has("pile-cartes")
+                    && ItemIcons.DefaultSvg(root) == "pile-chronologie" && ItemIcons.DefaultSvg(astrolabeRoot) == "pile-frises" && ItemIcons.DefaultSvg(mapsRoot) == "pile-cartes" && ItemIcons.DefaultSvg(timeline) == "frise",
+                    "les icônes : l'horloge (clockwork) pour la Chronologie, l'astrolabe pour l'Astrolabe, le monde (world) pour les Cartes, le diagramme pour une frise");
 
-                // — La page des frises : pas un tableau de tuiles.
+                // — La page de la Chronologie : les frises, rien qu'elles.
                 shell.Binder.SelectItem(root.Id);
                 await Settle();
-                var hub = shell.TimelineHubForProbe;
-                Check(hub.IsVisible && hub.TimelineRowsForProbe == 2 && hub.SystemCardsForProbe == 2, "la racine ouvre la page des frises : deux frises, deux systèmes temporels (" + hub.TimelineRowsForProbe + ", " + hub.SystemCardsForProbe + ")");
+                var chronology = shell.TimelineHubForProbe;
+                Check(chronology.IsVisible && chronology.ChronologyForProbe && chronology.TimelineRowsForProbe == 2 && shell.VisibleView == "timelines",
+                    "la racine « Chronologie » ouvre la page des frises : deux frises (" + chronology.TimelineRowsForProbe + ")");
+                Check(chronology.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock b) { return b.Text == "Chronologie" && b.FontSize >= 16; })
+                    && !chronology.GetVisualDescendants().OfType<Control>().Any(delegate(Control c) { return Equals(c.Tag, "hub-system") || Equals(c.Tag, "hub-chain-node"); }),
+                    "la page s'appelle « Chronologie » ; ni système temporel ni chaîne : c'est l'affaire de l'Astrolabe");
+                Check(chronology.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock b) { return (b.Text ?? "").StartsWith("Posée sur « ") && (b.Text ?? "").Contains("toute sa durée"); }),
+                    "une frise dit le système sur lequel elle est posée, et son étendue (toute sa durée)");
+                Check(chronology.NewTimelineEnabledForProbe && !chronology.LocksShownForProbe && !chronology.ParallelEnabledForProbe,
+                    "avec un système, « Nouvelle frise » est offert ; « Parallélisme » est grisé tant que deux frises ne partagent pas un système");
+                Shot(chronology, "frises-1-page.png");
+
+                // — La page de l'Astrolabe : les systèmes temporels et les mondes.
+                shell.Binder.SelectItem(astrolabeRoot.Id);
+                await Settle();
+                var hub = shell.AstrolabeHubForProbe;
+                Check(hub.IsVisible && !hub.ChronologyForProbe && hub.SystemCardsForProbe == 2 && shell.VisibleView == "astrolabe" && !chronology.IsVisible,
+                    "la racine « Astrolabe » ouvre sa page : deux systèmes temporels (" + hub.SystemCardsForProbe + ")");
                 Check(hub.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock b) { return b.Text == "Astrolabe" && b.FontSize >= 16; }), "la page s'appelle « Astrolabe »");
                 Check(hub.GetVisualDescendants().OfType<Button>().Count(delegate(Button b) { return Equals(b.Tag, "hub-system-calculator"); }) == 2, "chaque tuile de système a son bouton « Calculateur de dates »");
-                // — 16/11 : la chaîne Système → Frises → Monde, les dépendances dites, les actions bloquées.
-                Check(hub.ChainNodesForProbe == 3 && hub.NewTimelineEnabledForProbe && hub.NewWorldEnabledForProbe && !hub.LocksShownForProbe, "la page montre la chaîne en trois étapes ; avec un système, frises et mondes sont offerts");
-                Check(hub.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock b) { return (b.Text ?? "").Contains("Porte la frise") || (b.Text ?? "").Contains("Porte les frises"); })
-                    && hub.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock b) { return (b.Text ?? "").StartsWith("Posée sur « "); }), "la tuile d'un système dit les frises qu'il porte ; une frise, le système sur lequel elle est posée");
+                Check(hub.ChainNodesForProbe == 2 && hub.NewWorldEnabledForProbe && !hub.LocksShownForProbe
+                    && !hub.GetVisualDescendants().OfType<Control>().Any(delegate(Control c) { return Equals(c.Tag, "hub-timeline") || Equals(c.Tag, "hub-new-timeline"); }),
+                    "la chaîne n'a plus que deux étapes (système, monde) ; aucune frise sur cette page");
+                Check(hub.GetVisualDescendants().OfType<Control>().Any(delegate(Control c) { return Equals(c.Tag, "hub-elsewhere"); })
+                    && hub.GetVisualDescendants().OfType<Button>().Any(delegate(Button b) { return Equals(b.Tag, "hub-to-chronology"); }),
+                    "…mais elle dit où elles sont passées, avec un bouton vers la Chronologie");
+                Check(hub.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock b) { return (b.Text ?? "").Contains("Porte la frise") || (b.Text ?? "").Contains("Porte les frises"); }),
+                    "la tuile d'un système dit toujours les frises qu'il porte");
                 Check(hub.GetVisualDescendants().OfType<Button>().Any(delegate(Button b) { return Equals(b.Tag, "hub-system-remove") && !b.IsEnabled; })
                     && hub.GetVisualDescendants().OfType<Control>().Any(delegate(Control c) { return Equals(c.Tag, "hub-system-locked"); }), "un système qui porte une frise : « Retirer » est bloqué, et la raison est dite");
                 var bareHub = new TimelineHubView();
                 bareHub.Load(Project.CreateNew());
-                Check(!bareHub.NewTimelineEnabledForProbe && !bareHub.NewWorldEnabledForProbe && bareHub.LocksShownForProbe && bareHub.OurSystemOfferedForProbe && bareHub.SystemCardsForProbe == 0,
-                    "un projet sans système temporel : « Nouvelle frise » et « Nouveau monde » sont bloqués, la raison est dite, et le calendrier de notre monde est offert en un clic");
-                Shot(hub, "frises-1-page.png");
+                Check(!bareHub.NewWorldEnabledForProbe && bareHub.LocksShownForProbe && bareHub.OurSystemOfferedForProbe && bareHub.SystemCardsForProbe == 0,
+                    "un projet sans système temporel : « Nouveau monde » est bloqué, la raison est dite, et le calendrier de notre monde est offert en un clic");
+                var bareChronology = new TimelineHubView(true);
+                bareChronology.Load(Project.CreateNew());
+                Check(!bareChronology.NewTimelineEnabledForProbe && bareChronology.LocksShownForProbe
+                    && bareChronology.GetLogicalDescendants().OfType<Button>().Any(delegate(Button b) { return Equals(b.Tag, "hub-to-astrolabe"); }),
+                    "une Chronologie sans système : « Nouvelle frise » est bloqué, et un bouton mène à l'Astrolabe");
+                Shot(hub, "astrolabe-1-page.png");
+
 
                 // — Une frise ouverte.
                 shell.Binder.SelectItem(timeline.Id);
@@ -262,7 +297,7 @@ namespace Marabook.App
                 // — Lot 5 (14/11) : un MONDE — sa taille, ses saisons, ses lunes — et ce qu'il donne au calendrier.
                 {
                     Func<string, string> plain = delegate(string text) { return (text ?? "").Replace('\u202f', ' ').Replace('\u00a0', ' '); };
-                    var hubNow = shell.TimelineHubForProbe;
+                    var hubNow = shell.AstrolabeHubForProbe;
                     Check(project.Worlds.Count == 0 && !view.InspectorHasTagForProbe("timeline-world"), "un projet sans monde : rien au Général de la frise");
                     var worldTask = WorldDialog.Edit(shell, project, shell.NewWorldDraftForProbe(), true);
                     await Settle();

@@ -452,6 +452,7 @@ namespace Marabook.Persistence
                 events.Add(e);
             }
             o["events"] = events;
+            if (timeline.HasFragment) { o["from"] = BuildPoint(timeline.From); o["to"] = BuildPoint(timeline.To); } // 16/11 : un fragment
             return o;
         }
 
@@ -495,6 +496,9 @@ namespace Marabook.Persistence
                     if (entry.LinkKind == null || entry.LinkId == null) { entry.LinkKind = null; entry.LinkId = null; }
                     timeline.Events.Add(entry);
                 }
+            timeline.From = ReadPoint(Json.Field(o, "from"));
+            timeline.To = ReadPoint(Json.Field(o, "to"));
+            if (timeline.From == null || timeline.To == null) { timeline.From = null; timeline.To = null; }
             return timeline;
         }
     }

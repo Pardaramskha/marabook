@@ -15,7 +15,8 @@ namespace Marabook.Model
                       // en-têtes/pieds recto-verso, pastille de couleur
         Plan,         // racine Plans : colonnes, éléments d'intensité, notes (batch 35)
         MindMap,     // racine Cartes mentales : un .tea de Mental-o dans le .plot (22/09, module à code)
-        Timeline      // racine Frises : une frise chronologique posée sur un système temporel (1.2.0)
+        Timeline,     // racine Chronologie : une frise chronologique posée sur un système temporel (1.2.0)
+        Map           // racine Cartes : une image découpée en tuiles, ses zones, ses repères (2.0.0, 16/11)
     }
 
     /// <summary>Les états d'avancement d'un texte : clés stables persistées,
@@ -129,6 +130,8 @@ namespace Marabook.Model
         public byte[] MapBytes;
         // Une frise (1.2.0, .plot v46) : son système temporel, ses types, ses briques.
         public TimelineInfo Timeline;
+        // Une carte (2.0.0, .plot v46) : ses tuiles, ses zones, ses repères, son échelle.
+        public MapInfo Map;
 
         // Texts only: the document's own page setup. Null = project default.
         // Documents created inside a book copy the book's gabarit here.
@@ -225,7 +228,8 @@ namespace Marabook.Model
                 MediaExtension = MediaExtension,
                 MapBytes = MapBytes == null ? null : (byte[])MapBytes.Clone(),
                 Timeline = Timeline == null ? null : Timeline.Clone(),
-                Page = Page == null ? null : Page.Clone(),
+                Map = Map == null ? null : Map.Clone(),
+                Page =Page == null ? null : Page.Clone(),
                 Header = Header == null ? null : Header.Clone(),
                 Footer = Footer == null ? null : Footer.Clone(),
                 PageTemplateId = PageTemplateId,

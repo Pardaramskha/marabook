@@ -498,6 +498,7 @@ namespace Marabook.App
         public string Title;
         public TimeSystem System;   // un système du projet, ou un système neuf (à ajouter au projet)
         public bool SystemIsNew;
+        public TimePoint From, To;  // un fragment (16/11) ; nuls = toute la durée du système
     }
 
     /// <summary>Une nouvelle frise : son nom et — D'ABORD — son système de
@@ -529,6 +530,10 @@ namespace Marabook.App
             panel.Children.Add(TimelineUi.Label("2. Le nom de la frise :", 14));
             _title = new TextBox { Text = initialTitle ?? "Nouvelle frise" };
             panel.Children.Add(_title);
+            // 16/11 (Rémi) : toute la durée du système, ou un fragment pour une mini-frise détaillée.
+            panel.Children.Add(TimelineUi.Label("3. Son étendue :", 14));
+            _extent = new FragmentEditor(null, null);
+            panel.Children.Add(_extent);
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 80 };
             cancel.Click += delegate { Close(); };
@@ -584,7 +589,11 @@ namespace Marabook.App
             }
             var system = Chosen();
             _summary.Text = system == null ? "" : TimeSystemDialog.Summary(system);
+            if (_extent != null) _extent.SetSystem(system);
         }
+
+        private FragmentEditor _extent;
+        internal FragmentEditor ExtentForProbe { get { return _extent; } }
 
         private void Accept()
         {
@@ -592,7 +601,9 @@ namespace Marabook.App
             if (system == null) return;
             var title = (_title.Text ?? "").Trim();
             if (title.Length == 0) title = "Nouvelle frise";
-            _result = new NewTimelineChoice { Title = title, System = system, SystemIsNew = !_project.TimeSystems.Contains(system) };
+            TimePoint from, to;
+            if (!_extent.Read(out from, out to)) return; // un fragment illisible : la raison est dite en rouge sous les deux dates
+            _result = new NewTimelineChoice { Title = title, System = system, SystemIsNew = !_project.TimeSystems.Contains(system), From = from, To = to };
             Close();
         }
 

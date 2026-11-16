@@ -154,6 +154,7 @@ namespace Marabook.App
                 case ItemKind.Plan: return "Plans";
                 case ItemKind.MindMap: return "Cartes mentales";
                 case ItemKind.Timeline: return "Frises";
+                case ItemKind.Map: return "Cartes";
                 default: return "Sélection multiple";
             }
         }

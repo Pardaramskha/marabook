@@ -28,6 +28,7 @@ namespace Marabook.App
                 case ItemKind.Folder: return "dossier";
                 case ItemKind.MindMap: return "carte";
                 case ItemKind.Timeline: return "frise";
+                case ItemKind.Map: return "carte du monde";
                 case ItemKind.PageTemplate: return "gabarit";
                 default: return "texte";
             }
@@ -155,6 +156,12 @@ namespace Marabook.App
                 var system = Timelines.SystemOf(project, item);
                 var stats = Timelines.Stats(system, item.Timeline);
                 text = TimeSystem.Count(stats.Events, "événement", "événements") + " · " + TimeSystem.YearsLabel(stats.TotalYears) + " · " + system.Name;
+            }
+            if (item.Kind == ItemKind.Map && item.Map != null)
+            {
+                text = item.Map.HasImage
+                    ? item.Map.Width + " × " + item.Map.Height + " px · " + Maps.SizeLabel(Maps.Bytes(item.Map)) + " · " + TimeSystem.Count(item.Map.Zones.Count, "zone", "zones")
+                    : "Carte sans image";
             }
             if (item.Kind == ItemKind.MindMap)
             {

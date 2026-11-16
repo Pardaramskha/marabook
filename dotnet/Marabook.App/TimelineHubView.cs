@@ -31,7 +31,13 @@ namespace Marabook.App
         private readonly Control _timelinesLock, _worldsLock;
         private readonly Border _stepSystems, _stepTimelines, _stepWorlds;
         private Project _project;
+        // 16/11 (Rémi : « les frises SORTENT de l'astrolabe ») : la même page sert deux racines —
+        // l'ASTROLABE (systèmes temporels et mondes) et la CHRONOLOGIE (les frises, rien qu'elles).
+        private readonly bool _chronology;
+        private readonly Button _parallel;
 
+        public event Action OtherPageRequested;   // de l'Astrolabe vers la Chronologie, et retour
+        public event Action ParallelRequested;    // « Parallélisme » : deux frises l'une sous l'autre
         public event Action<BinderItem> OpenRequested;
         public event Action NewTimelineRequested;
         public event Action NewSystemRequested;
@@ -42,8 +48,11 @@ namespace Marabook.App
         public event Action<World> EditWorldRequested;        // null : un nouveau monde
         public event Action<World> RemoveWorldRequested;
 
-        public TimelineHubView()
+        public TimelineHubView() : this(false) { }
+
+        public TimelineHubView(bool chronology)
         {
+            _chronology = chronology;
             Background = Chrome.WindowBg;
             Focusable = true;
             var head = new Border
@@ -53,9 +62,9 @@ namespace Marabook.App
             };
             SetDock(head, Dock.Top);
             var title = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            title.Children.Add(Icons.Make("pile-frises", 20, Chrome.Accent));
-            title.Children.Add(new TextBlock { Text = Project.TimelinesRootTitle, Foreground = Chrome.Ink, FontSize = 17, FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
-            title.Children.Add(new TextBlock { Text = "Le temps de votre univers : comment il se compte, ce qui s'y passe, sous quel ciel.", Foreground = Chrome.SoftText, FontSize = 12.5, Margin = new Thickness(14, 2, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            title.Children.Add(Icons.Make(chronology ? "pile-chronologie" : "pile-frises", 20, Chrome.Accent));
+            title.Children.Add(new TextBlock { Text = chronology ? Project.TimelinesRootTitle : Project.AstrolabeRootTitle, Foreground = Chrome.Ink, FontSize = 17, FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+            title.Children.Add(new TextBlock { Text = chronology ? "Les frises de votre univers : ce qui s'y passe, dans l'ordre où cela s'est passé." : "Le temps de votre univers : comment il se compte, et sous quel ciel.", Foreground = Chrome.SoftText, FontSize = 12.5, Margin = new Thickness(14, 2, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
             head.Child = title;
             Children.Add(head);
 
@@ -94,12 +103,12 @@ namespace Marabook.App
             _newWorld.Tag = "hub-new-world";
             _newWorld.Click += delegate { var h = EditWorldRequested; if (h != null) h(null); };
             _worldsLock = LockLine("Créez d'abord un système temporel (étape 1) : les saisons et les lunes d'un monde se comptent dans un calendrier.");
-            var worldsHeading = Heading("3", "Mondes", "Facultatif : le ciel que voient les calendriers — saisons, soleils, lunes, éclipses.", out _stepWorlds);
-            worldsHeading.Margin = new Thickness(0, 26, 0, 10);
-            systemsColumn.Children.Add(worldsHeading);
-            systemsColumn.Children.Add(_worlds);
-            systemsColumn.Children.Add(_worldsLock);
-            systemsColumn.Children.Add(_newWorld);
+            var worldsHeading = Heading("2", "Mondes", "Facultatif : le ciel que voient les calendriers — saisons, soleils, lunes, éclipses. Une carte peut s'y lier.", out _stepWorlds);
+            var worldsColumn = new StackPanel();
+            worldsColumn.Children.Add(worldsHeading);
+            worldsColumn.Children.Add(_worlds);
+            worldsColumn.Children.Add(_worldsLock);
+            worldsColumn.Children.Add(_newWorld);
 
             // 2 — Les frises.
             _newTimeline = Buttons.IconText("plus-bold", "Nouvelle frise", "Une frise chronologique posée sur un système temporel", Buttons.Compact, Buttons.Look.Primary);
@@ -107,20 +116,56 @@ namespace Marabook.App
             _newTimeline.HorizontalAlignment = HorizontalAlignment.Left;
             _newTimeline.Margin = new Thickness(0, 8, 0, 0);
             _newTimeline.Click += delegate { var h = NewTimelineRequested; if (h != null) h(); };
-            _timelinesLock = LockLine("Créez d'abord un système temporel (étape 1) : une frise écrit ses dates dans la notation d'un système.");
+            var toAstrolabe = Buttons.IconText("pile-frises", "Ouvrir l'Astrolabe", "Les systèmes temporels et les mondes", Buttons.Compact, Buttons.Look.Outline);
+            toAstrolabe.Tag = "hub-to-astrolabe";
+            toAstrolabe.HorizontalAlignment = HorizontalAlignment.Left;
+            toAstrolabe.Margin = new Thickness(0, 8, 0, 0);
+            toAstrolabe.Click += delegate { var h = OtherPageRequested; if (h != null) h(); };
+            var lockText = LockLine("Créez d'abord un système temporel dans l'Astrolabe : une frise écrit ses dates dans la notation d'un système.");
+            lockText.IsVisible = true;
+            var lockBox = new StackPanel { IsVisible = false };
+            lockBox.Children.Add(lockText);
+            lockBox.Children.Add(toAstrolabe);
+            _timelinesLock = lockBox;
+            _parallel = Buttons.IconText("frise", "Parallélisme", "Superposer deux frises du même système : leurs années alignées, l'une sous l'autre", Buttons.Compact, Buttons.Look.Outline);
+            _parallel.Tag = "hub-parallel";
+            _parallel.Margin = new Thickness(6, 8, 0, 0);
+            _parallel.Click += delegate { var h = ParallelRequested; if (h != null) h(); };
+            var timelineButtons = new StackPanel { Orientation = Orientation.Horizontal };
+            timelineButtons.Children.Add(_newTimeline);
+            timelineButtons.Children.Add(_parallel);
             var timelinesColumn = new StackPanel();
-            timelinesColumn.Children.Add(Heading("2", "Frises", "Les chronologies : chaque frise pose ses événements sur un système temporel.", out _stepTimelines));
+            _stepTimelines = AstrolabeUi.Step("", false);
             timelinesColumn.Children.Add(_timelines);
             timelinesColumn.Children.Add(_timelinesLock);
-            timelinesColumn.Children.Add(_newTimeline);
+            timelinesColumn.Children.Add(timelineButtons);
 
-            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("2*,28,3*") };
-            Grid.SetColumn(timelinesColumn, 2);
-            grid.Children.Add(systemsColumn);
-            grid.Children.Add(timelinesColumn);
             var page = new StackPanel { Margin = new Thickness(20, 16, 20, 16) };
-            page.Children.Add(chainBox);
-            page.Children.Add(grid);
+            if (chronology)
+            {
+                timelinesColumn.MaxWidth = 900;
+                timelinesColumn.HorizontalAlignment = HorizontalAlignment.Left;
+                page.Children.Add(timelinesColumn);
+            }
+            else
+            {
+                // Côté Astrolabe : où sont passées les frises.
+                var toChronology = Buttons.IconText("pile-chronologie", "Ouvrir la Chronologie", "Les frises du projet", Buttons.Compact, Buttons.Look.Outline);
+                toChronology.Tag = "hub-to-chronology";
+                toChronology.HorizontalAlignment = HorizontalAlignment.Left;
+                toChronology.Margin = new Thickness(0, 8, 0, 0);
+                toChronology.Click += delegate { var h = OtherPageRequested; if (h != null) h(); };
+                var elsewhere = new StackPanel { Margin = new Thickness(0, 22, 0, 0) };
+                elsewhere.Children.Add(AstrolabeUi.Notice("Les frises ont leur propre racine dans la Pile : « Chronologie ». Elles s'appuient toujours sur les systèmes d'ici.", false, "hub-elsewhere"));
+                elsewhere.Children.Add(toChronology);
+                systemsColumn.Children.Add(elsewhere);
+                var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,28,*") };
+                Grid.SetColumn(worldsColumn, 2);
+                grid.Children.Add(systemsColumn);
+                grid.Children.Add(worldsColumn);
+                page.Children.Add(chainBox);
+                page.Children.Add(grid);
+            }
             Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = page });
         }
 
@@ -182,10 +227,8 @@ namespace Marabook.App
             SetStep(_stepTimelines, all.Count > 0);
             SetStep(_stepWorlds, _project.Worlds.Count > 0);
             ChainNode("1", "Système temporel", hasSystem ? TimeSystem.Count(_project.TimeSystems.Count, "système", "systèmes") : "à créer en premier", hasSystem, true);
-            ChainArrow("porte");
-            ChainNode("2", "Frises", all.Count > 0 ? TimeSystem.Count(all.Count, "frise", "frises") : hasSystem ? "aucune pour l'instant" : "bloqué sans système", all.Count > 0, hasSystem);
             ChainArrow("et, au choix");
-            ChainNode("3", "Monde", _project.Worlds.Count > 0 ? TimeSystem.Count(_project.Worlds.Count, "monde", "mondes") : hasSystem ? "facultatif" : "bloqué sans système", _project.Worlds.Count > 0, hasSystem);
+            ChainNode("2", "Monde",_project.Worlds.Count > 0 ? TimeSystem.Count(_project.Worlds.Count, "monde", "mondes") : hasSystem ? "facultatif" : "bloqué sans système", _project.Worlds.Count > 0, hasSystem);
             _chain.Children.Add(new TextBlock
             {
                 Text = "Le système temporel est le point de référence : le modifier relit toutes les dates qui s'y appuient.",
@@ -197,6 +240,7 @@ namespace Marabook.App
             _newWorld.IsEnabled = hasSystem;
             _timelinesLock.IsVisible = !hasSystem;
             _worldsLock.IsVisible = !hasSystem;
+            _parallel.IsEnabled = ParallelPossible(_project);
             _ourSystem.IsVisible = !_project.TimeSystems.Exists(delegate(TimeSystem s) { return s.Name == TimeSystem.GregorianName; });
 
             foreach (var system in _project.TimeSystems) _systems.Children.Add(SystemCard(system));
@@ -204,7 +248,9 @@ namespace Marabook.App
                 _systems.Children.Add(Empty("Aucun système temporel. Commencez ici : prenez le calendrier de notre monde tel quel, ou composez le vôtre — ses mois, ses ères, sa notation."));
             foreach (var timeline in all) _timelines.Children.Add(TimelineRow(timeline));
             if (all.Count == 0 && hasSystem)
-                _timelines.Children.Add(Empty("Aucune frise pour l'instant. « Nouvelle frise » vous demandera sur quel système temporel la poser."));
+                _timelines.Children.Add(Empty("Aucune frise pour l'instant. « Nouvelle frise » vous demandera sur quel système temporel la poser — et si elle couvre toute sa durée ou un fragment seulement."));
+            if (all.Count == 0 && !hasSystem && _chronology)
+                _timelines.Children.Add(Empty("Aucune frise : il faut d'abord dire comment le temps se compte."));
             foreach (var world in _project.Worlds) _worlds.Children.Add(WorldCard(world));
             if (_project.Worlds.Count == 0 && hasSystem)
                 _worlds.Children.Add(Empty("Aucun monde. Un monde donne aux calendriers qui y vivent leurs saisons, leurs lunes, leurs éclipses — et sa taille."));
@@ -260,7 +306,7 @@ namespace Marabook.App
             top.Children.Add(name);
             body.Children.Add(top);
             // Sur quoi elle repose, dit comme une dépendance.
-            body.Children.Add(new TextBlock { Text = "Posée sur « " + system.Name + " »  ·  " + TimeSystemDialog.Summary(system), Foreground = Chrome.SoftText, FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 3, 0, 6) });
+            body.Children.Add(new TextBlock { Text = "Posée sur « " + system.Name + " »  ·  " + (timeline.Timeline.HasFragment ? "fragment : " + Timelines.FragmentLabel(system, timeline.Timeline) : "toute sa durée") + "  ·  " + TimeSystemDialog.Summary(system), Foreground = Chrome.SoftText, FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 3, 0, 6) });
             body.Children.Add(new Strip(system, timeline.Timeline, events, stats) { Height = 26 });
             var row = new Border
             {
@@ -363,12 +409,23 @@ namespace Marabook.App
             };
         }
 
+        /// <summary>Deux frises au moins partagent-elles un système (de quoi les mettre en parallèle) ?</summary>
+        internal static bool ParallelPossible(Project project)
+        {
+            var seen = new HashSet<string>();
+            foreach (var timeline in Timelines.All(project))
+                if (!seen.Add(Timelines.SystemOf(project, timeline).Id)) return true;
+            return false;
+        }
+
+        internal bool ChronologyForProbe { get { return _chronology; } }
+        internal bool ParallelEnabledForProbe { get { return _parallel.IsEnabled; } }
         internal int TimelineRowsForProbe { get { var n = 0; foreach (var child in _timelines.Children) if (Equals((child as Control).Tag, "hub-timeline")) n++; return n; } }
         internal int WorldCardsForProbe { get { var n = 0; foreach (var child in _worlds.Children) if (Equals((child as Control).Tag, "hub-world")) n++; return n; } }
         internal int SystemCardsForProbe { get { var n = 0; foreach (var child in _systems.Children) if (Equals((child as Control).Tag, "hub-system")) n++; return n; } }
         internal bool NewTimelineEnabledForProbe { get { return _newTimeline.IsEnabled; } }
         internal bool NewWorldEnabledForProbe { get { return _newWorld.IsEnabled; } }
-        internal bool LocksShownForProbe { get { return _timelinesLock.IsVisible && _worldsLock.IsVisible; } }
+        internal bool LocksShownForProbe { get { return _chronology ? _timelinesLock.IsVisible : _worldsLock.IsVisible; } }
         internal int ChainNodesForProbe { get { var n = 0; foreach (var child in _chain.Children) if (Equals((child as Control).Tag, "hub-chain-node")) n++; return n; } }
         internal bool OurSystemOfferedForProbe { get { return _ourSystem.IsVisible; } }
         internal void AddOurSystemForProbe() { var h = OurSystemRequested; if (h != null) h(); }

@@ -177,7 +177,7 @@ namespace Marabook.Tests
         private static void Astrolabe(Harness t)
         {
             var project = Project.CreateNew();
-            t.Equal("Astrolabe", project.Category(Project.KeyTimelines).Title, "un projet neuf : la racine des frises s'appelle « Astrolabe »");
+            t.Equal("Chronologie", project.Category(Project.KeyTimelines).Title, "un projet neuf : la racine des frises s'appelle « Chronologie » (16/11 : les frises sont sorties de l'Astrolabe)");
             // Un projet d'avant, dont la racine s'appelait « Frises », est relu « Astrolabe ».
             project.Category(Project.KeyTimelines).Title = "Frises";
             var dir = Path.Combine(Path.GetTempPath(), "marabook-c67-" + Guid.NewGuid().ToString("N"));
@@ -187,7 +187,7 @@ namespace Marabook.Tests
                 var path = Path.Combine(dir, "avant.plot");
                 PlotFile.Save(project, path);
                 var loaded = PlotFile.Load(path);
-                t.Equal("Astrolabe", loaded.Category(Project.KeyTimelines).Title, "un .plot dont la racine s'appelait « Frises » : relu « Astrolabe »");
+                t.Equal("Chronologie", loaded.Category(Project.KeyTimelines).Title, "un .plot dont la racine s'appelait « Frises » : relu « Chronologie »");
                 t.Equal(Project.KeyTimelines, loaded.Category(Project.KeyTimelines).CategoryKey, "…la clé de la racine ne change pas (rien à migrer dans le fichier)");
             }
             finally { try { Directory.Delete(dir, true); } catch (Exception) { } }
