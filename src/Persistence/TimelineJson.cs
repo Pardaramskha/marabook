@@ -84,6 +84,35 @@ namespace Marabook.Persistence
 
         // -------------------------------------------------------------- mondes
 
+        /// <summary>L'allure d'un astre (lot 14) : rien n'est écrit tant qu'elle est celle d'office.</summary>
+        private static void WriteLook(Dictionary<string, object> node, BodyLook look)
+        {
+            if (look == null || look.IsDefault) return;
+            var l = new Dictionary<string, object>();
+            if (!string.IsNullOrEmpty(look.Accent)) l["accent"] = look.Accent;
+            if (Math.Abs(look.Distance - BodyLook.MoonDistance) > 1e-6) l["distance"] = look.Distance;
+            if (look.Rings) l["rings"] = true;
+            if (!string.IsNullOrEmpty(look.RingColor)) l["ringColor"] = look.RingColor;
+            if (Math.Abs(look.RingSize - 1) > 1e-9) l["ringSize"] = look.RingSize;
+            if (Math.Abs(look.Tilt) > 1e-9) l["tilt"] = look.Tilt;
+            node["look"] = l;
+        }
+
+        private static BodyLook ReadLook(object node)
+        {
+            var look = new BodyLook();
+            var l = Json.AsObject(node);
+            if (l == null) return look;
+            look.Accent = Json.AsString(Json.Field(l, "accent"));
+            var distance = Json.AsDouble(Json.Field(l, "distance"), BodyLook.MoonDistance);
+            look.Distance = distance > 0 && !double.IsInfinity(distance) ? distance : BodyLook.MoonDistance;
+            look.Rings = Json.AsBool(Json.Field(l, "rings"), false);
+            look.RingColor = Json.AsString(Json.Field(l, "ringColor"));
+            look.RingSize = Math.Max(0.2, Math.Min(4, Json.AsDouble(Json.Field(l, "ringSize"), 1)));
+            look.Tilt = Math.Max(-90, Math.Min(90, Json.AsDouble(Json.Field(l, "tilt"), 0)));
+            return look;
+        }
+
         /// <summary>Les mondes de l'Astrolabe dans le manifeste (« worlds », 14/11).</summary>
         public static List<object> BuildWorlds(List<World> worlds)
         {
@@ -96,6 +125,7 @@ namespace Marabook.Persistence
                 if (world.Circumference > 0) o["circumference"] = world.Circumference;
                 if (world.AxialTilt >= 0) o["axialTilt"] = world.AxialTilt;
                 if (world.SolarYear > 0) o["solarYear"] = world.SolarYear;
+                WriteLook(o, world.Look);
                 if (world.CustomGuides) // lot 13 : les marqueurs de navigation personnalisés
                 {
                     var guides = new List<object>();
@@ -137,6 +167,7 @@ namespace Marabook.Persistence
                         if (!string.IsNullOrEmpty(sun.OrbitId)) u["orbit"] = sun.OrbitId;
                         if (Math.Abs(sun.Size - 1) > 1e-9) u["size"] = sun.Size;
                         if (!string.IsNullOrEmpty(sun.Color)) u["color"] = sun.Color;
+                        WriteLook(u, sun.Look);
                         suns.Add(u);
                     }
                     o["suns"] = suns;
@@ -148,6 +179,7 @@ namespace Marabook.Persistence
                     {
                         var m = new Dictionary<string, object>();
                         m["id"] = moon.Id;
+                        WriteLook(m, moon.Look);
                         m["name"] = moon.Name ?? "";
                         m["period"] = moon.Period;
                         m["fullAt"] = moon.FullAt;
@@ -211,6 +243,7 @@ namespace Marabook.Persistence
                 world.Circumference = Math.Max(0, Json.AsDouble(Json.Field(o, "circumference"), 0));
                 world.AxialTilt = Json.AsDouble(Json.Field(o, "axialTilt"), -1);
                 world.SolarYear = Math.Max(0, Json.AsDouble(Json.Field(o, "solarYear"), 0));
+                world.Look = ReadLook(Json.Field(o, "look"));
                 var guideList = Json.AsList(Json.Field(o, "guides"));
                 if (guideList != null)
                 {
@@ -252,6 +285,7 @@ namespace Marabook.Persistence
                         var sunId = Json.AsString(Json.Field(u, "id"));
                         if (!string.IsNullOrEmpty(sunId)) sun.Id = sunId;
                         sun.Size = Math.Max(0.0001, Json.AsDouble(Json.Field(u, "size"), 1));
+                        sun.Look = ReadLook(Json.Field(u, "look"));
                         var sunOrbit = Json.AsString(Json.Field(u, "orbit"));
                         sun.OrbitId = string.IsNullOrEmpty(sunOrbit) ? null : sunOrbit;
                         // Les mondes d'avant le 16/11 : un compagnon à période tournait déjà autour du premier soleil, sans le dire.
@@ -274,6 +308,7 @@ namespace Marabook.Persistence
                         var moonOrbit = Json.AsString(Json.Field(m, "orbit"));
                         moon.OrbitId = string.IsNullOrEmpty(moonOrbit) ? null : moonOrbit;
                         moon.Eclipses = Math.Max(0, Math.Min(2, Json.AsInt(Json.Field(m, "eclipses"), Astro.EclipseSeasons)));
+                        moon.Look = ReadLook(Json.Field(m, "look"));
                         world.Moons.Add(moon);
                     }
                 var planetList = Json.AsList(Json.Field(o, "planets"));

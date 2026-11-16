@@ -32,6 +32,38 @@ namespace Marabook.Tests
             Guides(t);
             SeasonBlend(t);
             MapMemory(t);
+            t.Suite("C76 — lot 14 : l'allure d'un astre (accent, distance, anneaux, inclinaison)");
+            Looks(t);
+        }
+
+        /// <summary>Lot 14 (16/11) : personnaliser un soleil, un satellite, le monde.</summary>
+        private static void Looks(Harness t)
+        {
+            var look = new BodyLook();
+            t.Check(look.IsDefault && look.Distance == 384400 && !look.Rings && look.RingSize == 1 && look.Tilt == 0 && look.Accent == null, "l'allure d'office : sans accent ni anneaux, à la distance de la Terre à la Lune");
+            t.Equal("1 × la distance de la Terre à la Lune", BodyLook.DistanceLabel(384400), "la distance, dite en fois la nôtre");
+            t.Equal("2,5 × la distance de la Terre à la Lune", BodyLook.DistanceLabel(961000), "…deux fois et demie");
+            var world = World.Earth();
+            t.Check(world.Look.IsDefault && world.Suns[0].Look.IsDefault && world.Moons[0].Look.IsDefault, "notre monde, son Soleil et sa Lune ont l'allure d'office");
+            var plain = TimelineJson.BuildWorlds(new List<World> { world })[0] as Dictionary<string, object>;
+            var plainSun = (plain["suns"] as List<object>)[0] as Dictionary<string, object>;
+            var plainMoon = (plain["moons"] as List<object>)[0] as Dictionary<string, object>;
+            t.Check(!plain.ContainsKey("look") && !plainSun.ContainsKey("look") && !plainMoon.ContainsKey("look"), "d'office : rien de plus dans le manifeste (un .plot d'avant se relit tel quel)");
+
+            world.Look = new BodyLook { Accent = "#6FC3C0", Rings = true, RingColor = "#E7E3D8", RingSize = 1.4 };
+            world.Suns[0].Look = new BodyLook { Accent = "#D9503A", Tilt = 12 };
+            world.Moons[0].Look = new BodyLook { Distance = 768800, Tilt = 5.1, Rings = true };
+            t.Check(!world.Look.IsDefault && !world.Suns[0].Look.IsDefault && !world.Moons[0].Look.IsDefault, "personnalisés, ils ne sont plus « d'office »");
+            var copy = world.Clone();
+            copy.Look.Rings = false;
+            copy.Moons[0].Look.Distance = 1;
+            t.Check(world.Look.Rings && world.Moons[0].Look.Distance == 768800 && copy.Suns[0].Look.Accent == "#D9503A" && !ReferenceEquals(copy.Suns[0].Look, world.Suns[0].Look), "une copie du monde emporte les allures, sans les partager");
+            var back = TimelineJson.ReadWorlds(Json.Parse(Json.Write(TimelineJson.BuildWorlds(new List<World> { world }))))[0];
+            t.Check(back.Look.Accent == "#6FC3C0" && back.Look.Rings && back.Look.RingColor == "#E7E3D8" && Math.Abs(back.Look.RingSize - 1.4) < 1e-9, "le monde relu : son accent, ses anneaux, leur couleur, leur ampleur");
+            t.Check(back.Suns[0].Look.Accent == "#D9503A" && back.Suns[0].Look.Tilt == 12 && !back.Suns[0].Look.Rings, "son soleil : l'accent du halo, l'inclinaison de l'axe");
+            t.Check(back.Moons[0].Look.Distance == 768800 && back.Moons[0].Look.Tilt == 5.1 && back.Moons[0].Look.Rings && back.Moons[0].Look.Accent == null, "son satellite : la distance, l'inclinaison de l'orbite, les anneaux");
+            var odd = TimelineJson.ReadWorlds(Json.Parse("[{\"id\":\"w\",\"name\":\"X\",\"look\":{\"ringSize\":99,\"tilt\":400,\"distance\":-5}}]"))[0];
+            t.Check(odd.Look.RingSize == 4 && odd.Look.Tilt == 90 && odd.Look.Distance == 384400, "des valeurs folles dans le fichier sont ramenées dans leurs bornes");
         }
 
         /// <summary>Lot 13 (16/11) : les marqueurs de navigation — par défaut d'après l'inclinaison, ou ceux de l'auteur.</summary>

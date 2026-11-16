@@ -88,7 +88,8 @@ namespace Marabook.App
             }
             root.Children.Add(TimelineUi.Label("Nom du monde :", 0));
             _name = new TextBox { Text = world.Name };
-            root.Children.Add(_name);
+            root.Children.Add(WithLook(_name, delegate { return _world.Look; }, delegate(BodyLook look) { _world.Look = look; }, BodyLookDialog.WorldKind,
+                delegate { return (_name.Text ?? "").Trim().Length == 0 ? "Monde" : _name.Text.Trim(); }));
 
             // Les calendriers du monde, en PUCES : on choisit dans la liste, « Ajouter »
             // en fait une puce et le sort de la liste ; la croix de la puce l'y remet.
@@ -260,19 +261,19 @@ namespace Marabook.App
             moonBody.Children.Add(moonHead);
             _moons = new StackPanel { Spacing = 6 };
             moonBody.Children.Add(_moons);
-            var addMoon = Buttons.IconText("plus-bold", "Ajouter une lune", null, Buttons.Compact, Buttons.Look.Outline);
+            var addMoon = Buttons.IconText("plus-bold", "Ajouter un satellite", null, Buttons.Compact, Buttons.Look.Outline);
             addMoon.HorizontalAlignment = HorizontalAlignment.Left;
             addMoon.Margin = new Thickness(0, 8, 0, 0);
             addMoon.Click += delegate { Collect(); _world.Moons.Add(new Moon { Name = "", Period = 29.53, FullAt = 0 }); RebuildMoons(); Preview(); };
             moonBody.Children.Add(addMoon);
-            moons.Children.Add(AstrolabeUi.Section("Les lunes", "La période va d'une pleine lune à la suivante ; la date d'une pleine lune, écrite dans le calendrier de référence, cale toutes les autres. Une lune orbite le monde — ou une autre lune.", moonBody, "world-section-moons"));
+            moons.Children.Add(AstrolabeUi.Section("Les satellites", "Les lunes et autres satellites du monde. La période va d'une pleine lune à la suivante ; la date d'une pleine lune, écrite dans le calendrier de référence, cale toutes les autres. Une lune orbite le monde — ou une autre lune.", moonBody, "world-section-moons"));
             var moonSky = new StackPanel();
             _moonBehaviors = new StackPanel { Tag = "world-moon-behaviors" };
             moonSky.Children.Add(_moonBehaviors);
             _moonEcho = new TextBlock { Foreground = Chrome.Ink, FontSize = 12, TextWrapping = TextWrapping.Wrap, Tag = "world-moons-echo" };
             moonSky.Children.Add(_moonEcho);
             moons.Children.Add(AstrolabeUi.Section("Ce que ce ciel déclenche", "Éclipses, lunes rousses, lunes bleues, lunes pleines ensemble : ce que vos lunes provoquent, et quand.", moonSky, "world-section-moon-sky"));
-            tabs.Items.Add(new TabItem { Header = "Lunes", Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = moons } });
+            tabs.Items.Add(new TabItem { Header = "Satellites", Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = moons } });
 
             // --------------------------------------------------------- phénomènes
             // LES PHÉNOMÈNES PERSONNALISÉS (16/11, Rémi) : ce qui revient dans le ciel à
@@ -603,7 +604,7 @@ namespace Marabook.App
         }
 
         private static string SunName(Sun sun, int index) { return string.IsNullOrEmpty(sun.Name) ? "Soleil " + (index + 1) : sun.Name; }
-        private static string MoonName(Moon moon, int index) { return string.IsNullOrEmpty(moon.Name) ? "Lune " + (index + 1) : moon.Name; }
+        private static string MoonName(Moon moon, int index) { return string.IsNullOrEmpty(moon.Name) ? "Satellite " + (index + 1) : moon.Name; }
 
         private List<Sun> OtherSuns(Sun sun)
         {
@@ -663,6 +664,30 @@ namespace Marabook.App
             _building = was;
         }
 
+        /// <summary>PERSONNALISER L'ASTRE (lot 14, Rémi : « bouton à côté du nom ») : le champ du nom, et à sa
+        /// droite le bouton qui ouvre l'allure de l'astre — accent, anneaux, inclinaison, distance d'un satellite.</summary>
+        private Control WithLook(TextBox name, Func<BodyLook> current, Action<BodyLook> apply, int kind, Func<string> title)
+        {
+            var button = Buttons.Text("Personnaliser…", kind == BodyLookDialog.WorldKind ? "L'allure du monde sur le globe : la teinte de son atmosphère, ses anneaux"
+                : kind == BodyLookDialog.SunKind ? "L'allure de ce soleil : la couleur de son halo, ses anneaux, l'inclinaison de son axe"
+                : "L'allure de ce satellite : sa distance, ses anneaux, l'inclinaison de son orbite", Buttons.Compact, Buttons.Look.Outline);
+            button.Tag = kind == BodyLookDialog.WorldKind ? "world-look" : kind == BodyLookDialog.SunKind ? "world-sun-look" : "world-moon-look";
+            button.Margin = new Thickness(6, 0, 0, 0);
+            button.VerticalAlignment = VerticalAlignment.Center;
+            button.Click += async delegate
+            {
+                var look = current();
+                if (look == null) return;
+                var edited = await BodyLookDialog.Ask(this, kind, title(), look.Clone());
+                if (edited != null) apply(edited);
+            };
+            var row = new DockPanel();
+            DockPanel.SetDock(button, Dock.Right);
+            row.Children.Add(button);
+            row.Children.Add(name);
+            return row;
+        }
+
         private void RebuildSuns()
         {
             var was = _building;
@@ -673,6 +698,7 @@ namespace Marabook.App
             {
                 var sun = _world.Suns[i];
                 var name = new TextBox { Text = sun.Name, Watermark = "Nom du soleil" };
+                var lookSun = sun;
                 // SA TAILLE (16/11 soir, Rémi) : en « fois notre Soleil » — ce qui décide de ses éclipses solaires pures.
                 var sizeWord = Word("Taille ×");
                 sizeWord.Margin = new Thickness(0);
@@ -706,7 +732,7 @@ namespace Marabook.App
                 Grid.SetRow(role, 1);
                 Grid.SetColumnSpan(role, 9);
                 var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,10,Auto,6,62,8,240,8,26"), RowDefinitions = new RowDefinitions("Auto,Auto") };
-                grid.Children.Add(name);
+                grid.Children.Add(WithLook(name, delegate { Collect(); return _world.Suns.Contains(lookSun) ? lookSun.Look : null; }, delegate(BodyLook look) { lookSun.Look = look; Preview(); }, BodyLookDialog.SunKind, delegate { return SunName(lookSun, _world.Suns.IndexOf(lookSun)); }));
                 grid.Children.Add(sizeWord);
                 grid.Children.Add(size);
                 grid.Children.Add(orbit);
@@ -904,7 +930,8 @@ namespace Marabook.App
             for (var i = 0; i < _world.Moons.Count; i++)
             {
                 var moon = _world.Moons[i];
-                var name = new TextBox { Text = moon.Name, Watermark = "Nom de la lune" };
+                var name = new TextBox { Text = moon.Name, Watermark = "Nom du satellite" };
+                var lookMoon = moon;
                 var period = new TextBox { Text = Show(moon.Period) };
                 Grid.SetColumn(period, 2);
                 var full = new TextBox { Text = reference.Format(TimeMath.FromDayNumber(reference, (long)Math.Floor(moon.FullAt))), Watermark = reference.Format(new TimePoint(0, 1, 1)) };
@@ -925,7 +952,7 @@ namespace Marabook.App
                 Grid.SetRow(second, 1);
                 Grid.SetColumnSpan(second, 7);
                 var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,8,100,8,190,8,26"), RowDefinitions = new RowDefinitions("Auto,Auto") };
-                grid.Children.Add(name);
+                grid.Children.Add(WithLook(name, delegate { Collect(); return _world.Moons.Contains(lookMoon) ? lookMoon.Look : null; }, delegate(BodyLook look) { lookMoon.Look = look; Preview(); }, BodyLookDialog.MoonKind, delegate { return MoonName(lookMoon, _world.Moons.IndexOf(lookMoon)); }));
                 grid.Children.Add(period);
                 grid.Children.Add(full);
                 grid.Children.Add(remove);
@@ -947,7 +974,7 @@ namespace Marabook.App
                 _moons.Children.Add(Card(grid, new object[] { moon, name, period, full, orbit, eclipses }, "moon"));
             }
             _moonHead.IsVisible = _world.Moons.Count > 0;
-            if (_world.Moons.Count == 0) _moons.Children.Add(new TextBlock { Text = "Aucune lune.", Foreground = Chrome.SoftText, FontSize = 12 });
+            if (_world.Moons.Count == 0) _moons.Children.Add(new TextBlock { Text = "Aucun satellite.", Foreground = Chrome.SoftText, FontSize = 12 });
             _building = was;
             FillMoonOrbits();
         }

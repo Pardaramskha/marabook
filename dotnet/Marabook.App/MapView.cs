@@ -33,6 +33,7 @@ namespace Marabook.App
         private readonly TextBlock _hint, _zoomLabel, _viewLabel;
         private readonly Border _viewRule;
         private readonly ToggleButton _flat, _globe;
+        private ToggleButton _animate;
         private readonly Dictionary<MapCanvas.Tool, ToggleButton> _tools = new Dictionary<MapCanvas.Tool, ToggleButton>();
         private readonly TextBlock _empty;
         private BinderItem _item;
@@ -118,6 +119,12 @@ namespace Marabook.App
             _globe.Click += delegate { SetViewMode(Maps.ViewGlobe); };
             bar.Children.Add(_flat);
             bar.Children.Add(_globe);
+            // « Animer » (lot 14) : au globe seulement — les jours et les ans passent.
+            _animate = Buttons.TextToggle("Animer", "Faire passer lentement les jours et les ans : le jour tourne, les saisons et les astres suivent. Tant que l'animation court, « Jour, nuit et saisons » ne se règle pas à la main.", Buttons.Compact);
+            _animate.Tag = "map-animate";
+            _animate.Margin = new Thickness(10, 0, 0, 0);
+            _animate.Click += delegate { SetAnimation(_animate.IsChecked == true); };
+            bar.Children.Add(_animate);
             _viewRule = new Border { Width = 1, Background = Chrome.Border, Margin = new Thickness(12, 2, 12, 2) };
             bar.Children.Add(_viewRule);
             bar.Children.Add(new TextBlock { Text = "Outil :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
@@ -225,30 +232,180 @@ namespace Marabook.App
             var noon = Maps.NoonLongitude(_dayFraction);
             var declination = Declination;
             var day = _dayOfYear + _dayFraction;
-            Func<string, Color, Color> tint = delegate(string hex, Color fallback) { Color parsed; return Color.TryParse(hex, out parsed) ? parsed : fallback; };
+            Func<string, Color, Color> tint = delegate(string hex, Color fallback) { Color parsed; return !string.IsNullOrEmpty(hex) && Color.TryParse(hex, out parsed) ? parsed : fallback; };
+            Func<Color, Color> pale = delegate(Color c) { return Color.FromRgb((byte)(c.R + (255 - c.R) * 0.45), (byte)(c.G + (255 - c.G) * 0.45), (byte)(c.B + (255 - c.B) * 0.45)); };
+            Action<MapCanvas.SkyDot, BodyLook> dress = delegate(MapCanvas.SkyDot dot, BodyLook look)
+            {
+                dot.Accent = tint(look.Accent, dot.Color);
+                dot.Rings = look.Rings;
+                dot.RingColor = tint(look.RingColor, pale(dot.Color));
+                dot.RingSize = Math.Max(0.2, Math.Min(4, look.RingSize));
+                dot.Tilt = look.Tilt;
+            };
             var gold = Color.FromRgb(0xF5, 0xC5, 0x42);
-            if (world.Suns.Count == 0) list.Add(new MapCanvas.SkyDot { Longitude = noon, Latitude = declination, Color = gold, Size = 11, Sun = true });
+            if (world.Suns.Count == 0) list.Add(new MapCanvas.SkyDot { Longitude = noon, Latitude = declination, Color = gold, Accent = gold, Size = 11, Sun = true });
+
+            // LES SOLEILS. Un soleil « centrique » est au centre du système : vu du monde, c'est lui qui fait le
+            // midi (plusieurs : serrés côte à côte). Un soleil qui ORBITE tourne autour du sien (lot 14, bug
+            // « Elh tourne autour d'Ehnmir ») : en orbite rapprochée, il ne s'en écarte jamais, il oscille de
+            // part et d'autre ; en orbite lointaine (au-delà du monde), il fait le tour du ciel, à l'opposé du
+            // premier quand il culmine à minuit.
+            var bySun = new Dictionary<string, MapCanvas.SkyDot>();
+            var centric = 0;
             for (var i = 0; i < world.Suns.Count; i++)
             {
                 var sun = world.Suns[i];
-                var size = 11 * Math.Max(0.6, Math.Min(2, sun.Size <= 0 ? 1 : Math.Sqrt(sun.Size)));
-                var dot = new MapCanvas.SkyDot { Color = tint(Astro.ColorOf(sun, i), gold), Size = size, Sun = true, Name = sun.Name };
-                if (i == 0) { dot.Longitude = noon; dot.Latitude = declination; }
-                else if (sun.Period > 0) { dot.Longitude = noon + Math.PI + 2 * Math.PI * Astro.SunPhase(sun, day); dot.Latitude = -declination * Math.Cos(2 * Math.PI * Astro.SunPhase(sun, day)); }
-                else { dot.Longitude = noon + 0.17 * i; dot.Latitude = declination + 0.05 * i; }
+                if (sun.OrbitId != null) continue;
+                var dot = new MapCanvas.SkyDot { Color = tint(Astro.ColorOf(sun, i), gold), Size = SunSize(sun), Sun = true, Name = sun.Name, Longitude = noon + 0.17 * centric, Latitude = declination + 0.05 * centric };
+                dress(dot, sun.Look);
+                centric++;
+                bySun[sun.Id] = dot;
                 list.Add(dot);
             }
-            for (var i = 0; i < world.Moons.Count; i++)
-            {
-                var moon = world.Moons[i];
-                var phase = Astro.Phase(moon, day);
-                list.Add(new MapCanvas.SkyDot
+            // Deux passes : un soleil peut tourner autour d'un soleil qui orbite lui-même.
+            for (var pass = 0; pass < 3; pass++)
+                for (var i = 0; i < world.Suns.Count; i++)
                 {
-                    Longitude = noon + Math.PI + 2 * Math.PI * phase, Latitude = Math.Max(-1.4, Math.Min(1.4, -declination * Math.Cos(2 * Math.PI * phase) + 0.07 * i)),
-                    Color = tint(Astro.ColorOf(moon, i), Color.FromRgb(0xD8, 0xDC, 0xE6)), Size = 6.5, Lit = Astro.Illumination(phase), Name = moon.Name
-                });
-            }
+                    var sun = world.Suns[i];
+                    if (sun.OrbitId == null || bySun.ContainsKey(sun.Id)) continue;
+                    MapCanvas.SkyDot parent;
+                    if (!bySun.TryGetValue(sun.OrbitId, out parent))
+                    {
+                        if (pass < 2) continue;
+                        parent = new MapCanvas.SkyDot { Longitude = noon, Latitude = declination };
+                    }
+                    var angle = 2 * Math.PI * (sun.Period > 0 ? Astro.SunPhase(sun, day) : 0.2 + 0.3 * i);
+                    var lean = sun.Look.Tilt * Math.PI / 180;
+                    var dot = new MapCanvas.SkyDot { Color = tint(Astro.ColorOf(sun, i), gold), Size = SunSize(sun), Sun = true, Name = sun.Name };
+                    if (sun.Period <= 0 || Astro.IsInner(world, sun))
+                    {
+                        const double reach = 0.26;   // l'écart le plus grand au soleil autour duquel il tourne
+                        dot.Longitude = parent.Longitude + reach * Math.Sin(angle) * Math.Cos(lean);
+                        dot.Latitude = parent.Latitude + reach * Math.Sin(angle) * Math.Sin(lean) + 0.04 * Math.Cos(angle);
+                    }
+                    else
+                    {
+                        dot.Longitude = parent.Longitude + Math.PI + angle;
+                        dot.Latitude = -parent.Latitude * Math.Cos(angle) + lean * Math.Sin(angle);
+                    }
+                    dot.Latitude = Math.Max(-1.45, Math.Min(1.45, dot.Latitude));
+                    dress(dot, sun.Look);
+                    bySun[sun.Id] = dot;
+                    list.Add(dot);
+                }
+
+            // LES SATELLITES tournent autour du MONDE, à portée de vue du globe : pleins à l'opposé du soleil,
+            // nouveaux de son côté. Leur distance règle le rayon de l'orbite ; leur inclinaison la penche.
+            var byMoon = new Dictionary<string, MapCanvas.SkyDot>();
+            var zoom = Math.Max(1, Math.Min(2.2, Math.Sqrt(_canvas.ZoomRatio)));
+            for (var pass = 0; pass < 2; pass++)
+                for (var i = 0; i < world.Moons.Count; i++)
+                {
+                    var moon = world.Moons[i];
+                    if ((moon.OrbitId != null) != (pass == 1) && !(pass == 1 && moon.OrbitId != null)) continue;
+                    if (pass == 0 && moon.OrbitId != null) continue;
+                    var phase = Astro.Phase(moon, day);
+                    var angle = 2 * Math.PI * phase;
+                    var lean = moon.Look.Tilt * Math.PI / 180;
+                    var dot = new MapCanvas.SkyDot
+                    {
+                        Satellite = true, Longitude = noon + Math.PI + angle, Latitude = Math.Max(-1.45, Math.Min(1.45, -declination * Math.Cos(angle) + lean * Math.Sin(angle))),
+                        Color = tint(Astro.ColorOf(moon, i), Color.FromRgb(0xD8, 0xDC, 0xE6)), Size = 6.5 * zoom, Lit = Astro.Illumination(phase), Name = moon.Name,
+                        Orbit = MoonOrbit(moon.Look.Distance), Angle = angle
+                    };
+                    MapCanvas.SkyDot parent;
+                    if (moon.OrbitId != null && byMoon.TryGetValue(moon.OrbitId, out parent)) { dot.Parent = parent; dot.Size *= 0.7; }
+                    dress(dot, moon.Look);
+                    byMoon[moon.Id] = dot;
+                    list.Add(dot);
+                }
             return list;
+        }
+
+        private static double SunSize(Sun sun) { return 11 * Math.Max(0.6, Math.Min(2, sun.Size <= 0 ? 1 : Math.Sqrt(sun.Size))); }
+
+        /// <summary>Le rayon de l'orbite d'un satellite à l'écran, en rayons du globe : la distance Terre–Lune
+        /// (60 rayons terrestres en vrai) est ramenée à 1,9 — et le reste suit, resserré, pour tenir dans la vue.</summary>
+        internal static double MoonOrbit(double km)
+        {
+            var times = km <= 0 ? 1 : km / BodyLook.MoonDistance;
+            return Math.Max(1.25, Math.Min(4.2, 1.3 + 0.6 * Math.Sqrt(times)));
+        }
+
+        // ---- « ANIMER » (lot 14, Rémi : « animer lentement le passage des jours et des ans ») : au globe
+        // seulement. Les heures tournent (un jour en six secondes) et les jours défilent (une année en deux
+        // minutes) ; tant que l'animation court, « Jour, nuit et saisons » ne se règle pas à la main.
+
+        private bool _animating;
+        private Avalonia.Threading.DispatcherTimer _animationTimer;
+        private readonly System.Diagnostics.Stopwatch _animationClock = new System.Diagnostics.Stopwatch();
+        public const double AnimationDaySeconds = 6, AnimationYearSeconds = 120;
+
+        internal bool Animating { get { return _animating; } }
+        internal bool AnimationPossible { get { return GlobeShown && World != null; } }
+
+        internal void SetAnimation(bool on)
+        {
+            if (on && !AnimationPossible) on = false;
+            if (on == _animating) { _animate.IsChecked = _animating; return; }
+            _animating = on;
+            _animate.IsChecked = on;
+            if (on)
+            {
+                _night = true; // sans la nuit, on ne verrait pas le jour tourner
+                _animationClock.Restart();
+                if (AnimateSky)
+                {
+                    if (_animationTimer == null)
+                    {
+                        _animationTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+                        _animationTimer.Tick += delegate
+                        {
+                            if (!_animating || !GlobeShown || !IsEffectivelyVisible) { SetAnimation(false); return; }
+                            var elapsed = _animationClock.Elapsed.TotalSeconds;
+                            _animationClock.Restart();
+                            AdvanceAnimation(Math.Min(0.25, elapsed));
+                        };
+                    }
+                    _animationTimer.Start();
+                }
+            }
+            else
+            {
+                if (_animationTimer != null) _animationTimer.Stop();
+                _dayOfYear = Math.Max(1, Math.Min(Math.Floor(YearDays), Math.Round(_dayOfYear)));
+                RememberState(false);
+            }
+            DescribeTool();
+            RefreshSide();
+            _canvas.InvalidateVisual();
+        }
+
+        /// <summary>Le temps avance de tant de secondes d'animation.</summary>
+        internal void AdvanceAnimation(double seconds)
+        {
+            if (!_animating) return;
+            var year = Math.Max(1, Math.Floor(YearDays));
+            _dayFraction += seconds / AnimationDaySeconds;
+            _dayFraction -= Math.Floor(_dayFraction);
+            _dayOfYear += seconds * year / AnimationYearSeconds;
+            while (_dayOfYear >= year + 1) _dayOfYear -= year;
+            DescribeTool();
+            _canvas.InvalidateVisual();
+        }
+
+        private string AnimationLabel()
+        {
+            var fr = CultureInfo.GetCultureInfo("fr-FR");
+            var system = WorldSystem;
+            var hours = system != null && system.HoursPerDay > 0 ? system.HoursPerDay : 24;
+            var day = (int)Math.Max(1, Math.Floor(_dayOfYear));
+            var text = "Animation : jour " + day.ToString("0", fr) + " de l'année";
+            if (system != null) text += "  ·  " + TimeMath.ShortDayOfYear(system, day);
+            var world = World;
+            var north = Maps.SeasonIndex(world, _dayOfYear, YearDays, false);
+            if (north >= 0) text += "  ·  " + world.Seasons[north].Name + " au nord";
+            return text + "  ·  " + Math.Floor(_dayFraction * hours).ToString("0", fr) + " h au centre de la carte";
         }
 
         // ---- La mémoire de la carte (lot 13, Rémi : « que le logiciel se souvienne des outils et réglages
@@ -277,6 +434,7 @@ namespace Marabook.App
         internal void RememberState(bool now = true)
         {
             if (_item == null) return;
+            if (_animating && !now) return; // l'animation ne s'enregistre pas image par image
             if (!now)
             {
                 if (_stateTimer == null)
@@ -370,6 +528,7 @@ namespace Marabook.App
             if (item.Map == null) item.Map = new MapInfo();
             if (!same)
             {
+                SetAnimationQuietly(false);
                 // On quitte une carte pour une autre : la première garde ses réglages.
                 if (previous != null) { _item = previous; RememberState(); _item = item; }
                 _selectedZone = _selectedMarker = null;
@@ -387,8 +546,18 @@ namespace Marabook.App
             Refresh();
         }
 
+        /// <summary>Arrêter l'animation sans rien redessiner (on est déjà en train de tout relire).</summary>
+        private void SetAnimationQuietly(bool on)
+        {
+            if (on || !_animating) return;
+            _animating = false;
+            if (_animationTimer != null) _animationTimer.Stop();
+            _dayOfYear = Math.Max(1, Math.Round(_dayOfYear));
+        }
+
         public void Clear()
         {
+            SetAnimationQuietly(false);
             RememberState();
             _item = null;
             _canvas.Detach();
@@ -410,6 +579,13 @@ namespace Marabook.App
             _viewLabel.IsVisible = _flat.IsVisible = _globe.IsVisible = _viewRule.IsVisible = map.WholeWorld && map.HasImage;
             _flat.IsChecked = !globe;
             _globe.IsChecked = globe;
+            if (_animating && !AnimationPossible) SetAnimationQuietly(false);
+            _animate.IsVisible = globe;
+            _animate.IsEnabled = AnimationPossible;
+            _animate.IsChecked = _animating;
+            ToolTip.SetTip(_animate, AnimationPossible
+                ? "Faire passer lentement les jours et les ans : le jour tourne, les saisons et les astres suivent. Tant que l'animation court, « Jour, nuit et saisons » ne se règle pas à la main."
+                : "L'animation des jours et des ans demande un monde : liez-en un à la carte (onglet Général).");
             // Le tracé se fait à plat : au globe, les outils se grisent.
             foreach (var pair in _tools)
             {
@@ -481,6 +657,7 @@ namespace Marabook.App
             _hint.Foreground = Chrome.SoftText;
             var map = Map;
             if (map == null || !map.HasImage) { _hint.Text = ""; return; }
+            if (GlobeShown && _animating) { _hint.Text = AnimationLabel(); return; }
             if (GlobeShown) { _hint.Text = "Glisser fait tourner le globe ; la molette l'approche. Le tracé se fait au planisphère."; return; }
             switch (_canvas.CurrentTool)
             {
@@ -941,6 +1118,15 @@ namespace Marabook.App
         {
             if (world == null) { _sky.Children.Add(Line("Le jour, la nuit et les saisons demandent un monde : liez-en un à la carte dans l'onglet Général (les mondes se créent dans l'Astrolabe).")); return; }
             if (!map.WholeWorld) { _sky.Children.Add(Line("Le jour, la nuit et les saisons se dessinent sur la carte du monde entier : cochez « Carte du monde entier » dans l'onglet Général si cette image en est une.")); return; }
+            // Lot 14 : tant que l'animation court, le ciel ne se règle pas à la main.
+            _sky.IsEnabled = !_animating;
+            if (_animating)
+            {
+                var notice = Line("L'animation fait passer les jours et les ans : arrêtez-la (bouton « Animer », au-dessus du globe) pour régler le jour et l'heure à la main.", false);
+                notice.Tag = "map-sky-animating";
+                notice.Margin = new Thickness(0, 0, 0, 10);
+                _sky.Children.Add(notice);
+            }
             AddSky(world, fr);
         }
 
@@ -1232,6 +1418,7 @@ namespace Marabook.App
         internal string ZoomLabelForProbe { get { return _zoomLabel.Text; } }
         internal void SetWorldForProbe(string id, bool whole) { var before = Map.Clone(); Map.WorldId = id; Map.WholeWorld = whole; if (!whole) Map.View = Maps.ViewFlat; Commit(before); }
         internal bool GlobeButtonShownForProbe { get { return _globe.IsVisible; } }
+        internal bool AnimateShownForProbe { get { return _animate.IsVisible; } }
         internal bool ToolCheckedForProbe(MapCanvas.Tool tool) { return _tools[tool].IsChecked == true; }
         internal void SetSeasonHeatForProbe(bool on) { _seasonHeat = on; RememberState(false); RefreshSide(); _canvas.InvalidateVisual(); }
         internal bool SpaceKeyForProbe(bool down, bool pointerOver)

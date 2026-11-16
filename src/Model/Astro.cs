@@ -23,6 +23,39 @@ namespace Marabook.Model
         public string Color; // "#RRGGBB", null = la teinte de son rang
     }
 
+    /// <summary>L'ALLURE D'UN ASTRE (lot 14, 16/11, Rémi : « personnaliser l'astre ») — pour un soleil, un
+    /// satellite ou le monde lui-même : une couleur d'accent (le halo d'un soleil, l'atmosphère du monde),
+    /// des anneaux, une inclinaison (l'axe d'un soleil ; l'orbite d'un satellite, penchée sur celle du
+    /// monde) et, pour un satellite, la distance qui le sépare de l'astre autour duquel il tourne.</summary>
+    public class BodyLook
+    {
+        public const double MoonDistance = 384400;   // km : de la Terre à la Lune, la séparation par défaut
+
+        public string Accent;                 // "#RRGGBB", null = la teinte de l'astre
+        public double Distance = MoonDistance; // km (satellites)
+        public bool Rings;
+        public string RingColor;              // null = la teinte de l'astre, pâlie
+        public double RingSize = 1;           // 1 = des anneaux comme ceux de Saturne, à l'échelle de l'astre
+        public double Tilt;                   // degrés
+
+        public bool IsDefault
+        {
+            get { return string.IsNullOrEmpty(Accent) && Math.Abs(Distance - MoonDistance) < 1e-6 && !Rings && string.IsNullOrEmpty(RingColor) && Math.Abs(RingSize - 1) < 1e-9 && Math.Abs(Tilt) < 1e-9; }
+        }
+
+        public BodyLook Clone()
+        {
+            return new BodyLook { Accent = Accent, Distance = Distance, Rings = Rings, RingColor = RingColor, RingSize = RingSize, Tilt = Tilt };
+        }
+
+        /// <summary>« 1,5 × la distance de la Terre à la Lune ».</summary>
+        public static string DistanceLabel(double km)
+        {
+            var fr = CultureInfo.GetCultureInfo("fr-FR");
+            return (km / MoonDistance).ToString("0.##", fr) + " × la distance de la Terre à la Lune";
+        }
+    }
+
     /// <summary>Une lune : sa période (d'une pleine lune à la suivante, en
     /// jours) et le jour d'une pleine lune de référence.</summary>
     public class Moon
@@ -34,6 +67,7 @@ namespace Marabook.Model
         public string Color;
         public string OrbitId;  // 16/11 : la lune autour de laquelle elle tourne ; null = autour du monde
         public int Eclipses;    // Astro.EclipseSeasons (comme la nôtre), EclipseAlways, EclipseNever
+        public BodyLook Look = new BodyLook(); // lot 14 : accent, distance, anneaux, inclinaison de l'orbite
     }
 
     /// <summary>Un soleil (15/11, Rémi : des systèmes planétaires autres que le
@@ -53,6 +87,7 @@ namespace Marabook.Model
         // Sa taille, en « fois notre Soleil » (son diamètre ; 16/11 soir) : ce qui décide, quand deux
         // soleils passent l'un devant l'autre, si l'éclipse est totale ou annulaire.
         public double Size = 1;
+        public BodyLook Look = new BodyLook(); // lot 14 : accent du halo, anneaux, inclinaison de l'axe
     }
 
     /// <summary>UNE PLANÈTE VOISINE (16/11 soir, Rémi : le Planétarium) : un astre du
@@ -138,6 +173,8 @@ namespace Marabook.Model
     {
         // LES MARQUEURS DE NAVIGATION (lot 13). CustomGuides faux = ceux par défaut, déduits de
         // l'inclinaison (Astro.DefaultGuides) ; vrai = la liste Guides, telle que l'auteur l'a écrite.
+        // L'allure du monde lui-même (lot 14) : l'accent de son atmosphère, ses anneaux.
+        public BodyLook Look = new BodyLook();
         public bool CustomGuides;
         public List<WorldGuide> Guides = new List<WorldGuide>();
         public string Id = Guid.NewGuid().ToString("N");
@@ -166,13 +203,14 @@ namespace Marabook.Model
         public World Clone()
         {
             var copy = new World { Id = Id, Name = Name, Circumference = Circumference, AxialTilt = AxialTilt, SolarYear = SolarYear, ReferenceSystemId = ReferenceSystemId };
-            foreach (var sun in Suns) copy.Suns.Add(new Sun { Id = sun.Id, Name = sun.Name, Period = sun.Period, HighAt = sun.HighAt, Color = sun.Color, OrbitId = sun.OrbitId, Size = sun.Size });
+            foreach (var sun in Suns) copy.Suns.Add(new Sun { Id = sun.Id, Name = sun.Name, Period = sun.Period, HighAt = sun.HighAt, Color = sun.Color, OrbitId = sun.OrbitId, Size = sun.Size, Look = sun.Look.Clone() });
             foreach (var season in Seasons) copy.Seasons.Add(new Season { Id = season.Id, Name = season.Name, StartDay = season.StartDay, Color = season.Color });
-            foreach (var moon in Moons) copy.Moons.Add(new Moon { Id = moon.Id, Name = moon.Name, Period = moon.Period, FullAt = moon.FullAt, Color = moon.Color, OrbitId = moon.OrbitId, Eclipses = moon.Eclipses });
+            foreach (var moon in Moons) copy.Moons.Add(new Moon { Id = moon.Id, Name = moon.Name, Period = moon.Period, FullAt = moon.FullAt, Color = moon.Color, OrbitId = moon.OrbitId, Eclipses = moon.Eclipses, Look = moon.Look.Clone() });
             foreach (var item in Phenomena) copy.Phenomena.Add(new SkyEvent { Id = item.Id, Name = item.Name, Period = item.Period, At = item.At, Color = item.Color });
             foreach (var planet in Planets) copy.Planets.Add(new Planet { Id = planet.Id, Name = planet.Name, Period = planet.Period, At = planet.At, Color = planet.Color });
             copy.Order.AddRange(Order);
             copy.CustomGuides = CustomGuides;
+            copy.Look = Look.Clone();
             foreach (var guide in Guides) copy.Guides.Add(new WorldGuide { Id = guide.Id, Name = guide.Name, Latitude = guide.Latitude, Color = guide.Color });
             return copy;
         }

@@ -585,6 +585,112 @@ namespace Marabook.App
             public bool Sun;
             public double Lit = 1;               // la part éclairée d'une lune
             public string Name;
+            // Lot 14 : l'allure de l'astre, et sa place quand c'est un satellite.
+            public Color Accent;                 // le halo d'un soleil
+            public bool Rings;
+            public Color RingColor;
+            public double RingSize = 1, Tilt;    // Tilt : degrés
+            public bool Satellite;               // il tourne autour du globe, à portée de vue
+            public double Orbit = 2;             // le rayon de son orbite, en rayons du globe
+            public SkyDot Parent;                // un satellite de satellite : il tourne autour de celui-ci
+            public double Angle;                 // …à cet angle
+        }
+
+        /// <summary>Les anneaux d'un astre du ciel : une ellipse penchée de son inclinaison, derrière puis devant lui.</summary>
+        private static void DotRings(DrawingContext context, SkyDot body, Point at, bool front)
+        {
+            if (!body.Rings) return;
+            var rx = body.Size * 2.1 * body.RingSize;
+            var ry = rx * 0.34;
+            var pen = new Pen(new SolidColorBrush(body.RingColor, 0.85), Math.Max(1.2, body.Size * 0.28));
+            using (context.PushTransform(Matrix.CreateTranslation(-at.X, -at.Y) * Matrix.CreateRotation(-body.Tilt * Math.PI / 180) * Matrix.CreateTranslation(at.X, at.Y)))
+            using (context.PushClip(front ? new Rect(at.X - rx - 4, at.Y, rx * 2 + 8, ry + 4) : new Rect(at.X - rx - 4, at.Y - ry - 4, rx * 2 + 8, ry * 2 + 8)))
+                context.DrawEllipse(null, pen, at, rx, ry);
+        }
+
+        private int _satellitesDrawn;
+        internal int SatellitesDrawnForProbe { get { return _satellitesDrawn; } }
+
+        /// <summary>Où est un satellite à l'écran, et s'il passe devant le globe (lot 14) : il tourne autour du
+        /// monde à la distance qu'on lui a donnée — ramenée à une orbite qui tient dans la vue.</summary>
+        internal bool SatellitePoint(SkyDot body, Point centre, double radius, out Point at, out bool front)
+        {
+            if (body.Parent != null)
+            {
+                Point parent;
+                if (!SatellitePoint(body.Parent, centre, radius, out parent, out front)) { at = default(Point); return false; }
+                var reach = body.Parent.Size * 2.6 + 6;
+                at = new Point(parent.X + reach * Math.Cos(body.Angle), parent.Y - reach * 0.5 * Math.Sin(body.Angle));
+                return true;
+            }
+            var l = body.Longitude - _globeLon;
+            double sinP = Math.Sin(_globeLat), cosP = Math.Cos(_globeLat), sinLat = Math.Sin(body.Latitude), cosLat = Math.Cos(body.Latitude);
+            var x = cosLat * Math.Sin(l);
+            var y = cosP * sinLat - sinP * cosLat * Math.Cos(l);
+            var z = sinP * sinLat + cosP * cosLat * Math.Cos(l);
+            var reachOut = radius * body.Orbit;
+            at = new Point(centre.X + reachOut * x, centre.Y - reachOut * y);
+            front = z >= 0;
+            // Derrière le globe, il est caché tant qu'il ne dépasse pas du disque.
+            return front || Math.Sqrt(x * x + y * y) * body.Orbit > 1.02;
+        }
+
+        private void DrawSatellites(DrawingContext context, Point centre, double radius, bool frontPass)
+        {
+            if (!frontPass) _satellitesDrawn = 0;
+            foreach (var body in _owner.SkyBodies())
+            {
+                if (!body.Satellite) continue;
+                Point at;
+                bool front;
+                if (!SatellitePoint(body, centre, radius, out at, out front) || front != frontPass) continue;
+                if (at.X < -40 || at.Y < -40 || at.X > Bounds.Width + 40 || at.Y > Bounds.Height + 40) continue;
+                _satellitesDrawn++;
+                DotRings(context, body, at, false);
+                var dim = Color.FromRgb((byte)(body.Color.R * 0.28), (byte)(body.Color.G * 0.28), (byte)(body.Color.B * 0.3));
+                context.DrawEllipse(new SolidColorBrush(dim), new Pen(new SolidColorBrush(body.Color, 0.55), 1), at, body.Size, body.Size);
+                if (body.Lit > 0.03)
+                    using (context.PushGeometryClip(new EllipseGeometry(new Rect(at.X - body.Size, at.Y - body.Size, body.Size * 2, body.Size * 2))))
+                        context.DrawEllipse(new SolidColorBrush(body.Color), null, new Point(at.X + body.Size * 2 * (1 - body.Lit), at.Y), body.Size, body.Size);
+                DotRings(context, body, at, true);
+                if (!string.IsNullOrEmpty(body.Name))
+                {
+                    var text = Text(body.Name, 10.5, new SolidColorBrush(Colors.White, 0.8), FontWeight.Normal);
+                    context.DrawText(text, new Point(at.X - text.Width / 2, at.Y + body.Size + 4));
+                }
+            }
+        }
+
+        /// <summary>L'allure du monde lui-même (lot 14) : le halo de son atmosphère, et ses anneaux — dans le
+        /// plan de son équateur, la moitié lointaine derrière le globe, la moitié proche devant.</summary>
+        private void DrawWorldLook(DrawingContext context, Point centre, double radius, bool front)
+        {
+            var world = _owner.World;
+            if (world == null) return;
+            var look = world.Look;
+            if (!front && !string.IsNullOrEmpty(look.Accent))
+            {
+                var accent = Tint(look.Accent, Colors.White);
+                var halo = new RadialGradientBrush { Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative), GradientOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative), Radius = 0.5 };
+                halo.GradientStops.Add(new GradientStop(Color.FromArgb(0, accent.R, accent.G, accent.B), 0.78));
+                halo.GradientStops.Add(new GradientStop(Color.FromArgb(120, accent.R, accent.G, accent.B), 0.84));
+                halo.GradientStops.Add(new GradientStop(Color.FromArgb(0, accent.R, accent.G, accent.B), 1));
+                context.DrawEllipse(halo, null, centre, radius * 1.19, radius * 1.19);
+            }
+            if (!look.Rings) return;
+            var ring = Tint(look.RingColor, Color.FromRgb(0xD9, 0xC9, 0xA6));
+            var sinP = Math.Sin(_globeLat);
+            // Vu d'en haut (sinP > 0), la moitié lointaine de l'anneau est en haut de l'écran.
+            var upper = sinP >= 0 ? !front : front;
+            var reach = radius * 2.4 * look.RingSize + 8;
+            var clip = upper ? new Rect(centre.X - reach, centre.Y - reach, reach * 2, reach) : new Rect(centre.X - reach, centre.Y, reach * 2, reach);
+            using (context.PushClip(clip))
+                foreach (var band in new[] { new[] { 1.42, 0.5, 0.10 }, new[] { 1.62, 0.85, 0.16 }, new[] { 1.88, 0.6, 0.12 }, new[] { 2.08, 0.35, 0.07 } })
+                {
+                    var rx = radius * band[0] * look.RingSize;
+                    var ry = Math.Max(0.6, rx * Math.Abs(sinP));
+                    context.DrawEllipse(null, new Pen(new SolidColorBrush(ring, band[1]), Math.Max(1.2, radius * band[2] * look.RingSize * Math.Max(0.12, Math.Abs(sinP)))), centre, rx, ry);
+                }
         }
 
         private sealed class Star
@@ -710,18 +816,21 @@ namespace Marabook.App
             {
                 Point at;
                 var latitude = body.Latitude;
+                if (body.Satellite) continue; // un satellite tourne autour du globe : DrawSatellites
                 if (!SkyPoint(body.Longitude, Math.Sin(latitude), Math.Cos(latitude), out at)) continue;
                 _bodiesDrawn++;
+                DotRings(context, body, at, false);
                 if (body.Sun)
                 {
                     var pulse = 1 + 0.04 * Math.Sin(time * 1.3 + body.Longitude);
                     var halo = new RadialGradientBrush { Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative), GradientOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative), Radius = 0.5 };
-                    halo.GradientStops.Add(new GradientStop(Color.FromArgb(150, body.Color.R, body.Color.G, body.Color.B), 0));
-                    halo.GradientStops.Add(new GradientStop(Color.FromArgb(46, body.Color.R, body.Color.G, body.Color.B), 0.45));
-                    halo.GradientStops.Add(new GradientStop(Color.FromArgb(0, body.Color.R, body.Color.G, body.Color.B), 1));
+                    halo.GradientStops.Add(new GradientStop(Color.FromArgb(150, body.Accent.R, body.Accent.G, body.Accent.B), 0));
+                    halo.GradientStops.Add(new GradientStop(Color.FromArgb(46, body.Accent.R, body.Accent.G, body.Accent.B), 0.45));
+                    halo.GradientStops.Add(new GradientStop(Color.FromArgb(0, body.Accent.R, body.Accent.G, body.Accent.B), 1));
                     context.DrawEllipse(halo, null, at, body.Size * 4.2 * pulse, body.Size * 4.2 * pulse);
                     context.DrawEllipse(new SolidColorBrush(body.Color), null, at, body.Size, body.Size);
                     context.DrawEllipse(new SolidColorBrush(Colors.White, 0.7), null, at, body.Size * 0.55, body.Size * 0.55);
+                    DotRings(context, body, at, true);
                 }
                 else
                 {
@@ -847,12 +956,25 @@ namespace Marabook.App
 
         private int GlobeSide { get { return (int)Math.Max(64, Math.Min(640, Math.Min(Bounds.Width, Bounds.Height))); } }
 
+        /// <summary>Le carré d'écran que couvre l'image du globe, et sa finesse (lot 14, bug « on finit sur
+        /// un carré ») : tant que le globe tient dans son cadre, rien ne change ; dès qu'on l'approche, le
+        /// carré grandit avec lui jusqu'à couvrir toute la toile — la sphère n'est plus jamais rognée.</summary>
+        private void GlobeFrame(out double radius, out double cover, out int pixels)
+        {
+            radius = GlobeRadius(GlobeSide);
+            cover = Math.Max(GlobeSide, Math.Min(Math.Max(Bounds.Width, Bounds.Height) + 2, 2 * radius + 6));
+            pixels = (int)Math.Max(64, Math.Min(cover, 760));
+        }
+
         private void RenderGlobe(DrawingContext context, MapInfo map)
         {
             int tw, th;
             var texture = _cache.Texture(map, out tw, out th);
-            var side = GlobeSide;
-            var dest = new Rect((Bounds.Width - side) / 2, (Bounds.Height - side) / 2, side, side);
+            double radius, cover;
+            int side;
+            GlobeFrame(out radius, out cover, out side);
+            var dest = new Rect((Bounds.Width - cover) / 2, (Bounds.Height - cover) / 2, cover, cover);
+            var centre = new Point(Bounds.Width / 2, Bounds.Height / 2);
             DrawSky(context);
             if (texture == null)
             {
@@ -860,23 +982,26 @@ namespace Marabook.App
                 context.DrawText(wait, new Point((Bounds.Width - wait.Width) / 2, (Bounds.Height - wait.Height) / 2));
                 return;
             }
+            // Derrière le globe : son halo, la moitié lointaine de ses anneaux, les satellites passés derrière lui.
+            DrawWorldLook(context, centre, radius, false);
+            DrawSatellites(context, centre, radius, false);
             var night = _owner.NightShown;
             Color heatNorth, heatSouth;
             var heat = _owner.SeasonHeatShown && SeasonTint(false, out heatNorth) & SeasonTint(true, out heatSouth);
-            var key = (heat ? _owner.DayOfYear.ToString("R", CultureInfo.InvariantCulture) + "s" : "") + side + "|" + _globeLon.ToString("R", CultureInfo.InvariantCulture) + "|" + _globeLat.ToString("R", CultureInfo.InvariantCulture) + "|" + _globeZoom.ToString("R", CultureInfo.InvariantCulture)
+            var key = (heat ? _owner.DayOfYear.ToString("R", CultureInfo.InvariantCulture) + "s" : "") + side + "/" + cover.ToString("R", CultureInfo.InvariantCulture) + "|" + _globeLon.ToString("R", CultureInfo.InvariantCulture) + "|" + _globeLat.ToString("R", CultureInfo.InvariantCulture) + "|" + _globeZoom.ToString("R", CultureInfo.InvariantCulture)
                 + "|" + (night ? _owner.Declination.ToString("R", CultureInfo.InvariantCulture) + "/" + _owner.DayFraction.ToString("R", CultureInfo.InvariantCulture) : "-")
                 + "|" + map.Layout + map.PoleNorth.ToString("R", CultureInfo.InvariantCulture) + "/" + map.PoleSouth.ToString("R", CultureInfo.InvariantCulture);
             if (_globeBitmap == null || _globeBitmap.PixelSize.Width != side || key != _globeKey)
             {
-                PaintGlobe(texture, tw, th, side, night);
+                PaintGlobe(texture, tw, th, side, night, radius * side / cover);
                 _globeKey = key;
             }
             context.DrawImage(_globeBitmap, dest);
+            DrawWorldLook(context, centre, radius, true);
+            DrawSatellites(context, centre, radius, true);
 
             // Les zones et les repères, reportés sur la sphère (la face visible seulement).
             var zoom = ZoomRatio;
-            var centre = new Point(Bounds.Width / 2, Bounds.Height / 2);
-            var radius = GlobeRadius(side);
             if (_owner.GuidesShown) using (context.PushClip(dest)) DrawGlobeGuides(context, centre, radius);
             using (context.PushClip(dest))
             {
@@ -923,13 +1048,13 @@ namespace Marabook.App
             return depth > 0.02;
         }
 
-        private void PaintGlobe(int[] texture, int tw, int th, int side, bool night)
+        private void PaintGlobe(int[] texture, int tw, int th, int side, bool night, double radius)
         {
             if (_globeBuffer == null || _globeBuffer.Length != side * side) _globeBuffer = new int[side * side];
             if (_globeBitmap == null || _globeBitmap.PixelSize.Width != side)
                 _globeBitmap = new WriteableBitmap(new PixelSize(side, side), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Premul);
             var buffer = _globeBuffer;
-            var radius = GlobeRadius(side);
+            _globePixels = side;
             double sinP = Math.Sin(_globeLat), cosP = Math.Cos(_globeLat);
             var declination = _owner.Declination;
             double sinD = Math.Sin(declination), cosD = Math.Cos(declination);
@@ -1366,14 +1491,45 @@ namespace Marabook.App
         internal bool GlobePaintedForProbe { get { return _globeBitmap != null && _globeKey != null; } }
         internal void RotateGlobeForProbe(double lon, double lat) { _globeLon = lon; _globeLat = lat; _globeKey = null; InvalidateVisual(); }
         internal void DraftForProbe(Pos point) { _draft.Add(point); }
-        internal int GlobePixelForProbe(int x, int y) { return _globeBuffer == null ? 0 : _globeBuffer[y * GlobeSide + x]; }
+        private int _globePixels;
+        /// <summary>Un pixel de l'image du globe, repéré dans le cadre du globe (GlobeSide), quel que soit le zoom.</summary>
+        internal int GlobePixelForProbe(int x, int y)
+        {
+            if (_globeBuffer == null || _globePixels <= 0) return 0;
+            double radius, cover;
+            int side;
+            GlobeFrame(out radius, out cover, out side);
+            var k = _globePixels / cover;
+            var bx = (int)Math.Round((x - GlobeSide / 2.0) * k + _globePixels / 2.0);
+            var by = (int)Math.Round((y - GlobeSide / 2.0) * k + _globePixels / 2.0);
+            if (bx < 0 || by < 0 || bx >= _globePixels || by >= _globePixels) return 0;
+            return _globeBuffer[by * _globePixels + bx];
+        }
+        internal int GlobeBitmapPixelsForProbe { get { return _globePixels; } }
+        internal double GlobeCoverForProbe { get { double radius, cover; int side; GlobeFrame(out radius, out cover, out side); return cover; } }
+        /// <summary>L'opacité de l'image du globe sous un point de l'écran (0 = hors de la sphère).</summary>
+        internal int GlobeAlphaAtForProbe(Point screen)
+        {
+            if (_globeBuffer == null || _globePixels <= 0) return 0;
+            double radius, cover;
+            int side;
+            GlobeFrame(out radius, out cover, out side);
+            var k = _globePixels / cover;
+            var bx = (int)((screen.X - (Bounds.Width - cover) / 2) * k);
+            var by = (int)((screen.Y - (Bounds.Height - cover) / 2) * k);
+            if (bx < 0 || by < 0 || bx >= _globePixels || by >= _globePixels) return 0;
+            return (_globeBuffer[by * _globePixels + bx] >> 24) & 0xFF;
+        }
         internal void PaintGlobeForProbe()
         {
             int tw, th;
             var texture = _cache == null ? null : _cache.Texture(Map, out tw, out th, true);
             if (texture == null) return;
             _cache.Texture(Map, out tw, out th, true);
-            PaintGlobe(texture, tw, th, GlobeSide, _owner.NightShown);
+            double radius, cover;
+            int side;
+            GlobeFrame(out radius, out cover, out side);
+            PaintGlobe(texture, tw, th, side, _owner.NightShown, radius * side / cover);
             _globeKey = "probe";
         }
     }

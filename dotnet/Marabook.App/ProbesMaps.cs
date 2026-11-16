@@ -436,6 +436,118 @@ namespace Marabook.App
                 var sunSeenNight = canvas.SkyPointForProbe(bodies[0].Longitude, bodies[0].Latitude, out sunAt);
                 Check(!sunSeenDay && sunSeenNight && canvas.BodiesDrawnForProbe >= 1, "face au jour, le soleil est dans notre dos ; passé du côté de la nuit, il paraît derrière le globe");
                 Shot(mapView, "cartes-16-globe-ciel.png");
+
+                // ---- Lot 14 : zoomer sur le globe ne finit plus sur un carré.
+                canvas.RotateGlobeForProbe(0, 0.2);
+                await Settle();
+                canvas.PaintGlobeForProbe();
+                var coverBefore = canvas.GlobeCoverForProbe;
+                Check(canvas.GlobeAlphaAtForProbe(new Point(canvas.Bounds.Width / 2, canvas.Bounds.Height / 2)) == 255 && canvas.GlobeAlphaAtForProbe(new Point(3, 3)) == 0,
+                    "sans zoom : le globe au centre, le coin de la toile hors de la sphère");
+                canvas.ZoomBy(8, new Point(canvas.Bounds.Width / 2, canvas.Bounds.Height / 2));
+                await Settle();
+                canvas.PaintGlobeForProbe();
+                var corners = new[] { new Point(4, 4), new Point(canvas.Bounds.Width - 5, 4), new Point(4, canvas.Bounds.Height - 5), new Point(canvas.Bounds.Width - 5, canvas.Bounds.Height - 5), new Point(canvas.Bounds.Width / 2, 4), new Point(4, canvas.Bounds.Height / 2) };
+                Check(canvas.GlobeCoverForProbe >= Math.Max(canvas.Bounds.Width, canvas.Bounds.Height) && canvas.GlobeCoverForProbe > coverBefore && corners.All(delegate(Point p) { return canvas.GlobeAlphaAtForProbe(p) == 255; }),
+                    "zoomé × 8 : l'image du globe couvre toute la toile, coins et bords compris — plus de carré (" + Math.Round(canvas.GlobeCoverForProbe) + " px couverts, " + canvas.GlobeBitmapPixelsForProbe + " px peints)");
+                Shot(mapView, "cartes-20-globe-zoom.png");
+                canvas.FitAll();
+                await Settle();
+
+                // ---- Lot 14 : les satellites tournent autour du monde ; un soleil qui orbite reste attaché au sien.
+                mapView.SetNightForProbe(true, 200, 0.5);
+                await Settle();
+                var skyNow = mapView.SkyBodies();
+                var moonDot = skyNow.Find(delegate(MapCanvas.SkyDot d) { return d.Satellite; });
+                Point moonAt;
+                bool moonFront;
+                var globeCentre = new Point(canvas.Bounds.Width / 2, canvas.Bounds.Height / 2);
+                canvas.SatellitePoint(moonDot, globeCentre, 200, out moonAt, out moonFront);
+                var moonReach = Math.Sqrt(Math.Pow(moonAt.X - globeCentre.X, 2) + Math.Pow(moonAt.Y - globeCentre.Y, 2));
+                Check(moonDot != null && !skyNow.Exists(delegate(MapCanvas.SkyDot d) { return d.Sun && d.Satellite; }) && Math.Abs(moonDot.Orbit - 1.9) < 1e-9 && moonReach <= 200 * 1.9 + 1e-6,
+                    "un satellite tourne autour du globe, à portée de vue : à la distance de la Terre à la Lune, son orbite fait 1,9 rayon");
+                Check(Math.Abs(MapView.MoonOrbit(4 * 384400) - 2.5) < 1e-9 && MapView.MoonOrbit(100) >= 1.25 && MapView.MoonOrbit(100) < 1.35 && MapView.MoonOrbit(1e9) == 4.2, "plus loin reste plus loin (4 fois la distance : 2,5 rayons), dans des bornes qui tiennent à l'écran");
+                // Un second soleil, en orbite RAPPROCHÉE autour du premier : il ne le quitte pas.
+                var companion = new Sun { Name = "Elh", Period = 80, HighAt = 3, OrbitId = earth.Suns[0].Id };
+                earth.Suns.Add(companion);
+                Astro.SetInner(earth, companion, true);
+                var widest = 0.0;
+                for (var probeDay = 1; probeDay <= 80; probeDay += 4)
+                {
+                    mapView.SetNightForProbe(true, probeDay, 0.5);
+                    var dots = mapView.SkyBodies();
+                    var main = dots.Find(delegate(MapCanvas.SkyDot d) { return d.Name == earth.Suns[0].Name && d.Sun; });
+                    var elh = dots.Find(delegate(MapCanvas.SkyDot d) { return d.Name == "Elh"; });
+                    widest = Math.Max(widest, Math.Abs(elh.Longitude - main.Longitude) + Math.Abs(elh.Latitude - main.Latitude));
+                    if (elh.Satellite) widest = 99;
+                }
+                Check(widest > 0.1 && widest < 0.4, "un soleil en orbite rapprochée autour d'un autre reste auprès de lui toute sa révolution (écart maximal " + widest.ToString("0.00") + " rad) : il ne tourne pas autour du monde");
+                Astro.SetInner(earth, companion, false);
+                mapView.SetNightForProbe(true, 3, 0.5);
+                var farDots = mapView.SkyBodies();
+                var farMain = farDots.Find(delegate(MapCanvas.SkyDot d) { return d.Name == earth.Suns[0].Name && d.Sun; });
+                var farElh = farDots.Find(delegate(MapCanvas.SkyDot d) { return d.Name == "Elh"; });
+                var apart = Math.Abs(Math.IEEERemainder(farElh.Longitude - farMain.Longitude, 2 * Math.PI));
+                Check(Math.Abs(apart - Math.PI) < 0.2, "en orbite lointaine, le jour où il culmine à minuit, il est à l'opposé du premier soleil");
+                earth.Suns.Remove(companion);
+                earth.Order.Remove(companion.Id);
+
+                // ---- Lot 14 : personnaliser l'astre.
+                var lookDialog = BodyLookDialog.ForProbe(shell, BodyLookDialog.MoonKind, "Lune", earth.Moons[0].Look.Clone());
+                Check(lookDialog.Has("look-distance") && lookDialog.Has("look-tilt") && lookDialog.Has("look-rings") && lookDialog.Has("look-accents") && plain(lookDialog.DistanceEchoForProbe).Contains("1 × la distance de la Terre à la Lune"),
+                    "« Personnaliser » un satellite : accent, distance (d'office : celle de la Terre à la Lune), inclinaison de l'orbite, anneaux");
+                lookDialog.SetForProbe("abc", "5", true, "1,5");
+                Check(lookDialog.AcceptForProbe() == null && (lookDialog.ProblemForProbe ?? "").Contains("kilomètres"), "une distance illisible est refusée, et dite");
+                lookDialog.SetForProbe("768 800", "25", true, "1,5");
+                lookDialog.SetColorsForProbe(null, "#E7E3D8");
+                var moonLook = lookDialog.AcceptForProbe();
+                Check(moonLook != null && moonLook.Distance == 768800 && moonLook.Tilt == 25 && moonLook.Rings && moonLook.RingSize == 1.5 && moonLook.RingColor == "#E7E3D8", "validée : deux fois plus loin, orbite inclinée de 25°, des anneaux");
+                var sunDialog = BodyLookDialog.ForProbe(shell, BodyLookDialog.SunKind, "Soleil", new BodyLook());
+                var worldDialog = BodyLookDialog.ForProbe(shell, BodyLookDialog.WorldKind, "Terre d'essai", new BodyLook());
+                Check(!sunDialog.Has("look-distance") && sunDialog.Has("look-tilt") && sunDialog.Has("look-accents") && !worldDialog.Has("look-distance") && !worldDialog.Has("look-tilt") && worldDialog.Has("look-rings"),
+                    "un soleil : accent du halo, anneaux, inclinaison de l'axe ; le monde : accent et anneaux (son axe reste dans « Taille du monde »)");
+                var lookBefore = new[] { earth.Look, earth.Suns[0].Look, earth.Moons[0].Look };
+                earth.Moons[0].Look = moonLook;
+                earth.Look = new BodyLook { Accent = "#6FC3C0", Rings = true, RingSize = 1.2 };
+                earth.Suns[0].Look = new BodyLook { Accent = "#D9503A", Rings = true, Tilt = 20 };
+                mapView.SetNightForProbe(true, 200, 0.5);
+                canvas.RotateGlobeForProbe(Math.PI + 0.45, 0.35);
+                canvas.SetSkyTimeForProbe(3.2);
+                await Settle();
+                var dressed = mapView.SkyBodies();
+                var dressedMoon = dressed.Find(delegate(MapCanvas.SkyDot d) { return d.Satellite; });
+                var dressedSun = dressed.Find(delegate(MapCanvas.SkyDot d) { return d.Sun; });
+                Check(Math.Abs(dressedMoon.Orbit - MapView.MoonOrbit(768800)) < 1e-9 && dressedMoon.Orbit > 1.9 && dressedMoon.Rings && dressedSun.Rings && dressedSun.Accent == Color.Parse("#D9503A") && dressedSun.Tilt == 20,
+                    "le globe suit : le satellite plus loin et annelé, le soleil à l'accent rouge et aux anneaux penchés");
+                Check(canvas.SatellitesDrawnForProbe >= 0, "le monde annelé et son halo se dessinent sans heurt");
+                Shot(mapView, "cartes-21-astres-personnalises.png");
+                earth.Look = lookBefore[0];
+                earth.Suns[0].Look = lookBefore[1];
+                earth.Moons[0].Look = lookBefore[2];
+                canvas.SetSkyTimeForProbe(-1);
+
+                // ---- Lot 14 : « Animer », au globe seulement.
+                Check(mapView.AnimateShownForProbe && mapView.AnimationPossible && !mapView.Animating, "au globe, le bouton « Animer » paraît");
+                mapView.SetNightForProbe(false, 100, 0.25);
+                mapView.SetAnimation(true);
+                await Settle();
+                Check(mapView.Animating && mapView.NightShown && !mapView.SkyPanel.IsEnabled && tagged("map-sky-animating") && mapView.HintForProbe.StartsWith("Animation : jour 100"),
+                    "« Animer » : la nuit se montre, « Jour, nuit et saisons » se verrouille (et dit pourquoi), la barre dit le jour qui passe");
+                mapView.AdvanceAnimation(3);
+                Check(Math.Abs(mapView.DayFraction - 0.75) < 1e-9 && mapView.DayOfYear > 100 + 8 && mapView.DayOfYear < 100 + 10 && mapView.HintForProbe.StartsWith("Animation : jour 109"),
+                    "trois secondes d'animation : une demi-journée a tourné, neuf jours ont passé (un jour en 6 s, une année en 2 min)");
+                mapView.AdvanceAnimation(MapView.AnimationYearSeconds);
+                Check(mapView.DayOfYear > 108 && mapView.DayOfYear < 111, "une année plus tard, on est revenu au même jour : les ans s'enchaînent sans à-coup");
+                mapView.SetAnimation(false);
+                await Settle();
+                Check(!mapView.Animating && mapView.SkyPanel.IsEnabled && !tagged("map-sky-animating") && Math.Abs(mapView.DayOfYear - Math.Round(mapView.DayOfYear)) < 1e-9 && mapView.HintForProbe.Contains("tourner le globe"),
+                    "arrêtée : le ciel se règle de nouveau à la main, sur un jour entier");
+                mapView.SetAnimation(true);
+                mapView.SetViewForProbe(Maps.ViewFlat);
+                await Settle();
+                Check(!mapView.Animating && !mapView.AnimateShownForProbe && mapView.SkyPanel.IsEnabled, "revenir au planisphère arrête l'animation, et le bouton s'en va");
+                mapView.SetViewForProbe(Maps.ViewGlobe);
+                await Settle();
                 canvas.SetSkyTimeForProbe(-1);
                 canvas.RotateGlobeForProbe(0, 0.2);
                 mapView.SetNightForProbe(true, 200, 0.5);
