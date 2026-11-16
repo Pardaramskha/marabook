@@ -358,7 +358,7 @@ namespace Marabook.App
                 {
                     if (_animationTimer == null)
                     {
-                        _animationTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+                        _animationTimer = new Avalonia.Threading.DispatcherTimer(Avalonia.Threading.DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(30) }; // 30 images par seconde (lot 15)
                         _animationTimer.Tick += delegate
                         {
                             if (!_animating || !GlobeShown || !IsEffectivelyVisible) { SetAnimation(false); return; }

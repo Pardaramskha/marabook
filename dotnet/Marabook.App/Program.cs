@@ -89,6 +89,7 @@ namespace Marabook.App
         public string CapturePath;  // rendre la fenêtre en PNG puis quitter
         public bool Demo;           // un projet d'exemple en mémoire (sondes, captures)
         public bool Probe;          // la sonde en place, puis quitter
+        public bool AnimateGlobe;   // --animer-globe : ouvrir la premiere carte du monde entier au globe et lancer « Animer » (captures)
         public bool Dark;           // thème sombre forcé (captures)
         public bool Prefs;          // la capture montre les Préférences
         public string OpenTitle;    // --open <titre> : l'élément ouvert avant la capture (« journal » = le Journal)
@@ -128,6 +129,7 @@ namespace Marabook.App
                 if (arg == "--probe") { launch.Probe = true; continue; }
                 if (arg == "--dark") { launch.Dark = true; continue; }
                 if (arg == "--prefs") { launch.Prefs = true; continue; }
+                if (arg == "--animer-globe") { launch.AnimateGlobe = true; continue; } // capture : la premiere carte du monde entier, au globe, animee (lot 15)
                 if (arg == "--maj-annulee") { launch.UpdateRolledBack = true; continue; }
                 if (arg == "--open" && i + 1 < args.Length) { launch.OpenTitle = args[++i]; continue; }
                 if (arg == "--select" && i + 1 < args.Length) { launch.SelectTitle = args[++i]; continue; }

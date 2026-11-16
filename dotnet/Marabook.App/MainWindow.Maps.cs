@@ -50,6 +50,28 @@ namespace Marabook.App
 
         internal Border MapSkyHostForProbe { get { return _mapSkyHost; } }
         internal Border MapShapesHostForProbe { get { return _mapShapesHost; } }
+
+        /// <summary>« --animer-globe » (captures, lot 15) : dès que le projet est là, ouvrir sa première carte du
+        /// monde entier liée à un monde, la montrer au globe (pour cette séance : rien n'est écrit) et lancer « Animer ».</summary>
+        private void StartGlobeDemo()
+        {
+            var tries = 0;
+            var timer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+            timer.Tick += delegate
+            {
+                if (++tries > 75) { timer.Stop(); return; }
+                if (_project == null || _mapView == null) return;
+                var item = Maps.All(_project).Find(delegate(BinderItem m) { return m.Map != null && m.Map.HasImage && m.Map.WholeWorld && Maps.WorldOf(_project, m.Map) != null; });
+                if (item == null) { timer.Stop(); return; }
+                if (_current != item) { _binder.SelectItem(item.Id); return; }
+                if (!_mapView.IsVisible || !_mapView.ShowsItem(item)) return;
+                timer.Stop();
+                item.Map.View = Maps.ViewGlobe;
+                _mapView.Refresh();
+                _mapView.SetAnimation(true);
+            };
+            timer.Start();
+        }
         internal Border MapNavigationHostForProbe { get { return _mapNavigationHost; } }
 
         /// <summary>« Définir les marqueurs » (rail d'une carte, lot 13) : les marqueurs de navigation du monde

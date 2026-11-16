@@ -29,6 +29,7 @@ namespace Marabook.App
         {
             _launch = launch ?? new Launch();
             if (_mapView != null) _mapView.AnimateSky = !_launch.Probe; // en sonde, le ciel du globe ne bouge pas tout seul (lot 13)
+            if (_launch.AnimateGlobe) StartGlobeDemo();
             Sounds.Muted = _launch.Isolated; // la sonde et les captures en silence (31/10 : l'essai sonore est terminé)
             // Sans projet à ouvrir (1.1.0) : le voile de l'accueil dès la première
             // image — l'application vide ne « flashe » plus avant l'écran d'accueil.

@@ -536,6 +536,19 @@ namespace Marabook.App
                 mapView.AdvanceAnimation(3);
                 Check(Math.Abs(mapView.DayFraction - 0.75) < 1e-9 && mapView.DayOfYear > 100 + 8 && mapView.DayOfYear < 100 + 10 && mapView.HintForProbe.StartsWith("Animation : jour 109"),
                     "trois secondes d'animation : une demi-journée a tourné, neuf jours ont passé (un jour en 6 s, une année en 2 min)");
+                // Lot 15 : une image d'animation ne recalcule pas la sphère — seulement sa lumière.
+                canvas.PaintGlobeForProbe();
+                var builds = canvas.GeometryBuildsForProbe;
+                var slowest = 0.0;
+                for (var frame = 0; frame < 12; frame++)
+                {
+                    mapView.AdvanceAnimation(1.0 / 30);
+                    canvas.PaintGlobeForProbe();
+                    if (frame > 1) slowest = Math.Max(slowest, canvas.LastPaintMsForProbe);
+                }
+                Console.WriteLine("  mesure : une image du globe animé (" + canvas.GlobeBitmapPixelsForProbe + " px de côté) peinte en " + slowest.ToString("0.0") + " ms au pire");
+                Check(canvas.GeometryBuildsForProbe == builds && slowest < 20, "pendant l'animation, la sphère n'est pas recalculée : une image se peint en " + slowest.ToString("0.0") + " ms au pire (33 ms disponibles à 30 images par seconde)");
+                mapView.AdvanceAnimation(3 - 12.0 / 30 - 3);
                 mapView.AdvanceAnimation(MapView.AnimationYearSeconds);
                 Check(mapView.DayOfYear > 108 && mapView.DayOfYear < 111, "une année plus tard, on est revenu au même jour : les ans s'enchaînent sans à-coup");
                 mapView.SetAnimation(false);

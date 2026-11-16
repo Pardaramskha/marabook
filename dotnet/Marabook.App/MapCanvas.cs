@@ -1048,17 +1048,33 @@ namespace Marabook.App
             return depth > 0.02;
         }
 
-        private void PaintGlobe(int[] texture, int tw, int th, int side, bool night, double radius)
+        // LA GÉOMÉTRIE DU GLOBE, gardée d'une image à l'autre (lot 15, Rémi : « l'animation est un peu laggy,
+        // target 30 fps »). Pour chaque pixel du disque : la couleur de la carte à cet endroit, la normale de
+        // la sphère dans le repère du monde, sa latitude, et l'ombre du bord. Tant que le globe ne tourne pas
+        // et ne change pas de taille — c'est le cas pendant « Animer » —, rien de cela n'est recalculé : une
+        // image ne coûte plus qu'un produit scalaire par pixel (la lumière du soleil), réparti sur les cœurs.
+        private int[] _geoColor;
+        private float[] _geoX, _geoY, _geoZ, _geoLat, _geoEdge;
+        private string _geoKey;
+        private int _geometryBuilds;
+        internal int GeometryBuildsForProbe { get { return _geometryBuilds; } }
+        internal double LastPaintMsForProbe { get; private set; }
+
+        private void BuildGeometry(int[] texture, int tw, int th, int side, double radius)
         {
-            if (_globeBuffer == null || _globeBuffer.Length != side * side) _globeBuffer = new int[side * side];
-            if (_globeBitmap == null || _globeBitmap.PixelSize.Width != side)
-                _globeBitmap = new WriteableBitmap(new PixelSize(side, side), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Premul);
-            var buffer = _globeBuffer;
-            _globePixels = side;
-            double sinP = Math.Sin(_globeLat), cosP = Math.Cos(_globeLat);
-            var declination = _owner.Declination;
-            double sinD = Math.Sin(declination), cosD = Math.Cos(declination);
-            var noon = Maps.NoonLongitude(_owner.DayFraction);
+            var count = side * side;
+            if (_geoColor == null || _geoColor.Length != count)
+            {
+                _geoColor = new int[count];
+                _geoX = new float[count];
+                _geoY = new float[count];
+                _geoZ = new float[count];
+                _geoLat = new float[count];
+                _geoEdge = new float[count];
+            }
+            int[] colors = _geoColor;
+            float[] nx = _geoX, ny = _geoY, nz = _geoZ, lats = _geoLat, edges = _geoEdge;
+            double sinP = Math.Sin(_globeLat), cosP = Math.Cos(_globeLat), globeLon = _globeLon;
             var half = side / 2.0;
             const double twoPi = 2 * Math.PI;
             // De l'angle au pixel de la texture (lot 12) : l'image étirée sur tout le monde, ou —
@@ -1075,13 +1091,7 @@ namespace Marabook.App
                 by = th * map.PoleNorth + Math.PI / 2 * th / (map.Height * perPixel);
             }
             const int bare = (0x2E << 16) | (0x3A << 8) | 0x4A;
-            // Les saisons (lot 13) : le même voile dégradé qu'au planisphère, peint dans la sphère.
-            Color veilNorth = default(Color), veilSouth = default(Color);
-            var world = _owner.World;
-            var veil = _owner.SeasonHeatShown && SeasonTint(false, out veilNorth) & SeasonTint(true, out veilSouth);
-            var tropic = veil && world != null ? Math.Abs(world.AxialTilt) * Math.PI / 180 : 0;
-            if (tropic < 1e-6) veil = false;
-            for (var py = 0; py < side; py++)
+            System.Threading.Tasks.Parallel.For(0, side, delegate(int py)
             {
                 var y = (half - py - 0.5) / radius;
                 var row = py * side;
@@ -1089,12 +1099,12 @@ namespace Marabook.App
                 {
                     var x = (px + 0.5 - half) / radius;
                     var d = x * x + y * y;
-                    if (d > 1) { buffer[row + px] = 0; continue; }
+                    if (d > 1) { edges[row + px] = -1; continue; }
                     var z = Math.Sqrt(1 - d);
                     var sinLat = z * sinP + y * cosP;
                     if (sinLat > 1) sinLat = 1; else if (sinLat < -1) sinLat = -1;
                     var lat = Math.Asin(sinLat);
-                    var lon = _globeLon + Math.Atan2(x, z * cosP - y * sinP);
+                    var lon = globeLon + Math.Atan2(x, z * cosP - y * sinP);
                     int color;
                     if (fitted)
                     {
@@ -1113,34 +1123,85 @@ namespace Marabook.App
                         if (ty < 0) ty = 0; else if (ty >= th) ty = th - 1;
                         color = texture[ty * tw + tx];
                     }
+                    var cosLat = Math.Sqrt(1 - sinLat * sinLat);
+                    colors[row + px] = color;
+                    nx[row + px] = (float)(cosLat * Math.Cos(lon));
+                    ny[row + px] = (float)(cosLat * Math.Sin(lon));
+                    nz[row + px] = (float)sinLat;
+                    lats[row + px] = (float)lat;
+                    // L'ombre du bord (la sphère se lit) ; le dernier pixel du disque s'estompe : pas d'escalier.
+                    var alpha = Math.Min(1, (1 - Math.Sqrt(d)) * radius);
+                    edges[row + px] = (float)((0.58 + 0.42 * z) * alpha + Math.Floor(alpha * 255) * 4); // l'ombre (< 4) et l'opacité, dans le même nombre
+                }
+            });
+            _geometryBuilds++;
+        }
+
+        private void PaintGlobe(int[] texture, int tw, int th, int side, bool night, double radius)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            if (_globeBuffer == null || _globeBuffer.Length != side * side) _globeBuffer = new int[side * side];
+            if (_globeBitmap == null || _globeBitmap.PixelSize.Width != side)
+                _globeBitmap = new WriteableBitmap(new PixelSize(side, side), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Premul);
+            var buffer = _globeBuffer;
+            _globePixels = side;
+            var map = Map;
+            var geoKey = side + "|" + radius.ToString("R", CultureInfo.InvariantCulture) + "|" + _globeLon.ToString("R", CultureInfo.InvariantCulture) + "|" + _globeLat.ToString("R", CultureInfo.InvariantCulture)
+                + "|" + map.Layout + map.PoleNorth.ToString("R", CultureInfo.InvariantCulture) + "/" + map.PoleSouth.ToString("R", CultureInfo.InvariantCulture) + "|" + tw + "x" + th + "#" + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(texture);
+            if (geoKey != _geoKey || _geoColor == null || _geoColor.Length != side * side)
+            {
+                BuildGeometry(texture, tw, th, side, radius);
+                _geoKey = geoKey;
+            }
+            int[] colors = _geoColor;
+            float[] nx = _geoX, ny = _geoY, nz = _geoZ, lats = _geoLat, edges = _geoEdge;
+            // Le soleil, dans le repère du monde : à l'aplomb du point où il est midi.
+            var declination = _owner.Declination;
+            var noon = Maps.NoonLongitude(_owner.DayFraction);
+            float sx = (float)(Math.Cos(declination) * Math.Cos(noon)), sy = (float)(Math.Cos(declination) * Math.Sin(noon)), sz = (float)Math.Sin(declination);
+            // Les saisons (lot 13) : le même voile dégradé qu'au planisphère, peint dans la sphère.
+            Color veilNorth = default(Color), veilSouth = default(Color);
+            var world = _owner.World;
+            var veil = _owner.SeasonHeatShown && SeasonTint(false, out veilNorth) & SeasonTint(true, out veilSouth);
+            var tropic = veil && world != null ? (float)(Math.Abs(world.AxialTilt) * Math.PI / 180) : 0f;
+            if (tropic < 1e-6f) veil = false;
+            var strength = (float)HeatStrength;
+            System.Threading.Tasks.Parallel.For(0, side, delegate(int py)
+            {
+                var row = py * side;
+                for (var px = 0; px < side; px++)
+                {
+                    var i = row + px;
+                    var packed = edges[i];
+                    if (packed < 0) { buffer[i] = 0; continue; }
+                    var alpha = (int)(packed / 4);
+                    var light = packed - alpha * 4;
+                    var color = colors[i];
+                    float red = (color >> 16) & 0xFF, green = (color >> 8) & 0xFF, blue = color & 0xFF;
                     if (veil)
                     {
-                        var share = Math.Min(1, Math.Abs(lat) / tropic) * HeatStrength;
+                        var lat = lats[i];
+                        var share = Math.Min(1f, Math.Abs(lat) / tropic) * strength;
                         var tint = lat >= 0 ? veilNorth : veilSouth;
                         var keep = 1 - share;
-                        color = ((int)(((color >> 16) & 0xFF) * keep + tint.R * share) << 16) | ((int)(((color >> 8) & 0xFF) * keep + tint.G * share) << 8) | (int)((color & 0xFF) * keep + tint.B * share);
+                        red = red * keep + tint.R * share;
+                        green = green * keep + tint.G * share;
+                        blue = blue * keep + tint.B * share;
                     }
-                    // L'ombre du bord (la sphère se lit), puis la nuit.
-                    var light = 0.58 + 0.42 * z;
                     if (night)
                     {
-                        var sun = sinLat * sinD + Math.Sqrt(1 - sinLat * sinLat) * cosD * Math.Cos(lon - noon);
-                        light *= sun > 0.1 ? 1 : sun < -0.1 ? 0.3 : 0.3 + 0.7 * (sun + 0.1) / 0.2;
+                        var sun = nx[i] * sx + ny[i] * sy + nz[i] * sz;
+                        light *= sun > 0.1f ? 1f : sun < -0.1f ? 0.3f : 0.3f + 0.7f * (sun + 0.1f) / 0.2f;
                     }
-                    // Le dernier pixel du disque s'estompe : pas d'escalier au bord.
-                    var alpha = Math.Min(1, (1 - Math.Sqrt(d)) * radius);
-                    light *= alpha;
-                    var blue = (int)((color & 0xFF) * light);
-                    var green = (int)(((color >> 8) & 0xFF) * light);
-                    var red = (int)(((color >> 16) & 0xFF) * light);
-                    buffer[row + px] = ((int)(alpha * 255) << 24) | (red << 16) | (green << 8) | blue;
+                    buffer[i] = (alpha << 24) | ((int)(red * light) << 16) | ((int)(green * light) << 8) | (int)(blue * light);
                 }
-            }
+            });
             using (var frame = _globeBitmap.Lock())
             {
                 if (frame.RowBytes == side * 4) Marshal.Copy(buffer, 0, frame.Address, buffer.Length);
                 else for (var py = 0; py < side; py++) Marshal.Copy(buffer, py * side, frame.Address + py * frame.RowBytes, side);
             }
+            LastPaintMsForProbe = clock.Elapsed.TotalMilliseconds;
         }
 
         // ============================================================ la souris
