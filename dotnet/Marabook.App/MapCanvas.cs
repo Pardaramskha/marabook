@@ -44,6 +44,8 @@ namespace Marabook.App
         private MapInfo _dragBefore;
         private string _hoverId;
         private MapTileCache _cache;
+        private bool _space;       // Espace tenu : la main fermée promène la carte, quel que soit l'outil (lot 12)
+        private static Cursor _grabCursor;
 
         // Le globe.
         private double _globeLon, _globeLat = 0.35, _globeZoom = 1;
@@ -59,7 +61,9 @@ namespace Marabook.App
         }
 
         private MapInfo Map { get { return _owner.Map; } }
-        private bool Globe { get { return Map != null && Map.View == Maps.ViewGlobe; } }
+        // Le globe ne vaut que pour la carte d'un monde ENTIER (lot 12) : sinon, toujours à plat.
+        private bool Globe { get { return Map != null && Map.WholeWorld && Map.View == Maps.ViewGlobe; } }
+        public bool SpaceHeld { get { return _space; } }
         public Tool CurrentTool { get { return _tool; } }
         public double Scale { get { return _scale; } }
         public int DraftCount { get { return _draft.Count; } }
@@ -116,9 +120,66 @@ namespace Marabook.App
             _tool = tool;
             _draft.Clear();
             _measureA = _measureB = null;
-            Cursor = tool == Tool.Pan ? Cursor.Default : new Cursor(StandardCursorType.Cross);
+            UpdateCursor();
             InvalidateVisual();
         }
+
+        private void UpdateCursor()
+        {
+            Cursor = _space ? GrabCursor() : _tool == Tool.Pan || Globe ? Cursor.Default : new Cursor(StandardCursorType.Cross);
+        }
+
+        /// <summary>ESPACE (lot 12, Rémi : « toujours un grab, icône main fermée, peu importe le mode ») :
+        /// tant que la barre est tenue, glisser promène la carte — on ne trace rien, on ne choisit rien.</summary>
+        public void SetSpace(bool held)
+        {
+            if (_space == held) return;
+            _space = held;
+            UpdateCursor();
+        }
+
+        /// <summary>La main fermée : dessinée une fois (Avalonia n'a pas ce curseur en standard).</summary>
+        private static Cursor GrabCursor()
+        {
+            if (_grabCursor != null) return _grabCursor;
+            try
+            {
+                using (var bitmap = new SkiaSharp.SKBitmap(32, 32, SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Premul))
+                {
+                    using (var canvas = new SkiaSharp.SKCanvas(bitmap))
+                    using (var ink = new SkiaSharp.SKPaint { Color = new SkiaSharp.SKColor(20, 20, 20), IsAntialias = true, Style = SkiaSharp.SKPaintStyle.Stroke, StrokeWidth = 3.2f, StrokeJoin = SkiaSharp.SKStrokeJoin.Round })
+                    using (var skin = new SkiaSharp.SKPaint { Color = SkiaSharp.SKColors.White, IsAntialias = true, Style = SkiaSharp.SKPaintStyle.Fill })
+                    using (var line = new SkiaSharp.SKPaint { Color = new SkiaSharp.SKColor(20, 20, 20), IsAntialias = true, Style = SkiaSharp.SKPaintStyle.Stroke, StrokeWidth = 1.2f })
+                    {
+                        canvas.Clear(SkiaSharp.SKColors.Transparent);
+                        // Un poing : la paume, quatre phalanges repliées au-dessus, le pouce sur le côté.
+                        var parts = new[]
+                        {
+                            new SkiaSharp.SKRoundRect(new SkiaSharp.SKRect(8, 13, 25, 27), 5, 5),
+                            new SkiaSharp.SKRoundRect(new SkiaSharp.SKRect(8, 9, 12.5f, 17), 2.2f, 2.2f),
+                            new SkiaSharp.SKRoundRect(new SkiaSharp.SKRect(12.2f, 7.5f, 16.7f, 17), 2.2f, 2.2f),
+                            new SkiaSharp.SKRoundRect(new SkiaSharp.SKRect(16.4f, 8, 20.9f, 17), 2.2f, 2.2f),
+                            new SkiaSharp.SKRoundRect(new SkiaSharp.SKRect(20.6f, 9.5f, 25, 18), 2.2f, 2.2f),
+                            new SkiaSharp.SKRoundRect(new SkiaSharp.SKRect(4.5f, 14.5f, 10, 21), 2.6f, 2.6f)
+                        };
+                        foreach (var part in parts) canvas.DrawRoundRect(part, ink);
+                        foreach (var part in parts) canvas.DrawRoundRect(part, skin);
+                        canvas.DrawLine(12.35f, 10, 12.35f, 15, line);
+                        canvas.DrawLine(16.55f, 9.5f, 16.55f, 15, line);
+                        canvas.DrawLine(20.75f, 10.5f, 20.75f, 15, line);
+                        canvas.DrawLine(9.5f, 17.5f, 9.5f, 20.5f, line);
+                    }
+                    using (var image = SkiaSharp.SKImage.FromBitmap(bitmap))
+                    using (var data = image.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100))
+                    using (var stream = new System.IO.MemoryStream(data.ToArray()))
+                        _grabCursor = new Cursor(new Bitmap(stream), new PixelPoint(16, 16));
+                }
+            }
+            catch (Exception) { _grabCursor = new Cursor(StandardCursorType.SizeAll); }
+            return _grabCursor;
+        }
+
+        internal bool GrabCursorShownForProbe { get { return _space && ReferenceEquals(Cursor, _grabCursor) && _grabCursor != null; } }
 
         public void FitAll()
         {
@@ -221,13 +282,15 @@ namespace Marabook.App
             DrawTiles(context, map, bounds);
             var imageRect = new Rect(ToScreen(0, 0), ToScreen(map.Width, map.Height));
             context.DrawRectangle(null, new Pen(Chrome.BorderStrong, 1), imageRect);
+            if (_owner.SeasonHeatShown) DrawSeasonHeat(context, map);
             if (_owner.NightShown) DrawNight(context, map);
+            if (map.WholeWorld && Maps.Fitted(map)) DrawPoles(context, map);
 
             var zoom = ZoomRatio;
             var selectedZone = _owner.SelectedZone;
             foreach (var zone in map.Zones)
             {
-                if (zone.Points.Count < 2) continue;
+                if (zone.Points.Count < 2 || !_owner.ShowZones) continue;
                 var chosen = zone == selectedZone;
                 if (!chosen && !Maps.Visible(zone.Level, zoom)) continue;
                 var color = Tint(zone.Color, Chrome.Accent.Color);
@@ -261,7 +324,7 @@ namespace Marabook.App
             foreach (var marker in map.Markers)
             {
                 var chosen = marker == selectedMarker;
-                if (!chosen && !Maps.Visible(marker.Level, zoom)) continue;
+                if (!_owner.ShowMarkers || (!chosen && !Maps.Visible(marker.Level, zoom))) continue;
                 var color = Tint(marker.Color, Chrome.Danger.Color);
                 var at = ToScreen(marker.X, marker.Y);
                 context.DrawEllipse(new SolidColorBrush(color), new Pen(Brushes.White, chosen ? 3 : 2), at, chosen ? 7 : 5.5, chosen ? 7 : 5.5);
@@ -328,22 +391,111 @@ namespace Marabook.App
             using (var sink = geometry.Open())
             {
                 // Soleil au nord : la nuit est SOUS la courbe (jusqu'au bord sud) ; au sud : au-dessus.
-                var edge = declination > 0 ? map.Height : 0;
+                // (Proportions gardées : le pôle peut être dans l'image, ou au-delà — la nuit s'arrête au bord.)
+                var edge = Math.Max(0, Math.Min(map.Height, Maps.YOf(map, declination > 0 ? -Math.PI / 2 : Math.PI / 2)));
                 sink.BeginFigure(ToScreen(0, edge), true);
                 for (var i = 0; i <= steps; i++)
                 {
                     var x = (double)i / steps * map.Width;
                     var latitude = Math.Atan(-Math.Cos(Maps.Longitude(map, x) - noon) / Math.Tan(declination));
-                    sink.LineTo(ToScreen(x, (0.5 - latitude / Math.PI) * map.Height));
+                    sink.LineTo(ToScreen(x, Math.Max(0, Math.Min(map.Height, Maps.YOf(map, latitude)))));
                 }
                 sink.LineTo(ToScreen(map.Width, edge));
                 sink.EndFigure(true);
             }
             context.DrawGeometry(new SolidColorBrush(Color.FromRgb(8, 12, 30), 0.52), new Pen(new SolidColorBrush(Color.FromRgb(8, 12, 30), 0.35), 3), geometry);
             // Le point où le soleil est au zénith.
-            var sun = ToScreen((noon / (2 * Math.PI) + 0.5) * map.Width, (0.5 - _owner.Declination / Math.PI) * map.Height);
+            var sunX = Maps.XOf(map, noon);
+            if (sunX < 0 || sunX > map.Width) return;
+            var sun = ToScreen(sunX, Maps.YOf(map, _owner.Declination));
             context.DrawEllipse(new SolidColorBrush(Color.FromRgb(0xF5, 0xC5, 0x42), 0.35), null, sun, 13, 13);
             context.DrawEllipse(new SolidColorBrush(Color.FromRgb(0xF5, 0xC5, 0x42)), new Pen(Brushes.White, 1.5), sun, 6, 6);
+        }
+
+        // ------------------------------------------------------------ les saisons (lot 12)
+
+        private const int HeatColumns = 24, HeatRows = 12;
+        private readonly Dictionary<uint, IBrush> _heatBrushes = new Dictionary<uint, IBrush>();
+
+        /// <summary>Un point de chaleur : un halo de la teinte de la saison, plein au centre, nul au bord.</summary>
+        private IBrush HeatBrush(Color color, double strength)
+        {
+            var alpha = (byte)Math.Round(Math.Max(0, Math.Min(1, strength)) * 205);
+            var key = ((uint)alpha << 24) | ((uint)color.R << 16) | ((uint)color.G << 8) | color.B;
+            IBrush brush;
+            if (_heatBrushes.TryGetValue(key, out brush)) return brush;
+            var gradient = new RadialGradientBrush { Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative), GradientOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative), Radius = 0.5 };
+            gradient.GradientStops.Add(new GradientStop(Color.FromArgb(alpha, color.R, color.G, color.B), 0));
+            gradient.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(alpha * 0.8), color.R, color.G, color.B), 0.45));
+            gradient.GradientStops.Add(new GradientStop(Color.FromArgb(0, color.R, color.G, color.B), 1));
+            if (_heatBrushes.Count > 64) _heatBrushes.Clear();
+            _heatBrushes[key] = gradient;
+            return gradient;
+        }
+
+        /// <summary>La saison (teinte) et sa présence (0 à 1) à une latitude, au jour choisi.</summary>
+        private bool SeasonAt(double latitude, out Color color, out double presence)
+        {
+            color = default(Color);
+            presence = 0;
+            var world = _owner.World;
+            if (world == null) return false;
+            var index = Maps.SeasonIndex(world, _owner.DayOfYear, _owner.YearDays, latitude < 0);
+            if (index < 0) return false;
+            presence = Maps.SeasonPresence(world, latitude);
+            color = Tint(Astro.ColorOf(world.Seasons[index], index), Chrome.Accent.Color);
+            return presence > 0.04;
+        }
+
+        /// <summary>LES POINTS DE CHALEUR DES SAISONS (lot 12, Rémi) : une grille de halos sur le planisphère,
+        /// de la teinte de la saison qui règne là au jour choisi ; d'autant plus pâles que la saison
+        /// s'efface (vers l'équateur), absents là où il n'y en a pas.</summary>
+        private void DrawSeasonHeat(DrawingContext context, MapInfo map)
+        {
+            var stepY = Math.Abs(Maps.YOf(map, 0) - Maps.YOf(map, Math.PI / HeatRows)) * _scale;
+            var radius = Math.Max(5, stepY * 0.47); // des points distincts, qui ne se chevauchent pas : la carte reste lisible dessous
+            using (context.PushClip(new Rect(ToScreen(0, 0), ToScreen(map.Width, map.Height))))
+                for (var row = 0; row < HeatRows; row++)
+                {
+                    var latitude = Math.PI / 2 - (row + 0.5) * Math.PI / HeatRows;
+                    Color color;
+                    double presence;
+                    if (!SeasonAt(latitude, out color, out presence)) continue;
+                    var y = Maps.YOf(map, latitude);
+                    if (y < -map.Height * 0.1 || y > map.Height * 1.1) continue;
+                    var brush = HeatBrush(color, presence);
+                    for (var column = 0; column < HeatColumns; column++)
+                    {
+                        var longitude = -Math.PI + (column + 0.5) * 2 * Math.PI / HeatColumns;
+                        var x = Maps.XOf(map, longitude);
+                        if (x < 0 || x > map.Width) continue;
+                        var at = ToScreen(x, y);
+                        if (at.X < -radius || at.Y < -radius || at.X > Bounds.Width + radius || at.Y > Bounds.Height + radius) continue;
+                        context.DrawEllipse(brush, null, at, radius, radius);
+                    }
+                }
+        }
+
+        /// <summary>Proportions gardées : les pôles et l'équateur, en pointillés — on voit où le monde commence.</summary>
+        private void DrawPoles(DrawingContext context, MapInfo map)
+        {
+            var pen = new Pen(new SolidColorBrush(Colors.White, 0.85), 1.4) { DashStyle = new DashStyle(new double[] { 5, 4 }, 0) };
+            var shadow = new Pen(new SolidColorBrush(Colors.Black, 0.45), 3);
+            var lines = new[] { Math.PI / 2, 0, -Math.PI / 2 };
+            var names = new[] { "Pôle nord", "Équateur", "Pôle sud" };
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var y = Maps.YOf(map, lines[i]);
+                if (y < -0.5 || y > map.Height + 0.5) continue;
+                var a = ToScreen(0, y);
+                var b = ToScreen(map.Width, y);
+                context.DrawLine(shadow, a, b);
+                context.DrawLine(pen, a, b);
+                var text = Text(names[i], 10.5, Brushes.White, FontWeight.SemiBold);
+                var box = new Rect(Math.Max(4, a.X + 6), a.Y - text.Height - 5, text.Width + 10, text.Height + 3);
+                context.DrawRectangle(new SolidColorBrush(Colors.Black, 0.55), null, box, 4, 4);
+                context.DrawText(text, new Point(box.X + 5, box.Y + 1));
+            }
         }
 
         private void Label(DrawingContext context, string name, Point at, Color color, bool centred)
@@ -436,7 +588,8 @@ namespace Marabook.App
             }
             var night = _owner.NightShown;
             var key = side + "|" + _globeLon.ToString("R", CultureInfo.InvariantCulture) + "|" + _globeLat.ToString("R", CultureInfo.InvariantCulture) + "|" + _globeZoom.ToString("R", CultureInfo.InvariantCulture)
-                + "|" + (night ? _owner.Declination.ToString("R", CultureInfo.InvariantCulture) + "/" + _owner.DayFraction.ToString("R", CultureInfo.InvariantCulture) : "-");
+                + "|" + (night ? _owner.Declination.ToString("R", CultureInfo.InvariantCulture) + "/" + _owner.DayFraction.ToString("R", CultureInfo.InvariantCulture) : "-")
+                + "|" + map.Layout + map.PoleNorth.ToString("R", CultureInfo.InvariantCulture) + "/" + map.PoleSouth.ToString("R", CultureInfo.InvariantCulture);
             if (_globeBitmap == null || _globeBitmap.PixelSize.Width != side || key != _globeKey)
             {
                 PaintGlobe(texture, tw, th, side, night);
@@ -450,9 +603,27 @@ namespace Marabook.App
             var radius = GlobeRadius(side);
             using (context.PushClip(dest))
             {
+                if (_owner.SeasonHeatShown)
+                    for (var row = 0; row < HeatRows; row++)
+                    {
+                        var latitude = Math.PI / 2 - (row + 0.5) * Math.PI / HeatRows;
+                        Color tint;
+                        double presence;
+                        if (!SeasonAt(latitude, out tint, out presence)) continue;
+                        var brush = HeatBrush(tint, presence);
+                        for (var column = 0; column < HeatColumns; column++)
+                        {
+                            Point spot;
+                            double depth;
+                            var longitude = -Math.PI + (column + 0.5) * 2 * Math.PI / HeatColumns;
+                            if (!ProjectAngles(longitude, latitude, centre, radius, out spot, out depth)) continue;
+                            var size = radius * 0.123 * (0.35 + 0.65 * depth);
+                            context.DrawEllipse(brush, null, spot, size, size);
+                        }
+                    }
                 foreach (var zone in map.Zones)
                 {
-                    if (zone.Points.Count < 2 || !Maps.Visible(zone.Level, zoom)) continue;
+                    if (!_owner.ShowZones || zone.Points.Count < 2 || !Maps.Visible(zone.Level, zoom)) continue;
                     var pen = new Pen(new SolidColorBrush(Tint(zone.Color, Chrome.Accent.Color)), 2);
                     for (var i = 0; i < zone.Points.Count; i++)
                     {
@@ -468,7 +639,7 @@ namespace Marabook.App
                 foreach (var marker in map.Markers)
                 {
                     Point at;
-                    if (!Maps.Visible(marker.Level, zoom) || !Project(map, marker.X, marker.Y, centre, radius, out at)) continue;
+                    if (!_owner.ShowMarkers || !Maps.Visible(marker.Level, zoom) || !Project(map, marker.X, marker.Y, centre, radius, out at)) continue;
                     var color = Tint(marker.Color, Chrome.Danger.Color);
                     context.DrawEllipse(new SolidColorBrush(color), new Pen(Brushes.White, 2), at, 5, 5);
                     Label(context, marker.Name, new Point(at.X, at.Y + 14), color, false);
@@ -479,10 +650,15 @@ namespace Marabook.App
         /// <summary>Un point de l'image sur le globe ; faux s'il est sur la face cachée.</summary>
         private bool Project(MapInfo map, double ix, double iy, Point centre, double radius, out Point at)
         {
-            var lon = Maps.Longitude(map, ix) - _globeLon;
-            var lat = Maps.Latitude(map, iy);
+            double depth;
+            return ProjectAngles(Maps.Longitude(map, ix), Maps.Latitude(map, iy), centre, radius, out at, out depth);
+        }
+
+        private bool ProjectAngles(double longitude, double lat, Point centre, double radius, out Point at, out double depth)
+        {
+            var lon = longitude - _globeLon;
             double sinP = Math.Sin(_globeLat), cosP = Math.Cos(_globeLat);
-            var depth = sinP * Math.Sin(lat) + cosP * Math.Cos(lat) * Math.Cos(lon);
+            depth = sinP * Math.Sin(lat) + cosP * Math.Cos(lat) * Math.Cos(lon);
             at = new Point(centre.X + radius * Math.Cos(lat) * Math.Sin(lon), centre.Y - radius * (cosP * Math.Sin(lat) - sinP * Math.Cos(lat) * Math.Cos(lon)));
             return depth > 0.02;
         }
@@ -500,6 +676,20 @@ namespace Marabook.App
             var noon = Maps.NoonLongitude(_owner.DayFraction);
             var half = side / 2.0;
             const double twoPi = 2 * Math.PI;
+            // De l'angle au pixel de la texture (lot 12) : l'image étirée sur tout le monde, ou —
+            // proportions gardées — posée entre ses pôles ; hors de l'image, la mer nue.
+            var map = Map;
+            var fitted = Maps.Fitted(map);
+            double ax = 0, bx = 0, ay = 0, by = 0;
+            if (fitted)
+            {
+                var perPixel = Maps.RadiansPerPixel(map);
+                ax = tw / (map.Width * perPixel);
+                bx = tw / 2.0;
+                ay = -th / (map.Height * perPixel);
+                by = th * map.PoleNorth + Math.PI / 2 * th / (map.Height * perPixel);
+            }
+            const int bare = (0x2E << 16) | (0x3A << 8) | 0x4A;
             for (var py = 0; py < side; py++)
             {
                 var y = (half - py - 0.5) / radius;
@@ -514,13 +704,24 @@ namespace Marabook.App
                     if (sinLat > 1) sinLat = 1; else if (sinLat < -1) sinLat = -1;
                     var lat = Math.Asin(sinLat);
                     var lon = _globeLon + Math.Atan2(x, z * cosP - y * sinP);
-                    var u = lon / twoPi + 0.5;
-                    u -= Math.Floor(u);
-                    var tx = (int)(u * tw);
-                    if (tx >= tw) tx = tw - 1;
-                    var ty = (int)((0.5 - lat / Math.PI) * th);
-                    if (ty < 0) ty = 0; else if (ty >= th) ty = th - 1;
-                    var color = texture[ty * tw + tx];
+                    int color;
+                    if (fitted)
+                    {
+                        var around = lon - twoPi * Math.Round(lon / twoPi);
+                        var fx = ax * around + bx;
+                        var fy = ay * lat + by;
+                        color = fx < 0 || fy < 0 || fx >= tw || fy >= th ? bare : texture[(int)fy * tw + (int)fx];
+                    }
+                    else
+                    {
+                        var u = lon / twoPi + 0.5;
+                        u -= Math.Floor(u);
+                        var tx = (int)(u * tw);
+                        if (tx >= tw) tx = tw - 1;
+                        var ty = (int)((0.5 - lat / Math.PI) * th);
+                        if (ty < 0) ty = 0; else if (ty >= th) ty = th - 1;
+                        color = texture[ty * tw + tx];
+                    }
                     // L'ombre du bord (la sphère se lit), puis la nuit.
                     var light = 0.58 + 0.42 * z;
                     if (night)
@@ -552,6 +753,7 @@ namespace Marabook.App
         {
             var map = Map;
             var zoom = ZoomRatio;
+            if (!_owner.ShowMarkers) return null;
             for (var i = map.Markers.Count - 1; i >= 0; i--)
             {
                 var marker = map.Markers[i];
@@ -567,6 +769,7 @@ namespace Marabook.App
             var map = Map;
             var zoom = ZoomRatio;
             var image = ToImage(point);
+            if (!_owner.ShowZones) return null;
             for (var i = map.Zones.Count - 1; i >= 0; i--)
             {
                 var zone = map.Zones[i];
@@ -629,6 +832,13 @@ namespace Marabook.App
                 _panning = true;
                 _last = point;
                 e.Pointer.Capture(this);
+                return;
+            }
+            // Espace tenu : la main promène la carte, et rien d'autre — ni sommet, ni choix (lot 12).
+            if (_space)
+            {
+                if (properties.IsLeftButtonPressed) { BeginGrab(point); e.Pointer.Capture(this); }
+                e.Handled = true;
                 return;
             }
             var image = InsideImage(ToImage(point));
@@ -714,6 +924,26 @@ namespace Marabook.App
             e.Pointer.Capture(this);
         }
 
+        private void BeginGrab(Point point)
+        {
+            _panning = true;
+            _moved = true;
+            _last = point;
+        }
+
+        internal void GrabForProbe(Point from, Point to)
+        {
+            BeginGrab(from);
+            _viewX -= (to.X - from.X) / _scale;
+            _viewY -= (to.Y - from.Y) / _scale;
+            Clamp();
+            _fitPending = false;
+            _panning = false;
+            InvalidateVisual();
+        }
+
+        internal Pos ViewOriginForProbe { get { return new Pos(_viewX, _viewY); } }
+
         protected override void OnPointerMoved(PointerEventArgs e)
         {
             base.OnPointerMoved(e);
@@ -758,6 +988,7 @@ namespace Marabook.App
                 InvalidateVisual();
                 return;
             }
+            if (_space) return;
             if (_tool != Tool.Pan) { InvalidateVisual(); return; }
             // Le survol : la zone ou le repère sous le curseur s'éclaire ; une main sur ce qui se clique.
             var over = MarkerAt(point);
@@ -792,6 +1023,7 @@ namespace Marabook.App
         {
             base.OnPointerExited(e);
             _cursor = null;
+            if (_space && !_panning) SetSpace(false);
             if (_hoverId != null || _tool != Tool.Pan) { _hoverId = null; InvalidateVisual(); }
         }
 
@@ -826,6 +1058,7 @@ namespace Marabook.App
 
         internal Point ScreenOfForProbe(double ix, double iy) { return ToScreen(ix, iy); }
         internal int LevelForProbe { get { return Map == null ? 0 : Maps.LevelFor(Map, _scale); } }
+        internal MapZone ZoneHitForProbe(Point point) { return ZoneAt(point); }
         internal bool GlobePaintedForProbe { get { return _globeBitmap != null && _globeKey != null; } }
         internal void RotateGlobeForProbe(double lon, double lat) { _globeLon = lon; _globeLat = lat; _globeKey = null; InvalidateVisual(); }
         internal void DraftForProbe(Pos point) { _draft.Add(point); }

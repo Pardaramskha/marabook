@@ -16,6 +16,45 @@ namespace Marabook.App
         private MapView _mapView;              // une carte
         private MapsHubView _mapsHub;          // la racine « Cartes »
         private TimelineHubView _astrolabeHub; // la racine « Astrolabe » : systèmes et mondes
+        private ContentControl _mapSection;    // la carte dans l'onglet Général du rail (lot 12)
+        private Border _mapSkyHost, _mapShapesHost; // ses deux onglets propres : jour-nuit-saisons, zones et repères
+
+        /// <summary>Les deux onglets d'une carte ouverte (lot 12, Rémi) : leurs hôtes dans la colonne de droite.
+        /// Leur contenu appartient à la vue de la carte, qui le tient à jour.</summary>
+        private void BuildMapPanels(Grid grid)
+        {
+            _mapSkyHost = ToolHost("Jour, nuit et saisons", _mapView.SkyPanel);
+            _mapShapesHost = ToolHost("Zones et repères", _mapView.ShapesPanel);
+            foreach (var host in new[] { _mapSkyHost, _mapShapesHost })
+            {
+                host.IsVisible = false;
+                Grid.SetColumn(host, 4);
+                grid.Children.Add(host);
+            }
+        }
+
+        /// <summary>La carte ouverte dans le Général du rail : son image, son monde, son échelle et ses superficies.</summary>
+        private void RefreshMapSection(BinderItem item)
+        {
+            if (_mapSection == null || _mapView == null) return;
+            var shown = item != null && item.Kind == ItemKind.Map && _mapView.IsVisible && _mapView.ShowsItem(item);
+            var content = shown ? _mapView.GeneralPanel : null;
+            if (!ReferenceEquals(_mapSection.Content, content)) _mapSection.Content = content;
+            _mapSection.IsVisible = shown;
+        }
+
+        internal Border MapSkyHostForProbe { get { return _mapSkyHost; } }
+        internal Border MapShapesHostForProbe { get { return _mapShapesHost; } }
+        internal bool MapSectionShownForProbe { get { return _mapSection != null && _mapSection.IsVisible && ReferenceEquals(_mapSection.Content, _mapView.GeneralPanel); } }
+        internal bool RailMapSeparatorForProbe
+        {
+            get
+            {
+                var index = -1;
+                for (var i = 0; i < _railStack.Children.Count; i++) if (Equals(_railStack.Children[i].Tag, "rail-map-separator")) index = i;
+                return index > 0 && index == _railStack.Children.Count - 3;
+            }
+        }
 
         private void BuildMapViews(Panel center)
         {
@@ -73,9 +112,9 @@ namespace Marabook.App
             if (_project == null) return;
             var path = await Ui.PickOpenFile(this, "L'image de la carte", MapImport.OpenFilter);
             if (path == null) return;
-            var map = await MapImportDialog.Run(this, path);
+            // Lot 12 : la fenêtre d'import propose aussi le monde et « Carte du monde entier ».
+            var map = await MapImportDialog.Run(this, path, _project, true);
             if (map == null) return;
-            // Deux fois plus large que haute : sans doute le planisphère d'un monde entier — proposé, jamais imposé.
             AddImportedMap(Path.GetFileNameWithoutExtension(path), map);
         }
 
@@ -116,6 +155,9 @@ namespace Marabook.App
             fresh.WorldId = old.WorldId;
             fresh.WholeWorld = old.WholeWorld;
             fresh.View = old.View;
+            fresh.Layout = old.Layout;
+            fresh.PoleNorth = old.PoleNorth;
+            fresh.PoleSouth = old.PoleSouth;
             fresh.ScaleKm = old.ScaleKm;
             fresh.ScaleNote = old.ScaleNote;
             fresh.ScaleA = new Pos(old.ScaleA.X * fx, old.ScaleA.Y * fy);

@@ -24,6 +24,225 @@ namespace Marabook.Tests
             Sky(t);
             Persistence(t);
             Analysis(t);
+            t.Suite("C74 — lot 12 : tuiles lues à la demande dans le .plot, construction du planisphère, présence des saisons, onglets de la carte au rail");
+            LazyTiles(t);
+            Layout(t);
+            Rail(t);
+        }
+
+        private static bool SameTiles(MapTileSet a, Dictionary<string, byte[]> expected)
+        {
+            if (a.Count != expected.Count) return false;
+            foreach (var pair in expected)
+            {
+                var bytes = a.Read(pair.Key);
+                if (bytes == null || bytes.Length != pair.Value.Length) return false;
+                for (var i = 0; i < bytes.Length; i += 97) if (bytes[i] != pair.Value[i]) return false;
+            }
+            return true;
+        }
+
+        /// <summary>Lot 12 (16/11) : une carte ouverte ne tient plus ses tuiles en mémoire.</summary>
+        private static void LazyTiles(Harness t)
+        {
+            var project = Project.CreateNew();
+            var root = project.Category(Project.KeyMaps);
+            var item = new BinderItem { Kind = ItemKind.Map, Title = "Ehnmir", Parent = root, Map = SampleMap() };
+            root.Children.Add(item);
+            var expected = new Dictionary<string, byte[]>();
+            foreach (var key in item.Map.Tiles.Keys) expected[key] = item.Map.Tiles[key];
+            long total = 0;
+            foreach (var bytes in expected.Values) total += bytes.Length;
+            t.Check(item.Map.Tiles.MemoryCount == expected.Count && item.Map.Tiles.MemoryBytes == total && Maps.Bytes(item.Map) == total, "une carte tout juste importée tient ses tuiles en mémoire");
+            InTemp(delegate(string dir)
+            {
+                var path = Path.Combine(dir, "paresse.plot");
+                PlotFile.Save(project, path);
+                t.Check(item.Map.Tiles.MemoryCount == 0 && item.Map.Tiles.MemoryBytes == 0 && item.Map.Tiles.Count == expected.Count && Maps.Bytes(item.Map) == total,
+                    "au premier enregistrement, ses tuiles sont rendues : plus rien en mémoire, le même poids annoncé");
+                t.Check(SameTiles(item.Map.Tiles, expected), "…et elles se relisent dans le .plot, octet pour octet");
+
+                var reads = PlotTiles.Reads;
+                var loaded = PlotFile.Load(path);
+                var back = Maps.All(loaded)[0];
+                t.Check(PlotTiles.Reads == reads && back.Map.Tiles.MemoryCount == 0 && back.Map.Tiles.Count == expected.Count && Maps.Bytes(back.Map) == total && !back.LoadDamaged,
+                    "ouvrir un projet ne lit AUCUNE tuile : leur adresse, leur poids, rien d'autre");
+                var one = back.Map.Tiles.Read("1/1_0");
+                t.Check(PlotTiles.Reads == reads + 1 && one != null && one.Length == expected["1/1_0"].Length && back.Map.Tiles.MemoryCount == 0, "une tuile demandée est lue seule, et n'est pas gardée");
+                t.Check(back.Map.Tiles.Read("9/9_9") == null && !back.Map.Tiles.Contains("9/9_9"), "une tuile qui n'existe pas rend null");
+
+                // Enregistrer sans avoir rien lu : les tuiles passent de l'ancien fichier au neuf par copie de bloc.
+                reads = PlotTiles.Reads;
+                var first = PlotFile.Write(PlotFile.Prepare(loaded), path, false);
+                t.Check(first.Copied >= expected.Count && first.LostTiles == 0 && back.Map.Tiles.MemoryCount == 0 && SameTiles(back.Map.Tiles, expected),
+                    "enregistrer recopie les tuiles par bloc, sans les lire ni les recompresser (" + first.Copied + " recopiées)");
+
+                // Enregistrer sous : les tuiles viennent du fichier d'origine, et la carte est reliée au nouveau.
+                var other = Path.Combine(dir, "ailleurs.plot");
+                var moved = PlotFile.Write(PlotFile.Prepare(loaded), other, false);
+                File.Delete(path);
+                t.Check(moved.LostTiles == 0 && moved.Copied >= expected.Count && SameTiles(back.Map.Tiles, expected), "« Enregistrer sous » : les tuiles suivent dans le nouveau fichier, et l'ancien peut disparaître");
+                t.Check(SameTiles(Maps.All(PlotFile.Load(other))[0].Map.Tiles, expected), "…le nouveau fichier se rouvre entier");
+
+                // Une copie de la carte, puis l'original retiré : la copie reprend les tuiles sous son propre nom.
+                var maps = loaded.Category(Project.KeyMaps);
+                var twin = back.Duplicate(false);
+                twin.Parent = maps;
+                maps.Children.Add(twin);
+                maps.Children.Remove(back);
+                var afterTwin = PlotFile.Write(PlotFile.Prepare(loaded), other, false);
+                t.Check(afterTwin.LostTiles == 0 && SameTiles(twin.Map.Tiles, expected), "une carte dupliquée dont l'original est supprimé garde toutes ses tuiles");
+                using (var archive = ZipFile.OpenRead(other))
+                    t.Check(archive.GetEntry("cartes/" + twin.Id + "/0/0_0.jpg") != null && archive.GetEntry("cartes/" + back.Id + "/0/0_0.jpg") == null, "…rangées sous son identifiant, celles de l'original parties du fichier");
+
+                // L'image remplacée : l'ancienne table n'est plus dans le projet, mais l'historique la tient —
+                // l'enregistrement la ramène en mémoire avant de réécrire le fichier sans elle.
+                var old = twin.Map;
+                var fresh = SampleMap();
+                fresh.Tiles = new MapTileSet();
+                fresh.Tiles["0/0_0"] = new byte[] { 1, 2, 3, 4, 5 };
+                fresh.Levels = 1;
+                fresh.Width = fresh.Height = 100;
+                twin.Map = fresh;
+                var replaced = PlotFile.Write(PlotFile.Prepare(loaded), other, false);
+                t.Check(replaced.LostTiles == 0 && old.Tiles.MemoryCount == expected.Count && SameTiles(old.Tiles, expected),
+                    "une image remplacée puis enregistrée : l'ancienne, que Ctrl+Z peut rendre, est revenue entière en mémoire");
+                twin.Map = old;
+                var undone = PlotFile.Write(PlotFile.Prepare(loaded), other, false);
+                t.Check(undone.LostTiles == 0 && old.Tiles.MemoryCount == 0 && SameTiles(Maps.All(PlotFile.Load(other))[0].Map.Tiles, expected), "…annulée et enregistrée, elle retourne dormir dans le .plot");
+
+                // Un autre projet encore ouvert sur le même fichier (ici : le premier, « project ») n'est pas trahi non plus :
+                // ses tuiles, que l'enregistrement de « loaded » allait laisser sans fichier, sont revenues en mémoire.
+                t.Check(SameTiles(item.Map.Tiles, expected), "une carte encore tenue ailleurs (historique, autre projet) ne perd jamais ses tuiles quand son fichier est réécrit");
+
+                // Le fichier d'origine a disparu pendant la session : on enregistre quand même, et on le DIT.
+                var gone = Path.Combine(dir, "perdu.plot");
+                File.Copy(other, gone);
+                var orphaned = PlotFile.Load(gone);
+                File.Delete(gone);
+                var lost = PlotFile.Write(PlotFile.Prepare(orphaned), Path.Combine(dir, "apres.plot"), false);
+                t.Check(lost.LostTiles == expected.Count && File.Exists(Path.Combine(dir, "apres.plot")), "le .plot d'origine disparu : le projet s'enregistre, et les tuiles perdues sont comptées (" + lost.LostTiles + ")");
+                var warnings = new List<string>();
+                var holed = Maps.All(PlotFile.Load(Path.Combine(dir, "apres.plot"), warnings))[0];
+                t.Check(holed.LoadDamaged && holed.Map.Zones.Count == 1 && warnings.Count > 0, "…la carte rouverte est marquée trouée, ses zones intactes");
+
+                // Un fichier remplacé par un autre contenu sous le même nom : la tuile n'est pas confondue.
+                var swapPath = Path.Combine(dir, "troc.plot");
+                File.Copy(other, swapPath);
+                var swapped = Maps.All(PlotFile.Load(swapPath))[0];
+                var stranger = Project.CreateNew();
+                var strangerPath = Path.Combine(dir, "etranger.plot");
+                PlotFile.Save(stranger, strangerPath);
+                File.Copy(strangerPath, swapPath, true); // un autre programme (une synchronisation) pose un autre fichier sous le même nom
+                t.Check(swapped.Map.Tiles.Read("0/0_0") == null, "un .plot remplacé par un autre : la tuile ne se relit pas (plutôt rien qu'une image fausse)");
+            });
+
+            // Le lecteur d'une entrée : stockée ou compressée, vérifiée par son CRC.
+            InTemp(delegate(string dir)
+            {
+                var zip = Path.Combine(dir, "essai.zip");
+                var payload = new byte[5000];
+                new Random(7).NextBytes(payload);
+                var text = System.Text.Encoding.UTF8.GetBytes(new string('m', 3000));
+                using (var stream = new FileStream(zip, FileMode.Create))
+                {
+                    var writer = new PlotZip.Writer(stream);
+                    writer.Add("brut.bin", payload, null, CompressionLevel.NoCompression, Digest.Crc32(payload, 0, payload.Length), payload.Length);
+                    writer.Add("texte.txt", text, null, CompressionLevel.Optimal, Digest.Crc32(text, 0, text.Length), text.Length);
+                    writer.Finish();
+                }
+                using (var stream = new FileStream(zip, FileMode.Open, FileAccess.Read))
+                {
+                    var entries = PlotZip.ReadDirectory(stream);
+                    var raw = PlotZip.ReadEntry(stream, entries["brut.bin"]);
+                    var packed = PlotZip.ReadEntry(stream, entries["texte.txt"]);
+                    t.Check(raw != null && raw.Length == 5000 && raw[4999] == payload[4999] && packed != null && packed.Length == 3000 && packed[0] == (byte)'m', "une entrée se lit seule, stockée ou compressée");
+                    entries["brut.bin"].Crc ^= 1;
+                    t.Check(PlotZip.ReadEntry(stream, entries["brut.bin"]) == null, "…et un CRC qui ne tombe pas juste la refuse");
+                }
+                t.Check(PlotTiles.Read(zip, "brut.bin", Digest.Crc32(payload, 0, payload.Length), 5000) != null && PlotTiles.Read(zip, "brut.bin", 12345, 5000) == null
+                    && PlotTiles.Read(zip, "absent", 0, 0) == null && PlotTiles.Read(Path.Combine(dir, "nulle-part.zip"), "brut.bin", 0, 0) == null,
+                    "le lecteur de tuiles : la bonne entrée, sinon null (CRC différent, entrée absente, fichier absent)");
+            });
+        }
+
+        /// <summary>Lot 12 : la construction du planisphère (étirée, ou proportions gardées et pôles placés), les saisons.</summary>
+        private static void Layout(Harness t)
+        {
+            var map = new MapInfo { Width = 6000, Height = 4200, Levels = 5, WholeWorld = true };
+            t.Check(!Maps.Fitted(map) && Maps.LongitudeSpan(map) == 360 && Math.Abs(Maps.Latitude(map, 0) - Math.PI / 2) < 1e-9 && Math.Abs(Maps.Longitude(map, 6000) - Math.PI) < 1e-9,
+                "étirée : l'image couvre 360° de large, d'un pôle à l'autre, quelles que soient ses proportions");
+            t.Check(Math.Abs(Maps.XOf(map, Maps.Longitude(map, 1234)) - 1234) < 1e-6 && Math.Abs(Maps.YOf(map, Maps.Latitude(map, 987)) - 987) < 1e-6, "…et l'on revient de l'angle au pixel");
+            map.Layout = Maps.LayoutFitted;
+            t.Check(Maps.Fitted(map) && Math.Abs(Maps.LongitudeSpan(map) - 180.0 * 6000 / 4200) < 1e-6, "proportions gardées, pôles aux bords : la largeur couvre 180° × largeur ÷ hauteur (257°)");
+            t.Check(Math.Abs(Maps.Latitude(map, 0) - Math.PI / 2) < 1e-9 && Math.Abs(Maps.Latitude(map, 4200) + Math.PI / 2) < 1e-9 && Math.Abs(Maps.Latitude(map, 2100)) < 1e-9 && Math.Abs(Maps.Longitude(map, 3000)) < 1e-9,
+                "…le haut est le pôle nord, le bas le pôle sud, le milieu l'équateur et le méridien du centre");
+            var degree = Maps.RadiansPerPixel(map);
+            t.Check(Math.Abs((Maps.Longitude(map, 3100) - Maps.Longitude(map, 3000)) - 100 * degree) < 1e-12 && Math.Abs((Maps.Latitude(map, 2000) - Maps.Latitude(map, 2100)) - 100 * degree) < 1e-12,
+                "…un degré vaut autant de pixels en large qu'en haut : rien n'est déformé");
+            // « Un tour complet » : 360° sur la largeur → les pôles à (0,5 ∓ largeur ÷ 4 ÷ hauteur).
+            var half = 6000 / 4.0 / 4200;
+            map.PoleNorth = 0.5 - half;
+            map.PoleSouth = 0.5 + half;
+            t.Check(Math.Abs(Maps.LongitudeSpan(map) - 360) < 1e-6 && Math.Abs(Maps.Latitude(map, 2100)) < 1e-9 && Maps.PoleNorthInside(map),
+                "les pôles replacés dans l'image : un tour complet (360°), l'équateur au milieu");
+            t.Check(Math.Abs(Maps.Latitude(map, 0) - Math.PI / 2) < 1e-9 && Math.Abs(Maps.Latitude(map, 4200) + Math.PI / 2) < 1e-9, "…au-delà d'un pôle, la latitude reste celle du pôle");
+            t.Check(Math.Abs(Maps.XOf(map, Maps.Longitude(map, 1234)) - 1234) < 1e-6 && Math.Abs(Maps.YOf(map, Maps.Latitude(map, 1987)) - 1987) < 1e-6, "…aller-retour angle ↔ pixel");
+            // Des pôles hors de l'image : elle ne monte que jusqu'à 60° nord.
+            map.PoleNorth = -0.25;
+            map.PoleSouth = 1.25;
+            t.Check(Math.Abs(Maps.Latitude(map, 0) * 180 / Math.PI - 60) < 1e-6 && Math.Abs(Maps.Latitude(map, 4200) * 180 / Math.PI + 60) < 1e-6 && !Maps.PoleNorthInside(map),
+                "des pôles hors de l'image (−25 % et 125 %) : elle va de 60° nord à 60° sud");
+            // Les distances suivent la construction : un quart de tour le long de l'équateur.
+            map.PoleNorth = 0;
+            map.PoleSouth = 1;
+            var quarter = Math.PI / 2 / Maps.RadiansPerPixel(map);
+            t.Check(Math.Abs(Maps.CentralAngle(map, new Pos(3000 - quarter / 2, 2100), new Pos(3000 + quarter / 2, 2100)) - Math.PI / 2) < 1e-9, "les distances suivent la construction choisie");
+
+            // Le manifeste.
+            map.PoleNorth = 0.1;
+            map.PoleSouth = 0.9;
+            var back = MapJson.Read(Json.Parse(Json.Write(MapJson.Build(map))));
+            t.Check(back.Layout == Maps.LayoutFitted && Math.Abs(back.PoleNorth - 0.1) < 1e-9 && Math.Abs(back.PoleSouth - 0.9) < 1e-9 && map.Clone().Layout == Maps.LayoutFitted && map.Clone().PoleSouth == 0.9,
+                "la construction s'enregistre, se relit et suit les copies");
+            var plain = MapJson.Build(new MapInfo { Width = 10, Height = 10, Levels = 1 });
+            t.Check(!plain.ContainsKey("layout") && !plain.ContainsKey("poleNorth") && MapJson.Read(Json.Parse(Json.Write(plain))).Layout == Maps.LayoutStretch, "étirée : rien de plus dans le manifeste (un .plot du lot 11 se relit tel quel)");
+            var broken = MapJson.Read(Json.Parse("{\"width\":10,\"height\":10,\"levels\":1,\"layout\":\"fitted\",\"poleNorth\":0.8,\"poleSouth\":0.2}"));
+            t.Check(broken.Layout == Maps.LayoutFitted && broken.PoleNorth == 0 && broken.PoleSouth == 1, "des pôles à l'envers dans le fichier : ramenés aux bords");
+
+            // La présence d'une saison selon la latitude.
+            var world = World.Earth();
+            t.Check(Maps.SeasonPresence(world, 0) == 0 && Maps.SeasonPresence(world, Math.PI / 3) == 1 && Maps.SeasonPresence(world, -Math.PI / 3) == 1,
+                "les saisons : absentes à l'équateur, entières au-delà des tropiques, au nord comme au sud");
+            var mid = Maps.SeasonPresence(world, 11.72 * Math.PI / 180);
+            t.Check(Math.Abs(mid - 0.5) < 0.01, "…à mi-chemin du tropique, à moitié marquées (" + mid.ToString("0.00") + ")");
+            world.AxialTilt = 0;
+            t.Check(Maps.SeasonPresence(world, 1) == 0 && Maps.SeasonPresence(null, 1) == 0, "sans inclinaison de l'axe (ou sans monde), aucune saison nulle part");
+            world.AxialTilt = 23.44;
+            world.Seasons.Clear();
+            t.Check(Maps.SeasonPresence(world, 1) == 0, "un monde sans saisons n'en montre pas");
+        }
+
+        /// <summary>Lot 12 : les deux onglets propres à la carte, tout en bas du rail.</summary>
+        private static void Rail(Harness t)
+        {
+            var offered = Marabook.Settings.RightPanels.Offered(ItemKind.Map);
+            var names = new List<string>();
+            foreach (var panel in offered) names.Add(Marabook.Settings.RightPanels.Name(panel));
+            t.Equal("inspector,search,pinned,notebook,map-sky,map-shapes", string.Join(",", names.ToArray()), "une carte ouverte : Général, les outils de partout, puis ses deux onglets");
+            var all = Marabook.Settings.RightPanels.Offered(ItemKind.Map, false, true, false, true);
+            t.Check(all[all.Length - 2] == Marabook.Settings.RightPanel.MapSky && all[all.Length - 1] == Marabook.Settings.RightPanel.MapShapes && Array.IndexOf(all, Marabook.Settings.RightPanel.Calculator) == all.Length - 3,
+                "…toujours les derniers, sous le Lexique, le Carnet et le Calculateur");
+            t.Check(ReferenceEquals(offered, Marabook.Settings.RightPanels.Offered(ItemKind.Map)), "des instances fixes (le rail compare par référence)");
+            t.Check(Marabook.Settings.RightPanels.BelongsToMap(Marabook.Settings.RightPanel.MapSky) && Marabook.Settings.RightPanels.BelongsToMap(Marabook.Settings.RightPanel.MapShapes)
+                && !Marabook.Settings.RightPanels.BelongsToMap(Marabook.Settings.RightPanel.Notebook) && !Marabook.Settings.RightPanels.DescribesCurrent(Marabook.Settings.RightPanel.MapSky), "le rail sait les séparer des autres par un filet");
+            t.Check(Marabook.Settings.RightPanels.Available(Marabook.Settings.RightPanel.MapSky, false, true, ItemKind.Map) && Marabook.Settings.RightPanels.Available(Marabook.Settings.RightPanel.MapShapes, false, true, ItemKind.Map)
+                && Marabook.Settings.RightPanels.Available(Marabook.Settings.RightPanel.Inspector, false, true, ItemKind.Map), "disponibles pour une carte, avec son Général");
+            foreach (var kind in new ItemKind?[] { ItemKind.Text, ItemKind.Sheet, ItemKind.Timeline, ItemKind.Category, ItemKind.Book, null })
+                t.Check(!Marabook.Settings.RightPanels.Available(Marabook.Settings.RightPanel.MapSky, false, true, kind) && !Marabook.Settings.RightPanels.Offers(kind, Marabook.Settings.RightPanel.MapShapes),
+                    "…et pour rien d'autre (" + (kind == null ? "aucun élément" : kind.ToString()) + ")");
+            t.Check(Marabook.Settings.RightPanels.Parse("map-sky") == Marabook.Settings.RightPanel.MapSky && Marabook.Settings.RightPanels.Name(Marabook.Settings.RightPanel.MapShapes) == "map-shapes"
+                && Marabook.Settings.RightPanels.Parse(Marabook.Settings.RightPanels.Name(Marabook.Settings.RightPanel.MapShapes)) == Marabook.Settings.RightPanel.MapShapes, "leurs noms persistés");
         }
 
         private static void Roots(Harness t)
@@ -233,10 +452,11 @@ namespace Marabook.Tests
                 t.Check(back.Kind == ItemKind.Map && back.Title == "Ehnmir" && map.Width == 900 && map.Height == 450 && map.Levels == 2 && map.TileSize == 512 && map.Extension == ".jpg"
                     && map.SourceName == "ehnmir.jpg" && map.SourceBytes == 123456, "une carte relue : ses dimensions, ses niveaux, son fichier d'origine");
                 var same = map.Tiles.Count == item.Map.Tiles.Count;
-                foreach (var pair in item.Map.Tiles)
+                foreach (var key in item.Map.Tiles.Keys)
                 {
                     byte[] bytes;
-                    if (!map.Tiles.TryGetValue(pair.Key, out bytes) || bytes.Length != pair.Value.Length || bytes[bytes.Length - 1] != pair.Value[pair.Value.Length - 1] || bytes[0] != pair.Value[0]) same = false;
+                    var original = item.Map.Tiles[key];
+                    if (original == null || !map.Tiles.TryGetValue(key, out bytes) || bytes.Length != original.Length || bytes[bytes.Length - 1] != original[original.Length - 1] || bytes[0] != original[0]) same = false;
                 }
                 t.Check(same && !back.LoadDamaged, "…toutes ses tuiles, octet pour octet");
                 t.Check(map.WorldId == "w1" && map.WholeWorld && map.View == Maps.ViewGlobe && map.HasScale && map.ScaleKm == 1200 && map.ScaleNote == "40 jours à pied"

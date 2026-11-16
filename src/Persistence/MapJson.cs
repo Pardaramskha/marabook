@@ -38,6 +38,12 @@ namespace Marabook.Persistence
             if (map.WorldId != null) o["world"] = map.WorldId;
             if (map.WholeWorld) o["wholeWorld"] = true;
             if (map.View == Maps.ViewGlobe) o["view"] = map.View;
+            if (map.Layout == Maps.LayoutFitted)
+            {
+                o["layout"] = map.Layout;
+                o["poleNorth"] = Math.Round(map.PoleNorth, 5);
+                o["poleSouth"] = Math.Round(map.PoleSouth, 5);
+            }
             if (map.ScaleKm > 0)
             {
                 o["scaleA"] = Point(map.ScaleA);
@@ -98,6 +104,13 @@ namespace Marabook.Persistence
             map.WorldId = Json.AsString(Json.Field(o, "world"));
             map.WholeWorld = Json.AsBool(Json.Field(o, "wholeWorld"), false);
             map.View = Json.AsString(Json.Field(o, "view")) == Maps.ViewGlobe ? Maps.ViewGlobe : Maps.ViewFlat;
+            if (Json.AsString(Json.Field(o, "layout")) == Maps.LayoutFitted)
+            {
+                map.Layout = Maps.LayoutFitted;
+                map.PoleNorth = Json.AsDouble(Json.Field(o, "poleNorth"), 0);
+                map.PoleSouth = Json.AsDouble(Json.Field(o, "poleSouth"), 1);
+                if (double.IsNaN(map.PoleNorth) || double.IsNaN(map.PoleSouth) || map.PoleSouth - map.PoleNorth < 0.01) Maps.ResetPoles(map);
+            }
             map.ScaleKm = Math.Max(0, Json.AsDouble(Json.Field(o, "scaleKm"), 0));
             if (map.ScaleKm > 0)
             {

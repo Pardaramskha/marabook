@@ -91,6 +91,43 @@ namespace Marabook.Persistence
             catch (NotSupportedException) { return null; }
         }
 
+        /// <summary>Lit UNE entrée d'une archive (lot 12, 16/11 : les tuiles d'une carte, à la
+        /// demande) : stockée ou compressée, vérifiée par sa taille et son CRC. Null si elle
+        /// ne se relit pas.</summary>
+        public static byte[] ReadEntry(Stream source, Located located)
+        {
+            try
+            {
+                if (located == null || located.Size > int.MaxValue || located.LocalHeaderOffset + 30 > source.Length) return null;
+                var header = new byte[30];
+                source.Position = located.LocalHeaderOffset;
+                ReadFully(source, header, 0, 30);
+                if (U32(header, 0) != 0x04034b50) return null;
+                var dataStart = located.LocalHeaderOffset + 30 + U16(header, 26) + U16(header, 28);
+                if (dataStart + located.CompressedSize > source.Length) return null;
+                source.Position = dataStart;
+                var bytes = new byte[located.Size];
+                if (located.Method == 0)
+                {
+                    if (located.CompressedSize != located.Size) return null;
+                    ReadFully(source, bytes, 0, bytes.Length);
+                }
+                else if (located.Method == 8)
+                {
+                    var packed = new byte[located.CompressedSize];
+                    ReadFully(source, packed, 0, packed.Length);
+                    using (var inflater = new DeflateStream(new MemoryStream(packed), CompressionMode.Decompress))
+                        ReadFully(inflater, bytes, 0, bytes.Length);
+                }
+                else return null;
+                return Digest.Crc32(bytes, 0, bytes.Length) == located.Crc ? bytes : null;
+            }
+            catch (IOException) { return null; }
+            catch (InvalidDataException) { return null; }
+            catch (ArgumentException) { return null; }
+            catch (NotSupportedException) { return null; }
+        }
+
         /// <summary>L'écrivain : les entrées dans l'ordre, puis Finish().</summary>
         public sealed class Writer
         {

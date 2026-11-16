@@ -132,7 +132,7 @@ namespace Marabook.App
     internal sealed class MapTileCache
     {
         private const int MaxTiles = 72; // 512 × 512 × 4 octets : un Mo pièce
-        private static readonly ConditionalWeakTable<Dictionary<string, byte[]>, MapTileCache> Caches = new ConditionalWeakTable<Dictionary<string, byte[]>, MapTileCache>();
+        private static readonly ConditionalWeakTable<MapTileSet, MapTileCache> Caches = new ConditionalWeakTable<MapTileSet, MapTileCache>();
 
         private readonly Dictionary<string, Bitmap> _ready = new Dictionary<string, Bitmap>(StringComparer.Ordinal);
         private readonly LinkedList<string> _recent = new LinkedList<string>();
@@ -164,13 +164,22 @@ namespace Marabook.App
                 _recent.AddFirst(key);
                 return bitmap;
             }
-            byte[] bytes;
-            if (_broken.Contains(key) || !map.Tiles.TryGetValue(key, out bytes) || bytes == null) return null;
-            if (wait) { Store(key, ImageCache.TryDecode(bytes, 0)); return _ready.TryGetValue(key, out bitmap) ? bitmap : null; }
+            // Lot 12 : les octets de la tuile sont lus (du .plot, au besoin) HORS du fil de l'interface,
+            // décodés, puis rendus — la carte ne tient en mémoire que ce que l'écran montre.
+            var tiles = map.Tiles;
+            if (_broken.Contains(key) || !tiles.Contains(key)) return null;
+            if (wait)
+            {
+                var now = tiles.Read(key);
+                Store(key, now == null ? null : ImageCache.TryDecode(now, 0));
+                return _ready.TryGetValue(key, out bitmap) ? bitmap : null;
+            }
             if (!_loading.Add(key)) return null;
             Task.Run(delegate
             {
-                var decoded = ImageCache.TryDecode(bytes, 0);
+                Bitmap decoded = null;
+                try { var bytes = tiles.Read(key); if (bytes != null) decoded = ImageCache.TryDecode(bytes, 0); }
+                catch (Exception) { }
                 Dispatcher.UIThread.Post(delegate
                 {
                     _loading.Remove(key);
@@ -249,8 +258,8 @@ namespace Marabook.App
                     for (var y = 0; y < Maps.Rows(map, z); y++)
                         for (var x = 0; x < Maps.Columns(map, z); x++)
                         {
-                            byte[] bytes;
-                            if (!map.Tiles.TryGetValue(Maps.TileKey(z, x, y), out bytes) || bytes == null) continue;
+                            var bytes = map.Tiles.Read(Maps.TileKey(z, x, y));
+                            if (bytes == null) continue;
                             using (var tile = SKBitmap.Decode(bytes))
                                 if (tile != null) canvas.DrawBitmap(tile, x * map.TileSize, y * map.TileSize);
                         }

@@ -9,6 +9,9 @@ using Avalonia.Controls;
 using Avalonia.VisualTree;
 using Marabook.Model;
 using Marabook.Persistence;
+using Marabook.Settings;
+using Avalonia.Controls.Primitives;
+using Avalonia.LogicalTree;
 
 namespace Marabook.App
 {
@@ -172,6 +175,14 @@ namespace Marabook.App
                     "découpée à l'import : 2400 × 1200 px, 4 niveaux, " + map.Tiles.Count + " tuiles (" + clock.ElapsedMilliseconds + " ms)");
                 Check(ItemIcons.DefaultSvg(item) == "pile-cartes" && shell.Binder.TopRowsForProbe().Contains("Cartes"), "son icône est le monde");
                 Check(plain(mapView.StatusLabel).Contains("2400 × 1200 px") && plain(mapView.StatusLabel).Contains("4 niveaux de zoom"), "la barre d'état dit ses dimensions, ses niveaux, son poids (" + mapView.StatusLabel + ")");
+                // Lot 12 : les panneaux de la carte vivent au rail — on les cherche là où ils sont.
+                Func<List<Control>> parts = delegate
+                {
+                    var found = new List<Control>();
+                    foreach (var panel in new[] { mapView.GeneralPanel, mapView.SkyPanel, mapView.ShapesPanel }) found.AddRange(panel.GetLogicalDescendants().OfType<Control>());
+                    return found;
+                };
+                Func<string, bool> tagged = delegate(string tag) { return parts().Any(delegate(Control c) { return Equals(c.Tag, tag); }); };
                 var side = mapView.SideTextsForProbe();
                 Check(side.Contains("Poids dans le .plot") && side.Contains(Maps.SizeLabel(Maps.Bytes(map))) && side.Exists(delegate(string s) { return s.StartsWith("Fichier d'origine"); }),
                     "le panneau dit le poids de la carte dans le .plot (" + Maps.SizeLabel(Maps.Bytes(map)) + ") et celui du fichier d'origine");
@@ -186,7 +197,49 @@ namespace Marabook.App
                 await Settle();
 
                 // — Zones, repères.
-                Check(mapView.SideTextsForProbe().Exists(delegate(string s) { return s.StartsWith("Rien encore."); }), "une carte neuve : ni zone ni repère, et le panneau dit comment en tracer");
+                Check(mapView.SideTextsForProbe().Exists(delegate(string s) { return s.StartsWith("Aucune. Outil « Zone »"); }) && mapView.SideTextsForProbe().Exists(delegate(string s) { return s.StartsWith("Aucun. Outil « Repère »"); }),
+                    "une carte neuve : ni zone ni repère, et le panneau dit comment en tracer");
+
+                // ---- Lot 12 : le volet a quitté l'écran de la carte pour le rail.
+                Check(!mapView.GetVisualDescendants().OfType<Control>().Any(delegate(Control c) { return Equals(c.Tag, "map-weight") || Equals(c.Tag, "map-world") || Equals(c.Tag, "map-night"); }),
+                    "l'écran de la carte n'a plus de volet : la toile prend toute la place");
+                Check(shell.RailHasTabForProbe(RightPanel.MapSky) && shell.RailHasTabForProbe(RightPanel.MapShapes) && shell.RailHasTabForProbe(RightPanel.Inspector)
+                    && shell.RailTabRankForProbe(RightPanel.MapShapes) == shell.RailTabRankForProbe(RightPanel.MapSky) + 1 && shell.RailTabRankForProbe(RightPanel.MapSky) > shell.RailTabRankForProbe(RightPanel.Notebook)
+                    && shell.RailMapSeparatorForProbe && Icons.Has("carte-ciel") && Icons.Has("carte-reperes"),
+                    "le rail gagne deux onglets propres à la carte, tout en bas, sous un filet : « Jour, nuit et saisons » (soleil) et « Zones et repères » (balise)");
+                shell.SetRightPanelForProbe(RightPanel.Inspector);
+                await Settle();
+                Check(AppSettings.RightPanel == RightPanel.Inspector && shell.MapSectionShownForProbe && mapView.GeneralPanel.IsEffectivelyVisible && tagged("map-weight") && tagged("map-world") && tagged("map-whole") && tagged("map-replace")
+                    && shell.InspectorKindForProbe == "Carte", "l'onglet Général porte la carte : son image et son poids, son monde, « Carte du monde entier », son échelle");
+                Check(side.Contains("CARTE") && side.Contains("MONDE") && side.Contains("ÉCHELLE ET SUPERFICIES") && !shell.MapSkyHostForProbe.IsEffectivelyVisible && !shell.MapShapesHostForProbe.IsEffectivelyVisible, "…et rien que cela : le ciel et les zones ont leurs onglets");
+                Shot(mapView.GeneralPanel, "cartes-10-rail-general.png");
+                shell.SetRightPanelForProbe(RightPanel.MapShapes);
+                await Settle();
+                Check(AppSettings.RightPanel == RightPanel.MapShapes && shell.MapShapesHostForProbe.IsEffectivelyVisible && !shell.MapSectionShownForProbe == false
+                    && tagged("map-filter-zones") && tagged("map-filter-markers"), "l'onglet « Zones et repères » : les filtres, puis les listes");
+                Shot(shell.MapShapesHostForProbe, "cartes-14-rail-zones.png");
+                shell.SetRightPanelForProbe(RightPanel.MapSky);
+                await Settle();
+                Check(AppSettings.RightPanel == RightPanel.MapSky && shell.MapSkyHostForProbe.IsEffectivelyVisible && mapView.SkyPanel.IsEffectivelyVisible
+                    && mapView.SideTextsForProbe().Exists(delegate(string s) { return s.StartsWith("Le jour, la nuit et les saisons demandent un monde"); }), "l'onglet « Jour, nuit et saisons » : sans monde, il dit ce qu'il lui faut");
+                Check(!mapView.GlobeButtonShownForProbe && !mapView.GetVisualDescendants().OfType<ToggleButton>().Any(delegate(ToggleButton b) { return Equals(b.Tag, "map-view-globe") && b.IsEffectivelyVisible; }),
+                    "une carte qui n'est pas celle du monde entier n'a pas de bouton « Globe »");
+                shell.SetRightPanelForProbe(RightPanel.MapShapes);
+                await Settle();
+
+                // ---- Espace : la main fermée, quel que soit l'outil.
+                Check(!mapView.SpaceKeyForProbe(true, false) && !canvas.SpaceHeld, "Espace hors de la carte (le pointeur ailleurs) ne fait rien");
+                mapView.ChooseTool(MapCanvas.Tool.Zone);
+                var origin = canvas.ViewOriginForProbe;
+                Check(mapView.SpaceKeyForProbe(true, true) && canvas.SpaceHeld && canvas.GrabCursorShownForProbe && canvas.CurrentTool == MapCanvas.Tool.Zone, "Espace tenu sur la carte, outil « Zone » en main : le curseur devient la main fermée");
+                canvas.GrabForProbe(new Point(300, 200), new Point(240, 170));
+                await Settle();
+                Check(canvas.DraftCount == 0 && Math.Abs(canvas.ViewOriginForProbe.X - (origin.X + 60 / canvas.Scale)) < 1e-6 && Math.Abs(canvas.ViewOriginForProbe.Y - (origin.Y + 30 / canvas.Scale)) < 1e-6,
+                    "…glisser promène la carte, sans poser un seul sommet");
+                Check(mapView.SpaceKeyForProbe(false, true) && !canvas.SpaceHeld && !canvas.GrabCursorShownForProbe && canvas.CurrentTool == MapCanvas.Tool.Zone, "Espace relâché : l'outil « Zone » reprend la main");
+                mapView.ChooseTool(MapCanvas.Tool.Pan);
+                canvas.FitAll();
+                await Settle();
                 mapView.ChooseTool(MapCanvas.Tool.Zone);
                 Check(canvas.CurrentTool == MapCanvas.Tool.Zone && mapView.HintForProbe.Contains("Un clic par sommet"), "l'outil « Zone » dit son mode d'emploi");
                 var sheet = project.Category(Project.KeySheets).Children.Find(delegate(BinderItem child) { return child.Kind == ItemKind.Sheet; })
@@ -197,13 +250,29 @@ namespace Marabook.App
                 Check(item.Map.Zones.Count == 1 && mapView.SelectedZone != null && mapView.SelectedZone.Name == "Empire d'Aube" && canvas.CurrentTool == MapCanvas.Tool.Pan, "une zone tracée : choisie, et l'outil revient à « Déplacer »");
                 var marker = mapView.AddMarker(new Pos(1700, 760), new MapShapeChoice { Name = "Port-Brume", Color = "#C0504D", Level = Maps.LevelNear });
                 await Settle();
-                Check(item.Map.Markers.Count == 1 && mapView.SelectedMarker != null && mapView.GetVisualDescendants().OfType<Control>().Count(delegate(Control c) { return Equals(c.Tag, "map-shape-row"); }) == 2,
+                Check(item.Map.Markers.Count == 1 && mapView.SelectedMarker != null && parts().Count(delegate(Control c) { return Equals(c.Tag, "map-shape-row"); }) == 2,
                     "un repère posé ; le panneau liste la zone et le repère");
+
+                // ---- Les filtres (lot 12) : montrer ou masquer les zones, les repères.
+                var zoneAt = canvas.ScreenOfForProbe(800, 500);
+                Check(mapView.ShowZones && mapView.ShowMarkers && canvas.ZoneHitForProbe(zoneAt) != null, "tout est montré d'office ; la zone se clique");
+                mapView.Select(mapView.Map.Zones[0], null);
+                mapView.SetFilters(false, true);
+                await Settle();
+                Check(!mapView.ShowZones && mapView.SelectedZone == null && canvas.ZoneHitForProbe(zoneAt) == null && mapView.SideTextsForProbe().Contains("Les zones sont masquées.")
+                    && parts().Count(delegate(Control c) { return Equals(c.Tag, "map-shape-row"); }) == 2, "« Zones » décoché : elles ne se voient plus, ne se cliquent plus, ne restent pas choisies — la liste, elle, demeure");
+                Shot(mapView, "cartes-11-zones-masquees.png");
+                mapView.SetFilters(false, false);
+                await Settle();
+                Check(!mapView.ShowMarkers && mapView.SelectedMarker == null && mapView.SideTextsForProbe().Contains("Zones et repères masqués : la carte seule."), "les deux décochés : la carte seule");
+                mapView.SetFilters(true, true);
+                await Settle();
+                Check(mapView.ShowZones && mapView.ShowMarkers && canvas.ZoneHitForProbe(zoneAt) != null && item.Map.Zones.Count == 1 && item.Map.Markers.Count == 1, "recochés : tout revient, rien n'a été touché dans la carte");
                 Check(!Maps.Visible(marker.Level, canvas.ZoomRatio) && Maps.Visible(zone.Level, canvas.ZoomRatio), "un repère « de près seulement » se cache dans la vue d'ensemble (sauf choisi)");
                 mapView.Select(mapView.Map.Zones[0], null);
                 await Settle();
                 side = mapView.SideTextsForProbe();
-                Check(side.Contains("ZONE CHOISIE") && side.Contains("Fiche : " + sheet.Title) && mapView.GetVisualDescendants().OfType<Button>().Any(delegate(Button b) { return Equals(b.Tag, "map-open-sheet"); }),
+                Check(side.Contains("ZONE CHOISIE") && side.Contains("Fiche : " + sheet.Title) && tagged("map-open-sheet"),
                     "la zone choisie dit sa fiche liée, avec « Ouvrir la fiche »");
                 mapView.OpenOrEdit(mapView.SelectedZone, null);
                 await Settle();
@@ -237,22 +306,60 @@ namespace Marabook.App
                 await Settle();
                 side = mapView.SideTextsForProbe().ConvertAll(delegate(string s) { return plain(s); });
                 Check(mapView.World == earth && side.Exists(delegate(string s) { return s.StartsWith("Soit 2,3 % de la surface de « Terre d'essai »"); }), "liée à un monde, la carte dit la part de sa surface qu'elle couvre");
-                Check(!mapView.NightPossible && side.Exists(delegate(string s) { return s.StartsWith("Le jour et la nuit se dessinent sur le planisphère du monde entier"); }), "le jour et la nuit demandent le planisphère entier");
+                Check(!mapView.NightPossible && !mapView.SeasonHeatPossible && side.Exists(delegate(string s) { return s.StartsWith("Le jour, la nuit et les saisons se dessinent sur la carte du monde entier"); }), "le jour, la nuit et les saisons demandent la carte du monde entier");
                 mapView.SetWorldForProbe(earth.Id, true);
                 await Settle();
                 side = mapView.SideTextsForProbe().ConvertAll(delegate(string s) { return plain(s); });
                 var implied = Maps.ImpliedCircumference(item.Map);
-                Check(implied > 4800 && implied < 9000 && side.Contains("Tour du monde") && side.Contains(plain(Maps.KmLabel(implied))) && mapView.GetVisualDescendants().OfType<Button>().Any(delegate(Button b) { return Equals(b.Tag, "map-give-size"); }),
+                Check(mapView.GlobeButtonShownForProbe, "« Carte du monde entier » cochée : le bouton « Globe » paraît");
+                Check(implied > 4800 && implied < 9000 && side.Contains("Tour du monde") && side.Contains(plain(Maps.KmLabel(implied))) && tagged("map-give-size"),
                     "planisphère entier + échelle : la carte calcule le tour du monde (" + Maps.KmLabel(implied) + ", au plus court sur la sphère) et propose de le donner au monde");
                 shell.GiveWorldSizeForProbe(earth, implied);
                 await Settle();
-                Check(earth.Circumference == Math.Round(implied) && !mapView.GetVisualDescendants().OfType<Button>().Any(delegate(Button b) { return Equals(b.Tag, "map-give-size"); }), "« Donner cette taille au monde » l'écrit dans l'Astrolabe ; d'accord, le bouton disparaît");
+                Check(earth.Circumference == Math.Round(implied) && !tagged("map-give-size"), "« Donner cette taille au monde » l'écrit dans l'Astrolabe ; d'accord, le bouton disparaît");
                 Check(shell.UndoForProbe() && Math.Abs(earth.Circumference - 40075) < 1 || project.Worlds.Exists(delegate(World w) { return w.Id == earth.Id && Math.Abs(w.Circumference - 40075) < 1; }), "…et Ctrl+Z rend au monde sa taille d'avant");
                 earth = project.Worlds.Find(delegate(World w) { return w.Id == earth.Id; });
                 await Settle();
 
                 // — Le jour et la nuit.
-                Check(mapView.NightPossible && !mapView.NightShown && mapView.GetVisualDescendants().OfType<CheckBox>().Any(delegate(CheckBox c) { return Equals(c.Tag, "map-night"); }), "un planisphère entier lié à un monde offre le jour et la nuit");
+                Check(mapView.NightPossible && !mapView.NightShown && tagged("map-night"), "un planisphère entier lié à un monde offre le jour et la nuit");
+
+                // ---- Les points de chaleur des saisons (lot 12).
+                shell.SetRightPanelForProbe(RightPanel.MapSky);
+                await Settle();
+                Check(mapView.SeasonHeatPossible && mapView.SeasonHeatShown && tagged("map-season-heat") && parts().Count(delegate(Control c) { return Equals(c.Tag, "map-season-row"); }) == earth.Seasons.Count,
+                    "les saisons se montrent d'office sur la carte du monde entier ; la légende les nomme toutes (" + earth.Seasons.Count + ")");
+                Check(mapView.SideTextsForProbe().Exists(delegate(string s) { return s.StartsWith("Entre les tropiques (23,4"); }), "…et dit où elles s'effacent : entre les tropiques");
+                Shot(mapView, "cartes-12-saisons.png");
+                Shot(shell.MapSkyHostForProbe, "cartes-15-rail-ciel.png");
+                mapView.SetSeasonHeatForProbe(false);
+                await Settle();
+                Check(!mapView.SeasonHeatShown && mapView.SeasonHeatPossible && parts().Count(delegate(Control c) { return Equals(c.Tag, "map-season-row"); }) == 0, "« Montrer les saisons sur la carte » décoché : plus de points, plus de légende");
+                mapView.SetSeasonHeatForProbe(true);
+                await Settle();
+
+                // ---- La construction du planisphère (lot 12) : étirée, ou proportions gardées et pôles placés.
+                shell.SetRightPanelForProbe(RightPanel.Inspector);
+                await Settle();
+                Check(tagged("map-layout-edit") && mapView.SideTextsForProbe().Exists(delegate(string s) { return s.StartsWith("Construction : étirée"); }), "le Général dit la construction du planisphère (étirée, d'office) et offre de la changer");
+                var layoutDialog = MapLayoutDialog.ForProbe(shell, item.Map);
+                layoutDialog.SetForProbe(true, "80", "20");
+                Check(layoutDialog.ReadForProbe() == null && layoutDialog.EchoForProbe.Contains("plus bas que le pôle nord"), "sa fenêtre refuse un pôle sud au-dessus du pôle nord, et dit pourquoi");
+                layoutDialog.SetForProbe(true, "-25", "125");
+                var layoutChoice = layoutDialog.ReadForProbe();
+                Check(layoutChoice != null && layoutChoice.Fitted && Math.Abs(layoutChoice.PoleNorth + 0.25) < 1e-9 && Math.Abs(layoutChoice.PoleSouth - 1.25) < 1e-9 && plain(layoutDialog.EchoForProbe).Contains("60° nord"),
+                    "des pôles hors de l'image : elle dit jusqu'où l'image monte (" + layoutDialog.EchoForProbe + ")");
+                layoutDialog.AroundForProbe();
+                layoutChoice = layoutDialog.ReadForProbe();
+                Check(layoutChoice != null && Math.Abs(layoutChoice.PoleNorth) < 1e-6 && Math.Abs(layoutChoice.PoleSouth - 1) < 1e-6 && layoutDialog.EchoForProbe.Contains("un tour complet"),
+                    "« Un tour complet » sur une image deux fois plus large que haute : les pôles tombent aux bords");
+                mapView.SetLayout(true, 0.1, 0.9);
+                await Settle();
+                Check(Maps.Fitted(item.Map) && Math.Abs(Maps.LongitudeSpan(item.Map) - 450) < 1e-6 && mapView.SideTextsForProbe().Exists(delegate(string s) { return s.StartsWith("Construction : proportions gardées") && s.Contains("se recouvre"); }),
+                    "proportions gardées, pôles à 10 % et 90 % : le Général le dit, et prévient quand l'image fait plus d'un tour");
+                Shot(mapView, "cartes-13-poles.png");
+                Check(shell.UndoForProbe() && !Maps.Fitted(item.Map), "…et Ctrl+Z rend la construction d'avant");
+                await Settle();
                 mapView.SetNightForProbe(true, 200, 0.5);
                 await Settle();
                 side = mapView.SideTextsForProbe().ConvertAll(delegate(string s) { return plain(s); });
@@ -282,6 +389,13 @@ namespace Marabook.App
                 mapView.SetViewForProbe(Maps.ViewFlat);
                 await Settle();
                 Check(item.Map.View == Maps.ViewFlat && mapView.ToolEnabledForProbe(MapCanvas.Tool.Zone), "retour au planisphère : les outils reviennent");
+                // Lot 12 : décocher « Carte du monde entier » au globe ramène au planisphère, et retire le bouton.
+                mapView.SetViewForProbe(Maps.ViewGlobe);
+                mapView.SetWorldForProbe(earth.Id, false);
+                await Settle();
+                Check(item.Map.View == Maps.ViewFlat && !mapView.GlobeShown && !mapView.GlobeButtonShownForProbe && mapView.ToolEnabledForProbe(MapCanvas.Tool.Zone), "une carte qui cesse d'être celle du monde entier quitte le globe, et son bouton s'en va");
+                mapView.SetWorldForProbe(earth.Id, true);
+                await Settle();
 
                 // — Annuler, supprimer.
                 mapView.Select(mapView.Map.Zones[0], null);
@@ -316,7 +430,36 @@ namespace Marabook.App
                 try
                 {
                     var path = Path.Combine(folder, "analyse.plot");
+                    Check(item.Map.Tiles.MemoryCount == item.Map.Tiles.Count && item.Map.Tiles.MemoryBytes == Maps.Bytes(item.Map), "avant l'enregistrement, les tuiles de la carte importée sont en mémoire");
                     PlotFile.Save(project, path);
+                    // ---- Lot 12 : les tuiles sont lues à la demande dans le .plot.
+                    Check(item.Map.Tiles.MemoryCount == 0 && item.Map.Tiles.Count == Maps.TileCount(2400, 1200, 512), "enregistrée, la carte ne tient plus aucune tuile en mémoire (" + item.Map.Tiles.Count + " tuiles, " + Maps.SizeLabel(Maps.Bytes(item.Map)) + " rendus)");
+                    var reloaded = PlotFile.Load(path);
+                    var reloadedMap = Maps.All(reloaded).Find(delegate(BinderItem m) { return m.Id == item.Id; }).Map;
+                    var readsBefore = PlotTiles.Reads;
+                    var fresh = MapTileCache.For(reloadedMap);
+                    Check(reloadedMap.Tiles.MemoryCount == 0 && fresh.Get(reloadedMap, 0, 0, 0, true) != null && PlotTiles.Reads == readsBefore + 1,
+                        "un projet rouvert : la carte s'affiche en lisant UNE tuile dans le .plot (la vue d'ensemble), pas " + reloadedMap.Tiles.Count);
+                    fresh.Get(reloadedMap, reloadedMap.Levels - 1, 1, 1);
+                    for (var wait = 0; wait < 40 && fresh.Pending; wait++) await Task.Delay(50);
+                    await Settle();
+                    Check(fresh.Peek(reloadedMap.Levels - 1, 1, 1) != null && reloadedMap.Tiles.MemoryCount == 0 && PlotTiles.Reads == readsBefore + 2, "une tuile du plein format : lue et décodée hors du fil de l'interface, puis ses octets rendus");
+                    shell.Binder.SelectItem(item.Id);
+                    await Settle();
+                    shell.SetRightPanelForProbe(RightPanel.Inspector);
+                    await Settle();
+                    Check(mapView.SideTextsForProbe().Exists(delegate(string s) { return s.StartsWith("Lue à la demande dans le .plot"); }), "le Général le dit : « lue à la demande dans le .plot »");
+                    // La fenêtre d'import d'une nouvelle carte (lot 12) : le monde et « Carte du monde entier », en option.
+                    var importDialog = MapImportDialog.ForProbe(shell, project);
+                    Check(importDialog.GetLogicalDescendants().OfType<ComboBox>().Any(delegate(ComboBox c) { return Equals(c.Tag, "map-import-world"); })
+                        && importDialog.GetLogicalDescendants().OfType<CheckBox>().Any(delegate(CheckBox c) { return Equals(c.Tag, "map-import-whole"); })
+                        && importDialog.GetLogicalDescendants().OfType<Button>().Any(delegate(Button b) { return Equals(b.Tag, "map-import-create") && !b.IsEnabled; }),
+                        "la fenêtre d'import propose le monde et « Carte du monde entier » ; « Créer la carte » attend la fin du découpage");
+                    importDialog.ReadyForProbe(MapImport.Slice(MapImport.Synthetic(800, 400), "import.jpg"));
+                    var imported = importDialog.AcceptForProbe(project.Worlds.IndexOf(earth) + 1, true);
+                    Check(imported != null && imported.WorldId == earth.Id && imported.WholeWorld && importDialog.GetLogicalDescendants().OfType<Button>().Any(delegate(Button b) { return Equals(b.Tag, "map-import-create") && b.IsEnabled; })
+                        && importDialog.GetLogicalDescendants().OfType<TextBlock>().Any(delegate(TextBlock b) { return Equals(b.Tag, "map-import-status") && (b.Text ?? "").Contains("sans doute un planisphère entier"); }),
+                        "…le découpage fini, elle dit le poids et la forme de l'image, et la carte naît liée à son monde, « monde entier » coché");
                     var report = PlotAnalysis.Analyze(path, project);
                     long sum = 0;
                     foreach (var section in report.Sections) sum += section.Bytes;
@@ -373,11 +516,28 @@ namespace Marabook.App
                 }
                 finally
                 {
+                    // Le dossier d'essai va disparaître : les tuiles qui y dorment reviennent en mémoire.
+                    foreach (var mapItem in Maps.All(project)) mapItem.Map.Tiles.Materialize();
                     project.SaveId = saveId;
                     project.ModifiedAt = modified;
                     project.CreatedAt = created;
                     try { Directory.Delete(folder, true); } catch (Exception) { }
                 }
+
+                // ---- Lot 12 : hors d'une carte, ses onglets quittent le rail.
+                shell.Binder.SelectItem(item.Id);
+                await Settle();
+                shell.SetRightPanelForProbe(RightPanel.MapShapes);
+                await Settle();
+                shell.Binder.SelectItem(mapsRoot.Id);
+                await Settle();
+                Check(!shell.RailHasTabForProbe(RightPanel.MapSky) && !shell.RailHasTabForProbe(RightPanel.MapShapes) && !shell.MapShapesHostForProbe.IsEffectivelyVisible && !shell.MapSectionShownForProbe,
+                    "hors d'une carte, le rail n'a plus ses deux onglets, et leur panneau ne reste pas affiché");
+                shell.Binder.SelectItem(item.Id);
+                await Settle();
+                Check(shell.RailHasTabForProbe(RightPanel.MapShapes) && AppSettings.RightPanel == RightPanel.MapShapes && shell.MapShapesHostForProbe.IsEffectivelyVisible, "de retour sur la carte, l'onglet choisi revient avec elle");
+                shell.SetRightPanelForProbe(RightPanel.Inspector);
+                await Settle();
 
                 // — Le thème sombre.
                 shell.Binder.SelectItem(item.Id);

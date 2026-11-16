@@ -33,8 +33,10 @@ namespace Marabook.App
                 var mapsRoot = project.Category(Project.KeyMaps);
                 Check(rows.Contains("Chronologie") && rows.Contains("Astrolabe") && rows.Contains("Cartes") && !rows.Contains("Frises") && root.Title == "Chronologie",
                     "la Pile montre « Chronologie » (les frises), « Astrolabe » et « Cartes » (" + string.Join(", ", rows.ToArray()) + ")");
-                Check(BinderView.SectionNames().Contains("Univers") && rows.IndexOf("Univers") >= 0 && rows.IndexOf("Univers") < rows.IndexOf("Astrolabe") && rows.IndexOf("Astrolabe") < rows.IndexOf("Cartes")
-                    && rows.IndexOf("Chronologie") < rows.IndexOf("Univers"), "une section « Univers » porte l'Astrolabe et les Cartes ; la Chronologie reste en Structure");
+                // Lot 12 (16/11) : la Chronologie est passée dans « Univers », juste sous l'Astrolabe.
+                Check(BinderView.SectionNames().Contains("Univers") && rows.IndexOf("Univers") >= 0 && rows.IndexOf("Astrolabe") == rows.IndexOf("Univers") + 1
+                    && rows.IndexOf("Chronologie") == rows.IndexOf("Astrolabe") + 1 && rows.IndexOf("Cartes") == rows.IndexOf("Chronologie") + 1,
+                    "la section « Univers » porte l'Astrolabe, la Chronologie juste dessous, puis les Cartes (" + string.Join(", ", rows.ToArray()) + ")");
                 Check(Icons.Has("pile-frises") && Icons.Has("frise") && Icons.Has("death-skull") && Icons.Has("pile-chronologie") && Icons.Has("pile-cartes")
                     && ItemIcons.DefaultSvg(root) == "pile-chronologie" && ItemIcons.DefaultSvg(astrolabeRoot) == "pile-frises" && ItemIcons.DefaultSvg(mapsRoot) == "pile-cartes" && ItemIcons.DefaultSvg(timeline) == "frise",
                     "les icônes : l'horloge (clockwork) pour la Chronologie, l'astrolabe pour l'Astrolabe, le monde (world) pour les Cartes, le diagramme pour une frise");
@@ -65,9 +67,10 @@ namespace Marabook.App
                 Check(hub.ChainNodesForProbe == 2 && hub.NewWorldEnabledForProbe && !hub.LocksShownForProbe
                     && !hub.GetVisualDescendants().OfType<Control>().Any(delegate(Control c) { return Equals(c.Tag, "hub-timeline") || Equals(c.Tag, "hub-new-timeline"); }),
                     "la chaîne n'a plus que deux étapes (système, monde) ; aucune frise sur cette page");
-                Check(hub.GetVisualDescendants().OfType<Control>().Any(delegate(Control c) { return Equals(c.Tag, "hub-elsewhere"); })
-                    && hub.GetVisualDescendants().OfType<Button>().Any(delegate(Button b) { return Equals(b.Tag, "hub-to-chronology"); }),
-                    "…mais elle dit où elles sont passées, avec un bouton vers la Chronologie");
+                // Lot 12 (Rémi) : ni l'avis « les frises ont leur propre racine », ni le raccourci vers la Chronologie.
+                Check(!hub.GetVisualDescendants().OfType<Control>().Any(delegate(Control c) { return Equals(c.Tag, "hub-elsewhere") || Equals(c.Tag, "hub-to-chronology"); })
+                    && !hub.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock b) { return (b.Text ?? "").Contains("propre racine"); }),
+                    "la page de l'Astrolabe n'a plus d'avis sur la Chronologie, ni de raccourci vers elle");
                 Check(hub.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock b) { return (b.Text ?? "").Contains("Porte la frise") || (b.Text ?? "").Contains("Porte les frises"); }),
                     "la tuile d'un système dit toujours les frises qu'il porte");
                 Check(hub.GetVisualDescendants().OfType<Button>().Any(delegate(Button b) { return Equals(b.Tag, "hub-system-remove") && !b.IsEnabled; })

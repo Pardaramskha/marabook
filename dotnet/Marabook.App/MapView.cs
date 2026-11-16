@@ -19,13 +19,19 @@ namespace Marabook.App
     /// les superficies qui en découlent, le jour et la nuit, ses zones et ses repères.
     ///
     /// Une carte PEUT être liée à un monde de l'Astrolabe ; sans monde, tout marche
-    /// sauf ce qui demande un ciel (jour et nuit, saisons, part de la surface du monde).</summary>
+    /// sauf ce qui demande un ciel (jour et nuit, saisons, part de la surface du monde).
+    ///
+    /// LOT 12 (16/11, Rémi) : le volet de droite a quitté l'écran de la carte pour le
+    /// RAIL. La vue bâtit trois panneaux que la fenêtre loge : GeneralPanel (image,
+    /// monde, échelle et superficies) dans l'onglet Général ; SkyPanel (jour, nuit et
+    /// saisons) et ShapesPanel (zones et repères) dans deux onglets propres à la carte.</summary>
     public class MapView : DockPanel
     {
         private readonly TextBlock _title;
         private readonly MapCanvas _canvas;
-        private readonly StackPanel _side;
-        private readonly TextBlock _hint, _zoomLabel;
+        private readonly StackPanel _general, _sky, _shapes;
+        private readonly TextBlock _hint, _zoomLabel, _viewLabel;
+        private readonly Border _viewRule;
         private readonly ToggleButton _flat, _globe;
         private readonly Dictionary<MapCanvas.Tool, ToggleButton> _tools = new Dictionary<MapCanvas.Tool, ToggleButton>();
         private readonly TextBlock _empty;
@@ -35,8 +41,10 @@ namespace Marabook.App
         private string _selectedZone, _selectedMarker;
         private string _measure;
 
-        // Le jour et la nuit : l'état d'une session (rien de cela ne s'enregistre).
+        // Le jour et la nuit, les saisons, les filtres : l'état d'une session (rien de cela ne s'enregistre).
         private bool _night;
+        private bool _seasonHeat = true;                       // les points de chaleur des saisons (lot 12)
+        private bool _showZones = true, _showMarkers = true;   // les filtres (lot 12)
         private double _dayOfYear = 1, _dayFraction = 0.5;
 
         public event Action Edited;
@@ -45,6 +53,7 @@ namespace Marabook.App
         public event Action ReplaceImageRequested;
         public event Action<BinderItem> NavigateRequested;
         public event Action<World, double> WorldSizeRequested;   // donner au monde le tour que la carte implique
+        public event Action SelectionChanged;                    // une zone ou un repère vient d'être choisi sur la carte
 
         public MapView()
         {
@@ -91,7 +100,8 @@ namespace Marabook.App
 
             // ================================================== la barre du rendu et des outils
             var bar = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            bar.Children.Add(new TextBlock { Text = "Rendu :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
+            _viewLabel = new TextBlock { Text = "Rendu :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+            bar.Children.Add(_viewLabel);
             _flat = Buttons.TextToggle("Planisphère", "L'image à plat : c'est ici qu'on trace les zones, les repères, l'échelle", Buttons.Compact);
             _flat.Tag = "map-view-flat";
             _flat.Click += delegate { SetViewMode(Maps.ViewFlat); };
@@ -101,7 +111,8 @@ namespace Marabook.App
             _globe.Click += delegate { SetViewMode(Maps.ViewGlobe); };
             bar.Children.Add(_flat);
             bar.Children.Add(_globe);
-            bar.Children.Add(new Border { Width = 1, Background = Chrome.Border, Margin = new Thickness(12, 2, 12, 2) });
+            _viewRule = new Border { Width = 1, Background = Chrome.Border, Margin = new Thickness(12, 2, 12, 2) };
+            bar.Children.Add(_viewRule);
             bar.Children.Add(new TextBlock { Text = "Outil :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
             AddTool(bar, MapCanvas.Tool.Pan, "Déplacer", "Promener la carte, choisir une zone ou un repère, tirer ses poignées");
             AddTool(bar, MapCanvas.Tool.Zone, "Zone", "Tracer une zone : un clic par sommet, double-clic (ou Entrée) pour fermer");
@@ -117,21 +128,17 @@ namespace Marabook.App
             SetDock(barBox, Dock.Top);
             Children.Add(barBox);
 
-            // ================================================== le panneau de la carte
-            _side = new StackPanel { Margin = new Thickness(14, 12, 14, 16) };
-            var sideBox = new Border
-            {
-                Width = 286, Background = Chrome.BarBgLight, BorderBrush = Chrome.Border, BorderThickness = new Thickness(1, 0, 0, 0),
-                Child = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = _side }
-            };
-            SetDock(sideBox, Dock.Right);
-            Children.Add(sideBox);
+            // ================================================== les panneaux du rail (lot 12)
+            _general = new StackPanel { Tag = "map-general" };
+            _sky = new StackPanel { Tag = "map-sky" };
+            _shapes = new StackPanel { Tag = "map-shapes" };
+
 
             // ================================================== la toile
             _canvas = new MapCanvas(this);
             _empty = new TextBlock
             {
-                Text = "Cette carte n'a pas d'image.\n« Remplacer l'image… », dans le panneau, lui en donne une.",
+                Text = "Cette carte n'a pas d'image.\n« Choisir l'image… », dans l'onglet Général du rail, lui en donne une.",
                 Foreground = Chrome.SoftText, FontSize = 13, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, IsVisible = false
             };
@@ -139,7 +146,57 @@ namespace Marabook.App
             center.Children.Add(_canvas);
             center.Children.Add(_empty);
             Children.Add(center);
+
+            // ESPACE = la main (lot 12) : écouté à la fenêtre, pour valoir même quand le clavier est au rail.
+            AttachedToVisualTree += delegate
+            {
+                _top = TopLevel.GetTopLevel(this);
+                if (_top == null) return;
+                _top.AddHandler(KeyDownEvent, OnTopKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+                _top.AddHandler(KeyUpEvent, OnTopKeyUp, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            };
+            DetachedFromVisualTree += delegate
+            {
+                if (_top == null) return;
+                _top.RemoveHandler(KeyDownEvent, OnTopKeyDown);
+                _top.RemoveHandler(KeyUpEvent, OnTopKeyUp);
+                _top = null;
+            };
         }
+
+        private TopLevel _top;
+
+        private bool TypingSomewhere()
+        {
+            var focused = _top == null || _top.FocusManager == null ? null : _top.FocusManager.GetFocusedElement();
+            return focused is TextBox;
+        }
+
+        private void OnTopKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Space || !IsVisible || _item == null || !_canvas.IsPointerOver || TypingSomewhere()) return;
+            _canvas.SetSpace(true);
+            e.Handled = true; // pas de bouton « cliqué » par la barre d'espace pendant qu'on promène la carte
+        }
+
+        private void OnTopKeyUp(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Space || !_canvas.SpaceHeld) return;
+            _canvas.SetSpace(false);
+            e.Handled = true;
+        }
+
+        /// <summary>Les trois panneaux que la fenêtre loge dans le rail.</summary>
+        public Control GeneralPanel { get { return _general; } }
+        public Control SkyPanel { get { return _sky; } }
+        public Control ShapesPanel { get { return _shapes; } }
+
+        internal bool ShowZones { get { return _showZones; } }
+        internal bool ShowMarkers { get { return _showMarkers; } }
+        internal double DayOfYear { get { return _dayOfYear; } }
+
+        /// <summary>Le globe ne vaut que pour la carte d'un monde entier.</summary>
+        internal bool GlobeShown { get { var map = Map; return map != null && map.WholeWorld && map.View == Maps.ViewGlobe; } }
 
         private void AddTool(Panel bar, MapCanvas.Tool tool, string label, string tip)
         {
@@ -173,6 +230,8 @@ namespace Marabook.App
                 _selectedZone = _selectedMarker = null;
                 _measure = null;
                 _night = false;
+                _seasonHeat = true;
+                _showZones = _showMarkers = true;
                 _dayOfYear = 1;
                 _dayFraction = 0.5;
                 _canvas.Attach();
@@ -198,15 +257,18 @@ namespace Marabook.App
             if (SelectedZone == null) _selectedZone = null;
             if (SelectedMarker == null) _selectedMarker = null;
             if (!NightPossible) _night = false;
-            _flat.IsChecked = map.View != Maps.ViewGlobe;
-            _globe.IsChecked = map.View == Maps.ViewGlobe;
+            var globe = GlobeShown;
+            // Le choix du rendu n'existe que pour la carte d'un monde entier (lot 12) : sinon, pas de bouton Globe.
+            _viewLabel.IsVisible = _flat.IsVisible = _globe.IsVisible = _viewRule.IsVisible = map.WholeWorld && map.HasImage;
+            _flat.IsChecked = !globe;
+            _globe.IsChecked = globe;
             // Le tracé se fait à plat : au globe, les outils se grisent.
             foreach (var pair in _tools)
             {
-                pair.Value.IsEnabled = map.HasImage && (pair.Key == MapCanvas.Tool.Pan || map.View != Maps.ViewGlobe);
+                pair.Value.IsEnabled = map.HasImage && (pair.Key == MapCanvas.Tool.Pan || !globe);
                 pair.Value.IsChecked = pair.Key == _canvas.CurrentTool;
             }
-            if (map.View == Maps.ViewGlobe && _canvas.CurrentTool != MapCanvas.Tool.Pan) _canvas.SetTool(MapCanvas.Tool.Pan);
+            if (globe && _canvas.CurrentTool != MapCanvas.Tool.Pan) _canvas.SetTool(MapCanvas.Tool.Pan);
             DescribeTool();
             ViewChanged();
             RefreshSide();
@@ -218,7 +280,7 @@ namespace Marabook.App
             var map = Map;
             if (map == null || !map.HasImage) { _zoomLabel.Text = ""; return; }
             var fr = CultureInfo.GetCultureInfo("fr-FR");
-            _zoomLabel.Text = map.View == Maps.ViewGlobe ? "Zoom × " + _canvas.ZoomRatio.ToString("0.#", fr)
+            _zoomLabel.Text = GlobeShown ? "Zoom × " + _canvas.ZoomRatio.ToString("0.#", fr)
                 : "Zoom × " + _canvas.ZoomRatio.ToString("0.#", fr) + "  ·  niveau " + (Maps.LevelFor(map, _canvas.Scale) + 1) + " sur " + map.Levels;
         }
 
@@ -270,14 +332,14 @@ namespace Marabook.App
             _hint.Foreground = Chrome.SoftText;
             var map = Map;
             if (map == null || !map.HasImage) { _hint.Text = ""; return; }
-            if (map.View == Maps.ViewGlobe) { _hint.Text = "Glisser fait tourner le globe ; la molette l'approche. Le tracé se fait au planisphère."; return; }
+            if (GlobeShown) { _hint.Text = "Glisser fait tourner le globe ; la molette l'approche. Le tracé se fait au planisphère."; return; }
             switch (_canvas.CurrentTool)
             {
                 case MapCanvas.Tool.Zone: _hint.Text = "Un clic par sommet ; double-clic, Entrée ou un clic sur le premier point ferme la zone. Retour arrière retire le dernier point, Échap abandonne."; break;
                 case MapCanvas.Tool.Marker: _hint.Text = "Cliquez à l'endroit du repère. Échap abandonne."; break;
                 case MapCanvas.Tool.Scale: _hint.Text = "Cliquez deux points dont vous connaissez l'écart — en kilomètres ou en jours de voyage."; break;
                 case MapCanvas.Tool.Measure: _hint.Text = _measure ?? "Cliquez deux points : la distance s'affiche."; break;
-                default: _hint.Text = "Glisser promène la carte, la molette zoome. Un clic choisit une zone ou un repère ; un double-clic ouvre sa fiche."; break;
+                default: _hint.Text = "Glisser promène la carte, la molette zoome. Un clic choisit une zone ou un repère ; un double-clic ouvre sa fiche. Espace tenu : la main, quel que soit l'outil."; break;
             }
         }
 
@@ -297,6 +359,8 @@ namespace Marabook.App
             if (zoneId == _selectedZone && markerId == _selectedMarker) return;
             _selectedZone = zoneId;
             _selectedMarker = markerId;
+            var chosen = SelectionChanged;
+            if (chosen != null && (zoneId != null || markerId != null)) chosen();
             RefreshSide();
             _canvas.InvalidateVisual();
         }
@@ -319,6 +383,7 @@ namespace Marabook.App
             var zone = new MapZone { Name = choice.Name, Color = choice.Color, LinkId = choice.LinkId, Level = choice.Level };
             zone.Points.AddRange(points);
             map.Zones.Add(zone);
+            _showZones = true; // ce qu'on vient de tracer se voit
             _selectedZone = zone.Id;
             _selectedMarker = null;
             _canvas.SetTool(MapCanvas.Tool.Pan);
@@ -342,6 +407,7 @@ namespace Marabook.App
             var before = map.Clone();
             var marker = new MapMarker { Name = choice.Name, Color = choice.Color, LinkId = choice.LinkId, Level = choice.Level, X = at.X, Y = at.Y };
             map.Markers.Add(marker);
+            _showMarkers = true;
             _selectedMarker = marker.Id;
             _selectedZone = null;
             _canvas.SetTool(MapCanvas.Tool.Pan);
@@ -435,6 +501,9 @@ namespace Marabook.App
         /// <summary>Le jour et la nuit demandent un monde, et que l'image soit son planisphère entier.</summary>
         internal bool NightPossible { get { var map = Map; return map != null && map.HasImage && map.WholeWorld && World != null; } }
         internal bool NightShown { get { return _night && NightPossible; } }
+        /// <summary>Les points de chaleur des saisons : même condition que la nuit, et un monde qui a des saisons.</summary>
+        internal bool SeasonHeatPossible { get { var world = World; return NightPossible && world.Seasons.Count > 0; } }
+        internal bool SeasonHeatShown { get { return _seasonHeat && SeasonHeatPossible; } }
         internal double DayFraction { get { return _dayFraction; } }
 
         private TimeSystem WorldSystem
@@ -486,26 +555,48 @@ namespace Marabook.App
 
         private void RefreshSide()
         {
-            _side.Children.Clear();
+            _general.Children.Clear();
+            _sky.Children.Clear();
+            _shapes.Children.Clear();
             var map = Map;
             if (map == null) return;
             var world = World;
             var fr = CultureInfo.GetCultureInfo("fr-FR");
+            FillGeneral(map, world, fr);
+            if (!map.HasImage)
+            {
+                _sky.Children.Add(Line("Cette carte n'a pas encore d'image."));
+                _shapes.Children.Add(Line("Cette carte n'a pas encore d'image."));
+                return;
+            }
+            FillSky(map, world, fr);
+            FillShapes(map, world, fr);
+        }
 
-            // ---- La carte : ce qu'elle pèse.
+        // ---- Général : la carte, son monde, son échelle.
+        private void FillGeneral(MapInfo map, World world, CultureInfo fr)
+        {
+            var side = _general;
             var first = Caption("CARTE");
             first.Margin = new Thickness(0, 0, 0, 5);
-            _side.Children.Add(first);
+            side.Children.Add(first);
             if (map.HasImage)
             {
                 var bytes = Maps.Bytes(map);
-                _side.Children.Add(Pair("Image", map.Width.ToString("N0", fr) + " × " + map.Height.ToString("N0", fr) + " px"));
-                _side.Children.Add(Pair("Zoom", TimeSystem.Count(map.Levels, "niveau", "niveaux") + ", " + TimeSystem.Count(map.Tiles.Count, "tuile", "tuiles")));
+                side.Children.Add(Pair("Image", map.Width.ToString("N0", fr) + " × " + map.Height.ToString("N0", fr) + " px"));
+                side.Children.Add(Pair("Zoom", TimeSystem.Count(map.Levels, "niveau", "niveaux") + ", " + TimeSystem.Count(map.Tiles.Count, "tuile", "tuiles")));
                 var weight = Pair("Poids dans le .plot", Maps.SizeLabel(bytes));
                 weight.Tag = "map-weight";
-                _side.Children.Add(weight);
+                side.Children.Add(weight);
+                // Lot 12 : les tuiles dorment dans le .plot et ne sont lues que pour l'écran.
+                var held = map.Tiles.MemoryBytes;
+                var memory = Line(held <= 0 ? "Lue à la demande dans le .plot : seules les tuiles à l'écran sont en mémoire."
+                    : held >= bytes ? "Pas encore enregistrée : ses tuiles sont en mémoire (" + Maps.SizeLabel(held) + "). Au premier enregistrement, elles seront lues à la demande."
+                    : Maps.SizeLabel(held) + " encore en mémoire, le reste lu à la demande dans le .plot.");
+                memory.Tag = "map-memory";
+                side.Children.Add(memory);
                 if (map.SourceBytes > 0)
-                    _side.Children.Add(Line("Fichier d'origine" + (string.IsNullOrEmpty(map.SourceName) ? "" : " « " + map.SourceName + " »") + " : " + Maps.SizeLabel(map.SourceBytes)
+                    side.Children.Add(Line("Fichier d'origine" + (string.IsNullOrEmpty(map.SourceName) ? "" : " « " + map.SourceName + " »") + " : " + Maps.SizeLabel(map.SourceBytes)
                         + ". Le plein format est gardé pixel pour pixel ; les niveaux réduits font le reste."));
             }
             var replace = Buttons.Text(map.HasImage ? "Remplacer l'image…" : "Choisir l'image…", "Importer une autre image : les zones et les repères suivent, à l'échelle de la nouvelle", Buttons.Compact, Buttons.Look.Outline);
@@ -513,11 +604,11 @@ namespace Marabook.App
             replace.Margin = new Thickness(0, 8, 0, 0);
             replace.Tag = "map-replace";
             replace.Click += delegate { var h = ReplaceImageRequested; if (h != null) h(); };
-            _side.Children.Add(replace);
+            side.Children.Add(replace);
             if (!map.HasImage) return;
 
             // ---- Le monde.
-            _side.Children.Add(Caption("MONDE"));
+            side.Children.Add(Caption("MONDE"));
             var worlds = new List<World>();
             var names = new List<string> { "Aucun (carte autonome)" };
             if (_project != null) foreach (var w in _project.Worlds) { worlds.Add(w); names.Add(w.Name); }
@@ -526,28 +617,44 @@ namespace Marabook.App
             {
                 var index = worldBox.SelectedIndex;
                 var id = index <= 0 || index > worlds.Count ? null : worlds[index - 1].Id;
-                if (id == Map.WorldId) return;
+                if (Map == null || id == Map.WorldId) return;
                 SetWorld(id);
             };
-            _side.Children.Add(worldBox);
-            if (worlds.Count == 0) _side.Children.Add(Line("Aucun monde dans le projet : ils se créent dans l'Astrolabe. Une carte s'en passe très bien."));
-            var whole = new CheckBox { Content = "C'est le planisphère du monde entier", IsChecked = map.WholeWorld, Margin = new Thickness(0, 6, 0, 0), Tag = "map-whole" };
-            ToolTip.SetTip(whole, "L'image couvre tout le monde : 360° de large, d'un pôle à l'autre (idéalement deux fois plus large que haute). Les distances suivent alors la courbure de la sphère.");
+            side.Children.Add(worldBox);
+            if (worlds.Count == 0) side.Children.Add(Line("Aucun monde dans le projet : ils se créent dans l'Astrolabe. Une carte s'en passe très bien."));
+            var whole = new CheckBox { Content = "Carte du monde entier", IsChecked = map.WholeWorld, Margin = new Thickness(0, 6, 0, 0), Tag = "map-whole" };
+            ToolTip.SetTip(whole, "L'image est le planisphère de tout le monde. Les distances suivent alors la courbure de la sphère, et le rendu Globe devient possible.");
             whole.IsCheckedChanged += delegate
             {
-                if ((whole.IsChecked == true) == Map.WholeWorld) return;
+                if (Map == null || (whole.IsChecked == true) == Map.WholeWorld) return;
                 SetWholeWorld(whole.IsChecked == true);
             };
-            _side.Children.Add(whole);
-            if (map.WholeWorld && Math.Abs((double)map.Width / map.Height - 2) > 0.15)
-                _side.Children.Add(Line("L'image n'est pas deux fois plus large que haute : sur le globe et dans les mesures, elle sera étirée d'un pôle à l'autre."));
+            side.Children.Add(whole);
+            if (map.WholeWorld)
+            {
+                // La construction du planisphère (lot 12) : étirée, ou proportions gardées et pôles redéfinis.
+                var fitted = Maps.Fitted(map);
+                var layout = Line(fitted
+                    ? "Construction : proportions gardées. Pôle nord à " + (map.PoleNorth * 100).ToString("0.#", fr) + " % de la hauteur, pôle sud à " + (map.PoleSouth * 100).ToString("0.#", fr)
+                        + " % ; l'image couvre " + Maps.LongitudeSpan(map).ToString("0", fr) + "° de longitude" + (Maps.LongitudeSpan(map) > 360.5 ? " — plus d'un tour : elle se recouvre." : ".")
+                    : "Construction : étirée — l'image couvre 360° de large, d'un pôle à l'autre."
+                        + (Math.Abs((double)map.Width / map.Height - 2) > 0.15 ? " Elle n'est pas deux fois plus large que haute : elle est déformée." : ""));
+                layout.Tag = "map-layout";
+                side.Children.Add(layout);
+                var build = Buttons.Text("Construction du planisphère…", "Étirer l'image sur tout le monde, ou garder ses proportions et dire où sont les pôles", Buttons.Compact, Buttons.Look.Outline);
+                build.HorizontalAlignment = HorizontalAlignment.Left;
+                build.Margin = new Thickness(0, 6, 0, 0);
+                build.Tag = "map-layout-edit";
+                build.Click += delegate { EditLayout(); };
+                side.Children.Add(build);
+            }
 
             // ---- L'échelle et ce qui s'en déduit.
-            _side.Children.Add(Caption("ÉCHELLE ET SUPERFICIES"));
+            side.Children.Add(Caption("ÉCHELLE ET SUPERFICIES"));
             var canMeasure = Maps.CanMeasure(map, world);
-            if (map.HasScale) _side.Children.Add(Pair("Entre les deux points", map.ScaleNote != null ? map.ScaleNote + " (" + Maps.KmLabel(map.ScaleKm) + ")" : Maps.KmLabel(map.ScaleKm)));
+            if (map.HasScale) side.Children.Add(Pair("Entre les deux points", map.ScaleNote != null ? map.ScaleNote + " (" + Maps.KmLabel(map.ScaleKm) + ")" : Maps.KmLabel(map.ScaleKm)));
             if (!canMeasure)
-                _side.Children.Add(Line(map.WholeWorld && world != null
+                side.Children.Add(Line(map.WholeWorld && world != null
                     ? "« " + world.Name + " » n'a pas de taille : posez une échelle (deux points, une distance ou un temps de trajet) et la carte calculera le tour et la surface du monde."
                     : "Sans échelle, la carte ne mesure rien. Outil « Échelle » : deux points, puis la distance — ou le temps de trajet — qui les sépare."));
             else if (map.WholeWorld)
@@ -555,13 +662,13 @@ namespace Marabook.App
                 var radius = Maps.WorldRadius(map, world);
                 var around = Pair("Tour du monde", Maps.KmLabel(radius * 2 * Math.PI));
                 around.Tag = "map-around";
-                _side.Children.Add(around);
-                _side.Children.Add(Pair("Surface du monde", Maps.AreaLabel(Maps.MapArea(map, world))));
-                if (!map.HasScale) _side.Children.Add(Line("D'après la taille de « " + world.Name + " » (Astrolabe)."));
+                side.Children.Add(around);
+                side.Children.Add(Pair("Surface du monde", Maps.AreaLabel(Maps.MapArea(map, world))));
+                if (!map.HasScale) side.Children.Add(Line("D'après la taille de « " + world.Name + " » (Astrolabe)."));
                 var implied = Maps.ImpliedCircumference(map);
                 if (implied > 0 && world != null && Math.Abs(implied - world.Circumference) > 0.5)
                 {
-                    _side.Children.Add(Line(world.Circumference > 0
+                    side.Children.Add(Line(world.Circumference > 0
                         ? "L'Astrolabe donne à « " + world.Name + " » un tour de " + Maps.KmLabel(world.Circumference) + " : la carte et le monde ne disent pas la même chose."
                         : "« " + world.Name + " » n'a pas encore de taille dans l'Astrolabe."));
                     var give = Buttons.Text("Donner cette taille au monde", "Écrire ce tour du monde dans « " + world.Name + " » (Astrolabe). Ctrl+Z l'annule.", Buttons.Compact, Buttons.Look.Outline);
@@ -569,27 +676,27 @@ namespace Marabook.App
                     give.Margin = new Thickness(0, 6, 0, 0);
                     give.Tag = "map-give-size";
                     give.Click += delegate { var h = WorldSizeRequested; if (h != null) h(world, implied); };
-                    _side.Children.Add(give);
+                    side.Children.Add(give);
                 }
             }
             else
             {
                 var perPixel = Maps.KmPerPixel(map);
-                _side.Children.Add(Pair("Un pixel", Maps.KmLabel(perPixel)));
-                _side.Children.Add(Pair("La carte couvre", Maps.KmLabel(map.Width * perPixel) + " × " + Maps.KmLabel(map.Height * perPixel)));
+                side.Children.Add(Pair("Un pixel", Maps.KmLabel(perPixel)));
+                side.Children.Add(Pair("La carte couvre", Maps.KmLabel(map.Width * perPixel) + " × " + Maps.KmLabel(map.Height * perPixel)));
                 var area = Maps.MapArea(map, world);
                 var areaRow = Pair("Superficie", Maps.AreaLabel(area));
                 areaRow.Tag = "map-area";
-                _side.Children.Add(areaRow);
+                side.Children.Add(areaRow);
                 var surface = Maps.WorldSurface(world);
                 if (surface > 0)
-                    _side.Children.Add(Line("Soit " + (area / surface).ToString(area / surface < 0.01 ? "0.00 %" : "0.0 %", fr) + " de la surface de « " + world.Name + " »."
+                    side.Children.Add(Line("Soit " + (area / surface).ToString(area / surface < 0.01 ? "0.00 %" : "0.0 %", fr) + " de la surface de « " + world.Name + " »."
                         + (area > surface ? " Plus que le monde entier : l'échelle ou la taille du monde est à revoir." : "")));
-                else if (world != null) _side.Children.Add(Line("« " + world.Name + " » n'a pas de taille dans l'Astrolabe : la part du monde que couvre la carte ne se calcule pas."));
+                else if (world != null) side.Children.Add(Line("« " + world.Name + " » n'a pas de taille dans l'Astrolabe : la part du monde que couvre la carte ne se calcule pas."));
             }
             var scaleButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 8, 0, 0) };
             var setScale = Buttons.Text(map.HasScale ? "Reposer l'échelle" : "Poser l'échelle", "Cliquer deux points de la carte, puis dire ce qui les sépare", Buttons.Compact, Buttons.Look.Outline);
-            setScale.IsEnabled = map.View != Maps.ViewGlobe;
+            setScale.IsEnabled = !GlobeShown;
             setScale.Click += delegate { ChooseTool(MapCanvas.Tool.Scale); };
             scaleButtons.Children.Add(setScale);
             if (map.HasScale)
@@ -598,27 +705,53 @@ namespace Marabook.App
                 drop.Click += delegate { var before = Map.Clone(); Map.ScaleKm = 0; Map.ScaleNote = null; Commit(before); };
                 scaleButtons.Children.Add(drop);
             }
-            _side.Children.Add(scaleButtons);
+            side.Children.Add(scaleButtons);
+        }
 
-            // ---- Le ciel : jour et nuit, saisons.
-            if (world != null)
-            {
-                _side.Children.Add(Caption("JOUR, NUIT ET SAISONS"));
-                if (!map.WholeWorld) _side.Children.Add(Line("Le jour et la nuit se dessinent sur le planisphère du monde entier : cochez la case ci-dessus si cette image en est un."));
-                else AddSky(world, fr);
-            }
+        // ---- Jour, nuit et saisons (onglet du rail).
+        private void FillSky(MapInfo map, World world, CultureInfo fr)
+        {
+            if (world == null) { _sky.Children.Add(Line("Le jour, la nuit et les saisons demandent un monde : liez-en un à la carte dans l'onglet Général (les mondes se créent dans l'Astrolabe).")); return; }
+            if (!map.WholeWorld) { _sky.Children.Add(Line("Le jour, la nuit et les saisons se dessinent sur la carte du monde entier : cochez « Carte du monde entier » dans l'onglet Général si cette image en est une.")); return; }
+            AddSky(world, fr);
+        }
+
+        // ---- Zones et repères (onglet du rail).
+        private void FillShapes(MapInfo map, World world, CultureInfo fr)
+        {
+            var side = _shapes;
+            var canMeasure = Maps.CanMeasure(map, world);
+
+            // Les filtres (lot 12) : montrer ou masquer les zones, les repères.
+            var first = Caption("AFFICHER");
+            first.Margin = new Thickness(0, 0, 0, 5);
+            side.Children.Add(first);
+            var filters = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            var zonesFilter = Buttons.TextToggle("Zones (" + map.Zones.Count + ")", "Montrer ou masquer les zones sur la carte", Buttons.Compact);
+            zonesFilter.IsChecked = _showZones;
+            zonesFilter.Tag = "map-filter-zones";
+            zonesFilter.Click += delegate { SetFilters(zonesFilter.IsChecked == true, _showMarkers); };
+            var markersFilter = Buttons.TextToggle("Repères (" + map.Markers.Count + ")", "Montrer ou masquer les repères sur la carte", Buttons.Compact);
+            markersFilter.IsChecked = _showMarkers;
+            markersFilter.Tag = "map-filter-markers";
+            markersFilter.Click += delegate { SetFilters(_showZones, markersFilter.IsChecked == true); };
+            filters.Children.Add(zonesFilter);
+            filters.Children.Add(markersFilter);
+            side.Children.Add(filters);
+            if (!_showZones || !_showMarkers)
+                side.Children.Add(Line(!_showZones && !_showMarkers ? "Zones et repères masqués : la carte seule." : !_showZones ? "Les zones sont masquées." : "Les repères sont masqués."));
 
             // ---- La sélection.
             var zone = SelectedZone;
             var marker = SelectedMarker;
             if (zone != null || marker != null)
             {
-                _side.Children.Add(Caption(zone != null ? "ZONE CHOISIE" : "REPÈRE CHOISI"));
-                _side.Children.Add(new TextBlock { Text = zone != null ? zone.Name : marker.Name, Foreground = Chrome.Ink, FontSize = 14, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap, Tag = "map-selection" });
+                side.Children.Add(Caption(zone != null ? "ZONE CHOISIE" : "REPÈRE CHOISI"));
+                side.Children.Add(new TextBlock { Text = zone != null ? zone.Name : marker.Name, Foreground = Chrome.Ink, FontSize = 14, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap, Tag = "map-selection" });
                 var linkId = zone != null ? zone.LinkId : marker.LinkId;
                 var linked = linkId == null ? null : _project.FindById(linkId);
-                _side.Children.Add(Line(linked != null ? "Fiche : " + linked.Title : "Aucune fiche liée."));
-                _side.Children.Add(Line("Visible : " + Maps.LevelNames[zone != null ? zone.Level : marker.Level].ToLower(fr) + "."));
+                side.Children.Add(Line(linked != null ? "Fiche : " + linked.Title : "Aucune fiche liée."));
+                side.Children.Add(Line("Visible : " + Maps.LevelNames[zone != null ? zone.Level : marker.Level].ToLower(fr) + "."));
                 if (zone != null)
                 {
                     if (canMeasure)
@@ -626,11 +759,11 @@ namespace Marabook.App
                         var area = Maps.Area(map, world, zone.Points);
                         var zoneArea = Pair("Superficie", Maps.AreaLabel(area));
                         zoneArea.Tag = "map-zone-area";
-                        _side.Children.Add(zoneArea);
+                        side.Children.Add(zoneArea);
                         var surface = map.WholeWorld ? Maps.MapArea(map, world) : Maps.WorldSurface(world);
-                        if (surface > 0) _side.Children.Add(Line("Soit " + (area / surface).ToString(area / surface < 0.01 ? "0.00 %" : "0.0 %", fr) + " de la surface du monde."));
+                        if (surface > 0) side.Children.Add(Line("Soit " + (area / surface).ToString(area / surface < 0.01 ? "0.00 %" : "0.0 %", fr) + " de la surface du monde."));
                     }
-                    _side.Children.Add(Line(TimeSystem.Count(zone.Points.Count, "sommet", "sommets") + " : tirez une poignée pour la déplacer, cliquez un demi-point pour en ajouter une, clic droit pour en retirer une."));
+                    side.Children.Add(Line(TimeSystem.Count(zone.Points.Count, "sommet", "sommets") + " : tirez une poignée pour la déplacer, cliquez un demi-point pour en ajouter une, clic droit pour en retirer une."));
                 }
                 var actions = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
                 if (linked != null)
@@ -649,21 +782,62 @@ namespace Marabook.App
                 remove.Margin = new Thickness(0, 0, 6, 6);
                 remove.Click += delegate { DeleteSelection(); };
                 actions.Children.Add(remove);
-                _side.Children.Add(actions);
+                side.Children.Add(actions);
             }
 
-            // ---- Les zones et les repères.
-            _side.Children.Add(Caption("ZONES ET REPÈRES"));
-            if (map.Zones.Count == 0 && map.Markers.Count == 0)
-                _side.Children.Add(Line("Rien encore. Outil « Zone » pour tracer un pays, une région, une mer ; outil « Repère » pour une ville ou un lieu. Chacun peut se lier à une fiche."));
-            foreach (var entry in map.Zones) _side.Children.Add(ShapeRow(entry.Id, entry.Name, entry.Color, false, canMeasure ? Maps.AreaLabel(Maps.Area(map, world, entry.Points)) : null, entry.LinkId));
-            foreach (var entry in map.Markers) _side.Children.Add(ShapeRow(entry.Id, entry.Name, entry.Color, true, null, entry.LinkId));
+            // ---- Les listes.
+            side.Children.Add(Caption("ZONES"));
+            if (map.Zones.Count == 0) side.Children.Add(Line("Aucune. Outil « Zone » : un pays, une région, une mer — liée au besoin à une fiche."));
+            foreach (var entry in map.Zones) side.Children.Add(ShapeRow(entry.Id, entry.Name, entry.Color, false, canMeasure ? Maps.AreaLabel(Maps.Area(map, world, entry.Points)) : null, entry.LinkId, !_showZones));
+            side.Children.Add(Caption("REPÈRES"));
+            if (map.Markers.Count == 0) side.Children.Add(Line("Aucun. Outil « Repère » : une ville, un lieu."));
+            foreach (var entry in map.Markers) side.Children.Add(ShapeRow(entry.Id, entry.Name, entry.Color, true, null, entry.LinkId, !_showMarkers));
         }
+
+        /// <summary>Les filtres : ce qui est masqué ne se voit plus, ne se clique plus — et ne reste pas choisi.</summary>
+        internal void SetFilters(bool zones, bool markers)
+        {
+            _showZones = zones;
+            _showMarkers = markers;
+            if (!zones) _selectedZone = null;
+            if (!markers) _selectedMarker = null;
+            RefreshSide();
+            _canvas.InvalidateVisual();
+        }
+
+        /// <summary>« Construction du planisphère… » : étirée, ou proportions gardées et pôles redéfinis.</summary>
+        private async void EditLayout()
+        {
+            var map = Map;
+            if (map == null || !map.HasImage) return;
+            var choice = await MapLayoutDialog.Ask(Ui.OwnerOf(this), map);
+            if (choice == null) return;
+            SetLayout(choice.Fitted, choice.PoleNorth, choice.PoleSouth);
+        }
+
+        internal void SetLayout(bool fitted, double poleNorth, double poleSouth)
+        {
+            var map = Map;
+            if (map == null) return;
+            var before = map.Clone();
+            map.Layout = fitted ? Maps.LayoutFitted : Maps.LayoutStretch;
+            if (fitted && poleSouth - poleNorth >= 0.01) { map.PoleNorth = poleNorth; map.PoleSouth = poleSouth; }
+            else Maps.ResetPoles(map);
+            Commit(before);
+        }
+
 
         private void AddSky(World world, CultureInfo fr)
         {
+            var side = _sky;
             var show = new CheckBox { Content = "Montrer le jour et la nuit", IsChecked = _night, Tag = "map-night" };
-            _side.Children.Add(show);
+            side.Children.Add(show);
+            // Les points de chaleur des saisons (lot 12) : montrés d'office, désactivables ici.
+            var heat = new CheckBox { Content = "Montrer les saisons sur la carte", IsChecked = _seasonHeat, IsEnabled = SeasonHeatPossible, Margin = new Thickness(0, 2, 0, 0), Tag = "map-season-heat" };
+            ToolTip.SetTip(heat, "Des halos de la couleur de la saison qui règne en chaque point de la carte, au jour choisi : pâles là où la saison s'efface, absents là où il n'y en a pas.");
+            heat.IsCheckedChanged += delegate { _seasonHeat = heat.IsChecked == true; RefreshLegend(); _canvas.InvalidateVisual(); };
+            side.Children.Add(heat);
+            _legend = new StackPanel { Margin = new Thickness(0, 6, 0, 0), Tag = "map-season-legend" };
             var yearDays = YearDays;
             _dayOfYear = Math.Max(1, Math.Min(Math.Floor(yearDays), _dayOfYear));
             var system = WorldSystem;
@@ -693,6 +867,7 @@ namespace Marabook.App
                         + " ; le soleil est au zénith par " + Math.Abs(declination * 180 / Math.PI).ToString("0.#", fr) + "° " + (declination >= 0 ? "nord" : "sud") + ".";
                 }
                 seasons.Text = text;
+                RefreshLegend();
             };
             show.IsCheckedChanged += delegate { _night = show.IsChecked == true; _canvas.InvalidateVisual(); };
             day.PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs e)
@@ -710,14 +885,50 @@ namespace Marabook.App
                 _canvas.InvalidateVisual();
             };
             describe();
-            _side.Children.Add(dayLabel);
-            _side.Children.Add(day);
-            _side.Children.Add(hourLabel);
-            _side.Children.Add(hour);
-            _side.Children.Add(seasons);
+            side.Children.Add(dayLabel);
+            side.Children.Add(day);
+            side.Children.Add(hourLabel);
+            side.Children.Add(hour);
+            side.Children.Add(seasons);
+            side.Children.Add(_legend);
         }
 
-        private Control ShapeRow(string id, string name, string color, bool marker, string measure, string linkId)
+        private StackPanel _legend;
+
+        /// <summary>La légende des points de chaleur : chaque saison du monde, sa teinte, et où elle règne au jour choisi.</summary>
+        private void RefreshLegend()
+        {
+            if (_legend == null) return;
+            _legend.Children.Clear();
+            var world = World;
+            if (world == null || world.Seasons.Count == 0) return;
+            if (!world.HasTilt || world.AxialTilt < 1e-6)
+            {
+                _legend.Children.Add(Line("Sans inclinaison de l'axe, aucune saison ne se marque sur la carte : il n'y a pas de point à montrer."));
+                return;
+            }
+            if (!_seasonHeat) return;
+            var yearDays = YearDays;
+            int north = Maps.SeasonIndex(world, _dayOfYear, yearDays, false), south = Maps.SeasonIndex(world, _dayOfYear, yearDays, true);
+            for (var i = 0; i < world.Seasons.Count; i++)
+            {
+                Color tint;
+                if (!Color.TryParse(Astro.ColorOf(world.Seasons[i], i), out tint)) tint = Chrome.Accent.Color;
+                var where = i == north && i == south ? "partout" : i == north ? "au nord" : i == south ? "au sud" : "absente ce jour-là";
+                var row = new DockPanel { Margin = new Thickness(0, 3, 0, 0), Opacity = i == north || i == south ? 1 : 0.55, Tag = "map-season-row" };
+                var dot = new Border { Width = 12, Height = 12, CornerRadius = new CornerRadius(6), Background = new SolidColorBrush(tint), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+                DockPanel.SetDock(dot, Dock.Left);
+                row.Children.Add(dot);
+                var place = new TextBlock { Text = where, Foreground = Chrome.SoftText, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center };
+                DockPanel.SetDock(place, Dock.Right);
+                row.Children.Add(place);
+                row.Children.Add(new TextBlock { Text = world.Seasons[i].Name, Foreground = Chrome.Ink, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+                _legend.Children.Add(row);
+            }
+            _legend.Children.Add(Line("Entre les tropiques (" + world.AxialTilt.ToString("0.#", CultureInfo.GetCultureInfo("fr-FR")) + "° de part et d'autre de l'équateur), les saisons s'effacent : les points pâlissent."));
+        }
+
+        private Control ShapeRow(string id, string name, string color, bool marker, string measure, string linkId, bool hidden)
         {
             Color tint;
             if (!Color.TryParse(color, out tint)) tint = Chrome.Accent.Color;
@@ -740,12 +951,15 @@ namespace Marabook.App
             var box = new Border
             {
                 Child = row, Padding = new Thickness(8, 5, 8, 5), CornerRadius = new CornerRadius(6), Margin = new Thickness(0, 2, 0, 0), Cursor = new Cursor(StandardCursorType.Hand),
-                Background = chosen ? Chrome.AccentTint : Brushes.Transparent, Tag = "map-shape-row"
+                Background = chosen ? Chrome.AccentTint : Brushes.Transparent, Tag = "map-shape-row", Opacity = hidden ? 0.5 : 1
             };
             box.PointerPressed += delegate
             {
                 var map = Map;
                 if (map == null) return;
+                // Choisir dans la liste ce qui est masqué le montre de nouveau.
+                if (marker && !_showMarkers) _showMarkers = true;
+                if (!marker && !_showZones) _showZones = true;
                 var zone = map.FindZone(id);
                 var point = map.FindMarker(id);
                 Select(zone, point);
@@ -768,6 +982,7 @@ namespace Marabook.App
             var map = Map;
             var before = map.Clone();
             map.WholeWorld = whole;
+            if (!whole) map.View = Maps.ViewFlat; // plus de globe pour une carte qui n'est pas le monde entier
             Commit(before);
         }
 
@@ -776,7 +991,17 @@ namespace Marabook.App
         internal MapCanvas CanvasForProbe { get { return _canvas; } }
         internal string HintForProbe { get { return _hint.Text; } }
         internal string ZoomLabelForProbe { get { return _zoomLabel.Text; } }
-        internal void SetWorldForProbe(string id, bool whole) { var before = Map.Clone(); Map.WorldId = id; Map.WholeWorld = whole; Commit(before); }
+        internal void SetWorldForProbe(string id, bool whole) { var before = Map.Clone(); Map.WorldId = id; Map.WholeWorld = whole; if (!whole) Map.View = Maps.ViewFlat; Commit(before); }
+        internal bool GlobeButtonShownForProbe { get { return _globe.IsVisible; } }
+        internal void SetSeasonHeatForProbe(bool on) { _seasonHeat = on; RefreshSide(); _canvas.InvalidateVisual(); }
+        internal bool SpaceKeyForProbe(bool down, bool pointerOver)
+        {
+            // Le même chemin que la touche, sans dépendre de la souris réelle de la sonde.
+            if (down) { if (!IsVisible || _item == null || !pointerOver || TypingSomewhere()) return false; _canvas.SetSpace(true); return true; }
+            if (!_canvas.SpaceHeld) return false;
+            _canvas.SetSpace(false);
+            return true;
+        }
         internal void SetViewForProbe(string view) { SetViewMode(view); }
         internal void SetNightForProbe(bool on, double day, double fraction) { _night = on; _dayOfYear = day; _dayFraction = fraction; RefreshSide(); _canvas.InvalidateVisual(); }
         internal bool ToolEnabledForProbe(MapCanvas.Tool tool) { return _tools[tool].IsEnabled; }
@@ -784,7 +1009,9 @@ namespace Marabook.App
         internal List<string> SideTextsForProbe()
         {
             var texts = new List<string>();
-            Collect(_side, texts);
+            Collect(_general, texts);
+            Collect(_sky, texts);
+            Collect(_shapes, texts);
             return texts;
         }
 

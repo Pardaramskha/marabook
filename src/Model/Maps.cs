@@ -66,14 +66,22 @@ namespace Marabook.Model
         public string Extension = ".jpg";        // « .jpg », ou « .png » pour une image à transparence
         public string SourceName;                // le nom du fichier importé
         public long SourceBytes;                 // son poids, pour dire ce que l'import a gagné ou coûté
-        // Les tuiles, par clé « z/x_y » : les octets encodés, tels qu'écrits dans le .plot.
-        // PARTAGÉES entre les clones (annuler / rétablir ne recopie jamais l'image).
-        public Dictionary<string, byte[]> Tiles = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        // Les tuiles, par clé « z/x_y » : en mémoire après un import, sinon lues à la demande
+        // dans le .plot (MapTileSet, lot 12). PARTAGÉES entre les clones (annuler / rétablir
+        // ne recopie jamais l'image).
+        public MapTileSet Tiles = new MapTileSet();
 
         // Le monde, facultatif.
         public string WorldId;
         public bool WholeWorld;                  // l'image est le planisphère du monde ENTIER (360° × 180°)
         public string View = Maps.ViewFlat;      // Maps.ViewFlat, ViewGlobe
+        // La CONSTRUCTION du planisphère (lot 12, 16/11) : comment l'image plate s'étale sur le monde.
+        // « stretch » : elle couvre tout, 360° de large, d'un pôle à l'autre, quelles que soient ses
+        // proportions. « fitted » : ses proportions sont gardées (un degré vaut autant de pixels en
+        // large qu'en haut) et l'on dit OÙ sont les pôles, en fraction de sa hauteur — ils peuvent
+        // être hors de l'image (elle ne monte pas jusqu'au pôle) ou dedans (une marge au-dessus).
+        public string Layout = Maps.LayoutStretch;
+        public double PoleNorth = 0, PoleSouth = 1;
 
         // L'échelle : deux points de l'image et la distance qui les sépare.
         public Pos ScaleA, ScaleB;
@@ -95,7 +103,8 @@ namespace Marabook.Model
             var copy = new MapInfo
             {
                 Width = Width, Height = Height, TileSize = TileSize, Levels = Levels, Extension = Extension, SourceName = SourceName, SourceBytes = SourceBytes,
-                Tiles = Tiles, WorldId = WorldId, WholeWorld = WholeWorld, View = View, ScaleA = ScaleA, ScaleB = ScaleB, ScaleKm = ScaleKm, ScaleNote = ScaleNote
+                Tiles = Tiles, WorldId = WorldId, WholeWorld = WholeWorld, View = View, ScaleA = ScaleA, ScaleB = ScaleB, ScaleKm = ScaleKm, ScaleNote = ScaleNote,
+                Layout = Layout, PoleNorth = PoleNorth, PoleSouth = PoleSouth
             };
             foreach (var zone in Zones) copy.Zones.Add(zone.Clone());
             foreach (var marker in Markers) copy.Markers.Add(marker.Clone());
@@ -113,6 +122,7 @@ namespace Marabook.Model
     public static class Maps
     {
         public const string ViewFlat = "flat", ViewGlobe = "globe";
+        public const string LayoutStretch = "stretch", LayoutFitted = "fitted";
         public const int LevelAlways = 0, LevelFar = 1, LevelMid = 2, LevelNear = 3;
         public static readonly string[] LevelNames = { "Toujours", "Vue d'ensemble seulement", "À partir du zoom moyen", "De près seulement" };
         public const double MidZoom = 2, NearZoom = 5;   // en multiples de la vue « Tout voir »
@@ -177,10 +187,7 @@ namespace Marabook.Model
         /// <summary>La place prise par la carte dans le .plot : la somme de ses tuiles.</summary>
         public static long Bytes(MapInfo map)
         {
-            long total = 0;
-            if (map == null) return 0;
-            foreach (var tile in map.Tiles.Values) if (tile != null) total += tile.LongLength;
-            return total;
+            return map == null ? 0 : map.Tiles.TotalBytes;
         }
 
         /// <summary>« 12,4 Mo », « 830 Ko », « 512 octets ».</summary>
@@ -225,10 +232,63 @@ namespace Marabook.Model
 
         // ------------------------------------------------------------ la sphère
 
-        /// <summary>La longitude (radians, −π à π) d'une abscisse d'un planisphère entier.</summary>
-        public static double Longitude(MapInfo map, double x) { return (x / Math.Max(1, map.Width) - 0.5) * 2 * Math.PI; }
+        /// <summary>La construction « proportions gardées » est-elle en vigueur (et ses pôles lisibles) ?</summary>
+        public static bool Fitted(MapInfo map) { return map != null && map.Layout == LayoutFitted && map.PoleSouth - map.PoleNorth > 1e-6; }
+
+        /// <summary>Proportions gardées : les radians par pixel — les mêmes en large et en haut ;
+        /// 180° séparent les deux pôles.</summary>
+        public static double RadiansPerPixel(MapInfo map) { return Math.PI / ((map.PoleSouth - map.PoleNorth) * Math.Max(1, map.Height)); }
+
+        /// <summary>La longitude (radians) d'une abscisse d'un planisphère entier : −π à π quand l'image
+        /// fait le tour ; proportions gardées, comptée depuis le milieu de l'image (elle peut couvrir moins).</summary>
+        public static double Longitude(MapInfo map, double x)
+        {
+            if (Fitted(map)) return (x - map.Width / 2.0) * RadiansPerPixel(map);
+            return (x / Math.Max(1, map.Width) - 0.5) * 2 * Math.PI;
+        }
+
         /// <summary>La latitude (radians, π/2 au nord) d'une ordonnée d'un planisphère entier.</summary>
-        public static double Latitude(MapInfo map, double y) { return (0.5 - y / Math.Max(1, map.Height)) * Math.PI; }
+        public static double Latitude(MapInfo map, double y)
+        {
+            if (Fitted(map)) return Math.Max(-Math.PI / 2, Math.Min(Math.PI / 2, Math.PI / 2 - (y - map.PoleNorth * map.Height) * RadiansPerPixel(map)));
+            return (0.5 - y / Math.Max(1, map.Height)) * Math.PI;
+        }
+
+        /// <summary>L'inverse : l'abscisse d'une longitude, l'ordonnée d'une latitude (elles peuvent tomber hors de l'image).</summary>
+        public static double XOf(MapInfo map, double longitude)
+        {
+            if (Fitted(map)) return map.Width / 2.0 + longitude / RadiansPerPixel(map);
+            return (longitude / (2 * Math.PI) + 0.5) * map.Width;
+        }
+
+        public static double YOf(MapInfo map, double latitude)
+        {
+            if (Fitted(map)) return map.PoleNorth * map.Height + (Math.PI / 2 - latitude) / RadiansPerPixel(map);
+            return (0.5 - latitude / Math.PI) * map.Height;
+        }
+
+        /// <summary>Les degrés de longitude que couvre la largeur de l'image : 360 quand elle est étirée.</summary>
+        public static double LongitudeSpan(MapInfo map)
+        {
+            return Fitted(map) ? map.Width * RadiansPerPixel(map) * 180 / Math.PI : 360;
+        }
+
+        /// <summary>Proportions gardées : le pôle nord est-il DANS l'image (une marge au-dessus de lui) ?</summary>
+        public static bool PoleNorthInside(MapInfo map) { return Fitted(map) && map.PoleNorth > 1e-9; }
+
+        /// <summary>Les pôles aux bords de l'image, pour des proportions gardées : la hauteur couvre 180°.</summary>
+        public static void ResetPoles(MapInfo map) { map.PoleNorth = 0; map.PoleSouth = 1; }
+
+        /// <summary>LA PRÉSENCE D'UNE SAISON à une latitude (0 = aucune, 1 = pleine) : sans inclinaison de
+        /// l'axe, il n'y a de saison nulle part ; entre les tropiques, elles s'effacent vers l'équateur,
+        /// où le soleil passe deux fois l'an au zénith ; au-delà, elles sont entières.</summary>
+        public static double SeasonPresence(World world, double latitude)
+        {
+            if (world == null || !world.HasTilt || world.Seasons.Count == 0) return 0;
+            var tropic = Math.Abs(world.AxialTilt) * Math.PI / 180;
+            if (tropic < 1e-6) return 0;
+            return Math.Max(0, Math.Min(1, Math.Abs(latitude) / tropic));
+        }
 
         /// <summary>L'angle au centre (radians) entre deux points d'un planisphère entier : le plus court chemin sur la sphère.</summary>
         public static double CentralAngle(MapInfo map, Pos a, Pos b)

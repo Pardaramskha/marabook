@@ -149,16 +149,10 @@ namespace Marabook.App
             }
             else
             {
-                // Côté Astrolabe : où sont passées les frises.
-                var toChronology = Buttons.IconText("pile-chronologie", "Ouvrir la Chronologie", "Les frises du projet", Buttons.Compact, Buttons.Look.Outline);
-                toChronology.Tag = "hub-to-chronology";
-                toChronology.HorizontalAlignment = HorizontalAlignment.Left;
-                toChronology.Margin = new Thickness(0, 8, 0, 0);
-                toChronology.Click += delegate { var h = OtherPageRequested; if (h != null) h(); };
-                var elsewhere = new StackPanel { Margin = new Thickness(0, 22, 0, 0) };
-                elsewhere.Children.Add(AstrolabeUi.Notice("Les frises ont leur propre racine dans la Pile : « Chronologie ». Elles s'appuient toujours sur les systèmes d'ici.", false, "hub-elsewhere"));
-                elsewhere.Children.Add(toChronology);
-                systemsColumn.Children.Add(elsewhere);
+                // Côté Astrolabe : les systèmes et les mondes, rien d'autre. (Lot 12, Rémi : ni l'avis
+                // « les frises ont leur propre racine », ni le raccourci vers la Chronologie — elle est
+                // juste en dessous, dans la Pile.)
+
                 var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,28,*") };
                 Grid.SetColumn(worldsColumn, 2);
                 grid.Children.Add(systemsColumn);

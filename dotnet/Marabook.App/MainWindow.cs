@@ -1272,6 +1272,7 @@ namespace Marabook.App
             BuildLexiconPanel(grid);
             BuildNotebookPanel(grid); // le Carnet (14/11) : toujours au rail, sous le Lexique
             BuildCalculatorPanel(grid); // le Calculateur de dates (14/11) : à la demande, épinglable
+            BuildMapPanels(grid);       // les deux onglets d'une carte ouverte (lot 12)
             BuildStyleReportPanel(grid); // le Bilan de style au rail (09/10)
             _pinTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
             _pinTimer.Tick += delegate { _pinTimer.Stop(); RefreshSidePin(); };
@@ -1676,6 +1677,9 @@ namespace Marabook.App
             // du synopsis.
             _moduleSection = new ContentControl { IsVisible = false, Margin = new Thickness(0, 0, 0, 10) };
             panel.Children.Add(_moduleSection);
+            // Une carte (lot 12, 16/11) : son image, son monde, son échelle et ses superficies.
+            _mapSection = new ContentControl { IsVisible = false, Margin = new Thickness(0, 0, 0, 10) };
+            panel.Children.Add(_mapSection);
             // Une frise (1.2.0) : ses événements, la durée de la temporalité, celle de l'ère.
             _timelineSection = new ContentControl { IsVisible = false, Margin = new Thickness(0, 0, 0, 10) };
             panel.Children.Add(_timelineSection);
@@ -3111,6 +3115,12 @@ namespace Marabook.App
             LastSaveCopied = outcome.Result.Copied;
             LastSavePacked = outcome.Result.Packed;
             LastBackupPath = outcome.BackupPath;
+            // Lot 12 : des tuiles de carte n'ont pas pu être reprises de leur fichier d'origine
+            // (il a disparu ou a été remplacé pendant la session) — on le dit, toujours.
+            if (outcome.Result.LostTiles > 0)
+                ShowToast(null, "Carte incomplète", project.Name,
+                    TimeSystem.Count(outcome.Result.LostTiles, "tuile de carte n'a pas pu être relue", "tuiles de carte n'ont pas pu être relues")
+                    + " dans le fichier d'origine (déplacé ou remplacé pendant la session) : le projet est enregistré sans elles. La version d'avant est dans les sauvegardes ; réimportez l'image au besoin.", 14);
             if (outcome.BackupError != null && !_backupWarned)
             {
                 _backupWarned = true;
@@ -5805,8 +5815,8 @@ namespace Marabook.App
         /// la colonne (il ne déborde pas pendant la course).</summary>
         private void ShowRightHost(RightPanel shown)
         {
-            var hosts = new[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _calculatorHost, _styleReportHost };
-            var panels = new[] { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned, RightPanel.Lexicon, RightPanel.Notebook, RightPanel.Calculator, RightPanel.StyleReport };
+            var hosts = new[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _calculatorHost, _styleReportHost, _mapSkyHost, _mapShapesHost };
+            var panels = new[] { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned, RightPanel.Lexicon, RightPanel.Notebook, RightPanel.Calculator, RightPanel.StyleReport, RightPanel.MapSky, RightPanel.MapShapes };
             for (var i = 0; i < hosts.Length; i++)
             {
                 if (hosts[i] == null) continue;
@@ -5872,7 +5882,7 @@ namespace Marabook.App
         /// de la course) ou libre (NaN).</summary>
         private void FreezeRightHosts(double width)
         {
-            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _calculatorHost, _styleReportHost };
+            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _calculatorHost, _styleReportHost, _mapSkyHost, _mapShapesHost };
             foreach (var host in hosts)
             {
                 if (host == null) continue;
@@ -6036,8 +6046,15 @@ namespace Marabook.App
             _railBadge = null;
             _railBadgeText = null;
             var separated = false;
+            var mapSeparated = false;
             foreach (var panel in offered)
             {
+                // Les onglets de la carte ouverte (lot 12) : en bas, sous leur propre filet.
+                if (!mapSeparated && RightPanels.BelongsToMap(panel))
+                {
+                    mapSeparated = true;
+                    _railStack.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(9, 6, 9, 6), Tag = "rail-map-separator" });
+                }
                 if (!separated && !RightPanels.DescribesCurrent(panel))
                 {
                     separated = true;
@@ -6111,6 +6128,10 @@ namespace Marabook.App
                     icon = "pile-frises"; name = "Calculateur de dates"; break;
                 case RightPanel.StyleReport:
                     icon = "exam-bold"; name = "Bilan de style de l'écrit ouvert"; break;
+                case RightPanel.MapSky:
+                    icon = "carte-ciel"; name = "Jour, nuit et saisons de la carte"; break;
+                case RightPanel.MapShapes:
+                    icon = "carte-reperes"; name = "Zones et repères de la carte"; break;
                 default:
                     icon = "book-open-text-bold"; name = "Publication du livre"; break;
             }
@@ -6393,6 +6414,7 @@ namespace Marabook.App
                 SetInspectorFieldVisibility(true, false);
                 RefreshModuleSection(null);
                 RefreshTimelineSection(null);
+                RefreshMapSection(null);
             }
             else
             {
@@ -6433,6 +6455,7 @@ namespace Marabook.App
                     item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet);
                 RefreshModuleSection(item);
                 RefreshTimelineSection(item);
+                RefreshMapSection(item);
 
                 // État (textes seulement) + couleur de carte (documents,
                 // fiches, médias — et dossiers, dont les boîtes de livre).

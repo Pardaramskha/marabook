@@ -22,7 +22,10 @@ namespace Marabook.Settings
         Lexicon,     // la définition d'un mot du dictionnaire personnel (18/09) — épinglable au rail
         Notebook,    // le CARNET (14/11) : des notes en Markdown à l'échelle de l'application — toujours au rail, sous le Lexique
         Calculator,  // le CALCULATEUR DE DATES (14/11) : un onglet à la demande (Astrolabe, clic droit de la frise), épinglable comme le Lexique
-        StyleReport  // le BILAN DE STYLE de l'écrit ouvert (09/10) : un onglet le temps du bilan, fermé avec le rail ou au changement d'écrit
+        StyleReport, // le BILAN DE STYLE de l'écrit ouvert (09/10) : un onglet le temps du bilan, fermé avec le rail ou au changement d'écrit
+        // Les onglets d'une CARTE ouverte (lot 12, 16/11, Rémi) : tout en bas du rail, sous un filet.
+        MapSky,      // jour, nuit et saisons
+        MapShapes    // zones et repères
     }
 
     /// <summary>Les règles pures autour du panneau de droite — sans WPF,
@@ -60,7 +63,7 @@ namespace Marabook.Settings
         /// Lexique, le Carnet (toujours), le Calculateur de dates (14/11, à la
         /// demande), le Bilan de style. Des instances fixes — le rail compare
         /// par référence.</summary>
-        private static RightPanel[][] WithTools(RightPanel[] source)
+        private static RightPanel[][] WithTools(RightPanel[] source, RightPanel[] tail = null)
         {
             var variants = new RightPanel[8][];
             for (var i = 0; i < 8; i++)
@@ -70,6 +73,7 @@ namespace Marabook.Settings
                 panels = Append(panels, RightPanel.Notebook);
                 if ((i & 2) != 0) panels = Append(panels, RightPanel.Calculator);
                 if ((i & 4) != 0) panels = Append(panels, RightPanel.StyleReport);
+                if (tail != null) foreach (var last in tail) panels = Append(panels, last);
                 variants[i] = panels;
             }
             return variants;
@@ -79,6 +83,14 @@ namespace Marabook.Settings
         private static readonly RightPanel[][] BookTools = WithTools(ForBook);
         private static readonly RightPanel[][] OthersTools = WithTools(ForOthers);
         private static readonly RightPanel[][] CategoryTools = WithTools(ForCategory);
+        // Une carte ouverte (lot 12) : ses deux onglets ferment le rail, sous les outils de partout.
+        private static readonly RightPanel[][] MapTools = WithTools(ForOthers, new[] { RightPanel.MapSky, RightPanel.MapShapes });
+
+        /// <summary>Un onglet propre à la carte ouverte : le rail le sépare des autres par un filet.</summary>
+        public static bool BelongsToMap(RightPanel panel)
+        {
+            return panel == RightPanel.MapSky || panel == RightPanel.MapShapes;
+        }
 
         /// <summary>Le nom persisté dans settings.json (« rightPanel »).</summary>
         public static string Name(RightPanel panel)
@@ -94,6 +106,8 @@ namespace Marabook.Settings
                 case RightPanel.Notebook: return "notebook";
                 case RightPanel.Calculator: return "calculator";
                 case RightPanel.StyleReport: return "style-report";
+                case RightPanel.MapSky: return "map-sky";
+                case RightPanel.MapShapes: return "map-shapes";
                 default: return "none";
             }
         }
@@ -113,6 +127,8 @@ namespace Marabook.Settings
                 case "notebook": return RightPanel.Notebook;
                 case "calculator": return RightPanel.Calculator; // sans épingle au lancement : indisponible, donc absent
                 case "style-report": return RightPanel.StyleReport; // sans bilan au lancement : indisponible, donc grisé
+                case "map-sky": return RightPanel.MapSky;       // hors d'une carte : indisponible, donc absent
+                case "map-shapes": return RightPanel.MapShapes;
                 default: return RightPanel.Inspector;
             }
         }
@@ -143,6 +159,7 @@ namespace Marabook.Settings
             if (kind == ItemKind.Text && report) return TextTools[variant + 4]; // le bilan ne vaut que pour un écrit
             if (kind == ItemKind.Text) return TextTools[variant];
             if (kind == ItemKind.Book) return BookTools[variant];
+            if (kind == ItemKind.Map) return MapTools[variant];
             if (kind == ItemKind.Category && !homeRoot) return CategoryTools[variant];
             return OthersTools[variant];
         }

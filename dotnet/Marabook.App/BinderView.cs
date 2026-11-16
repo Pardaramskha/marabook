@@ -469,8 +469,8 @@ namespace Marabook.App
         {
             new PileSection { Name = "Écriture", Keys = new[] { Project.KeyWritings, Project.KeyResearch } },
             new PileSection { Name = "Encyclopédie", Keys = new[] { Project.KeySheets, Project.KeyDictionary } },
-            new PileSection { Name = "Structure", Keys = new[] { Project.KeyPlans, Project.KeyTimelines, Project.KeyMindMaps } },
-            new PileSection { Name = "Univers", Keys = new[] { Project.KeyAstrolabe, Project.KeyMaps } }, // 16/11 : le ciel et les cartes
+            new PileSection { Name = "Structure", Keys = new[] { Project.KeyPlans, Project.KeyMindMaps } },
+            new PileSection { Name = "Univers", Keys = new[] { Project.KeyAstrolabe, Project.KeyTimelines, Project.KeyMaps } }, // 16/11 : le ciel, le temps (lot 12 : la Chronologie, sous l'Astrolabe) et les cartes
             new PileSection { Name = "Outils", Keys = new string[0] },
             new PileSection { Name = null, Keys = new[] { Project.KeyTrash } }
         };

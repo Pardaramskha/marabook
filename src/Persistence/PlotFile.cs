@@ -294,8 +294,15 @@ namespace Marabook.Persistence
                 public byte[] Bytes;
                 public CompressionLevel Level = CompressionLevel.Optimal;
                 public byte[] Tail; // les instantanés : en-tête JSON + données telles quelles
+                // Une tuile de carte (lot 12). Bytes null = elle dort dans SourcePath, entrée
+                // SourceName (CRC et taille connus) : recopiée par bloc, jamais relue en mémoire.
+                public MapTileSet Tiles;
+                public string TileKey, SourcePath, SourceName;
+                public uint Crc;
+                public long Size;
             }
             internal readonly List<Entry> Entries = new List<Entry>();
+            internal readonly HashSet<MapTileSet> TileSets = new HashSet<MapTileSet>();
             public int Count { get { return Entries.Count; } }
             /// <summary>L'empreinte écrite dans ce plan (1.0.3).</summary>
             public string SaveId = "";
@@ -326,6 +333,9 @@ namespace Marabook.Persistence
             public ArchiveIndex Index;
             public int Copied;
             public int Packed;
+            /// <summary>Les tuiles de carte qui n'ont pas pu être reprises de leur .plot d'origine
+            /// (fichier disparu ou remplacé pendant la session) : absentes du fichier écrit.</summary>
+            public int LostTiles;
         }
 
         /// <summary>Sérialise le projet en entrées prêtes à écrire — sur le fil
@@ -391,10 +401,20 @@ namespace Marabook.Persistence
                 // par bloc (PlotZip). Comme les médias, hors du secours « textes seuls ».
                 if (item.Kind == ItemKind.Map && item.Map != null && !textsOnly)
                 {
+                    // Lot 12 : une tuile qui dort dans un .plot n'est PAS relue — son entrée sera
+                    // recopiée par bloc depuis le fichier où elle est (Bytes null, Source*).
                     var prefix = MapJson.TilePrefix(item.Id);
-                    foreach (var tile in item.Map.Tiles)
-                        if (tile.Value != null)
-                            plan.Entries.Add(new SavePlan.Entry { Name = prefix + tile.Key + item.Map.Extension, Bytes = tile.Value, Level = CompressionLevel.NoCompression });
+                    plan.TileSets.Add(item.Map.Tiles);
+                    foreach (var key in item.Map.Tiles.Keys)
+                    {
+                        var info = item.Map.Tiles.Describe(key);
+                        if (info.Bytes == null && info.Path == null) continue;
+                        plan.Entries.Add(new SavePlan.Entry
+                        {
+                            Name = prefix + key + item.Map.Extension, Bytes = info.Bytes, Level = CompressionLevel.NoCompression,
+                            Tiles = item.Map.Tiles, TileKey = key, SourcePath = info.Path, SourceName = info.Entry, Crc = info.Crc, Size = info.Size
+                        });
+                    }
                 }
             }
             // Les instantanés (v17) : une entrée chacun, JSON du document
@@ -459,9 +479,12 @@ namespace Marabook.Persistence
             for (var i = 0; i < digests.Length; i++)
             {
                 var entry = plan.Entries[i];
-                digests[i] = Digest.Of(entry.Bytes, 0, entry.Bytes.Length, entry.Tail);
+                // Une tuile qui dort sur le disque : son CRC et sa taille sont connus, ses octets jamais lus.
+                digests[i] = entry.Bytes == null ? new EntryDigest { Crc = entry.Crc, Size = entry.Size } : Digest.Of(entry.Bytes, 0, entry.Bytes.Length, entry.Tail);
                 index.Entries[entry.Name] = digests[i];
             }
+            // Les .plot où dorment des tuiles à reprendre (le plus souvent : celui qu'on réécrit).
+            var tileSources = new Dictionary<string, TileSource>(StringComparer.OrdinalIgnoreCase);
 
             // L'ancien fichier, s'il est bien celui que l'index décrit.
             FileStream source = null;
@@ -490,6 +513,14 @@ namespace Marabook.Persistence
                             var copied = false;
                             PlotZip.Located old;
                             EntryDigest known;
+                            if (entry.Bytes == null)
+                            {
+                                var from = OpenTileSource(tileSources, entry.SourcePath);
+                                if (from != null && from.Entries.TryGetValue(entry.SourceName, out old) && old.Crc == entry.Crc && old.Size == entry.Size)
+                                    copied = writer.Copy(entry.Name, from.Stream, old);
+                                if (!copied) { result.LostTiles++; index.Entries.Remove(entry.Name); }
+                                continue;
+                            }
                             if (located != null && located.TryGetValue(entry.Name, out old)
                                 && previous.Entries.TryGetValue(entry.Name, out known)
                                 && known.Same(digest) && old.Crc == digest.Crc && old.Size == digest.Size)
@@ -504,7 +535,7 @@ namespace Marabook.Persistence
                 catch (NotSupportedException)
                 {
                     // Au-delà de 4 Go (zip64) : ZipArchive sait, le copieur non.
-                    WriteWithZipArchive(plan, tempPath);
+                    result.LostTiles = WriteWithZipArchive(plan, tempPath, index);
                     result.Copied = 0;
                     result.Packed = plan.Entries.Count;
                 }
@@ -512,43 +543,110 @@ namespace Marabook.Persistence
             finally
             {
                 if (source != null) source.Dispose();
+                foreach (var from in tileSources.Values) if (from != null) from.Stream.Dispose();
             }
 
-            if (File.Exists(path))
+            // L'ÉCHANGE, sous le verrou des tuiles (lot 12) : aucune tuile n'est lue pendant que
+            // le fichier change, et les cartes sont reliées au fichier neuf avant toute autre lecture.
+            lock (PlotTiles.Gate)
             {
-                if (expectedSaveId != null)
+                // Une table de tuiles que le projet n'écrit plus mais que l'historique tient encore
+                // (image remplacée, carte supprimée) et qui dort dans CE fichier : ramenée en mémoire
+                // avant qu'il ne soit réécrit sans elle — un Ctrl+Z la retrouvera entière.
+                if (!textsOnly && HasOrphanTiles(plan, path))
                 {
-                    var onDisk = ReadSaveId(path);
-                    if (onDisk == null || onDisk != expectedSaveId)
-                    {
-                        try { File.Delete(tempPath); } catch (IOException) { } catch (UnauthorizedAccessException) { }
-                        throw new PlotConflictException(path, onDisk);
-                    }
+                    // Une table que plus rien ne tient (un projet refermé, une sonde) n'a pas à être relue :
+                    // le ramasse-miettes passe d'abord — ce cas est rare, son coût aussi.
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    foreach (var orphan in MapTileSet.Live())
+                        if (!plan.TileSets.Contains(orphan) && orphan.StoredIn(path, PlotTiles.SamePath)) orphan.Materialize(path, PlotTiles.SamePath);
                 }
-                File.Replace(tempPath, path, textsOnly ? null : path + ".bak"); // pas de .bak pour le secours
-                if (!textsOnly) Backups.HideRollingBak(path); // caché, non indexé (30/10)
+
+                if (File.Exists(path))
+                {
+                    if (expectedSaveId != null)
+                    {
+                        var onDisk = ReadSaveId(path);
+                        if (onDisk == null || onDisk != expectedSaveId)
+                        {
+                            try { File.Delete(tempPath); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                            throw new PlotConflictException(path, onDisk);
+                        }
+                    }
+                    File.Replace(tempPath, path, textsOnly ? null : path + ".bak"); // pas de .bak pour le secours
+                    if (!textsOnly) Backups.HideRollingBak(path); // caché, non indexé (30/10)
+                }
+                else
+                    File.Move(tempPath, path);
+                index.Stamp = Stamp(path);
+
+                // Chaque tuile écrite dort désormais ICI : ses octets en mémoire sont rendus.
+                if (!textsOnly)
+                    foreach (var entry in plan.Entries)
+                    {
+                        EntryDigest written;
+                        if (entry.Tiles != null && index.Entries.TryGetValue(entry.Name, out written))
+                            entry.Tiles.MarkStored(entry.TileKey, path, entry.Name, written.Crc, written.Size);
+                    }
             }
-            else
-                File.Move(tempPath, path);
-            index.Stamp = Stamp(path);
             return result;
+        }
+
+        /// <summary>Une table de tuiles vivante, hors de ce plan, dort-elle dans le fichier qu'on va réécrire ?</summary>
+        private static bool HasOrphanTiles(SavePlan plan, string path)
+        {
+            foreach (var orphan in MapTileSet.Live())
+                if (!plan.TileSets.Contains(orphan) && orphan.StoredIn(path, PlotTiles.SamePath)) return true;
+            return false;
+        }
+
+        private sealed class TileSource
+        {
+            public FileStream Stream;
+            public Dictionary<string, PlotZip.Located> Entries;
+        }
+
+        private static TileSource OpenTileSource(Dictionary<string, TileSource> opened, string path)
+        {
+            if (path == null) return null;
+            TileSource from;
+            if (opened.TryGetValue(path, out from)) return from;
+            try
+            {
+                var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                var entries = PlotZip.ReadDirectory(stream);
+                if (entries == null) stream.Dispose();
+                else from = new TileSource { Stream = stream, Entries = entries };
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            catch (NotSupportedException) { }
+            catch (ArgumentException) { }
+            opened[path] = from;
+            return from;
         }
 
         /// <summary>L'écrivain d'avant le copieur : tout recompressé par
         /// ZipArchive. Gardé pour les archives hors de portée du copieur.</summary>
-        private static void WriteWithZipArchive(SavePlan plan, string tempPath)
+        private static int WriteWithZipArchive(SavePlan plan, string tempPath, ArchiveIndex index)
         {
+            var lost = 0;
             using (var stream = new FileStream(tempPath, FileMode.Create))
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
                 foreach (var entry in plan.Entries)
                 {
+                    // Une tuile qui dort sur le disque : ici, il faut bien la relire.
+                    var bytes = entry.Bytes ?? PlotTiles.Read(entry.SourcePath, entry.SourceName, entry.Crc, entry.Size);
+                    if (bytes == null) { lost++; index.Entries.Remove(entry.Name); continue; }
                     var zipEntry = archive.CreateEntry(entry.Name, entry.Level);
                     using (var entryStream = zipEntry.Open())
                     {
-                        entryStream.Write(entry.Bytes, 0, entry.Bytes.Length);
+                        entryStream.Write(bytes, 0, bytes.Length);
                         if (entry.Tail != null) entryStream.Write(entry.Tail, 0, entry.Tail.Length);
                     }
                 }
+            return lost;
         }
 
         /// <summary>L'empreinte d'enregistrement d'un .plot sans le charger
@@ -1324,6 +1422,7 @@ namespace Marabook.Persistence
         /// collected into <paramref name="warnings"/> when provided.</summary>
         public static Project Load(string path, List<string> warnings)
         {
+            PlotTiles.Install(); // les tuiles des cartes seront lues à la demande (lot 12)
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read))
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
             {
@@ -2110,7 +2209,12 @@ namespace Marabook.Persistence
                                 var key = Maps.TileKey(z, x, y);
                                 var tile = archive.GetEntry(prefix + key + item.Map.Extension);
                                 if (tile == null) { missing++; continue; }
-                                try { item.Map.Tiles[key] = ReadBytes(tile, index); }
+                                // Lot 12 : rien n'est lu ici — la tuile garde son adresse, et l'écran la demandera.
+                                try
+                                {
+                                    if (index != null && index.Path != null) item.Map.Tiles.PutStored(key, index.Path, tile.FullName, tile.Crc32, tile.Length);
+                                    else item.Map.Tiles[key] = ReadBytes(tile, index);
+                                }
                                 catch (Exception) { missing++; }
                             }
                 if (missing > 0)
