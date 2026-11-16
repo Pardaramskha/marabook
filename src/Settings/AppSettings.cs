@@ -260,6 +260,21 @@ namespace Marabook.Settings
         // l'entrée des tuiles, la glissade de la Pile et celle de la colonne de
         // droite. Décochée, tout se pose d'un coup.
         public static bool Animations = true;
+        /// <summary>Les réglages de chaque carte (lot 13, 16/11, Rémi : « que le logiciel se souvienne des
+        /// outils et réglages de la carte entre les visites ») : par identifiant de carte, ce qui n'est pas
+        /// le contenu du projet — l'outil en main, les filtres, le ciel, la vue. Les plus anciennes s'effacent.</summary>
+        public static Dictionary<string, Dictionary<string, object>> MapStates = new Dictionary<string, Dictionary<string, object>>();
+        public static List<string> MapStateOrder = new List<string>();
+        public const int MapStatesKept = 120;
+
+        public static void RememberMapState(string id, Dictionary<string, object> state)
+        {
+            if (string.IsNullOrEmpty(id) || state == null) return;
+            MapStates[id] = state;
+            MapStateOrder.Remove(id);
+            MapStateOrder.Add(id);
+            while (MapStateOrder.Count > MapStatesKept) { MapStates.Remove(MapStateOrder[0]); MapStateOrder.RemoveAt(0); }
+        }
         public static bool SoundsEnabled = true; // les trois sons (succès, enregistrement, rapport d'erreur) — 1.1.0, 31/10
         // Les derniers caractères spéciaux insérés (tiroir du ruban, 0.50.0).
         public static List<string> RecentSpecialChars = new List<string>();
@@ -655,6 +670,18 @@ namespace Marabook.Settings
                 ShowLooseLines = Json.AsBool(Json.Field(root, "looseLinesVisible"), false);
                 ShowWidowMarks = Json.AsBool(Json.Field(root, "widowMarksVisible"), true);
                 Animations = Json.AsBool(Json.Field(root, "animations"), true);
+                MapStates = new Dictionary<string, Dictionary<string, object>>();
+                MapStateOrder = new List<string>();
+                var mapStates = Json.AsList(Json.Field(root, "mapStates"));
+                if (mapStates != null)
+                    foreach (var entry in mapStates)
+                    {
+                        var state = Json.AsObject(entry);
+                        var mapId = state == null ? null : Json.AsString(Json.Field(state, "id"));
+                        if (string.IsNullOrEmpty(mapId) || MapStates.ContainsKey(mapId)) continue;
+                        MapStates[mapId] = state;
+                        MapStateOrder.Add(mapId);
+                    }
                 SoundsEnabled = Json.AsBool(Json.Field(root, "sounds"), true);
                 ImageGrid = Json.AsBool(Json.Field(root, "imageGrid"), false);
                 LexiconPinned = Json.AsBool(Json.Field(root, "lexiconPinned"), true);
@@ -831,6 +858,18 @@ namespace Marabook.Settings
                 root["looseLinesVisible"] = ShowLooseLines;
                 root["widowMarksVisible"] = ShowWidowMarks;
                 root["animations"] = Animations;
+                if (MapStateOrder.Count > 0)
+                {
+                    var mapStates = new List<object>();
+                    foreach (var mapId in MapStateOrder)
+                    {
+                        Dictionary<string, object> state;
+                        if (!MapStates.TryGetValue(mapId, out state)) continue;
+                        state["id"] = mapId;
+                        mapStates.Add(state);
+                    }
+                    root["mapStates"] = mapStates;
+                }
                 root["sounds"] = SoundsEnabled;
                 root["imageGrid"] = ImageGrid;
                 root["lexiconPinned"] = LexiconPinned;

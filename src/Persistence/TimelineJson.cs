@@ -96,6 +96,20 @@ namespace Marabook.Persistence
                 if (world.Circumference > 0) o["circumference"] = world.Circumference;
                 if (world.AxialTilt >= 0) o["axialTilt"] = world.AxialTilt;
                 if (world.SolarYear > 0) o["solarYear"] = world.SolarYear;
+                if (world.CustomGuides) // lot 13 : les marqueurs de navigation personnalisés
+                {
+                    var guides = new List<object>();
+                    foreach (var guide in world.Guides)
+                    {
+                        var g = new Dictionary<string, object>();
+                        g["id"] = guide.Id;
+                        g["name"] = guide.Name ?? "";
+                        g["lat"] = Math.Round(guide.Latitude, 4);
+                        if (!string.IsNullOrEmpty(guide.Color)) g["color"] = guide.Color;
+                        guides.Add(g);
+                    }
+                    o["guides"] = guides;
+                }
                 if (world.Seasons.Count > 0)
                 {
                     var seasons = new List<object>();
@@ -197,6 +211,20 @@ namespace Marabook.Persistence
                 world.Circumference = Math.Max(0, Json.AsDouble(Json.Field(o, "circumference"), 0));
                 world.AxialTilt = Json.AsDouble(Json.Field(o, "axialTilt"), -1);
                 world.SolarYear = Math.Max(0, Json.AsDouble(Json.Field(o, "solarYear"), 0));
+                var guideList = Json.AsList(Json.Field(o, "guides"));
+                if (guideList != null)
+                {
+                    world.CustomGuides = true;
+                    foreach (var guideNode in guideList)
+                    {
+                        var g = Json.AsObject(guideNode);
+                        if (g == null) continue;
+                        var guide = new WorldGuide { Name = Json.AsString(Json.Field(g, "name")) ?? "", Latitude = Math.Max(-90, Math.Min(90, Json.AsDouble(Json.Field(g, "lat"), 0))), Color = Json.AsString(Json.Field(g, "color")) };
+                        var guideId = Json.AsString(Json.Field(g, "id"));
+                        if (!string.IsNullOrEmpty(guideId)) guide.Id = guideId;
+                        world.Guides.Add(guide);
+                    }
+                }
                 var seasons = Json.AsList(Json.Field(o, "seasons"));
                 if (seasons != null)
                     foreach (var seasonNode in seasons)

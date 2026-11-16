@@ -12,6 +12,7 @@ using Marabook.Persistence;
 using Marabook.Settings;
 using Avalonia.Controls.Primitives;
 using Avalonia.LogicalTree;
+using Avalonia.Media;
 
 namespace Marabook.App
 {
@@ -179,7 +180,7 @@ namespace Marabook.App
                 Func<List<Control>> parts = delegate
                 {
                     var found = new List<Control>();
-                    foreach (var panel in new[] { mapView.GeneralPanel, mapView.SkyPanel, mapView.ShapesPanel }) found.AddRange(panel.GetLogicalDescendants().OfType<Control>());
+                    foreach (var panel in new[] { mapView.GeneralPanel, mapView.SkyPanel, mapView.ShapesPanel, mapView.NavigationPanel }) found.AddRange(panel.GetLogicalDescendants().OfType<Control>());
                     return found;
                 };
                 Func<string, bool> tagged = delegate(string tag) { return parts().Any(delegate(Control c) { return Equals(c.Tag, tag); }); };
@@ -327,8 +328,28 @@ namespace Marabook.App
                 // ---- Les points de chaleur des saisons (lot 12).
                 shell.SetRightPanelForProbe(RightPanel.MapSky);
                 await Settle();
-                Check(mapView.SeasonHeatPossible && mapView.SeasonHeatShown && tagged("map-season-heat") && parts().Count(delegate(Control c) { return Equals(c.Tag, "map-season-row"); }) == earth.Seasons.Count,
-                    "les saisons se montrent d'office sur la carte du monde entier ; la légende les nomme toutes (" + earth.Seasons.Count + ")");
+                // Lot 13 : le voile des saisons est ÉTEINT d'office ; on l'allume dans l'onglet.
+                Check(mapView.SeasonHeatPossible && !mapView.SeasonHeatShown && tagged("map-season-heat") && parts().Count(delegate(Control c) { return Equals(c.Tag, "map-season-row"); }) == 0,
+                    "les saisons ne se montrent pas d'office sur la carte : la case est là, décochée");
+                mapView.SetSeasonHeatForProbe(true);
+                await Settle();
+                Check(mapView.SeasonHeatShown && parts().Count(delegate(Control c) { return Equals(c.Tag, "map-season-row"); }) == earth.Seasons.Count,
+                    "cochée : le voile des saisons paraît, et la légende les nomme toutes (" + earth.Seasons.Count + ")");
+                Color tintNorth, tintSouth;
+                Check(canvas.SeasonTint(false, out tintNorth) && canvas.SeasonTint(true, out tintSouth) && tintNorth != tintSouth, "le nord et le sud ont chacun la teinte de leur saison");
+                mapView.SetNightForProbe(false, 172, 0.5);
+                await Settle();
+                Color tintA, tintB, tintC;
+                canvas.SeasonTint(false, out tintA);
+                mapView.SetNightForProbe(false, 173, 0.5);
+                canvas.SeasonTint(false, out tintB);
+                mapView.SetNightForProbe(false, 200, 0.5);
+                canvas.SeasonTint(false, out tintC);
+                Check(Math.Abs(tintA.R - tintB.R) + Math.Abs(tintA.G - tintB.G) + Math.Abs(tintA.B - tintB.B) <= 12 && tintA != tintC,
+                    "d'un jour au suivant, au passage d'une saison, la teinte glisse sans saute (" + tintA + " → " + tintB + ") ; un mois plus tard elle a changé (" + tintC + ")");
+                Check(mapView.SideTextsForProbe().Exists(delegate(string s) { return s.StartsWith("au nord, à ") || s.StartsWith("au sud, à "); }), "la légende dit la saison vers laquelle on glisse, et de combien");
+                mapView.SetNightForProbe(false, 1, 0.5);
+                await Settle();
                 Check(mapView.SideTextsForProbe().Exists(delegate(string s) { return s.StartsWith("Entre les tropiques (23,4"); }), "…et dit où elles s'effacent : entre les tropiques");
                 Shot(mapView, "cartes-12-saisons.png");
                 Shot(shell.MapSkyHostForProbe, "cartes-15-rail-ciel.png");
@@ -386,6 +407,39 @@ namespace Marabook.App
                 Check(luma(daySide) > luma(nightSide) * 2, "à midi au centre de la carte, la face opposée du globe est dans la nuit (" + luma(daySide) + " contre " + luma(nightSide) + ")");
                 await Settle();
                 Shot(mapView, "cartes-4-globe.png");
+
+                // ---- Lot 13 : le ciel derrière le globe — étoiles, soleils et lunes du monde.
+                canvas.RotateGlobeForProbe(0, 0.2);
+                canvas.SetSkyTimeForProbe(3.2);
+                await Settle();
+                var starsFront = canvas.StarsDrawnForProbe;
+                Point starA, starB;
+                var seenA = canvas.SkyPointForProbe(Math.PI, 0, out starA);
+                canvas.RotateGlobeForProbe(0.3, 0.2);
+                await Settle();
+                var seenB = canvas.SkyPointForProbe(Math.PI, 0, out starB);
+                Check(starsFront > 80 && canvas.StarsDrawnForProbe > 80 && seenA && seenB && Math.Abs(starA.X - starB.X) > 20,
+                    "le globe a un fond d'étoiles (" + starsFront + " à l'écran) qui tourne avec lui (une étoile glisse de " + Math.Round(Math.Abs(starA.X - starB.X)) + " px pour 17° de rotation)");
+                Check(!canvas.SkyTimerRunningForProbe && !mapView.AnimateSky, "en sonde, le ciel ne s'anime pas tout seul (dans l'application : scintillement et étoiles filantes, si les animations sont permises)");
+                var bodies = mapView.SkyBodies();
+                Check(bodies.Count == earth.Suns.Count + earth.Moons.Count && bodies.Exists(delegate(MapCanvas.SkyDot d) { return d.Sun; }) && bodies.Exists(delegate(MapCanvas.SkyDot d) { return !d.Sun; }),
+                    "les astres du monde lié sont dans le ciel : " + earth.Suns.Count + " soleil(s), " + earth.Moons.Count + " lune(s)");
+                // À midi au centre de la carte, le soleil est derrière nous quand on regarde la face éclairée ; on passe du côté de la nuit pour le voir.
+                mapView.SetNightForProbe(true, 200, 0.5);
+                canvas.RotateGlobeForProbe(0.2, 0.25);
+                await Settle();
+                var bodiesDay = canvas.BodiesDrawnForProbe;
+                Point sunAt;
+                var sunSeenDay = canvas.SkyPointForProbe(bodies[0].Longitude, bodies[0].Latitude, out sunAt);
+                canvas.RotateGlobeForProbe(Math.PI + 0.45, 0.1);
+                await Settle();
+                var sunSeenNight = canvas.SkyPointForProbe(bodies[0].Longitude, bodies[0].Latitude, out sunAt);
+                Check(!sunSeenDay && sunSeenNight && canvas.BodiesDrawnForProbe >= 1, "face au jour, le soleil est dans notre dos ; passé du côté de la nuit, il paraît derrière le globe");
+                Shot(mapView, "cartes-16-globe-ciel.png");
+                canvas.SetSkyTimeForProbe(-1);
+                canvas.RotateGlobeForProbe(0, 0.2);
+                mapView.SetNightForProbe(true, 200, 0.5);
+                await Settle();
                 mapView.SetViewForProbe(Maps.ViewFlat);
                 await Settle();
                 Check(item.Map.View == Maps.ViewFlat && mapView.ToolEnabledForProbe(MapCanvas.Tool.Zone), "retour au planisphère : les outils reviennent");
@@ -531,11 +585,102 @@ namespace Marabook.App
                 await Settle();
                 shell.Binder.SelectItem(mapsRoot.Id);
                 await Settle();
-                Check(!shell.RailHasTabForProbe(RightPanel.MapSky) && !shell.RailHasTabForProbe(RightPanel.MapShapes) && !shell.MapShapesHostForProbe.IsEffectivelyVisible && !shell.MapSectionShownForProbe,
+                Check(!shell.RailHasTabForProbe(RightPanel.MapSky) && !shell.RailHasTabForProbe(RightPanel.MapShapes) && !shell.RailHasTabForProbe(RightPanel.MapNavigation) && !shell.MapShapesHostForProbe.IsEffectivelyVisible && !shell.MapSectionShownForProbe,
                     "hors d'une carte, le rail n'a plus ses deux onglets, et leur panneau ne reste pas affiché");
                 shell.Binder.SelectItem(item.Id);
                 await Settle();
                 Check(shell.RailHasTabForProbe(RightPanel.MapShapes) && AppSettings.RightPanel == RightPanel.MapShapes && shell.MapShapesHostForProbe.IsEffectivelyVisible, "de retour sur la carte, l'onglet choisi revient avec elle");
+                shell.SetRightPanelForProbe(RightPanel.Inspector);
+                await Settle();
+
+                // ---- Lot 13 : les repères de navigation.
+                shell.Binder.SelectItem(item.Id);
+                await Settle();
+                Check(shell.RailHasTabForProbe(RightPanel.MapNavigation) && shell.RailTabRankForProbe(RightPanel.MapNavigation) == shell.RailTabRankForProbe(RightPanel.MapShapes) + 1
+                    && Icons.Has("carte-navigation") && Icons.Has("carte-boussole") && shell.RailMapSeparatorForProbe, "le rail a un troisième onglet de carte, le dernier : « Repères de navigation » (sextant)");
+                shell.SetRightPanelForProbe(RightPanel.MapNavigation);
+                await Settle();
+                mapView.SetGuides(false);
+                await Settle();
+                Check(AppSettings.RightPanel == RightPanel.MapNavigation && shell.MapNavigationHostForProbe.IsEffectivelyVisible && tagged("map-guides-show") && tagged("map-guides-define") && tagged("map-latlon"),
+                    "l'onglet : la case des repères, et les deux grands boutons « Définir les marqueurs » et « Mesures Lat/Lon »");
+                Check(mapView.Guides.Count == 5 && parts().Count(delegate(Control c) { return Equals(c.Tag, "map-guide-row"); }) == 5 && !mapView.GuidesShown
+                    && mapView.SideTextsForProbe().Exists(delegate(string s) { return s.StartsWith("Ceux par défaut de « Terre d'essai »"); }),
+                    "il liste les marqueurs par défaut du monde lié (équateur, deux tropiques, deux cercles polaires), masqués d'office");
+                mapView.SetGuides(true);
+                await Settle();
+                Check(mapView.GuidesShown, "« Afficher les repères de navigation » : les parallèles se tracent sur la carte");
+                mapView.SetLatLon(true);
+                await Settle();
+                double geoLat, geoLon;
+                var geoKnown = canvas.GeoAt(canvas.ScreenOfForProbe(1200, 600), out geoLat, out geoLon);
+                Check(mapView.LatLonShown && tagged("map-geo") && geoKnown && Math.Abs(geoLat) < 1e-6 && Math.Abs(geoLon) < 1e-6, "« Mesures Lat/Lon » : au centre de la carte, 0° de latitude et 0° de longitude");
+                geoKnown = canvas.GeoAt(canvas.ScreenOfForProbe(1800, 300), out geoLat, out geoLon);
+                mapView.CursorGeo(geoKnown, geoLat, geoLon);
+                Check(geoKnown && plain(Maps.GeoLabel(geoLat, geoLon)) == "45° N · 90° E" && mapView.SideTextsForProbe().Exists(delegate(string s) { return plain(s) == "45° N · 90° E"; }),
+                    "…au quart nord-est : 45° N · 90° E, redit dans le panneau");
+                Check(!canvas.GeoAt(new Point(-50, -50), out geoLat, out geoLon), "hors de la carte, pas de coordonnées");
+                Shot(mapView, "cartes-17-reperes.png");
+                Shot(shell.MapNavigationHostForProbe, "cartes-18-rail-navigation.png");
+
+                // « Définir les marqueurs » : ceux du MONDE, édités depuis la carte.
+                var guidesDialog = GuidesDialog.ForProbe(shell, earth);
+                var guidesEditor = guidesDialog.EditorForProbe;
+                Check(!guidesEditor.CustomForProbe && guidesEditor.RowsForProbe == 5 && guidesEditor.NoteForProbe.Contains("23,44"), "sa fenêtre s'ouvre sur les marqueurs par défaut, et dit d'où ils viennent (l'inclinaison de l'axe)");
+                guidesEditor.SetCustom(true);
+                Check(guidesEditor.CustomForProbe && guidesEditor.RowsForProbe == 5, "« Marqueurs personnalisés » part de ceux par défaut : on les renomme, on en ajoute");
+                guidesEditor.SetRowForProbe(1, "Tropique d'Aube", "25");
+                guidesEditor.AddForProbe();
+                guidesEditor.SetRowForProbe(5, "Ligne des Brumes", "abc");
+                Check(guidesDialog.AcceptForProbe() == null && (guidesDialog.ProblemForProbe ?? "").Contains("Ligne des Brumes"), "une latitude illisible est refusée, et le marqueur fautif nommé");
+                guidesEditor.SetRowForProbe(5, "Ligne des Brumes", "-48,5");
+                var guidedWorld = guidesDialog.AcceptForProbe();
+                Check(guidedWorld != null && guidedWorld.CustomGuides && guidedWorld.Guides.Count == 6 && guidedWorld.Guides[1].Name == "Tropique d'Aube" && guidedWorld.Guides[1].Latitude == 25 && guidedWorld.Guides[5].Latitude == -48.5
+                    && !earth.CustomGuides, "validée : six marqueurs, dont un tropique renommé et déplacé — sur une copie, le monde n'a pas encore bougé");
+                shell.ApplyGuides(earth, guidedWorld);
+                await Settle();
+                earth = project.Worlds.Find(delegate(World w) { return w.Id == earth.Id; });
+                Check(earth.CustomGuides && mapView.Guides.Count == 6 && parts().Count(delegate(Control c) { return Equals(c.Tag, "map-guide-row"); }) == 6
+                    && mapView.SideTextsForProbe().Contains("Tropique d'Aube") && mapView.SideTextsForProbe().Exists(delegate(string s) { return s.StartsWith("Ceux que vous avez définis"); }),
+                    "ils s'écrivent dans le monde : la carte les trace et les liste aussitôt (" + earth.CustomGuides + mapView.Guides.Count + parts().Count(delegate(Control c) { return Equals(c.Tag, "map-guide-row"); }) + mapView.SideTextsForProbe().Contains("Tropique d'Aube") + ")");
+                Shot(mapView, "cartes-19-marqueurs-personnalises.png");
+                Check(shell.UndoForProbe() && !project.Worlds.Find(delegate(World w) { return w.Id == earth.Id; }).CustomGuides, "…et Ctrl+Z rend au monde ses marqueurs par défaut");
+                earth = project.Worlds.Find(delegate(World w) { return w.Id == earth.Id; });
+                await Settle();
+                Check(mapView.Guides.Count == 5, "la carte suit");
+                // La fenêtre du monde a la même section.
+                var worldGuides = new GuidesEditor(earth.Clone());
+                Check(worldGuides.RowsForProbe == 5 && !worldGuides.CustomForProbe, "la fenêtre du monde porte le même éditeur (onglet « Marqueurs ») : par défaut à la création");
+
+                // ---- Lot 13 : la carte se souvient de ses outils et de ses réglages.
+                mapView.SetFilters(true, false);
+                mapView.SetSeasonHeatForProbe(true);
+                mapView.SetNightForProbe(true, 123, 0.25);
+                mapView.ChooseTool(MapCanvas.Tool.Marker);
+                canvas.ZoomBy(2.5, new Point(canvas.Bounds.Width / 2, canvas.Bounds.Height / 2));
+                await Settle();
+                var rememberedScale = canvas.Scale;
+                var rememberedOrigin = canvas.ViewOriginForProbe;
+                shell.Binder.SelectItem(mapsRoot.Id);
+                await Settle();
+                Check(AppSettings.MapStates.ContainsKey(item.Id) && (bool)AppSettings.MapStates[item.Id]["guides"] && (string)AppSettings.MapStates[item.Id]["tool"] == "Marker",
+                    "en quittant la carte, ses réglages sont retenus par l'application (pas dans le projet : rien n'est « modifié »)");
+                mapView.SetFilters(true, true);
+                shell.Binder.SelectItem(item.Id);
+                await Settle();
+                Check(mapView.GuidesShown && mapView.LatLonShown && mapView.SeasonHeatShown && mapView.NightShown && mapView.ShowZones && !mapView.ShowMarkers && Math.Abs(mapView.DayOfYear - 123) < 1e-9 && Math.Abs(mapView.DayFraction - 0.25) < 1e-9,
+                    "de retour : les repères, les mesures, les saisons, la nuit, les filtres, le jour et l'heure sont tels qu'on les avait laissés");
+                Check(canvas.CurrentTool == MapCanvas.Tool.Marker && mapView.ToolCheckedForProbe(MapCanvas.Tool.Marker), "…l'outil aussi (« Repère »)");
+                Check(Math.Abs(canvas.Scale - rememberedScale) < 1e-9 && Math.Abs(canvas.ViewOriginForProbe.X - rememberedOrigin.X) < 1e-6 && Math.Abs(canvas.ViewOriginForProbe.Y - rememberedOrigin.Y) < 1e-6,
+                    "…et la vue : même zoom, même endroit");
+                mapView.ChooseTool(MapCanvas.Tool.Pan);
+                mapView.SetFilters(true, true);
+                mapView.SetLatLon(false);
+                mapView.SetGuides(false);
+                mapView.SetSeasonHeatForProbe(false);
+                mapView.SetNightForProbe(false, 1, 0.5);
+                canvas.FitAll();
+                await Settle();
                 shell.SetRightPanelForProbe(RightPanel.Inspector);
                 await Settle();
 

@@ -5815,8 +5815,8 @@ namespace Marabook.App
         /// la colonne (il ne déborde pas pendant la course).</summary>
         private void ShowRightHost(RightPanel shown)
         {
-            var hosts = new[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _calculatorHost, _styleReportHost, _mapSkyHost, _mapShapesHost };
-            var panels = new[] { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned, RightPanel.Lexicon, RightPanel.Notebook, RightPanel.Calculator, RightPanel.StyleReport, RightPanel.MapSky, RightPanel.MapShapes };
+            var hosts = new[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _calculatorHost, _styleReportHost, _mapSkyHost, _mapShapesHost, _mapNavigationHost };
+            var panels = new[] { RightPanel.Inspector, RightPanel.Correction, RightPanel.Search, RightPanel.Versions, RightPanel.Pinned, RightPanel.Lexicon, RightPanel.Notebook, RightPanel.Calculator, RightPanel.StyleReport, RightPanel.MapSky, RightPanel.MapShapes, RightPanel.MapNavigation };
             for (var i = 0; i < hosts.Length; i++)
             {
                 if (hosts[i] == null) continue;
@@ -5882,7 +5882,7 @@ namespace Marabook.App
         /// de la course) ou libre (NaN).</summary>
         private void FreezeRightHosts(double width)
         {
-            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _calculatorHost, _styleReportHost, _mapSkyHost, _mapShapesHost };
+            var hosts = new Control[] { _inspector, _correctionHost, _searchHost, _versionsHost, _pinnedHost, _lexiconHost, _notebookHost, _calculatorHost, _styleReportHost, _mapSkyHost, _mapShapesHost, _mapNavigationHost };
             foreach (var host in hosts)
             {
                 if (host == null) continue;
@@ -6132,6 +6132,8 @@ namespace Marabook.App
                     icon = "carte-ciel"; name = "Jour, nuit et saisons de la carte"; break;
                 case RightPanel.MapShapes:
                     icon = "carte-reperes"; name = "Zones et repères de la carte"; break;
+                case RightPanel.MapNavigation:
+                    icon = "carte-navigation"; name = "Repères de navigation de la carte"; break;
                 default:
                     icon = "book-open-text-bold"; name = "Publication du livre"; break;
             }

@@ -276,6 +276,13 @@ namespace Marabook.Model
         /// <summary>Proportions gardées : le pôle nord est-il DANS l'image (une marge au-dessus de lui) ?</summary>
         public static bool PoleNorthInside(MapInfo map) { return Fitted(map) && map.PoleNorth > 1e-9; }
 
+        /// <summary>« 23,4° N · 12,5° E » : une position sur le monde (radians en entrée), la longitude
+        /// comptée du méridien du centre de la carte.</summary>
+        public static string GeoLabel(double latitude, double longitude)
+        {
+            return Astro.LatitudeLabel(latitude * 180 / Math.PI) + " · " + Astro.LongitudeLabel(longitude * 180 / Math.PI);
+        }
+
         /// <summary>Les pôles aux bords de l'image, pour des proportions gardées : la hauteur couvre 180°.</summary>
         public static void ResetPoles(MapInfo map) { map.PoleNorth = 0; map.PoleSouth = 1; }
 
@@ -473,6 +480,36 @@ namespace Marabook.Model
             if (x >= 1) return 0;
             if (x <= -1) return 1;
             return Math.Acos(x) / Math.PI;
+        }
+
+        /// <summary>LE FONDU DES SAISONS (lot 13, Rémi : « un dégradé progressif des couleurs vers celles des
+        /// autres saisons ») : au jour donné, la saison qui règne (a), celle vers laquelle on glisse (b) et la
+        /// part de b (0 à 0,5). Au cœur d'une saison, elle est seule ; en approchant de sa fin, la suivante
+        /// monte, jusqu'à moitié-moitié le jour du passage ; au début, c'est la précédente qui s'efface.
+        /// Faux sans saisons.</summary>
+        public static bool SeasonMix(World world, double dayOfYear, double yearDays, bool south, out int a, out int b, out double share)
+        {
+            a = b = -1;
+            share = 0;
+            if (world == null || world.Seasons.Count == 0) return false;
+            a = b = SeasonIndex(world, dayOfYear, yearDays, south);
+            if (world.Seasons.Count == 1 || yearDays <= 0) return true;
+            if (south) { dayOfYear += yearDays / 2; if (dayOfYear > yearDays) dayOfYear -= yearDays; }
+            // Les saisons dans l'ordre de l'année : celle d'avant, celle d'après.
+            var order = new List<int>();
+            for (var i = 0; i < world.Seasons.Count; i++) order.Add(i);
+            order.Sort(delegate(int x, int y) { return world.Seasons[x].StartDay.CompareTo(world.Seasons[y].StartDay); });
+            var at = order.IndexOf(a);
+            int previous = order[(at + order.Count - 1) % order.Count], next = order[(at + 1) % order.Count];
+            double start = world.Seasons[a].StartDay, end = world.Seasons[next].StartDay;
+            var length = end - start;
+            if (length <= 0) length += yearDays;
+            var into = dayOfYear - start;
+            if (into < 0) into += yearDays;
+            var position = Math.Max(0, Math.Min(1, into / Math.Max(1e-9, length)));   // 0 = premier jour, 1 = dernier
+            if (position < 0.5) { b = previous; share = 0.5 - position; }
+            else { b = next; share = position - 0.5; }
+            return true;
         }
 
         /// <summary>La saison (index dans world.Seasons) d'un jour de l'année ; −1 sans saisons.

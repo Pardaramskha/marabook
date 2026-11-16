@@ -123,8 +123,23 @@ namespace Marabook.Model
         public List<SizeFact> Facts = new List<SizeFact>();
     }
 
+    /// <summary>UN MARQUEUR DE NAVIGATION (lot 13, 16/11, Rémi : « équateur, tropiques, etc. ») : un
+    /// parallèle du monde, nommé — une latitude en degrés, positive au nord. Les marqueurs par défaut
+    /// se déduisent de l'inclinaison de l'axe ; l'auteur peut les remplacer par les siens.</summary>
+    public class WorldGuide
+    {
+        public string Id = Guid.NewGuid().ToString("N");
+        public string Name = "";
+        public double Latitude;   // degrés, de −90 (pôle sud) à 90 (pôle nord)
+        public string Color;      // "#RRGGBB", null = la teinte de son rang
+    }
+
     public class World
     {
+        // LES MARQUEURS DE NAVIGATION (lot 13). CustomGuides faux = ceux par défaut, déduits de
+        // l'inclinaison (Astro.DefaultGuides) ; vrai = la liste Guides, telle que l'auteur l'a écrite.
+        public bool CustomGuides;
+        public List<WorldGuide> Guides = new List<WorldGuide>();
         public string Id = Guid.NewGuid().ToString("N");
         public string Name = "Monde";
         public double Circumference;   // km à l'équateur ; 0 = non renseignée
@@ -157,6 +172,8 @@ namespace Marabook.Model
             foreach (var item in Phenomena) copy.Phenomena.Add(new SkyEvent { Id = item.Id, Name = item.Name, Period = item.Period, At = item.At, Color = item.Color });
             foreach (var planet in Planets) copy.Planets.Add(new Planet { Id = planet.Id, Name = planet.Name, Period = planet.Period, At = planet.At, Color = planet.Color });
             copy.Order.AddRange(Order);
+            copy.CustomGuides = CustomGuides;
+            foreach (var guide in Guides) copy.Guides.Add(new WorldGuide { Id = guide.Id, Name = guide.Name, Latitude = guide.Latitude, Color = guide.Color });
             return copy;
         }
 
@@ -198,6 +215,54 @@ namespace Marabook.Model
             if (project == null || world == null) return systems;
             foreach (var system in project.TimeSystems) if (system.WorldId == world.Id) systems.Add(system);
             return systems;
+        }
+
+        // ------------------------------------------------------------------ marqueurs de navigation (lot 13)
+
+        public static readonly string[] GuideColors = { "#E8B44A", "#D9603A", "#D9603A", "#6E8FB5", "#6E8FB5", "#8E6BBF", "#3E9C7A", "#0E7C7B" };
+
+        /// <summary>Les marqueurs par défaut d'un monde : l'équateur toujours ; avec une inclinaison de
+        /// l'axe, les deux tropiques (là où le soleil passe au zénith au plus loin de l'équateur) et les
+        /// deux cercles polaires (au-delà, le soleil ne se couche plus, ou ne se lève plus, une partie de l'année).</summary>
+        public static List<WorldGuide> DefaultGuides(World world)
+        {
+            var list = new List<WorldGuide> { new WorldGuide { Id = "equator", Name = "Équateur", Latitude = 0 } };
+            if (world == null || !world.HasTilt || world.AxialTilt < 0.01 || world.AxialTilt > 89.99) return list;
+            var tilt = world.AxialTilt;
+            list.Add(new WorldGuide { Id = "tropic-n", Name = "Tropique nord", Latitude = tilt });
+            list.Add(new WorldGuide { Id = "tropic-s", Name = "Tropique sud", Latitude = -tilt });
+            list.Add(new WorldGuide { Id = "polar-n", Name = "Cercle polaire nord", Latitude = 90 - tilt });
+            list.Add(new WorldGuide { Id = "polar-s", Name = "Cercle polaire sud", Latitude = -(90 - tilt) });
+            return list;
+        }
+
+        /// <summary>Les marqueurs en vigueur : ceux de l'auteur s'il les a personnalisés, sinon ceux par défaut.</summary>
+        public static List<WorldGuide> GuidesOf(World world)
+        {
+            if (world == null || !world.CustomGuides) return DefaultGuides(world);
+            return world.Guides;
+        }
+
+        public static string ColorOf(WorldGuide guide, int index)
+        {
+            return string.IsNullOrEmpty(guide.Color) ? GuideColors[Math.Abs(index) % GuideColors.Length] : guide.Color;
+        }
+
+        /// <summary>« 23,4° N », « 0° », « 66,6° S ».</summary>
+        public static string LatitudeLabel(double degrees)
+        {
+            var fr = CultureInfo.GetCultureInfo("fr-FR");
+            var value = Math.Abs(degrees).ToString("0.#", fr);
+            return value == "0" ? "0°" : value + "° " + (degrees > 0 ? "N" : "S");
+        }
+
+        /// <summary>« 12,5° E », « 0° », « 180° » — la longitude, comptée du méridien du centre de la carte.</summary>
+        public static string LongitudeLabel(double degrees)
+        {
+            var fr = CultureInfo.GetCultureInfo("fr-FR");
+            degrees = degrees - 360 * Math.Round(degrees / 360);
+            var value = Math.Abs(degrees).ToString("0.#", fr);
+            return value == "0" || value == "180" ? value + "°" : value + "° " + (degrees > 0 ? "E" : "O");
         }
 
         public static string ColorOf(Season season, int index)

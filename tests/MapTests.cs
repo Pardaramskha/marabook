@@ -28,6 +28,117 @@ namespace Marabook.Tests
             LazyTiles(t);
             Layout(t);
             Rail(t);
+            t.Suite("C75 — lot 13 : marqueurs de navigation d'un monde, fondu des saisons, latitude et longitude, mémoire des cartes");
+            Guides(t);
+            SeasonBlend(t);
+            MapMemory(t);
+        }
+
+        /// <summary>Lot 13 (16/11) : les marqueurs de navigation — par défaut d'après l'inclinaison, ou ceux de l'auteur.</summary>
+        private static void Guides(Harness t)
+        {
+            var world = World.Earth();
+            var guides = Astro.GuidesOf(world);
+            t.Check(!world.CustomGuides && guides.Count == 5 && guides[0].Name == "Équateur" && guides[0].Latitude == 0, "un monde neuf a ses marqueurs par défaut : l'équateur d'abord");
+            t.Check(Math.Abs(guides[1].Latitude - 23.44) < 1e-9 && Math.Abs(guides[2].Latitude + 23.44) < 1e-9 && guides[1].Name == "Tropique nord" && guides[2].Name == "Tropique sud",
+                "…les deux tropiques, à la latitude de l'inclinaison de l'axe");
+            t.Check(Math.Abs(guides[3].Latitude - 66.56) < 1e-9 && Math.Abs(guides[4].Latitude + 66.56) < 1e-9 && guides[3].Name == "Cercle polaire nord", "…et les deux cercles polaires, à son complément");
+            world.AxialTilt = 10;
+            t.Check(Math.Abs(Astro.GuidesOf(world)[1].Latitude - 10) < 1e-9 && Math.Abs(Astro.GuidesOf(world)[3].Latitude - 80) < 1e-9, "ils suivent l'inclinaison quand elle change");
+            world.AxialTilt = 0;
+            t.Check(Astro.GuidesOf(world).Count == 1, "sans inclinaison : l'équateur seul");
+            world.AxialTilt = -1;
+            t.Check(Astro.GuidesOf(world).Count == 1 && Astro.GuidesOf(null).Count == 1 && Astro.GuidesOf(null)[0].Name == "Équateur", "inclinaison inconnue, ou pas de monde : l'équateur seul");
+            world.AxialTilt = 23.44;
+
+            // Personnalisés : la liste de l'auteur, qui ne suit plus l'inclinaison.
+            world.CustomGuides = true;
+            world.Guides.Add(new WorldGuide { Name = "Ceinture d'Aube", Latitude = 12.5, Color = "#C0504D" });
+            world.Guides.Add(new WorldGuide { Name = "Ligne des Brumes", Latitude = -48 });
+            world.AxialTilt = 30;
+            guides = Astro.GuidesOf(world);
+            t.Check(guides.Count == 2 && guides[0].Name == "Ceinture d'Aube" && guides[0].Latitude == 12.5 && guides[1].Latitude == -48, "personnalisés : la liste est celle de l'auteur, et l'inclinaison n'y touche plus");
+            t.Check(Astro.ColorOf(guides[0], 0) == "#C0504D" && Astro.ColorOf(guides[1], 1) == Astro.GuideColors[1], "un marqueur a sa teinte, ou celle de son rang");
+            var copy = world.Clone();
+            copy.Guides[0].Name = "autre";
+            t.Check(copy.CustomGuides && copy.Guides.Count == 2 && world.Guides[0].Name == "Ceinture d'Aube" && copy.Guides[1].Id == world.Guides[1].Id, "une copie du monde emporte ses marqueurs, sans les partager");
+            var back = TimelineJson.ReadWorlds(Json.Parse(Json.Write(TimelineJson.BuildWorlds(new List<World> { world }))))[0];
+            t.Check(back.CustomGuides && back.Guides.Count == 2 && back.Guides[0].Name == "Ceinture d'Aube" && back.Guides[0].Latitude == 12.5 && back.Guides[0].Color == "#C0504D"
+                && back.Guides[1].Latitude == -48 && back.Guides[1].Id == world.Guides[1].Id, "ils s'enregistrent et se relisent (nom, latitude, teinte)");
+            var plain = TimelineJson.BuildWorlds(new List<World> { World.Earth() })[0] as Dictionary<string, object>;
+            t.Check(!plain.ContainsKey("guides") && !TimelineJson.ReadWorlds(Json.Parse(Json.Write(new List<object> { plain })))[0].CustomGuides, "par défaut : rien de plus dans le manifeste (un .plot d'avant se relit tel quel)");
+            world.Guides.Clear();
+            var none = TimelineJson.ReadWorlds(Json.Parse(Json.Write(TimelineJson.BuildWorlds(new List<World> { world }))))[0];
+            t.Check(none.CustomGuides && none.Guides.Count == 0 && Astro.GuidesOf(none).Count == 0, "une liste personnalisée vide reste vide : l'auteur ne veut aucun marqueur");
+
+            // Dire une position.
+            t.Equal("23,4° N", Astro.LatitudeLabel(23.44), "une latitude nord");
+            t.Equal("66,6° S", Astro.LatitudeLabel(-66.56), "une latitude sud");
+            t.Equal("0°", Astro.LatitudeLabel(0), "l'équateur");
+            t.Equal("12,5° E", Astro.LongitudeLabel(12.5), "une longitude est");
+            t.Equal("90° O", Astro.LongitudeLabel(-90), "une longitude ouest");
+            t.Equal("170° O", Astro.LongitudeLabel(190), "au-delà de 180°, on repasse de l'autre côté");
+            t.Equal("180°", Astro.LongitudeLabel(180), "l'antiméridien n'est ni à l'est ni à l'ouest");
+            t.Equal("45° N · 90° E", Maps.GeoLabel(Math.PI / 4, Math.PI / 2), "une position : latitude, puis longitude");
+            var map = new MapInfo { Width = 2000, Height = 1000, Levels = 3, WholeWorld = true };
+            t.Equal("45° S · 90° O", Maps.GeoLabel(Maps.Latitude(map, 750), Maps.Longitude(map, 500)), "…lue d'un point de la carte");
+        }
+
+        /// <summary>Lot 13 : d'une saison à l'autre, les teintes se fondent.</summary>
+        private static void SeasonBlend(Harness t)
+        {
+            var world = new World { AxialTilt = 23.44 };
+            world.Seasons.Add(new Season { Name = "Printemps", StartDay = 1 });
+            world.Seasons.Add(new Season { Name = "Été", StartDay = 101 });
+            world.Seasons.Add(new Season { Name = "Automne", StartDay = 201 });
+            world.Seasons.Add(new Season { Name = "Hiver", StartDay = 301 });
+            int a, b;
+            double share;
+            t.Check(Maps.SeasonMix(world, 151, 400, false, out a, out b, out share) && a == 1 && share < 1e-9, "au cœur d'une saison, elle est seule");
+            Maps.SeasonMix(world, 176, 400, false, out a, out b, out share);
+            t.Check(a == 1 && b == 2 && Math.Abs(share - 0.25) < 1e-9, "aux trois quarts de l'été, l'automne monte : un quart");
+            Maps.SeasonMix(world, 200.999, 400, false, out a, out b, out share);
+            t.Check(a == 1 && b == 2 && Math.Abs(share - 0.5) < 1e-3, "au dernier jour, moitié-moitié");
+            Maps.SeasonMix(world, 201, 400, false, out a, out b, out share);
+            t.Check(a == 2 && b == 1 && Math.Abs(share - 0.5) < 1e-9, "…et le lendemain aussi, vu de l'automne : aucune saute de teinte au passage");
+            Maps.SeasonMix(world, 126, 400, false, out a, out b, out share);
+            t.Check(a == 1 && b == 0 && Math.Abs(share - 0.25) < 1e-9, "au premier quart de l'été, le printemps s'efface encore");
+            Maps.SeasonMix(world, 390, 400, false, out a, out b, out share);
+            t.Check(a == 3 && b == 0 && share > 0.38 && share < 0.42, "la dernière saison de l'année glisse vers la première");
+            Maps.SeasonMix(world, 151, 400, true, out a, out b, out share);
+            t.Check(a == 3 && share < 1e-9, "au sud, la saison opposée — le cœur de l'hiver quand le nord est au cœur de l'été");
+            var single = new World { AxialTilt = 20 };
+            single.Seasons.Add(new Season { Name = "Toujours", StartDay = 1 });
+            t.Check(Maps.SeasonMix(single, 50, 400, false, out a, out b, out share) && a == 0 && b == 0 && share == 0, "une seule saison : pas de fondu");
+            t.Check(!Maps.SeasonMix(new World(), 50, 400, false, out a, out b, out share) && a == -1 && !Maps.SeasonMix(null, 1, 400, false, out a, out b, out share), "pas de saisons, pas de teinte");
+        }
+
+        /// <summary>Lot 13 : les réglages de chaque carte, gardés par l'application.</summary>
+        private static void MapMemory(Harness t)
+        {
+            var states = Marabook.Settings.AppSettings.MapStates;
+            var order = Marabook.Settings.AppSettings.MapStateOrder;
+            Marabook.Settings.AppSettings.MapStates = new Dictionary<string, Dictionary<string, object>>();
+            Marabook.Settings.AppSettings.MapStateOrder = new List<string>();
+            try
+            {
+                for (var i = 0; i < Marabook.Settings.AppSettings.MapStatesKept + 5; i++)
+                    Marabook.Settings.AppSettings.RememberMapState("carte-" + i, new Dictionary<string, object> { { "night", i % 2 == 0 } });
+                t.Check(Marabook.Settings.AppSettings.MapStates.Count == Marabook.Settings.AppSettings.MapStatesKept && !Marabook.Settings.AppSettings.MapStates.ContainsKey("carte-4")
+                    && Marabook.Settings.AppSettings.MapStates.ContainsKey("carte-5"), "l'application garde les réglages des dernières cartes visitées, les plus anciens s'effacent");
+                Marabook.Settings.AppSettings.RememberMapState("carte-5", new Dictionary<string, object> { { "night", true } });
+                Marabook.Settings.AppSettings.RememberMapState("neuve", new Dictionary<string, object>());
+                t.Check(Marabook.Settings.AppSettings.MapStates.ContainsKey("carte-5") && !Marabook.Settings.AppSettings.MapStates.ContainsKey("carte-6") && (bool)Marabook.Settings.AppSettings.MapStates["carte-5"]["night"],
+                    "une carte revisitée repasse en tête : ce n'est pas elle qu'on oublie");
+                Marabook.Settings.AppSettings.RememberMapState(null, new Dictionary<string, object>());
+                Marabook.Settings.AppSettings.RememberMapState("x", null);
+                t.Check(!Marabook.Settings.AppSettings.MapStates.ContainsKey("x") && Marabook.Settings.AppSettings.MapStates.Count == Marabook.Settings.AppSettings.MapStatesKept, "ni carte sans identifiant, ni état vide");
+            }
+            finally
+            {
+                Marabook.Settings.AppSettings.MapStates = states;
+                Marabook.Settings.AppSettings.MapStateOrder = order;
+            }
         }
 
         private static bool SameTiles(MapTileSet a, Dictionary<string, byte[]> expected)
@@ -229,9 +340,12 @@ namespace Marabook.Tests
             var offered = Marabook.Settings.RightPanels.Offered(ItemKind.Map);
             var names = new List<string>();
             foreach (var panel in offered) names.Add(Marabook.Settings.RightPanels.Name(panel));
-            t.Equal("inspector,search,pinned,notebook,map-sky,map-shapes", string.Join(",", names.ToArray()), "une carte ouverte : Général, les outils de partout, puis ses deux onglets");
+            t.Equal("inspector,search,pinned,notebook,map-sky,map-shapes,map-navigation", string.Join(",", names.ToArray()), "une carte ouverte : Général, les outils de partout, puis ses trois onglets");
             var all = Marabook.Settings.RightPanels.Offered(ItemKind.Map, false, true, false, true);
-            t.Check(all[all.Length - 2] == Marabook.Settings.RightPanel.MapSky && all[all.Length - 1] == Marabook.Settings.RightPanel.MapShapes && Array.IndexOf(all, Marabook.Settings.RightPanel.Calculator) == all.Length - 3,
+            t.Check(all[all.Length - 3] == Marabook.Settings.RightPanel.MapSky && all[all.Length - 2] == Marabook.Settings.RightPanel.MapShapes && all[all.Length - 1] == Marabook.Settings.RightPanel.MapNavigation
+                && Array.IndexOf(all, Marabook.Settings.RightPanel.Calculator) == all.Length - 4 && Marabook.Settings.RightPanels.BelongsToMap(Marabook.Settings.RightPanel.MapNavigation)
+                && Marabook.Settings.RightPanels.Parse("map-navigation") == Marabook.Settings.RightPanel.MapNavigation && Marabook.Settings.RightPanels.Available(Marabook.Settings.RightPanel.MapNavigation, false, true, ItemKind.Map)
+                && !Marabook.Settings.RightPanels.Available(Marabook.Settings.RightPanel.MapNavigation, false, true, ItemKind.Text),
                 "…toujours les derniers, sous le Lexique, le Carnet et le Calculateur");
             t.Check(ReferenceEquals(offered, Marabook.Settings.RightPanels.Offered(ItemKind.Map)), "des instances fixes (le rail compare par référence)");
             t.Check(Marabook.Settings.RightPanels.BelongsToMap(Marabook.Settings.RightPanel.MapSky) && Marabook.Settings.RightPanels.BelongsToMap(Marabook.Settings.RightPanel.MapShapes)

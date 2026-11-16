@@ -18,6 +18,7 @@ namespace Marabook.App
         private TimelineHubView _astrolabeHub; // la racine « Astrolabe » : systèmes et mondes
         private ContentControl _mapSection;    // la carte dans l'onglet Général du rail (lot 12)
         private Border _mapSkyHost, _mapShapesHost; // ses deux onglets propres : jour-nuit-saisons, zones et repères
+        private Border _mapNavigationHost;          // …et le troisième (lot 13) : repères de navigation
 
         /// <summary>Les deux onglets d'une carte ouverte (lot 12, Rémi) : leurs hôtes dans la colonne de droite.
         /// Leur contenu appartient à la vue de la carte, qui le tient à jour.</summary>
@@ -25,7 +26,11 @@ namespace Marabook.App
         {
             _mapSkyHost = ToolHost("Jour, nuit et saisons", _mapView.SkyPanel);
             _mapShapesHost = ToolHost("Zones et repères", _mapView.ShapesPanel);
-            foreach (var host in new[] { _mapSkyHost, _mapShapesHost })
+            _mapNavigationHost = ToolHost("Repères de navigation", _mapView.NavigationPanel);
+            _mapView.AnimateSky = _launch == null || !_launch.Probe; // en sonde, rien ne bouge tout seul
+            _mapView.GuidesRequested += delegate(World world) { EditGuides(world); };
+            Closing += delegate { if (_mapView != null && _mapView.HasItem) _mapView.RememberState(); };
+            foreach (var host in new[] { _mapSkyHost, _mapShapesHost, _mapNavigationHost })
             {
                 host.IsVisible = false;
                 Grid.SetColumn(host, 4);
@@ -45,6 +50,31 @@ namespace Marabook.App
 
         internal Border MapSkyHostForProbe { get { return _mapSkyHost; } }
         internal Border MapShapesHostForProbe { get { return _mapShapesHost; } }
+        internal Border MapNavigationHostForProbe { get { return _mapNavigationHost; } }
+
+        /// <summary>« Définir les marqueurs » (rail d'une carte, lot 13) : les marqueurs de navigation du monde
+        /// lié. Ils appartiennent au monde — la fenêtre du monde, à l'Astrolabe, montre les mêmes. Ctrl+Z les rend.</summary>
+        private async void EditGuides(World world)
+        {
+            if (_project == null || world == null || !_project.Worlds.Contains(world)) return;
+            var edited = await GuidesDialog.Ask(this, world);
+            if (edited == null) return;
+            ApplyGuides(world, edited);
+        }
+
+        internal void ApplyGuides(World world, World edited)
+        {
+            if (_project == null || world == null || edited == null || !_project.Worlds.Contains(world)) return;
+            var before = History.WorldsEditAction.Snapshot(_project);
+            var links = History.WorldsEditAction.Links(_project);
+            world.CustomGuides = edited.CustomGuides;
+            world.Guides.Clear();
+            foreach (var guide in edited.Guides) world.Guides.Add(new WorldGuide { Id = guide.Id, Name = guide.Name, Latitude = guide.Latitude, Color = guide.Color });
+            _history.Push(new History.WorldsEditAction(_project, before, links));
+            MarkDirty();
+            RefreshTimelineViews();
+            RefreshMapViews();
+        }
         internal bool MapSectionShownForProbe { get { return _mapSection != null && _mapSection.IsVisible && ReferenceEquals(_mapSection.Content, _mapView.GeneralPanel); } }
         internal bool RailMapSeparatorForProbe
         {
@@ -52,7 +82,7 @@ namespace Marabook.App
             {
                 var index = -1;
                 for (var i = 0; i < _railStack.Children.Count; i++) if (Equals(_railStack.Children[i].Tag, "rail-map-separator")) index = i;
-                return index > 0 && index == _railStack.Children.Count - 3;
+                return index > 0 && index == _railStack.Children.Count - 4;
             }
         }
 

@@ -25,7 +25,8 @@ namespace Marabook.Settings
         StyleReport, // le BILAN DE STYLE de l'écrit ouvert (09/10) : un onglet le temps du bilan, fermé avec le rail ou au changement d'écrit
         // Les onglets d'une CARTE ouverte (lot 12, 16/11, Rémi) : tout en bas du rail, sous un filet.
         MapSky,      // jour, nuit et saisons
-        MapShapes    // zones et repères
+        MapShapes,   // zones et repères
+        MapNavigation // repères de navigation (lot 13) : équateur, tropiques, marqueurs du monde, mesures lat/lon
     }
 
     /// <summary>Les règles pures autour du panneau de droite — sans WPF,
@@ -84,12 +85,12 @@ namespace Marabook.Settings
         private static readonly RightPanel[][] OthersTools = WithTools(ForOthers);
         private static readonly RightPanel[][] CategoryTools = WithTools(ForCategory);
         // Une carte ouverte (lot 12) : ses deux onglets ferment le rail, sous les outils de partout.
-        private static readonly RightPanel[][] MapTools = WithTools(ForOthers, new[] { RightPanel.MapSky, RightPanel.MapShapes });
+        private static readonly RightPanel[][] MapTools = WithTools(ForOthers, new[] { RightPanel.MapSky, RightPanel.MapShapes, RightPanel.MapNavigation });
 
         /// <summary>Un onglet propre à la carte ouverte : le rail le sépare des autres par un filet.</summary>
         public static bool BelongsToMap(RightPanel panel)
         {
-            return panel == RightPanel.MapSky || panel == RightPanel.MapShapes;
+            return panel == RightPanel.MapSky || panel == RightPanel.MapShapes || panel == RightPanel.MapNavigation;
         }
 
         /// <summary>Le nom persisté dans settings.json (« rightPanel »).</summary>
@@ -108,6 +109,7 @@ namespace Marabook.Settings
                 case RightPanel.StyleReport: return "style-report";
                 case RightPanel.MapSky: return "map-sky";
                 case RightPanel.MapShapes: return "map-shapes";
+                case RightPanel.MapNavigation: return "map-navigation";
                 default: return "none";
             }
         }
@@ -129,6 +131,7 @@ namespace Marabook.Settings
                 case "style-report": return RightPanel.StyleReport; // sans bilan au lancement : indisponible, donc grisé
                 case "map-sky": return RightPanel.MapSky;       // hors d'une carte : indisponible, donc absent
                 case "map-shapes": return RightPanel.MapShapes;
+                case "map-navigation": return RightPanel.MapNavigation;
                 default: return RightPanel.Inspector;
             }
         }

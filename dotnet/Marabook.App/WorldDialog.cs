@@ -65,6 +65,8 @@ namespace Marabook.App
         private readonly List<TimeSystem> _availableChoices = new List<TimeSystem>(); // ce que la liste déroulante propose
         private TimeSystem _referenceSystem;
         private WorldChoice _result;
+        private GuidesEditor _guides;
+        internal GuidesEditor GuidesForProbe { get { return _guides; } }
         private bool _building = true;
 
         private static readonly CultureInfo French = CultureInfo.GetCultureInfo("fr-FR");
@@ -347,6 +349,16 @@ namespace Marabook.App
             tabs.Items.Add(new TabItem { Header = "Planétarium", Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = planetTab } });
 
             tabs.Items.Add(new TabItem { Header = "Phénomènes", Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = phenomena } });
+
+            // ------------------------------------------------------------ marqueurs de navigation (lot 13)
+            // Les parallèles remarquables du monde : par défaut, ceux que dit l'inclinaison de l'axe.
+            _guides = new GuidesEditor(_world);
+            var guidesTab = new StackPanel { Margin = new Thickness(4, 10, 4, 4) };
+            guidesTab.Children.Add(AstrolabeUi.Section("Marqueurs de navigation", "L'équateur, les tropiques, les cercles polaires — ou les vôtres. Ils se tracent sur les cartes du monde entier (onglet « Repères de navigation » du rail).", _guides, "world-section-guides"));
+            var guidesItem = new TabItem { Header = "Marqueurs", Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = guidesTab }, Tag = "world-tab-guides" };
+            tabs.Items.Add(guidesItem);
+            // L'inclinaison a pu changer dans « Taille du monde » : les marqueurs par défaut la suivent.
+            tabs.SelectionChanged += delegate { if (ReferenceEquals(tabs.SelectedItem, guidesItem) && !_building) { Collect(); _guides.Rebuild(); } };
 
             root.Children.Add(tabs);
             _problem = new TextBlock { Foreground = Chrome.Danger, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), IsVisible = false };
@@ -1297,6 +1309,7 @@ namespace Marabook.App
         private void Accept()
         {
             Collect();
+            if (_fieldProblem == null) _fieldProblem = _guides.Collect();
             if (_fieldProblem != null) { _problem.Text = _fieldProblem; _problem.IsVisible = true; return; }
             var reference = Reference();
             _world.ReferenceSystemId = _inWorld.Contains(reference) ? reference.Id : null;
