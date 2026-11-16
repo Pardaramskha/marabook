@@ -630,12 +630,36 @@ namespace Marabook.App
         private readonly List<string> _days = new List<string>();
         private readonly StackPanel _dayRows;
         private readonly TextBox _weeksPerMonth;
-        private readonly TextBlock _distributeEcho, _clockHint;
+        private readonly TextBlock _distributeEcho, _clockHint, _clockEcho;
         private readonly Button _distribute;
+        // Le Répartiteur (16/11) : sa méthode, le nombre de jours de l'année, son accordéon.
+        private readonly ComboBox _spreadMode;
+        private readonly TextBox _spreadDays, _seconds;
+        private readonly Control _spreadDaysLabel, _weeksLabel;
+        private readonly Accordion _spreadAccordion;
+        private readonly ClockDial _dial;
         private bool _accepted;
         private bool _building;
         private readonly Border _notice; // le bandeau « notre monde », à la création seulement
+        private readonly Border _foundation; // le bandeau « fondation », quand des frises ou un monde s'appuient sur ce système
+        internal bool FoundationNoticeForProbe { get { return _foundation != null; } }
         internal bool NoticeShownForProbe { get { return _notice != null && _notice.IsVisible; } }
+        internal bool SpreadOpenForProbe { get { return _spreadAccordion.IsOpen; } set { _spreadAccordion.IsOpen = value; } }
+        internal void SpreadForProbe(int mode, string days) { _spreadMode.SelectedIndex = mode; _spreadDays.Text = days; Distribute(); }
+        internal string ClockForProbe { get { return _dial.MetricsForProbe + " " + (_clockEcho.Text ?? ""); } }
+        internal void SetSecondsForProbe(string seconds) { _seconds.Text = seconds; }
+        internal string LeapEchoForProbe(int index) { return ((TextBlock)((object[])((Control)_leaps.Children[index]).Tag)[6]).Text ?? ""; }
+        internal bool LeapRemoveAlignedForProbe(int index)
+        {
+            // La croix d'une règle reste sur la première ligne de sa carte, à droite.
+            var card = (Border)_leaps.Children[index];
+            foreach (var child in ((Grid)card.Child).Children)
+            {
+                var button = child as Button;
+                if (button != null) return button.Bounds.Y < 4 && button.Bounds.Right > ((Grid)card.Child).Bounds.Width - 4;
+            }
+            return false;
+        }
         internal int LeapCountForProbe { get { return _system.Leaps.Count; } }
 
         /// <summary>Le brouillon d'un système personnalisé : pas de découpage,
@@ -650,7 +674,7 @@ namespace Marabook.App
             var system = new TimeSystem
             {
                 Name = "Nouveau système", Segmented = false, SegmentWord = "Âge", Cumulative = false,
-                YearPattern = "{a}", NegativePattern = "-{a}", DatePattern = "{j}/{M}/{année}"
+                YearPattern = "{a}", NegativePattern = "-{a}", DatePattern = "{j}/{m}/{année}"
             };
             var number = 2;
             while (project != null && project.TimeSystems.Exists(delegate(TimeSystem s) { return s.Name == system.Name; }))
@@ -664,6 +688,7 @@ namespace Marabook.App
             system.WeekDays.AddRange(ours.WeekDays);
             system.HoursPerDay = ours.HoursPerDay;
             system.MinutesPerHour = ours.MinutesPerHour;
+            system.SecondsPerMinute = ours.SecondsPerMinute;
             return system;
         }
 
@@ -696,6 +721,26 @@ namespace Marabook.App
                 _notice = TimelineUi.OurWorldNotice("Les données préremplies sont celles de notre monde : ses mois, ses années bissextiles, sa semaine et son horloge. Gardez ce qui vous convient, changez le reste.");
                 root.Children.Add(_notice);
             }
+            else
+            {
+                // LA FONDATION (16/11, Rémi) : ce système porte des frises, peut-être un monde —
+                // le dire avant qu'un changement de calendrier ne se répercute en cascade.
+                var uses = Timelines.UsesOf(project, system);
+                var events = 0;
+                foreach (var timeline in Timelines.All(project))
+                    if (timeline.Timeline != null && timeline.Timeline.SystemId == system.Id) events += timeline.Timeline.Events.Count;
+                var home = Astro.WorldOf(project, system);
+                if (uses > 0 || home != null)
+                {
+                    var carried = new List<string>();
+                    if (uses > 0) carried.Add(TimeSystem.Count(uses, "frise", "frises") + " (" + TimeSystem.Count(events, "événement", "événements") + ")");
+                    if (home != null) carried.Add("le ciel du monde « " + home.Name + " »");
+                    _foundation = AstrolabeUi.Notice("Ce système est une fondation : il porte " + string.Join(" et ", carried.ToArray())
+                        + ". Changer ses segments, sa notation ou son calendrier relit toutes leurs dates : ce qui ne se lit plus attend dans « Problèmes », au rail, et "
+                        + Ui.Keys("Ctrl+Z") + " annule tout le changement.", false, "system-foundation-notice");
+                    root.Children.Add(_foundation);
+                }
+            }
             root.Children.Add(TimelineUi.Label("Nom du système :", 0));
             _name = new TextBox { Text = system.Name };
             root.Children.Add(_name);
@@ -705,9 +750,10 @@ namespace Marabook.App
             // ---------------------------------------------- segments et notation
             var first = new StackPanel { Margin = new Thickness(4, 10, 4, 4) };
             _yearZero = new CheckBox { Content = "La première année est l'an 0 (sinon l'an 1)", IsChecked = system.YearZero };
-            first.Children.Add(_yearZero);
+            var years = new StackPanel();
+            years.Children.Add(_yearZero);
             _segmented = new CheckBox { Content = "Découper le temps en segments (âges, ères, cycles…)", IsChecked = system.Segmented, Margin = new Thickness(0, 4, 0, 0) };
-            first.Children.Add(_segmented);
+            years.Children.Add(_segmented);
             _segmentBlock = new StackPanel();
             var wordRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
             wordRow.Children.Add(new TextBlock { Text = "Un segment s'appelle :", Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
@@ -743,10 +789,10 @@ namespace Marabook.App
             };
             _segmentBlock.Children.Add(addSegment);
             _segmentBlock.Children.Add(TimelineUi.Hint("Durée vide pour le dernier segment : il reste ouvert et court jusqu'au dernier événement."));
-            first.Children.Add(_segmentBlock);
-
-            first.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 10, 0, 0) });
-            var notation = new Grid { ColumnDefinitions = new ColumnDefinitions("190,8,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"), Margin = new Thickness(0, 8, 0, 0) };
+            years.Children.Add(_segmentBlock);
+            first.Children.Add(AstrolabeUi.Section("Années et segments", "Où commence le compte des années, et s'il se découpe en âges, en ères, en cycles.", years, "system-section-years"));
+            var notationBody = new StackPanel();
+            var notation = new Grid { ColumnDefinitions = new ColumnDefinitions("190,8,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto") };
             _yearPattern = new TextBox { Text = system.YearPattern };
             _negativePattern = new TextBox { Text = system.NegativePattern };
             _datePattern = new TextBox { Text = system.DatePattern };
@@ -754,18 +800,23 @@ namespace Marabook.App
             AddRow(notation, 1, "Années négatives :", _negativePattern);
             AddRow(notation, 2, "Notation d'une date :", _datePattern);
             // Sous la notation d'une date : une date d'exemple, mise en forme (14/11, Rémi).
-            _dateExample = new TextBlock { Foreground = Chrome.Ink, FontWeight = FontWeight.SemiBold, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 1, 0, 3), Tag = "system-date-example" };
-            Grid.SetRow(_dateExample, 3);
-            Grid.SetColumn(_dateExample, 2);
-            notation.Children.Add(_dateExample);
-            first.Children.Add(notation);
-            first.Children.Add(TimelineUi.Hint("{a} l'année · {s} le numéro du segment · {c} son abréviation · {n} son nom · {j} le jour · {m} le numéro du mois · {M} son nom · {année} la notation de l'année."));
+            _dateExample = new TextBlock { FontSize = 12, Tag = "system-date-example" };
+            var dateExampleBox = AstrolabeUi.Example(_dateExample);
+            dateExampleBox.Margin = new Thickness(0, 2, 0, 3);
+            Grid.SetRow(dateExampleBox, 3);
+            Grid.SetColumn(dateExampleBox, 2);
+            notation.Children.Add(dateExampleBox);
+            notationBody.Children.Add(notation);
+            notationBody.Children.Add(TimelineUi.Hint("{a} l'année · {s} le numéro du segment · {c} son abréviation · {n} son nom · {j} le jour · {m} le numéro du mois · {M} son nom · {année} la notation de l'année."));
             // L'an 0 des segments suivants : « A1-1 … puis A2-0 ». Ne vaut que
             // découpé, et quand chaque segment repart de zéro — grisée sinon.
             _segmentYearZero = new CheckBox { Content = "La première année de chaque segment est l'an 0", IsChecked = system.SegmentYearZero, Margin = new Thickness(0, 6, 0, 0), Tag = "system-segment-year-zero" };
-            first.Children.Add(_segmentYearZero);
-            _example = new TextBlock { Foreground = Chrome.Ink, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), Tag = "system-example" };
-            first.Children.Add(_example);
+            notationBody.Children.Add(_segmentYearZero);
+            _example = new TextBlock { Tag = "system-example" };
+            var exampleBox = AstrolabeUi.Example(_example);
+            exampleBox.Margin = new Thickness(0, 9, 0, 0);
+            notationBody.Children.Add(exampleBox);
+            first.Children.Add(AstrolabeUi.Section("Notation", "Comment une année et une date s'écrivent — et se relisent — dans ce système.", notationBody, "system-section-notation"));
             // Le testeur dans son cadre arrondi : ce n'est pas un champ de configuration.
             var tryBody = new StackPanel();
             var tryRow = new Grid { ColumnDefinitions = new ColumnDefinitions("180,8,*") };
@@ -778,57 +829,75 @@ namespace Marabook.App
             tryBody.Children.Add(_tryEcho);
             first.Children.Add(new Border
             {
-                Child = tryBody, Padding = new Thickness(10, 9, 10, 9), Margin = new Thickness(0, 10, 0, 2), CornerRadius = new CornerRadius(8),
+                Child = tryBody, Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 0, 2), CornerRadius = new CornerRadius(10),
                 BorderBrush = Chrome.BorderStrong, BorderThickness = new Thickness(1), Background = Chrome.FieldBg, Tag = "system-try-box"
             });
             tabs.Items.Add(new TabItem { Header = "Segments et notation", Content = new ScrollViewer { VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, Content = first } });
 
             // ----------------------------------------------------------- calendrier
             var second = new StackPanel { Margin = new Thickness(4, 10, 4, 4) };
-            second.Children.Add(new TextBlock { Text = "Les mois de l'année, dans l'ordre :", Foreground = Chrome.Ink });
-            _months = new StackPanel { Spacing = 4, Margin = new Thickness(0, 6, 0, 0) };
-            second.Children.Add(new ScrollViewer { MaxHeight = 190, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, Content = _months });
-            var monthButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0), Spacing = 10 };
+            var monthsBody = new StackPanel();
+            _months = new StackPanel { Spacing = 4 };
+            monthsBody.Children.Add(new ScrollViewer { MaxHeight = 190, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, Content = _months });
+            var monthButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0), Spacing = 10 };
             var addMonth = Buttons.IconText("plus-bold", "Ajouter un mois", "Un mois de plus, à la fin de l'année", Buttons.Compact, Buttons.Look.Outline);
             addMonth.Click += delegate { Collect(); _system.Months.Add(new TimeMonth { Name = "Mois " + (_system.Months.Count + 1), Days = 30 }); RebuildMonths(); RebuildLeaps(); Preview(); };
             monthButtons.Children.Add(addMonth);
-            _yearLength = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
-            monthButtons.Children.Add(_yearLength);
-            second.Children.Add(monthButtons);
-            // RÉPARTIR AUTOMATIQUEMENT LES JOURS (14/11, Rémi) : chaque mois reçoit un
-            // nombre entier de semaines — 13 mois de 5 semaines de 6 jours = 30 jours.
-            second.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 10, 0, 8) });
-            second.Children.Add(new TextBlock { Text = "Répartir automatiquement les jours :", Foreground = Chrome.Ink });
-            var distributeRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
-            distributeRow.Children.Add(new TextBlock { Text = "Semaines par mois :", Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
-            _weeksPerMonth = new TextBox { Text = "4", Width = 56, Tag = "system-weeks-per-month" };
-            distributeRow.Children.Add(_weeksPerMonth);
-            _distribute = Buttons.Text("Répartir", "Donner à chaque mois ce nombre de semaines entières", Buttons.Compact, Buttons.Look.Outline);
-            _distribute.Margin = new Thickness(8, 0, 0, 0);
+            _yearLength = new TextBlock { FontSize = 12, Tag = "system-year-length" };
+            var yearLengthBox = AstrolabeUi.Example(_yearLength);
+            yearLengthBox.VerticalAlignment = VerticalAlignment.Center;
+            monthButtons.Children.Add(yearLengthBox);
+            monthsBody.Children.Add(monthButtons);
+            second.Children.Add(AstrolabeUi.Section("Les mois de l'année", "Dans l'ordre, chacun avec son nombre de jours.", monthsBody, "system-section-months"));
+
+            // LE RÉPARTITEUR (16/11, Rémi — ex-« Répartir automatiquement les jours ») : replié
+            // dans son accordéon. Trois méthodes : tant de jours dans l'année, partagés
+            // uniformément ou en bascule (+0 j, +1 j, +0 j…) ; ou des semaines entières par mois.
+            var spread = new StackPanel();
+            var spreadGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("190,8,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto") };
+            _spreadMode = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "system-spread-mode" };
+            _spreadMode.Items.Add("Uniformément");
+            _spreadMode.Items.Add("En bascule (+0 j, +1 j, +0 j…)");
+            _spreadMode.Items.Add("Par semaines entières");
+            _spreadMode.SelectedIndex = 0;
+            AddRow(spreadGrid, 0, "Méthode :", _spreadMode);
+            _spreadDays = new TextBox { Text = system.BaseDays.ToString(CultureInfo.InvariantCulture), Width = 90, HorizontalAlignment = HorizontalAlignment.Left, Tag = "system-spread-days" };
+            AddRow(spreadGrid, 1, "Jours dans l'année :", _spreadDays);
+            _spreadDaysLabel = (Control)spreadGrid.Children[spreadGrid.Children.Count - 2];
+            _weeksPerMonth = new TextBox { Text = "4", Width = 90, HorizontalAlignment = HorizontalAlignment.Left, Tag = "system-weeks-per-month" };
+            AddRow(spreadGrid, 2, "Semaines par mois :", _weeksPerMonth);
+            _weeksLabel = (Control)spreadGrid.Children[spreadGrid.Children.Count - 2];
+            spread.Children.Add(spreadGrid);
+            _distributeEcho = new TextBlock { FontSize = 12, Tag = "system-distribute-echo" };
+            var distributeBox = AstrolabeUi.Example(_distributeEcho);
+            distributeBox.Margin = new Thickness(0, 8, 0, 0);
+            spread.Children.Add(distributeBox);
+            _distribute = Buttons.Text("Répartir dans les mois", null, Buttons.Compact, Buttons.Look.Primary);
+            _distribute.HorizontalAlignment = HorizontalAlignment.Left;
+            _distribute.Margin = new Thickness(0, 10, 0, 0);
             _distribute.Tag = "system-distribute";
             _distribute.Click += delegate { Distribute(); };
-            distributeRow.Children.Add(_distribute);
-            second.Children.Add(distributeRow);
-            _distributeEcho = TimelineUi.Hint("");
-            second.Children.Add(_distributeEcho);
-            second.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 10, 0, 8) });
-            second.Children.Add(new TextBlock { Text = "Années bissextiles :", Foreground = Chrome.Ink });
-            _leaps = new StackPanel { Spacing = 4, Margin = new Thickness(0, 6, 0, 0) };
-            second.Children.Add(_leaps);
+            spread.Children.Add(_distribute);
+            _spreadAccordion = new Accordion("Répartiteur", "partager les jours de l'année entre les mois", spread, false, "system-spread");
+            second.Children.Add(_spreadAccordion);
+
+            var leapBody = new StackPanel();
+            _leaps = new StackPanel { Spacing = 8 };
+            leapBody.Children.Add(_leaps);
             var addLeap = Buttons.IconText("plus-bold", "Ajouter une règle", "Une règle de bissextile de plus", Buttons.Compact, Buttons.Look.Outline);
             addLeap.HorizontalAlignment = HorizontalAlignment.Left;
-            addLeap.Margin = new Thickness(0, 6, 0, 0);
+            addLeap.Margin = new Thickness(0, 8, 0, 0);
             addLeap.Click += delegate { Collect(); _system.Leaps.Add(new LeapRule { Every = 4, Month = 0, Days = 1 }); RebuildLeaps(); Preview(); };
-            second.Children.Add(addLeap);
-            second.Children.Add(TimelineUi.Hint("Tous les N ans, le mois choisi gagne des jours — sauf les années multiples de « sauf », à moins qu'elles le soient d'« à moins que » (notre monde : 4, sauf 100, à moins que 400)."));
+            leapBody.Children.Add(addLeap);
+            second.Children.Add(AstrolabeUi.Section("Années bissextiles", "Certaines années, un mois gagne des jours — pour que le calendrier ne glisse pas sous les saisons. Notre monde : tous les 4 ans, pas les multiples de 100, sauf ceux de 400.", leapBody, "system-section-leaps"));
             tabs.Items.Add(new TabItem { Header = "Calendrier", Content = new ScrollViewer { VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, Content = second } });
 
             // ------------------------------------------------------ semaine, horloge
             var third = new StackPanel { Margin = new Thickness(4, 10, 4, 4) };
-            third.Children.Add(new TextBlock { Text = "Les jours de la semaine, dans l'ordre :", Foreground = Chrome.Ink });
+            var weekBody = new StackPanel();
             _days.AddRange(system.WeekDays);
             _dayRows = new StackPanel { Spacing = 4, Tag = "system-week-days" };
-            third.Children.Add(new ScrollViewer { MaxHeight = 300, Margin = new Thickness(0, 8, 0, 0), VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, Content = _dayRows });
+            weekBody.Children.Add(new ScrollViewer { MaxHeight = 232, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, Content = _dayRows });
             _weekDays = new TextBox { Watermark = "Ajouter un jour : son nom, puis une virgule ou Entrée", Margin = new Thickness(0, 6, 0, 0), AcceptsReturn = false };
             _weekDays.KeyDown += delegate(object sender, Avalonia.Input.KeyEventArgs e)
             {
@@ -838,18 +907,32 @@ namespace Marabook.App
                     _weekDays.Text = _weekDays.Text + ",";
                 }
             };
-            third.Children.Add(_weekDays);
-            third.Children.Add(TimelineUi.Hint("Autant de jours que vous voulez : une semaine de cinq, de dix jours… Aucun : pas de semaine."));
+            weekBody.Children.Add(_weekDays);
+            third.Children.Add(AstrolabeUi.Section("Les jours de la semaine", "Dans l'ordre. Autant que vous voulez : une semaine de cinq, de dix jours… Aucun : pas de semaine.", weekBody, "system-section-week"));
             RebuildDays();
-            var clock = new Grid { ColumnDefinitions = new ColumnDefinitions("190,8,90"), RowDefinitions = new RowDefinitions("Auto,Auto"), Margin = new Thickness(0, 14, 0, 0) };
-            _hours = new TextBox { Text = system.HoursPerDay.ToString(CultureInfo.InvariantCulture) };
-            _minutes = new TextBox { Text = system.MinutesPerHour.ToString(CultureInfo.InvariantCulture) };
+            // L'HORLOGE (16/11, Rémi) : heures, minutes et — nouveau — secondes ; à droite, le cadran qui les dessine.
+            var clock = new Grid { ColumnDefinitions = new ColumnDefinitions("170,8,80"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto") };
+            _hours = new TextBox { Text = system.HoursPerDay.ToString(CultureInfo.InvariantCulture), Tag = "system-hours" };
+            _minutes = new TextBox { Text = system.MinutesPerHour.ToString(CultureInfo.InvariantCulture), Tag = "system-minutes" };
+            _seconds = new TextBox { Text = system.SecondsPerMinute.ToString(CultureInfo.InvariantCulture), Tag = "system-seconds" };
             AddRow(clock, 0, "Heures par jour :", _hours);
             AddRow(clock, 1, "Minutes par heure :", _minutes);
-            third.Children.Add(clock);
+            AddRow(clock, 2, "Secondes par minute :", _seconds);
+            var clockLeft = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            clockLeft.Children.Add(clock);
+            _clockEcho = new TextBlock { FontSize = 12, Tag = "system-clock-echo" };
+            var clockEchoBox = AstrolabeUi.Example(_clockEcho);
+            clockEchoBox.Margin = new Thickness(0, 10, 0, 0);
+            clockLeft.Children.Add(clockEchoBox);
             _clockHint = TimelineUi.Hint("");
-            third.Children.Add(_clockHint);
-            tabs.Items.Add(new TabItem { Header = "Semaine et horloge", Content = third });
+            clockLeft.Children.Add(_clockHint);
+            _dial = new ClockDial { Tag = "system-clock-dial", VerticalAlignment = VerticalAlignment.Center };
+            var clockBody = new Grid { ColumnDefinitions = new ColumnDefinitions("*,18,Auto") };
+            Grid.SetColumn(_dial, 2);
+            clockBody.Children.Add(clockLeft);
+            clockBody.Children.Add(_dial);
+            third.Children.Add(AstrolabeUi.Section("L'horloge", "Ce que dure un jour. Le cadran fait un tour par jour : les heures au bord, les minutes au milieu, les secondes au centre.", clockBody, "system-section-clock"));
+            tabs.Items.Add(new TabItem { Header = "Semaine et horloge", Content = new ScrollViewer { VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, Content = third } });
 
             root.Children.Add(tabs);
             _problem = new TextBlock { Foreground = Chrome.Danger, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), IsVisible = false };
@@ -870,7 +953,8 @@ namespace Marabook.App
             RebuildLeaps();
             _building = false;
             EventHandler<TextChangedEventArgs> changed = delegate { Preview(); };
-            foreach (var box in new[] { _word, _yearPattern, _negativePattern, _datePattern, _try, _hours, _minutes, _weekDays }) box.TextChanged += changed;
+            foreach (var box in new[] { _word, _yearPattern, _negativePattern, _datePattern, _try, _hours, _minutes, _seconds, _weekDays, _spreadDays }) box.TextChanged += changed;
+            _spreadMode.SelectionChanged += delegate { Preview(); };
             _weekDays.TextChanged += delegate { TakeDays(); };
             _weeksPerMonth.TextChanged += changed;
             _segmented.IsCheckedChanged += delegate
@@ -904,9 +988,38 @@ namespace Marabook.App
         private void Distribute()
         {
             Collect();
-            if (!TimeMath.Distribute(_system, WeeksPerMonth())) return;
+            var mode = _spreadMode.SelectedIndex;
+            var done = mode == SpreadWeeks ? TimeMath.Distribute(_system, WeeksPerMonth()) : TimeMath.Distribute(_system, SpreadDays(), mode == SpreadAlternate);
+            if (!done) return;
             RebuildMonths();
             Preview();
+        }
+
+        private const int SpreadEven = 0, SpreadAlternate = 1, SpreadWeeks = 2;
+
+        private int SpreadDays() { return Math.Max(0, Math.Min(10000000, TimelineUi.ParseInt(_spreadDays.Text, 0))); }
+
+        /// <summary>Ce que le Répartiteur ferait, dit avant de le faire : « 12 mois : 30, 31, 30… = 365 jours ».</summary>
+        private string SpreadPreview(out bool possible)
+        {
+            var months = _system.Months.Count;
+            var mode = _spreadMode.SelectedIndex;
+            if (mode == SpreadWeeks)
+            {
+                var weeks = WeeksPerMonth();
+                var weekLength = _system.WeekDays.Count;
+                possible = weekLength > 0 && weeks > 0;
+                return weekLength == 0 ? "Donnez d'abord ses jours à la semaine (onglet « Semaine et horloge »)."
+                    : weeks == 0 ? "Indiquez un nombre de semaines par mois."
+                    : TimeSystem.Count(weeks, "semaine", "semaines") + " de " + TimeSystem.Count(weekLength, "jour", "jours") + " : "
+                        + (weeks * weekLength) + " jours par mois, " + (weeks * weekLength * months) + " par an sur " + TimeSystem.Count(months, "mois", "mois") + ".";
+            }
+            var days = TimeMath.Spread(months, SpreadDays(), mode == SpreadAlternate);
+            possible = days != null;
+            if (days == null) return "Indiquez le nombre de jours de l'année : au moins un par mois (" + months + ").";
+            var shown = new List<string>();
+            for (var i = 0; i < days.Length && i < 16; i++) shown.Add(days[i].ToString(CultureInfo.InvariantCulture));
+            return TimeSystem.Count(months, "mois", "mois") + " : " + string.Join(", ", shown.ToArray()) + (days.Length > 16 ? "…" : "") + "  =  " + TimeSystem.Count(SpreadDays(), "jour", "jours") + ".";
         }
 
         private const string ResetLabel = "Chaque segment repart de zéro";
@@ -1069,31 +1182,49 @@ namespace Marabook.App
             _leaps.Children.Clear();
             foreach (var leap in _system.Leaps)
             {
-                var row = new WrapPanel { Orientation = Orientation.Horizontal };
-                Func<string, TextBlock> word = delegate(string text) { return new TextBlock { Text = text, Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0) }; };
-                var every = new TextBox { Text = leap.Every.ToString(CultureInfo.InvariantCulture), Width = 52 };
-                var except = new TextBox { Text = leap.Except > 0 ? leap.Except.ToString(CultureInfo.InvariantCulture) : "", Width = 52, Watermark = "—" };
-                var unless = new TextBox { Text = leap.Unless > 0 ? leap.Unless.ToString(CultureInfo.InvariantCulture) : "", Width = 52, Watermark = "—" };
-                var days = new TextBox { Text = leap.Days.ToString(CultureInfo.InvariantCulture), Width = 40 };
-                var month = new ComboBox { MinWidth = 120 };
+                // UNE RÈGLE = UNE CARTE (16/11, Rémi : l'ancienne ligne passait à la ligne et la
+                // croix tombait dessous). Deux phrases qui se lisent, la croix calée en haut à
+                // droite, et dessous ce que la règle donne : « Bissextiles : 4, 8, 12… ».
+                Func<string, TextBlock> word = delegate(string text) { return new TextBlock { Text = text, Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) }; };
+                var every = new TextBox { Text = leap.Every.ToString(CultureInfo.InvariantCulture), Width = 52, Margin = new Thickness(0, 0, 6, 0) };
+                var except = new TextBox { Text = leap.Except > 0 ? leap.Except.ToString(CultureInfo.InvariantCulture) : "", Width = 58, Watermark = "—", Margin = new Thickness(0, 0, 6, 0) };
+                var unless = new TextBox { Text = leap.Unless > 0 ? leap.Unless.ToString(CultureInfo.InvariantCulture) : "", Width = 58, Watermark = "—" };
+                var days = new TextBox { Text = leap.Days.ToString(CultureInfo.InvariantCulture), Width = 44, Margin = new Thickness(0, 0, 6, 0) };
+                var month = new ComboBox { MinWidth = 130, Margin = new Thickness(0, 0, 6, 0) };
                 foreach (var m in _system.Months) month.Items.Add(m.Name);
                 month.SelectedIndex = Math.Max(0, Math.Min(_system.Months.Count - 1, leap.Month));
                 var remove = Buttons.Icon("x-bold", "Retirer cette règle", Buttons.Compact, Buttons.Look.Calm);
-                remove.Margin = new Thickness(6, 0, 0, 0);
+                remove.VerticalAlignment = VerticalAlignment.Top;
+                remove.Tag = "system-leap-remove";
                 var captured = leap;
                 remove.Click += delegate { Collect(); _system.Leaps.Remove(captured); RebuildLeaps(); Preview(); };
-                row.Children.Add(word("Tous les"));
-                row.Children.Add(every);
-                row.Children.Add(word("ans, sauf"));
-                row.Children.Add(except);
-                row.Children.Add(word("à moins que"));
-                row.Children.Add(unless);
-                row.Children.Add(word(": +"));
-                row.Children.Add(days);
-                row.Children.Add(word("j. en"));
-                row.Children.Add(month);
-                row.Children.Add(remove);
-                row.Tag = new object[] { leap, every, except, unless, days, month };
+                var rule = new StackPanel { Orientation = Orientation.Horizontal };
+                rule.Children.Add(word("Tous les"));
+                rule.Children.Add(every);
+                rule.Children.Add(word("ans,"));
+                rule.Children.Add(month);
+                rule.Children.Add(word("gagne"));
+                rule.Children.Add(days);
+                rule.Children.Add(word("jour(s)."));
+                var exception = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+                exception.Children.Add(word("Pas les années multiples de"));
+                exception.Children.Add(except);
+                exception.Children.Add(word("— sauf celles multiples de"));
+                exception.Children.Add(unless);
+                var echo = new TextBlock { Foreground = Chrome.AccentStrong, FontSize = 11.5, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 0), Tag = "system-leap-echo" };
+                var sentences = new StackPanel();
+                sentences.Children.Add(rule);
+                sentences.Children.Add(exception);
+                sentences.Children.Add(echo);
+                var layout = new Grid { ColumnDefinitions = new ColumnDefinitions("*,8,Auto") };
+                Grid.SetColumn(remove, 2);
+                layout.Children.Add(sentences);
+                layout.Children.Add(remove);
+                var row = new Border
+                {
+                    Child = layout, Padding = new Thickness(12, 9, 8, 10), CornerRadius = new CornerRadius(8), Background = Chrome.FieldBg,
+                    BorderBrush = Chrome.Border, BorderThickness = new Thickness(1), Tag = new object[] { leap, every, except, unless, days, month, echo }
+                };
                 EventHandler<TextChangedEventArgs> changed = delegate { Preview(); };
                 every.TextChanged += changed;
                 except.TextChanged += changed;
@@ -1105,6 +1236,29 @@ namespace Marabook.App
             if (_system.Leaps.Count == 0)
                 _leaps.Children.Add(new TextBlock { Text = "Aucune : toutes les années ont la même longueur.", Foreground = Chrome.SoftText, FontSize = 12 });
             _building = was;
+        }
+
+        /// <summary>Ce qu'une règle de bissextile donne, sur ses premières années :
+        /// « Bissextiles : 4, 8, 12, 16… · pas 100, 200 · mais 400 ».</summary>
+        private static string LeapEcho(LeapRule leap)
+        {
+            var every = Math.Max(1, leap.Every);
+            var yes = new List<string>();
+            for (long year = every; yes.Count < 4 && year <= every * 400L; year += every)
+                if (leap.IsLeap(year)) yes.Add(year.ToString(CultureInfo.InvariantCulture));
+            if (yes.Count == 0) return "Cette règle ne donne aucune année bissextile.";
+            var text = "→ Bissextiles : les années " + string.Join(", ", yes.ToArray()) + "…";
+            if (leap.Except > 0)
+            {
+                var no = new List<string>();
+                for (long year = leap.Except; no.Count < 2 && year <= leap.Except * 400L; year += leap.Except)
+                    if (year % every == 0 && !leap.IsLeap(year)) no.Add(year.ToString(CultureInfo.InvariantCulture));
+                if (no.Count > 0) text += "  ·  pas " + string.Join(", ", no.ToArray());
+                if (leap.Unless > 0)
+                    for (long year = leap.Unless; year <= leap.Unless * 400L; year += leap.Unless)
+                        if (leap.IsLeap(year)) { text += "  ·  mais " + year.ToString(CultureInfo.InvariantCulture) + " oui"; break; }
+            }
+            return text + "  (" + (leap.Days >= 0 ? "+" : "") + leap.Days + " j)";
         }
 
         /// <summary>Recopie les champs dans le système (en cours d'édition).</summary>
@@ -1137,7 +1291,7 @@ namespace Marabook.App
             }
             foreach (var child in _leaps.Children)
             {
-                var row = child as WrapPanel;
+                var row = child as Control;
                 var parts = row == null ? null : row.Tag as object[];
                 if (parts == null) continue;
                 var leap = (LeapRule)parts[0];
@@ -1153,6 +1307,7 @@ namespace Marabook.App
             if ((_weekDays.Text ?? "").Trim().Length > 0) _system.WeekDays.Add(_weekDays.Text.Trim());
             _system.HoursPerDay = Math.Max(1, Math.Min(1000, TimelineUi.ParseInt(_hours.Text, 24)));
             _system.MinutesPerHour = Math.Max(1, Math.Min(1000, TimelineUi.ParseInt(_minutes.Text, 60)));
+            _system.SecondsPerMinute = Math.Max(1, Math.Min(1000, TimelineUi.ParseInt(_seconds.Text, 60)));
         }
 
         private string Problem()
@@ -1182,13 +1337,26 @@ namespace Marabook.App
                 leapYears = " · bissextile : " + _system.DaysInYear(sample) + " jours (" + _system.FormatYear(sample) + ")";
             }
             _yearLength.Text = "Une année : " + _system.BaseDays + " jours" + leapYears;
-            var weeks = WeeksPerMonth();
-            var weekLength = _system.WeekDays.Count;
-            _distribute.IsEnabled = weekLength > 0 && weeks > 0;
-            _distributeEcho.Text = weekLength == 0 ? "Donnez d'abord ses jours à la semaine (onglet « Semaine et horloge »)."
-                : weeks == 0 ? "Indiquez un nombre de semaines par mois."
-                : TimeSystem.Count(weeks, "semaine", "semaines") + " de " + TimeSystem.Count(weekLength, "jour", "jours") + " : "
-                    + (weeks * weekLength) + " jours par mois, " + (weeks * weekLength * _system.Months.Count) + " par an sur " + TimeSystem.Count(_system.Months.Count, "mois", "mois") + ".";
+            // Le Répartiteur : ses champs selon la méthode, et ce qu'il ferait.
+            var byWeeks = _spreadMode.SelectedIndex == SpreadWeeks;
+            _spreadDays.IsVisible = !byWeeks;
+            _spreadDaysLabel.IsVisible = !byWeeks;
+            _weeksPerMonth.IsVisible = byWeeks;
+            _weeksLabel.IsVisible = byWeeks;
+            bool spreadable;
+            _distributeEcho.Text = SpreadPreview(out spreadable);
+            _distribute.IsEnabled = spreadable;
+            // L'horloge : le cadran et ce qu'un jour contient.
+            _dial.Set(_system.HoursPerDay, _system.MinutesPerHour, _system.SecondsPerMinute);
+            var perDay = (long)_system.HoursPerDay * _system.MinutesPerHour * _system.SecondsPerMinute;
+            _clockEcho.Text = "Un jour : " + TimeSystem.Count((long)_system.HoursPerDay * _system.MinutesPerHour, "minute", "minutes") + ", " + TimeSystem.Count(perDay, "seconde", "secondes")
+                + (perDay == 86400 ? "" : " (notre monde : 86 400)") + "\nLes aiguilles marquent " + ClockDial.Sample(_system.HoursPerDay, _system.MinutesPerHour, _system.SecondsPerMinute) + ".";
+            foreach (var child in _leaps.Children)
+            {
+                var card = child as Control;
+                var cells = card == null ? null : card.Tag as object[];
+                if (cells != null) ((TextBlock)cells[6]).Text = LeapEcho((LeapRule)cells[0]);
+            }
             if (problem != null && _system.NotationProblem() != null)
             {
                 _example.Text = ""; _dateExample.Text = ""; _tryEcho.Text = ""; _tryEcho.IsVisible = false;
@@ -1217,7 +1385,7 @@ namespace Marabook.App
             var sampleMonth = Math.Min(3, _system.Months.Count);
             var sampleDate = _system.Months.Count == 0 ? "" : _system.Format(new TimePoint(year0, sampleMonth, Math.Min(12, _system.DaysInMonth(year0, sampleMonth))));
             _dateExample.Text = sampleDate.Length == 0 ? "" : "→ " + sampleDate;
-            _clockHint.Text = "Une date précise au jour peut porter une heure : « " + sampleDate + " 14h30 ».";
+            _clockHint.Text = "Une date précise au jour peut porter une heure, jusqu'aux secondes : « " + sampleDate + " " + ClockDial.Sample(_system.HoursPerDay, _system.MinutesPerHour, _system.SecondsPerMinute) + " ».";
             var tried = (_try.Text ?? "").Trim();
             _tryEcho.IsVisible = tried.Length > 0;
             if (tried.Length == 0) { _tryEcho.Text = ""; return; }
@@ -1293,7 +1461,7 @@ namespace Marabook.App
         internal bool DayArrowEnabledForProbe(int index, bool up) { return ((Button)((Grid)_dayRows.Children[index]).Children[up ? 2 : 3]).IsEnabled; }
         internal void RemoveDayForProbe(int index) { ((Button)((Grid)_dayRows.Children[index]).Children[4]).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); }
         internal string DatePatternForProbe { get { return _datePattern.Text ?? ""; } }
-        internal void DistributeForProbe(string weeks) { _weeksPerMonth.Text = weeks; Distribute(); }
+        internal void DistributeForProbe(string weeks) { _spreadMode.SelectedIndex = SpreadWeeks; _weeksPerMonth.Text = weeks; Distribute(); }
         internal bool DistributeEnabledForProbe { get { return _distribute.IsEnabled; } }
         internal string DistributeEchoForProbe { get { return _distributeEcho.Text ?? ""; } }
         internal string MonthDaysForProbe { get { var days = new List<string>(); foreach (var month in _system.Months) days.Add(month.Days.ToString(CultureInfo.InvariantCulture)); return string.Join(",", days.ToArray()); } }

@@ -28,6 +28,8 @@ namespace Marabook.Tests
             t.Suite("C70 — durée des saisons, glissement expliqué, date d'une naissance changée depuis la frise");
             SeasonDetails(t);
             LifeDates(t);
+            t.Suite("C71 — orbites, éclipses et lunes rousses, lunes bleues, phénomènes ; Répartiteur ; secondes");
+            Sky(t);
         }
 
         /// <summary>16/11 : ce que dure chaque saison, la moyenne équivalente, et le rapport de glissement.</summary>
@@ -152,14 +154,14 @@ namespace Marabook.Tests
             var real = new Moon { Period = 29.530588, FullAt = 0 };
             t.Check(Astro.MainPhaseOn(real, 29) == Astro.Full && Astro.MainPhaseDay(real, 29, 1) == 59 && Astro.MainPhaseDay(real, 59, -1) == 29 && Astro.MainPhaseDay(real, 29, -1) == 0, "une période à virgule : pleines lunes aux jours 0, 29, 59");
             var calendar = TimeSystem.Gregorian();
-            t.Equal("12/3/2026", TimeMath.ShortDate(calendar, At(calendar, "12 mars 2026")), "la notation abrégée d'une date : jour/mois/année");
-            t.Check(TimeMath.ShortDate(calendar, At(calendar, "mars 2026")) == "3/2026" && TimeMath.ShortDate(calendar, At(calendar, "2026")) == "2026" && TimeMath.ShortDate(null, null) == "", "…au mois, à l'année, sans rien (" + TimeMath.ShortDate(calendar, At(calendar, "mars 2026")) + " ; " + TimeMath.ShortDate(calendar, At(calendar, "2026")) + ")");
+            t.Equal("12/03/2026", TimeMath.ShortDate(calendar, At(calendar, "12 mars 2026")), "la notation abrégée d'une date : jour/mois/année");
+            t.Check(TimeMath.ShortDate(calendar, At(calendar, "mars 2026")) == "03/2026" && TimeMath.ShortDate(calendar, At(calendar, "2026")) == "2026" && TimeMath.ShortDate(null, null) == "", "…au mois, à l'année, sans rien (" + TimeMath.ShortDate(calendar, At(calendar, "mars 2026")) + " ; " + TimeMath.ShortDate(calendar, At(calendar, "2026")) + ")");
 
             var project = Project.CreateNew();
             var timeline = TimelineSamples.Seed(project);
             project.RelinkParents();
             var tides = Timelines.SystemOf(project, timeline);
-            t.Equal("1/1/E3.1", TimeMath.ShortDate(tides, At(tides, "1 Aubemer E3.1")), "…dans la notation du calendrier pour l'année (1/1/E3.1)");
+            t.Equal("01/01/E3.1", TimeMath.ShortDate(tides, At(tides, "1 Aubemer E3.1")), "…dans la notation du calendrier pour l'année (01/01/E3.1)");
             var start = tides.DayNumber(At(tides, "1 Aubemer E3.1"));
             var world = new World { Name = "Deux soleils", ReferenceSystemId = tides.Id };
             world.Suns.Add(new Sun { Name = "Hélios" });
@@ -330,8 +332,13 @@ namespace Marabook.Tests
             history.Push(new WorldsEditAction(project, before, links));
             t.Check(ReferenceEquals(Astro.WorldOf(project, tides), world) && Astro.SystemsOf(project, world).Count == 1, "le calendrier vit dans son monde");
             world.SolarYear = 0;
-            t.Equal("Printemps · Sélène : pleine lune · Nyx : pleine lune", Astro.DayLabel(project, tides, At(tides, "1 Aubemer E3.1")), "le ciel d'un jour : la saison, et chaque lune");
-            t.Equal("Printemps · Sélène : nouvelle lune · Nyx : dernier croissant", Astro.DayLabel(project, tides, At(tides, "16 Aubemer E3.1")), "quinze jours plus tard");
+            t.Equal("Printemps · Sélène : pleine lune · Nyx : pleine lune · Sélène : éclipse totale de lune (lune rousse) · Nyx : éclipse totale de lune (lune rousse) · Toutes les lunes sont pleines ensemble", Astro.DayLabel(project, tides, At(tides, "1 Aubemer E3.1")), "le ciel d'un jour : la saison, chaque lune, et ce que le ciel en fait (16/11 : éclipses, lunes pleines ensemble)");
+            t.Equal("Printemps · Sélène : nouvelle lune · Nyx : dernier croissant · Sélène : éclipse partielle de soleil", Astro.DayLabel(project, tides, At(tides, "16 Aubemer E3.1")), "quinze jours plus tard");
+            world.Moons[0].Eclipses = Astro.EclipseNever;
+            world.Moons[1].Eclipses = Astro.EclipseNever;
+            t.Equal("Printemps · Sélène : nouvelle lune · Nyx : dernier croissant", Astro.DayLabel(project, tides, At(tides, "16 Aubemer E3.1")), "…des lunes sans éclipses : les phases seules");
+            world.Moons[0].Eclipses = Astro.EclipseSeasons;
+            world.Moons[1].Eclipses = Astro.EclipseSeasons;
             t.Equal("Été", Astro.DayLabel(project, tides, At(tides, "Sel E3.1")), "une date au mois : la saison seule");
             t.Check(Astro.DayLabel(project, tides, At(tides, "E3.1")) == null, "une date à l'année : rien");
             world.SolarYear = 360.5;
@@ -359,6 +366,150 @@ namespace Marabook.Tests
             t.Check(project.Worlds.Count == 1 && project.Worlds[0].Name == "Littoral" && tides.WorldId == world.Id, "Ctrl+Y : il revient, lié");
             var plain = Project.CreateNew();
             t.Check(plain.Worlds.Count == 0 && TimelineJson.BuildWorlds(plain.Worlds).Count == 0 && TimelineJson.ReadWorlds(null).Count == 0, "un projet sans monde : rien d'écrit, rien de lu");
+        }
+
+        /// <summary>C71 (16/11) : les orbites des astres, les éclipses et les
+        /// lunes rousses, les lunes bleues, les phénomènes personnalisés, les
+        /// faits de la taille en groupes — puis le Répartiteur et les secondes.</summary>
+        private static void Sky(Harness t)
+        {
+            var calendar = TimeSystem.Gregorian();
+            var earth = World.Earth();
+            earth.SolarYear = 0;
+
+            // — Les orbites des soleils.
+            t.Check(Astro.MainSun(earth) == earth.Suns[0] && Astro.MainSun(new World()) == null, "le soleil principal : le premier centrique ; aucun sans soleil");
+            var binary = new World();
+            binary.Suns.Add(new Sun { Name = "Braise" });
+            binary.Suns.Add(new Sun { Name = "Hélios" });
+            binary.Suns[0].OrbitId = binary.Suns[1].Id;
+            binary.Suns[0].Period = 400;
+            t.Check(Astro.MainSun(binary) == binary.Suns[1] && Astro.Wanderers(binary).Count == 1 && Astro.Wanderers(binary)[0].Name == "Braise", "un premier soleil qui orbite le second : c'est le second, centrique, qui fait le jour");
+            t.Check(!Astro.OrbitLoops(binary, binary.Suns[0]), "une orbite simple ne boucle pas");
+            binary.Suns[1].OrbitId = binary.Suns[0].Id;
+            t.Check(Astro.OrbitLoops(binary, binary.Suns[0]) && Astro.OrbitLoops(binary, binary.Suns[1]), "A autour de B autour de A : la boucle est vue");
+            binary.Suns[1].OrbitId = null;
+            var behaviors = Astro.SunBehaviors(binary, calendar);
+            t.Check(behaviors.Count == 1 && behaviors[0].Notable && behaviors[0].Title == "Braise tourne autour de Hélios" && behaviors[0].Text.Contains("Nuits claires pendant environ 100 jours"), "ce que deux soleils déclenchent : le compagnon, ses nuits claires (" + behaviors[0].Title + ")");
+            t.Check(Astro.SunBehaviors(earth, calendar).Count == 1 && !Astro.SunBehaviors(earth, calendar)[0].Notable && Astro.SunBehaviors(earth, calendar)[0].Title == "Un seul soleil", "un soleil seul : rien de particulier");
+            binary.Suns.Add(new Sun { Name = "Jumeau" });
+            t.Check(Astro.SunBehaviors(binary, calendar).Exists(delegate(SkyBehavior b) { return b.Title == "Étoile double au centre"; }) && Astro.SunBehaviors(binary, calendar).Exists(delegate(SkyBehavior b) { return b.Title == "Trois soleils ou plus"; }),
+                "deux soleils centriques : une étoile double au centre ; à trois, le ciel rare est dit");
+
+            // — Les éclipses : par saisons, à chaque lunaison, jamais.
+            var moon = earth.Moons[0];
+            t.Check(Astro.EclipseOn(earth, calendar, moon, 0) == Astro.TotalLunar, "la pleine lune de référence est au cœur d'une saison d'éclipses : une lune rousse");
+            t.Equal("éclipse totale de lune (lune rousse)", Astro.EclipseName(Astro.TotalLunar), "une éclipse totale de lune s'appelle aussi lune rousse");
+            var lunar = 0; var solar = 0; var red = 0;
+            for (long day = 0; day < 3652; day++)
+            {
+                var eclipse = Astro.EclipseOn(earth, calendar, moon, day);
+                if (eclipse == Astro.TotalLunar) red++;
+                if (eclipse == Astro.TotalLunar || eclipse == Astro.PartialLunar) lunar++;
+                if (eclipse == Astro.TotalSolar || eclipse == Astro.PartialSolar) solar++;
+            }
+            t.Check(lunar >= 12 && lunar <= 30 && solar >= 18 && solar <= 45 && red >= 4 && red < lunar, "en dix ans, notre Lune donne une à trois éclipses de lune par an, un peu plus de soleil, et moins de lunes rousses (" + lunar + " de lune dont " + red + " rousses, " + solar + " de soleil)");
+            var next = Astro.NextEclipse(earth, calendar, moon, 1, Astro.TotalLunar);
+            t.Check(next != null && next.Value > 0 && Astro.EclipseOn(earth, calendar, moon, next.Value) == Astro.TotalLunar && Astro.MainPhaseOn(moon, next.Value) == Astro.Full, "la prochaine lune rousse se trouve, et c'est une pleine lune (jour " + next + ")");
+            moon.Eclipses = Astro.EclipseAlways;
+            t.Check(Astro.EclipseOn(earth, calendar, moon, 29) == Astro.TotalLunar && Astro.EclipseOn(earth, calendar, moon, 14) == Astro.TotalSolar && Astro.EclipseOn(earth, calendar, moon, 5) == Astro.NoEclipse,
+                "une orbite dans le plan du monde : une lune rousse à chaque pleine lune, le soleil caché à chaque nouvelle lune, rien entre les deux");
+            moon.Eclipses = Astro.EclipseNever;
+            t.Check(Astro.EclipseOn(earth, calendar, moon, 0) == Astro.NoEclipse && Astro.NextEclipse(earth, calendar, moon, 0, Astro.TotalLunar) == null, "« Jamais » : aucune éclipse");
+            moon.Eclipses = Astro.EclipseSeasons;
+
+            // — Les lunes bleues : la deuxième pleine lune d'un même mois.
+            var blue = 0; long firstBlue = -1;
+            for (long day = 1; day < 3652; day++) if (Astro.BlueMoonOn(calendar, moon, day)) { blue++; if (firstBlue < 0) firstBlue = day; }
+            var blueDate = TimeMath.FromDayNumber(calendar, firstBlue);
+            var previousFull = TimeMath.FromDayNumber(calendar, Astro.MainPhaseDay(moon, firstBlue, -1));
+            t.Check(blue >= 2 && blue <= 6 && blueDate.Month == previousFull.Month && blueDate.Year == previousFull.Year && blueDate.Day >= 29, "en dix ans, quelques lunes bleues — la deuxième pleine lune d'un même mois (" + blue + ", la première le " + calendar.Format(blueDate) + ")");
+            var slow = new Moon { Period = 45, FullAt = 0 };
+            var none = true;
+            for (long day = 0; day < 2000; day++) if (Astro.BlueMoonOn(calendar, slow, day)) none = false;
+            t.Check(none, "une lunaison plus longue que les mois : jamais de lune bleue");
+
+            // — Une lune de lune.
+            var pair = new World();
+            pair.Moons.Add(new Moon { Name = "Sélène", Period = 30, FullAt = 0 });
+            pair.Moons.Add(new Moon { Name = "Mite", Period = 6, FullAt = 0 });
+            pair.Moons[1].OrbitId = pair.Moons[0].Id;
+            t.Check(Astro.IsSubMoon(pair, pair.Moons[1]) && !Astro.IsSubMoon(pair, pair.Moons[0]) && Astro.EclipseOn(pair, calendar, pair.Moons[1], 0) == Astro.NoEclipse, "une lune qui orbite une autre lune : une lune de lune, sans éclipse à elle");
+            t.Check(Astro.NextConjunction(pair, 0) == null, "…elle ne compte pas dans « toutes pleines ensemble »");
+            var notes = Astro.NotesOn(pair, calendar, 6).ConvertAll(delegate(SkyNote n) { return n.Text; });
+            t.Check(notes.Contains("Mite passe devant Sélène") && Astro.NotesOn(pair, calendar, 3).Exists(delegate(SkyNote n) { return n.Text == "Mite passe derrière Sélène"; }), "…le ciel du jour dit ses passages devant et derrière sa lune-mère");
+            t.Check(Astro.MoonBehaviors(pair, calendar).Exists(delegate(SkyBehavior b) { return b.Title == "Mite : lune de Sélène" && b.Notable; }), "…et la fenêtre du monde la dit lune de Sélène");
+            pair.Moons[0].OrbitId = pair.Moons[1].Id;
+            t.Check(Astro.OrbitLoops(pair, pair.Moons[0]), "deux lunes l'une autour de l'autre : la boucle est vue");
+            t.Check(Astro.MoonBehaviors(new World(), calendar)[0].Title == "Aucune lune", "un monde sans lune le dit");
+            t.Check(Astro.MoonBehaviors(earth, calendar).Exists(delegate(SkyBehavior b) { return b.Title == "Lune : des saisons d'éclipses" && b.Text.Contains("Prochaine lune rousse"); })
+                && Astro.MoonBehaviors(earth, calendar).Exists(delegate(SkyBehavior b) { return b.Title == "Lune : des lunes bleues"; }), "notre Lune : des saisons d'éclipses (la prochaine lune rousse est datée) et des lunes bleues");
+
+            // — Les phénomènes personnalisés.
+            var comet = new SkyEvent { Name = "Comète de Vaire", Period = 100, At = 40 };
+            earth.Phenomena.Add(comet);
+            t.Check(Astro.OccursOn(comet, 40) && Astro.OccursOn(comet, 140) && !Astro.OccursOn(comet, 41) && !Astro.OccursOn(comet, 139), "un phénomène revient à sa période : les jours 40, 140… et pas autour");
+            t.Check(Astro.OccurrenceDay(comet, 140, -1) == 40 && Astro.OccurrenceDay(comet, 140, 1) == 240, "…le passage d'avant et celui d'après");
+            var cometNote = Astro.NotesOn(earth, calendar, 140).Find(delegate(SkyNote n) { return n.Text == "Comète de Vaire"; });
+            t.Check(cometNote != null && cometNote.Detail.Contains("Précédent : ") && cometNote.Detail.Contains("Prochain : "), "le ciel du jour dit le phénomène, son passage précédent et le prochain");
+            t.Check(Astro.Summary(earth).Contains("1 phénomène"), "le monde en une phrase compte ses phénomènes");
+            var round = TimelineJson.ReadWorlds(Json.Parse(Json.Write(TimelineJson.BuildWorlds(new List<World> { earth, binary, pair }))));
+            t.Check(round.Count == 3 && round[0].Phenomena.Count == 1 && round[0].Phenomena[0].Name == "Comète de Vaire" && round[0].Phenomena[0].Period == 100 && round[0].Phenomena[0].At == 40, "le .plot garde les phénomènes");
+            t.Check(round[1].Suns[0].OrbitId == binary.Suns[1].Id && round[1].Suns[1].OrbitId == null && round[2].Moons[0].OrbitId == pair.Moons[1].Id, "…les orbites des soleils et des lunes");
+            moon.Eclipses = Astro.EclipseAlways;
+            round = TimelineJson.ReadWorlds(Json.Parse(Json.Write(TimelineJson.BuildWorlds(new List<World> { earth }))));
+            t.Check(round[0].Moons[0].Eclipses == Astro.EclipseAlways, "…et le régime d'éclipses d'une lune");
+            moon.Eclipses = Astro.EclipseSeasons;
+            // Un monde d'avant le 16/11 : un compagnon à période, sans orbite écrite.
+            var legacy = TimelineJson.ReadWorlds(Json.Parse("[{\"id\":\"w\",\"name\":\"Ancien\",\"suns\":[{\"id\":\"a\",\"name\":\"Hélios\"},{\"id\":\"b\",\"name\":\"Brasier\",\"period\":360,\"highAt\":12},{\"id\":\"c\",\"name\":\"Jumeau\"}]}]"));
+            t.Check(legacy[0].Suns[1].OrbitId == "a" && legacy[0].Suns[2].OrbitId == null && legacy[0].Suns[0].OrbitId == null, "un monde d'avant : le compagnon à période orbite le premier soleil, le jumeau reste centrique");
+
+            // — Les faits de la taille, hiérarchisés.
+            earth.Circumference = Astro.EarthCircumference;
+            earth.AxialTilt = 23.44;
+            var groups = Astro.SizeFactGroups(earth, calendar);
+            t.Check(groups.Count == 5 && groups[0].Title == "Dimensions" && Plain(groups[0].Facts[0].Value) == "6 378 km" && groups[2].Title == "Le tour du monde" && groups[2].Facts.Count == 3 && groups[4].Facts.Count == 4,
+                "les faits de la taille en cinq groupes de tuiles : dimensions, horizon, tour du monde, latitudes, durée du jour (" + groups.Count + ")");
+            t.Check(Astro.SizeFactGroups(new World(), calendar).Count == 0 && Astro.SizeFactGroups(new World { Circumference = 20000 }, calendar).Count == 3, "sans circonférence : rien ; sans inclinaison : trois groupes");
+
+            // — Le jour de l'année en abrégé.
+            t.Check(TimeMath.ShortDayOfYear(calendar, 79) == "20/03" && TimeMath.ShortDayOfYear(calendar, 1) == "01/01" && TimeMath.ShortDayOfYear(calendar, 365) == "31/12", "le jour 79 d'un calendrier à mois : « 20/03 », jour/numéro du mois");
+            var single = new TimeSystem();
+            single.Months.Add(new TimeMonth { Name = "Année", Days = 400 });
+            t.Equal("jour 79", TimeMath.ShortDayOfYear(single, 79), "…sans mois, le jour de l'année");
+
+            // — Le Répartiteur.
+            t.Equal("30,31,30,31,30,31,30,31,30,31,30,30", Days(TimeMath.Spread(12, 365, true)), "365 jours en douze mois, en bascule (+0, +1, +0…)");
+            t.Equal("30,30,31,30,31,30,30,31,30,31,30,31", Days(TimeMath.Spread(12, 365, false)), "…uniformément : les cinq jours de plus étalés sur l'année");
+            t.Equal("30,30,30,30,30,30,30,30,30,30,30,30", Days(TimeMath.Spread(12, 360, true)), "360 jours : douze mois égaux, quelle que soit la méthode");
+            t.Equal("31,32,31,32,31,31,31", Days(TimeMath.Spread(7, 219, true)), "219 jours en sept mois : la bascule sert d'abord un mois sur deux");
+            t.Equal("33,33,32,33,32,33,32", Days(TimeMath.Spread(7, 228, true)), "…et, quand il reste plus de jours que de mois pairs, les autres à leur tour");
+            t.Check(TimeMath.Spread(12, 11, false) == null && TimeMath.Spread(0, 100, false) == null, "moins d'un jour par mois, ou pas de mois : pas de répartition");
+            var spread = TimeSystem.Gregorian();
+            t.Check(TimeMath.Distribute(spread, 400, false) && spread.BaseDays == 400 && !TimeMath.Distribute(spread, 5, true) && spread.BaseDays == 400, "appliqué au système : l'année fait le compte demandé ; un compte impossible ne change rien");
+
+            // — Les secondes.
+            TimePoint timed;
+            t.Check(calendar.TryParse("14 juillet 1789 14h30m15", out timed) && timed.Hour == 14 && timed.Minute == 30 && timed.Second == 15, "une heure jusqu'aux secondes se lit : 14h30m15");
+            t.Equal("14 juillet 1789 14h30m15", calendar.Format(timed), "…et s'écrit");
+            TimePoint plainTime;
+            t.Check(calendar.TryParse("14 juillet 1789 14h30", out plainTime) && plainTime.Second == 0 && calendar.Format(plainTime) == "14 juillet 1789 14h30", "sans secondes, rien ne change");
+            t.Check(calendar.TryParse("14 juillet 1789 14:30:15", out timed) && timed.Second == 15 && !calendar.TryParse("14 juillet 1789 14h30m75", out timed), "« 14:30:15 » se lit aussi ; 75 secondes n'existent pas");
+            t.Check(calendar.AxisStart(At(calendar, "14 juillet 1789 14h30m15")) > calendar.AxisStart(At(calendar, "14 juillet 1789 14h30")) && !At(calendar, "14 juillet 1789 14h30m15").SameAs(At(calendar, "14 juillet 1789 14h30")), "les secondes comptent sur l'axe et dans la comparaison");
+            var clock = TimeSystem.Gregorian();
+            clock.SecondsPerMinute = 100;
+            t.Check(clock.TryParse("14 juillet 1789 14h30m75", out timed) && timed.Second == 75 && clock.Clone().SecondsPerMinute == 100, "une minute de cent secondes : 75 existe ; la copie garde l'horloge");
+            var systems = TimelineJson.ReadSystems(Json.Parse(Json.Write(TimelineJson.BuildSystems(new List<TimeSystem> { clock, calendar }))));
+            t.Check(systems[0].SecondsPerMinute == 100 && systems[1].SecondsPerMinute == 60, "le .plot garde les secondes par minute (60 par défaut)");
+            t.Check(calendar.DurationLabel(1.0 / 365 / 24 / 60 / 2) == "30 secondes", "une demi-minute se dit en secondes (" + calendar.DurationLabel(1.0 / 365 / 24 / 60 / 2) + ")");
+        }
+
+        private static string Days(int[] days)
+        {
+            if (days == null) return "";
+            var parts = new List<string>();
+            foreach (var day in days) parts.Add(day.ToString());
+            return string.Join(",", parts.ToArray());
         }
 
         private static void Rail(Harness t)

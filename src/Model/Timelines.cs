@@ -102,6 +102,7 @@ namespace Marabook.Model
         public int Day;
         public int Hour = -1;
         public int Minute;
+        public int Second;   // les secondes (16/11) : 0 quand la date n'en dit rien
 
         public TimePoint() { }
         public TimePoint(long year) { Year = year; }
@@ -113,13 +114,13 @@ namespace Marabook.Model
 
         public TimePoint Clone()
         {
-            return new TimePoint { Year = Year, Month = Month, Day = Day, Hour = Hour, Minute = Minute };
+            return new TimePoint { Year = Year, Month = Month, Day = Day, Hour = Hour, Minute = Minute, Second = Second };
         }
 
         public bool SameAs(TimePoint other)
         {
             return other != null && Year == other.Year && Month == other.Month && Day == other.Day
-                && Hour == other.Hour && Minute == other.Minute;
+                && Hour == other.Hour && Minute == other.Minute && Second == other.Second;
         }
     }
 
@@ -155,6 +156,7 @@ namespace Marabook.Model
         public List<string> WeekDays = new List<string>();
         public int HoursPerDay = 24;
         public int MinutesPerHour = 60;
+        public int SecondsPerMinute = 60; // 16/11 (Rémi) : l'horloge va jusqu'aux secondes
 
         public const string GregorianName = "Calendrier de notre monde";
 
@@ -176,7 +178,7 @@ namespace Marabook.Model
             {
                 Id = Id, Name = Name, WorldId = WorldId, Segmented = Segmented, SegmentWord = SegmentWord, Cumulative = Cumulative,
                 YearPattern = YearPattern, NegativePattern = NegativePattern, DatePattern = DatePattern, YearZero = YearZero, SegmentYearZero = SegmentYearZero,
-                HoursPerDay = HoursPerDay, MinutesPerHour = MinutesPerHour
+                HoursPerDay = HoursPerDay, MinutesPerHour = MinutesPerHour, SecondsPerMinute = SecondsPerMinute
             };
             foreach (var segment in Segments)
                 copy.Segments.Add(new TimeSegment { Id = segment.Id, Name = segment.Name, Code = segment.Code, Length = segment.Length, Color = segment.Color });
@@ -352,7 +354,8 @@ namespace Marabook.Model
         {
             var hours = Math.Max(1, HoursPerDay);
             var minutes = Math.Max(1, MinutesPerHour);
-            return (Math.Max(0, point.Hour) + (double)Math.Max(0, point.Minute) / minutes) / hours;
+            var seconds = Math.Max(1, SecondsPerMinute);
+            return (Math.Max(0, point.Hour) + (Math.Max(0, point.Minute) + (double)Math.Max(0, point.Second) / seconds) / minutes) / hours;
         }
 
         /// <summary>La date d'un point de l'axe : precision 0 = l'année, 1 = le
@@ -445,7 +448,8 @@ namespace Marabook.Model
                 .Replace("{m}", point.Month.ToString(CultureInfo.InvariantCulture))
                 .Replace("{M}", Months[point.Month - 1].Name ?? "");
             if (point.HasTime)
-                text += " " + point.Hour.ToString(CultureInfo.InvariantCulture) + "h" + point.Minute.ToString("00", CultureInfo.InvariantCulture);
+                text += " " + point.Hour.ToString(CultureInfo.InvariantCulture) + "h" + point.Minute.ToString("00", CultureInfo.InvariantCulture)
+                    + (point.Second > 0 ? "m" + point.Second.ToString("00", CultureInfo.InvariantCulture) : ""); // « 14h30m15 » : les secondes ne s'écrivent que s'il y en a
             return text;
         }
 
@@ -546,7 +550,7 @@ namespace Marabook.Model
                 sb.Append(Regex.Escape(pattern[i].ToString()));
                 i++;
             }
-            if (withTime) sb.Append(@"(?:\s+(?:à\s+)?(?<h>\d{1,3})\s*[h:]\s*(?<min>\d{1,3})?)?");
+            if (withTime) sb.Append(@"(?:\s+(?:à\s+)?(?<h>\d{1,3})\s*[h:]\s*(?<min>\d{1,3})?(?:\s*(?:min|m|:)\s*(?<sec>\d{1,3})\s*s?)?)?");
             sb.Append("$");
             try { return new Regex(sb.ToString(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant); }
             catch (ArgumentException) { return null; }
@@ -671,8 +675,12 @@ namespace Marabook.Model
                         if (!int.TryParse(match.Groups["h"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out hour)) return null;
                         if (match.Groups["min"].Success && !int.TryParse(match.Groups["min"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out minute)) return null;
                         if (hour >= Math.Max(1, HoursPerDay) || minute >= Math.Max(1, MinutesPerHour)) return null;
+                        var second = 0;
+                        if (match.Groups["sec"].Success && !int.TryParse(match.Groups["sec"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out second)) return null;
+                        if (second >= Math.Max(1, SecondsPerMinute)) return null;
                         point.Hour = hour;
                         point.Minute = minute;
+                        point.Second = second;
                     }
                 }
             }
@@ -710,7 +718,9 @@ namespace Marabook.Model
             if (days >= 1 - 1e-6) return Count((long)Math.Round(days), "jour", "jours");
             var hours = days * Math.Max(1, HoursPerDay);
             if (hours >= 1 - 1e-6) return Count((long)Math.Round(hours), "heure", "heures");
-            return Count(Math.Max(1, (long)Math.Round(hours * Math.Max(1, MinutesPerHour))), "minute", "minutes");
+            var minutes = hours * Math.Max(1, MinutesPerHour);
+            if (minutes >= 1 - 1e-6) return Count((long)Math.Round(minutes), "minute", "minutes");
+            return Count(Math.Max(1, (long)Math.Round(minutes * Math.Max(1, SecondsPerMinute))), "seconde", "secondes");
         }
 
         /// <summary>L'âge en années révolues à une date, depuis une naissance

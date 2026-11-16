@@ -655,6 +655,73 @@ namespace Marabook.App
             }
         }
 
+        /// <summary>L'étoile d'un événement du ciel (16/11) : éclipse, lune bleue, phénomène personnalisé.</summary>
+        private sealed class StarGlyph : Control
+        {
+            private readonly Color _color;
+
+            public StarGlyph(Color color)
+            {
+                _color = color;
+                Width = 12;
+                Height = 12;
+                Margin = new Thickness(3, 0, 0, 0);
+                VerticalAlignment = VerticalAlignment.Center;
+            }
+
+            public override void Render(DrawingContext context)
+            {
+                // Une étoile à quatre branches, pleine.
+                var center = new Point(6, 6);
+                var geometry = new StreamGeometry();
+                using (var path = geometry.Open())
+                {
+                    for (var i = 0; i < 8; i++)
+                    {
+                        var radius = i % 2 == 0 ? 5.6 : 1.9;
+                        var angle = i * Math.PI / 4 - Math.PI / 2;
+                        var point = new Point(center.X + Math.Cos(angle) * radius, center.Y + Math.Sin(angle) * radius);
+                        if (i == 0) path.BeginFigure(point, true); else path.LineTo(point);
+                    }
+                    path.EndFigure(true);
+                }
+                context.DrawGeometry(new SolidColorBrush(_color), null, geometry);
+            }
+        }
+
+        /// <summary>Sonde : l'infobulle de la case d'un jour (sa date abrégée).</summary>
+        internal string DayTipForProbe(int day)
+        {
+            var n = 0;
+            foreach (var child in _grid.Children)
+            {
+                var cell = child as Border;
+                if (cell != null && Equals(cell.Tag, "calendar-day") && ++n == day) return ToolTip.GetTip(cell) as string;
+            }
+            return null;
+        }
+
+        /// <summary>Sonde : les infobulles des étoiles (événements du ciel) de la case d'un jour.</summary>
+        internal List<string> StarTipsForProbe(int day)
+        {
+            var tips = new List<string>();
+            var n = 0;
+            foreach (var child in _grid.Children)
+            {
+                var cell = child as Border;
+                if (cell == null || !Equals(cell.Tag, "calendar-day") || ++n != day) continue;
+                var top = ((StackPanel)cell.Child).Children[0] as DockPanel;
+                if (top == null) continue;
+                foreach (var item in top.Children)
+                {
+                    var sky = item as StackPanel;
+                    if (sky == null) continue;
+                    foreach (var glyph in sky.Children) if (glyph is StarGlyph) tips.Add(ToolTip.GetTip((Control)glyph) as string);
+                }
+            }
+            return tips;
+        }
+
         private bool SameMonths()
         {
             var names = _months.ItemsSource as List<string>;
@@ -678,6 +745,7 @@ namespace Marabook.App
                 var moons = new StackPanel { Orientation = Orientation.Horizontal, Tag = "calendar-moons" };
                 for (var i = 0; i < _world.Moons.Count; i++)
                 {
+                    if (Astro.IsSubMoon(_world, _world.Moons[i])) continue; // une lune de lune : dite par ses passages (les étoiles, plus bas)
                     var phase = Astro.MainPhaseOn(_world.Moons[i], dayNumber);
                     Color tint;
                     if (phase < 0 || !Color.TryParse(Astro.ColorOf(_world.Moons[i], i), out tint)) continue;
@@ -686,14 +754,36 @@ namespace Marabook.App
                     moons.Children.Add(glyph);
                 }
                 // Un soleil compagnon qui culmine à minuit ce jour-là (15/11) : son disque rayonnant.
-                for (var i = 1; i < _world.Suns.Count; i++)
+                var mainSun = Astro.MainSun(_world);
+                for (var i = 0; i < _world.Suns.Count; i++)
                 {
                     Color tint;
-                    if (!Astro.SunHighOn(_world.Suns[i], dayNumber) || !Color.TryParse(Astro.ColorOf(_world.Suns[i], i), out tint)) continue;
+                    if (_world.Suns[i] == mainSun || !Astro.SunHighOn(_world.Suns[i], dayNumber) || !Color.TryParse(Astro.ColorOf(_world.Suns[i], i), out tint)) continue;
                     var glyph = new SunGlyph(tint);
                     ToolTip.SetTip(glyph, SunTip(_world.Suns[i], dayNumber));
                     moons.Children.Add(glyph);
                 }
+                // CE QUE LE CIEL FAIT DE CE JOUR (16/11, Rémi) : éclipses, lune rousse, lune bleue,
+                // lunes pleines ensemble, phénomènes personnalisés — une étoile par événement.
+                var notes = Astro.NotesOn(_world, _system, dayNumber);
+                if (notes.Count > 2)
+                {
+                    // Un jour chargé : UNE étoile, qui dit tout — l'en-tête de la case reste lisible.
+                    var all = new List<string>();
+                    foreach (var note in notes) all.Add(note.Text);
+                    var glyph = new StarGlyph(Chrome.Accent.Color);
+                    ToolTip.SetTip(glyph, string.Join("\n", all.ToArray()));
+                    moons.Children.Add(glyph);
+                }
+                else
+                    foreach (var note in notes)
+                    {
+                        Color tint;
+                        if (!Color.TryParse(note.Color, out tint)) tint = Chrome.Accent.Color;
+                        var glyph = new StarGlyph(tint);
+                        ToolTip.SetTip(glyph, note.Text + (note.Detail != null ? "\n" + note.Detail : ""));
+                        moons.Children.Add(glyph);
+                    }
                 if (moons.Children.Count > 0) { DockPanel.SetDock(moons, Dock.Right); top.Children.Add(moons); }
                 var seasonIndex = Astro.SeasonIndexAt(_world, _system, date);
                 hasSeason = seasonIndex >= 0 && Color.TryParse(Astro.ColorOf(_world.Seasons[seasonIndex], seasonIndex), out seasonTint);
@@ -730,6 +820,17 @@ namespace Marabook.App
                 cell.BorderBrush = new SolidColorBrush(seasonTint, 0.85);
                 cell.BorderThickness = new Thickness(0, 3, 0, 0);
                 cell.Padding = new Thickness(6, 2, 6, 6);
+            }
+            // L'INFOBULLE D'UN JOUR (16/11, Rémi) : sa date en notation abrégée (« 05/11/2026 ») —
+            // tant qu'on ne survole pas un événement de la case (ses pastilles la font taire).
+            var dayTip = TimeMath.ShortDate(_system, date);
+            ToolTip.SetTip(cell, dayTip);
+            foreach (var child in body.Children)
+            {
+                var chip = child as Border;
+                if (chip == null || !Equals(chip.Tag, "calendar-event")) continue;
+                chip.PointerEntered += delegate { ToolTip.SetIsOpen(cell, false); ToolTip.SetTip(cell, null); };
+                chip.PointerExited += delegate { ToolTip.SetTip(cell, dayTip); };
             }
             cell.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
             {

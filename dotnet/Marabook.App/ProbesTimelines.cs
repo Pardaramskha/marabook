@@ -37,6 +37,16 @@ namespace Marabook.App
                 Check(hub.IsVisible && hub.TimelineRowsForProbe == 2 && hub.SystemCardsForProbe == 2, "la racine ouvre la page des frises : deux frises, deux systèmes temporels (" + hub.TimelineRowsForProbe + ", " + hub.SystemCardsForProbe + ")");
                 Check(hub.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock b) { return b.Text == "Astrolabe" && b.FontSize >= 16; }), "la page s'appelle « Astrolabe »");
                 Check(hub.GetVisualDescendants().OfType<Button>().Count(delegate(Button b) { return Equals(b.Tag, "hub-system-calculator"); }) == 2, "chaque tuile de système a son bouton « Calculateur de dates »");
+                // — 16/11 : la chaîne Système → Frises → Monde, les dépendances dites, les actions bloquées.
+                Check(hub.ChainNodesForProbe == 3 && hub.NewTimelineEnabledForProbe && hub.NewWorldEnabledForProbe && !hub.LocksShownForProbe, "la page montre la chaîne en trois étapes ; avec un système, frises et mondes sont offerts");
+                Check(hub.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock b) { return (b.Text ?? "").Contains("Porte la frise") || (b.Text ?? "").Contains("Porte les frises"); })
+                    && hub.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock b) { return (b.Text ?? "").StartsWith("Posée sur « "); }), "la tuile d'un système dit les frises qu'il porte ; une frise, le système sur lequel elle est posée");
+                Check(hub.GetVisualDescendants().OfType<Button>().Any(delegate(Button b) { return Equals(b.Tag, "hub-system-remove") && !b.IsEnabled; })
+                    && hub.GetVisualDescendants().OfType<Control>().Any(delegate(Control c) { return Equals(c.Tag, "hub-system-locked"); }), "un système qui porte une frise : « Retirer » est bloqué, et la raison est dite");
+                var bareHub = new TimelineHubView();
+                bareHub.Load(Project.CreateNew());
+                Check(!bareHub.NewTimelineEnabledForProbe && !bareHub.NewWorldEnabledForProbe && bareHub.LocksShownForProbe && bareHub.OurSystemOfferedForProbe && bareHub.SystemCardsForProbe == 0,
+                    "un projet sans système temporel : « Nouvelle frise » et « Nouveau monde » sont bloqués, la raison est dite, et le calendrier de notre monde est offert en un clic");
                 Shot(hub, "frises-1-page.png");
 
                 // — Une frise ouverte.
@@ -266,6 +276,7 @@ namespace Marabook.App
                         Check(worldDialog.CircumferenceForProbe == "40075" && worldDialog.SeasonRowsForProbe == 4 && worldDialog.SeasonDayForProbe(0) == "79" && worldDialog.SunRowsForProbe == 1 && worldDialog.MoonRowsForProbe == 1,
                             "…prérempli : 40 075 km, quatre saisons (le printemps le jour 79), un soleil, une lune (" + worldDialog.CircumferenceForProbe + ")");
                         Check(worldDialog.SolarYearForProbe == "" && !worldDialog.FixDriftShownForProbe && worldDialog.DriftForProbe.StartsWith("Aucun glissement"), "…sauf la durée réelle de l'année, laissée vide : un monde neuf ne glisse pas (16/11)");
+                        Check(worldDialog.NoCalendarNoticeForProbe && !worldDialog.FactorOpenForProbe, "sans calendrier, un bandeau prévient que ce ciel ne s'affichera nulle part ; le calculateur de circonférence est replié (16/11)");
                         Shot(worldDialog, "astrolabe-5-monde-prerempli.png");
                         // — 15/11 : les calendriers en puces — la liste, « Ajouter », la puce.
                         Check(worldDialog.AvailableCountForProbe == 2 && worldDialog.ChipCountForProbe == 0 && !worldDialog.AddButtonShownForProbe, "les calendriers : une liste déroulante de deux, aucune puce, pas encore de bouton « Ajouter »");
@@ -276,6 +287,7 @@ namespace Marabook.App
                         await Settle();
                         Check(worldDialog.ChipCountForProbe == 1 && worldDialog.AvailableCountForProbe == 1 && !worldDialog.AddButtonShownForProbe && !worldDialog.ReferenceRowShownForProbe,
                             "…ajouté : il devient une puce et sort de la liste (" + worldDialog.ChipCountForProbe + " puce, " + worldDialog.AvailableCountForProbe + " dans la liste)");
+                        Check(!worldDialog.NoCalendarNoticeForProbe, "…et le bandeau « aucun calendrier » s'efface");
                         // — 15/11 : le calculateur de circonférence.
                         Check(!worldDialog.UseFactorShownForProbe, "le calculateur de circonférence, vide : pas de bouton");
                         worldDialog.SetFactorForProbe("1,2");
@@ -298,12 +310,12 @@ namespace Marabook.App
                         var moonBefore = worldDialog.MoonFullForProbe(0);
                         worldDialog.SetReferenceForProbe(1);
                         await Settle();
-                        Check(worldDialog.ReferenceNameForProbe == TimeSystem.GregorianName && worldDialog.SeasonEchoForProbe(0) == "→ 19 mars" && worldDialog.MoonFullForProbe(0) != moonBefore,
+                        Check(worldDialog.ReferenceNameForProbe == TimeSystem.GregorianName && worldDialog.SeasonEchoForProbe(0) == "→ 19/03" && worldDialog.MoonFullForProbe(0) != moonBefore,
                             "le calendrier de notre monde choisi : les jours se lisent chez lui (jour 78 " + worldDialog.SeasonEchoForProbe(0) + "), la pleine lune se réécrit (" + moonBefore + " → " + worldDialog.MoonFullForProbe(0) + ")");
                         worldDialog.FourSeasonsForProbe();
                         await Settle();
-                        Check(worldDialog.SeasonDayForProbe(0) == "79" && worldDialog.SeasonEchoForProbe(0) == "→ 20 mars" && worldDialog.SeasonDayForProbe(3) == "353",
-                            "…et « Quatre saisons égales » y commence le 20 mars, comme chez nous (" + worldDialog.SeasonDayForProbe(0) + " " + worldDialog.SeasonEchoForProbe(0) + ")");
+                        Check(worldDialog.SeasonDayForProbe(0) == "79" && worldDialog.SeasonEchoForProbe(0) == "→ 20/03" && worldDialog.SeasonDayForProbe(3) == "353",
+                            "…et « Quatre saisons égales » y commence le 20/03 (jour/numéro du mois, 16/11), comme chez nous (" + worldDialog.SeasonDayForProbe(0) + " " + worldDialog.SeasonEchoForProbe(0) + ")");
                         worldDialog.ShowTabForProbe(1);
                         await Settle();
                         Shot(worldDialog, "astrolabe-6-monde-reference.png");
@@ -318,6 +330,7 @@ namespace Marabook.App
                         var facts = worldDialog.FactsForProbe().ConvertAll(delegate(string f) { return plain(f); });
                         Check(facts.Count == 6 && facts[0].Contains("Rayon : 6 378 km") && facts[2].Contains("le jour en compte 20") && facts[2].Contains("2 004 km") && facts[4].Contains("Tropiques à 23,4°"),
                             "la taille du monde : rayon, horizon, heure de soleil (dans les heures du calendrier), tropiques (" + (facts.Count > 0 ? facts[0] : "-") + ")");
+                        Check(worldDialog.FactGroupsForProbe == 5 && worldDialog.FactTilesForProbe == 15, "la taille se lit en groupes de tuiles : cinq groupes, quinze faits (" + worldDialog.FactGroupsForProbe + ", " + worldDialog.FactTilesForProbe + ")");
                         Shot(worldDialog, "astrolabe-1-monde-taille.png");
                         worldDialog.SetSizeForProbe("beaucoup", "23,4");
                         await Settle();
@@ -325,7 +338,7 @@ namespace Marabook.App
                         worldDialog.SetSizeForProbe("40 075", "23,4");
                         worldDialog.FourSeasonsForProbe();
                         await Settle();
-                        Check(worldDialog.SeasonRowsForProbe == 4 && worldDialog.SeasonEchoForProbe(0) == "→ 6 Hautes-Eaux", "« Quatre saisons égales » : la première commence le jour 78, dit dans le calendrier (" + worldDialog.SeasonEchoForProbe(0) + ")");
+                        Check(worldDialog.SeasonRowsForProbe == 4 && worldDialog.SeasonEchoForProbe(0) == "→ 06/03", "« Quatre saisons égales » : la première commence le jour 78, dit dans le calendrier (" + worldDialog.SeasonEchoForProbe(0) + ")");
                         worldDialog.SetSolarYearForProbe("360,25");
                         await Settle();
                         Check(worldDialog.DriftForProbe.Contains("plus longue") && worldDialog.DriftForProbe.Contains("plus tôt"), "une durée réelle de l'année : la dérive du calendrier est dite (" + worldDialog.DriftForProbe + ")");
@@ -345,6 +358,20 @@ namespace Marabook.App
                         await Settle();
                         Check(plain(worldDialog.MoonsEchoForProbe).Contains("Sélène : pleine lune suivante le 31 Aubemer E3.1") && plain(worldDialog.MoonsEchoForProbe).Contains("Toutes pleines ensemble") && plain(worldDialog.MoonsEchoForProbe).Contains("90 jours plus tard"),
                             "deux lunes de 30 et 45 jours : la pleine lune suivante, et leur conjonction tous les 90 jours (" + plain(worldDialog.MoonsEchoForProbe).Replace("\n", " / ") + ")");
+                        // — 16/11 : l'orbite et les éclipses d'une lune, ce que le ciel déclenche.
+                        Check(worldDialog.MoonOrbitChoicesForProbe(0).Count == 2 && worldDialog.MoonOrbitChoicesForProbe(0)[0] == "Orbite le monde" && worldDialog.MoonOrbitChoicesForProbe(0)[1] == "Orbite Nyx", "l'orbite d'une lune : le monde, ou une autre lune");
+                        Check(worldDialog.MoonBehaviorsForProbe.Contains("2 lunes dans le ciel") && worldDialog.MoonBehaviorsForProbe.Contains("Sélène : des saisons d'éclipses") && worldDialog.MoonBehaviorsForProbe.Contains("lune rousse"),
+                            "ce que les lunes déclenchent est dit : deux lunes, des saisons d'éclipses, la prochaine lune rousse (" + worldDialog.MoonBehaviorsForProbe + ")");
+                        worldDialog.SetMoonEclipsesForProbe(0, 1);
+                        await Settle();
+                        Check(worldDialog.MoonBehaviorsForProbe.Contains("Sélène : une éclipse à chaque lunaison"), "…« À chaque lunaison » : chaque pleine lune est une lune rousse");
+                        worldDialog.SetMoonOrbitForProbe(1, 1);
+                        await Settle();
+                        Check(worldDialog.MoonBehaviorsForProbe.Contains("Nyx : lune de Sélène") && !worldDialog.MoonEclipsesEnabledForProbe(1) && plain(worldDialog.MoonsEchoForProbe).Contains("Nyx : prochain passage devant Sélène"),
+                            "…Nyx autour de Sélène : une lune de lune, sans éclipse à elle, ses passages datés");
+                        worldDialog.SetMoonOrbitForProbe(1, 0);
+                        worldDialog.SetMoonEclipsesForProbe(0, 0);
+                        await Settle();
                         worldDialog.ShowTabForProbe(3);
                         await Settle();
                         Shot(worldDialog, "astrolabe-3-monde-lunes.png");
@@ -356,9 +383,30 @@ namespace Marabook.App
                         Check(worldDialog.SunRowsForProbe == 3 && sunsEcho.Contains("Brasier : au plus haut à minuit le 1 Aubemer E3.1") && sunsEcho.Contains("nuits claires pendant environ 90 jours") && sunsEcho.Contains("de retour le 1 Aubemer E3.2"),
                             "un soleil compagnon de 360 jours : ses nuits claires, son retour un an plus tard (" + sunsEcho.Replace("\n", " / ") + ")");
                         Check(sunsEcho.Contains("Jumeau se lève et se couche avec Soleil"), "un compagnon sans période partage le ciel du premier soleil");
+                        // — 16/11 : l'orbite d'un soleil — centrique, ou autour d'un autre.
+                        Check(worldDialog.SunOrbitChoicesForProbe(1).Count == 3 && worldDialog.SunOrbitChoicesForProbe(1)[0].StartsWith("Centrique") && worldDialog.SunOrbitChoicesForProbe(1)[1] == "Orbite Soleil" && worldDialog.SunOrbitChoicesForProbe(1)[2] == "Orbite Jumeau",
+                            "l'orbite d'un soleil : « Centrique », ou « Orbite {autre soleil} » (" + string.Join(" | ", worldDialog.SunOrbitChoicesForProbe(1).ToArray()) + ")");
+                        Check(worldDialog.SunFieldsShownForProbe(1) && !worldDialog.SunFieldsShownForProbe(0) && worldDialog.SunRoleForProbe(0) == "Fait le jour et les saisons." && worldDialog.SunRoleForProbe(2).StartsWith("Au centre du système avec Soleil"),
+                            "un soleil qui orbite montre sa période et sa date ; un centrique dit son rôle");
+                        Check(worldDialog.SunBehaviorsForProbe.Contains("Brasier tourne autour de Soleil") && worldDialog.SunBehaviorsForProbe.Contains("Étoile double au centre") && worldDialog.SunBehaviorsForProbe.Contains("Trois soleils ou plus"),
+                            "ce que les soleils déclenchent est dit (" + worldDialog.SunBehaviorsForProbe + ")");
+                        worldDialog.SetSunOrbitForProbe(0, 1); // Soleil autour de Brasier, qui tourne autour de Soleil
+                        await Settle();
+                        Check(worldDialog.ProblemForProbe != null && worldDialog.ProblemForProbe.Contains("tourner autour de lui-même"), "deux soleils l'un autour de l'autre : la boucle est refusée (" + worldDialog.ProblemForProbe + ")");
+                        worldDialog.SetSunOrbitForProbe(0, 0);
+                        await Settle();
+                        Check(worldDialog.ProblemForProbe == null, "…Soleil redevenu centrique : plus de problème");
                         worldDialog.ShowTabForProbe(2);
                         await Settle();
                         Shot(worldDialog, "astrolabe-7-monde-soleils.png");
+                        // — 16/11 : les phénomènes personnalisés.
+                        worldDialog.AddPhenomenonForProbe("Comète de Vaire", "90", "1 Aubemer E3.1");
+                        await Settle();
+                        Check(worldDialog.PhenomenonRowsForProbe == 1 && plain(worldDialog.PhenomenaEchoForProbe).Contains("Comète de Vaire : passage suivant le 19 Hautes-Eaux E3.1"), "un phénomène personnalisé : son prochain passage est daté (" + plain(worldDialog.PhenomenaEchoForProbe) + ")");
+                        worldDialog.ShowTabForProbe(4);
+                        await Settle();
+                        Shot(worldDialog, "astrolabe-9-monde-phenomenes.png");
+                        worldDialog.ShowTabForProbe(2);
                         worldDialog.AddSunForProbe("Faux", "dix", "");
                         await Settle();
                         Check(worldDialog.ProblemForProbe != null && worldDialog.ProblemForProbe.Contains("période d'un soleil"), "une période de soleil illisible est signalée (" + worldDialog.ProblemForProbe + ")");
@@ -380,12 +428,13 @@ namespace Marabook.App
                         worldDialog.AddMoonForProbe("Sélène", "30", "1 Aubemer E3.1");
                         worldDialog.AddMoonForProbe("Nyx", "45", "1 Aubemer E3.1");
                         worldDialog.AddSunForProbe("Brasier", "360", "1 Aubemer E3.1");
+                        worldDialog.AddPhenomenonForProbe("Comète de Vaire", "90", "1 Aubemer E3.1");
                         await Settle();
                         worldDialog.AcceptForProbe();
                         choice = await worldTask;
                     }
                     Check(choice != null && choice.SystemIds.Count == 1 && choice.World.Seasons.Count == 4 && choice.World.Moons.Count == 2, "validé : le monde, ses quatre saisons, ses deux lunes, son calendrier");
-                    Check(choice != null && choice.World.Suns.Count == 2 && choice.World.Suns[1].Period == 360 && choice.World.ReferenceSystemId == view.System.Id, "…ses deux soleils, et son calendrier de référence");
+                    Check(choice != null && choice.World.Suns.Count == 2 && choice.World.Suns[1].Period == 360 && choice.World.Suns[1].OrbitId == choice.World.Suns[0].Id && choice.World.Phenomena.Count == 1 && choice.World.ReferenceSystemId == view.System.Id, "…ses deux soleils, et son calendrier de référence");
                     if (choice != null)
                     {
                         shell.ApplyWorldForProbe(null, choice);
@@ -406,10 +455,25 @@ namespace Marabook.App
                         Check(calendar.MoonsOfDayForProbe(31).Contains(Astro.Full), "le 31 : Sélène de nouveau pleine");
                         // — 16/11 : l'infobulle d'une lune, la pastille de la saison.
                         var moonTip = calendar.SkyTipForProbe(1) ?? "";
-                        Check(moonTip.StartsWith("Sélène : pleine lune") && moonTip.Contains("Précédente : ") && moonTip.Contains("Prochaine : 31/1/E3.1"), "l'infobulle d'une lune : sa phase, la précédente, la prochaine en notation abrégée (" + moonTip.Replace("\n", " / ") + ")");
-                        Check((calendar.SkyTipForProbe(16) ?? "").StartsWith("Sélène : nouvelle lune") && (calendar.SkyTipForProbe(16) ?? "").Contains("Prochaine : 10/2/E3.1"), "…celle du 16 dit la nouvelle lune, la prochaine le 10 du mois suivant (" + (calendar.SkyTipForProbe(16) ?? "").Replace("\n", " / ") + ")");
+                        Check(moonTip.StartsWith("Sélène : pleine lune") && moonTip.Contains("Précédente : ") && moonTip.Contains("Prochaine : 31/01/E3.1"), "l'infobulle d'une lune : sa phase, la précédente, la prochaine en notation abrégée (" + moonTip.Replace("\n", " / ") + ")");
+                        Check((calendar.SkyTipForProbe(16) ?? "").StartsWith("Sélène : nouvelle lune") && (calendar.SkyTipForProbe(16) ?? "").Contains("Prochaine : 10/02/E3.1"), "…celle du 16 dit la nouvelle lune, la prochaine le 10 du mois suivant (" + (calendar.SkyTipForProbe(16) ?? "").Replace("\n", " / ") + ")");
                         Check(calendar.SeasonDotsForProbe == 1, "la saison du mois a sa pastille de couleur à côté de son nom");
                         Shot(view, "astrolabe-4-calendrier-saisons-lunes.png");
+                        // — 16/11 : l'infobulle d'un jour, les étoiles du ciel, la ligne Mode / Types.
+                        Check(calendar.DayTipForProbe(1) == "01/01/E3.1" && calendar.DayTipForProbe(16) == "16/01/E3.1", "survoler la case d'un jour donne sa date abrégée (" + calendar.DayTipForProbe(1) + ")");
+                        var stars = string.Join(" / ", calendar.StarTipsForProbe(1).ToArray()).Replace("\n", " / ");
+                        Check(calendar.StarTipsForProbe(1).Count == 1 && stars.Contains("Sélène : éclipse totale de lune (lune rousse)") && stars.Contains("Toutes les lunes sont pleines ensemble") && stars.Contains("Comète de Vaire"),
+                            "le 1er Aubemer : une étoile dit tout ce que le ciel fait — lunes rousses, lunes pleines ensemble, la comète (" + stars + ")");
+                        Check(calendar.StarTipsForProbe(2).Count == 0, "…le 2 : rien de particulier, pas d'étoile");
+                        Check(view.FilterRowSingleLineForProbe && (view.TypesLabelForProbe ?? "").StartsWith("Types  ") && view.TypesMenuCountForProbe() == view.FilterChipsForProbe && view.FilterChipsForProbe >= 2,
+                            "la ligne des filtres : le Mode en tête, les types sur une seule ligne, et un bouton « Types » qui les liste tous (" + view.TypesLabelForProbe + ", " + view.FilterChipsForProbe + " types)");
+                        var typesBefore = view.TypesLabelForProbe;
+                        view.ToggleTypeForProbe(0);
+                        await Settle();
+                        Check(view.TypesLabelForProbe != typesBefore, "un type masqué : le bouton « Types » le compte (" + typesBefore + " → " + view.TypesLabelForProbe + ")");
+                        view.ShowAllTypesForProbe();
+                        await Settle();
+                        Check(view.TypesLabelForProbe == typesBefore, "…« Tout montrer » les ramène tous");
                         calendar.SetYearModeForProbe(true);
                         await Settle();
                         Check(calendar.SeasonDotsForProbe == 5 && calendar.SubtitleForProbe.Contains("Hiver → Printemps → Été → Automne → Hiver"), "en vue d'année, la légende suit les saisons de toute l'année (" + calendar.SubtitleForProbe + ")");
@@ -563,6 +627,7 @@ namespace Marabook.App
                     // Lot 3 (14/11) : la date d'exemple, le testeur encadré, l'an 0 des segments, les jours en pastilles.
                     Check(systemDialog.DateExampleForProbe.StartsWith("→ 12 ") && systemDialog.DateExampleForProbe.Contains("E2.880"), "sous la notation d'une date, une date d'exemple mise en forme (" + systemDialog.DateExampleForProbe + ")");
                     Check(systemDialog.TryBoxFramedForProbe, "le testeur de dates est dans un cadre aux bords arrondis");
+                    Check(systemDialog.FoundationNoticeForProbe, "un système qui porte des frises : le bandeau « fondation » prévient que ses dates seront relues (16/11)");
                     Check(systemDialog.SegmentYearZeroEnabledForProbe, "découpé et chaque segment repart de zéro : la case « an 0 de chaque segment » est active");
                     systemDialog.SetSegmentYearZeroForProbe(true);
                     await Settle();
@@ -601,9 +666,35 @@ namespace Marabook.App
                     systemDialog.ShowTabForProbe(1);
                     await Settle();
                     Shot(systemDialog, "frises-22-repartir-les-jours.png");
+                    // — 16/11 : le Répartiteur (accordéon, trois méthodes), les bissextiles en cartes.
+                    Check(!systemDialog.SpreadOpenForProbe, "le Répartiteur est replié dans son accordéon");
+                    systemDialog.SpreadOpenForProbe = true;
+                    systemDialog.SpreadForProbe(1, "365");
+                    await Settle();
+                    Check(systemDialog.MonthDaysForProbe == "36,37,36,37,36,37,36,37,36,37" && systemDialog.DistributeEchoForProbe.Contains("365 jours"),
+                        "le Répartiteur, en bascule : 365 jours en dix mois, +0 j, +1 j, +0 j… (" + systemDialog.MonthDaysForProbe + " — " + systemDialog.DistributeEchoForProbe + ")");
+                    systemDialog.SpreadForProbe(0, "363");
+                    await Settle();
+                    Check(systemDialog.MonthDaysForProbe == "36,36,36,37,36,36,37,36,36,37", "…uniformément : 363 jours, les trois jours de plus étalés sur l'année (" + systemDialog.MonthDaysForProbe + ")");
+                    systemDialog.SpreadForProbe(0, "3");
+                    await Settle();
+                    Check(systemDialog.MonthDaysForProbe == "36,36,36,37,36,36,37,36,36,37" && !systemDialog.DistributeEnabledForProbe, "…moins d'un jour par mois : rien ne change, « Répartir » est grisé");
+                    Shot(systemDialog, "astrolabe-10-repartiteur.png");
+                    if (systemDialog.LeapCountForProbe > 0)
+                        Check(systemDialog.LeapEchoForProbe(0).StartsWith("→ Bissextiles : les années ") && systemDialog.LeapRemoveAlignedForProbe(0),
+                            "une règle de bissextile est une carte : ce qu'elle donne est dit dessous, sa croix reste en haut à droite (" + systemDialog.LeapEchoForProbe(0) + ")");
+                    systemDialog.DistributeForProbe("5"); // la suite repart des mois de 35 jours
+                    await Settle();
                     systemDialog.ShowTabForProbe(2);
                     await Settle();
                     Shot(systemDialog, "frises-19-semaine-liste.png");
+                    // — 16/11 : le cadran de l'horloge et les secondes.
+                    Check(systemDialog.ClockForProbe.StartsWith("20/50/60 ") && systemDialog.ClockForProbe.Replace(' ', ' ').Replace(' ', ' ').Contains("60 000 secondes"), "l'horloge : le cadran reprend les 20 heures et les 50 minutes du calendrier, et compte les secondes d'un jour (" + systemDialog.ClockForProbe.Replace("\n", " / ") + ")");
+                    systemDialog.SetSecondsForProbe("80");
+                    await Settle();
+                    Check(systemDialog.ClockForProbe.StartsWith("20/50/80 ") && systemDialog.ClockForProbe.Replace(' ', ' ').Replace(' ', ' ').Contains("80 000 secondes"), "…des minutes de 80 secondes : le cadran et le compte suivent");
+                    systemDialog.SetSecondsForProbe("60");
+                    await Settle();
                     systemDialog.ShowTabForProbe(0);
                     await Settle();
                     Shot(systemDialog, "frises-6-temporalite-par-segments.png");
@@ -626,12 +717,13 @@ namespace Marabook.App
                 Check(draftDialog != null, "la fenêtre d'un nouveau système s'ouvre");
                 if (draftDialog != null)
                 {
-                    Check(!draftDialog.SegmentedForProbe && draftDialog.WordForProbe == "Âge" && draftDialog.YearPatternForProbe == "{a}" && draftDialog.DatePatternForProbe == "{j}/{M}/{année}",
-                        "un système neuf : pas de découpage, année « {a} », date « {j}/{M}/{année} » (" + draftDialog.YearPatternForProbe + ", " + draftDialog.DatePatternForProbe + ")");
+                    Check(!draftDialog.SegmentedForProbe && draftDialog.WordForProbe == "Âge" && draftDialog.YearPatternForProbe == "{a}" && draftDialog.DatePatternForProbe == "{j}/{m}/{année}",
+                        "un système neuf : pas de découpage, année « {a} », date « {j}/{m}/{année} » (" + draftDialog.YearPatternForProbe + ", " + draftDialog.DatePatternForProbe + ")");
+                    Check(!draftDialog.FoundationNoticeForProbe, "…un système neuf ne porte rien : pas de bandeau « fondation »");
                     Check(!draftDialog.SegmentYearZeroEnabledForProbe, "…sans découpage, la case « an 0 de chaque segment » est grisée");
                     Check(draftDialog.NoticeShownForProbe && draftDialog.MonthDaysForProbe == "31,28,31,30,31,30,31,31,30,31,30,31" && draftDialog.LeapCountForProbe == 1 && draftDialog.DaysForProbe.StartsWith("lundi|mardi|") && draftDialog.DayRowsForProbe == 7,
                         "…prérempli des données de notre monde, et le bandeau vert le dit : nos douze mois, notre bissextile, nos sept jours (15/11) (" + draftDialog.MonthDaysForProbe + ")");
-                    Check(draftDialog.ExampleForProbe.Contains("880") && !draftDialog.ExampleForProbe.Contains("A1") && draftDialog.DateExampleForProbe == "→ 12/mars/880" && !draftDialog.ProblemShownForProbe,
+                    Check(draftDialog.ExampleForProbe.Contains("880") && !draftDialog.ExampleForProbe.Contains("A1") && draftDialog.DateExampleForProbe == "→ 12/3/880" && !draftDialog.ProblemShownForProbe,
                         "…l'exemple se lit sans erreur (" + draftDialog.ExampleForProbe + " ; " + draftDialog.DateExampleForProbe + ")");
                     Shot(draftDialog, "frises-20-nouveau-systeme.png");
                     draftDialog.SegmentedForProbe = true;
@@ -640,10 +732,10 @@ namespace Marabook.App
                         "…découpage coché : la notation passe à A{s}.{a}, A1.1000 puis A2.1 (" + draftDialog.YearPatternForProbe + " — " + draftDialog.ExampleForProbe + ")");
                     draftDialog.SetSegmentYearZeroForProbe(true);
                     await Settle();
-                    Check(draftDialog.ExampleForProbe.Contains("A1.1000 puis A2.0") && draftDialog.DateExampleForProbe == "→ 12/mars/A2.879", "…an 0 par segment : A1.1000 puis A2.0 (" + draftDialog.ExampleForProbe + " ; " + draftDialog.DateExampleForProbe + ")");
-                    draftDialog.TryForProbe("3/février/A1.5");
+                    Check(draftDialog.ExampleForProbe.Contains("A1.1000 puis A2.0") && draftDialog.DateExampleForProbe == "→ 12/3/A2.879", "…an 0 par segment : A1.1000 puis A2.0 (" + draftDialog.ExampleForProbe + " ; " + draftDialog.DateExampleForProbe + ")");
+                    draftDialog.TryForProbe("3/2/A1.5");
                     await Settle();
-                    Check(draftDialog.TryEchoForProbe.Contains("3/février/A1.5"), "…une date jour/mois/année se relit (" + draftDialog.TryEchoForProbe + ")");
+                    Check(draftDialog.TryEchoForProbe.Contains("3/2/A1.5"), "…une date jour/mois/année se relit (" + draftDialog.TryEchoForProbe + ")");
                     Shot(draftDialog, "frises-21-nouveau-systeme-ages.png");
                     draftDialog.SegmentedForProbe = false;
                     await Settle();

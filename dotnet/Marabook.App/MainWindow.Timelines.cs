@@ -47,6 +47,7 @@ namespace Marabook.App
             _timelineHub.OpenRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
             _timelineHub.NewTimelineRequested += delegate { _binder.NewTimeline(null); };
             _timelineHub.NewSystemRequested += delegate { EditTimeSystem(null); };
+            _timelineHub.OurSystemRequested += delegate { AddOurSystem(); };
             _timelineHub.EditSystemRequested += delegate(TimeSystem system) { EditTimeSystem(system); };
             _timelineHub.RemoveSystemRequested += delegate(TimeSystem system) { RemoveTimeSystem(system); };
             _timelineHub.CalculatorRequested += delegate(TimeSystem system) { ShowCalculator(system, null); };
@@ -159,6 +160,15 @@ namespace Marabook.App
             RefreshTimelineViews();
         }
 
+        /// <summary>Le calendrier de notre monde, ajouté tel quel au projet (16/11 : l'étape 1 de l'Astrolabe en un clic). Ctrl+Z le retire.</summary>
+        private void AddOurSystem()
+        {
+            if (_project == null || _project.TimeSystems.Exists(delegate(TimeSystem s) { return s.Name == TimeSystem.GregorianName; })) return;
+            var change = TimeSystemChange.Build(_project, null, TimeSystem.Gregorian());
+            _history.Run(new History.TimeSystemEditAction(_project, change, true));
+            RefreshTimelineViews();
+        }
+
         internal void ApplyWorldForProbe(World replaced, WorldChoice choice) { ApplyWorld(replaced, choice); }
         internal World NewWorldDraftForProbe() { return NewWorldDraft(); }
 
@@ -169,6 +179,7 @@ namespace Marabook.App
                 MessageButtons.YesNo, MessageIcon.Question);
             if (answer != MessageResult.Yes) return;
             _project.TimeSystems.Remove(system);
+            foreach (var world in _project.Worlds) if (world.ReferenceSystemId == system.Id) world.ReferenceSystemId = null; // sa référence partie : le premier calendrier du monde
             MarkDirty();
             RefreshTimelineViews();
         }

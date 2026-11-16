@@ -45,7 +45,25 @@ namespace Marabook.Model
             if (system == null || point == null) return "";
             var year = system.FormatYear(point.Year);
             if (!point.HasMonth) return year;
-            return (point.HasDay ? point.Day + "/" : "") + point.Month + "/" + year;
+            // Deux chiffres au jour et au mois (16/11, Rémi : « 05/11/2026 »).
+            return (point.HasDay ? point.Day.ToString("00", CultureInfo.InvariantCulture) + "/" : "") + point.Month.ToString("00", CultureInfo.InvariantCulture) + "/" + year;
+        }
+
+        /// <summary>Le jour N d'une année ordinaire, en abrégé : « 20/03 »
+        /// (jour/numéro du mois) quand le calendrier a des mois, « jour 79 » sinon.</summary>
+        public static string ShortDayOfYear(TimeSystem system, int day)
+        {
+            if (system != null && system.Months.Count > 1)
+            {
+                var rest = day;
+                for (var m = 0; m < system.Months.Count; m++)
+                {
+                    var inMonth = Math.Max(1, system.Months[m].Days);
+                    if (rest <= inMonth) return rest.ToString("00", CultureInfo.InvariantCulture) + "/" + (m + 1).ToString("00", CultureInfo.InvariantCulture);
+                    rest -= inMonth;
+                }
+            }
+            return "jour " + day;
         }
 
         public static TimePoint FromDayNumber(TimeSystem system, long dayNumber)
@@ -137,6 +155,42 @@ namespace Marabook.Model
             if (system == null || system.WeekDays.Count == 0 || weeksPerMonth < 1) return false;
             var days = Math.Min(10000, weeksPerMonth * system.WeekDays.Count);
             foreach (var month in system.Months) month.Days = days;
+            return true;
+        }
+
+        /// <summary>LE RÉPARTITEUR (16/11, Rémi) : tant de jours dans l'année,
+        /// partagés entre tant de mois. Chaque mois reçoit la part entière ; les
+        /// jours qui restent vont, un par mois, soit UNIFORMÉMENT (étalés sur
+        /// toute l'année), soit EN BASCULE (+0 j, +1 j, +0 j… : un mois sur deux,
+        /// à partir du deuxième — puis les autres s'il en reste). 365 jours en
+        /// douze mois : 30, 31, 30, 31, 30, 31, 30, 31, 30, 31, 30, 30 en bascule.
+        /// Null si le compte ne tient pas (moins d'un jour par mois).</summary>
+        public static int[] Spread(int months, int yearDays, bool alternate)
+        {
+            if (months < 1 || yearDays < months || yearDays > 10000L * months) return null;
+            var days = new int[months];
+            var whole = yearDays / months;
+            var rest = yearDays % months;
+            for (var i = 0; i < months; i++) days[i] = whole;
+            if (alternate)
+            {
+                var order = new List<int>();
+                for (var i = 1; i < months; i += 2) order.Add(i);
+                for (var i = 0; i < months; i += 2) order.Add(i);
+                for (var k = 0; k < rest; k++) days[order[k]]++;
+            }
+            else
+                for (var i = 0; i < months; i++) days[i] += (int)((long)(i + 1) * rest / months - (long)i * rest / months);
+            return days;
+        }
+
+        /// <summary>Applique Spread aux mois du système ; faux (rien ne change) si le compte ne tient pas.</summary>
+        public static bool Distribute(TimeSystem system, int yearDays, bool alternate)
+        {
+            if (system == null) return false;
+            var days = Spread(system.Months.Count, yearDays, alternate);
+            if (days == null) return false;
+            for (var i = 0; i < days.Length; i++) system.Months[i].Days = days[i];
             return true;
         }
 

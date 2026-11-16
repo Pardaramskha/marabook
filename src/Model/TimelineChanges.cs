@@ -191,6 +191,7 @@ namespace Marabook.Model
             if (point.Hour >= Math.Max(1, to.HoursPerDay) || point.Minute >= Math.Max(1, to.MinutesPerHour)) return null;
             converted.Hour = point.Hour;
             converted.Minute = point.Minute;
+            converted.Second = point.Second < Math.Max(1, to.SecondsPerMinute) ? point.Second : 0;
             return converted;
         }
 

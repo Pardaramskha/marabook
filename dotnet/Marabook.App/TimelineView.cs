@@ -40,7 +40,9 @@ namespace Marabook.App
         private readonly TextBox _goTo;
         private readonly StackPanel _tabs;
         private readonly Border _tabsBar;
-        private readonly WrapPanel _filters;
+        private readonly StackPanel _filters;       // les pastilles des types : UNE ligne, qui défile (16/11)
+        private readonly ScrollViewer _filterScroll;
+        private readonly Button _typesButton;       // « Types 5/7 » : tous les types, même ceux que la ligne ne montre pas
         private readonly Surface _surface;
         private readonly Minimap _minimap;
         private readonly TextBlock _empty;
@@ -181,17 +183,35 @@ namespace Marabook.App
             Children.Add(_tabsBar);
 
             // ================================================== filtres (les types)
-            _filters = new WrapPanel { Orientation = Orientation.Horizontal };
-            // Frise | Calendrier : au bout de la ligne des types, visible dans les deux vues
-            // (dans l'en-tête, les boutons se chevauchaient dès que la page était étroite).
-            var modes = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(12, 0, 0, 0) };
+            // 16/11 (Rémi : « les filtres par type peuvent rapidement bonder leur ligne et noyer le
+            // bouton de switch de mode ») : le MODE passe en tête de ligne, à place fixe ; les types
+            // tiennent sur UNE ligne qui défile (molette), et le bouton « Types » les liste tous.
+            _filters = new StackPanel { Orientation = Orientation.Horizontal };
+            _filterScroll = new ScrollViewer
+            {
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = _filters, VerticalAlignment = VerticalAlignment.Center, Tag = "timeline-filter-scroll"
+            };
+            _filterScroll.PointerWheelChanged += delegate(object sender, PointerWheelEventArgs e)
+            {
+                var room = Math.Max(0, _filterScroll.Extent.Width - _filterScroll.Viewport.Width);
+                if (room <= 0) return;
+                _filterScroll.Offset = new Vector(Math.Max(0, Math.Min(room, _filterScroll.Offset.X - (e.Delta.Y + e.Delta.X) * 70)), 0);
+                e.Handled = true;
+            };
+            var modes = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             modes.Children.Add(new TextBlock { Text = "Mode :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
             modes.Children.Add(_mode);
-            DockPanel.SetDock(modes, Dock.Right);
+            modes.Children.Add(new Border { Width = 1, Background = Chrome.Border, Margin = new Thickness(12, 2, 12, 2) });
+            _typesButton = new Button { Padding = new Thickness(9, 0, 9, 0), Height = Buttons.Compact, MinHeight = Buttons.Compact, Focusable = false, Tag = "timeline-types", Margin = new Thickness(0, 0, 10, 0) };
+            ToolTip.SetTip(_typesButton, "Tous les types d'événement : les montrer, les masquer, les gérer");
+            _typesButton.Click += delegate { Ui.ShowMenu(TypesMenu(), _typesButton); };
+            modes.Children.Add(_typesButton);
+            DockPanel.SetDock(modes, Dock.Left);
             var filterRow = new DockPanel();
             filterRow.Children.Add(modes);
-            filterRow.Children.Add(_filters);
-            var filterBar = new Border { Padding = new Thickness(16, 6, 16, 2), Child = filterRow };
+            filterRow.Children.Add(_filterScroll);
+            var filterBar = new Border { Padding = new Thickness(16, 6, 16, 6), Child = filterRow };
             SetDock(filterBar, Dock.Top);
             Children.Add(filterBar);
 
@@ -450,23 +470,40 @@ namespace Marabook.App
             RefreshInspector();
         }
 
+        /// <summary>Les types de la frise, « Naissance » et « Décès » compris (les dates liées sur les fiches, lot 2).</summary>
+        private List<TimelineEventType> FilterTypes()
+        {
+            var types = new List<TimelineEventType>(_item.Timeline.Types);
+            types.Add(TimelineInfo.BuiltInType(TimelineInfo.BirthTypeId));
+            types.Add(TimelineInfo.BuiltInType(TimelineInfo.DeathTypeId));
+            return types;
+        }
+
+        private int CountOf(TimelineEventType type)
+        {
+            var count = 0;
+            foreach (var entry in _events) if (entry.TypeId == type.Id) count++;
+            return count;
+        }
+
+        private void ToggleType(string id)
+        {
+            if (!_hidden.Remove(id)) _hidden.Add(id);
+            RebuildFilters();
+            Redraw();
+            RefreshInspector();
+        }
+
         private void RebuildFilters()
         {
             _filters.Children.Clear();
             if (_item == null) return;
-            _filters.Children.Add(new TextBlock { Text = "Types :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 6) });
-            var types = new List<TimelineEventType>(_item.Timeline.Types);
-            // « Naissance » et « Décès » : les dates liées sur les fiches (lot 2).
-            types.Add(TimelineInfo.BuiltInType(TimelineInfo.BirthTypeId));
-            types.Add(TimelineInfo.BuiltInType(TimelineInfo.DeathTypeId));
-            foreach (var type in types)
+            foreach (var type in FilterTypes())
             {
                 var captured = type;
-                var count = 0;
-                foreach (var entry in _events) if (entry.TypeId == type.Id) count++;
                 var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
                 content.Children.Add(new Border { Width = 10, Height = 10, CornerRadius = new CornerRadius(5), Background = new SolidColorBrush(ColorOf(type)), VerticalAlignment = VerticalAlignment.Center });
-                content.Children.Add(new TextBlock { Text = type.Name + "  " + count, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 });
+                content.Children.Add(new TextBlock { Text = type.Name + "  " + CountOf(type), VerticalAlignment = VerticalAlignment.Center, FontSize = 12 });
                 var builtIn = TimelineInfo.BuiltInType(type.Id) != null;
                 var chip = new ToggleButton
                 {
@@ -474,30 +511,87 @@ namespace Marabook.App
                     Content = content,
                     IsChecked = !_hidden.Contains(type.Id),
                     Padding = new Thickness(8, 3, 9, 3),
-                    Margin = new Thickness(0, 0, 6, 6),
+                    Margin = new Thickness(0, 0, 6, 0),
                     Tag = "timeline-filter",
                     [ToolTip.TipProperty] = builtIn
                         ? "Montrer ou masquer les « " + type.Name + " » : les dates de " + (type.Id == TimelineInfo.BirthTypeId ? "naissance" : "décès") + " liées à cette frise sur les fiches"
                         : "Montrer ou masquer les événements « " + type.Name + " »"
                 };
+                // Sans reconstruire la ligne depuis le clic de sa propre pastille : le bouton « Types » seul se relit.
                 chip.Click += delegate
                 {
                     if (!_hidden.Remove(captured.Id)) _hidden.Add(captured.Id);
+                    UpdateTypesButton();
                     Redraw();
                     RefreshInspector();
                 };
                 _filters.Children.Add(chip);
             }
-            var manage = Buttons.Text("Gérer les types…", "Renommer, recolorer, ajouter ou retirer des types d'événement", Buttons.Compact, Buttons.Look.Calm);
-            manage.Margin = new Thickness(4, 0, 0, 6);
+            UpdateTypesButton();
+        }
+
+        /// <summary>Le bouton dit combien de types sont montrés ; en accent dès qu'un type est masqué.</summary>
+        private void UpdateTypesButton()
+        {
+            if (_item == null) return;
+            var types = FilterTypes();
+            var shown = 0;
+            foreach (var type in types) if (!_hidden.Contains(type.Id)) shown++;
+            var face = new StackPanel { Orientation = Orientation.Horizontal };
+            var filtered = shown < types.Count;
+            face.Children.Add(new TextBlock { Text = "Types  " + shown + "/" + types.Count, Foreground = filtered ? Chrome.AccentStrong : Chrome.Ink, FontWeight = filtered ? FontWeight.SemiBold : FontWeight.Normal, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+            var caret = Icons.Make("caret-down-bold", 10, Chrome.SoftText);
+            caret.Margin = new Thickness(7, 1, 0, 0);
+            face.Children.Add(caret);
+            _typesButton.Content = face;
+        }
+
+        /// <summary>Le menu « Types » : chaque type (une pastille pleine s'il est montré, creuse
+        /// s'il est masqué), puis tout montrer, tout masquer, et la gestion des types.</summary>
+        private ContextMenu TypesMenu()
+        {
+            var menu = new ContextMenu();
+            if (_item == null) return menu;
+            var types = FilterTypes();
+            foreach (var type in types)
+            {
+                var captured = type;
+                var on = !_hidden.Contains(type.Id);
+                var tint = new SolidColorBrush(ColorOf(type));
+                var entry = new MenuItem
+                {
+                    Header = type.Name + "   " + CountOf(type) + (on ? "" : "   (masqué)"), Tag = "timeline-types-item",
+                    Icon = new Border { Width = 11, Height = 11, CornerRadius = new CornerRadius(6), Background = on ? (IBrush)tint : Brushes.Transparent, BorderBrush = tint, BorderThickness = new Thickness(2) }
+                };
+                entry.Click += delegate { ToggleType(captured.Id); };
+                menu.Items.Add(entry);
+            }
+            menu.Items.Add(new Separator());
+            var all = new MenuItem { Header = "Tout montrer", IsEnabled = _hidden.Count > 0, Tag = "timeline-types-all" };
+            all.Click += delegate { _hidden.Clear(); RebuildFilters(); Redraw(); RefreshInspector(); };
+            menu.Items.Add(all);
+            var none = new MenuItem { Header = "Tout masquer", Tag = "timeline-types-none" };
+            none.Click += delegate { foreach (var type in types) _hidden.Add(type.Id); RebuildFilters(); Redraw(); RefreshInspector(); };
+            menu.Items.Add(none);
+            menu.Items.Add(new Separator());
+            var manage = new MenuItem { Header = "Gérer les types…", Tag = "timeline-types-manage" };
             manage.Click += async delegate
             {
                 if (_item == null) return;
                 var before = _item.Timeline.Clone();
                 if (await TimelineTypesDialog.Edit(Ui.OwnerOf(this), _project, _item.Timeline)) Commit(before);
             };
-            _filters.Children.Add(manage);
+            menu.Items.Add(manage);
+            return menu;
         }
+
+        internal string TypesLabelForProbe { get { var face = _typesButton.Content as StackPanel; return face == null ? null : ((TextBlock)face.Children[0]).Text; } }
+        internal int TypesMenuCountForProbe() { var n = 0; foreach (var item in TypesMenu().Items) if (item is MenuItem && Equals(((MenuItem)item).Tag, "timeline-types-item")) n++; return n; }
+        internal int FilterChipsForProbe { get { return _filters.Children.Count; } }
+        internal void ToggleTypeForProbe(int index) { ToggleType(FilterTypes()[index].Id); }
+        internal void ShowAllTypesForProbe() { _hidden.Clear(); RebuildFilters(); Redraw(); RefreshInspector(); }
+        /// <summary>Sonde : le Mode précède les types et la ligne des types ne passe jamais à la ligne.</summary>
+        internal bool FilterRowSingleLineForProbe { get { return _mode.Bounds.Height > 0 && _filterScroll.Bounds.Height <= _mode.Bounds.Height + 12; } }
 
         internal static Color ColorOf(TimelineEventType type)
         {

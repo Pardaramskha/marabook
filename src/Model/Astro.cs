@@ -32,6 +32,8 @@ namespace Marabook.Model
         public double Period = 29.53;
         public double FullAt;   // le numéro de jour d'une pleine lune
         public string Color;
+        public string OrbitId;  // 16/11 : la lune autour de laquelle elle tourne ; null = autour du monde
+        public int Eclipses;    // Astro.EclipseSeasons (comme la nôtre), EclipseAlways, EclipseNever
     }
 
     /// <summary>Un soleil (15/11, Rémi : des systèmes planétaires autres que le
@@ -47,6 +49,49 @@ namespace Marabook.Model
         public double Period;   // jours ; 0 = suit le premier soleil
         public double HighAt;   // le numéro d'un jour où il culmine à minuit
         public string Color;
+        public string OrbitId;  // 16/11 : le soleil autour duquel il tourne ; null = « centrique », au milieu du système
+    }
+
+    /// <summary>Un PHÉNOMÈNE PERSONNALISÉ (16/11, Rémi) : ce qui revient dans le
+    /// ciel à période fixe et que les astres du monde ne suffisent pas à dire —
+    /// une comète, une pluie d'étoiles, la « lune rousse » d'une légende. Un
+    /// nom, une période (en jours) et le jour d'un passage de référence.</summary>
+    public class SkyEvent
+    {
+        public string Id = Guid.NewGuid().ToString("N");
+        public string Name = "";
+        public double Period = 365;
+        public double At;       // le numéro de jour d'un passage
+        public string Color;
+    }
+
+    /// <summary>Ce que le ciel fait d'un jour, au-delà des phases : une éclipse,
+    /// une lune bleue, toutes les lunes pleines ensemble, un phénomène personnalisé.</summary>
+    public class SkyNote
+    {
+        public string Text;     // « Lune : éclipse totale (lune rousse) »
+        public string Detail;   // la précédente et la prochaine, pour l'infobulle ; null sans
+        public string Color;    // "#RRGGBB"
+    }
+
+    /// <summary>Un comportement que l'agencement des astres déclenche — dit en
+    /// clair dans la fenêtre du monde, sous les soleils et sous les lunes.</summary>
+    public class SkyBehavior
+    {
+        public string Title;
+        public string Text;
+        public bool Notable;    // vrai : sort de l'ordinaire (plusieurs soleils, éclipses à chaque lunaison…)
+    }
+
+    public class SizeFact
+    {
+        public string Label, Value, Note;
+    }
+
+    public class SizeFactGroup
+    {
+        public string Title;
+        public List<SizeFact> Facts = new List<SizeFact>();
     }
 
     public class World
@@ -63,6 +108,8 @@ namespace Marabook.Model
         // Le calendrier dans lequel la fenêtre du monde compte les jours et écrit
         // les dates (15/11) ; null = le premier calendrier du monde.
         public string ReferenceSystemId;
+        // Les phénomènes personnalisés (16/11) : une comète, une pluie d'étoiles, la lune rousse des légendes.
+        public List<SkyEvent> Phenomena = new List<SkyEvent>();
 
         public bool HasSize { get { return Circumference > 0; } }
         public bool HasTilt { get { return AxialTilt >= 0; } }
@@ -70,9 +117,10 @@ namespace Marabook.Model
         public World Clone()
         {
             var copy = new World { Id = Id, Name = Name, Circumference = Circumference, AxialTilt = AxialTilt, SolarYear = SolarYear, ReferenceSystemId = ReferenceSystemId };
-            foreach (var sun in Suns) copy.Suns.Add(new Sun { Id = sun.Id, Name = sun.Name, Period = sun.Period, HighAt = sun.HighAt, Color = sun.Color });
+            foreach (var sun in Suns) copy.Suns.Add(new Sun { Id = sun.Id, Name = sun.Name, Period = sun.Period, HighAt = sun.HighAt, Color = sun.Color, OrbitId = sun.OrbitId });
             foreach (var season in Seasons) copy.Seasons.Add(new Season { Id = season.Id, Name = season.Name, StartDay = season.StartDay, Color = season.Color });
-            foreach (var moon in Moons) copy.Moons.Add(new Moon { Id = moon.Id, Name = moon.Name, Period = moon.Period, FullAt = moon.FullAt, Color = moon.Color });
+            foreach (var moon in Moons) copy.Moons.Add(new Moon { Id = moon.Id, Name = moon.Name, Period = moon.Period, FullAt = moon.FullAt, Color = moon.Color, OrbitId = moon.OrbitId, Eclipses = moon.Eclipses });
+            foreach (var item in Phenomena) copy.Phenomena.Add(new SkyEvent { Id = item.Id, Name = item.Name, Period = item.Period, At = item.At, Color = item.Color });
             return copy;
         }
 
@@ -306,13 +354,60 @@ namespace Marabook.Model
 
         // ---------------------------------------------------------------- soleils
 
-        /// <summary>Les compagnons du premier soleil qui font le tour du ciel (ceux qui ont une période).</summary>
+        /// <summary>Le soleil qui fait le jour et les saisons : le premier soleil
+        /// « centrique » (sans orbite) ; à défaut le premier de la liste. Null sans soleil.</summary>
+        public static Sun MainSun(World world)
+        {
+            if (world == null || world.Suns.Count == 0) return null;
+            foreach (var sun in world.Suns) if (sun.OrbitId == null) return sun;
+            return world.Suns[0];
+        }
+
+        /// <summary>Les soleils qui font le tour du ciel : tous sauf le principal, dès qu'ils ont une période.</summary>
         public static List<Sun> Wanderers(World world)
         {
             var suns = new List<Sun>();
             if (world == null) return suns;
-            for (var i = 1; i < world.Suns.Count; i++) if (world.Suns[i].Period > 0) suns.Add(world.Suns[i]);
+            var main = MainSun(world);
+            foreach (var sun in world.Suns) if (sun != main && sun.Period > 0) suns.Add(sun);
             return suns;
+        }
+
+        public static Sun FindSun(World world, string id)
+        {
+            if (world == null || id == null) return null;
+            foreach (var sun in world.Suns) if (sun.Id == id) return sun;
+            return null;
+        }
+
+        public static Moon FindMoon(World world, string id)
+        {
+            if (world == null || id == null) return null;
+            foreach (var moon in world.Moons) if (moon.Id == id) return moon;
+            return null;
+        }
+
+        /// <summary>Vrai si l'orbite de ce soleil finit par revenir sur lui (A autour de B autour de A).</summary>
+        public static bool OrbitLoops(World world, Sun sun)
+        {
+            var seen = new HashSet<string>();
+            for (var at = sun; at != null && at.OrbitId != null; at = FindSun(world, at.OrbitId))
+                if (!seen.Add(at.Id)) return true;
+            return false;
+        }
+
+        public static bool OrbitLoops(World world, Moon moon)
+        {
+            var seen = new HashSet<string>();
+            for (var at = moon; at != null && at.OrbitId != null; at = FindMoon(world, at.OrbitId))
+                if (!seen.Add(at.Id)) return true;
+            return false;
+        }
+
+        /// <summary>Vrai pour une lune qui tourne autour d'une autre lune (et non autour du monde).</summary>
+        public static bool IsSubMoon(World world, Moon moon)
+        {
+            return moon != null && moon.OrbitId != null && FindMoon(world, moon.OrbitId) != null && FindMoon(world, moon.OrbitId) != moon;
         }
 
         /// <summary>Où en est un soleil compagnon : 0 = au plus haut à minuit (à
@@ -432,16 +527,18 @@ namespace Marabook.Model
         /// cherché (ou s'il n'y a pas au moins deux lunes).</summary>
         public static long? NextConjunction(World world, long fromDay, int maxFullMoons = 200000)
         {
-            if (world == null || world.Moons.Count < 2) return null;
-            var slow = world.Moons[0];
-            foreach (var moon in world.Moons) if (moon.Period > slow.Period) slow = moon;
+            var moons = new List<Moon>();
+            if (world != null) foreach (var moon in world.Moons) if (!IsSubMoon(world, moon)) moons.Add(moon); // une lune de lune suit sa lune-mère
+            if (moons.Count < 2) return null;
+            var slow = moons[0];
+            foreach (var moon in moons) if (moon.Period > slow.Period) slow = moon;
             var period = Math.Max(0.01, slow.Period);
             var k = Math.Ceiling((fromDay - slow.FullAt) / period - 1e-9);
             for (var i = 0; i < maxFullMoons; i++, k++)
             {
                 var instant = slow.FullAt + k * period;
                 var together = true;
-                foreach (var moon in world.Moons)
+                foreach (var moon in moons)
                 {
                     if (moon == slow) continue;
                     var other = Math.Max(0.01, moon.Period);
@@ -451,6 +548,270 @@ namespace Marabook.Model
                 if (together) return (long)Math.Floor(instant + 1e-9);
             }
             return null;
+        }
+
+        // -------------------------------------------------- éclipses et phénomènes
+
+        public const int EclipseSeasons = 0, EclipseAlways = 1, EclipseNever = 2;
+        public const int NoEclipse = 0, PartialLunar = 1, TotalLunar = 2, PartialSolar = 3, TotalSolar = 4;
+
+        /// <summary>« L'année des éclipses » d'un monde : le temps que mettent
+        /// les saisons d'éclipses à refaire le tour de l'année — un peu moins
+        /// d'une année solaire (346,6 jours chez nous, soit 0,949 année).</summary>
+        public static double EclipseYear(World world, TimeSystem system)
+        {
+            return Math.Max(2, SolarYear(world, system) * 0.949);
+        }
+
+        /// <summary>L'éclipse que cette lune donne CE JOUR : de lune à sa pleine
+        /// lune, de soleil à sa nouvelle lune. « À chaque lunaison » : toujours
+        /// totale. « Par saisons » (une orbite inclinée, comme la nôtre) : deux
+        /// saisons d'éclipses par année des éclipses, calées sur la pleine lune
+        /// de référence — totale au cœur de la saison, partielle sur ses bords.
+        /// Une lune de lune n'en donne pas.</summary>
+        public static int EclipseOn(World world, TimeSystem system, Moon moon, long dayNumber)
+        {
+            if (moon == null || moon.Eclipses == EclipseNever || IsSubMoon(world, moon)) return NoEclipse;
+            var phase = MainPhaseOn(moon, dayNumber);
+            if (phase != Full && phase != New) return NoEclipse;
+            if (moon.Eclipses == EclipseAlways) return phase == Full ? TotalLunar : TotalSolar;
+            var period = Math.Max(0.01, moon.Period);
+            var quarter = Math.Floor((dayNumber - moon.FullAt) / period * 4 - 1e-9) + 1;
+            var instant = moon.FullAt + quarter * period / 4;
+            var year = EclipseYear(world, system);
+            var half = year / 2;
+            var gap = Math.Abs(Mod(instant - moon.FullAt + half / 2, half) - half / 2);
+            if (phase == Full) return gap <= year * 0.013 ? TotalLunar : gap <= year * 0.03 ? PartialLunar : NoEclipse;
+            return gap <= year * 0.014 ? TotalSolar : gap <= year * 0.045 ? PartialSolar : NoEclipse;
+        }
+
+        public static string EclipseName(int eclipse)
+        {
+            switch (eclipse)
+            {
+                case PartialLunar: return "éclipse partielle de lune";
+                case TotalLunar: return "éclipse totale de lune (lune rousse)";
+                case PartialSolar: return "éclipse partielle de soleil";
+                case TotalSolar: return "éclipse totale de soleil";
+                default: return "";
+            }
+        }
+
+        /// <summary>Le prochain jour où cette lune donne cette éclipse, ce jour compris ; null si rien avant longtemps.</summary>
+        public static long? NextEclipse(World world, TimeSystem system, Moon moon, long fromDay, int eclipse, int maxLunations = 4000)
+        {
+            if (moon == null || moon.Eclipses == EclipseNever) return null;
+            var lunar = eclipse == PartialLunar || eclipse == TotalLunar;
+            var period = Math.Max(0.01, moon.Period);
+            var k = Math.Ceiling((fromDay - moon.FullAt - (lunar ? 0 : period / 2)) / period - 1e-9);
+            for (var i = 0; i < maxLunations; i++, k++)
+            {
+                var day = (long)Math.Floor(moon.FullAt + (lunar ? 0 : period / 2) + k * period + 1e-9);
+                if (day >= fromDay && EclipseOn(world, system, moon, day) == eclipse) return day;
+            }
+            return null;
+        }
+
+        /// <summary>Vrai le jour d'une LUNE BLEUE : la deuxième pleine lune d'un même mois du calendrier.</summary>
+        public static bool BlueMoonOn(TimeSystem system, Moon moon, long dayNumber)
+        {
+            if (system == null || system.Months.Count < 2 || moon == null || MainPhaseOn(moon, dayNumber) != Full) return false;
+            var before = MainPhaseDay(moon, dayNumber, -1);
+            if (before >= dayNumber) return false;
+            var today = TimeMath.FromDayNumber(system, dayNumber);
+            var previous = TimeMath.FromDayNumber(system, before);
+            return today.Year == previous.Year && today.Month == previous.Month;
+        }
+
+        /// <summary>Vrai le jour d'un passage de ce phénomène personnalisé.</summary>
+        public static bool OccursOn(SkyEvent item, long dayNumber)
+        {
+            if (item == null || item.Period <= 0) return false;
+            return Math.Floor((dayNumber + 1 - item.At) / item.Period - 1e-9) > Math.Floor((dayNumber - item.At) / item.Period - 1e-9);
+        }
+
+        /// <summary>Le jour d'un passage, « cycles » périodes après (ou avant) celui de ce jour.</summary>
+        public static long OccurrenceDay(SkyEvent item, long dayNumber, int cycles)
+        {
+            var period = Math.Max(0.01, item.Period);
+            var turn = Math.Floor((dayNumber + 1 - item.At) / period - 1e-9) + cycles;
+            return (long)Math.Floor(item.At + turn * period + 1e-9);
+        }
+
+        public static readonly string[] PhenomenonColors = { "#B86FC2", "#3E9C7A", "#D9603A", "#5B9BD5", "#B5843A" };
+
+        public static string ColorOf(SkyEvent item, int index)
+        {
+            return string.IsNullOrEmpty(item.Color) ? PhenomenonColors[Math.Abs(index) % PhenomenonColors.Length] : item.Color;
+        }
+
+        private static string MoonLabel(Moon moon) { return string.IsNullOrEmpty(moon.Name) ? "Lune" : moon.Name; }
+        private static string SunLabel(Sun sun) { return string.IsNullOrEmpty(sun.Name) ? "Soleil" : sun.Name; }
+
+        /// <summary>Ce que le ciel fait de CE JOUR au-delà des phases (16/11,
+        /// Rémi) : éclipses, lune rousse, lune bleue, lunes pleines ensemble,
+        /// passages d'une lune devant sa lune-mère, phénomènes personnalisés.</summary>
+        public static List<SkyNote> NotesOn(World world, TimeSystem system, long dayNumber)
+        {
+            var notes = new List<SkyNote>();
+            if (world == null || system == null) return notes;
+            Func<long, string> date = delegate(long day) { return TimeMath.ShortDate(system, TimeMath.FromDayNumber(system, day)); };
+            var fullTogether = 0;
+            var freeMoons = 0;
+            for (var i = 0; i < world.Moons.Count; i++)
+            {
+                var moon = world.Moons[i];
+                var phase = MainPhaseOn(moon, dayNumber);
+                if (IsSubMoon(world, moon))
+                {
+                    // Une lune de lune : ses « phases » sont ses passages devant et derrière sa lune-mère.
+                    var parent = MoonLabel(FindMoon(world, moon.OrbitId));
+                    if (phase == Full) notes.Add(new SkyNote { Text = MoonLabel(moon) + " passe devant " + parent, Color = ColorOf(moon, i) });
+                    else if (phase == New) notes.Add(new SkyNote { Text = MoonLabel(moon) + " passe derrière " + parent, Color = ColorOf(moon, i) });
+                    continue;
+                }
+                freeMoons++;
+                if (phase == Full) fullTogether++;
+                var eclipse = EclipseOn(world, system, moon, dayNumber);
+                if (eclipse != NoEclipse)
+                {
+                    string detail = null;
+                    if (moon.Eclipses == EclipseSeasons)
+                    {
+                        var next = NextEclipse(world, system, moon, dayNumber + 1, eclipse);
+                        if (next != null) detail = "Prochaine : " + date(next.Value);
+                    }
+                    notes.Add(new SkyNote { Text = MoonLabel(moon) + " : " + EclipseName(eclipse), Detail = detail, Color = eclipse == TotalLunar || eclipse == PartialLunar ? "#B5452E" : "#3A3F4D" });
+                }
+                if (BlueMoonOn(system, moon, dayNumber))
+                    notes.Add(new SkyNote { Text = MoonLabel(moon) + " : lune bleue (deuxième pleine lune du mois)", Color = "#5B9BD5" });
+            }
+            if (freeMoons > 1 && fullTogether == freeMoons)
+                notes.Add(new SkyNote { Text = "Toutes les lunes sont pleines ensemble", Color = "#8E6BBF" });
+            for (var i = 0; i < world.Phenomena.Count; i++)
+            {
+                var item = world.Phenomena[i];
+                if (!OccursOn(item, dayNumber)) continue;
+                notes.Add(new SkyNote
+                {
+                    Text = string.IsNullOrEmpty(item.Name) ? "Phénomène" : item.Name,
+                    Detail = "Précédent : " + date(OccurrenceDay(item, dayNumber, -1)) + "\nProchain : " + date(OccurrenceDay(item, dayNumber, 1)),
+                    Color = ColorOf(item, i)
+                });
+            }
+            return notes;
+        }
+
+        /// <summary>CE QUE LES SOLEILS DÉCLENCHENT (16/11, Rémi) : leur nombre
+        /// et leur agencement, dits en clair — un soleil seul, une étoile double
+        /// au centre, un compagnon qui tourne autour d'un autre.</summary>
+        public static List<SkyBehavior> SunBehaviors(World world, TimeSystem system)
+        {
+            var list = new List<SkyBehavior>();
+            if (world == null || world.Suns.Count == 0)
+            {
+                list.Add(new SkyBehavior { Title = "Aucun soleil renseigné", Text = "Le monde garde un soleil dont on ne dit rien : un jour, une nuit, des saisons." });
+                return list;
+            }
+            var main = MainSun(world);
+            var centric = new List<Sun>();
+            foreach (var sun in world.Suns) if (sun.OrbitId == null) centric.Add(sun);
+            if (world.Suns.Count == 1)
+            {
+                list.Add(new SkyBehavior { Title = "Un seul soleil", Text = "Rien de particulier : un jour, une nuit, une ombre par objet — comme chez nous." });
+                return list;
+            }
+            if (centric.Count > 1)
+            {
+                var names = new List<string>();
+                foreach (var sun in centric) names.Add(SunLabel(sun));
+                list.Add(new SkyBehavior
+                {
+                    Title = centric.Count == 2 ? "Étoile double au centre" : centric.Count + " soleils au centre", Notable = true,
+                    Text = string.Join(", ", names.ToArray()) + " partagent le milieu du système : ils se lèvent et se couchent ensemble. " + centric.Count
+                        + " ombres par objet, des aubes et des crépuscules en plusieurs temps, des journées plus chaudes ; ils passent régulièrement l'un devant l'autre."
+                });
+            }
+            foreach (var sun in world.Suns)
+            {
+                if (sun == main || sun.OrbitId == null) continue;
+                var around = FindSun(world, sun.OrbitId);
+                var center = around == null ? "un soleil disparu" : SunLabel(around);
+                if (sun.Period <= 0)
+                {
+                    list.Add(new SkyBehavior { Title = SunLabel(sun) + " reste auprès de " + center, Notable = true, Text = "Sans période, il ne quitte pas son soleil dans le ciel : un second disque de jour, jamais de nuit claire." });
+                    continue;
+                }
+                var clear = Math.Max(1, (long)Math.Round(sun.Period / 4));
+                list.Add(new SkyBehavior
+                {
+                    Title = SunLabel(sun) + " tourne autour de " + center, Notable = true,
+                    Text = "Vu du monde, il fait le tour du ciel en " + Number(sun.Period, 2) + " jours"
+                        + (system != null && sun.Period >= TimeMath.MeanYearDays(system) ? " (" + system.DurationLabel(sun.Period / TimeMath.MeanYearDays(system)) + ")" : "")
+                        + ". Nuits claires pendant environ " + TimeSystem.Count(clear, "jour", "jours") + " autour de son passage à minuit (pas de vraie nuit), puis soleil du soir, second disque de jour, soleil du matin."
+                        + (world.Moons.Count > 0 ? " Les lunes, éclairées par deux soleils, n'y sont jamais tout à fait noires." : "")
+                });
+            }
+            if (world.Suns.Count >= 3)
+                list.Add(new SkyBehavior { Title = "Trois soleils ou plus", Notable = true, Text = "Un ciel rare : les saisons de lumière se superposent. Les nuits vraiment noires n'arrivent que lorsque tous les compagnons sont du côté du jour." });
+            return list;
+        }
+
+        /// <summary>CE QUE LES LUNES DÉCLENCHENT : phases, lunes bleues,
+        /// éclipses et lunes rousses, lunes pleines ensemble, lunes de lunes.</summary>
+        public static List<SkyBehavior> MoonBehaviors(World world, TimeSystem system)
+        {
+            var list = new List<SkyBehavior>();
+            if (world == null || world.Moons.Count == 0)
+            {
+                list.Add(new SkyBehavior { Title = "Aucune lune", Text = "Des nuits noires toute l'année, pas de mois lunaire, des marées faibles (le soleil seul les soulève)." });
+                return list;
+            }
+            Func<long, string> date = delegate(long day) { return system.Format(TimeMath.FromDayNumber(system, day)); };
+            var free = new List<Moon>();
+            foreach (var moon in world.Moons) if (!IsSubMoon(world, moon)) free.Add(moon);
+            var longest = 0;
+            foreach (var month in system.Months) longest = Math.Max(longest, month.Days);
+            foreach (var moon in world.Moons)
+            {
+                var start = (long)Math.Floor(moon.FullAt) + 1;
+                if (IsSubMoon(world, moon))
+                {
+                    list.Add(new SkyBehavior
+                    {
+                        Title = MoonLabel(moon) + " : lune de " + MoonLabel(FindMoon(world, moon.OrbitId)), Notable = true,
+                        Text = "Elle ne quitte pas sa lune-mère dans le ciel et partage ses phases. Elle passe devant elle tous les " + Number(moon.Period, 2) + " jours, derrière elle à mi-chemin : le calendrier marque ces passages."
+                    });
+                    continue;
+                }
+                if (moon.Eclipses == EclipseAlways)
+                    list.Add(new SkyBehavior
+                    {
+                        Title = MoonLabel(moon) + " : une éclipse à chaque lunaison", Notable = true,
+                        Text = "Son orbite est dans le plan du monde : chaque pleine lune est une lune rousse (éclipse totale de lune), chaque nouvelle lune cache le soleil — tous les " + Number(moon.Period, 2) + " jours."
+                    });
+                else if (moon.Eclipses == EclipseSeasons)
+                {
+                    var red = NextEclipse(world, system, moon, start, TotalLunar);
+                    var solar = NextEclipse(world, system, moon, start, TotalSolar);
+                    list.Add(new SkyBehavior
+                    {
+                        Title = MoonLabel(moon) + " : des saisons d'éclipses",
+                        Text = "Orbite inclinée, comme notre Lune : les éclipses reviennent par saisons, tous les " + Number(EclipseYear(world, system) / 2, 0) + " jours environ."
+                            + (red != null ? " Prochaine lune rousse (éclipse totale de lune) : " + date(red.Value) + "." : " Aucune lune rousse avant longtemps : sa période tombe à côté des saisons d'éclipses.")
+                            + (solar != null ? " Prochaine éclipse totale de soleil : " + date(solar.Value) + "." : "")
+                    });
+                }
+                if (system.Months.Count > 1 && moon.Period < longest)
+                    list.Add(new SkyBehavior { Title = MoonLabel(moon) + " : des lunes bleues", Text = "Sa lunaison (" + Number(moon.Period, 2) + " j) est plus courte que le mois le plus long (" + longest + " j) : certains mois comptent deux pleines lunes. Le calendrier marque la seconde." });
+            }
+            if (free.Count > 1)
+                list.Add(new SkyBehavior
+                {
+                    Title = free.Count + " lunes dans le ciel", Notable = true,
+                    Text = "Des nuits à plusieurs lunes, des phases qui se croisent, une lune qui en cache parfois une autre ; des marées plus fortes quand elles s'alignent. Le calendrier marque les jours où toutes sont pleines ensemble."
+                });
+            return list;
         }
 
         // ----------------------------------------------------------------- taille
@@ -533,6 +894,50 @@ namespace Marabook.Model
             return facts;
         }
 
+        /// <summary>Les mêmes faits, HIÉRARCHISÉS (16/11, Rémi) : par groupes
+        /// (dimensions, horizon, soleil, tour du monde, latitudes, durée du
+        /// jour), chaque fait avec son libellé, sa valeur et sa précision.</summary>
+        public static List<SizeFactGroup> SizeFactGroups(World world, TimeSystem system)
+        {
+            var groups = new List<SizeFactGroup>();
+            if (world == null || !world.HasSize) return groups;
+            var size = new SizeFactGroup { Title = "Dimensions" };
+            size.Facts.Add(new SizeFact { Label = "Rayon", Value = Number(Radius(world), 0) + " km" });
+            size.Facts.Add(new SizeFact { Label = "Surface", Value = Number(Surface(world) / 1e6, 1) + " M km²", Note = "millions de km²" });
+            size.Facts.Add(new SizeFact { Label = "Face à la Terre", Value = "× " + Number(world.Circumference / EarthCircumference, 2), Note = "en circonférence" });
+            groups.Add(size);
+            var horizon = new SizeFactGroup { Title = "Horizon" };
+            horizon.Facts.Add(new SizeFact { Label = "Pour un marcheur", Value = Number(Horizon(world, 1.7), 1) + " km", Note = "les yeux à 1,70 m" });
+            horizon.Facts.Add(new SizeFact { Label = "Du haut d'une tour", Value = Number(Horizon(world, 30), 1) + " km", Note = "à 30 m de haut" });
+            var hours = Math.Max(1, system == null ? 24 : system.HoursPerDay);
+            horizon.Facts.Add(new SizeFact { Label = "Une heure de soleil", Value = Number(HourBand(world, system), 0) + " km", Note = "à l'équateur · jour de " + hours + " h" });
+            groups.Add(horizon);
+            var year = system == null ? 365.25 : TimeMath.MeanYearDays(system);
+            var travel = new SizeFactGroup { Title = "Le tour du monde" };
+            foreach (var pace in new[] { new KeyValuePair<string, double>("À pied", 30), new KeyValuePair<string, double>("À cheval", 60), new KeyValuePair<string, double>("À la voile", 150) })
+            {
+                var days = TravelDays(world, pace.Value);
+                travel.Facts.Add(new SizeFact { Label = pace.Key, Value = Number(days, 0) + " jours", Note = Number(pace.Value, 0) + " km/j" + (days >= year ? " · " + Number(days / year, 1) + " ans" : "") });
+            }
+            groups.Add(travel);
+            if (world.HasTilt)
+            {
+                var latitudes = new SizeFactGroup { Title = "Latitudes" };
+                latitudes.Facts.Add(new SizeFact { Label = "Tropiques", Value = Number(world.AxialTilt, 1) + "°", Note = "de part et d'autre de l'équateur" });
+                latitudes.Facts.Add(new SizeFact { Label = "Cercles polaires", Value = Number(90 - world.AxialTilt, 1) + "°", Note = "au-delà : jour et nuit polaires" });
+                groups.Add(latitudes);
+                var light = new SizeFactGroup { Title = "Durée du jour, du solstice d'hiver à celui d'été" };
+                foreach (var latitude in new[] { 0.0, 30, 45, 60 })
+                    light.Facts.Add(new SizeFact
+                    {
+                        Label = latitude == 0 ? "Équateur" : "Latitude " + Number(latitude, 0) + "°",
+                        Value = Hours(system, DayLength(world, system, latitude, false)) + " → " + Hours(system, DayLength(world, system, latitude, true))
+                    });
+                groups.Add(light);
+            }
+            return groups;
+        }
+
         // --------------------------------------------------------------- en clair
 
         /// <summary>Un monde en une phrase (sa tuile dans l'Astrolabe).</summary>
@@ -543,6 +948,7 @@ namespace Marabook.Model
             if (world.Seasons.Count > 0) parts.Add(TimeSystem.Count(world.Seasons.Count, "saison", "saisons"));
             if (world.Suns.Count > 1) parts.Add(world.Suns.Count + " soleils"); // un seul soleil va sans dire
             if (world.Moons.Count > 0) parts.Add(TimeSystem.Count(world.Moons.Count, "lune", "lunes"));
+            if (world.Phenomena.Count > 0) parts.Add(TimeSystem.Count(world.Phenomena.Count, "phénomène", "phénomènes"));
             return parts.Count == 0 ? "Rien de renseigné pour l'instant." : string.Join(" · ", parts.ToArray());
         }
 
@@ -565,9 +971,11 @@ namespace Marabook.Model
                     parts.Add((string.IsNullOrEmpty(sun.Name) ? "Second soleil" : sun.Name) + " : " + SunStateName(SunPhase(sun, day + 0.5)));
                 foreach (var moon in world.Moons)
                 {
+                    if (IsSubMoon(world, moon)) continue; // dite par ses passages (NotesOn)
                     var main = MainPhaseOn(moon, day);
                     parts.Add((string.IsNullOrEmpty(moon.Name) ? "Lune" : moon.Name) + " : " + (main >= 0 ? MainPhaseName(main) : PhaseName(Phase(moon, day + 0.5))));
                 }
+                foreach (var note in NotesOn(world, system, day)) parts.Add(note.Text);
             }
             return parts.Count == 0 ? null : string.Join(" · ", parts.ToArray());
         }

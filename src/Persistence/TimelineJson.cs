@@ -72,6 +72,7 @@ namespace Marabook.Persistence
                 if (system.WeekDays.Count > 0) o["weekDays"] = new List<object>(system.WeekDays.ToArray());
                 if (system.HoursPerDay != 24) o["hoursPerDay"] = system.HoursPerDay;
                 if (system.MinutesPerHour != 60) o["minutesPerHour"] = system.MinutesPerHour;
+                if (system.SecondsPerMinute != 60) o["secondsPerMinute"] = system.SecondsPerMinute;
                 list.Add(o);
             }
             return list;
@@ -115,6 +116,7 @@ namespace Marabook.Persistence
                         u["id"] = sun.Id;
                         u["name"] = sun.Name ?? "";
                         if (sun.Period > 0) { u["period"] = sun.Period; u["highAt"] = sun.HighAt; }
+                        if (!string.IsNullOrEmpty(sun.OrbitId)) u["orbit"] = sun.OrbitId;
                         if (!string.IsNullOrEmpty(sun.Color)) u["color"] = sun.Color;
                         suns.Add(u);
                     }
@@ -130,10 +132,27 @@ namespace Marabook.Persistence
                         m["name"] = moon.Name ?? "";
                         m["period"] = moon.Period;
                         m["fullAt"] = moon.FullAt;
+                        if (!string.IsNullOrEmpty(moon.OrbitId)) m["orbit"] = moon.OrbitId;
+                        if (moon.Eclipses != Astro.EclipseSeasons) m["eclipses"] = moon.Eclipses;
                         if (!string.IsNullOrEmpty(moon.Color)) m["color"] = moon.Color;
                         moons.Add(m);
                     }
                     o["moons"] = moons;
+                }
+                if (world.Phenomena.Count > 0)
+                {
+                    var phenomena = new List<object>();
+                    foreach (var item in world.Phenomena)
+                    {
+                        var p = new Dictionary<string, object>();
+                        p["id"] = item.Id;
+                        p["name"] = item.Name ?? "";
+                        p["period"] = item.Period;
+                        p["at"] = item.At;
+                        if (!string.IsNullOrEmpty(item.Color)) p["color"] = item.Color;
+                        phenomena.Add(p);
+                    }
+                    o["phenomena"] = phenomena;
                 }
                 list.Add(o);
             }
@@ -182,6 +201,10 @@ namespace Marabook.Persistence
                         };
                         var sunId = Json.AsString(Json.Field(u, "id"));
                         if (!string.IsNullOrEmpty(sunId)) sun.Id = sunId;
+                        var sunOrbit = Json.AsString(Json.Field(u, "orbit"));
+                        sun.OrbitId = string.IsNullOrEmpty(sunOrbit) ? null : sunOrbit;
+                        // Les mondes d'avant le 16/11 : un compagnon à période tournait déjà autour du premier soleil, sans le dire.
+                        if (sun.OrbitId == null && sun.Period > 0 && world.Suns.Count > 0) sun.OrbitId = world.Suns[0].Id;
                         world.Suns.Add(sun);
                     }
                 var moons = Json.AsList(Json.Field(o, "moons"));
@@ -197,7 +220,25 @@ namespace Marabook.Persistence
                         };
                         var moonId = Json.AsString(Json.Field(m, "id"));
                         if (!string.IsNullOrEmpty(moonId)) moon.Id = moonId;
+                        var moonOrbit = Json.AsString(Json.Field(m, "orbit"));
+                        moon.OrbitId = string.IsNullOrEmpty(moonOrbit) ? null : moonOrbit;
+                        moon.Eclipses = Math.Max(0, Math.Min(2, Json.AsInt(Json.Field(m, "eclipses"), Astro.EclipseSeasons)));
                         world.Moons.Add(moon);
+                    }
+                var phenomenaList = Json.AsList(Json.Field(o, "phenomena"));
+                if (phenomenaList != null)
+                    foreach (var phenomenonNode in phenomenaList)
+                    {
+                        var p = Json.AsObject(phenomenonNode);
+                        if (p == null) continue;
+                        var item = new SkyEvent
+                        {
+                            Name = Json.AsString(Json.Field(p, "name")) ?? "", Period = Math.Max(0.01, Json.AsDouble(Json.Field(p, "period"), 365)),
+                            At = Json.AsDouble(Json.Field(p, "at"), 0), Color = Json.AsString(Json.Field(p, "color"))
+                        };
+                        var itemId = Json.AsString(Json.Field(p, "id"));
+                        if (!string.IsNullOrEmpty(itemId)) item.Id = itemId;
+                        world.Phenomena.Add(item);
                     }
                 worlds.Add(world);
             }
@@ -276,6 +317,7 @@ namespace Marabook.Persistence
                         if (day is string) system.WeekDays.Add((string)day);
                 system.HoursPerDay = Math.Max(1, Json.AsInt(Json.Field(o, "hoursPerDay"), 24));
                 system.MinutesPerHour = Math.Max(1, Json.AsInt(Json.Field(o, "minutesPerHour"), 60));
+                system.SecondsPerMinute = Math.Max(1, Json.AsInt(Json.Field(o, "secondsPerMinute"), 60));
                 systems.Add(system);
             }
             return systems;
@@ -312,7 +354,7 @@ namespace Marabook.Persistence
             o["y"] = (double)point.Year;
             if (point.Month > 0) o["m"] = point.Month;
             if (point.Day > 0) o["d"] = point.Day;
-            if (point.Hour >= 0) { o["h"] = point.Hour; o["n"] = point.Minute; }
+            if (point.Hour >= 0) { o["h"] = point.Hour; o["n"] = point.Minute; if (point.Second > 0) o["sec"] = point.Second; }
             return o;
         }
 
@@ -325,6 +367,7 @@ namespace Marabook.Persistence
             point.Day = point.Month > 0 ? Math.Max(0, Json.AsInt(Json.Field(o, "d"), 0)) : 0;
             point.Hour = point.Day > 0 ? Json.AsInt(Json.Field(o, "h"), -1) : -1;
             point.Minute = point.Hour >= 0 ? Math.Max(0, Json.AsInt(Json.Field(o, "n"), 0)) : 0;
+            point.Second = point.Hour >= 0 ? Math.Max(0, Json.AsInt(Json.Field(o, "sec"), 0)) : 0;
             return point;
         }
 
