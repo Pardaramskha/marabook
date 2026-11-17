@@ -686,9 +686,134 @@ namespace Marabook.Model
         {
             var parent = FindSun(world, sun.OrbitId);
             if (parent == null || eclipse == NoSunEclipse) return 0;
-            var front = Math.Max(0.0001, eclipse == SunInFront ? sun.Size : parent.Size);
-            var back = Math.Max(0.0001, eclipse == SunInFront ? parent.Size : sun.Size);
+            // Lot 17 : ce qui compte est la largeur APPARENTE, vue du monde. Si l'on a dit à quelle distance
+            // le compagnon tourne autour de son soleil, il est plus près de nous quand il passe devant
+            // (donc plus large), plus loin quand il passe derrière. Sans cela : leurs tailles seules.
+            var far = SunWorldDistance(world, parent);
+            var orbit = sun.Look.Distance;
+            var known = orbit > 0 && Math.Abs(orbit - sun.Look.DefaultDistance) > 1 && orbit < far * 0.98;
+            var mine = Math.Max(0.0001, sun.Size) / (known ? (eclipse == SunInFront ? far - orbit : far + orbit) : far);
+            var theirs = Math.Max(0.0001, parent.Size) / far;
+            var front = eclipse == SunInFront ? mine : theirs;
+            var back = eclipse == SunInFront ? theirs : mine;
             return Math.Min(1, front / back * (front / back));
+        }
+
+        // ------------------------------------- tailles et distances dans les calculs (lot 17)
+
+        /// <summary>La distance du monde à un soleil, en km. Un soleil centrique : celle qu'on lui a donnée.
+        /// Un compagnon : celle du soleil autour duquel il tourne (sa propre distance le sépare de lui).</summary>
+        public static double SunWorldDistance(World world, Sun sun)
+        {
+            for (var hop = 0; hop < 4 && sun != null && sun.OrbitId != null; hop++)
+            {
+                var parent = FindSun(world, sun.OrbitId);
+                if (parent == null) break;
+                sun = parent;
+            }
+            // (Une allure de satellite posée sur un soleil — un .plot du lot 14 — n'a pas de distance de soleil.)
+            return sun != null && sun.Look != null && sun.Look.Distance > 0 && Math.Abs(sun.Look.DefaultDistance - BodyLook.SunDistance) < 1 ? sun.Look.Distance : BodyLook.SunDistance;
+        }
+
+        /// <summary>La largeur d'un soleil dans le ciel du monde (son diamètre sur sa distance).</summary>
+        public static double SunApparent(World world, Sun sun)
+        {
+            return (sun == null ? 1 : Math.Max(0.0001, sun.Size)) * SunDiameter / (sun == null ? BodyLook.SunDistance : SunWorldDistance(world, sun));
+        }
+
+        /// <summary>La largeur d'un satellite dans le ciel du monde.</summary>
+        public static double MoonApparent(Moon moon)
+        {
+            return moon.Look.DiameterKm / Math.Max(1, moon.Look.Distance);
+        }
+
+        /// <summary>La largeur du satellite rapportée à celle du soleil : à 1, il le couvre tout juste.</summary>
+        public static double SolarCover(World world, Moon moon)
+        {
+            return MoonApparent(moon) / SunApparent(world, MainSun(world));
+        }
+
+        /// <summary>À partir de quel rapport l'éclipse de soleil est dite totale : une orbite n'est jamais
+        /// tout à fait ronde, et notre Lune (0,97 en moyenne) couvre le Soleil quand elle est au plus près.</summary>
+        public const double TotalCover = 0.95;
+
+        public static bool SolarTotal(World world, Moon moon) { return SolarCover(world, moon) >= TotalCover; }
+
+        /// <summary>Le rayon de l'ombre du monde (son cône d'ombre) à cette distance, en km ; négatif au-delà de sa pointe.</summary>
+        public static double UmbraRadius(World world, double km)
+        {
+            var main = MainSun(world);
+            var worldRadius = (world != null && world.HasSize ? world.Circumference : EarthCircumference) / (2 * Math.PI);
+            var sunRadius = (main == null ? 1 : Math.Max(0.0001, main.Size)) * SunDiameter / 2;
+            var far = main == null ? BodyLook.SunDistance : SunWorldDistance(world, main);
+            return worldRadius - km * (sunRadius - worldRadius) / Math.Max(1, far);
+        }
+
+        /// <summary>Ce que l'ombre du monde peut faire à ce satellite : 2 = le couvrir en entier (lune rousse),
+        /// 1 = l'entamer seulement (il est plus large qu'elle), 0 = rien (elle ne porte pas jusqu'à lui).</summary>
+        public static int LunarReach(World world, Moon moon)
+        {
+            var umbra = UmbraRadius(world, moon.Look.Distance);
+            return umbra >= moon.Look.DiameterKm / 2 ? 2 : umbra > 0 ? 1 : 0;
+        }
+
+        private static int Lunar(World world, Moon moon, int eclipse)
+        {
+            if (eclipse == NoEclipse) return NoEclipse;
+            var reach = LunarReach(world, moon);
+            return reach == 0 ? NoEclipse : reach == 1 ? PartialLunar : eclipse;
+        }
+
+        /// <summary>La force des marées que soulève ce satellite, en fois celles de notre Lune : à densité
+        /// égale, sa masse suit le cube de son diamètre, et la marée faiblit comme le cube de la distance.</summary>
+        public static double TideFactor(Moon moon)
+        {
+            return Math.Pow(moon.Look.DiameterKm / BodyLook.MoonDiameter, 3) / Math.Pow(Math.Max(1, moon.Look.Distance) / BodyLook.MoonDistance, 3);
+        }
+
+        /// <summary>Ce que le diamètre et la distance d'un satellite changent ; null s'il est comme notre Lune.</summary>
+        public static SkyBehavior MoonSkyNote(World world, Moon moon)
+        {
+            var wide = MoonApparent(moon) / (BodyLook.MoonDiameter / BodyLook.MoonDistance);
+            var cover = SolarCover(world, moon);
+            var reach = LunarReach(world, moon);
+            var tide = TideFactor(moon);
+            if (Math.Abs(wide - 1) < 0.005 && Math.Abs(tide - 1) < 0.01 && cover >= TotalCover && reach == 2) return null;
+            var text = "Large de " + Number(moon.Look.DiameterKm, 0) + " km, à " + Number(moon.Look.Distance, 0) + " km du monde : dans le ciel, elle fait "
+                + Number(wide, 2) + " fois la largeur de notre Lune.";
+            if (moon.Eclipses != EclipseNever)
+            {
+                text += cover >= TotalCover
+                    ? " Elle couvre tout le soleil : ses éclipses de soleil sont totales."
+                    : " Elle ne cache que " + Number(Math.Min(1, cover * cover) * 100, cover < 0.3 ? 1 : 0) + " % du disque du soleil : ses éclipses de soleil sont annulaires.";
+                if (reach == 1) text += " L'ombre du monde est plus étroite qu'elle : jamais de lune rousse, des éclipses de lune partielles seulement.";
+                else if (reach == 0) text += " L'ombre du monde ne porte pas jusqu'à elle : aucune éclipse de lune.";
+            }
+            if (Math.Abs(tide - 1) >= 0.01) text += " Marées : environ " + Number(tide, tide < 10 ? 2 : 0) + " fois celles de notre Lune, à densité égale.";
+            return new SkyBehavior { Title = MoonLabel(moon) + " : sa taille dans le ciel", Notable = cover < TotalCover || reach < 2, Text = text };
+        }
+
+        /// <summary>Ce que la taille et la distance du soleil principal changent ; null s'il est comme le nôtre.</summary>
+        public static SkyBehavior SunSkyNote(World world)
+        {
+            var main = MainSun(world);
+            if (main == null) return null;
+            var wide = SunApparent(world, main) / (SunDiameter / BodyLook.SunDistance);
+            if (Math.Abs(wide - 1) < 0.005) return null;
+            return new SkyBehavior
+            {
+                Title = SunLabel(main) + " : sa taille dans le ciel",
+                Text = "Large de " + Number(Math.Max(0.0001, main.Size) * SunDiameter, 0) + " km, à " + Number(SunWorldDistance(world, main), 0) + " km du monde : dans le ciel, il fait "
+                    + Number(wide, 2) + " fois la largeur de notre Soleil. À chaleur de surface égale, le monde en reçoit " + Number(wide * wide, 2) + " fois la lumière que nous recevons du nôtre."
+            };
+        }
+
+        /// <summary>Le nom de l'éclipse que donne CE satellite : sa taille dans le ciel dit si elle est totale ou annulaire.</summary>
+        public static string EclipseName(World world, Moon moon, int eclipse)
+        {
+            if (eclipse != TotalSolar || moon == null || SolarTotal(world, moon)) return EclipseName(eclipse);
+            var cover = SolarCover(world, moon);
+            return "éclipse annulaire de soleil (" + Number(cover * cover * 100, cover < 0.3 ? 1 : 0) + " % du disque)";
         }
 
         /// <summary>« Éclipse solaire pure : Braise passe devant Hélios et cache 25 % de son disque (annulaire) ».</summary>
@@ -950,14 +1075,14 @@ namespace Marabook.Model
             if (moon == null || moon.Eclipses == EclipseNever || IsSubMoon(world, moon)) return NoEclipse;
             var phase = MainPhaseOn(moon, dayNumber);
             if (phase != Full && phase != New) return NoEclipse;
-            if (moon.Eclipses == EclipseAlways) return phase == Full ? TotalLunar : TotalSolar;
+            if (moon.Eclipses == EclipseAlways) return phase == Full ? Lunar(world, moon, TotalLunar) : TotalSolar;
             var period = Math.Max(0.01, moon.Period);
             var quarter = Math.Floor((dayNumber - moon.FullAt) / period * 4 - 1e-9) + 1;
             var instant = moon.FullAt + quarter * period / 4;
             var year = EclipseYear(world, system);
             var half = year / 2;
             var gap = Math.Abs(Mod(instant - moon.FullAt + half / 2, half) - half / 2);
-            if (phase == Full) return gap <= year * 0.013 ? TotalLunar : gap <= year * 0.03 ? PartialLunar : NoEclipse;
+            if (phase == Full) return Lunar(world, moon, gap <= year * 0.013 ? TotalLunar : gap <= year * 0.03 ? PartialLunar : NoEclipse);
             return gap <= year * 0.014 ? TotalSolar : gap <= year * 0.045 ? PartialSolar : NoEclipse;
         }
 
@@ -1057,7 +1182,7 @@ namespace Marabook.Model
                         var next = NextEclipse(world, system, moon, dayNumber + 1, eclipse);
                         if (next != null) detail = "Prochaine : " + date(next.Value);
                     }
-                    notes.Add(new SkyNote { Text = MoonLabel(moon) + " : " + EclipseName(eclipse), Detail = detail, Color = eclipse == TotalLunar || eclipse == PartialLunar ? "#B5452E" : "#3A3F4D" });
+                    notes.Add(new SkyNote { Text = MoonLabel(moon) + " : " + EclipseName(world, moon, eclipse), Detail = detail, Color = eclipse == TotalLunar || eclipse == PartialLunar ? "#B5452E" : "#3A3F4D" });
                 }
                 if (BlueMoonOn(system, moon, dayNumber))
                     notes.Add(new SkyNote { Text = MoonLabel(moon) + " : lune bleue (deuxième pleine lune du mois)", Color = "#5B9BD5" });
@@ -1095,6 +1220,14 @@ namespace Marabook.Model
         /// et leur agencement, dits en clair — un soleil seul, une étoile double
         /// au centre, un compagnon qui tourne autour d'un autre.</summary>
         public static List<SkyBehavior> SunBehaviors(World world, TimeSystem system)
+        {
+            var list = SunArrangement(world, system);
+            var sky = SunSkyNote(world);
+            if (sky != null) list.Add(sky);
+            return list;
+        }
+
+        private static List<SkyBehavior> SunArrangement(World world, TimeSystem system)
         {
             var list = new List<SkyBehavior>();
             if (world == null || world.Suns.Count == 0)
@@ -1190,7 +1323,9 @@ namespace Marabook.Model
                     list.Add(new SkyBehavior
                     {
                         Title = MoonLabel(moon) + " : une éclipse à chaque lunaison", Notable = true,
-                        Text = "Son orbite est dans le plan du monde : chaque pleine lune est une lune rousse (éclipse totale de lune), chaque nouvelle lune cache le soleil — tous les " + Number(moon.Period, 2) + " jours."
+                        Text = "Son orbite est dans le plan du monde : "
+                            + (LunarReach(world, moon) == 2 ? "chaque pleine lune est une lune rousse (éclipse totale de lune)" : LunarReach(world, moon) == 1 ? "chaque pleine lune est entamée par l'ombre du monde (éclipse partielle de lune)" : "l'ombre du monde ne l'atteint pas")
+                            + ", chaque nouvelle lune " + (SolarTotal(world, moon) ? "cache le soleil" : "passe devant le soleil sans le couvrir (éclipse annulaire)") + " — tous les " + Number(moon.Period, 2) + " jours."
                     });
                 else if (moon.Eclipses == EclipseSeasons)
                 {
@@ -1200,10 +1335,12 @@ namespace Marabook.Model
                     {
                         Title = MoonLabel(moon) + " : des saisons d'éclipses",
                         Text = "Orbite inclinée, comme notre Lune : les éclipses reviennent par saisons, tous les " + Number(EclipseYear(world, system) / 2, 0) + " jours environ."
-                            + (red != null ? " Prochaine lune rousse (éclipse totale de lune) : " + date(red.Value) + "." : " Aucune lune rousse avant longtemps : sa période tombe à côté des saisons d'éclipses.")
-                            + (solar != null ? " Prochaine éclipse totale de soleil : " + date(solar.Value) + "." : "")
+                            + (red != null ? " Prochaine lune rousse (éclipse totale de lune) : " + date(red.Value) + "." : LunarReach(world, moon) < 2 ? "" : " Aucune lune rousse avant longtemps : sa période tombe à côté des saisons d'éclipses.")
+                            + (solar != null ? " Prochaine éclipse " + (SolarTotal(world, moon) ? "totale" : "annulaire") + " de soleil : " + date(solar.Value) + "." : "")
                     });
                 }
+                var sky = MoonSkyNote(world, moon);
+                if (sky != null) list.Add(sky);
                 if (system.Months.Count > 1 && moon.Period < longest)
                     list.Add(new SkyBehavior { Title = MoonLabel(moon) + " : des lunes bleues", Text = "Sa lunaison (" + Number(moon.Period, 2) + " j) est plus courte que le mois le plus long (" + longest + " j) : certains mois comptent deux pleines lunes. Le calendrier marque la seconde." });
             }

@@ -174,17 +174,42 @@ namespace Marabook.App
             }
             _built++;
             Faces.Insert(0, new Face { Key = key, Image = image });
-            if (Faces.Count > 10) Faces.RemoveAt(Faces.Count - 1);
+            if (Faces.Count > 24) Faces.RemoveAt(Faces.Count - 1);
             return image;
         }
 
         // ------------------------------------------------------------ dans l'espace
 
+        /// <summary>Ce qui entoure les anneaux (lot 17) : un repère fixé à l'astre, pour qu'ils tournent avec
+        /// lui quand on le fait pivoter, et la direction du soleil, pour leurs ombres. Tout est dit dans le
+        /// repère de l'écran : x vers la droite, y vers le haut, z vers nous.</summary>
+        internal sealed class Scene
+        {
+            public bool HasRef;                  // une direction du plan des anneaux, attachée à l'astre
+            public double Rx, Ry, Rz;
+            public bool HasSun;                  // d'où vient la lumière
+            public double Sx, Sy, Sz;
+        }
+
+        /// <summary>La clarté des anneaux vus par leur face que le soleil n'éclaire pas, et dans l'ombre de l'astre.</summary>
+        internal const double UnlitFace = 0.42, InShadow = 0.14;
+
+        private static Color Dim(Color color, double k)
+        {
+            return Color.FromRgb((byte)(color.R * k), (byte)(color.G * k), (byte)(color.B * k));
+        }
+
+        internal static int ShadowsDrawnForProbe { get; private set; }
+        internal static double LastTurnForProbe { get; private set; }
+        internal static double LastFaceLightForProbe { get; private set; }
+
         /// <summary>Dessine les anneaux d'un astre de rayon `radius` à l'écran, centré en `centre`.
         /// (nx, ny, nz) est la NORMALE au plan des anneaux, vue de l'écran : x vers la droite, y vers le
         /// haut, z vers nous. `spin` les fait tourner dans leur plan. Passe de derrière (front faux) : le
-        /// disque entier, à dessiner AVANT l'astre. Passe de devant : la part qui passe devant lui.</summary>
-        internal static void Draw(DrawingContext context, Point centre, double radius, double nx, double ny, double nz, BodyLook look, Color color, double spin, bool front, int pixels)
+        /// disque entier, à dessiner AVANT l'astre. Passe de devant : la part qui passe devant lui.
+        /// Avec une scène (lot 17) : ils suivent l'astre quand il pivote, l'astre y porte son ombre, et la
+        /// face que le soleil n'éclaire pas est plus sombre.</summary>
+        internal static void Draw(DrawingContext context, Point centre, double radius, double nx, double ny, double nz, BodyLook look, Color color, double spin, bool front, int pixels, Scene scene = null)
         {
             if (look == null || !look.Rings || radius < 0.5) return;
             double inner, outer;
@@ -198,17 +223,86 @@ namespace Marabook.App
             // Le grand axe de l'ellipse : dans le plan de l'écran, perpendiculaire à la normale.
             double ax = flat < 1e-9 ? 1 : -ny / flat, ay = flat < 1e-9 ? 0 : nx / flat;
             // Le petit axe : normale × grand axe. Sa composante vers nous est positive : le côté « +v » est DEVANT.
-            double bx = -nz * ay, by = nz * ax;
+            double bx = -nz * ay, by = nz * ax, bz = nx * ay - ny * ax;
             var space = new Matrix(radius * ax, -radius * ay, radius * bx, -radius * by, centre.X, centre.Y);
-            var face = FaceOf(look, color, pixels);
+
+            // LOT 17 (Rémi : « les anneaux restent fixés malgré le fait de pivoter ») : le disque est posé
+            // de sorte que son repère suive celui de l'astre — son grain tourne donc avec lui sous la souris.
+            if (scene != null && scene.HasRef)
+            {
+                var turn = Math.Atan2(scene.Rx * bx + scene.Ry * by + scene.Rz * bz, scene.Rx * ax + scene.Ry * ay);
+                LastTurnForProbe = turn;
+                spin += turn;
+            }
+
+            // LOT 17 : la lumière. La face tournée vers nous est-elle celle que le soleil éclaire ? Et où
+            // tombe l'ombre de l'astre : un demi-ovale, large comme lui, qui s'étire à l'opposé du soleil.
+            var faceLight = 1.0;
+            Geometry shadow = null, lit = null;
+            if (scene != null && scene.HasSun)
+            {
+                var along = scene.Sx * nx + scene.Sy * ny + scene.Sz * nz;      // le soleil au-dessus (+) ou au-dessous du plan
+                if (along * nz < 0) faceLight = UnlitFace;
+                double su = scene.Sx * ax + scene.Sy * ay, sv = scene.Sx * bx + scene.Sy * by + scene.Sz * bz;
+                var slant = Math.Sqrt(su * su + sv * sv);
+                if (slant > 0.02)
+                {
+                    var reach = Math.Min(outer * 3, 1 / Math.Max(1e-3, Math.Abs(along)));
+                    double dx = su / slant, dy = sv / slant;
+                    var path = new StreamGeometry();
+                    var both = new StreamGeometry();
+                    using (var pen = path.Open())
+                    using (var pen2 = both.Open())
+                    {
+                        pen2.SetFillRule(FillRule.EvenOdd);
+                        var far = outer + 2;
+                        pen2.BeginFigure(new Point(-far, -far), true);
+                        pen2.LineTo(new Point(far, -far));
+                        pen2.LineTo(new Point(far, far));
+                        pen2.LineTo(new Point(-far, far));
+                        pen2.EndFigure(true);
+                        const int steps = 40;
+                        for (var i = 0; i <= steps; i++)
+                        {
+                            var t = -Math.PI / 2 + Math.PI * i / steps;
+                            double alpha = -reach * Math.Cos(t), beta = Math.Sin(t);
+                            var p = new Point(alpha * dx - beta * dy, alpha * dy + beta * dx);
+                            if (i == 0) { pen.BeginFigure(p, true); pen2.BeginFigure(p, true); }
+                            else { pen.LineTo(p); pen2.LineTo(p); }
+                        }
+                        pen.EndFigure(true);
+                        pen2.EndFigure(true);
+                    }
+                    shadow = path;
+                    lit = both;
+                }
+            }
+            LastFaceLightForProbe = faceLight;
+
+            var face = FaceOf(look, faceLight < 1 ? Dim(color, faceLight) : color, pixels);
+            var dark = shadow == null ? null : FaceOf(look, Dim(color, InShadow), pixels);
             var rect = new Rect(-outer, -outer, outer * 2, outer * 2);
+            var rotation = Matrix.CreateRotation(spin);
+            Action paint = delegate
+            {
+                if (shadow == null)
+                {
+                    using (context.PushTransform(rotation)) context.DrawImage(face, rect);
+                    return;
+                }
+                using (context.PushGeometryClip(lit))
+                using (context.PushTransform(rotation))
+                    context.DrawImage(face, rect);
+                using (context.PushGeometryClip(shadow))
+                using (context.PushTransform(rotation))
+                    context.DrawImage(dark, rect);
+                ShadowsDrawnForProbe++;
+            };
             using (context.PushRenderOptions(new RenderOptions { BitmapInterpolationMode = BitmapInterpolationMode.HighQuality }))
             {
                 if (!front)
                 {
-                    using (context.PushTransform(space))
-                    using (context.PushTransform(Matrix.CreateRotation(spin)))
-                        context.DrawImage(face, rect);
+                    using (context.PushTransform(space)) paint();
                     return;
                 }
                 // Devant : seulement à l'intérieur du disque de l'astre (dehors, la passe de derrière a déjà
@@ -216,9 +310,34 @@ namespace Marabook.App
                 using (context.PushGeometryClip(new EllipseGeometry(new Rect(centre.X - radius + 0.4, centre.Y - radius + 0.4, radius * 2 - 0.8, radius * 2 - 0.8))))
                 using (context.PushTransform(space))
                 using (context.PushClip(new Rect(-outer - 1, 0, outer * 2 + 2, outer + 1)))
-                using (context.PushTransform(Matrix.CreateRotation(spin)))
-                    context.DrawImage(face, rect);
+                    paint();
             }
+        }
+
+        /// <summary>L'ombre des anneaux sur leur astre (lot 17) : la part de lumière que garde un point de
+        /// sa surface. Tout est dans le même repère (peu importe lequel) : le point (px, py, pz) sur la
+        /// sphère de rayon 1, le soleil (sx, sy, sz), la normale des anneaux (nx, ny, nz). `bands` : Bands().</summary>
+        internal static float ShadowOn(float px, float py, float pz, float sx, float sy, float sz, float nx, float ny, float nz, float inner, float outer, float[] bands)
+        {
+            var down = sx * nx + sy * ny + sz * nz;
+            if (down > -1e-4f && down < 1e-4f) return 1f;
+            var t = -(px * nx + py * ny + pz * nz) / down;
+            if (t <= 0) return 1f;
+            float hx = px + t * sx, hy = py + t * sy, hz = pz + t * sz;
+            var r = (float)Math.Sqrt(hx * hx + hy * hy + hz * hz);
+            if (r <= inner || r >= outer) return 1f;
+            return 1f - 0.62f * bands[(int)((r - inner) / (outer - inner) * (bands.Length - 1))];
+        }
+
+        private static float[] _bands;
+
+        /// <summary>L'opacité des bandes, du bord intérieur au bord extérieur, en 512 pas.</summary>
+        internal static float[] Bands()
+        {
+            if (_bands != null) return _bands;
+            var bands = new float[512];
+            for (var i = 0; i < bands.Length; i++) bands[i] = (float)Math.Min(1, Band(i / (double)(bands.Length - 1)));
+            return _bands = bands;
         }
 
         /// <summary>La normale des anneaux d'un petit astre du ciel (un soleil, un satellite) : vus un peu

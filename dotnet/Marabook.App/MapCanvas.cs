@@ -586,7 +586,8 @@ namespace Marabook.App
             public double Lit = 1;               // la part éclairée d'une lune
             public string Name;
             // Lot 14 : l'allure de l'astre, et sa place quand c'est un satellite.
-            public Color Accent;                 // le halo d'un soleil
+            public Color Accent;                 // le halo d'un soleil, l'atmosphère d'un satellite
+            public bool HasAccent;               // lot 17 : un accent a été choisi (un satellite n'en a pas d'office)
             public bool Rings;
             public Color RingColor;
             public double RingSize = 1, Tilt;    // Tilt : degrés
@@ -604,7 +605,42 @@ namespace Marabook.App
             if (!body.Rings || body.Look == null) return;
             double nx, ny, nz;
             RingArt.DotNormal(body.Tilt + body.Look.RingAngle, out nx, out ny, out nz);
-            RingArt.Draw(context, at, body.Size, nx, ny, nz, body.Look, body.RingColor, _owner.RingSpin, front, 256);
+            // Lot 17 : ils pivotent avec le globe sous la souris ; et un astre qui n'est pas un soleil porte
+            // son ombre sur eux — la lumière vient d'où vient sa phase (pleine : de face ; nouvelle : de dos).
+            RingArt.Scene scene = null;
+            if (!body.Sun)
+            {
+                var phase = Math.Acos(Math.Max(-1, Math.Min(1, 2 * body.Lit - 1)));
+                scene = new RingArt.Scene { HasSun = true, Sx = Math.Sin(phase), Sy = 0, Sz = Math.Cos(phase) };
+            }
+            RingArt.Draw(context, at, body.Size, nx, ny, nz, body.Look, body.RingColor, _owner.RingSpin - _globeLon, front, 256, scene);
+        }
+
+        /// <summary>L'accent d'un satellite (lot 17) : le liseré de son atmosphère, autour de lui.</summary>
+        private void DotAccent(DrawingContext context, SkyDot body, Point at)
+        {
+            if (!body.HasAccent) return;
+            var halo = new RadialGradientBrush { Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative), GradientOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative), Radius = 0.5 };
+            halo.GradientStops.Add(new GradientStop(Color.FromArgb(0, body.Accent.R, body.Accent.G, body.Accent.B), 0.5));
+            halo.GradientStops.Add(new GradientStop(Color.FromArgb(190, body.Accent.R, body.Accent.G, body.Accent.B), 0.64));
+            halo.GradientStops.Add(new GradientStop(Color.FromArgb(0, body.Accent.R, body.Accent.G, body.Accent.B), 1));
+            var reach = body.Size * 1.6 + 2;
+            context.DrawEllipse(halo, null, at, reach, reach);
+            _accentsDrawn++;
+        }
+
+        private int _accentsDrawn;
+        internal int AccentsDrawnForProbe { get { return _accentsDrawn; } }
+
+        /// <summary>Le soleil du monde, vu de l'écran (x à droite, y en haut, z vers nous).</summary>
+        private void SunOnScreen(out double x, out double y, out double z)
+        {
+            var declination = _owner.Declination;
+            var l = Maps.NoonLongitude(_owner.DayFraction) - _globeLon;
+            double sinP = Math.Sin(_globeLat), cosP = Math.Cos(_globeLat), sinLat = Math.Sin(declination), cosLat = Math.Cos(declination);
+            x = cosLat * Math.Sin(l);
+            y = cosP * sinLat - sinP * cosLat * Math.Cos(l);
+            z = sinP * sinLat + cosP * cosLat * Math.Cos(l);
         }
 
         private int _satellitesDrawn;
@@ -636,7 +672,7 @@ namespace Marabook.App
 
         private void DrawSatellites(DrawingContext context, Point centre, double radius, bool frontPass)
         {
-            if (!frontPass) _satellitesDrawn = 0;
+            if (!frontPass) { _satellitesDrawn = 0; _accentsDrawn = 0; }
             foreach (var body in _owner.SkyBodies())
             {
                 if (!body.Satellite) continue;
@@ -646,6 +682,7 @@ namespace Marabook.App
                 if (at.X < -40 || at.Y < -40 || at.X > Bounds.Width + 40 || at.Y > Bounds.Height + 40) continue;
                 _satellitesDrawn++;
                 DotRings(context, body, at, false);
+                DotAccent(context, body, at);
                 var dim = Color.FromRgb((byte)(body.Color.R * 0.28), (byte)(body.Color.G * 0.28), (byte)(body.Color.B * 0.3));
                 context.DrawEllipse(new SolidColorBrush(dim), new Pen(new SolidColorBrush(body.Color, 0.55), 1), at, body.Size, body.Size);
                 if (body.Lit > 0.03)
@@ -687,7 +724,17 @@ namespace Marabook.App
             var nx = cosLat * Math.Sin(l);
             var ny = cosP * sinLat - sinP * cosLat * Math.Cos(l);
             var nz = sinP * sinLat + cosP * cosLat * Math.Cos(l);
-            RingArt.Draw(context, centre, radius, nx, ny, nz, look, ring, _owner.RingSpin, front, 1024);
+            // Lot 17 : un repère du plan des anneaux, attaché au monde (sur son équateur, à 90° de longitude) :
+            // le disque pivote avec le globe sous la souris. Et, quand le jour et la nuit sont montrés, le
+            // soleil : l'ombre du monde tombe sur ses anneaux.
+            var turn = Math.PI / 2 - _globeLon;
+            var scene = new RingArt.Scene { HasRef = true, Rx = Math.Sin(turn), Ry = -sinP * Math.Cos(turn), Rz = cosP * Math.Cos(turn) };
+            if (_owner.NightShown)
+            {
+                scene.HasSun = true;
+                SunOnScreen(out scene.Sx, out scene.Sy, out scene.Sz);
+            }
+            RingArt.Draw(context, centre, radius, nx, ny, nz, look, ring, _owner.RingSpin, front, 1024, scene);
         }
 
         private sealed class Star
@@ -986,7 +1033,7 @@ namespace Marabook.App
             Color heatNorth, heatSouth;
             var heat = _owner.SeasonHeatShown && SeasonTint(false, out heatNorth) & SeasonTint(true, out heatSouth);
             var key = (heat ? _owner.DayOfYear.ToString("R", CultureInfo.InvariantCulture) + "s" : "") + side + "/" + cover.ToString("R", CultureInfo.InvariantCulture) + "|" + _globeLon.ToString("R", CultureInfo.InvariantCulture) + "|" + _globeLat.ToString("R", CultureInfo.InvariantCulture) + "|" + _globeZoom.ToString("R", CultureInfo.InvariantCulture)
-                + "|" + (night ? _owner.Declination.ToString("R", CultureInfo.InvariantCulture) + "/" + _owner.DayFraction.ToString("R", CultureInfo.InvariantCulture) : "-")
+                + "|" + (night ? _owner.Declination.ToString("R", CultureInfo.InvariantCulture) + "/" + _owner.DayFraction.ToString("R", CultureInfo.InvariantCulture) + RingKey() : "-")
                 + "|" + map.Layout + map.PoleNorth.ToString("R", CultureInfo.InvariantCulture) + "/" + map.PoleSouth.ToString("R", CultureInfo.InvariantCulture);
             if (_globeBitmap == null || _globeBitmap.PixelSize.Width != side || key != _globeKey)
             {
@@ -1027,6 +1074,16 @@ namespace Marabook.App
                 }
             }
             DrawLatLon(context);
+        }
+
+        /// <summary>Ce qui, des anneaux du monde, change l'ombre qu'ils portent sur lui (lot 17).</summary>
+        private string RingKey()
+        {
+            var world = _owner.World;
+            if (world == null || !world.Look.Rings) return "";
+            double inner, outer;
+            world.Look.RingSpan(out inner, out outer);
+            return "o" + inner.ToString("R", CultureInfo.InvariantCulture) + "/" + outer.ToString("R", CultureInfo.InvariantCulture) + "/" + world.Look.RingAngle.ToString("R", CultureInfo.InvariantCulture);
         }
 
         /// <summary>Un point de l'image sur le globe ; faux s'il est sur la face cachée.</summary>
@@ -1163,6 +1220,21 @@ namespace Marabook.App
             var tropic = veil && world != null ? (float)(Math.Abs(world.AxialTilt) * Math.PI / 180) : 0f;
             if (tropic < 1e-6f) veil = false;
             var strength = (float)HeatStrength;
+            // Lot 17 : l'ombre des anneaux sur le monde — là où, entre le sol et le soleil, passent les anneaux.
+            var ringed = night && world != null && world.Look.Rings;
+            float ringX = 0, ringY = 0, ringZ = 1, ringInner = 1, ringOuter = 1;
+            float[] bands = null;
+            if (ringed)
+            {
+                double inner, outer;
+                world.Look.RingSpan(out inner, out outer);
+                var lean = world.Look.RingAngle * Math.PI / 180;
+                ringX = (float)Math.Sin(lean);
+                ringZ = (float)Math.Cos(lean);
+                ringInner = (float)inner;
+                ringOuter = (float)outer;
+                bands = RingArt.Bands();
+            }
             System.Threading.Tasks.Parallel.For(0, side, delegate(int py)
             {
                 var row = py * side;
@@ -1189,6 +1261,7 @@ namespace Marabook.App
                     {
                         var sun = nx[i] * sx + ny[i] * sy + nz[i] * sz;
                         light *= sun > 0.1f ? 1f : sun < -0.1f ? 0.3f : 0.3f + 0.7f * (sun + 0.1f) / 0.2f;
+                        if (ringed && sun > 0) light *= RingArt.ShadowOn(nx[i], ny[i], nz[i], sx, sy, sz, ringX, ringY, ringZ, ringInner, ringOuter, bands);
                     }
                     buffer[i] = (alpha << 24) | ((int)(red * light) << 16) | ((int)(green * light) << 8) | (int)(blue * light);
                 }

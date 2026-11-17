@@ -598,6 +598,29 @@ namespace Marabook.App
                 canvas.InvalidateVisual();
                 await Settle();
                 Shot(mapView, "cartes-22-anneaux-penches.png");
+                // Lot 17 : les anneaux pivotent avec le globe, le monde y porte son ombre, eux la leur sur lui ;
+                // l'accent d'un satellite se dessine.
+                var turnBefore = RingArt.LastTurnForProbe;
+                var shadowsBefore = RingArt.ShadowsDrawnForProbe;
+                var accentBefore = earth.Moons[0].Look.Accent;
+                earth.Moons[0].Look.Accent = "#6FC3C0";
+                canvas.RotateGlobeForProbe(Math.PI + 0.75, 0.35);
+                await Settle();
+                Shot(mapView, "cartes-25-anneaux-pivotes-ombres.png");
+                var turned = RingArt.LastTurnForProbe - turnBefore;
+                turned -= 2 * Math.PI * Math.Round(turned / (2 * Math.PI));
+                Check(Math.Abs(turned + 0.3) < 0.12, "le globe pivote de 0,3 radian : le disque des anneaux tourne d'autant dans son plan (" + turned.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + ")");
+                Check(RingArt.ShadowsDrawnForProbe > shadowsBefore, "jour et nuit montrés : l'ombre du monde tombe sur ses anneaux");
+                Check(RingArt.ShadowOn(0.9f, 0f, -0.436f, 0.8f, 0f, 0.6f, 0f, 0f, 1f, 1.35f, 2.1f, RingArt.Bands()) < 0.9f
+                    && RingArt.ShadowOn(0.9f, 0f, 0.436f, 0.8f, 0f, 0.6f, 0f, 0f, 1f, 1.35f, 2.1f, RingArt.Bands()) == 1f
+                    && RingArt.ShadowOn(0.28f, 0f, -0.96f, 0.6f, 0f, 0.8f, 0f, 0f, 1f, 1.35f, 2.1f, RingArt.Bands()) == 1f,
+                    "l'ombre des anneaux sur le monde : sous eux, du côté opposé au soleil — pas du côté éclairé, ni là où la lumière passe entre le monde et ses anneaux");
+                var accented = mapView.SkyBodies().Find(delegate(MapCanvas.SkyDot d) { return d.Satellite; });
+                Check(accented.HasAccent && accented.Accent == Color.Parse("#6FC3C0") && canvas.AccentsDrawnForProbe == canvas.SatellitesDrawnForProbe,
+                    "l'accent d'un satellite : son liseré d'atmosphère, dessiné avec lui (" + canvas.AccentsDrawnForProbe + ")");
+                earth.Moons[0].Look.Accent = accentBefore;
+                canvas.RotateGlobeForProbe(Math.PI + 0.45, 0.35);
+                await Settle();
                 canvas.ZoomBy(1 / 0.62, new Point(0, 0));
                 await Settle();
                 earth.Look = lookBefore[0];

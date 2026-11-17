@@ -70,10 +70,9 @@ namespace Marabook.App
                 Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4)
             });
 
-            panel.Children.Add(TimelineUi.Label(kind == WorldKind ? "Couleur d'accent (son atmosphère) :" : kind == SunKind ? "Couleur d'accent (son halo) :" : "Couleur d'accent :"));
+            panel.Children.Add(TimelineUi.Label(kind == SunKind ? "Couleur d'accent (son halo) :" : "Couleur d'accent (son atmosphère) :"));
             _accents = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Tag = "look-accents" };
             panel.Children.Add(_accents);
-            if (kind == MoonKind) panel.Children.Add(TimelineUi.Hint("Réservée pour la suite : aujourd'hui, un satellite se dessine dans sa propre couleur."));
 
             // ---------------------------------------------------- taille et orbite (lot 16)
             var diameter = kind == SunKind ? (look.Diameter > 0 ? look.Diameter : Astro.SunDiameter) : look.DiameterKm;
@@ -575,7 +574,12 @@ namespace Marabook.App
                 var lean = _look.RingAngle * Math.PI / 180;
                 double sinLat = Math.Cos(lean), cosLat = Math.Sin(lean), l = -_lon, sinP = Math.Sin(_lat), cosP = Math.Cos(_lat);
                 double nx = cosLat * Math.Sin(l), ny = cosP * sinLat - sinP * cosLat * Math.Cos(l), nz = sinP * sinLat + cosP * cosLat * Math.Cos(l);
-                RingArt.Draw(context, centre, radius, nx, ny, nz, _look, ring, 0, false, 512);
+                // Lot 17 : les anneaux suivent l'astre quand on le tourne ; éclairé d'en haut à gauche, il y
+                // porte son ombre (un soleil, lui, n'en a pas).
+                var turn = Math.PI / 2 - _lon;
+                var scene = new RingArt.Scene { HasRef = true, Rx = Math.Sin(turn), Ry = -sinP * Math.Cos(turn), Rz = cosP * Math.Cos(turn) };
+                if (_kind != BodyLookDialog.SunKind) { scene.HasSun = true; scene.Sx = -0.47; scene.Sy = 0.60; scene.Sz = 0.65; }
+                RingArt.Draw(context, centre, radius, nx, ny, nz, _look, ring, 0, false, 512, scene);
 
                 // La sphère : éclairée d'en haut à gauche ; un soleil, lui, brille de partout.
                 var ball = new RadialGradientBrush { Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative), GradientOrigin = new RelativePoint(_kind == BodyLookDialog.SunKind ? 0.5 : 0.36, _kind == BodyLookDialog.SunKind ? 0.5 : 0.32, RelativeUnit.Relative), Radius = 0.5 };
@@ -599,7 +603,7 @@ namespace Marabook.App
                 for (var parallel = -60; parallel <= 60; parallel += 30) Curve(context, line, centre, radius, true, parallel * Math.PI / 180);
                 for (var meridian = 0; meridian < 360; meridian += 30) Curve(context, line, centre, radius, false, meridian * Math.PI / 180);
 
-                RingArt.Draw(context, centre, radius, nx, ny, nz, _look, ring, 0, true, 512);
+                RingArt.Draw(context, centre, radius, nx, ny, nz, _look, ring, 0, true, 512, scene);
             }
         }
 

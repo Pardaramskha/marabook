@@ -36,6 +36,68 @@ namespace Marabook.Tests
             Looks(t);
             t.Suite("C77 — lot 16 : taille et orbite d'un astre, écart, épaisseur, angle et grain des anneaux");
             Rings(t);
+            t.Suite("C78 — lot 17 : le diamètre et la distance des astres entrent dans les calculs (éclipses, marées, taille dans le ciel)");
+            Sizes(t);
+        }
+
+        private static void Sizes(Harness t)
+        {
+            var calendar = TimeSystem.Gregorian();
+            var earth = World.Earth();
+            var moon = earth.Moons[0];
+            t.Check(Math.Abs(Astro.SolarCover(earth, moon) - 0.971) < 0.002 && Astro.SolarTotal(earth, moon) && Astro.LunarReach(earth, moon) == 2 && Math.Abs(Astro.UmbraRadius(earth, BodyLook.MoonDistance) - 4605) < 10,
+                "chez nous : la Lune est à peine moins large que le Soleil (0,97) et le couvre au plus près ; l'ombre de la Terre, large de 4 600 km là où passe la Lune, la couvre en entier");
+            t.Check(Astro.MoonSkyNote(earth, moon) == null && Astro.SunSkyNote(earth) == null && Astro.SunBehaviors(earth, calendar).Count == 1 && Math.Abs(Astro.TideFactor(moon) - 1) < 1e-9,
+                "un ciel comme le nôtre : rien de plus à en dire");
+            t.Equal("éclipse totale de soleil", Astro.EclipseName(earth, moon, Astro.TotalSolar), "…et l'éclipse de soleil reste totale");
+
+            // Deux fois plus loin : deux fois moins large — elle ne couvre plus le soleil.
+            moon.Look.Distance = BodyLook.MoonDistance * 2;
+            t.Check(!Astro.SolarTotal(earth, moon) && Astro.LunarReach(earth, moon) == 2 && Math.Abs(Astro.TideFactor(moon) - 0.125) < 1e-9, "une lune deux fois plus loin : elle ne couvre plus le soleil ; ses marées, huit fois plus faibles");
+            t.Equal("éclipse annulaire de soleil (24 % du disque)", Astro.EclipseName(earth, moon, Astro.TotalSolar), "son éclipse de soleil devient annulaire");
+            var note = Astro.MoonSkyNote(earth, moon);
+            t.Check(note != null && note.Notable && note.Title == "Lune : sa taille dans le ciel" && note.Text.Contains("0,5 fois la largeur de notre Lune") && note.Text.Contains("annulaires") && note.Text.Contains("Marées"),
+                "la fenêtre du monde le dit (" + (note == null ? "" : note.Text) + ")");
+            t.Check(Astro.MoonBehaviors(earth, calendar).Exists(delegate(SkyBehavior b) { return b.Title == "Lune : sa taille dans le ciel"; })
+                && Astro.MoonBehaviors(earth, calendar).Exists(delegate(SkyBehavior b) { return b.Text.Contains("Prochaine éclipse annulaire de soleil"); }), "…parmi ce que le ciel déclenche");
+
+            // Plus large que l'ombre du monde : plus de lune rousse.
+            moon.Look.Distance = BodyLook.MoonDistance;
+            moon.Look.Diameter = 12000;
+            t.Check(Astro.LunarReach(earth, moon) == 1 && Astro.EclipseOn(earth, calendar, moon, 0) == Astro.PartialLunar && Astro.NextEclipse(earth, calendar, moon, 0, Astro.TotalLunar) == null && Astro.SolarTotal(earth, moon),
+                "une lune plus large que l'ombre du monde : jamais de lune rousse, des éclipses partielles ; elle couvre le soleil sans peine");
+            moon.Eclipses = Astro.EclipseAlways;
+            t.Check(Astro.EclipseOn(earth, calendar, moon, 0) == Astro.PartialLunar, "…même « à chaque lunaison »");
+            moon.Eclipses = Astro.EclipseSeasons;
+            // Au-delà de la pointe du cône d'ombre : aucune éclipse de lune.
+            moon.Look.Diameter = 0;
+            moon.Look.Distance = 1500000;
+            t.Check(Astro.LunarReach(earth, moon) == 0 && Astro.EclipseOn(earth, calendar, moon, 0) == Astro.NoEclipse && Astro.MoonSkyNote(earth, moon).Text.Contains("aucune éclipse de lune"), "une lune au-delà de l'ombre du monde : aucune éclipse de lune");
+            // Un monde plus petit porte une ombre plus étroite.
+            moon.Look.Distance = BodyLook.MoonDistance;
+            earth.Circumference = 12000;
+            t.Check(Astro.LunarReach(earth, moon) < 2, "un monde trois fois plus petit : son ombre ne couvre plus notre Lune");
+            earth.Circumference = Astro.EarthCircumference;
+
+            // Le soleil : deux fois plus loin, deux fois moins large — la lune le couvre largement.
+            earth.Suns[0].Look.Distance = BodyLook.SunDistance * 2;
+            var sunNote = Astro.SunSkyNote(earth);
+            t.Check(Math.Abs(Astro.SolarCover(earth, moon) - 1.942) < 0.004 && sunNote != null && sunNote.Text.Contains("0,5 fois la largeur de notre Soleil") && sunNote.Text.Contains("0,25 fois la lumière") && Astro.SunBehaviors(earth, calendar).Count == 2,
+                "un soleil deux fois plus loin : moitié moins large dans le ciel, un quart de sa lumière");
+            earth.Suns[0].Look = new BodyLook { Accent = "#D9503A" };
+            t.Check(Astro.SunWorldDistance(earth, earth.Suns[0]) == BodyLook.SunDistance, "une allure de satellite posée sur un soleil ne le rapproche pas à la distance de la Lune");
+            earth.Suns[0].Look = BodyLook.ForSun();
+
+            // L'éclipse solaire pure : le compagnon, plus près de nous quand il passe devant, paraît plus large.
+            var second = new Sun { Name = "Braise", Period = 40, HighAt = 100, OrbitId = earth.Suns[0].Id, Size = 0.5 };
+            earth.Suns.Add(second);
+            Astro.SetInner(earth, second, true);
+            t.Check(Math.Abs(Astro.SunEclipseCover(earth, second, Astro.SunInFront) - 0.25) < 1e-9, "un compagnon moitié moins large, sans distance dite : il cache un quart du disque");
+            second.Look.Distance = BodyLook.SunDistance * 0.5;
+            t.Check(Math.Abs(Astro.SunEclipseCover(earth, second, Astro.SunInFront) - 1) < 1e-9 && Math.Abs(Astro.SunEclipseCover(earth, second, Astro.SunBehind) - 1) < 1e-9 && Astro.SunWorldDistance(earth, second) == BodyLook.SunDistance,
+                "à mi-chemin du monde, il paraît aussi large que son soleil quand il passe devant : l'éclipse devient totale");
+            second.Look.Distance = BodyLook.SunDistance * 0.2;
+            t.Check(Math.Abs(Astro.SunEclipseCover(earth, second, Astro.SunInFront) - 0.390625) < 1e-9, "à un cinquième du chemin : 39 % du disque");
         }
 
         /// <summary>Lot 16 (17/11) : le diamètre et la distance d'un astre, les réglages de ses anneaux.</summary>

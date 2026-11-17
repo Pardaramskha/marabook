@@ -243,6 +243,7 @@ namespace Marabook.App
             Action<MapCanvas.SkyDot, BodyLook> dress = delegate(MapCanvas.SkyDot dot, BodyLook look)
             {
                 dot.Accent = tint(look.Accent, dot.Color);
+                dot.HasAccent = !string.IsNullOrEmpty(look.Accent);
                 dot.Rings = look.Rings;
                 dot.RingColor = tint(look.RingColor, pale(dot.Color));
                 dot.RingSize = Math.Max(0.2, Math.Min(4, look.RingSize));
@@ -263,7 +264,7 @@ namespace Marabook.App
             {
                 var sun = world.Suns[i];
                 if (sun.OrbitId != null) continue;
-                var dot = new MapCanvas.SkyDot { Color = tint(Astro.ColorOf(sun, i), gold), Size = SunSize(sun), Sun = true, Name = sun.Name, Longitude = noon + 0.17 * centric, Latitude = declination + 0.05 * centric };
+                var dot = new MapCanvas.SkyDot { Color = tint(Astro.ColorOf(sun, i), gold), Size = SunSize(sun, world), Sun = true, Name = sun.Name, Longitude = noon + 0.17 * centric, Latitude = declination + 0.05 * centric };
                 dress(dot, sun.Look);
                 centric++;
                 bySun[sun.Id] = dot;
@@ -283,7 +284,7 @@ namespace Marabook.App
                     }
                     var angle = 2 * Math.PI * (sun.Period > 0 ? Astro.SunPhase(sun, day) : 0.2 + 0.3 * i);
                     var lean = sun.Look.Tilt * Math.PI / 180;
-                    var dot = new MapCanvas.SkyDot { Color = tint(Astro.ColorOf(sun, i), gold), Size = SunSize(sun), Sun = true, Name = sun.Name };
+                    var dot = new MapCanvas.SkyDot { Color = tint(Astro.ColorOf(sun, i), gold), Size = SunSize(sun, world), Sun = true, Name = sun.Name };
                     if (sun.Period <= 0 || Astro.IsInner(world, sun))
                     {
                         const double reach = 0.26;   // l'écart le plus grand au soleil autour duquel il tourne
@@ -331,10 +332,13 @@ namespace Marabook.App
 
         /// <summary>La taille d'un soleil dans le ciel du globe : plus large s'il est grand, plus petit s'il
         /// est loin (lot 16 : sa distance, en fois celle de la Terre au Soleil) — resserrée pour rester lisible.</summary>
-        internal static double SunSize(Sun sun)
+        internal static double SunSize(Sun sun, World world = null)
         {
             var wide = sun.Size <= 0 ? 1 : sun.Size;
-            var far = sun.Look != null && Math.Abs(sun.Look.DefaultDistance - BodyLook.SunDistance) < 1 && sun.Look.Distance > 0 ? sun.Look.Distance / BodyLook.SunDistance : 1;
+            // Lot 17 : la distance d'un compagnon est celle qui le sépare de SON soleil ; vu du monde, il est
+            // à la distance de celui-ci (Astro.SunWorldDistance).
+            var far = world != null ? Astro.SunWorldDistance(world, sun) / BodyLook.SunDistance
+                : sun.Look != null && Math.Abs(sun.Look.DefaultDistance - BodyLook.SunDistance) < 1 && sun.Look.Distance > 0 ? sun.Look.Distance / BodyLook.SunDistance : 1;
             return 11 * Math.Max(0.6, Math.Min(2, Math.Sqrt(wide / far)));
         }
 
